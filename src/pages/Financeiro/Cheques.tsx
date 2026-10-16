@@ -3,11 +3,16 @@ import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTit
 import { compensarChequeRecebido, compensarChequeEmitido } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { FileCheck2, CheckCircle, AlertTriangle, Search } from 'lucide-react';
+import { FileCheck2, CheckCircle, AlertTriangle, Search, FileText } from 'lucide-react';
 import {
   transactionNetAmount,
+  transactionNetCents,
   type ChequeDetails,
 } from '../../utils/financeDomain';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { montarDocumentoCheques } from '../../utils/relatorioChequesDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import {
@@ -73,6 +78,8 @@ const Cheques: React.FC = () => {
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // Relatorio (16/10/2026): a aba aberta, com a situacao, o periodo e a busca da tela.
+  const [previewAberto, setPreviewAberto] = useState(false);
   // Recebidos = cheque de cliente (entra no banco ao compensar). Emitidos = cheque que a
   // empresa deu para pagar despesa (sai do banco ao compensar).
   const [aba, setAba] = useState<'recebidos' | 'emitidos'>('recebidos');
@@ -211,6 +218,45 @@ const Cheques: React.FC = () => {
   };
 
   const totalPendente = chequesPendentes.reduce((acc, t) => acc + transactionNetAmount(t), 0);
+
+  if (previewAberto) {
+    const emitidos = aba === 'emitidos';
+    const periodoTexto = periodoDe || periodoAte
+      ? `${situacaoCheque === 'pagas' ? 'Compensados' : 'Bom para'} de ${periodoDe ? periodoDe.split('-').reverse().join('/') : '—'} a ${periodoAte ? periodoAte.split('-').reverse().join('/') : '—'}`
+      : ROTULO_SITUACAO_CHEQUE[situacaoCheque];
+    const filtrosAplicados = [
+      `Situação: ${ROTULO_SITUACAO_CHEQUE[situacaoCheque]}`,
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      // Compensados sem periodo: a tela le so' o mes atual (leitura enxuta).
+      listaTemCompensados && !periodoDe && !periodoAte ? 'Compensados: só os do mês atual (para outro período, use Filtros)' : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId={emitidos ? 'cheques-emitidos' : 'cheques-recebidos'}
+        documento={montarDocumentoCheques(
+          chequesLista.map((t) => ({
+            id: t.id,
+            tipo: t.tipo,
+            status: t.status,
+            pessoa: t.clienteNome || t.fornecedorNome || '',
+            descricao: t.descricao || '',
+            bancoEmissor: t.cheque?.bancoEmissor || '',
+            numero: t.cheque?.numeroCheque || '',
+            agencia: t.cheque?.agencia || '',
+            emitente: t.cheque?.emitente || t.cheque?.titular || '',
+            bancoDestino: t.bancoNome || '',
+            bomPara: t.dataPrevistaRecebimento || t.data || '',
+            dataPagamento: t.dataPagamento || '',
+            valorCentavos: transactionNetCents(t),
+          })),
+          { emitidos, filtrosAplicados, periodo: periodoTexto, dataHoje: hojeStr },
+        )}
+        nomeArquivo={nomeArquivoRelatorio(emitidos ? 'Cheques Emitidos' : 'Cheques Recebidos', periodoDe, periodoAte)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos cheques"
+      />
+    );
+  }
   const chequesVencendoEmBreve = chequesPendentes.filter((t) => {
     const dias = differenceInCalendarDays(hojeStr, t.dataPrevistaRecebimento || t.data);
     return dias !== null && dias <= DIAS_AVISO_VENCIMENTO;
@@ -227,6 +273,15 @@ const Cheques: React.FC = () => {
               : 'Cheques emitidos para pagar despesas -- saem do banco só quando você confirma a compensação aqui'}
           </p>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <MenuMaisOpcoes
+          itens={[{
+            texto: 'Relatório', Icone: FileText,
+            titulo: 'Abre em PDF os cheques da aba e dos filtros da tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+            desabilitado: loading,
+            onClick: () => setPreviewAberto(true),
+          }]}
+        />
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
           <FileCheck2 size={24} color="#8b5cf6" />
           <div>
@@ -235,6 +290,7 @@ const Cheques: React.FC = () => {
               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente)}
             </div>
           </div>
+        </div>
         </div>
       </div>
 

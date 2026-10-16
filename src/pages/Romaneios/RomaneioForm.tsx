@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle, ClipboardList, History, Loader2, Plus, Printer, RotateCcw, Save,
@@ -188,6 +190,11 @@ const RomaneioForm: React.FC = () => {
   const emMontagem = romaneio.status === 'montagem';
   const emRota = romaneio.status === 'em_rota';
   const encerrado = romaneio.status === 'fechado' || romaneio.status === 'cancelado';
+  // Fechado/cancelado so' se ve (reabrir e cancelar sao do servidor); o app do
+  // motorista registra campo a campo e nao trava a rota.
+  // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
+  const trava = useTravaDeEdicao({ tipo: 'romaneio', registroId: id, ativa: Boolean(id) && !carregando && !encerrado });
+  const podeLiberarTrava = usePodeLiberarTrava();
   // Rota reaberta que ja' tinha despesas lancadas: elas acompanham o novo fechamento.
   const despesasJaLancadas = Boolean(romaneio.despesasRotaId);
   const podeCancelar = Boolean(id) && romaneio.status !== 'cancelado'
@@ -398,6 +405,18 @@ const RomaneioForm: React.FC = () => {
   };
 
   if (carregando) return <div style={{ padding: '40px', color: 'var(--text-primary)' }}>Carregando romaneio...</div>;
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="o romaneio"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/operacoes/romaneios')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
+    );
+  }
 
   if (imprimindo) {
     return (

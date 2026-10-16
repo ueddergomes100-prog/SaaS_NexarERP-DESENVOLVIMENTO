@@ -11,6 +11,8 @@ import { osEncerrada, type AssinaturaOS, type FotoOS } from '../../utils/osCampo
 import { podeUsarOsNoApp } from './vendedorPermissoes';
 import { rotuloNumeroOS } from '../../utils/offlineDomain';
 import { comOrigem, useVoltarPara } from './navegacaoApp';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 
 /**
  * OS so' leitura, com os mesmos calculos da folha impressa (OsPrintDocument):
@@ -124,6 +126,9 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
 
     return () => { cancelado = true; };
   }, [id, tenantId]);
+
+  // Trava de edicao (fase 2, 16/10/2026): com outra pessoa editando, "Atender" avisa quem e nao abre.
+  const travasOS = useTravasAtivas('ordem_servico');
 
   if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) {
     return <Navigate to="/vendedor" replace />;
@@ -248,7 +253,8 @@ const VendedorOrdemServicoDetalhe: React.FC = () => {
       </div>
       {os && !osEncerrada(os.status) && (
         <div style={{ padding: '12px 20px 20px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-          <button type="button" className="btn-primary" onClick={() => navigate(`/vendedor/os/${os.id}/atender`, comOrigem(`/vendedor/os/${os.id}`))} style={{ width: '100%', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '16px' }}>
+          <MarcaEmEdicao trava={travasOS.get(os.id)} />
+          <button type="button" className="btn-primary" onClick={() => { if (!avisarSeEmEdicao(travasOS, 'ordem_servico', os.id)) navigate(`/vendedor/os/${os.id}/atender`, comOrigem(`/vendedor/os/${os.id}`)); }} style={{ width: '100%', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '16px', marginTop: travasOS.has(os.id) ? '8px' : 0, opacity: travasOS.has(os.id) ? 0.6 : 1 }}>
             <Wrench size={18} /> Atender esta OS
           </button>
         </div>

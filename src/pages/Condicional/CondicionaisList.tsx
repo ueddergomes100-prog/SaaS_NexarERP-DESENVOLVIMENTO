@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Eye, Plus, Search, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPeriodo';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
@@ -92,10 +94,16 @@ const CondicionaisList: React.FC = () => {
       ? String(a.prazoDevolucao).localeCompare(String(b.prazoDevolucao))
       : millis(b) - millis(a))), [items, aba, termo, hoje]);
 
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasCondicionais = useTravasAtivas('condicional');
+
   if (!trabalhaComCondicional) return <MensagemCondicionalDesligado />;
   if (!podeUsar) return <MensagemSemPermissaoCondicional />;
 
-  const abrir = (c: CondicionalDoc) => openTab(`/vendas/condicional/${c.id}`, `Condicional #${c.numeroCondicional}`);
+  const abrir = (c: CondicionalDoc) => {
+    if (avisarSeEmEdicao(travasCondicionais, 'condicional', c.id)) return;
+    openTab(`/vendas/condicional/${c.id}`, `Condicional #${c.numeroCondicional}`);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -187,8 +195,11 @@ const CondicionaisList: React.FC = () => {
                 const vencido = estaVencido(c, hoje);
                 const estilo = ESTILO_STATUS[c.status] || ESTILO_STATUS.cancelado;
                 return (
-                  <tr key={c.id} {...linha(c.id, () => abrir(c))} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '14px', fontWeight: 700 }}>#{c.numeroCondicional}</td>
+                  <tr key={c.id} {...linha(c.id, () => abrir(c))} style={{ borderBottom: '1px solid var(--border-color)', ...(travasCondicionais.has(c.id) ? { opacity: 0.55 } : {}) }}>
+                    <td style={{ padding: '14px', fontWeight: 700 }}>
+                      #{c.numeroCondicional}
+                      <MarcaEmEdicao trava={travasCondicionais.get(c.id)} />
+                    </td>
                     <td style={{ padding: '14px' }}>{dataBr(c.dataSaida)}</td>
                     <td style={{ padding: '14px', color: vencido ? '#ef4444' : undefined, fontWeight: vencido ? 700 : undefined }}>
                       {dataBr(c.prazoDevolucao)}{vencido ? ' (vencido)' : ''}

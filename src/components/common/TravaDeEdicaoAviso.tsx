@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
 import { Loader2, Lock, RotateCw, Unlock } from 'lucide-react';
 import { NexusSwal, showError } from '../../utils/alerts';
+import { descreverTrava, type TravaDeEdicao } from '../../utils/travaEdicaoDomain';
+
+/** Linha da lista: "Em edição por MARIA no celular desde 14:32" com o cadeado. */
+export const MarcaEmEdicao: React.FC<{ trava?: TravaDeEdicao | null }> = ({ trava }) => (trava ? (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'normal', maxWidth: '220px' }}>
+    <Lock size={12} style={{ flex: 'none' }} /> {descreverTrava(trava)}
+  </div>
+) : null);
 
 /**
  * No lugar da tela, quando outra pessoa esta editando o documento (trava de

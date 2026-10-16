@@ -7,6 +7,8 @@ import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { isPlatformAdminRole } from '../../utils/roles';
 import {
   DEFAULT_MOSTRAR_VALOR_LISTA_OS,
@@ -41,6 +43,12 @@ interface OSData {
 const OSList: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasOS = useTravasAtivas('ordem_servico');
+  const abrirOS = (id: string) => {
+    if (avisarSeEmEdicao(travasOS, 'ordem_servico', id)) return;
+    void openTab(`/os/editar/${id}`);
+  };
   const [osList, setOsList] = useState<OSData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Ativas' | 'Finalizadas' | 'Canceladas'>('Ativas');
@@ -307,15 +315,17 @@ const OSList: React.FC = () => {
                     // um duplo clique que so devolve erro.
                     className={canEditOS ? (selectedId === os.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
                     onClick={canEditOS ? () => setSelectedId(os.id) : undefined}
-                    onDoubleClick={canEditOS ? () => openTab(`/os/editar/${os.id}`) : undefined}
+                    onDoubleClick={canEditOS ? () => abrirOS(os.id) : undefined}
                     onKeyDown={canEditOS ? (event) => {
-                      if (event.key === 'Enter') openTab(`/os/editar/${os.id}`);
+                      if (event.key === 'Enter') abrirOS(os.id);
                     } : undefined}
                     tabIndex={canEditOS ? 0 : undefined}
                     title={canEditOS ? 'Clique para selecionar, duplo clique para editar' : undefined}
+                    style={travasOS.has(os.id) ? { opacity: 0.55 } : undefined}
                   >
                     <td className="font-medium" style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
                       #{os.numeroOS || os.id.substring(0, 8).toUpperCase()}
+                      <MarcaEmEdicao trava={travasOS.get(os.id)} />
                     </td>
                     <td>{os.clienteNome}</td>
                     <td>{os.modelo || '-'}</td>
@@ -344,7 +354,7 @@ const OSList: React.FC = () => {
                         {canEditOS && (
                           <button 
                             className="icon-btn" 
-                            onClick={() => openTab(`/os/editar/${os.id}`)}
+                            onClick={() => abrirOS(os.id)}
                             title="Editar OS"
                           >
                             <Edit size={18} />

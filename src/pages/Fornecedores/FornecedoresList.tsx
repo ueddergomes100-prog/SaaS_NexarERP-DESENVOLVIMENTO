@@ -4,6 +4,8 @@ import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
 import { formatarDocumento } from '../../utils/documentoValidacao';
@@ -34,6 +36,12 @@ const FornecedoresList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const { openTab } = useTabs();
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasFornecedores = useTravasAtivas('fornecedor');
+  const abrirFornecedor = (id: string) => {
+    if (avisarSeEmEdicao(travasFornecedores, 'fornecedor', id)) return;
+    void openTab(`/fornecedores/editar/${id}`);
+  };
   const [fornecedores, setFornecedores] = useState<FornecedorData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,6 +73,7 @@ const FornecedoresList: React.FC = () => {
 
   const handleToggleAtivo = async (fornecedor: FornecedorData) => {
     if (!currentUser) return;
+    if (avisarSeEmEdicao(travasFornecedores, 'fornecedor', fornecedor.id)) return;
     const novoStatus = fornecedor.ativo === false;
 
     const confirm = await NexusSwal.fire({
@@ -161,9 +170,12 @@ const FornecedoresList: React.FC = () => {
                 </tr>
               ) : (
                 filteredFornecedores.map((fornecedor) => (
-                  <tr key={fornecedor.id} {...linha(fornecedor.id, () => openTab(`/fornecedores/editar/${fornecedor.id}`))}>
+                  <tr key={fornecedor.id} {...linha(fornecedor.id, () => abrirFornecedor(fornecedor.id))} style={travasFornecedores.has(fornecedor.id) ? { opacity: 0.55 } : undefined}>
                     <td style={{ color: 'var(--text-muted)' }}>{fornecedor.codigo || '-'}</td>
-                    <td className="font-medium">{fornecedor.nome}</td>
+                    <td className="font-medium">
+                      {fornecedor.nome}
+                      <MarcaEmEdicao trava={travasFornecedores.get(fornecedor.id)} />
+                    </td>
                     <td>{fornecedor.telefone || '-'}</td>
                     <td>{formatCnpjOuCpf(fornecedor.cnpj)}</td>
                     <td>{fornecedor.email || '-'}</td>
@@ -179,7 +191,7 @@ const FornecedoresList: React.FC = () => {
                     <td {...semAbrirLinha}>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <ValidarDocumentoButton documento={fornecedor.cnpj} />
-                        <button className="icon-btn" title="Editar" onClick={() => openTab(`/fornecedores/editar/${fornecedor.id}`)}>
+                        <button className="icon-btn" title="Editar" onClick={() => abrirFornecedor(fornecedor.id)}>
                           <Edit size={16} />
                         </button>
                         <button
@@ -194,7 +206,7 @@ const FornecedoresList: React.FC = () => {
                           className="icon-btn"
                           title="Excluir (só sem movimentação)"
                           style={{ color: '#ef4444' }}
-                          onClick={() => { void confirmarEExcluirCadastro('fornecedores', fornecedor.id, fornecedor.nome, 'o fornecedor'); }}
+                          onClick={() => { if (!avisarSeEmEdicao(travasFornecedores, 'fornecedor', fornecedor.id)) void confirmarEExcluirCadastro('fornecedores', fornecedor.id, fornecedor.nome, 'o fornecedor'); }}
                         >
                           <Trash2 size={16} />
                         </button>

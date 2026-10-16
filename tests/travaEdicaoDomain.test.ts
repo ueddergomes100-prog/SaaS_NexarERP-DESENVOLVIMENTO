@@ -7,7 +7,10 @@ import {
   avaliarSinal,
   calcularValidade,
   descreverTrava,
+  ehTipoDeTrava,
   idDaTrava,
+  ROTULO_DO_TIPO,
+  TIPOS_DE_TRAVA,
   mensagemDeBloqueio,
   travaAtiva,
   type TravaDeEdicao,
@@ -47,4 +50,13 @@ test('textos para a lista e para o aviso', () => {
   assert.equal(idDaTrava('emp', 'pedido_venda', 'p1'), 'emp__pedido_venda__p1');
   assert.equal(descreverTrava(trava()), 'Em edição por MARIA no celular desde 14:32');
   assert.match(mensagemDeBloqueio('conferencia', trava({ aparelho: 'computador' })), /no computador desde 14:32\. Espere terminar para abrir a conferência/);
+});
+
+test('fase 2 (16/10/2026): OS, orcamento, condicional, troca, romaneio e cadastros tem rotulo e o servidor aceita', () => {
+  for (const tipo of ['ordem_servico', 'orcamento', 'condicional', 'troca', 'romaneio', 'produto', 'cliente', 'fornecedor']) {
+    assert.ok(ehTipoDeTrava(tipo), tipo);
+  }
+  for (const tipo of TIPOS_DE_TRAVA) assert.ok(ROTULO_DO_TIPO[tipo], `sem rotulo: ${tipo}`);
+  assert.equal(ehTipoDeTrava('nota_fiscal'), false);
+  assert.match(mensagemDeBloqueio('cliente', trava()), /para abrir o cadastro do cliente/);
 });

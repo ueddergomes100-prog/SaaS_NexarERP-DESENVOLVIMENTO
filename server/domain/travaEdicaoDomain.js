@@ -18,7 +18,13 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.mensagemDeBloqueio = exports.descreverTrava = exports.avaliarSinal = exports.avaliarPegar = exports.travaAtiva = exports.calcularValidade = exports.idDaTrava = exports.ehTipoDeTrava = exports.ROTULO_DO_TIPO = exports.INTERVALO_DO_SINAL_MS = exports.PARADO_LIBERA_MS = exports.SEM_SINAL_LIBERA_MS = exports.TIPOS_DE_TRAVA = void 0;
-exports.TIPOS_DE_TRAVA = ['conferencia', 'pedido_venda'];
+// Fase 2 (16/10/2026, decisao do dono "todas as telas"): OS, orcamento,
+// condicional, troca, romaneio e os cadastros de produto, cliente e fornecedor.
+exports.TIPOS_DE_TRAVA = [
+    'conferencia', 'pedido_venda',
+    'ordem_servico', 'orcamento', 'condicional', 'troca', 'romaneio',
+    'produto', 'cliente', 'fornecedor',
+];
 /** Sem o aviso de "continuo aqui" por mais que isto, a tela foi fechada ou caiu. */
 exports.SEM_SINAL_LIBERA_MS = 2 * 60 * 1000;
 /** Tela aberta sem ninguem mexer por mais que isto: a vez e' liberada. */
@@ -28,6 +34,14 @@ exports.INTERVALO_DO_SINAL_MS = 30 * 1000;
 exports.ROTULO_DO_TIPO = {
     conferencia: 'a conferência',
     pedido_venda: 'o pedido',
+    ordem_servico: 'a OS',
+    orcamento: 'o orçamento',
+    condicional: 'o condicional',
+    troca: 'a troca',
+    romaneio: 'o romaneio',
+    produto: 'o produto',
+    cliente: 'o cadastro do cliente',
+    fornecedor: 'o cadastro do fornecedor',
 };
 const ehTipoDeTrava = (valor) => exports.TIPOS_DE_TRAVA.includes(valor);
 exports.ehTipoDeTrava = ehTipoDeTrava;

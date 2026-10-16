@@ -16,7 +16,13 @@
  * servidor (milissegundos), para relogio errado de celular nao valer.
  */
 
-export const TIPOS_DE_TRAVA = ['conferencia', 'pedido_venda'] as const;
+// Fase 2 (16/10/2026, decisao do dono "todas as telas"): OS, orcamento,
+// condicional, troca, romaneio e os cadastros de produto, cliente e fornecedor.
+export const TIPOS_DE_TRAVA = [
+  'conferencia', 'pedido_venda',
+  'ordem_servico', 'orcamento', 'condicional', 'troca', 'romaneio',
+  'produto', 'cliente', 'fornecedor',
+] as const;
 export type TipoDeTrava = typeof TIPOS_DE_TRAVA[number];
 
 export type Aparelho = 'computador' | 'celular';
@@ -47,6 +53,14 @@ export interface TravaDeEdicao {
 export const ROTULO_DO_TIPO: Record<TipoDeTrava, string> = {
   conferencia: 'a conferência',
   pedido_venda: 'o pedido',
+  ordem_servico: 'a OS',
+  orcamento: 'o orçamento',
+  condicional: 'o condicional',
+  troca: 'a troca',
+  romaneio: 'o romaneio',
+  produto: 'o produto',
+  cliente: 'o cadastro do cliente',
+  fornecedor: 'o cadastro do fornecedor',
 };
 
 export const ehTipoDeTrava = (valor: unknown): valor is TipoDeTrava => TIPOS_DE_TRAVA.includes(valor as TipoDeTrava);

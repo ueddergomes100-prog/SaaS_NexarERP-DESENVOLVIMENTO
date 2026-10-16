@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { ClipboardList, Eye, FileText, Plus, Search, Truck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
@@ -44,6 +46,8 @@ const dataBr = (data: string) => (data ? data.split('-').reverse().join('/') : '
 const RomaneiosList: React.FC = () => {
   const { tenantId } = useAuth();
   const { openTab } = useTabs();
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasRomaneios = useTravasAtivas('romaneio');
   const { linha } = useLinhaSelecionavel();
   const { items: motoristas } = useTenantCollection<{ id: string; nome?: string }>('motoristas', tenantId);
 
@@ -195,10 +199,13 @@ const RomaneiosList: React.FC = () => {
                 </tr>
               ) : daAba.map((r) => {
                 const resumo = resumoDoRomaneio(r);
-                const abrir = () => openTab(`/operacoes/romaneios/${r.id}`);
+                const abrir = () => { if (!avisarSeEmEdicao(travasRomaneios, 'romaneio', r.id)) void openTab(`/operacoes/romaneios/${r.id}`); };
                 return (
-                  <tr key={r.id} {...linha(r.id, abrir)} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '14px', fontWeight: 700 }}>{tituloDoRomaneio(r.numero, r.nome)}</td>
+                  <tr key={r.id} {...linha(r.id, abrir)} style={{ borderBottom: '1px solid var(--border-color)', ...(travasRomaneios.has(r.id) ? { opacity: 0.55 } : {}) }}>
+                    <td style={{ padding: '14px', fontWeight: 700 }}>
+                      {tituloDoRomaneio(r.numero, r.nome)}
+                      <MarcaEmEdicao trava={travasRomaneios.get(r.id)} />
+                    </td>
                     <td style={{ padding: '14px' }}>{dataBr(r.dataSaida)} {r.horarioSaida}</td>
                     <td style={{ padding: '14px' }}>{r.motoristaNome || '—'}</td>
                     <td style={{ padding: '14px', fontSize: '13px', color: 'var(--text-secondary)' }}>{r.veiculoDescricao || '—'}</td>

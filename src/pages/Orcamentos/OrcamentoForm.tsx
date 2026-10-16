@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { useTabs } from '../../contexts/TabsContext';
 import { 
   ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, 
@@ -112,6 +114,9 @@ const OrcamentoForm: React.FC = () => {
   const { openTab } = useTabs();
   const { id } = useParams();
   const isEditing = !!id;
+  // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
+  const trava = useTravaDeEdicao({ tipo: 'orcamento', registroId: id, ativa: isEditing });
+  const podeLiberarTrava = usePodeLiberarTrava();
   
   const [formData, setFormData] = useState({
     clienteId: null as string | null,
@@ -797,6 +802,18 @@ const OrcamentoForm: React.FC = () => {
         <Loader2 size={48} className="spin-icon" color="var(--accent-purple)" />
         <p style={{ color: 'var(--text-muted)' }}>Carregando dados do orçamento...</p>
       </div>
+    );
+  }
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="o orçamento"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/orcamentos')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
     );
   }
 

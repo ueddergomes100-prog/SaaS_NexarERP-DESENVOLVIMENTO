@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import PromocaoIndividualPanel from '../../components/estoque/PromocaoIndividualPanel';
 import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
@@ -478,6 +480,9 @@ const EstoqueForm: React.FC = () => {
   // duplo clique: sem isto, quem so tem "ver a lista" abria o cadastro
   // inteiro (custo, margem, fornecedor) digitando a URL direto.
   const canEditProduto = isOwner || isSuperAdmin || (userPermissions && userPermissions.includes('cadastros.estoque_alterar'));
+  // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
+  const trava = useTravaDeEdicao({ tipo: 'produto', registroId: id, ativa: isEditing && Boolean(canEditProduto) });
+  const podeLiberarTrava = usePodeLiberarTrava();
 
   useEffect(() => {
     if (!canEditProduto) {
@@ -1497,6 +1502,18 @@ const EstoqueForm: React.FC = () => {
         <Loader2 size={20} className="spin-icon" />
         Carregando cadastro de produto...
       </div>
+    );
+  }
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="o produto"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/estoque')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
     );
   }
 

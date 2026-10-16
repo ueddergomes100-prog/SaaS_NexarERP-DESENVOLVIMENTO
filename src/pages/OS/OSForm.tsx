@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History, Truck, Camera } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -210,6 +212,9 @@ const OSForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams(); // Para modo Edição
   const isEditing = !!id;
+  // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
+  const trava = useTravaDeEdicao({ tipo: 'ordem_servico', registroId: id, ativa: isEditing });
+  const podeLiberarTrava = usePodeLiberarTrava();
   
   const [formData, setFormData] = useState({
     clienteNome: '', clienteTelefone: '',
@@ -1802,6 +1807,18 @@ const OSForm: React.FC = () => {
 
   if (isFetchingOS) {
     return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-primary)' }}>Carregando dados da Ordem de Serviço...</div>;
+  }
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="a OS"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/os')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
+    );
   }
 
   return (

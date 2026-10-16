@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard, CheckCircle, TriangleAlert } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -26,6 +28,9 @@ const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
+  // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
+  const trava = useTravaDeEdicao({ tipo: 'cliente', registroId: id, ativa: isEditing });
+  const podeLiberarTrava = usePodeLiberarTrava();
   
   const [formData, setFormData] = useState({
     codigo: '',
@@ -407,6 +412,18 @@ const ClienteForm: React.FC = () => {
   };
 
   if (isFetching) return <div style={{ padding: '40px', color: 'var(--text-primary)' }}>Carregando...</div>;
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="o cadastro do cliente"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/clientes')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>

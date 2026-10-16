@@ -6,6 +6,7 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { trocaService } from '../../services/trocaService';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import {
   ESTILO_STATUS_TROCA,
   rotuloDoMotivoTroca,
@@ -59,7 +60,11 @@ const VendedorTrocas: React.FC = () => {
       .sort((a, b) => dataDaTroca(b) - dataDaTroca(a))
   ), [items, currentUser]);
 
+  // Trava de edicao (fase 2, 16/10/2026): a loja com a troca aberta = o vendedor nao cancela agora.
+  const travasTrocas = useTravasAtivas('troca');
+
   const cancelar = async (troca: TrocaDoFirestore & { id: string }) => {
+    if (avisarSeEmEdicao(travasTrocas, 'troca', troca.id)) return;
     const confirmacao = await NexusSwal.fire({
       icon: 'warning',
       title: `Cancelar a troca #${troca.numeroTroca}?`,

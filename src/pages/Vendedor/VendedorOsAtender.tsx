@@ -26,6 +26,8 @@ import {
 } from '../../utils/osCampoDomain';
 import { adicionarFotoOs, concluirAtendimento, removerFotoOs, salvarAssinaturaOs, salvarAtendimento, salvarLegendasDasFotos, type UsuarioDoCampo } from '../../services/osCampoService';
 import VendedorHeader from './VendedorHeader';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import VendedorAssinaturaModal from './VendedorAssinaturaModal';
 import { podeUsarOsNoApp } from './vendedorPermissoes';
@@ -168,10 +170,32 @@ const VendedorOsAtender: React.FC = () => {
   const fotosPendentes = fotosPendentesDaOs(pendencias, id || '');
   const assinaturaPendente = temAssinaturaPendente(pendencias, id || '');
 
+  // Trava de edicao (fase 2, 16/10/2026): a OS e' de uma pessoa por vez, no
+  // computador ou no celular. Sem sinal, o servidor nao responde e a tela segue
+  // (o trabalho offline continua valendo).
+  const trava = useTravaDeEdicao({ tipo: 'ordem_servico', registroId: id, ativa: Boolean(id) && Boolean(os) && !osEncerrada(os?.status) });
+  const podeLiberarTrava = usePodeLiberarTrava();
+
   if (!podeUsarOsNoApp(userRole, isOwner, userPermissions)) return <Navigate to="/vendedor" replace />;
   if (erro) return <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>{erro}</div>;
   if (!os || !id || !tenantId || !usuario) return <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando…</div>;
   if (osEncerrada(os.status)) return <Navigate to={`/vendedor/os/${id}`} replace />;
+  if (trava.situacao === 'de_outro') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
+        <VendedorHeader titulo={`Atender OS ${rotuloNumeroOS(os.numeroOS, os.numeroProvisorio)}`} aoVoltar={() => navigate(`/vendedor/os/${id}`)} />
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <TravaDeEdicaoAviso
+            rotulo="a OS"
+            mensagem={trava.mensagem}
+            onVoltar={() => navigate(`/vendedor/os/${id}`)}
+            onTentarDeNovo={trava.tentarDeNovo}
+            onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+          />
+        </div>
+      </div>
+    );
+  }
 
   const marcar = () => setSujo(true);
 

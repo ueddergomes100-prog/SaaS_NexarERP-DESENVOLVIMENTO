@@ -10,6 +10,8 @@ import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
@@ -40,6 +42,12 @@ const STATUS_ORCAMENTO_EM_ABERTO = ['Pendente', 'Aprovado'];
 const Orcamentos: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasOrcamentos = useTravasAtivas('orcamento');
+  const abrirOrcamento = (id: string) => {
+    if (avisarSeEmEdicao(travasOrcamentos, 'orcamento', id)) return;
+    void openTab(`/orcamentos/editar/${id}`);
+  };
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
@@ -107,6 +115,7 @@ const Orcamentos: React.FC = () => {
   }, [tenantId, leituraDe, leituraAte]);
 
   const handleRecusar = async (orcamento: Orcamento) => {
+    if (avisarSeEmEdicao(travasOrcamentos, 'orcamento', orcamento.id)) return;
     if (orcamento.status === 'Recusado') {
       showError('Já recusado', 'Este orçamento já está com status Recusado.');
       return;
@@ -342,15 +351,18 @@ const Orcamentos: React.FC = () => {
                       // Sem permissao de alterar orcamento a linha nao abre nada.
                       className={canEditOrcamento ? (selectedId === orc.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
                       onClick={canEditOrcamento ? () => setSelectedId(orc.id) : undefined}
-                      onDoubleClick={canEditOrcamento ? () => openTab(`/orcamentos/editar/${orc.id}`) : undefined}
+                      onDoubleClick={canEditOrcamento ? () => abrirOrcamento(orc.id) : undefined}
                       onKeyDown={canEditOrcamento ? (event) => {
-                        if (event.key === 'Enter') openTab(`/orcamentos/editar/${orc.id}`);
+                        if (event.key === 'Enter') abrirOrcamento(orc.id);
                       } : undefined}
                       tabIndex={canEditOrcamento ? 0 : undefined}
                       title={canEditOrcamento ? 'Clique para selecionar, duplo clique para editar' : undefined}
-                      style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}
+                      style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s', ...(travasOrcamentos.has(orc.id) ? { opacity: 0.55 } : {}) }}
                     >
-                      <td style={{ padding: '16px', fontWeight: 600 }}>#{orc.numeroOrcamento}</td>
+                      <td style={{ padding: '16px', fontWeight: 600 }}>
+                        #{orc.numeroOrcamento}
+                        <MarcaEmEdicao trava={travasOrcamentos.get(orc.id)} />
+                      </td>
                       <td style={{ padding: '16px' }}>
                         <div style={{ fontWeight: 600 }}>{orc.clienteNome}</div>
                         {orc.placa && <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{orc.modelo} - {orc.placa}</div>}
@@ -392,7 +404,7 @@ const Orcamentos: React.FC = () => {
                           {canEditOrcamento && (
                             <button
                               title="Editar"
-                              onClick={() => openTab(`/orcamentos/editar/${orc.id}`)}
+                              onClick={() => abrirOrcamento(orc.id)}
                               style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: 'none', cursor: 'pointer' }}
                             >
                               <Edit2 size={18} />

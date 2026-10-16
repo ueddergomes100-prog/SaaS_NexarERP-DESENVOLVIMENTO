@@ -4,8 +4,10 @@ import { db } from '../services/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { TabActiveContext } from '../contexts/TabsContext';
 import { liberarTrava, pegarTrava, renovarTrava, soltarTrava, TravaError } from '../services/travaEdicaoService';
+import { NexusSwal } from '../utils/alerts';
 import {
   INTERVALO_DO_SINAL_MS,
+  mensagemDeBloqueio,
   travaAtiva,
   type Aparelho,
   type TipoDeTrava,
@@ -199,4 +201,15 @@ export const useTravasAtivas = (tipo: TipoDeTrava, ligado = true) => {
       .filter((t) => travaAtiva(t, agora) && t.usuarioId !== currentUser?.uid)
       .map((t) => [t.registroId, t] as const),
   ), [travas, agora, currentUser?.uid]);
+};
+
+/**
+ * Lista: outra pessoa esta editando este documento? Mostra quem e desde
+ * quando e devolve true (quem chamou NAO abre). Livre: false, pode abrir.
+ */
+export const avisarSeEmEdicao = (travas: Map<string, TravaDeEdicao>, tipo: TipoDeTrava, registroId: string): boolean => {
+  const trava = travas.get(registroId);
+  if (!trava) return false;
+  void NexusSwal.fire({ title: 'Em edição por outra pessoa', text: mensagemDeBloqueio(tipo, trava), icon: 'info', confirmButtonText: 'Entendi' });
+  return true;
 };

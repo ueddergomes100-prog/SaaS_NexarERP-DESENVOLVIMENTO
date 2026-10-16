@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { AlertTriangle, ArrowLeft, Check, Loader2, PackageCheck, Printer, Repeat, X } from 'lucide-react';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -116,6 +118,10 @@ const TrocaDetalhe: React.FC = () => {
     }
   };
 
+  // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
+  const trava = useTravaDeEdicao({ tipo: 'troca', registroId: id, ativa: Boolean(id) && emAndamento && podeGerenciar });
+  const podeLiberarTrava = usePodeLiberarTrava();
+
   if (carregando) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando troca...</div>;
   if (!troca) {
     return (
@@ -123,6 +129,18 @@ const TrocaDetalhe: React.FC = () => {
         Troca não encontrada.
         <div style={{ marginTop: '16px' }}><button className="btn-secondary" onClick={() => navigate('/vendas/trocas')}>Voltar para as trocas</button></div>
       </div>
+    );
+  }
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="a troca"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/vendas/trocas')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
     );
   }
 

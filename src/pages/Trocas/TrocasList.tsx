@@ -3,6 +3,8 @@ import { AlertTriangle, CheckCircle2, Eye, Plus, Printer, Repeat, Search } from 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPeriodo';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
@@ -36,6 +38,8 @@ const STATUS_TROCA_PENDENTE: StatusTroca[] = ['Solicitada', 'Aprovada'];
 const TrocasList: React.FC = () => {
   const { tenantId } = useAuth();
   const { openTab } = useTabs();
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasTrocas = useTravasAtivas('troca');
   const navigate = useNavigate();
   const { linha } = useLinhaSelecionavel();
   // Aguardando e aprovadas de qualquer data; entregues, recusadas e
@@ -105,7 +109,10 @@ const TrocasList: React.FC = () => {
   };
 
   // O nome da aba leva o numero da troca (sem isso ela herdaria o id cru do documento).
-  const abrir = (troca: TrocaFirestore & { id: string }) => openTab(`/vendas/trocas/${troca.id}`, `Troca #${troca.numeroTroca}`);
+  const abrir = (troca: TrocaFirestore & { id: string }) => {
+    if (avisarSeEmEdicao(travasTrocas, 'troca', troca.id)) return;
+    openTab(`/vendas/trocas/${troca.id}`, `Troca #${troca.numeroTroca}`);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -236,7 +243,7 @@ const TrocasList: React.FC = () => {
                 const estilo = ESTILO_STATUS_TROCA[troca.status] || ESTILO_STATUS_TROCA.Solicitada;
                 const primeiro = troca.itens?.[0];
                 return (
-                  <tr key={troca.id} {...linha(troca.id, () => abrir(troca))} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <tr key={troca.id} {...linha(troca.id, () => abrir(troca))} style={{ borderBottom: '1px solid var(--border-color)', ...(travasTrocas.has(troca.id) ? { opacity: 0.55 } : {}) }}>
                     <td {...semAbrirLinha} style={{ padding: '14px' }}>
                       <input
                         type="checkbox"
@@ -246,7 +253,10 @@ const TrocasList: React.FC = () => {
                         style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--accent-purple)' }}
                       />
                     </td>
-                    <td style={{ padding: '14px', fontWeight: 700 }}>#{troca.numeroTroca}</td>
+                    <td style={{ padding: '14px', fontWeight: 700 }}>
+                      #{troca.numeroTroca}
+                      <MarcaEmEdicao trava={travasTrocas.get(troca.id)} />
+                    </td>
                     <td style={{ padding: '14px' }}>{formatarData(dataDaTrocaMillis(troca))}</td>
                     <td style={{ padding: '14px' }}>{troca.clienteNome}</td>
                     <td style={{ padding: '14px' }}>{troca.vendedorNome || '-'}</td>

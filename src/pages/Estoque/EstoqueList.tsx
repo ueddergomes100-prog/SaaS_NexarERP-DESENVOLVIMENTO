@@ -6,6 +6,8 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
@@ -37,6 +39,12 @@ interface PecaData {
 
 const EstoqueList: React.FC = () => {
   const { openTab } = useTabs();
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasProdutos = useTravasAtivas('produto');
+  const abrirProduto = (id: string) => {
+    if (avisarSeEmEdicao(travasProdutos, 'produto', id)) return;
+    void openTab(`/estoque/editar/${id}`);
+  };
   const [pecasList, setPecasList] = useState<PecaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -122,6 +130,7 @@ const EstoqueList: React.FC = () => {
 
   const handleToggleAtivo = async (peca: PecaData) => {
     if (!currentUser) return;
+    if (avisarSeEmEdicao(travasProdutos, 'produto', peca.id)) return;
     const novoStatus = peca.ativo === false;
     // Inativar com saldo zera o estoque na mesma operacao -- ver
     // estoqueInativacaoDomain.ts pro porque da regra.
@@ -425,17 +434,21 @@ const EstoqueList: React.FC = () => {
                     // seria um duplo clique que so devolve erro.
                     className={canEditProduto ? (selectedId === peca.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
                     onClick={canEditProduto ? () => setSelectedId(peca.id) : undefined}
-                    onDoubleClick={canEditProduto ? () => openTab(`/estoque/editar/${peca.id}`) : undefined}
+                    onDoubleClick={canEditProduto ? () => abrirProduto(peca.id) : undefined}
                     // Enter abre o produto selecionado -- o duplo clique sozinho
                     // deixaria a linha inacessivel por teclado.
                     onKeyDown={canEditProduto ? (event) => {
-                      if (event.key === 'Enter') openTab(`/estoque/editar/${peca.id}`);
+                      if (event.key === 'Enter') abrirProduto(peca.id);
                     } : undefined}
                     tabIndex={canEditProduto ? 0 : undefined}
                     title={canEditProduto ? 'Clique para selecionar, duplo clique para editar' : undefined}
+                    style={travasProdutos.has(peca.id) ? { opacity: 0.55 } : undefined}
                   >
                     <td className="font-medium" style={{ color: 'var(--text-muted)' }}>{peca.codigo}</td>
-                    <td>{peca.nome}</td>
+                    <td>
+                      {peca.nome}
+                      <MarcaEmEdicao trava={travasProdutos.get(peca.id)} />
+                    </td>
                     <td>{peca.categoria}</td>
                     <td className="font-medium">
                       {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
@@ -485,7 +498,7 @@ const EstoqueList: React.FC = () => {
                         // stopPropagation: sem isso, um duplo clique acidental
                         // em cima do botao tambem abriria a tela de edicao.
                         <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                          <button className="icon-btn" title="Editar" onClick={() => openTab(`/estoque/editar/${peca.id}`)}>
+                          <button className="icon-btn" title="Editar" onClick={() => abrirProduto(peca.id)}>
                             <Edit size={16} />
                           </button>
                           <button
@@ -500,7 +513,7 @@ const EstoqueList: React.FC = () => {
                             className="icon-btn"
                             title="Excluir (só sem movimentação)"
                             style={{ color: '#ef4444' }}
-                            onClick={() => { void confirmarEExcluirCadastro('estoque', peca.id, peca.nome, 'o produto'); }}
+                            onClick={() => { if (!avisarSeEmEdicao(travasProdutos, 'produto', peca.id)) void confirmarEExcluirCadastro('estoque', peca.id, peca.nome, 'o produto'); }}
                           >
                             <Trash2 size={16} />
                           </button>

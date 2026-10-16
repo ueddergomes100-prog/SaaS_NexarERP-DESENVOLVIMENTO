@@ -5,6 +5,8 @@ import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp }
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
+import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
+import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
@@ -31,6 +33,12 @@ interface ClienteData {
 
 const ClientesList: React.FC = () => {
   const { openTab } = useTabs();
+  // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
+  const travasClientes = useTravasAtivas('cliente');
+  const abrirCliente = (id: string) => {
+    if (avisarSeEmEdicao(travasClientes, 'cliente', id)) return;
+    void openTab(`/clientes/editar/${id}`);
+  };
   const [clientes, setClientes] = useState<ClienteData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,6 +74,7 @@ const ClientesList: React.FC = () => {
 
   const handleToggleAtivo = async (cliente: ClienteData) => {
     if (!currentUser) return;
+    if (avisarSeEmEdicao(travasClientes, 'cliente', cliente.id)) return;
     const novoStatus = cliente.ativo === false;
 
     const confirm = await NexusSwal.fire({
@@ -201,15 +210,19 @@ const ClientesList: React.FC = () => {
                     // edicao (ClienteForm redireciona) -- por isso nem seleciona.
                     className={cliente.isPadrao ? undefined : (selectedId === cliente.id ? 'row-selectable is-selected' : 'row-selectable')}
                     onClick={cliente.isPadrao ? undefined : () => setSelectedId(cliente.id)}
-                    onDoubleClick={cliente.isPadrao ? undefined : () => openTab(`/clientes/editar/${cliente.id}`)}
+                    onDoubleClick={cliente.isPadrao ? undefined : () => abrirCliente(cliente.id)}
                     onKeyDown={cliente.isPadrao ? undefined : (event) => {
-                      if (event.key === 'Enter') openTab(`/clientes/editar/${cliente.id}`);
+                      if (event.key === 'Enter') abrirCliente(cliente.id);
                     }}
                     tabIndex={cliente.isPadrao ? undefined : 0}
                     title={cliente.isPadrao ? undefined : 'Clique para selecionar, duplo clique para editar'}
+                    style={travasClientes.has(cliente.id) ? { opacity: 0.55 } : undefined}
                   >
                     <td style={{ color: 'var(--text-muted)' }}>{cliente.codigo || '-'}</td>
-                    <td className="font-medium">{cliente.nome}</td>
+                    <td className="font-medium">
+                      {cliente.nome}
+                      <MarcaEmEdicao trava={travasClientes.get(cliente.id)} />
+                    </td>
                     <td>{cliente.telefone || '-'}</td>
                     <td>{cliente.documento || '-'}</td>
                     <td>{cliente.email || '-'}</td>
@@ -230,7 +243,7 @@ const ClientesList: React.FC = () => {
                       ) : (
                         <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                           <ValidarDocumentoButton documento={cliente.documento} />
-                          <button className="icon-btn" title="Editar" onClick={() => openTab(`/clientes/editar/${cliente.id}`)}>
+                          <button className="icon-btn" title="Editar" onClick={() => abrirCliente(cliente.id)}>
                             <Edit size={16} />
                           </button>
                           <button
@@ -245,7 +258,7 @@ const ClientesList: React.FC = () => {
                             className="icon-btn"
                             title="Excluir (só sem movimentação)"
                             style={{ color: '#ef4444' }}
-                            onClick={() => { void confirmarEExcluirCadastro('clientes', cliente.id, cliente.nome, 'o cliente'); }}
+                            onClick={() => { if (!avisarSeEmEdicao(travasClientes, 'cliente', cliente.id)) void confirmarEExcluirCadastro('clientes', cliente.id, cliente.nome, 'o cliente'); }}
                           >
                             <Trash2 size={16} />
                           </button>

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Printer, ShoppingBag, Undo2, X } from 'lucide-react';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -76,11 +78,27 @@ const CondicionalDetalhe: React.FC = () => {
     .map((item) => ({ id: item.id, quantidade: Number(String(voltouAgora[item.id] || '').replace(',', '.')) || 0 }))
     .filter((d) => d.quantidade > 0), [itens, voltouAgora]);
 
+  // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
+  const trava = useTravaDeEdicao({ tipo: 'condicional', registroId: id, ativa: Boolean(id) && condicional?.status === 'aberto' });
+  const podeLiberarTrava = usePodeLiberarTrava();
+
   if (!trabalhaComCondicional) return <MensagemCondicionalDesligado />;
   if (!podeUsar) return <MensagemSemPermissaoCondicional />;
   if (carregando) return <div className="card" style={{ padding: '32px', textAlign: 'center' }}><Loader2 className="spin-icon" /></div>;
   if (!condicional || !tenantId) {
     return <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Condicional não encontrado.</div>;
+  }
+
+  if (trava.situacao === 'de_outro') {
+    return (
+      <TravaDeEdicaoAviso
+        rotulo="o condicional"
+        mensagem={trava.mensagem}
+        onVoltar={() => navigate('/vendas/condicional')}
+        onTentarDeNovo={trava.tentarDeNovo}
+        onLiberar={podeLiberarTrava ? trava.liberarEAbrir : undefined}
+      />
+    );
   }
 
   const acoes = acoesDoCondicional(condicional.status);

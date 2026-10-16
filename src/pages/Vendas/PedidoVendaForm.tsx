@@ -99,6 +99,7 @@ import {
 } from '../../utils/vendedorPinDomain';
 import IdentificarVendedorModal from '../../components/common/IdentificarVendedorModal';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
+import { linhasDoOrcamentoGravado, textoPrazoEntrega } from '../../utils/orcamentoModeloDomain';
 import {
   isVendaDoUsuario,
   MENSAGEM_VENDA_DE_OUTRO_USUARIO,
@@ -1237,7 +1238,8 @@ const PedidoVendaForm: React.FC = () => {
           );
           return;
         }
-        const linhas: LinhaDeOrcamento[] = Array.isArray(orcamento.itens) ? orcamento.itens : [];
+        // O orcamento grava `pecas`/`servicos` (16/10/2026: antes lia `itens` e o pedido abria vazio).
+        const linhas = linhasDoOrcamentoGravado<LinhaDeOrcamento>(orcamento);
         const novos: ItemVenda[] = [];
         const deFora: string[] = [];
         for (const linha of linhas.filter((l) => l.tipo === 'peca')) {
@@ -1268,6 +1270,24 @@ const PedidoVendaForm: React.FC = () => {
         setItens(novos);
         setOrcamentoId(doOrcamento);
         numeroOrcamentoOrigemRef.current = numero;
+        // Condicoes comerciais do orcamento (modelo Comercio, 16/10/2026) vem junto; tudo editavel.
+        if (orcamento.vendedorId && !exigirIdentificacaoVendedor && vendedoresDisponiveis.some((v) => v.id === orcamento.vendedorId)) {
+          setVendedorId(orcamento.vendedorId);
+        }
+        if (Number(orcamento.frete) > 0) setFrete(Number(orcamento.frete));
+        const formaPrevista = String(orcamento.condicaoPagamento?.forma || '');
+        if (formaPrevista && formasConfiguradas.includes(formaPrevista as PaymentMethod)) {
+          setPaymentDrafts((atual) => (atual.length === 1 ? [{ ...atual[0], forma: formaPrevista as PaymentMethod }] : atual));
+        }
+        const prazoCombinado = textoPrazoEntrega(orcamento.prazoEntregaDias);
+        const condicaoCombinada = String(orcamento.condicaoPagamento?.detalhe || '').trim();
+        const notas = [
+          condicaoCombinada ? `Condição combinada: ${condicaoCombinada}.` : '',
+          prazoCombinado ? `Prazo de entrega: ${prazoCombinado}.` : '',
+        ].filter(Boolean);
+        if (notas.length > 0) {
+          setObservacaoPedido((atual) => (atual.trim() ? atual : `Orçamento #${numero}. ${notas.join(' ')}`));
+        }
         const avisos = [
           ...(deFora.length > 0 ? [`Ficaram de fora: ${deFora.join('; ')}.`] : []),
           ...(servicos > 0 ? [`${servicos} serviço(s) não entram na venda: para cobrar serviço, use "Converter para OS" no orçamento.`] : []),

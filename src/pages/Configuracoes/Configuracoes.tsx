@@ -7,7 +7,7 @@ import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoServi
 import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
 import { isTenantManagerRole } from '../../utils/roles';
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor, Building2, Scale } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor, Building2, Scale, ClipboardList } from 'lucide-react';
 import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { salvarConfiguracoesGerais } from '../../services/filialService';
@@ -105,6 +105,16 @@ import {
 } from '../../utils/visibilidadeVendasDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { CONFIG_MAQUINAS_PESADAS_PADRAO, configMaquinasDoForm, configMaquinasParaForm, parseConfigMaquinasPesadas, type ConfigMaquinasPesadasForm } from '../../utils/oficinaDomain';
+import {
+  CAIXAS_DO_ORCAMENTO,
+  CONFIG_ORCAMENTO_PADRAO,
+  MODELOS_ORCAMENTO,
+  avisoDaConfigOrcamento,
+  modeloDaConfig,
+  parseConfigOrcamento,
+  type ConfigOrcamento,
+  type ModeloOrcamento,
+} from '../../utils/orcamentoModeloDomain';
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -168,6 +178,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const [showMensagensPadrao, setShowMensagensPadrao] = useState(false);
   const [showEmissaoDocumentos, setShowEmissaoDocumentos] = useState(false);
   const [showMaquinasPesadas, setShowMaquinasPesadas] = useState(false);
+  const [showOrcamento, setShowOrcamento] = useState(false);
   // Configuracoes por filial, fase C (2026-10-07): numeracao dos documentos (so' dono/administrador; vem do servidor).
   const [showNumeracao, setShowNumeracao] = useState(false);
   const [numeracao, setNumeracao] = useState<SituacaoDaSequencia[] | null>(null);
@@ -262,6 +273,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     mensagensPadrao: { ...MENSAGENS_PADRAO_VAZIAS } as MensagensPadrao,
     emissaoDocumentos: parseEmissaoDocumentos(EMISSAO_DOCUMENTOS_PADRAO) as EmissaoDocumentos,
     maquinasPesadas: configMaquinasParaForm(CONFIG_MAQUINAS_PESADAS_PADRAO) as ConfigMaquinasPesadasForm,
+    configOrcamento: { ...CONFIG_ORCAMENTO_PADRAO } as ConfigOrcamento,
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
     ordemFormasPagamento: [] as string[],
@@ -430,6 +442,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             mensagensPadrao: parseMensagensPadrao(data.mensagensPadrao),
             emissaoDocumentos: parseEmissaoDocumentos(data.emissaoDocumentos),
             maquinasPesadas: configMaquinasParaForm(parseConfigMaquinasPesadas(data.maquinasPesadas)),
+            configOrcamento: parseConfigOrcamento(data.configOrcamento),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
@@ -964,6 +977,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         mensagensPadrao: parseMensagensPadrao(formData.mensagensPadrao),
         emissaoDocumentos: parseEmissaoDocumentos(formData.emissaoDocumentos),
         maquinasPesadas: maquinasResultado.config,
+        configOrcamento: parseConfigOrcamento(formData.configOrcamento),
         diasCrediario: creditTerms.join(', '),
         maxParcelasCartao: maxCardInstallments,
         taxasCartaoCreditoPorParcela: creditCardFees,
@@ -2292,6 +2306,83 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             </div>
           )}
         </div>
+
+        {/* Modelo do orcamento (16/10/2026, orcamentoModeloDomain.ts). Sem configurar = Oficina = o orcamento de sempre. */}
+        {(() => {
+          const modeloAtual = modeloDaConfig(formData.configOrcamento);
+          const avisoOrcamento = avisoDaConfigOrcamento(formData.configOrcamento);
+          return (
+            <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: showOrcamento ? '1px solid var(--border-color)' : 'none', cursor: 'pointer' }}
+                onClick={() => setShowOrcamento(!showOrcamento)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <ClipboardList size={20} style={{ color: 'var(--accent-purple)' }} />
+                  <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Orçamento</h3>
+                  <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: 'rgba(139,92,246,0.15)', color: 'var(--accent-purple)' }}>
+                    {modeloAtual === 'personalizado' ? 'Personalizado' : MODELOS_ORCAMENTO[modeloAtual].rotulo}
+                  </span>
+                </div>
+                <button type="button" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  {showOrcamento ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </button>
+              </div>
+
+              {showOrcamento && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                    Escolha o modelo da loja e, se quiser, ajuste as caixas. Vale para a tela do orçamento, o PDF e a lista desta filial. Desligar uma caixa não apaga nada: orçamento que já tem veículo, serviço ou frete continua mostrando.
+                  </p>
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '420px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Modelo</label>
+                    <select
+                      value={modeloAtual}
+                      disabled={!isEditingMode}
+                      onChange={(e) => {
+                        const modelo = e.target.value as ModeloOrcamento;
+                        if (!MODELOS_ORCAMENTO[modelo]) return;
+                        setFormData((atual) => ({ ...atual, configOrcamento: { ...MODELOS_ORCAMENTO[modelo].config } }));
+                      }}
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                    >
+                      {(Object.keys(MODELOS_ORCAMENTO) as ModeloOrcamento[]).map((modelo) => (
+                        <option key={modelo} value={modelo}>{MODELOS_ORCAMENTO[modelo].rotulo}</option>
+                      ))}
+                      {modeloAtual === 'personalizado' && <option value="personalizado">Personalizado</option>}
+                    </select>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      {modeloAtual === 'personalizado' ? 'Caixas ajustadas à mão. Escolher um modelo marca as caixas dele de novo.' : MODELOS_ORCAMENTO[modeloAtual].descricao}
+                    </p>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px 16px' }}>
+                    {CAIXAS_DO_ORCAMENTO.map((caixa) => (
+                      <label key={caixa.chave} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.configOrcamento[caixa.chave]}
+                          disabled={!isEditingMode}
+                          onChange={(e) => {
+                            const marcado = e.target.checked;
+                            setFormData((atual) => ({ ...atual, configOrcamento: { ...atual.configOrcamento, [caixa.chave]: marcado } }));
+                          }}
+                          style={{ width: '18px', height: '18px', marginTop: '2px' }}
+                        />
+                        <span>
+                          <strong style={{ display: 'block', fontSize: '14px' }}>{caixa.rotulo}</strong>
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{caixa.descricao}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {avisoOrcamento && (
+                    <p style={{ fontSize: '12px', color: '#f59e0b', margin: 0 }}>{avisoOrcamento}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Oficina de maquinas pesadas (2026-10-07, docs/PLANO_MAQUINAS_PESADAS.md fase 1). Chave desligada = sistema como sempre foi. */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>

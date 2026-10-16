@@ -7,7 +7,18 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
+import { modoDaConfiguracao, parseConfigMaquinasPesadas, rotulosOficina } from '../../utils/oficinaDomain';
+import {
+  linhasDoPdfDoOrcamento,
+  textoCondicaoPagamento,
+  textoHoras,
+  textoPrazoEntrega,
+  totaisDoPdfDoOrcamento,
+} from '../../utils/orcamentoModeloDomain';
 import '../OS/OsPrint.css';
+
+const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
+const quantidadeBr = (valor: number) => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(Number(valor) || 0);
 
 const OrcamentoPrint: React.FC = () => {
   const { id } = useParams();
@@ -70,13 +81,16 @@ const OrcamentoPrint: React.FC = () => {
 
   const dataCriacao = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString('pt-BR') : 'N/A';
   const companyAddressRows = getCompanyAddressRows(configData, 'Endereço da Empresa');
-  const servicos = data.servicos || [];
-  const pecas = data.pecas || [];
-  const todosItens = [
-    ...servicos.map((s: any) => ({ ...s, tipo: 'Serviço' })),
-    ...pecas.map((p: any) => ({ ...p, tipo: 'Peça/Produto' }))
-  ];
-  const valorTotal = data.valorTotal || 0;
+  // PDF por modelo (16/10/2026): servico em horas x valor/hora numa tabela
+  // propria (o cliente lia "3 trocas" quando era uma troca de 3 horas);
+  // produtos com quantidade e unidade. Sem servico, uma tabela so' de produtos.
+  const linhas = linhasDoPdfDoOrcamento(data);
+  const totais = totaisDoPdfDoOrcamento(linhas, data);
+  const temServicos = linhas.servicos.length > 0;
+  const rotulos = rotulosOficina(modoDaConfiguracao(parseConfigMaquinasPesadas(configData?.maquinasPesadas)));
+  const condicao = textoCondicaoPagamento(data.condicaoPagamento);
+  const prazo = textoPrazoEntrega(data.prazoEntregaDias);
+  const temCondicoes = Boolean(data.vendedorNome || condicao || prazo);
 
   return (
     <div className="print-layout-wrapper">
@@ -128,60 +142,109 @@ const OrcamentoPrint: React.FC = () => {
 
         {(data.placa || data.modelo) && (
           <div className="a4-section">
-            <h3 className="section-title">Dados do Veículo</h3>
+            <h3 className="section-title">{rotulos.dadosVeiculo}</h3>
             <div className="a4-grid">
-              <p><strong>Veículo:</strong> {data.modelo || 'Não informado'}</p>
-              <p><strong>Placa:</strong> {data.placa?.toUpperCase() || 'N/A'}</p>
+              <p><strong>{rotulos.veiculo}:</strong> {data.modelo || 'Não informado'}</p>
+              <p><strong>{rotulos.placa.replace(' (se tiver)', '')}:</strong> {data.placa?.toUpperCase() || 'N/A'}</p>
               <p><strong>Ano:</strong> {data.ano || 'N/A'}</p>
               <p><strong>Cor:</strong> {data.cor || 'N/A'}</p>
             </div>
           </div>
         )}
 
-        <div className="a4-section">
-          <h3 className="section-title">Itens do Orçamento</h3>
-          <table className="a4-table">
-            <thead>
-              <tr>
-                <th>Descrição do Item</th>
-                <th style={{ textAlign: 'center' }}>Qtd</th>
-                <th style={{ textAlign: 'right' }}>Valor Unitário</th>
-                <th style={{ textAlign: 'right' }}>Total (R$)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {todosItens.length > 0 ? (
-                todosItens.map((item: any, i: number) => (
-                  <tr key={i}>
-                    <td>
-                      {item.nome}
-                      <span style={{ fontSize: '10px', color: '#666', marginLeft: '6px' }}>({item.tipo})</span>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>{item.quantidade}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.preco)}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.preco * item.quantidade)}
-                    </td>
-                  </tr>
-                ))
-              ) : (
+        {temServicos && (
+          <div className="a4-section">
+            <h3 className="section-title">Serviços (mão de obra)</h3>
+            <table className="a4-table">
+              <thead>
                 <tr>
-                  <td colSpan={4} style={{ textAlign: 'center', padding: '10px' }}>Nenhum item adicionado.</td>
+                  <th>Serviço</th>
+                  <th style={{ textAlign: 'center' }}>Horas</th>
+                  <th style={{ textAlign: 'right' }}>Valor / hora</th>
+                  <th style={{ textAlign: 'right' }}>Total (R$)</th>
                 </tr>
+              </thead>
+              <tbody>
+                {linhas.servicos.map((servico, i) => (
+                  <tr key={`s${i}`}>
+                    <td>{servico.nome}</td>
+                    <td style={{ textAlign: 'center' }}>{textoHoras(servico.horas)}</td>
+                    <td style={{ textAlign: 'right' }}>{moeda(servico.valorHora)}</td>
+                    <td style={{ textAlign: 'right' }}>{moeda(servico.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {(linhas.produtos.length > 0 || !temServicos) && (
+          <div className="a4-section">
+            <h3 className="section-title">{temServicos ? 'Peças e produtos' : 'Produtos'}</h3>
+            <table className="a4-table">
+              <thead>
+                <tr>
+                  <th>Descrição</th>
+                  <th style={{ textAlign: 'center' }}>Qtd</th>
+                  <th style={{ textAlign: 'center' }}>Un.</th>
+                  <th style={{ textAlign: 'right' }}>Valor unitário</th>
+                  <th style={{ textAlign: 'right' }}>Total (R$)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.produtos.length > 0 ? linhas.produtos.map((produto, i) => (
+                  <tr key={`p${i}`}>
+                    <td>{produto.nome}</td>
+                    <td style={{ textAlign: 'center' }}>{quantidadeBr(produto.quantidade)}</td>
+                    <td style={{ textAlign: 'center' }}>{produto.unidade}</td>
+                    <td style={{ textAlign: 'right' }}>{moeda(produto.unitario)}</td>
+                    <td style={{ textAlign: 'right' }}>{moeda(produto.total)}</td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '10px' }}>Nenhum item adicionado.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="a4-section">
+          <table className="a4-table">
+            <tbody>
+              {temServicos && (
+                <tr><td style={{ textAlign: 'right' }}>Mão de obra:</td><td style={{ textAlign: 'right', width: '160px' }}>{moeda(totais.servicos)}</td></tr>
+              )}
+              {temServicos && (
+                <tr><td style={{ textAlign: 'right' }}>Peças e produtos:</td><td style={{ textAlign: 'right', width: '160px' }}>{moeda(totais.produtos)}</td></tr>
+              )}
+              {totais.desconto > 0 && (
+                <tr><td style={{ textAlign: 'right' }}>Desconto:</td><td style={{ textAlign: 'right', width: '160px' }}>- {moeda(totais.desconto)}</td></tr>
+              )}
+              {totais.frete > 0 && (
+                <tr><td style={{ textAlign: 'right' }}>Frete:</td><td style={{ textAlign: 'right', width: '160px' }}>{moeda(totais.frete)}</td></tr>
               )}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={3} style={{ textAlign: 'right', fontWeight: 'bold' }}>TOTAL GERAL:</td>
-                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>
-                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}
-                </td>
+                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>TOTAL GERAL:</td>
+                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px', width: '160px' }}>{moeda(totais.total)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
+
+        {temCondicoes && (
+          <div className="a4-section">
+            <h3 className="section-title">Condições comerciais</h3>
+            <div className="a4-grid">
+              {data.vendedorNome && <p><strong>Vendedor:</strong> {data.vendedorNome}</p>}
+              {condicao && <p><strong>Condição de pagamento:</strong> {condicao}</p>}
+              {prazo && <p><strong>Prazo de entrega:</strong> {prazo}</p>}
+            </div>
+          </div>
+        )}
 
         {data.observacoes && (
           <div className="a4-section">
@@ -197,7 +260,7 @@ const OrcamentoPrint: React.FC = () => {
           </div>
           <div className="signature-box">
             <div className="signature-line"></div>
-            <p>Responsável Comercial</p>
+            <p>{data.vendedorNome ? `${data.vendedorNome} — Responsável comercial` : 'Responsável Comercial'}</p>
           </div>
         </div>
 

@@ -5,7 +5,7 @@ import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { useTabs } from '../../contexts/TabsContext';
 import { 
   ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, 
-  Calendar, Package, Wrench, Printer, ShoppingCart, Share2, X, History
+  Calendar, Package, Wrench, Printer, ShoppingCart, Share2, X, History, Handshake
 } from 'lucide-react';
 import {
   addDoc, collection, updateDoc, doc, getDoc, getDocs,
@@ -61,6 +61,18 @@ import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBus
 import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
 import { hasModuleAccess } from '../../utils/roles';
 import { useModoOficina } from '../../hooks/useModoOficina';
+import {
+  CONFIG_ORCAMENTO_PADRAO,
+  camposExtrasParaGravar,
+  mostraVeiculo,
+  parseConfigOrcamento,
+  reaisDoCampo,
+  totalDoOrcamentoCentavos,
+  type ConfigOrcamento,
+  type ValoresExtrasDoOrcamento,
+} from '../../utils/orcamentoModeloDomain';
+import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
+import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; descontoPadraoPercentual?: number | null; }
 interface ServicoData { id: string; nome: string; preco: number; }
@@ -132,6 +144,16 @@ const OrcamentoForm: React.FC = () => {
     validadeDias: '15',
   });
 
+  // Modelo do orcamento da filial (16/10/2026): o que a tela mostra (orcamentoModeloDomain.ts).
+  const [configOrcamento, setConfigOrcamento] = useState<ConfigOrcamento>(CONFIG_ORCAMENTO_PADRAO);
+  const [formasDaFilial, setFormasDaFilial] = useState<string[]>([]);
+  const [vendedores, setVendedores] = useState<Array<{ id: string; nome: string }>>([]);
+  // Fora do formData de proposito: o formData inteiro vai para o documento.
+  const [extras, setExtras] = useState<ValoresExtrasDoOrcamento>({
+    vendedorId: '', vendedorNome: '', condicaoForma: '', condicaoDetalhe: '', prazoEntregaDias: '', frete: '',
+  });
+  const mudarExtras = (parcial: Partial<ValoresExtrasDoOrcamento>) => setExtras((atual) => ({ ...atual, ...parcial }));
+
   const [isLoading, setIsLoading] = useState(false);
   // Trava sincrona de duplo-clique, compartilhada pelos tres caminhos que
   // gravam nesta tela (salvar orcamento, gerar OS, finalizar venda). O
@@ -175,7 +197,7 @@ const OrcamentoForm: React.FC = () => {
 
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
   // Oficina de maquinas pesadas: so' os rotulos mudam aqui (oficinaDomain.ts).
   const { rotulos: rotulosOficina } = useModoOficina();
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
@@ -283,6 +305,13 @@ const OrcamentoForm: React.FC = () => {
             setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
             setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
             setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
+            const modeloDaFilial = parseConfigOrcamento(config.configOrcamento);
+            setConfigOrcamento(modeloDaFilial);
+            setFormasDaFilial(formasDaEmpresa(parseOrdemFormasPagamento(config.ordemFormasPagamento), parseFormasOcultas(config.formasPagamentoOcultas)));
+            // Orcamento NOVO com vendedor: comeca com quem esta' fazendo.
+            if (!isEditing && modeloDaFilial.vendedor && currentUser) {
+              setExtras((atual) => (atual.vendedorId ? atual : { ...atual, vendedorId: currentUser.uid }));
+            }
             // Parametros de venda (fase A): orcamento NOVO abre com a validade da filial.
             if (!isEditing) {
               const validade = String(validadeOrcamentoPadrao(parseParametrosVenda(config.parametrosVenda)));
@@ -290,6 +319,19 @@ const OrcamentoForm: React.FC = () => {
             }
           }
         } catch (err) { console.error(err); }
+
+        // Vendedores: os mesmos do Pedido de Venda (usuarios com login; vendedor de balcao fica fora).
+        try {
+          const snapU = await getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)));
+          const lista: Array<{ id: string; nome: string }> = [];
+          snapU.forEach((documento) => {
+            const usuario = documento.data();
+            if (isRegistroDeVendedor(usuario)) return;
+            lista.push({ id: documento.id, nome: usuario.nome || usuario.nomeResponsavel || usuario.email || 'Usuário sem nome' });
+          });
+          lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+          setVendedores(vendasVisiveisDeUsuarioId ? lista.filter((v) => v.id === vendasVisiveisDeUsuarioId) : lista);
+        } catch (err) { console.error('Erro ao carregar vendedores do orçamento:', err); }
 
         if (isEditing && id) {
           const docRef = doc(db, 'orcamentos', id);
@@ -308,6 +350,14 @@ const OrcamentoForm: React.FC = () => {
               status: data.status || 'Pendente',
               numeroOrcamento: data.numeroOrcamento || '',
               validadeDias: data.validadeDias || '15',
+            });
+            setExtras({
+              vendedorId: data.vendedorId || '',
+              vendedorNome: data.vendedorNome || '',
+              condicaoForma: data.condicaoPagamento?.forma || '',
+              condicaoDetalhe: data.condicaoPagamento?.detalhe || '',
+              prazoEntregaDias: data.prazoEntregaDias !== undefined && data.prazoEntregaDias !== null ? String(data.prazoEntregaDias) : '',
+              frete: Number(data.frete) > 0 ? String(data.frete).replace('.', ',') : '',
             });
             
             const loadedItens: ItemOrcamento[] = [];
@@ -333,7 +383,7 @@ const OrcamentoForm: React.FC = () => {
       }
     };
     fetchInitialData();
-  }, [id, isEditing, currentUser, tenantId]);
+  }, [id, isEditing, currentUser, tenantId, vendasVisiveisDeUsuarioId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name } = e.target;
@@ -498,7 +548,11 @@ const OrcamentoForm: React.FC = () => {
   const subtotalOrcamentoCents = toCents(subtotalOrcamento);
   const descontoCents = calcularDescontoCents(descontoInput.tipo, descontoInput.valor, subtotalOrcamentoCents);
   const desconto = fromCents(descontoCents);
-  const totalGeral = Math.max(0, subtotalOrcamento - desconto);
+  // Frete (16/10/2026): somado por fora, depois do desconto dos itens.
+  const freteReais = reaisDoCampo(extras.frete);
+  const totalGeral = fromCents(totalDoOrcamentoCentavos(subtotalOrcamentoCents, descontoCents, toCents(freteReais)));
+  const temServicoNoOrcamento = itens.some((i) => i.tipo === 'servico');
+  const nomeDoVendedor = vendedores.find((v) => v.id === extras.vendedorId)?.nome || extras.vendedorNome;
   /**
    * DESCONTO PADRAO DO CLIENTE (2026-09-21) -- ate esse percentual o desconto
    * passa direto, sem avisar nem pedir senha (autorizacao dada no cadastro).
@@ -597,6 +651,8 @@ const OrcamentoForm: React.FC = () => {
         servicos: itens.filter(i => i.tipo === 'servico'),
         pecas: itens.filter(i => i.tipo === 'peca'),
         valorTotal: totalGeral,
+        // Campos de comercio do modelo da filial (vendedor, condicao, prazo, frete), sem undefined.
+        ...camposExtrasParaGravar(configOrcamento, { ...extras, vendedorNome: nomeDoVendedor }),
         // Snapshot do desconto -- consumido pelo relatorio de descontos
         // concedidos (Fatia 6). Nao e' herdado por Converter em OS/Venda de
         // proposito: cada conversao gera um documento novo que passa pela
@@ -709,7 +765,8 @@ const OrcamentoForm: React.FC = () => {
             status: 'Orçamento Pendente',
             servicos: itens.filter(i => i.tipo === 'servico'),
             pecas: itens.filter(i => i.tipo === 'peca'),
-            valorTotal: totalGeral,
+            // Frete do orcamento nao e' item da OS.
+            valorTotal: Math.max(0, totalGeral - freteReais),
             tenantId,
             createdAt: serverTimestamp(),
             orcamentoId: id,
@@ -847,9 +904,11 @@ const OrcamentoForm: React.FC = () => {
                   orcamento duas vezes, quebrando o vinculo unico geradoId. */}
               {formData.status !== 'Finalizado' && formData.status !== 'Convertido' && (
                 <>
-                  <button className="btn-secondary" onClick={handleConvertToOS} style={{ color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.3)' }}>
-                    <Wrench size={18} style={{ marginRight: 8 }} /> OS
-                  </button>
+                  {(configOrcamento.converterEmOS || temServicoNoOrcamento) && (
+                    <button className="btn-secondary" onClick={handleConvertToOS} style={{ color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.3)' }}>
+                      <Wrench size={18} style={{ marginRight: 8 }} /> OS
+                    </button>
+                  )}
                   <button className="btn-secondary" onClick={handleConvertToVenda} style={{ color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
                     <ShoppingCart size={18} style={{ marginRight: 8 }} /> Venda
                   </button>
@@ -921,6 +980,7 @@ const OrcamentoForm: React.FC = () => {
             </div>
           </div>
 
+          {mostraVeiculo(configOrcamento, formData) && (
           <div className="card form-section">
             <div className="section-header">
               <Car size={20} className="section-icon" />
@@ -962,6 +1022,7 @@ const OrcamentoForm: React.FC = () => {
               <div className="input-group"><label>Cor</label><input type="text" name="cor" value={formData.cor} onChange={handleChange} /></div>
             </div>
           </div>
+          )}
 
           <div className="card form-section">
             <div className="section-header">
@@ -985,16 +1046,76 @@ const OrcamentoForm: React.FC = () => {
               </div>
             </div>
           </div>
+          {(configOrcamento.vendedor || extras.vendedorId || configOrcamento.condicaoPagamento || extras.condicaoForma || extras.condicaoDetalhe
+            || configOrcamento.prazoEntrega || extras.prazoEntregaDias) && (
+            <div className="card form-section">
+              <div className="section-header">
+                <Handshake size={20} className="section-icon" />
+                <h3>Condições comerciais</h3>
+              </div>
+              {(configOrcamento.vendedor || extras.vendedorId) && (
+                <div className="input-group">
+                  <label>Vendedor responsável</label>
+                  <select value={extras.vendedorId} onChange={(e) => mudarExtras({ vendedorId: e.target.value })}>
+                    <option value="">Sem vendedor</option>
+                    {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}
+                    {extras.vendedorId && !vendedores.some((v) => v.id === extras.vendedorId) && (
+                      <option value={extras.vendedorId}>{extras.vendedorNome || 'Vendedor deste orçamento'}</option>
+                    )}
+                  </select>
+                </div>
+              )}
+              {(configOrcamento.condicaoPagamento || extras.condicaoForma || extras.condicaoDetalhe) && (
+                <div className="grid-2-col">
+                  <div className="input-group">
+                    <label>Forma de pagamento prevista</label>
+                    <select value={extras.condicaoForma} onChange={(e) => mudarExtras({ condicaoForma: e.target.value })}>
+                      <option value="">A combinar</option>
+                      {formasDaFilial.map((forma) => <option key={forma} value={forma}>{forma}</option>)}
+                      {extras.condicaoForma && !formasDaFilial.includes(extras.condicaoForma) && (
+                        <option value={extras.condicaoForma}>{extras.condicaoForma}</option>
+                      )}
+                    </select>
+                  </div>
+                  <div className="input-group">
+                    <label>Parcelas / condição</label>
+                    <input
+                      type="text"
+                      value={extras.condicaoDetalhe}
+                      maxLength={80}
+                      placeholder="Parcelas ou prazos combinados"
+                      onChange={(e) => mudarExtras({ condicaoDetalhe: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+              {(configOrcamento.prazoEntrega || extras.prazoEntregaDias) && (
+                <div className="input-group">
+                  <label>Prazo de entrega (dias)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={extras.prazoEntregaDias}
+                    onChange={(e) => mudarExtras({ prazoEntregaDias: e.target.value })}
+                  />
+                  <small style={{ color: 'var(--text-muted)' }}>0 = pronta entrega. Em branco, não sai no PDF.</small>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="form-column">
           <div className="card form-section">
             <div className="section-header">
-              <Wrench size={20} className="section-icon" />
-              <h3>Produtos e Serviços</h3>
+              {configOrcamento.usaServicos || temServicoNoOrcamento ? <Wrench size={20} className="section-icon" /> : <Package size={20} className="section-icon" />}
+              <h3>{configOrcamento.usaServicos || temServicoNoOrcamento ? 'Produtos e Serviços' : 'Produtos'}</h3>
             </div>
             
             <div className="item-add-container">
+              {configOrcamento.usaServicos && (
+                <>
               <div className="item-add-row">
                 <div style={{ position: 'relative' }} ref={servicoDropdownRef}>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Serviço</label>
@@ -1044,6 +1165,8 @@ const OrcamentoForm: React.FC = () => {
               </div>
 
               <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '8px 0' }}></div>
+                </>
+              )}
 
               <div className="item-add-row">
                 <div style={{ position: 'relative' }}>
@@ -1108,7 +1231,7 @@ const OrcamentoForm: React.FC = () => {
                 <div key={index} className="item-row">
                   <div className="item-info">
                     <div className="item-name">{item.nome}</div>
-                    <div className="item-type">{item.tipo === 'servico' ? 'Mão de Obra' : 'Produto'}</div>
+                    <div className="item-type">{item.tipo === 'servico' ? 'Mão de obra — quantidade em horas' : 'Produto'}</div>
                   </div>
                   <div className="item-actions">
                     <input
@@ -1118,7 +1241,9 @@ const OrcamentoForm: React.FC = () => {
                       step={item.tipo === 'peca' && item.unidadeMedidaFracionado ? 'any' : '1'}
                       value={item.quantidade}
                       onChange={(e) => updateItemQtd(index, Number(e.target.value))}
+                      title={item.tipo === 'servico' ? 'Horas de serviço' : 'Quantidade'}
                     />
+                    {item.tipo === 'servico' && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>h</span>}
                     <div className="item-total-price">
                       R$ {(item.preco * item.quantidade).toFixed(2)}
                     </div>
@@ -1138,10 +1263,12 @@ const OrcamentoForm: React.FC = () => {
           </div>
 
           <div className="card form-section totals-section">
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '14px' }}>
-              <span>Mão de Obra:</span>
-              <span style={{ fontWeight: 600 }}>R$ {totalServicos.toFixed(2)}</span>
-            </div>
+            {(configOrcamento.usaServicos || temServicoNoOrcamento) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                <span>Mão de Obra:</span>
+                <span style={{ fontWeight: 600 }}>R$ {totalServicos.toFixed(2)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '14px' }}>
               <span>Produtos:</span>
               <span style={{ fontWeight: 600 }}>R$ {totalPecas.toFixed(2)}</span>
@@ -1165,6 +1292,20 @@ const OrcamentoForm: React.FC = () => {
             {checagemLimiteDesconto.excedeu && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 12px', padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontSize: '12px' }}>
                 Desconto de {checagemLimiteDesconto.percentualAplicado.toFixed(1)}% acima do limite configurado para Orçamento.
+              </div>
+            )}
+
+            {(configOrcamento.frete || freteReais > 0) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 12px' }}>
+                <label htmlFor="orcamento-frete">Frete (+)</label>
+                <input
+                  id="orcamento-frete"
+                  type="text"
+                  inputMode="decimal"
+                  value={extras.frete}
+                  onChange={(e) => mudarExtras({ frete: e.target.value })}
+                  style={{ width: '120px', textAlign: 'right', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                />
               </div>
             )}
 

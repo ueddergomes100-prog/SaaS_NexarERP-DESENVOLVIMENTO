@@ -111,7 +111,7 @@ export const montarDocumentoCheques = (
   ];
 
   return {
-    titulo: opcoes.emitidos ? 'Relatório de Cheques Emitidos' : 'Relatório de Cheques Recebidos',
+    titulo: opcoes.emitidos ? 'Cheques Emitidos' : 'Cheques Recebidos',
     periodo: opcoes.periodo,
     filtros: opcoes.filtrosAplicados,
     indicadores: [

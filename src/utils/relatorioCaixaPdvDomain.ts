@@ -93,7 +93,7 @@ export const montarDocumentoCaixaPdv = (
   ];
 
   return {
-    titulo: 'Relatório de Caixa (Sessões PDV)',
+    titulo: 'Caixa (Sessões PDV)',
     periodo: opcoes.periodo,
     filtros: opcoes.filtrosAplicados,
     indicadores: [

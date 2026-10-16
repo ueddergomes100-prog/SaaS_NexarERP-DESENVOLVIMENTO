@@ -32,7 +32,7 @@ test('resumo por pessoa junta maiuscula/minuscula', () => {
 
 test('relatorio de recebidos: ordem por bom para, indicadores e cheque sem dados', () => {
   const doc = montarDocumentoCheques(CHEQUES, { emitidos: false, filtrosAplicados: [], periodo: 'A compensar', dataHoje: HOJE });
-  assert.equal(doc.titulo, 'Relatório de Cheques Recebidos');
+  assert.equal(doc.titulo, 'Cheques Recebidos');
   const secao = doc.secoes.find((s) => s.id === 'cheques')!;
   assert.deepEqual(secao.linhas.map((c: ChequeDoRelatorio) => c.id), ['c', 'b', 'a']);
   const ind = Object.fromEntries(doc.indicadores.map((i) => [i.rotulo, i.valor]));
@@ -50,7 +50,7 @@ test('relatorio de recebidos: ordem por bom para, indicadores e cheque sem dados
 
 test('relatorio de emitidos: titulo e colunas de fornecedor/banco da empresa', () => {
   const doc = montarDocumentoCheques([{ ...CHEQUES[0], tipo: 'saida', bancoDestino: 'Caixa' }], { emitidos: true, filtrosAplicados: [], periodo: '', dataHoje: HOJE });
-  assert.equal(doc.titulo, 'Relatório de Cheques Emitidos');
+  assert.equal(doc.titulo, 'Cheques Emitidos');
   const secao = doc.secoes[0];
   assert.equal(secao.colunas.find((c) => c.id === 'pessoa')!.titulo, 'Fornecedor');
   assert.equal(secao.colunas.find((c) => c.id === 'banco')!.valor(secao.linhas[0]), 'Caixa');

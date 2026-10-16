@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Search, Plus, Factory, Edit, Power, Trash2, AlertTriangle, Upload, RefreshCw } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, Factory, Edit, Power, Trash2, AlertTriangle, Upload, RefreshCw, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -20,6 +20,21 @@ import {
   precisaZerarParaInativar,
 } from '../../utils/estoqueInativacaoDomain';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { BotaoFiltros, CampoFiltro, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import {
+  FILTRO_MATERIAS_PRIMAS_VAZIO,
+  ROTULO_FILTRO_ESTOQUE,
+  montarDocumentoMateriasPrimas,
+  opcoesDosFiltrosMp,
+  passaNoFiltroMp,
+  quantosFiltrosMp,
+  type FiltroEstoqueMateriaPrima,
+  type FiltroMateriasPrimas,
+} from '../../utils/relatorioMateriasPrimasDomain';
 
 interface MateriaPrimaData {
   id: string;
@@ -41,6 +56,10 @@ const MateriasPrimasList: React.FC = () => {
   const [materiasPrimas, setMateriasPrimas] = useState<MateriaPrimaData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  // Filtros e relatorio (16/10/2026): o relatorio sai com o que esta filtrado aqui.
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [filtro, setFiltro] = useState<FiltroMateriasPrimas>(FILTRO_MATERIAS_PRIMAS_VAZIO);
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   const { currentUser, tenantId } = useAuth();
   const [atualizandoCustos, setAtualizandoCustos] = useState(false);
@@ -134,6 +153,8 @@ const MateriasPrimasList: React.FC = () => {
     }
   };
 
+  const opcoesFiltro = useMemo(() => opcoesDosFiltrosMp(materiasPrimas), [materiasPrimas]);
+
   const filteredMateriasPrimas = materiasPrimas.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(item => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
@@ -142,7 +163,33 @@ const MateriasPrimasList: React.FC = () => {
       (item.codigo && item.codigo.toLowerCase().includes(term)) ||
       (item.categoria && item.categoria.toLowerCase().includes(term))
     );
-  });
+  }).filter((item) => passaNoFiltroMp(item, filtro));
+
+  const filtrosAtivos = quantosFiltrosMp(filtro);
+  const mudarFiltro = (parcial: Partial<FiltroMateriasPrimas>) => setFiltro((atual) => ({ ...atual, ...parcial }));
+
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+      filtro.categoria ? `Categoria: ${filtro.categoria}` : '',
+      filtro.fornecedor ? `Fornecedor: ${filtro.fornecedor}` : '',
+      filtro.estoque ? `Estoque: ${ROTULO_FILTRO_ESTOQUE[filtro.estoque]}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="materias-primas"
+        documento={montarDocumentoMateriasPrimas(
+          filteredMateriasPrimas.map((m) => ({ ...m, reservado: reservedMap.get(chaveComponente('materia_prima', m.id)) || 0 })),
+          { filtrosAplicados, dataHoje: hoje },
+        )}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Matéria-Prima', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar às matérias-primas"
+      />
+    );
+  }
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -155,7 +202,13 @@ const MateriasPrimasList: React.FC = () => {
           <MenuMaisOpcoes
             rotulo={atualizandoCustos ? 'Atualizando custos...' : 'Mais opções'}
             itens={[
-              { texto: 'Importar matérias-primas', Icone: Upload, onClick: () => openTab('/materias-primas/importar', 'Importar Matérias-Primas') },
+              {
+                texto: 'Relatório', Icone: FileText,
+                titulo: 'Abre em PDF as matérias-primas filtradas na tela: posição, abaixo do mínimo e valor em custo (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+                desabilitado: loading,
+                onClick: () => setPreviewAberto(true),
+              },
+              { texto: 'Importar matérias-primas', Icone: Upload, onClick: () => openTab('/materias-primas/importar', 'Importar Matérias-Primas'), separadorAntes: true },
               {
                 texto: 'Atualizar custo dos produtos acabados', Icone: RefreshCw,
                 desabilitado: atualizandoCustos,
@@ -172,7 +225,7 @@ const MateriasPrimasList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input
@@ -183,8 +236,34 @@ const MateriasPrimasList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <FiltroSituacao valor={situacao} onChange={setSituacao} />
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <FiltroSituacao valor={situacao} onChange={setSituacao} />
+            <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
+          </div>
         </div>
+
+        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={() => setFiltro(FILTRO_MATERIAS_PRIMAS_VAZIO)}>
+          <CampoFiltro rotulo="Categoria">
+            <select value={filtro.categoria} onChange={(e) => mudarFiltro({ categoria: e.target.value })} style={estiloCampoFiltro}>
+              <option value="">Todas</option>
+              {opcoesFiltro.categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </CampoFiltro>
+          <CampoFiltro rotulo="Fornecedor">
+            <select value={filtro.fornecedor} onChange={(e) => mudarFiltro({ fornecedor: e.target.value })} style={estiloCampoFiltro}>
+              <option value="">Todos</option>
+              {opcoesFiltro.fornecedores.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </CampoFiltro>
+          <CampoFiltro rotulo="Estoque">
+            <select value={filtro.estoque} onChange={(e) => mudarFiltro({ estoque: e.target.value as FiltroEstoqueMateriaPrima })} style={estiloCampoFiltro}>
+              <option value="">Todos</option>
+              <option value="abaixo_minimo">Abaixo do mínimo</option>
+              <option value="sem_estoque">Sem estoque</option>
+              <option value="com_estoque">Com estoque</option>
+            </select>
+          </CampoFiltro>
+        </PainelFiltros>
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -209,7 +288,10 @@ const MateriasPrimasList: React.FC = () => {
               ) : filteredMateriasPrimas.length === 0 ? (
                 <tr>
                   <td colSpan={9} style={{ padding: '8px' }}>
-                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : "Nenhuma matéria-prima cadastrada."} compacto />
+                    <EstadoVazio
+                      titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : (filtrosAtivos > 0 ? 'Nenhuma matéria-prima com esses filtros.' : 'Nenhuma matéria-prima cadastrada.')}
+                      compacto
+                    />
                   </td>
                 </tr>
               ) : (

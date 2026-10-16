@@ -68,6 +68,8 @@ const MODULOS = [
   'src/utils/romaneioDomain.ts',
   // Juros, multa e desconto na baixa (15/10/2026): mesma regra na tela e no servidor.
   'src/utils/ajustesDaBaixaDomain.ts',
+  // Pagamento parcial (16/10/2026).
+  'src/utils/baixaParcialDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

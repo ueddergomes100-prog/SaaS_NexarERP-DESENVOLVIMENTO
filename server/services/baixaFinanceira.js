@@ -27,6 +27,7 @@ const {
   applyPaymentReceipt,
   fromCents,
   legacyPaymentForTransaction,
+  reversePartialReceipt,
   reversePaymentReceipt,
   settledFinancialNatureForPayment,
   toCents,
@@ -45,6 +46,23 @@ const {
   descricaoDosAjustes,
   erroDosAjustes,
 } = require('../domain/ajustesDaBaixaDomain');
+const {
+  bloqueioDoParcial,
+  erroDoValorRecebido,
+  principalDaBaixa,
+  totalParaQuitar,
+} = require('../domain/baixaParcialDomain');
+
+// O que o pagamento parcial leva da conta (para relatorios, frota, venda/OS
+// e fornecedor continuarem achando o dinheiro). So' o que existe na conta.
+const CAMPOS_DA_CONTA_NO_PARCIAL = [
+  'categoria', 'subcategoria', 'centroCusto', 'clienteId', 'clienteNome', 'fornecedorId', 'fornecedorNome',
+  'vendedorId', 'vendedorNome', 'pedidoId', 'osId', 'numeroPedido', 'numeroOS', 'veiculoId', 'veiculoNome',
+  'veiculoPlaca', 'motoristaId', 'motoristaNome', 'rotaId', 'numeroDocumento', 'notaFiscalEntradaId',
+];
+const camposDaContaNoParcial = (dados) => Object.fromEntries(
+  CAMPOS_DA_CONTA_NO_PARCIAL.filter((campo) => dados[campo] !== undefined && dados[campo] !== null && dados[campo] !== '').map((campo) => [campo, dados[campo]]),
+);
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const regras = require('./baixaFinanceiraRegras');
@@ -156,6 +174,16 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     resumo.descontoCentavos = descontoCentavos;
     const erroAjustes = erroDosAjustes(valorCentavos, ajustes, { podeDescontar: true });
     if (erroAjustes) throw new ErroBaixa(400, erroAjustes);
+    // Pagamento PARCIAL (16/10/2026): do valor recebido, o que sai da conta e' o
+    // principal; menos que o saldo = a conta continua em aberto com o resto.
+    const recebidoCentavos = Number.isInteger(pedido.valorRecebidoCentavos) ? pedido.valorRecebidoCentavos : totalParaQuitar(valorCentavos, ajustes);
+    const erroValor = erroDoValorRecebido(valorCentavos, recebidoCentavos, ajustes, { pagar: tipo === 'saida', bloqueioParcial: bloqueioDoParcial(dados) || undefined });
+    if (erroValor) throw new ErroBaixa(400, erroValor);
+    const principalCentavos = principalDaBaixa(recebidoCentavos, ajustes);
+    const parcialRef = principalCentavos < valorCentavos ? db.collection('transacoes').doc() : null;
+    // Juros/multa e desconto ficam ligados ao lancamento que os recebeu (a conta, ou o parcial).
+    const donoDosAjustes = parcialRef ? parcialRef.id : titulo.ref.id;
+    resumo.parcial = parcialRef ? { principalCentavos, restanteCentavos: valorCentavos - principalCentavos } : null;
     // Juros/multa e desconto viram lancamentos PROPRIOS (pagos no mesmo dia),
     // ligados ao titulo nos dois sentidos: o Fluxo de Caixa ve a receita/despesa
     // e o estorno do titulo desfaz tudo (fase A 2026-10-07; desconto e Pagar 15/10/2026).
@@ -221,7 +249,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         categoria: CATEGORIA_DO_ACRESCIMO[tipo],
         descricao: `Juros e multa — ${resumo.descricao}`,
         valor: acrescimoCentavos,
-        ligacao: { acrescimoDaTransacaoId: titulo.ref.id, jurosCentavos: ajustes.jurosCentavos, multaCentavos: ajustes.multaCentavos },
+        ligacao: { acrescimoDaTransacaoId: donoDosAjustes, jurosCentavos: ajustes.jurosCentavos, multaCentavos: ajustes.multaCentavos },
         motivo: `Juros e multa ${tipo === 'saida' ? 'do pagamento' : 'do recebimento'} "${resumo.descricao}"`,
       }));
     }
@@ -232,18 +260,93 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         categoria: CATEGORIA_DO_DESCONTO[tipo],
         descricao: `${tipo === 'entrada' ? 'Desconto concedido' : 'Desconto obtido'} — ${resumo.descricao}`,
         valor: descontoCentavos,
-        ligacao: { descontoDaTransacaoId: titulo.ref.id },
+        ligacao: { descontoDaTransacaoId: donoDosAjustes },
         motivo: `Desconto ${tipo === 'saida' ? 'no pagamento' : 'no recebimento'} "${resumo.descricao}"`,
       }));
     }
     if (banco) {
       tx.update(banco.ref, {
-        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + sinal * (valorCentavos + acrescimoCentavos - descontoCentavos),
+        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + sinal * (principalCentavos + acrescimoCentavos - descontoCentavos),
         updatedAt: agora(),
         ...buildDocumentUpdateMetadata(user.uid, agora(), tipo === 'saida'
           ? `Débito da despesa "${resumo.descricao}"${textoDosAjustes ? ` (${textoDosAjustes})` : ''}`
           : `Recebimento de "${resumo.descricao}"${textoDosAjustes ? ` (${textoDosAjustes})` : ''}`),
       });
+    }
+
+    if (parcialRef) {
+      // A parte paga vira um lancamento proprio (recibo, estorno, Fluxo de Caixa);
+      // a conta fica em aberto com o resto e guarda quanto ja' foi pago por partes.
+      const restanteCentavos = valorCentavos - principalCentavos;
+      const oQue = tipo === 'saida' ? 'pagamento parcial' : 'recebimento parcial';
+      tx.set(parcialRef, {
+        tenantId,
+        tipo,
+        status: 'Paga',
+        descricao: `${resumo.descricao} — ${oQue}`,
+        ...camposDaContaNoParcial(dados),
+        valor: fromCents(principalCentavos),
+        valorCentavos: principalCentavos,
+        data: dataPagamento,
+        dataVencimento: dados.dataVencimento || dataPagamento,
+        dataPagamento,
+        formaPagamento,
+        naturezaFinanceira: settledFinancialNatureForPayment(formaPagamento),
+        movimentaCaixaFisico: formaPagamento === 'Dinheiro',
+        ...(banco ? { bancoId, bancoNome } : {}),
+        // So' este vinculo: `sourcePaymentTransactionId` marca recebimento com credito (sem estorno).
+        parcialDaTransacaoId: titulo.ref.id,
+        baixaManual: {
+          ...montarBaixaManual({
+            origem: origemDaBaixa,
+            formaPagamento,
+            dataPagamento,
+            valorCentavos: principalCentavos,
+            ...(banco ? { bancoId, movimentoBancoCentavos: sinal * principalCentavos } : {}),
+          }),
+          ...marcaDosAjustes,
+        },
+        createdAt: agora(),
+        ...(tipo === 'entrada' ? { recebidoEm: agora() } : {}),
+        updatedAt: agora(),
+        criadoPor: user.uid,
+        criadoEm: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `${oQue[0].toUpperCase()}${oQue.slice(1)} de "${resumo.descricao}"${textoDosAjustes ? ` com ${textoDosAjustes}` : ''}`),
+      });
+      tx.update(titulo.ref, {
+        valorCentavos: restanteCentavos,
+        valor: fromCents(restanteCentavos),
+        valorAntesDoParcialCentavos: Number(dados.valorAntesDoParcialCentavos) > 0 ? Number(dados.valorAntesDoParcialCentavos) : valorCentavos,
+        pagoParcialCentavos: (Number(dados.pagoParcialCentavos) || 0) + principalCentavos,
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `${oQue[0].toUpperCase()}${oQue.slice(1)} de ${fromCents(principalCentavos).toFixed(2)}; fica em aberto ${fromCents(restanteCentavos).toFixed(2)}`),
+      });
+      if (origem.ref) {
+        const pagamentos = Array.isArray(origem.dados.pagamentos) && origem.dados.pagamentos.length > 0
+          ? origem.dados.pagamentos
+          : [legacyPaymentForTransaction(pedido.transacaoId, dados)];
+        // A venda/OS divide o pagamento: o recebido agora + o que falta (fica "Parcial").
+        const atualizados = applyPaymentReceipt(pagamentos, {
+          transactionId: pedido.transacaoId,
+          paymentIndex: dados.paymentIndex,
+          amountCents: centavosParaAOrigem(pagamentos, {
+            transactionId: pedido.transacaoId,
+            paymentIndex: dados.paymentIndex,
+            titulo: dados,
+            recebidoCentavos: principalCentavos,
+            tituloQuitado: false,
+          }),
+          method: formaPagamento,
+          receiptId: parcialRef.id,
+          receivedAt: dataPagamento,
+        });
+        tx.update(origem.ref, {
+          ...camposDoResumoDePagamentos(atualizados),
+          updatedAt: agora(),
+          ...buildDocumentUpdateMetadata(user.uid, agora(), 'Recebimento parcial em Contas a Receber'),
+        });
+      }
+      return;
     }
 
     if (tipo === 'saida') {
@@ -369,6 +472,23 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
     };
     const acrescimo = await lerLancamentoDaBaixa('acrescimoTransacaoId');
     const desconto = await lerLancamentoDaBaixa('descontoTransacaoId');
+    // Pagamento PARCIAL (16/10/2026): o estorno devolve o valor para a conta,
+    // que precisa continuar em aberto (quitada depois = estorna-se antes a quitacao).
+    const parcialDe = dados.parcialDaTransacaoId ? String(dados.parcialDaTransacaoId) : '';
+    const contaRef = parcialDe ? db.collection('transacoes').doc(parcialDe) : null;
+    const contaSnap = contaRef ? await tx.get(contaRef) : null;
+    if (contaRef) {
+      if (!contaSnap.exists || contaSnap.data().tenantId !== tenantId) {
+        throw new ErroBaixa(404, 'A conta deste pagamento parcial não foi encontrada. Atualize a tela.');
+      }
+      const situacaoDaConta = contaSnap.data().status;
+      if (situacaoDaConta === 'Paga') {
+        throw new ErroBaixa(409, 'A conta deste pagamento parcial já foi quitada. Para estornar este parcial, estorne antes o pagamento que quitou a conta.');
+      }
+      if (situacaoDaConta !== 'Pendente') {
+        throw new ErroBaixa(400, `A conta deste pagamento parcial está ${String(situacaoDaConta || 'sem situação').toLowerCase()}; o pagamento parcial não pode ser estornado.`);
+      }
+    }
     const noBanco = (l) => (l && l.pago && banco && l.bancoId === banco.ref.id ? l.centavos : 0);
     const acrescimoNoBancoCentavos = noBanco(acrescimo);
     const descontoNoBancoCentavos = noBanco(desconto);
@@ -388,7 +508,29 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
     };
 
     // --- escritas ---
-    if (tipo === 'saida') {
+    if (contaRef) {
+      const conta = contaSnap.data();
+      const restanteCentavos = centavosDoTitulo(conta) + valorCentavos;
+      const pagoParcial = Math.max(0, (Number(conta.pagoParcialCentavos) || 0) - valorCentavos);
+      // O parcial nao volta a "pendente" (viraria conta em dobro): fica cancelado, com o motivo.
+      tx.update(titulo.ref, {
+        status: 'Cancelada',
+        estornada: true,
+        motivoCancelamento: `Pagamento parcial estornado: ${motivo}`,
+        canceladaEm: agora(),
+        ...registroDoEstorno,
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Pagamento parcial estornado: ${motivo}`),
+      });
+      tx.update(contaRef, {
+        valorCentavos: restanteCentavos,
+        valor: fromCents(restanteCentavos),
+        ...(pagoParcial > 0
+          ? { pagoParcialCentavos: pagoParcial }
+          : { pagoParcialCentavos: apagar(), valorAntesDoParcialCentavos: apagar() }),
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Pagamento parcial de ${fromCents(valorCentavos).toFixed(2)} estornado: ${motivo}`),
+      });
+    } else if (tipo === 'saida') {
       tx.update(titulo.ref, {
         status: 'Pendente',
         dataPagamento: apagar(),
@@ -452,10 +594,12 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
       const pagamentos = Array.isArray(origem.dados.pagamentos) && origem.dados.pagamentos.length > 0
         ? origem.dados.pagamentos
         : [legacyPaymentForTransaction(pedido.transacaoId, dados)];
-      const atualizados = reversePaymentReceipt(pagamentos, {
-        transactionId: pedido.transacaoId,
-        paymentIndex: dados.paymentIndex,
-      });
+      const atualizados = contaRef
+        ? reversePartialReceipt(pagamentos, { receiptId: pedido.transacaoId, sourceTransactionId: parcialDe })
+        : reversePaymentReceipt(pagamentos, {
+          transactionId: pedido.transacaoId,
+          paymentIndex: dados.paymentIndex,
+        });
       tx.update(origem.ref, {
         ...camposDoResumoDePagamentos(atualizados),
         updatedAt: agora(),

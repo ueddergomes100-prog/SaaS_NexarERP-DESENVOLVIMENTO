@@ -96,6 +96,8 @@ export interface TituloEstornavel extends TituloParaEstorno {
   bancoNome?: string;
   pedidoId?: string;
   osId?: string;
+  /** Pagamento PARCIAL de outra conta (16/10/2026): o estorno devolve o valor para ela. */
+  parcialDaTransacaoId?: string;
 }
 
 export interface UsuarioEstorno {
@@ -122,6 +124,8 @@ export interface PedidoDeBaixa {
    * lancamentos proprios (ver ajustesDaBaixaDomain.ts).
    */
   ajustes?: AjustesDaBaixa;
+  /** Quanto entrou/saiu de fato (centavos). Menos que o total = pagamento parcial (16/10/2026). */
+  valorRecebidoCentavos?: number;
   /** Empresa aberta na tela (o admin da plataforma pode estar noutra). */
   tenantId: string;
 }
@@ -140,6 +144,7 @@ export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<void> => {
     ...(pedido.bancoId ? { bancoId: pedido.bancoId } : {}),
     // Juros, multa e desconto: so' vai o que tem valor.
     ...(pedido.ajustes ? camposDosAjustes(pedido.ajustes) : {}),
+    ...(pedido.valorRecebidoCentavos && pedido.valorRecebidoCentavos > 0 ? { valorRecebidoCentavos: pedido.valorRecebidoCentavos } : {}),
     tenantId: pedido.tenantId,
   });
 };
@@ -327,16 +332,24 @@ export const estornarBaixaComConfirmacao = async (args: {
   ].filter(Boolean);
   const dosAjustes = ajustes.length ? ` Os lançamentos de ${ajustes.join(' e ')} desta baixa são cancelados junto.` : '';
 
+  // Pagamento parcial (16/10/2026): o lancamento e' cancelado e o valor volta para a conta de origem.
+  const parcial = Boolean(titulo.parcialDaTransacaoId);
+  const oQueAcontece = parcial
+    ? `é cancelado e o valor volta para a conta de origem, que continua em aberto.${daVenda}`
+    : `volta para Pendente.${daVenda}`;
+
   const motivo = await pedirMotivoEstorno({
     titulo: tipo === 'saida' ? 'Estornar pagamento?' : 'Estornar recebimento?',
-    texto: `${tipo === 'saida' ? 'A conta' : 'O recebimento'} "${titulo.descricao}" de R$ ${valor.toFixed(2)}, ${quando} ${forma}, volta para Pendente.${daVenda}${noBanco}${dosAjustes} Depois é só dar baixa de novo com a data certa.`
+    texto: `${parcial ? (tipo === 'saida' ? 'O pagamento parcial' : 'O recebimento parcial') : (tipo === 'saida' ? 'A conta' : 'O recebimento')} "${titulo.descricao}" de R$ ${valor.toFixed(2)}, ${quando} ${forma}, ${oQueAcontece}${noBanco}${dosAjustes}${parcial ? '' : ' Depois é só dar baixa de novo com a data certa.'}`
       .replace(/\s+,/g, ',').replace(/\s{2,}/g, ' '),
   });
   if (!motivo) return false;
 
   try {
     await executarEstorno({ titulo, tipo, motivo, tenantId });
-    showSuccess(tipo === 'saida' ? 'Pagamento estornado! A conta voltou para Pendente.' : 'Recebimento estornado! A conta voltou para Pendente.');
+    showSuccess(parcial
+      ? 'Pagamento parcial estornado! O valor voltou para a conta em aberto.'
+      : tipo === 'saida' ? 'Pagamento estornado! A conta voltou para Pendente.' : 'Recebimento estornado! A conta voltou para Pendente.');
     return true;
   } catch (erro) {
     console.error('Erro ao estornar:', erro);

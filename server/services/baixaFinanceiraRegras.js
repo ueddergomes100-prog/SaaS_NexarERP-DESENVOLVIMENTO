@@ -75,6 +75,11 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
   // ainda e' aceito e vale como juros.
   const { erro: erroAjustes, ajustes } = ajustesDoPedido(corpo);
   if (erroAjustes) return { erro: erroAjustes };
+  // Pagamento parcial (16/10/2026): quanto entrou/saiu de fato. Sem ele, quita a conta.
+  const valorRecebido = corpo.valorRecebidoCentavos;
+  if (valorRecebido !== undefined && valorRecebido !== null && (!Number.isInteger(valorRecebido) || valorRecebido <= 0)) {
+    return { erro: tipo === 'saida' ? 'Informe o valor pago (maior que zero).' : 'Informe o valor recebido (maior que zero).' };
+  }
 
   return {
     pedido: {
@@ -84,6 +89,7 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
       dataPagamento: String(corpo.dataPagamento).trim(),
       ...(bancoId ? { bancoId } : {}),
       ...camposDosAjustes(ajustes),
+      ...(Number.isInteger(valorRecebido) ? { valorRecebidoCentavos: valorRecebido } : {}),
     },
   };
 };

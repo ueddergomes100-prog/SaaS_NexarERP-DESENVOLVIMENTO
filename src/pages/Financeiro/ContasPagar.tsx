@@ -9,6 +9,7 @@ import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { PERMISSAO_DESCONTO_NA_BAIXA } from '../../utils/ajustesDaBaixaDomain';
+import { bloqueioDoParcial, principalDaBaixa, textoDoParcial, type TituloParaParcial } from '../../utils/baixaParcialDomain';
 import {
   dataBrasileira,
   planejarEstornoPagar,
@@ -225,7 +226,10 @@ const ContasPagar: React.FC = () => {
       texto: `Valor de R$ ${Number(t.valor).toFixed(2)} referente a ${t.descricao}.`,
       // Juros, multa e desconto (15/10/2026): o que o fornecedor cobrou a mais ou deu de abatimento.
       valorCentavos: toCents(Number(t.valor || 0)),
-      rotuloTotal: 'Valor pago',
+      rotuloValor: 'Valor pago agora',
+      pagar: true,
+      // Pagamento parcial (16/10/2026): menos que o total deixa o resto em aberto.
+      bloqueioParcial: bloqueioDoParcial(t as TituloParaParcial),
       podeDescontar,
       formas: FORMAS_PAGAMENTO,
       formaInicial: t.formaPagamento && FORMAS_PAGAMENTO.includes(t.formaPagamento) ? t.formaPagamento : '',
@@ -275,11 +279,17 @@ const ContasPagar: React.FC = () => {
         dataPagamento,
         ...(bancoId ? { bancoId } : {}),
         ajustes: dados.ajustes,
+        valorRecebidoCentavos: dados.valorRecebidoCentavos,
         tenantId,
       });
-      showSuccess(dataPagamento === getDateInputInTimeZone()
-        ? 'Pagamento registrado no Fluxo de Caixa!'
-        : `Pagamento registrado com a data de ${dataBrasileira(dataPagamento)}!`);
+      const principal = principalDaBaixa(dados.valorRecebidoCentavos, dados.ajustes);
+      const restante = toCents(Number(t.valor || 0)) - principal;
+      const reais = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
+      showSuccess(restante > 0
+        ? `Pagamento parcial de ${reais(principal)} registrado. Fica em aberto ${reais(restante)}.`
+        : dataPagamento === getDateInputInTimeZone()
+          ? 'Pagamento registrado no Fluxo de Caixa!'
+          : `Pagamento registrado com a data de ${dataBrasileira(dataPagamento)}!`);
     } catch (err) {
       console.error(err);
       showError('Erro', err instanceof Error ? err.message : 'Não foi possível confirmar o pagamento.');
@@ -928,7 +938,14 @@ const ContasPagar: React.FC = () => {
                           ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}><Truck size={15} style={{ color: 'var(--text-muted)' }} />{t.fornecedorNome}</span>
                           : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ padding: '16px' }}>{t.descricao}</td>
+                      <td style={{ padding: '16px' }}>
+                        {t.descricao}
+                        {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number }, true) && (
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: '#ef4444', marginTop: '2px' }}>
+                            {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number }, true)}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ padding: '16px' }}>
                         <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
                           {t.categoria}
@@ -1046,7 +1063,14 @@ const ContasPagar: React.FC = () => {
                                         {t.data ? t.data.split('-').reverse().join('/') : '-'}
                                       </div>
                                     </td>
-                                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
+                                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>
+                                      {t.descricao}
+                                      {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number }, true) && (
+                                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#ef4444', marginTop: '2px' }}>
+                                          {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number }, true)}
+                                        </div>
+                                      )}
+                                    </td>
                                     <td style={{ padding: '10px 8px' }}>
                                       <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-secondary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
                                         {t.categoria}

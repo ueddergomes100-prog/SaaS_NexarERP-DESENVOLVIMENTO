@@ -21,6 +21,7 @@ import {
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { PERMISSAO_DESCONTO_NA_BAIXA, SEM_AJUSTES, acrescimoDosAjustes, type AjustesDaBaixa } from '../../utils/ajustesDaBaixaDomain';
+import { bloqueioDoParcial, principalDaBaixa, textoDoParcial, type TituloParaParcial } from '../../utils/baixaParcialDomain';
 import {
   dataBrasileira,
   planejarEstornoReceber,
@@ -200,7 +201,7 @@ const ContasReceber: React.FC = () => {
    * filial. Sempre disponivel pelo botao "Recibo" da conta recebida; ao dar
    * baixa, sai conforme a filial configurou (perguntar / sempre / nunca).
    */
-  const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number }) => {
+  const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number }) => {
     try {
       let cadastroCliente: unknown = null;
       if (t.clienteId) {
@@ -210,8 +211,9 @@ const ContasReceber: React.FC = () => {
       const recibo = montarRecibo({
         titulo: {
           id: t.id,
-          descricao: t.descricao,
-          valorCentavos: transactionNetCents(t),
+          // Pagamento parcial (16/10/2026): o recibo e' do que entrou agora.
+          descricao: dados.principalCentavos !== undefined ? `${t.descricao} (pagamento parcial)` : t.descricao,
+          valorCentavos: dados.principalCentavos ?? transactionNetCents(t),
           formaPagamento: dados.formaPagamento || t.formaPagamento,
           dataPagamento: dados.dataPagamento || t.dataPagamento || getDateInputInTimeZone(),
         },
@@ -228,13 +230,13 @@ const ContasReceber: React.FC = () => {
     }
   };
 
-  const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number }) => {
+  const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number }) => {
     const modo = emissaoDocumentos.recibo.modo;
     if (modo === 'nunca') return;
     if (modo === 'perguntar') {
       const resposta = await NexusSwal.fire({
         title: 'Emitir recibo de pagamento?',
-        text: `Recibo de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((transactionNetCents(t) + (dados.acrescimoCentavos || 0) - (dados.descontoCentavos || 0)) / 100)} para ${t.clienteNome || 'o cliente'}.`,
+        text: `Recibo de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(((dados.principalCentavos ?? transactionNetCents(t)) + (dados.acrescimoCentavos || 0) - (dados.descontoCentavos || 0)) / 100)} para ${t.clienteNome || 'o cliente'}.`,
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Emitir recibo',
@@ -261,6 +263,7 @@ const ContasReceber: React.FC = () => {
     bancoId?: string,
     dataRecebimento: string = getDateInputInTimeZone(),
     ajustes: AjustesDaBaixa = SEM_AJUSTES,
+    valorRecebidoCentavos?: number,
   ) => {
     if (!tenantId || !currentUser) return;
     await registrarBaixa({
@@ -271,6 +274,7 @@ const ContasReceber: React.FC = () => {
       dataPagamento: dataRecebimento,
       ...(bancoId ? { bancoId } : {}),
       ajustes,
+      ...(valorRecebidoCentavos ? { valorRecebidoCentavos } : {}),
       tenantId,
     });
   };
@@ -372,7 +376,9 @@ const ContasReceber: React.FC = () => {
       titulo: 'Confirmar Recebimento?',
       texto: `Valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a ${t.descricao}.`,
       valorCentavos: transactionNetCents(t),
-      rotuloTotal: 'Valor recebido',
+      rotuloValor: 'Valor recebido agora',
+      // Pagamento parcial (16/10/2026): menos que o total deixa o resto em aberto.
+      bloqueioParcial: bloqueioDoParcial(t as TituloParaParcial),
       sugestao: sugestao ? { jurosCentavos: sugestao.jurosCentavos, multaCentavos: sugestao.multaCentavos, detalhe: descricaoDoAcrescimo(sugestao) } : null,
       podeDescontar,
       formasSemAjuste: ['Cheque', FORMA_BOLETO],
@@ -433,12 +439,23 @@ const ContasReceber: React.FC = () => {
     }
 
     try {
-      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento, dados.ajustes);
+      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento, dados.ajustes, dados.valorRecebidoCentavos);
       const noDia = dataRecebimento === getDateInputInTimeZone() ? '' : ` com a data de ${dataBrasileira(dataRecebimento)}`;
-      showSuccess(formaPgto === 'Dinheiro'
-        ? `Recebimento confirmado e lançado no caixa físico${noDia}!`
-        : `Recebimento confirmado no fluxo financeiro correspondente${noDia}!`);
-      await oferecerRecibo(t, { formaPagamento: formaPgto, dataPagamento: dataRecebimento, acrescimoCentavos: acrescimoDosAjustes(dados.ajustes), descontoCentavos: dados.ajustes.descontoCentavos });
+      const principal = principalDaBaixa(dados.valorRecebidoCentavos, dados.ajustes);
+      const parcial = principal < transactionNetCents(t);
+      const reais = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
+      showSuccess(parcial
+        ? `Recebimento parcial de ${reais(principal)} registrado${noDia}. Fica em aberto ${reais(transactionNetCents(t) - principal)}.`
+        : formaPgto === 'Dinheiro'
+          ? `Recebimento confirmado e lançado no caixa físico${noDia}!`
+          : `Recebimento confirmado no fluxo financeiro correspondente${noDia}!`);
+      await oferecerRecibo(t, {
+        formaPagamento: formaPgto,
+        dataPagamento: dataRecebimento,
+        acrescimoCentavos: acrescimoDosAjustes(dados.ajustes),
+        descontoCentavos: dados.ajustes.descontoCentavos,
+        ...(parcial ? { principalCentavos: principal } : {}),
+      });
     } catch (error) {
       console.error('Erro ao confirmar recebimento:', error);
       showError('Erro', error instanceof Error ? error.message : 'Não foi possível aprovar a transação.');
@@ -1198,6 +1215,11 @@ const ContasReceber: React.FC = () => {
                                     <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : new Date(t.createdAt?.seconds * 1000).toLocaleDateString('pt-BR')}</td>
                                     <td style={{ padding: '10px 8px', fontWeight: 500 }}>
                                       {t.descricao}
+                                      {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number }) && (
+                                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#10b981', marginTop: '2px' }}>
+                                          {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number })}
+                                        </div>
+                                      )}
                                       {ehParcelaDeRenegociacao(t) && (
                                         <div
                                           title={`Renegociou: ${(t.renegociacao?.titulosOrigem || []).map((o) => o.descricao).join('; ')}${t.renegociacao?.motivo ? `. Motivo: ${t.renegociacao.motivo}` : ''}`}

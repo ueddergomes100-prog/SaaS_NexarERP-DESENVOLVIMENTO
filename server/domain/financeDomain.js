@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
-exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = void 0;
+exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
+exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = void 0;
 const dateTime_1 = require("./dateTime");
 const toCents = (value) => {
     if (typeof value === 'string') {
@@ -868,6 +868,33 @@ const reversePaymentReceipt = (payments, args) => {
     });
 };
 exports.reversePaymentReceipt = reversePaymentReceipt;
+/**
+ * Estorno de um RECEBIMENTO PARCIAL (16/10/2026): applyPaymentReceipt dividiu
+ * o pagamento em "o que falta" + o recebido. Aqui o recebido sai e o valor
+ * volta para o pagamento que ainda esta em aberto. Se a conta ja' foi
+ * quitada depois, o estorno do parcial e' recusado: primeiro estorna-se o
+ * recebimento que quitou.
+ */
+const reversePartialReceipt = (payments, args) => {
+    const indiceRecibo = payments.findIndex((payment) => (payment.status === 'confirmado' && (payment.transactionId === args.receiptId || payment.id === args.receiptId)));
+    if (indiceRecibo < 0) {
+        throw new Error('Este recebimento parcial não foi encontrado na venda. Atualize a tela e confira se ele já não foi estornado.');
+    }
+    const indiceOrigem = payments.findIndex((payment, index) => (index !== indiceRecibo && payment.transactionId === args.sourceTransactionId && payment.status !== 'confirmado'));
+    if (indiceOrigem < 0) {
+        throw new Error('A conta deste recebimento parcial já foi quitada. Para estornar este parcial, estorne antes o recebimento que quitou a conta.');
+    }
+    const devolverCentavos = Number(payments[indiceRecibo].valorCentavos) || 0;
+    return payments
+        .map((payment, index) => {
+        if (index !== indiceOrigem)
+            return payment;
+        const valorCentavos = (Number(payment.valorCentavos) || 0) + devolverCentavos;
+        return { ...payment, valorCentavos, valor: (0, exports.fromCents)(valorCentavos) };
+    })
+        .filter((_, index) => index !== indiceRecibo);
+};
+exports.reversePartialReceipt = reversePartialReceipt;
 const clampPercentual = (valor) => Math.max(0, Math.min(100, valor));
 /**
  * Resolve o percentual de comissao de UM item vendido, na ordem: produto/

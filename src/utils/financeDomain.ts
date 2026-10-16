@@ -1285,6 +1285,39 @@ export const reversePaymentReceipt = (
   });
 };
 
+/**
+ * Estorno de um RECEBIMENTO PARCIAL (16/10/2026): applyPaymentReceipt dividiu
+ * o pagamento em "o que falta" + o recebido. Aqui o recebido sai e o valor
+ * volta para o pagamento que ainda esta em aberto. Se a conta ja' foi
+ * quitada depois, o estorno do parcial e' recusado: primeiro estorna-se o
+ * recebimento que quitou.
+ */
+export const reversePartialReceipt = (
+  payments: PaymentRecord[],
+  args: { receiptId: string; sourceTransactionId: string },
+): PaymentRecord[] => {
+  const indiceRecibo = payments.findIndex((payment) => (
+    payment.status === 'confirmado' && (payment.transactionId === args.receiptId || payment.id === args.receiptId)
+  ));
+  if (indiceRecibo < 0) {
+    throw new Error('Este recebimento parcial não foi encontrado na venda. Atualize a tela e confira se ele já não foi estornado.');
+  }
+  const indiceOrigem = payments.findIndex((payment, index) => (
+    index !== indiceRecibo && payment.transactionId === args.sourceTransactionId && payment.status !== 'confirmado'
+  ));
+  if (indiceOrigem < 0) {
+    throw new Error('A conta deste recebimento parcial já foi quitada. Para estornar este parcial, estorne antes o recebimento que quitou a conta.');
+  }
+  const devolverCentavos = Number(payments[indiceRecibo].valorCentavos) || 0;
+  return payments
+    .map((payment, index) => {
+      if (index !== indiceOrigem) return payment;
+      const valorCentavos = (Number(payment.valorCentavos) || 0) + devolverCentavos;
+      return { ...payment, valorCentavos, valor: fromCents(valorCentavos) };
+    })
+    .filter((_, index) => index !== indiceRecibo);
+};
+
 const clampPercentual = (valor: number) => Math.max(0, Math.min(100, valor));
 
 /**

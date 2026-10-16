@@ -1,10 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { cifrar, decifrar, ehFormatoNovo, cifrarLegadoParaTeste, MAGICO } = require('../services/backupCripto');
 
 const SEGREDO = 'segredo-de-teste-bem-longo-2026';
 const CONTEUDO = Buffer.from(JSON.stringify({ metadata: { companyId: 'abc' }, data: { pedidos_venda: [{ id: 1 }] } }));
+// O formato antigo sempre cifrou o backup ja' compactado (backup.js: JSON -> gzip -> cifra).
+const CONTEUDO_GZIP = zlib.gzipSync(CONTEUDO);
 
 test('formato novo (GCM): cifra e decifra de volta ao mesmo conteudo', () => {
   const cifrado = cifrar(CONTEUDO, SEGREDO);
@@ -30,23 +33,39 @@ test('chave errada e recusada', () => {
   assert.throws(() => decifrar(cifrado, 'outra-chave'), /alterado ou a chave de criptografia/);
 });
 
-// O backup cifra sempre o JSON compactado (backup.js): o formato antigo tambem.
-const COMPACTADO = zlib.gzipSync(CONTEUDO);
-
 test('backup no formato antigo (CBC) continua legivel', () => {
-  const legado = cifrarLegadoParaTeste(COMPACTADO, SEGREDO);
+  const legado = cifrarLegadoParaTeste(CONTEUDO_GZIP, SEGREDO);
   assert.ok(!ehFormatoNovo(legado));
-  assert.ok(decifrar(legado, SEGREDO).equals(COMPACTADO));
+  const claro = decifrar(legado, SEGREDO);
+  assert.ok(claro.equals(CONTEUDO_GZIP));
+  assert.ok(zlib.gunzipSync(claro).equals(CONTEUDO));
 });
 
 test('formato antigo com chave errada nao devolve lixo como se fosse dado', () => {
-  // Sem autenticacao, ~1 em 256 chaves erradas passa no padding do CBC. Antes
-  // de 16/10/2026 isso devolvia lixo e este teste falhava de vez em quando;
-  // 300 tentativas pegariam o defeito em ~70% das execucoes.
-  for (let i = 0; i < 300; i += 1) {
-    const legado = cifrarLegadoParaTeste(COMPACTADO, SEGREDO);
-    assert.throws(() => decifrar(legado, `outra-chave-${i}`), /chave de criptografia/);
+  const legado = cifrarLegadoParaTeste(CONTEUDO_GZIP, SEGREDO);
+  assert.throws(() => decifrar(legado, 'outra-chave'), /chave de criptografia/);
+});
+
+test('formato antigo com chave errada que passa no padding por acaso tambem e recusado', () => {
+  // Sem autenticacao, a chave errada acerta o padding ~1 vez em 256 (era o que fazia o teste acima falhar as vezes).
+  // Procura um arquivo assim de proposito, com a derivacao antiga (SHA-256 do segredo), e confere que e' recusado.
+  const chaveErrada = crypto.createHash('sha256').update('outra-chave').digest();
+  const passaNoPadding = (legado) => {
+    const decipher = crypto.createDecipheriv('aes-256-cbc', chaveErrada, legado.subarray(0, 16));
+    try {
+      Buffer.concat([decipher.update(legado.subarray(16)), decipher.final()]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  let legado;
+  for (let i = 0; i < 20000 && !legado; i++) {
+    const candidato = cifrarLegadoParaTeste(CONTEUDO_GZIP, SEGREDO);
+    if (passaNoPadding(candidato)) legado = candidato;
   }
+  assert.ok(legado, 'nao achei um arquivo em que a chave errada passa no padding');
+  assert.throws(() => decifrar(legado, 'outra-chave'), /chave de criptografia não é a mesma/);
 });
 
 test('arquivo truncado', () => {

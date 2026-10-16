@@ -8,7 +8,10 @@
  *   "HENB2" (5 bytes) | iv (12) | tag (16) | ciphertext
  *
  * Formato ANTIGO: AES-256-CBC, iv (16) | ciphertext, sem autenticacao.
- * Continua sendo DECIFRADO (backups ja' gerados), nunca mais gerado.
+ * Continua sendo DECIFRADO (backups ja' gerados), nunca mais gerado. Todo
+ * backup antigo cifrou o JSON ja' compactado (gzip), entao o cabecalho do
+ * gzip faz as vezes da autenticacao que falta: chave errada que passa no
+ * padding por acaso (~1 vez em 256) e' recusada em vez de virar lixo.
  *
  * A chave e' derivada do segredo (BACKUP_ENCRYPTION_KEY) com scrypt e um sal
  * fixo -- o segredo e' longo e aleatorio por regra, scrypt so' torna a forca
@@ -23,10 +26,9 @@ const IV_GCM = 12;
 const TAG_GCM = 16;
 const IV_CBC = 16;
 const SAL_SCRYPT = 'hennder-erp-backup-v2';
-
-// Todo backup sempre foi JSON compactado com gzip (backup.js), que comeca com
-// estes dois bytes.
-const GZIP = [0x1f, 0x8b];
+/** Inicio de todo arquivo gzip (assinatura 1f 8b + metodo deflate 08): o conteudo de todo backup antigo. */
+const CABECALHO_GZIP = Buffer.from([0x1f, 0x8b, 0x08]);
+const ERRO_CHAVE_LEGADO = 'Não foi possível decifrar o backup: a chave de criptografia não é a mesma que o gerou.';
 
 const derivarChaveV2 = (segredo) => crypto.scryptSync(String(segredo), SAL_SCRYPT, 32, { N: 16384, r: 8, p: 1 });
 const derivarChaveLegado = (segredo) => crypto.createHash('sha256').update(String(segredo)).digest();
@@ -56,13 +58,10 @@ const decifrar = (buffer, segredo) => {
   }
 
   // Formato antigo (CBC): sem autenticacao -- chave errada costuma estourar
-  // no padding, mas cerca de 1 vez em 256 o padding sai valido por acaso e o
-  // resultado e' lixo. Por isso o conteudo decifrado tem de comecar como gzip
-  // (16/10/2026: era o teste intermitente que barrava o envio).
+  // no padding, mas nem sempre; o que passar tem de comecar como gzip.
   if (buffer.length <= IV_CBC) {
     throw new Error('Arquivo de backup vazio ou truncado.');
   }
-  const semChave = 'Não foi possível decifrar o backup: a chave de criptografia não é a mesma que o gerou.';
   const iv = buffer.subarray(0, IV_CBC);
   const conteudo = buffer.subarray(IV_CBC);
   const decipher = crypto.createDecipheriv('aes-256-cbc', derivarChaveLegado(segredo), iv);
@@ -70,9 +69,11 @@ const decifrar = (buffer, segredo) => {
   try {
     claro = Buffer.concat([decipher.update(conteudo), decipher.final()]);
   } catch {
-    throw new Error(semChave);
+    throw new Error(ERRO_CHAVE_LEGADO);
   }
-  if (claro.length < GZIP.length || claro[0] !== GZIP[0] || claro[1] !== GZIP[1]) throw new Error(semChave);
+  if (!claro.subarray(0, CABECALHO_GZIP.length).equals(CABECALHO_GZIP)) {
+    throw new Error(ERRO_CHAVE_LEGADO);
+  }
   return claro;
 };
 

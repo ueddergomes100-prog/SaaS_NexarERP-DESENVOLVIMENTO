@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Search, Plus, Edit, Power } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, Edit, Power, FileText, CaseUpper } from 'lucide-react';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,6 +11,12 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { BotaoFiltros, CampoFiltro, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { categoriasDosServicos, montarDocumentoServicos, passaNaCategoria } from '../../utils/relatorioServicosDomain';
 
 interface ServicoData {
   id: string;
@@ -17,6 +24,7 @@ interface ServicoData {
   nome: string;
   categoria: string;
   preco: number;
+  comissaoPercentual?: number | string | null;
   ativo?: boolean;
 }
 
@@ -27,6 +35,11 @@ const ServicosList: React.FC = () => {
   const { openTab } = useTabs();
   const [servicos, setServicos] = useState<ServicoData[]>([]);
   const [loading, setLoading] = useState(true);
+  // Filtro e relatorio (16/10/2026): o relatorio sai com o que esta filtrado aqui.
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [categoria, setCategoria] = useState('');
+  const [previewAberto, setPreviewAberto] = useState(false);
+  const categorias = useMemo(() => categoriasDosServicos(servicos), [servicos]);
 
   const { currentUser, tenantId } = useAuth();
 
@@ -111,7 +124,28 @@ const ServicosList: React.FC = () => {
     .filter((servico) => !termoServico
       || (servico.nome || '').toLowerCase().includes(termoServico)
       || String(servico.codigo || '').toLowerCase().includes(termoServico)
-      || (servico.categoria || '').toLowerCase().includes(termoServico));
+      || (servico.categoria || '').toLowerCase().includes(termoServico))
+    .filter((servico) => passaNaCategoria(servico, categoria));
+
+  const filtrosAtivos = categoria ? 1 : 0;
+
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+      categoria ? `Categoria: ${categoria}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="servicos-tabela"
+        documento={montarDocumentoServicos(filteredServicos, { filtrosAplicados, dataHoje: hoje })}
+        nomeArquivo={nomeArquivoRelatorio('Tabela de Serviços', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos serviços"
+      />
+    );
+  }
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -121,9 +155,17 @@ const ServicosList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Catálogo de mão de obra e pacotes</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={handleFixNames} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-            Padronizar (A-Z)
-          </button>
+          <MenuMaisOpcoes
+            itens={[
+              {
+                texto: 'Relatório', Icone: FileText,
+                titulo: 'Abre em PDF a tabela dos serviços filtrados na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+                desabilitado: loading,
+                onClick: () => setPreviewAberto(true),
+              },
+              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+            ]}
+          />
           <button className="btn-primary" onClick={() => openTab('/servicos/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Novo Serviço
           </button>
@@ -131,7 +173,7 @@ const ServicosList: React.FC = () => {
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
           <div className="search-box" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
             <input 
@@ -142,8 +184,20 @@ const ServicosList: React.FC = () => {
               style={{ width: '100%', padding: '10px 16px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             />
           </div>
-          <FiltroSituacao valor={situacao} onChange={setSituacao} />
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <FiltroSituacao valor={situacao} onChange={setSituacao} />
+            <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
+          </div>
         </div>
+
+        <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={() => setCategoria('')}>
+          <CampoFiltro rotulo="Categoria">
+            <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={estiloCampoFiltro}>
+              <option value="">Todas</option>
+              {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </CampoFiltro>
+        </PainelFiltros>
 
         <div className="table-wrapper">
           <table className="data-table">
@@ -161,7 +215,7 @@ const ServicosList: React.FC = () => {
               {loading ? (
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : filteredServicos.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhum serviço cadastrado." compacto /></td></tr>
+                <tr><td colSpan={6} style={{ padding: '8px' }}><EstadoVazio titulo={searchTerm || filtrosAtivos > 0 ? 'Nenhum serviço com essa busca ou filtro.' : 'Nenhum serviço cadastrado.'} compacto /></td></tr>
               ) : (
                 filteredServicos.map((servico) => (
                   <tr key={servico.id} {...linha(servico.id, () => openTab(`/servicos/editar/${servico.id}`))}>

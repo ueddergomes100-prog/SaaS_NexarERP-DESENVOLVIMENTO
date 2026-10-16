@@ -3,7 +3,13 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { Plus, Search, Edit, Power, Car, MapPin, Calendar, Hash } from 'lucide-react';
+import { Plus, Search, Edit, Power, Car, MapPin, Calendar, Hash, FileText } from 'lucide-react';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { montarDocumentoVeiculosDaTela } from '../../utils/relatorioVeiculosDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
@@ -24,6 +30,7 @@ interface Veiculo {
   ano: string;
   cor: string;
   kmAtual?: number;
+  horimetro?: number;
   clienteId: string;
   clienteNome?: string;
   tenantId: string;
@@ -36,6 +43,8 @@ const VeiculosList: React.FC = () => {
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  // Relatorio (16/10/2026): sai o que a lista mostra (busca + situacao).
+  const [previewAberto, setPreviewAberto] = useState(false);
   const { openTab } = useTabs();
   const { currentUser, tenantId, userPermissions, userRole, isOwner } = useAuth();
   const { modo: modoOficina, rotulos } = useModoOficina();
@@ -106,6 +115,23 @@ const VeiculosList: React.FC = () => {
     (v.clienteNome && v.clienteNome.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId={modoOficina === 'veiculos' ? 'veiculos-cadastro' : 'equipamentos-cadastro'}
+        documento={montarDocumentoVeiculosDaTela(filteredVeiculos, { modo: modoOficina, filtrosAplicados })}
+        nomeArquivo={nomeArquivoRelatorio(`Relatório de ${rotulos.veiculos}`, hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar={`Voltar aos ${rotulos.veiculos.toLowerCase()}`}
+      />
+    );
+  }
+
   return (
     <div className="os-page">
       <div className="page-header">
@@ -118,7 +144,15 @@ const VeiculosList: React.FC = () => {
             <p className="page-subtitle">{modoOficina === 'veiculos' ? 'Gerencie veículos vinculados aos clientes quando aplicável ao seu negócio' : 'Tratores, máquinas e implementos dos clientes: frota, série/chassi e horímetro'}</p>
           </div>
         </div>
-        <div className="header-actions">
+        <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: `Abre em PDF os ${rotulos.veiculos.toLowerCase()} da lista (dali dá para imprimir, salvar o PDF ou salvar em Excel)`,
+              desabilitado: isLoading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
           {canEdit && (
             <button className="btn-primary" onClick={() => openTab('/veiculos/novo')}>
               <Plus size={20} />

@@ -22,6 +22,7 @@ import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/da
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { PERMISSAO_DESCONTO_NA_BAIXA, SEM_AJUSTES, acrescimoDosAjustes, type AjustesDaBaixa } from '../../utils/ajustesDaBaixaDomain';
 import { bloqueioDoParcial, principalDaBaixa, textoDoParcial, type TituloParaParcial } from '../../utils/baixaParcialDomain';
+import { MENSAGEM_SEM_FORMA_DE_RECEBIMENTO, formasDeRecebimento, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
 import {
   dataBrasileira,
   planejarEstornoReceber,
@@ -77,7 +78,7 @@ import {
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote } from '../../components/finance/BaixaEmLote';
-import { estadoDaSelecao, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
+import { estadoDaSelecao, FORMAS_DA_BAIXA_EM_LOTE, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import './Financeiro.css';
 
@@ -124,6 +125,9 @@ interface GrupoCliente {
 
 /** Regra compartilhada com o Dashboard -- ver transactionDueDateInput. */
 const dataReferenciaTransacao = (t: TransacaoData) => transactionDueDateInput(t) || undefined;
+
+// Formas que o "Dar Baixa" aceita; a filial escolhe quais usa (formasDeRecebimento).
+const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
 
 const ContasReceber: React.FC = () => {
   const { openTab } = useTabs();
@@ -191,6 +195,9 @@ const ContasReceber: React.FC = () => {
       .catch(() => { setConfigFilial({}); setParametrosVenda(PARAMETROS_VENDA_PADRAO); });
   }, [tenantId]);
   const emissaoDocumentos = useMemo(() => parseEmissaoDocumentos(configFilial.emissaoDocumentos), [configFilial]);
+  // Formas de pagamento "Usa" da filial: o recebimento acompanha a venda (16/10/2026).
+  const ordemFormasDaFilial = useMemo(() => parseOrdemFormasPagamento(configFilial.ordemFormasPagamento), [configFilial]);
+  const formasOcultasDaFilial = useMemo(() => parseFormasOcultas(configFilial.formasPagamentoOcultas), [configFilial]);
   const [pdfRecibo, setPdfRecibo] = useState<{ blob: Blob; nome: string } | null>(null);
   // Boleto emitido pelo Dar Baixa (15/10/2026): abre o PDF na hora, como na tela de Boletos.
   const [pdfBoleto, setPdfBoleto] = useState<{ blob: Blob; nome: string } | null>(null);
@@ -357,18 +364,24 @@ const ContasReceber: React.FC = () => {
   };
 
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
-    const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
+    // So' as formas marcadas como "Usa" na filial, na ordem dela (16/10/2026).
+    const formasDaFilial = formasDeRecebimento([...FORMAS_RECEBIMENTO, FORMA_BOLETO], ordemFormasDaFilial, formasOcultasDaFilial);
+    const FORMAS_RECEBIMENTO_DA_FILIAL = formasDaFilial.filter((forma) => forma !== FORMA_BOLETO);
     // Boleto (15/10/2026): so' com banco preparado para boleto e permissao de Boletos.
     // Escolher "Boleto" nao da' baixa -- emite o boleto (emitirBoletoPelaBaixa).
     let bancosComBoleto: BancoBoleto[] = [];
-    if (tenantId && podeMexerEmBoleto && !bloqueioParaCobrarEmBoleto({ ...t, tipo: t.tipo || 'entrada' })) {
+    if (tenantId && podeMexerEmBoleto && formasDaFilial.includes(FORMA_BOLETO) && !bloqueioParaCobrarEmBoleto({ ...t, tipo: t.tipo || 'entrada' })) {
       try {
         bancosComBoleto = await carregarBancosComBoleto(tenantId);
       } catch (erro) {
         console.warn('Contas a Receber: não foi possível conferir os bancos de boleto.', erro);
       }
     }
-    const formas = bancosComBoleto.length > 0 ? [...FORMAS_RECEBIMENTO, FORMA_BOLETO] : FORMAS_RECEBIMENTO;
+    const formas = bancosComBoleto.length > 0 ? [...FORMAS_RECEBIMENTO_DA_FILIAL, FORMA_BOLETO] : FORMAS_RECEBIMENTO_DA_FILIAL;
+    if (formas.length === 0) {
+      showError('Nenhuma forma de recebimento', MENSAGEM_SEM_FORMA_DE_RECEBIMENTO);
+      return;
+    }
     // Titulo vencido com juros/multa configurados na filial: ja' vem preenchido (editavel).
     const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, getDateInputInTimeZone());
     const semPercentuais = parametrosVenda.juros.aoMesPercentual <= 0 && parametrosVenda.juros.multaPercentual <= 0;
@@ -1355,7 +1368,14 @@ const ContasReceber: React.FC = () => {
         <RenegociacaoModal clienteNome={renegociando.clienteNome} titulos={renegociando.titulos} tenantId={tenantId} onFechar={fecharRenegociacao} />
       )}
       {itensDoLote && tenantId && (
-        <BaixaEmLoteModal tipo="entrada" itens={itensDoLote} tenantId={tenantId} podeDescontar={podeDescontar} onFechar={fecharBaixaEmLote} />
+        <BaixaEmLoteModal
+          tipo="entrada"
+          itens={itensDoLote}
+          tenantId={tenantId}
+          podeDescontar={podeDescontar}
+          formasPermitidas={formasDeRecebimento(FORMAS_DA_BAIXA_EM_LOTE.entrada, ordemFormasDaFilial, formasOcultasDaFilial)}
+          onFechar={fecharBaixaEmLote}
+        />
       )}
 
       {/* Modal de Conciliação com Crédito */}

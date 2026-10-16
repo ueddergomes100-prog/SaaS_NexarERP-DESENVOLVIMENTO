@@ -179,12 +179,14 @@ export const BaixaEmLoteModal: React.FC<{
   tenantId: string;
   /** Desconto por conta so' com a permissao propria (15/10/2026). */
   podeDescontar: boolean;
+  /** Formas "Usa" da filial (Receber, 16/10/2026); sem isto, todas as do lote. */
+  formasPermitidas?: string[];
   /** Fecha a janela; recebe os ids que foram baixados (vazio se cancelou). */
   onFechar: (idsBaixados: string[]) => void;
-}> = ({ tipo, itens, tenantId, podeDescontar, onFechar }) => {
+}> = ({ tipo, itens, tenantId, podeDescontar, formasPermitidas, onFechar }) => {
   const textos = TEXTOS[tipo];
   const hoje = getDateInputInTimeZone();
-  const formas = FORMAS_DA_BAIXA_EM_LOTE[tipo];
+  const formas = formasPermitidas ? FORMAS_DA_BAIXA_EM_LOTE[tipo].filter((f) => formasPermitidas.includes(f)) : FORMAS_DA_BAIXA_EM_LOTE[tipo];
   const formaComum = (() => {
     const previstas = new Set(itens.map((i) => i.formaPrevista || ''));
     const unica = previstas.size === 1 ? [...previstas][0] : '';

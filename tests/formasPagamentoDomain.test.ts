@@ -6,6 +6,7 @@ import {
   formaDoDocumentoSemPagamentos,
   formaInicialConfigurada,
   formasDaEmpresa,
+  formasDeRecebimento,
   formasVisiveis,
   ordenarFormasPagamento,
   parseFormasOcultas,
@@ -173,4 +174,20 @@ test('pre-venda gravada sem forma abre como pagamento novo -- nunca em "Outros"'
   assert.equal(formaDoDocumentoSemPagamentos(undefined, ''), '');
   assert.equal(formaDoDocumentoSemPagamentos('', 'Boleto'), 'Boleto');
   assert.equal(formaDoDocumentoSemPagamentos('Pix', 'Boleto'), 'Pix');
+});
+
+test('recebimento acompanha as formas "Usa" da filial, na ordem dela (16/10/2026)', () => {
+  const aceitas = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros', 'Boleto'];
+  // Filial que nao usa Transferencia, Cheque, Boleto e Outros (print do dono).
+  const ocultas = ['Transferência', 'Cheque', 'Boleto', 'Outros'];
+  assert.deepEqual(
+    formasDeRecebimento(aceitas, ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Pagamento a Prazo'], ocultas),
+    ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito'],
+  );
+  // "Pagamento a Prazo" nao e' forma de receber, mesmo marcada.
+  assert.ok(!formasDeRecebimento(aceitas, ['Pagamento a Prazo', 'Pix'], []).includes('Pagamento a Prazo'));
+  // Ordem da filial.
+  assert.deepEqual(formasDeRecebimento(['Dinheiro', 'Pix'], ['Pix', 'Dinheiro'], []), ['Pix', 'Dinheiro']);
+  // Filial sem configuracao: todas as aceitas.
+  assert.equal(formasDeRecebimento(aceitas, [], []).length, aceitas.length);
 });

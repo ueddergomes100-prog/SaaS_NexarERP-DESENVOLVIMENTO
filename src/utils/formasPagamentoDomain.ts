@@ -116,6 +116,22 @@ export const formasDaEmpresa = (
 ): PaymentMethod[] => formasVisiveis(ordenarFormasPagamento(FORMAS_PAGAMENTO_PADRAO, ordemConfigurada), ocultas);
 
 /**
+ * Formas oferecidas ao RECEBER uma conta (Contas a Receber, 16/10/2026,
+ * pedido do dono): as mesmas marcadas como "Usa" na filial, na ordem da
+ * filial -- nao adianta esconder uma forma da venda e ela aparecer na hora de
+ * receber. Fica so' o que a tela de recebimento aceita ("Pagamento a Prazo"
+ * nao e' forma de receber). Vazio = a filial nao usa nenhuma: a tela avisa.
+ */
+export const formasDeRecebimento = (
+  aceitas: readonly string[],
+  ordemConfigurada: string[] | null | undefined,
+  ocultas: string[] | null | undefined,
+): string[] => formasDaEmpresa(ordemConfigurada, ocultas).filter((forma) => aceitas.includes(forma));
+
+/** Frase da tela quando a filial nao usa nenhuma forma de receber. */
+export const MENSAGEM_SEM_FORMA_DE_RECEBIMENTO = 'Nenhuma forma de recebimento está marcada como "Usa" nesta filial. Marque ao menos uma (Dinheiro, Pix, Cartão, Transferência, Cheque, Boleto ou Outros) em Configurações da filial › Formas de Pagamento.';
+
+/**
  * Forma com que um pagamento NOVO ja' nasce na tela (2026-09-30).
  *
  * - "Exigir escolha" ligado: vazio -- o usuario escolhe, ninguem escolhe por ele.

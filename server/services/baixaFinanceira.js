@@ -183,7 +183,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     const parcialRef = principalCentavos < valorCentavos ? db.collection('transacoes').doc() : null;
     // Juros/multa e desconto ficam ligados ao lancamento que os recebeu (a conta, ou o parcial).
     const donoDosAjustes = parcialRef ? parcialRef.id : titulo.ref.id;
-    resumo.parcial = parcialRef ? { principalCentavos, restanteCentavos: valorCentavos - principalCentavos } : null;
+    resumo.parcial = parcialRef ? { transacaoId: parcialRef.id, principalCentavos, restanteCentavos: valorCentavos - principalCentavos } : null;
     // Juros/multa e desconto viram lancamentos PROPRIOS (pagos no mesmo dia),
     // ligados ao titulo nos dois sentidos: o Fluxo de Caixa ve a receita/despesa
     // e o estorno do titulo desfaz tudo (fase A 2026-10-07; desconto e Pagar 15/10/2026).

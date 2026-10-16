@@ -186,6 +186,8 @@ export const pedirDadosBaixa = async (args: {
       ['baixa-juros', 'baixa-multa', 'baixa-desconto'].forEach((id) => document.getElementById(id)?.addEventListener('input', aoMexerNosAjustes));
       document.getElementById('baixa-valor')?.addEventListener('input', aoMexerNoValor);
       resumo();
+      // Comeca pela forma (juros/multa/desconto sao o caso menos comum).
+      (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.focus();
     },
     focusConfirm: false,
     showCancelButton: true,

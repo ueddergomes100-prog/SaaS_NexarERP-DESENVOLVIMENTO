@@ -201,7 +201,7 @@ const ContasReceber: React.FC = () => {
    * filial. Sempre disponivel pelo botao "Recibo" da conta recebida; ao dar
    * baixa, sai conforme a filial configurou (perguntar / sempre / nunca).
    */
-  const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number }) => {
+  const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number; reciboId?: string }) => {
     try {
       let cadastroCliente: unknown = null;
       if (t.clienteId) {
@@ -210,7 +210,8 @@ const ContasReceber: React.FC = () => {
       }
       const recibo = montarRecibo({
         titulo: {
-          id: t.id,
+          // Parcial: o numero vem do lancamento parcial (cada pagamento tem o seu recibo).
+          id: dados.reciboId || t.id,
           // Pagamento parcial (16/10/2026): o recibo e' do que entrou agora.
           descricao: dados.principalCentavos !== undefined ? `${t.descricao} (pagamento parcial)` : t.descricao,
           valorCentavos: dados.principalCentavos ?? transactionNetCents(t),
@@ -230,7 +231,7 @@ const ContasReceber: React.FC = () => {
     }
   };
 
-  const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number }) => {
+  const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number; reciboId?: string }) => {
     const modo = emissaoDocumentos.recibo.modo;
     if (modo === 'nunca') return;
     if (modo === 'perguntar') {
@@ -265,8 +266,8 @@ const ContasReceber: React.FC = () => {
     ajustes: AjustesDaBaixa = SEM_AJUSTES,
     valorRecebidoCentavos?: number,
   ) => {
-    if (!tenantId || !currentUser) return;
-    await registrarBaixa({
+    if (!tenantId || !currentUser) return undefined;
+    return registrarBaixa({
       tipo: 'entrada',
       transacaoId: t.id,
       formaPagamento: formaPgto,
@@ -439,7 +440,7 @@ const ContasReceber: React.FC = () => {
     }
 
     try {
-      await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento, dados.ajustes, dados.valorRecebidoCentavos);
+      const gravado = await confirmarRecebimento(t, formaPgto, bancoId, dataRecebimento, dados.ajustes, dados.valorRecebidoCentavos);
       const noDia = dataRecebimento === getDateInputInTimeZone() ? '' : ` com a data de ${dataBrasileira(dataRecebimento)}`;
       const principal = principalDaBaixa(dados.valorRecebidoCentavos, dados.ajustes);
       const parcial = principal < transactionNetCents(t);
@@ -454,7 +455,7 @@ const ContasReceber: React.FC = () => {
         dataPagamento: dataRecebimento,
         acrescimoCentavos: acrescimoDosAjustes(dados.ajustes),
         descontoCentavos: dados.ajustes.descontoCentavos,
-        ...(parcial ? { principalCentavos: principal } : {}),
+        ...(parcial ? { principalCentavos: principal, reciboId: gravado?.parcial?.transacaoId } : {}),
       });
     } catch (error) {
       console.error('Erro ao confirmar recebimento:', error);

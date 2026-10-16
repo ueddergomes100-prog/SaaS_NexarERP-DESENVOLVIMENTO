@@ -85,8 +85,9 @@ router.post('/baixa', async (req, res) => {
     const tenantId = empresaDaOperacao(req.user, req.body);
     const resumo = await registrarBaixa({ user: req.user, tenantId, pedido });
 
-    registrarLogDaBaixa(req.user, tenantId, pedido, resumo);
-    return res.json({ ok: true });
+    registrarLogDaBaixa(req.user, tenantId, pedido, resumo, resumo.parcial ? ` (pagamento parcial; fica em aberto ${reais(resumo.parcial.restanteCentavos)})` : '');
+    // Parcial (16/10/2026): a tela usa o id do lancamento parcial no numero do recibo.
+    return res.json({ ok: true, ...(resumo.parcial ? { parcial: resumo.parcial } : {}) });
   } catch (erro) {
     return responderErro(res, erro, 'dar baixa');
   }

@@ -42,7 +42,7 @@ test('100 de 1.000: a conta fica com 900 em aberto, o pago vira lancamento propr
   const fake = banco();
   const s = carregar(fake.db);
   const r = await receber(s, 10000);
-  assert.deepEqual(r.parcial, { principalCentavos: 10000, restanteCentavos: 90000 });
+  assert.deepEqual(r.parcial, { transacaoId: idDoParcial(fake, 'r1'), principalCentavos: 10000, restanteCentavos: 90000 });
 
   const conta = fake.ler('transacoes/r1');
   assert.equal(conta.status, 'Pendente');

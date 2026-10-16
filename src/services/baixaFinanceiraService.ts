@@ -135,8 +135,14 @@ export interface PedidoDeBaixa {
  * banco e atualiza a venda/OS. Tudo ou nada. Erro sobe como
  * BaixaFinanceiraError, com a frase pronta para o usuario.
  */
-export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<void> => {
-  await chamarFinanceiro<{ ok: boolean }>('/baixa', {
+/** Pagamento parcial gravado (16/10/2026): o lancamento proprio e quanto ficou em aberto. */
+export interface ResultadoDoParcial {
+  transacaoId: string;
+  principalCentavos: number;
+  restanteCentavos: number;
+}
+
+export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<{ parcial?: ResultadoDoParcial }> => chamarFinanceiro<{ ok: boolean; parcial?: ResultadoDoParcial }>('/baixa', {
     tipo: pedido.tipo,
     transacaoId: pedido.transacaoId,
     formaPagamento: pedido.formaPagamento,
@@ -147,7 +153,6 @@ export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<void> => {
     ...(pedido.valorRecebidoCentavos && pedido.valorRecebidoCentavos > 0 ? { valorRecebidoCentavos: pedido.valorRecebidoCentavos } : {}),
     tenantId: pedido.tenantId,
   });
-};
 
 /** Resultado de cada conta da baixa em lote. */
 export interface ResultadoBaixaEmLote {

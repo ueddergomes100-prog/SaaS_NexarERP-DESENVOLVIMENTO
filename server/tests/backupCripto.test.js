@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const zlib = require('node:zlib');
 const { cifrar, decifrar, ehFormatoNovo, cifrarLegadoParaTeste, MAGICO } = require('../services/backupCripto');
 
 const SEGREDO = 'segredo-de-teste-bem-longo-2026';
@@ -29,15 +30,23 @@ test('chave errada e recusada', () => {
   assert.throws(() => decifrar(cifrado, 'outra-chave'), /alterado ou a chave de criptografia/);
 });
 
+// O backup cifra sempre o JSON compactado (backup.js): o formato antigo tambem.
+const COMPACTADO = zlib.gzipSync(CONTEUDO);
+
 test('backup no formato antigo (CBC) continua legivel', () => {
-  const legado = cifrarLegadoParaTeste(CONTEUDO, SEGREDO);
+  const legado = cifrarLegadoParaTeste(COMPACTADO, SEGREDO);
   assert.ok(!ehFormatoNovo(legado));
-  assert.ok(decifrar(legado, SEGREDO).equals(CONTEUDO));
+  assert.ok(decifrar(legado, SEGREDO).equals(COMPACTADO));
 });
 
 test('formato antigo com chave errada nao devolve lixo como se fosse dado', () => {
-  const legado = cifrarLegadoParaTeste(CONTEUDO, SEGREDO);
-  assert.throws(() => decifrar(legado, 'outra-chave'), /chave de criptografia/);
+  // Sem autenticacao, ~1 em 256 chaves erradas passa no padding do CBC. Antes
+  // de 16/10/2026 isso devolvia lixo e este teste falhava de vez em quando;
+  // 300 tentativas pegariam o defeito em ~70% das execucoes.
+  for (let i = 0; i < 300; i += 1) {
+    const legado = cifrarLegadoParaTeste(COMPACTADO, SEGREDO);
+    assert.throws(() => decifrar(legado, `outra-chave-${i}`), /chave de criptografia/);
+  }
 });
 
 test('arquivo truncado', () => {

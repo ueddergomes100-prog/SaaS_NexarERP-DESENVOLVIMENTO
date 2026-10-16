@@ -24,6 +24,10 @@ const TAG_GCM = 16;
 const IV_CBC = 16;
 const SAL_SCRYPT = 'hennder-erp-backup-v2';
 
+// Todo backup sempre foi JSON compactado com gzip (backup.js), que comeca com
+// estes dois bytes.
+const GZIP = [0x1f, 0x8b];
+
 const derivarChaveV2 = (segredo) => crypto.scryptSync(String(segredo), SAL_SCRYPT, 32, { N: 16384, r: 8, p: 1 });
 const derivarChaveLegado = (segredo) => crypto.createHash('sha256').update(String(segredo)).digest();
 
@@ -52,18 +56,24 @@ const decifrar = (buffer, segredo) => {
   }
 
   // Formato antigo (CBC): sem autenticacao -- chave errada costuma estourar
-  // no padding, mas nem sempre; o checksum do conteudo (restore.js) cobre o resto.
+  // no padding, mas cerca de 1 vez em 256 o padding sai valido por acaso e o
+  // resultado e' lixo. Por isso o conteudo decifrado tem de comecar como gzip
+  // (16/10/2026: era o teste intermitente que barrava o envio).
   if (buffer.length <= IV_CBC) {
     throw new Error('Arquivo de backup vazio ou truncado.');
   }
+  const semChave = 'Não foi possível decifrar o backup: a chave de criptografia não é a mesma que o gerou.';
   const iv = buffer.subarray(0, IV_CBC);
   const conteudo = buffer.subarray(IV_CBC);
   const decipher = crypto.createDecipheriv('aes-256-cbc', derivarChaveLegado(segredo), iv);
+  let claro;
   try {
-    return Buffer.concat([decipher.update(conteudo), decipher.final()]);
+    claro = Buffer.concat([decipher.update(conteudo), decipher.final()]);
   } catch {
-    throw new Error('Não foi possível decifrar o backup: a chave de criptografia não é a mesma que o gerou.');
+    throw new Error(semChave);
   }
+  if (claro.length < GZIP.length || claro[0] !== GZIP[0] || claro[1] !== GZIP[1]) throw new Error(semChave);
+  return claro;
 };
 
 /** Cifra no formato ANTIGO -- so' pra teste garantir que ele continua legivel. */

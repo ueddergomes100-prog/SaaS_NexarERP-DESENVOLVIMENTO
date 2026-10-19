@@ -136,9 +136,9 @@ const Faturamento: React.FC = () => {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
               <span style={{ color: 'var(--text-secondary)' }}>
-                3. (-) Cancelamentos e Devoluções
+                3. (-) Devoluções de venda
                 <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Receita estornada por OS/venda cancelada ou devolução
+                  Venda ou OS cancelada já sai da receita bruta; aqui só o que foi devolvido ao cliente
                 </span>
               </span>
               <span style={{ fontWeight: 600, color: '#f59e0b' }}>{formatCurrency(totalEstornos)}</span>

@@ -74,3 +74,17 @@ test('documento: indicadores, duas seções e total igual à página antiga', ()
   assert.match(total[4], /1\.415,50/);
   assert.match(total[5], /147,50/);
 });
+
+test('venda e OS canceladas não entram no relatório de descontos (19/10/2026)', () => {
+  const docs = documentosComDesconto({
+    pedidos: [
+      { id: 'v1', status: 'Finalizada', dataVenda: '2026-09-10', valorTotalCentavos: 1000, descontoGeral: { valorAplicadoCentavos: 100 } },
+      { id: 'v2', status: 'Cancelada', dataVenda: '2026-09-10', valorTotalCentavos: 1000, descontoGeral: { valorAplicadoCentavos: 100 } },
+    ],
+    ordens: [
+      { id: 'o1', status: 'Cancelada', dataEntrada: '2026-09-05', valorTotalCentavos: 3000, desconto: { valorAplicadoCentavos: 300 } },
+    ],
+    orcamentos: [],
+  }, periodo);
+  assert.deepEqual(docs.map((d) => d.id), ['v1']);
+});

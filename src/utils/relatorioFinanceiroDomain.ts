@@ -1,4 +1,4 @@
-import { isRevenueReversal, transactionNetCents } from './financeDomain';
+import { abateReceita, isRevenueReversal, lancamentoDesfeito, transactionNetCents } from './financeDomain';
 import { getDateInputInTimeZone } from './dateTime';
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
 
@@ -12,9 +12,10 @@ import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './rela
  *   - Recebidos (entrada + Paga): os estornos (saida paga de cancelamento /
  *     devolucao, isRevenueReversal) no periodo abatem o total. O estorno com
  *     id `estorno_cancelamento_{idOriginal}` marca a linha original como
- *     ESTORNADO (continua visivel, fora do total); o que nao casa com uma
- *     linha listada (devolucao, recebimento fora do periodo) entra so' como
- *     abatimento no total.
+ *     ESTORNADO (continua visivel, fora do total); recebimento marcado
+ *     `estornada` tambem. Desde 19/10/2026 so' a DEVOLUCAO que nao casa com uma
+ *     linha abate o total (estorno de venda fora do periodo nao abate mais),
+ *     e o total nunca fica negativo.
  *
  * Regra pura: recebe as transacoes ja lidas e devolve o documento.
  */
@@ -35,6 +36,8 @@ export interface TransacaoRelatorioFinanceiro {
   clienteNome?: string;
   formaPagamento?: string;
   valor?: number;
+  estornada?: boolean;
+  statusOperacional?: string;
   [campo: string]: unknown;
 }
 
@@ -97,10 +100,10 @@ export interface ResultadoRelatorioFinanceiro {
   subtotalCentavos: number;
   /** Linhas listadas marcadas como estornadas. */
   estornadoListadoCentavos: number;
-  /** Estornos do periodo que nao casam com uma linha listada. */
+  /** Devolucoes de venda do periodo que nao casam com uma linha listada (abatem o total). */
   outrosEstornosCentavos: number;
   totalEstornosCentavos: number;
-  /** subtotal - estornos: o "TOTAL PAGO/RECEBIDO" ou "TOTAL EM ABERTO". */
+  /** subtotal - estornos: o "TOTAL PAGO/RECEBIDO" ou "TOTAL EM ABERTO". Nunca negativo. */
   totalCentavos: number;
 }
 
@@ -123,7 +126,14 @@ export const calcularRelatorioFinanceiro = (
 
   // Estorno e' SAIDA, entao nunca apareceria no relatorio de recebimentos --
   // sem isso o total soma dinheiro que voltou pro cliente.
+  // 19/10/2026 (decisao do dono: cancelar so' remove, nunca negativa): o
+  // recebimento desfeito (venda/OS cancelada) fica listado como ESTORNADO e fora
+  // do total; o estorno de cancelamento cuja venda nao esta' no periodo NAO
+  // abate mais nada. So' a devolucao de venda que ainda vale abate.
   if (tipo === 'entrada' && status === 'Paga') {
+    listadas.forEach(({ t }) => {
+      if (lancamentoDesfeito(t)) idsEstornados.add(t.id);
+    });
     saidasPagas.forEach((estorno) => {
       if (!isRevenueReversal(estorno)) return;
       const dataEstorno = estorno.dataPagamento || estorno.data || '';
@@ -131,7 +141,7 @@ export const calcularRelatorioFinanceiro = (
       const originalId = transacaoOriginalDoEstorno(estorno.id);
       if (originalId && idsListados.has(originalId)) {
         idsEstornados.add(originalId);
-      } else {
+      } else if (abateReceita({ ...estorno, status: 'Paga' } as any)) {
         outrosEstornosCentavos += transactionNetCents(estorno as any);
       }
     });
@@ -158,7 +168,7 @@ export const calcularRelatorioFinanceiro = (
     estornadoListadoCentavos,
     outrosEstornosCentavos,
     totalEstornosCentavos,
-    totalCentavos: subtotalCentavos - totalEstornosCentavos,
+    totalCentavos: Math.max(0, subtotalCentavos - totalEstornosCentavos),
   };
 };
 
@@ -203,8 +213,8 @@ export const montarDocumentoFinanceiro = (
     valor: (l) => l.valorCentavos,
     // Linha estornada continua visivel (auditoria), mas fora do total; o
     // estorno que nao casa com linha tambem abate -- igual a pagina antiga.
-    totalCalculado: (linhas) => linhas.reduce((soma, l) => soma + (l.estornado ? 0 : l.valorCentavos), 0)
-      - resultado.outrosEstornosCentavos,
+    totalCalculado: (linhas) => Math.max(0, linhas.reduce((soma, l) => soma + (l.estornado ? 0 : l.valorCentavos), 0)
+      - resultado.outrosEstornosCentavos),
   });
 
   const indicadores: IndicadorRelatorio[] = [{ rotulo: 'Total de registros', valor: String(resultado.linhas.length) }];

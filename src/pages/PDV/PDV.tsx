@@ -478,7 +478,10 @@ const PDV: React.FC = () => {
       );
       const snapVendas = await getDocs(qVendasEmDinheiro);
       snapVendas.forEach((docSnap) => {
-        saldoEsperadoCentavos += Number(docSnap.data().valorCentavos || 0);
+        const t = docSnap.data();
+        // Venda cancelada nesta sessao: o dinheiro voltou ao cliente (19/10/2026).
+        if (t.estornada === true || t.status === 'Cancelada') return;
+        saldoEsperadoCentavos += Number(t.valorCentavos || 0);
       });
     } catch (error) {
       console.error('Erro ao calcular saldo esperado do caixa:', error);

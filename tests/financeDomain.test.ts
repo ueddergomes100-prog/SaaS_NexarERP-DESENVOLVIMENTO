@@ -15,6 +15,10 @@ import {
   explodeInstallmentPaymentRecords,
   isSimplifiedChequePayment,
   isRevenueReversal,
+  abateReceita,
+  contaComoReceita,
+  lancamentoDesfeito,
+  receitaDoConjuntoCentavos,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
   REVENUE_REVERSAL_CATEGORIES,
@@ -1052,4 +1056,34 @@ test('baixa em cheque sem os dados (simplificado): marca a forma e a data, sem c
   assert.equal(marcado.dataPrevistaRecebimento, '2026-10-20');
   assert.equal('cheque' in marcado, false);
   assert.equal('bancoId' in marcado, false);
+});
+
+test('receita nunca negativa: cancelada some, crédito não conta, só devolução abate (19/10/2026)', () => {
+  const venda = { tipo: 'entrada', status: 'Paga', formaPagamento: 'Pix', categoria: 'Venda de Peças', valorCentavos: 1700 };
+  const cancelada = { ...venda, estornada: true, statusOperacional: 'Cancelada' };
+  const estornoCancelamento = { tipo: 'saida', status: 'Paga', formaPagamento: 'Pix', categoria: 'Cancelamento de Venda', sourceType: 'cancelamento_pedido_venda', valorCentavos: 1700 };
+  const credito = { ...venda, formaPagamento: 'Crédito de Devolução', valorCentavos: 500 };
+  const devolucao = { tipo: 'saida', status: 'Paga', formaPagamento: 'Dinheiro', categoria: 'Devolução de Venda', valorCentavos: 300 };
+  const devolucaoEstornada = { ...devolucao, estornada: true, statusOperacional: 'Estornada' };
+  const estornoDaDevolucao = { tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', categoria: 'Devolução de Venda', valorCentavos: 300 };
+
+  assert.equal(contaComoReceita(venda), true);
+  assert.equal(contaComoReceita(cancelada), false);
+  assert.equal(contaComoReceita(credito), false);
+  assert.equal(contaComoReceita(estornoDaDevolucao), false);
+  assert.equal(contaComoReceita({ ...venda, status: 'Pendente' }), false);
+  assert.equal(abateReceita(estornoCancelamento), false);
+  assert.equal(abateReceita(devolucao), true);
+  assert.equal(abateReceita(devolucaoEstornada), false);
+  assert.equal(lancamentoDesfeito(cancelada), true);
+  assert.equal(lancamentoDesfeito(venda), false);
+
+  // Venda de ontem cancelada hoje: hoje nao fica negativo.
+  assert.equal(receitaDoConjuntoCentavos([estornoCancelamento]), 0);
+  // Credito cancelado no mesmo dia (o -R$ 5,00 do dev).
+  assert.equal(receitaDoConjuntoCentavos([{ ...credito, estornada: true }, { ...estornoCancelamento, formaPagamento: 'Crédito de Devolução', valorCentavos: 500 }]), 0);
+  // Devolucao maior que as vendas do dia: zera.
+  assert.equal(receitaDoConjuntoCentavos([{ ...venda, valorCentavos: 100 }, devolucao]), 0);
+  // Caso normal.
+  assert.equal(receitaDoConjuntoCentavos([venda, cancelada, estornoCancelamento, devolucao]), 1400);
 });

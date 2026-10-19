@@ -17,6 +17,7 @@ import {
   toCents,
   transactionDueDateInput,
   transactionNetAmount,
+  lancamentoDesfeito,
   type ChequeDetails,
   type PaymentMethod,
   type PaymentRecord, transactionNetCents } from '../../utils/financeDomain';
@@ -909,7 +910,8 @@ const ContasReceber: React.FC = () => {
     t.formaPagamento !== 'Cartão de Crédito' &&
     t.formaPagamento !== 'Cartão de Débito'
   ));
-  const recebimentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr);
+  // Recebimento de venda/OS cancelada nao conta (cancelar so' remove -- 19/10/2026).
+  const recebimentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr && !lancamentoDesfeito(t));
 
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
   // Desconto dado na baixa (15/10/2026) e' lancamento de saida: sai daqui para o card mostrar o que entrou de fato.

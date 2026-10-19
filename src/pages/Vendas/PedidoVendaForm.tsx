@@ -672,7 +672,7 @@ const PedidoVendaForm: React.FC = () => {
     precoAutomatico(tabelaDoItemDoCatalogo(produto, opcao), condicaoPagamento).preco
   );
 
-  const { baixarLotesNaTransacao, camposDeLoteDoItem, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, estornarLotesDaDevolucaoNaTransacao, linhasParaLote, prepararBaixaDeLotes } = loteBaixa;
+  const { baixarLotesNaTransacao, camposDeLoteDoItem, conferirLotesDoEstornoNaTransacao, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, estornarLotesDaDevolucaoNaTransacao, linhasParaLote, prepararBaixaDeLotes } = loteBaixa;
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
   const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
@@ -4561,18 +4561,26 @@ const PedidoVendaForm: React.FC = () => {
           return { ...storedItem, quantidadeJaDevolvida: Math.max(0, atual - devolvido.quantidadeDevolvida) };
         });
 
-        await applyStockAdjustments(
-          transaction,
-          db,
-          toStockAdjustmentItems(itensDevolvidos.map((item) => ({
-            id: item.id,
-            nome: item.nome,
-            quantidade: item.quantidadeDevolvida,
-            fatorConversao: item.fatorConversao,
-          }))),
-          'decrement',
-          true,
-        );
+        // Estoque e lote nao ficam negativos (19/10/2026, decisao do dono): se a
+        // mercadoria devolvida ja' saiu de novo, recusa dizendo o que fazer.
+        // Leitura dos lotes antes de qualquer escrita, como o Firestore exige.
+        await conferirLotesDoEstornoNaTransacao(transaction, db, devolucaoData.lotesDevolvidos);
+        try {
+          await applyStockAdjustments(
+            transaction,
+            db,
+            toStockAdjustmentItems(itensDevolvidos.map((item) => ({
+              id: item.id,
+              nome: item.nome,
+              quantidade: item.quantidadeDevolvida,
+              fatorConversao: item.fatorConversao,
+            }))),
+            'decrement',
+            false,
+          );
+        } catch (erroEstoque) {
+          throw new Error(`Não dá para estornar esta devolução: ${erroEstoque instanceof Error ? erroEstoque.message : 'estoque insuficiente.'} A mercadoria devolvida já saiu do estoque de novo (venda ou ajuste). Dê entrada ou ajuste o estoque do produto antes de estornar.`, { cause: erroEstoque });
+        }
         estornarLotesDaDevolucaoNaTransacao(transaction, db, devolucaoData.lotesDevolvidos);
 
         const valorDevolvidoCentavos = toCents(devolucaoData.valorTotalDevolvido || 0);

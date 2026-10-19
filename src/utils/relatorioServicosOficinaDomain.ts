@@ -161,7 +161,8 @@ export const resumirServicosOficina = (
       const dia = chaveDoDia(o.criadoEm);
       const atual = porDia.get(dia) ?? { dia, rotulo: `${dia.slice(8, 10)}/${dia.slice(5, 7)}`, qtd: 0, valorCentavos: 0 };
       atual.qtd += 1;
-      atual.valorCentavos += valores.brutoCentavos;
+      // OS cancelada conta no volume do dia (foi aberta), mas nao no valor (cancelar so' remove -- 19/10/2026).
+      if (status !== 'Cancelada') atual.valorCentavos += valores.brutoCentavos;
       porDia.set(dia, atual);
     }
 

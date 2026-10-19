@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, CreditCard, Edit, Percent, Power, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Search, Plus, CreditCard, Edit, Percent, Power, X, Loader2, AlertTriangle, FileText, Download } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,6 +17,12 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { montarDocumentoBandeiras } from '../../utils/relatorioCadastrosFinanceirosDomain';
 
 interface BandeiraCartao extends TenantCollectionItem {
   nome: string;
@@ -75,6 +81,7 @@ const BandeirasCartaoList: React.FC = () => {
   });
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [previewAberto, setPreviewAberto] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [modalForm, setModalForm] = useState({ nome: '', ativo: true, ordem: 1 });
@@ -338,6 +345,24 @@ const BandeirasCartaoList: React.FC = () => {
     );
   }
 
+  // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="bandeiras-cartao-cadastro"
+        documento={montarDocumentoBandeiras(filteredBandeiras, { filtrosAplicados })}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Bandeiras de Cartão', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar às bandeiras"
+      />
+    );
+  }
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -346,10 +371,20 @@ const BandeirasCartaoList: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Bandeiras disponíveis para seleção em vendas e ordens de serviço</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={handleLoadDefaults} disabled={isSeeding} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-            {isSeeding ? <Loader2 size={14} className="spin-icon" /> : null}
-            Carregar Padrões
-          </button>
+          {/* Topo so' com a acao principal (02/10): "Carregar Padrões" foi para Mais opcoes. */}
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF as bandeiras da lista, com taxas e prazos (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }, {
+              texto: isSeeding ? 'Carregando padrões...' : 'Carregar Padrões', Icone: Download,
+              titulo: 'Cadastra as bandeiras mais comuns (Visa, Mastercard, Elo, Hipercard e American Express) que ainda não existem',
+              desabilitado: isSeeding,
+              onClick: () => { void handleLoadDefaults(); },
+            }]}
+          />
           <button className="btn-primary" onClick={openNewModal} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nova Bandeira
           </button>

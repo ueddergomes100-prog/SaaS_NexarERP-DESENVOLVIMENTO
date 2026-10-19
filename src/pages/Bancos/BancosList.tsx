@@ -10,7 +10,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { Search, Plus, Building2, Edit, Power, X, Loader2, AlertTriangle, History, ArrowLeftRight } from 'lucide-react';
+import { Search, Plus, Building2, Edit, Power, X, Loader2, AlertTriangle, History, ArrowLeftRight, FileText } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { lancarNoBanco, transferirEntreBancos } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -27,6 +27,11 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { montarDocumentoBancos } from '../../utils/relatorioCadastrosFinanceirosDomain';
 
 /** Convenio de emissao de boleto deste banco (2026-09-22). So' Sicoob por
  *  enquanto -- ver src/utils/boletoRemessaSicoobDomain.ts. `ativo` decide
@@ -136,6 +141,7 @@ const BancosList: React.FC = () => {
   });
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [previewAberto, setPreviewAberto] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [modalForm, setModalForm] = useState(emptyBankForm());
@@ -456,6 +462,24 @@ const BancosList: React.FC = () => {
     );
   }
 
+  // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="bancos-cadastro"
+        documento={montarDocumentoBancos(filteredBancos, { filtrosAplicados })}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Bancos', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos bancos"
+      />
+    );
+  }
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -463,9 +487,19 @@ const BancosList: React.FC = () => {
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px' }}>Bancos</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Contas bancárias da empresa, saldo e lançamentos</p>
         </div>
-        <button className="btn-primary" onClick={openNewModal} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={18} /> Novo Banco
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF as contas da lista, com agência, conta e saldo (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          <button className="btn-primary" onClick={openNewModal} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={18} /> Novo Banco
+          </button>
+        </div>
       </div>
 
       <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>

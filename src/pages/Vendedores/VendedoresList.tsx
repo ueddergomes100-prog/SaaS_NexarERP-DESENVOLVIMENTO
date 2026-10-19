@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BadgeCheck, Edit, KeyRound, Plus, Power, Search, UserCheck, X } from 'lucide-react';
+import { BadgeCheck, Edit, FileText, KeyRound, Plus, Power, Search, UserCheck, X } from 'lucide-react';
 import {
   addDoc,
   collection,
@@ -43,6 +43,11 @@ import {
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { montarDocumentoVendedores } from '../../utils/relatorioEquipeFrotaDomain';
 
 
 /**
@@ -138,6 +143,7 @@ const VendedoresList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const { tenantId, currentUser, userRole, exigirIdentificacaoVendedor, grupo } = useAuth();
   const [vendedores, setVendedores] = useState<VendedorData[]>([]);
+  const [previewAberto, setPreviewAberto] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
   const [editando, setEditando] = useState<VendedorData | null>(null);
@@ -474,6 +480,20 @@ const VendedoresList: React.FC = () => {
     return partes.length ? partes.join(' · ') : 'Não recebe';
   };
 
+  // Relatorio (19/10/2026): sai o que a lista mostra (busca aplicada).
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    return (
+      <RelatorioPreview
+        relatorioId="vendedores-cadastro"
+        documento={montarDocumentoVendedores(listaFiltrada, { filtrosAplicados: busca.trim() ? [`Busca: "${busca.trim()}"`] : [] })}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Vendedores', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos vendedores"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
@@ -486,11 +506,21 @@ const VendedoresList: React.FC = () => {
             Quem vende no balcão. Não entra no sistema: identifica-se com código e senha a cada venda.
           </p>
         </div>
-        {podeGerenciar && (
-          <button className="btn-primary" onClick={abrirNovo} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Plus size={20} /> Novo Vendedor
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF os vendedores da lista, com código, senha cadastrada e comissão (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          {podeGerenciar && (
+            <button className="btn-primary" onClick={abrirNovo} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Plus size={20} /> Novo Vendedor
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ padding: '14px 18px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: 'var(--radius-md)', color: 'var(--text-secondary)', fontSize: '13px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>

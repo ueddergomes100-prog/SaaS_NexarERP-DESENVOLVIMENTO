@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { Loader2, Pencil, Plus, Power, Search, Truck, X } from 'lucide-react';
+import { FileText, Loader2, Pencil, Plus, Power, Search, Truck, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -10,6 +10,12 @@ import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from 
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { TIPOS_DE_VEICULO, erroDoVeiculo, formatarPlaca, normalizarPlaca, type VeiculoDaFrota } from '../../utils/frotaDomain';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { montarDocumentoFrota } from '../../utils/relatorioEquipeFrotaDomain';
 
 /**
  * FROTA PROPRIA (2026-09-25): os veiculos da EMPRESA -- caminhao de entrega,
@@ -38,6 +44,7 @@ const FrotaList: React.FC = () => {
   const [motoristas, setMotoristas] = useState<MotoristaOpcao[]>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
+  const [previewAberto, setPreviewAberto] = useState(false);
   const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -141,6 +148,24 @@ const FrotaList: React.FC = () => {
     .filter((v) => passaNaSituacao(v.ativo !== false, situacao))
     .filter((v) => !termo || `${v.modelo} ${v.marca || ''} ${normalizarPlaca(v.placa)} ${v.motoristaPadraoNome || ''}`.toLowerCase().includes(termo));
 
+  // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      busca.trim() ? `Busca: "${busca.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="frota-cadastro"
+        documento={montarDocumentoFrota(filtrados, { filtrosAplicados })}
+        nomeArquivo={nomeArquivoRelatorio('Relatório da Frota', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar à frota"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
@@ -153,9 +178,19 @@ const FrotaList: React.FC = () => {
             Veículos da empresa. As despesas (combustível, manutenção, IPVA, seguro...) são ligadas a eles no Contas a Pagar, e o relatório de Custo por Veículo soma tudo.
           </p>
         </div>
-        <button className="btn-primary" onClick={abrirNovo} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={18} /> Novo Veículo
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF os veículos da frota da lista, com placa, tipo, motorista e KM (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          <button className="btn-primary" onClick={abrirNovo} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={18} /> Novo Veículo
+          </button>
+        </div>
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>

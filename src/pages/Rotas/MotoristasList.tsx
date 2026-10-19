@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { IdCard, Loader2, Pencil, Plus, Power, Search, X } from 'lucide-react';
+import { FileText, IdCard, Loader2, Pencil, Plus, Power, Search, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -9,6 +9,12 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { montarDocumentoMotoristas } from '../../utils/relatorioEquipeFrotaDomain';
 
 /**
  * CADASTRO DE MOTORISTAS (2026-09-21).
@@ -38,6 +44,7 @@ const MotoristasList: React.FC = () => {
   const [motoristas, setMotoristas] = useState<Motorista[]>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
+  const [previewAberto, setPreviewAberto] = useState(false);
   const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const [modalAberto, setModalAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -138,6 +145,24 @@ const MotoristasList: React.FC = () => {
     .filter((m) => passaNaSituacao(m.ativo !== false, situacao))
     .filter((m) => !termo || String(m.nome || '').toLowerCase().includes(termo) || String(m.telefone || '').includes(termo));
 
+  // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      busca.trim() ? `Busca: "${busca.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="motoristas-cadastro"
+        documento={montarDocumentoMotoristas(filtrados, { filtrosAplicados })}
+        nomeArquivo={nomeArquivoRelatorio('Relatório de Motoristas', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos motoristas"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
@@ -150,9 +175,19 @@ const MotoristasList: React.FC = () => {
             Quem dirige as rotas. As despesas da viagem são lançadas em Rotas, por motorista e por dia.
           </p>
         </div>
-        <button className="btn-primary" onClick={abrirNovo} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={18} /> Novo Motorista
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF os motoristas da lista, com telefone e CNH (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          <button className="btn-primary" onClick={abrirNovo} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={18} /> Novo Motorista
+          </button>
+        </div>
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>

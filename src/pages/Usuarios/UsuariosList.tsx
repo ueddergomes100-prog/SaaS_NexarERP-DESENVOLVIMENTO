@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserCog, Plus, Search, Edit2, Power, Shield } from 'lucide-react';
+import { UserCog, Plus, Search, Edit2, Power, Shield, FileText } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -23,6 +23,12 @@ import {
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { montarDocumentoEquipe, type UsuarioDoRelatorio } from '../../utils/relatorioEquipeFrotaDomain';
 
 interface UsuarioData {
   id: string;
@@ -39,6 +45,7 @@ const UsuariosList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   const [searchTerm, setSearchTerm] = useState('');
+  const [previewAberto, setPreviewAberto] = useState(false);
   const {
     currentUser,
     tenantId,
@@ -158,6 +165,24 @@ const UsuariosList: React.FC = () => {
       || (user.username || '').toLowerCase().includes(termoUsuario)
       || (user.email || '').toLowerCase().includes(termoUsuario));
 
+  // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const filtrosAplicados = [
+      searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+      situacaoNoRelatorio(situacao) ? `Situação: ${situacaoNoRelatorio(situacao)}` : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="equipe-cadastro"
+        documento={montarDocumentoEquipe(filteredUsuarios as UsuarioDoRelatorio[], { filtrosAplicados, donoId: tenantId || '' })}
+        nomeArquivo={nomeArquivoRelatorio('Relatório da Equipe e Acessos', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar à equipe"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -168,11 +193,21 @@ const UsuariosList: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Crie logins para seus funcionários e defina o que eles podem ver no sistema.</p>
         </div>
-        {canManageUsers && (
-          <button className="btn-primary" onClick={() => openTab('/usuarios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Plus size={20} /> Adicionar Funcionário
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF os usuários da lista, com login, perfil e situação (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          {canManageUsers && (
+            <button className="btn-primary" onClick={() => openTab('/usuarios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Plus size={20} /> Adicionar Funcionário
+            </button>
+          )}
+        </div>
       </div>
 
       {menuVendedoresVisivel({ exigirIdentificacaoVendedor, temVendedorCadastrado }) && (

@@ -175,8 +175,18 @@ service cloud.firestore {
       );
     }
 
+    // Frente de Caixa (19/10/2026): a permissao do PDV -- e a do funcionario
+    // caixa, "So' a Frente de Caixa" -- basta para tudo que o PDV grava. Antes
+    // so' "Pedidos de Venda" abria o caixa, gravava a venda e mexia no estoque,
+    // e quem tinha so' o PDV batia em "Missing or insufficient permissions".
+    function operaFrenteDeCaixa() {
+      return hasAnyPermission(['vendas.pdv', 'vendas.so_caixa']);
+    }
+
     function canWriteTenantCollection(collectionName) {
       return canManageTenantData() ||
+        // O PDV cadastra cliente (F2), grava a venda, os lancamentos, o credito usado e o caixa.
+        (collectionName in ['clientes', 'pedidos_venda', 'transacoes', 'creditos_cliente', 'caixas_pdv'] && operaFrenteDeCaixa()) ||
         // 'mecanica.os_app_abrir' (2026-10-08): o tecnico que abre OS no campo cadastra o equipamento novo (veiculos).
         (collectionName in ['clientes', 'veiculos'] && hasAnyPermission(['cadastros.clientes', 'vendas.pedidos', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_app_abrir', 'crm.agenda', 'crm.alertas'])) ||
         (collectionName in ['produtos', 'cotacoes_compra', 'pedidos_compra', 'recebimentos_compra', 'historico_custos', 'produtos_composicao', 'entregas'] && hasPermission('cadastros.estoque')) ||
@@ -331,7 +341,7 @@ service cloud.firestore {
         // que so' tem permissao de venda recebia "Missing or insufficient
         // permissions" ao criar/cancelar pre-venda -- so' dono/gestor passava.
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt']) &&
-        hasAnyPermission([
+        (operaFrenteDeCaixa() || hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
           // App do tecnico (2026-10-08): a OS atendida no campo reserva as pecas ("Reservar no Pedido e na OS").
           'mecanica.os_app', 'mecanica.os_app_abrir',
@@ -341,7 +351,7 @@ service cloud.firestore {
           // numero", que e' canConsumeTenantSequence(), e nao o estoque. Com
           // ela aqui, quem so' emitia boleto conseguia mudar quantidade de
           // produto, e continuava sem conseguir emitir boleto.
-        ]);
+        ]));
     }
 
     // Entregas pelo app do motorista (2026-10-08): quem tem so'
@@ -388,11 +398,11 @@ service cloud.firestore {
         request.resource.data.tenantId == resource.data.tenantId &&
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['saldoCentavos', 'updatedAt'].concat(documentAuditFields())) &&
-        hasAnyPermission([
+        (operaFrenteDeCaixa() || hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'vendas.devolucao', 'vendas.pre_venda_finalizar',
           'mecanica.os', 'mecanica.os_alterar',
           'estoque.nota_avulsa', 'fiscal.entrada'
-        ]);
+        ]));
     }
 
     // Baixa por lote (2026-09-25): a venda/OS/orcamento/devolucao mexe SO' no saldo do lote, exatamente
@@ -402,12 +412,12 @@ service cloud.firestore {
         resource.data.tenantId == currentTenantId() &&
         request.resource.data.tenantId == resource.data.tenantId &&
         request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
-        hasAnyPermission([
+        (operaFrenteDeCaixa() || hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
           'mecanica.os_app', 'mecanica.os_app_abrir',
           'vendas.pre_venda_criar', 'vendas.pre_venda_editar', 'vendas.pre_venda_finalizar', 'vendas.pre_venda_cancelar',
           'operacoes.producao', 'estoque.nota_avulsa', 'fiscal.entrada'
-        ]);
+        ]));
     }
 
     // Ajuste de Estoque tambem cobre materia-prima (2026-09-19): o saldo dela
@@ -753,7 +763,7 @@ service cloud.firestore {
     // constava aqui -- quem so tinha essa permissao, sem ser Admin, batia
     // em "Missing or insufficient permissions" ao criar a ordem.
     function canConsumeTenantSequence() {
-      return canManageTenantData() ||
+      return canManageTenantData() || operaFrenteDeCaixa() ||
         hasAnyPermission([
           'mecanica.os', 'vendas.pedidos', 'vendas.orcamentos', 'operacoes.producao', 'estoque.nota_avulsa',
           // Numero da OS aberta pelo app do tecnico (2026-10-08).

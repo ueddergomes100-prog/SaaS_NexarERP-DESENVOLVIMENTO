@@ -12,6 +12,14 @@
       "destination": "/vendedor.html"
     },
     {
+      "source": "/caixa",
+      "destination": "/caixa.html"
+    },
+    {
+      "source": "/caixa/(.*)",
+      "destination": "/caixa.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

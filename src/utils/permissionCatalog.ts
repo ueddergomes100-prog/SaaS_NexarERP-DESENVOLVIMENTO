@@ -56,6 +56,10 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // tambem, sem controle independente -- achado pelo usuario).
       { id: 'vendas.minhas_vendas', label: 'Vendas: Minhas Vendas', color: '#f59e0b' },
       { id: 'vendas.pdv', label: 'Vendas: Frente de Caixa (PDV)', color: '#f59e0b' },
+      // Funcionario caixa (19/10/2026): entra, no sistema ou no app /caixa, direto
+      // na Frente de Caixa e so' nela, com o mesmo usuario e senha. Ver
+      // src/utils/frenteDeCaixaDomain.ts.
+      { id: 'vendas.so_caixa', label: 'Vendas: Só a Frente de Caixa (entra direto no caixa, sem o sistema)', color: '#f59e0b' },
       { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
       { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },

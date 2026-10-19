@@ -24,7 +24,7 @@
 
   # A pagina de entrada nunca fica em cache: depois de um deploy, um
   # index.html velho apontaria para chunks JS que nao existem mais.
-  <FilesMatch "^(index|vendedor)\.html$">
+  <FilesMatch "^(index|vendedor|caixa)\.html$">
     Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
   </FilesMatch>
   <FilesMatch "\.(webmanifest|json)$">

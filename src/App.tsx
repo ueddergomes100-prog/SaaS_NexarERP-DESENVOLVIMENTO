@@ -26,6 +26,12 @@ const SuperAdminManutencao = lazy(() => import('./pages/Admin/SuperAdminManutenc
 const VendedorLoginPage = lazy(() => import('./pages/Vendedor/VendedorLoginPage'));
 const VendedorShell = lazy(() => import('./pages/Vendedor/VendedorShell'));
 const VendedorInstalar = lazy(() => import('./pages/Vendedor/VendedorInstalar'));
+// Frente de Caixa como app separado (/caixa, 19/10/2026): mesmo desenho do app
+// do vendedor -- login publico proprio, shell com guarda propria (CaixaShell.tsx)
+// e pagina de instalacao no arquivo HTML real (caixa.html).
+const CaixaLoginPage = lazy(() => import('./pages/Caixa/CaixaLoginPage'));
+const CaixaShell = lazy(() => import('./pages/Caixa/CaixaShell'));
+const CaixaInstalar = lazy(() => import('./pages/Caixa/CaixaInstalar'));
 
 function App() {
   return (
@@ -50,6 +56,12 @@ function App() {
                     senao cairia no ERP normal (mesmo motivo do /superadmin
                     abaixo). */}
                 <Route path="/vendedor/*" element={<VendedorShell />} />
+
+                {/* Frente de Caixa como app separado: mesma regra do /vendedor
+                    (fora de ProtectedRoute e antes do coringa do AppLayout). */}
+                <Route path="/caixa/login" element={<CaixaLoginPage />} />
+                <Route path="/caixa.html" element={<CaixaInstalar />} />
+                <Route path="/caixa/*" element={<CaixaShell />} />
 
                 {/* Painel da plataforma -- shell proprio, sem sidebar de
                     modulos nem sistema de abas (esses sao conceitos de

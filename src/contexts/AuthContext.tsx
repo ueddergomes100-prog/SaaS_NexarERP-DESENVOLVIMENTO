@@ -12,6 +12,7 @@ import {
   type ActiveSessionInfo
 } from '../utils/sessionInfo';
 import { isPlatformAdminRole, isTenantManagerRole, normalizeUserRole, type UserRole } from '../utils/roles';
+import { ehAppDoCaixa } from '../utils/frenteDeCaixaDomain';
 import { activeTenantStorageKey, loadTenantOptions, type TenantOption } from '../utils/platformTenants';
 import {
   DEFAULT_NIVEL_ACESSO,
@@ -344,7 +345,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const serverSession = typeof data.activeSessionId === 'string' ? data.activeSessionId : '';
             const activeSession = (data.activeSession as ActiveSessionInfo | undefined) || null;
 
-            if (serverSession) {
+            // O app da Frente de Caixa (/caixa, 19/10/2026) fica fora da sessao
+            // unica: nao adota nem derruba a sessao do sistema aberto em outra aba.
+            if (serverSession && !ehAppDoCaixa(window.location.pathname)) {
               if (!currentLocalSession) {
                 setStoredSessionId(serverSession);
               } else if (serverSession !== currentLocalSession) {
@@ -590,7 +593,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [tenantId]);
 
   useEffect(() => {
-    if (!currentUser) {
+    // O app da Frente de Caixa nao tem sessao unica para manter viva nem encerrar.
+    if (!currentUser || ehAppDoCaixa(window.location.pathname)) {
       sessionCloseTokenRef.current = '';
       return;
     }
@@ -660,28 +664,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser]);
 
   const logout = async () => {
+    // Sair do app da Frente de Caixa nao encerra a sessao do sistema (que pode
+    // estar aberto em outra aba, com a mesma pessoa) nem apaga as abas dele.
+    const noAppDoCaixa = ehAppDoCaixa(window.location.pathname);
     if (currentUser && tenantId) {
       try {
-        const localSessionId = getStoredSessionId();
-        const userRef = doc(db, 'usuarios', currentUser.uid);
-        await runTransaction(db, async (transaction) => {
-          const userSnap = await transaction.get(userRef);
-          if (!userSnap.exists()) {
-            return;
-          }
+        if (!noAppDoCaixa) {
+          const localSessionId = getStoredSessionId();
+          const userRef = doc(db, 'usuarios', currentUser.uid);
+          await runTransaction(db, async (transaction) => {
+            const userSnap = await transaction.get(userRef);
+            if (!userSnap.exists()) {
+              return;
+            }
 
-          const activeSessionId = userSnap.data().activeSessionId;
-          if (localSessionId && activeSessionId && activeSessionId !== localSessionId) {
-            return;
-          }
+            const activeSessionId = userSnap.data().activeSessionId;
+            if (localSessionId && activeSessionId && activeSessionId !== localSessionId) {
+              return;
+            }
 
-          transaction.update(userRef, {
-            activeSessionId: null,
-            'activeSession.endedAt': serverTimestamp(),
-            'activeSession.closedBy': 'logout',
-            lastSessionEndedAt: serverTimestamp()
+            transaction.update(userRef, {
+              activeSessionId: null,
+              'activeSession.endedAt': serverTimestamp(),
+              'activeSession.closedBy': 'logout',
+              lastSessionEndedAt: serverTimestamp()
+            });
           });
-        });
+        }
 
         const { createAuditLog } = await import('../services/logService');
         createAuditLog({
@@ -690,15 +699,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'autenticacao',
           acao: 'logout',
-          descricao: 'Usuario realizou logout.',
+          descricao: noAppDoCaixa ? 'Usuario saiu da Frente de Caixa.' : 'Usuario realizou logout.',
           status: 'sucesso'
         });
       } catch (error) {
         console.error('Erro ao registrar log de logout:', error);
       }
     }
-    clearStoredSessionId();
-    localStorage.removeItem('nexus_tabs_v1');
+    if (!noAppDoCaixa) {
+      clearStoredSessionId();
+      localStorage.removeItem('nexus_tabs_v1');
+    }
     sessionCloseTokenRef.current = '';
     return signOut(auth);
   };

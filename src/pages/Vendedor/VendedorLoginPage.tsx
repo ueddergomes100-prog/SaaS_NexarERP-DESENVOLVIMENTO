@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, KeyRound, Loader2, Lock, LogIn, User } from 'lucide-react';
-import { browserLocalPersistence, setPersistence, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../../services/firebase';
+import { browserLocalPersistence, setPersistence, signInWithCustomToken } from 'firebase/auth';
+import { auth } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
-import { entrarNaFilialPadrao } from '../../services/filialService';
+import { entrarComUsuarioESenha, LoginFuncionarioError } from '../../services/loginFuncionarioService';
 import { CNPJ_LEMBRADO_STORAGE_KEY, CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY, formatarCnpj, normalizarCnpj } from '../../utils/loginIdentidadeDomain';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
@@ -84,31 +83,16 @@ const VendedorLoginPage: React.FC = () => {
     }
   };
 
+  // Mesmo login de funcionario da Frente de Caixa (loginFuncionarioService, 19/10/2026).
   const handleEntrarUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
     setErro('');
-    const cnpjLimpo = cnpj.replace(/\D/g, '');
-    const usuarioLimpo = usuario.trim().toLowerCase();
-    if (!cnpjLimpo || !usuarioLimpo || !senha) {
-      setErro('Preencha o CNPJ da empresa, o usuário e a senha.');
-      return;
-    }
     setCarregando(true);
     try {
-      const chave = `${cnpjLimpo}-${usuarioLimpo}`;
-      const usernameDoc = await getDoc(doc(db, 'usernames', chave));
-      if (!usernameDoc.exists()) {
-        setErro('Usuário ou CNPJ da empresa não encontrado.');
-        return;
-      }
-      await setPersistence(auth, browserLocalPersistence);
-      await signInWithEmailAndPassword(auth, usernameDoc.data().email, senha);
-      // Filial padrao (15/10/2026): o app tambem comeca na filial padrao do
-      // usuario. Falha aqui nao impede o login (fica na ultima filial).
-      await entrarNaFilialPadrao().catch((erroFilial) => console.warn('Não foi possível abrir a filial padrão no login:', erroFilial));
+      await entrarComUsuarioESenha({ cnpj, usuario, senha });
       navigate('/vendedor', { replace: true });
-    } catch {
-      setErro('Usuário ou senha incorretos.');
+    } catch (error) {
+      setErro(error instanceof LoginFuncionarioError ? error.message : 'Não foi possível entrar. Tente novamente.');
     } finally {
       setCarregando(false);
     }

@@ -21,6 +21,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.pedidos': ['comercial.pedidos'],
   'vendas.minhas_vendas': ['comercial.pedidos'],
   'vendas.pdv': ['comercial.pedidos'],
+  'vendas.so_caixa': ['comercial.pedidos'],
   'vendas.alterar': ['comercial.pedidos'],
   'vendas.excluir': ['comercial.pedidos'],
   'vendas.promocoes': ['comercial.pedidos'],

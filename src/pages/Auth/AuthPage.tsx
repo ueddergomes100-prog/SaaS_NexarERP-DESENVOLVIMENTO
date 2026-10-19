@@ -16,7 +16,7 @@ import {
   User,
   Zap
 } from 'lucide-react';
-import { getIdTokenResult, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { browserLocalPersistence, getIdTokenResult, setPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { auth, authPersistenceReady, db } from '../../services/firebase';
@@ -29,6 +29,7 @@ import {
   type ActiveSessionInfo
 } from '../../utils/sessionInfo';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { destinoAposLogin, entraDiretoNoCaixa, type PerfilParaOCaixa } from '../../utils/frenteDeCaixaDomain';
 import { entrarNaFilialPadrao } from '../../services/filialService';
 import { limparAbasSalvas } from '../../contexts/TabsContext';
 import { CNPJ_LEMBRADO_STORAGE_KEY, formatarCnpj } from '../../utils/loginIdentidadeDomain';
@@ -241,12 +242,18 @@ const AuthPage: React.FC = () => {
       let activeSession: ActiveSessionInfo | null = null;
       let hasUserProfile = false;
       let isPlatformLogin = hasPlatformClaim;
+      let perfilDoLogin: PerfilParaOCaixa = {};
       try {
         const userDoc = await getDoc(doc(db, 'usuarios', user.uid));
         if (userDoc.exists()) {
           hasUserProfile = true;
           const userData = userDoc.data() as Record<string, unknown>;
           isPlatformLogin = isPlatformLogin || isPlatformAdminRole(userData.role);
+          perfilDoLogin = {
+            role: userData.role,
+            isOwner: user.uid === (typeof userData.tenantId === 'string' && userData.tenantId ? userData.tenantId : user.uid),
+            permissoes: Array.isArray(userData.permissoes) ? userData.permissoes.filter((p): p is string => typeof p === 'string') : [],
+          };
 
           if (hasIncompleteOnboarding(userData)) {
             clearStoredSessionId();
@@ -288,8 +295,13 @@ const AuthPage: React.FC = () => {
       // "encerrar a outra e entrar" -- e logo abaixo o login ja grava uma
       // sessao nova por cima, que e' exatamente o que o botao faria.
       const sessaoPenduradaDesteAparelho = isSessionFromThisDevice(activeSession);
+      // Funcionario caixa (19/10/2026): cai direto na Frente de Caixa, que fica
+      // FORA do controle de sessao unica (o caixa fica aberto o dia inteiro e
+      // nao pode cair quando a mesma pessoa abre o sistema em outra aba) e com
+      // login persistente, como o app do vendedor.
+      const entraNoCaixa = hasUserProfile && !isPlatformLogin && entraDiretoNoCaixa(perfilDoLogin);
 
-      if (hasUserProfile && !sessaoPenduradaDesteAparelho && isSessionRecentlyActive(activeSessionId, activeSession)) {
+      if (hasUserProfile && !entraNoCaixa && !sessaoPenduradaDesteAparelho && isSessionRecentlyActive(activeSessionId, activeSession)) {
         const result = await Swal.fire({
           title: 'Sessão ativa detectada',
           html: buildActiveSessionWarningHtml(activeSession),
@@ -310,37 +322,41 @@ const AuthPage: React.FC = () => {
         }
       }
 
-      // Cria um ID de sessão local único
-      const newSessionId = createSessionId();
-      setStoredSessionId(newSessionId);
-      const sessionMetadata = await buildSessionMetadata(user);
+      if (entraNoCaixa) {
+        await setPersistence(auth, browserLocalPersistence);
+      } else {
+        // Cria um ID de sessão local único
+        const newSessionId = createSessionId();
+        setStoredSessionId(newSessionId);
+        const sessionMetadata = await buildSessionMetadata(user);
 
-      // Atualiza no Firestore
-      try {
-        if (!hasUserProfile) {
-          throw new Error('skip_platform_session_profile');
-        }
-
-        await updateDoc(doc(db, 'usuarios', user.uid), {
-          activeSessionId: newSessionId,
-          activeSession: {
-            ...sessionMetadata,
-            sessionId: newSessionId,
-            startedAt: serverTimestamp(),
-            lastSeenAt: serverTimestamp(),
-            lastSeenClientAt: new Date().toISOString()
+        // Atualiza no Firestore
+        try {
+          if (!hasUserProfile) {
+            throw new Error('skip_platform_session_profile');
           }
-        });
-      } catch (e) {
-        if (isPlatformLogin && e instanceof Error && e.message === 'skip_platform_session_profile') {
-          // Usuário máximo pode existir apenas via custom claim; a sessão fica controlada pelo Firebase Auth.
-        } else {
-        console.error('Erro ao registrar nova sessao no firestore:', e);
-        clearStoredSessionId();
-        await signOut(auth);
-        setLoginError('Nao foi possivel registrar a sessao. Tente novamente.');
-        setLoginLoading(false);
-        return;
+
+          await updateDoc(doc(db, 'usuarios', user.uid), {
+            activeSessionId: newSessionId,
+            activeSession: {
+              ...sessionMetadata,
+              sessionId: newSessionId,
+              startedAt: serverTimestamp(),
+              lastSeenAt: serverTimestamp(),
+              lastSeenClientAt: new Date().toISOString()
+            }
+          });
+        } catch (e) {
+          if (isPlatformLogin && e instanceof Error && e.message === 'skip_platform_session_profile') {
+            // Usuário máximo pode existir apenas via custom claim; a sessão fica controlada pelo Firebase Auth.
+          } else {
+          console.error('Erro ao registrar nova sessao no firestore:', e);
+          clearStoredSessionId();
+          await signOut(auth);
+          setLoginError('Nao foi possivel registrar a sessao. Tente novamente.');
+          setLoginLoading(false);
+          return;
+          }
         }
       }
 
@@ -385,12 +401,14 @@ const AuthPage: React.FC = () => {
       // tenant: entrar e ver o sistema de um cliente qualquer era justamente
       // a confusao relatada pelo usuario. O ERP continua a um clique, pelo
       // botao "Ir para o ERP" do painel.
-      const destino = isPlatformLogin ? '/superadmin' : '/dashboard';
+      const destino = destinoAposLogin(perfilDoLogin, isPlatformLogin);
       setShowSplash(true);
       const splashFloor = new Promise((resolve) => window.setTimeout(resolve, 600));
       const telaChunk = (isPlatformLogin
         ? import('../Admin/SuperAdmin')
-        : import('../Dashboard/Dashboard')
+        : entraNoCaixa
+          ? import('../PDV/PDV')
+          : import('../Dashboard/Dashboard')
       ).catch(() => {
         // Falha de preload nao bloqueia o login -- o Suspense do App cobre.
       });

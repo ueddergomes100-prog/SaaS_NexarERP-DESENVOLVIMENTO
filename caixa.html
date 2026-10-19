@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" /></noscript>
+    <!--
+      Shell ESTATICO proprio da Frente de Caixa (app separado, 19/10/2026),
+      pelo mesmo motivo do vendedor.html: a instalacao como app le manifest e
+      icone deste HTML, antes de qualquer JS rodar. O React/roteador e' o
+      MESMO app (src/main.tsx) -- so' o involucro muda. Ver CaixaInstalar.tsx,
+      vite.config.ts (entrada separada) e firebase.json/vercel.json (rewrites).
+    -->
+    <link rel="manifest" href="/manifest-caixa.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Hennder Caixa" />
+    <meta name="theme-color" content="#7c3aed" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hennder Caixa</title>
+  </head>
+  <body>
+    <!-- Tema antes de o React montar, para nao piscar escuro e clarear (utils/tema.ts). -->
+    <script>
+      (function () {
+        try {
+          var p = localStorage.getItem('nexus_theme');
+          var escuro = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (p !== 'dark' && !(p === 'auto' && escuro)) document.body.classList.add('light-theme');
+        } catch (e) { document.body.classList.add('light-theme'); }
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

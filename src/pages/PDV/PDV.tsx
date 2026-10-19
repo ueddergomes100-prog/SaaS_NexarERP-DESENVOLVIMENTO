@@ -21,7 +21,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
-import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
+import { CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
 import {
   applyStockAdjustments,
   describeTransactionError,
@@ -108,10 +108,20 @@ interface Banco { id: string; nome: string; ativo: boolean; }
 
 const normalizeText = (value: unknown) => String(value || '').trim();
 
-const PDV: React.FC = () => {
+/**
+ * `modo` (19/10/2026): 'sistema' e' o PDV aberto de dentro do sistema (/pdv),
+ * com a seta de voltar; 'app' e' a Frente de Caixa separada (/caixa, ver
+ * CaixaShell.tsx) -- sem seta, e o X encerra o login do caixa.
+ */
+interface PDVProps {
+  modo?: 'sistema' | 'app';
+}
+
+const PDV: React.FC<PDVProps> = ({ modo = 'sistema' }) => {
   const navigate = useNavigate();
   const {
     currentUser,
+    logout,
     tenantId,
     userRole,
     userPermissions,
@@ -166,16 +176,31 @@ const PDV: React.FC = () => {
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
 
-  const hasPdvAccess = isOwner ||
-    isPlatformAdminRole(userRole) ||
-    isTenantManagerRole(userRole) ||
-    userPermissions?.includes('vendas.pdv');
+  // Quem usa o caixa: PDV ou "So' a Frente de Caixa", dono e administrador (frenteDeCaixaDomain).
+  const hasPdvAccess = podeUsarFrenteDeCaixa({ role: userRole, isOwner, permissoes: userPermissions });
 
   // O PDV vive fora do sistema de abas/TabPane (ver App.tsx), entao nao
   // herda automaticamente a checagem de blockedModules que toda outra tela
   // ganha de graca -- sem isso, bloquear o modulo "comercial.pedidos" pelo
   // SuperAdmin nao tinha nenhum efeito aqui (auditoria 2026-08-05).
-  const isPdvModuleBlocked = !isPlatformAdmin && blockedModules?.includes('comercial.pedidos');
+  const isPdvModuleBlocked = !isPlatformAdmin && blockedModules?.includes(MODULO_DO_CAIXA);
+
+  /** App separado: o X encerra o login do caixa (o sistema, se aberto, fica em outra aba). */
+  const sairDoCaixa = async () => {
+    const resposta = await NexusSwal.fire({
+      title: 'Sair da Frente de Caixa?',
+      text: session
+        ? 'O caixa continua aberto para o próximo login. Itens que ainda não foram finalizados são perdidos.'
+        : 'Itens que ainda não foram finalizados são perdidos.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sair',
+      cancelButtonText: 'Voltar',
+    });
+    if (!resposta.isConfirmed) return;
+    await logout();
+    navigate(CAMINHO_LOGIN_CAIXA, { replace: true });
+  };
 
   const sessionStorageKey = useMemo(
     () => makePdvSessionStorageKey(tenantId, currentUser?.uid),
@@ -1303,9 +1328,11 @@ const PDV: React.FC = () => {
     <div className="pdv-shell">
       <header className="pdv-topbar">
         <div className="pdv-brand">
-          <button type="button" onClick={() => navigate('/dashboard')} title="Voltar para a retaguarda">
-            <ArrowLeft size={20} />
-          </button>
+          {modo === 'sistema' && (
+            <button type="button" onClick={() => navigate('/dashboard')} title="Voltar para a retaguarda">
+              <ArrowLeft size={20} />
+            </button>
+          )}
           <img src={hennderIcon} alt="Hennder ERP" className="pdv-logo" />
           <span>
             <small>{selectedTenant?.nomeOficina || 'Hennder Company'}</small>
@@ -1320,9 +1347,15 @@ const PDV: React.FC = () => {
           <button type="button" title="Tela cheia" onClick={() => document.documentElement.requestFullscreen?.()}>
             <Maximize2 size={18} />
           </button>
-          <button type="button" title="Sair do PDV" onClick={() => navigate('/dashboard')}>
-            <X size={20} />
-          </button>
+          {modo === 'sistema' ? (
+            <button type="button" title="Sair do PDV" onClick={() => navigate('/dashboard')}>
+              <X size={20} />
+            </button>
+          ) : (
+            <button type="button" title="Sair da Frente de Caixa" onClick={() => void sairDoCaixa()}>
+              <X size={20} />
+            </button>
+          )}
         </div>
       </header>
 

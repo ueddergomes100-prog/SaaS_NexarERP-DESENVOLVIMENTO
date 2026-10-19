@@ -16,6 +16,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         vendedor: resolve(__dirname, 'vendedor.html'),
+        // Frente de Caixa como app separado (19/10/2026), mesma ideia.
+        caixa: resolve(__dirname, 'caixa.html'),
       },
       output: {
         manualChunks(id) {

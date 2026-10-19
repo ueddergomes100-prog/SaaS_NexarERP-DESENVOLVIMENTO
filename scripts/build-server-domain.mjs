@@ -91,6 +91,8 @@ const MODULOS = [
   'src/utils/conferenciaDescontoDomain.ts',
   // Conta a receber lancada a mao (19/10/2026).
   'src/utils/lancamentoReceberDomain.ts',
+  // Frente de Caixa como app separado (19/10/2026).
+  'src/utils/frenteDeCaixaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

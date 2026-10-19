@@ -3,6 +3,7 @@ const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { fromCents } = require('../domain/financeDomain');
 const { ErroVenda, finalizarVenda, temPermissao } = require('../services/vendaFechamento');
+const { PERMISSOES_QUE_OPERAM_O_CAIXA } = require('../domain/frenteDeCaixaDomain');
 const { alterarPagamento, cancelarPreVenda, cancelarVenda } = require('../services/vendaCancelamento');
 
 /**
@@ -34,8 +35,8 @@ router.post('/finalizar', async (req, res) => {
     // Pre-venda e pedido do agente: a permissao depende do status e e'
     // conferida no servico, com o pedido lido do banco. PDV (fatia 3c): a do PDV.
     if (req.body?.pdvSessionId) {
-      if (!temPermissao(req.user, 'vendas.pdv')) {
-        return res.status(403).json({ error: 'Você não tem permissão para vender no PDV. Peça a um responsável liberar "Vendas: Frente de Caixa (PDV)" no seu usuário.' });
+      if (!PERMISSOES_QUE_OPERAM_O_CAIXA.some((permissao) => temPermissao(req.user, permissao))) {
+        return res.status(403).json({ error: 'Você não tem permissão para vender no PDV. Peça a um responsável liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.' });
       }
     } else if (!req.body?.pedidoId && !temPermissao(req.user, 'vendas.pedidos')) {
       return res.status(403).json({ error: 'Você não tem permissão para vender. Peça a um responsável liberar "Vendas: Pedidos" no seu usuário.' });

@@ -35,6 +35,15 @@
         ]
       },
       {
+        "source": "/caixa.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store, no-cache, must-revalidate, max-age=0"
+          }
+        ]
+      },
+      {
         "source": "/assets/**",
         "headers": [
           {
@@ -52,6 +61,14 @@
       {
         "source": "/vendedor/**",
         "destination": "/vendedor.html"
+      },
+      {
+        "source": "/caixa",
+        "destination": "/caixa.html"
+      },
+      {
+        "source": "/caixa/**",
+        "destination": "/caixa.html"
       },
       {
         "source": "**",

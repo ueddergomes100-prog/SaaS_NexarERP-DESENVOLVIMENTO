@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+import { ehAppDoCaixa } from '../utils/frenteDeCaixaDomain';
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { browserLocalPersistence, browserSessionPersistence, indexedDBLocalPersistence, initializeAuth, setPersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
@@ -61,6 +62,10 @@ if (appCheck && urlDoServidor) {
 // continua em memoria, de proposito: balcao/caixa quer o dado vivo e nada
 // guardado numa maquina compartilhada.
 const isAppVendedorExterno = window.location.pathname.startsWith('/vendedor');
+// Frente de Caixa como app (/caixa, 19/10/2026): login persistente como o app do
+// vendedor (o caixa fica logado entre um dia e outro), mas Firestore em
+// memoria -- o balcao quer o dado vivo.
+const isAppDoCaixa = ehAppDoCaixa(window.location.pathname);
 export const db = isAppVendedorExterno
   ? initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })
   : getFirestore(app);
@@ -93,7 +98,7 @@ export const auth = initializeAuth(app, {
  * de proposito -- redundante com isto aqui, mas inofensivo, e cobre a
  * mesma garantia se algum dia essa rota mudar de prefixo.
  */
-export const authPersistenceReady = setPersistence(auth, isAppVendedorExterno ? browserLocalPersistence : browserSessionPersistence).catch((error) => {
+export const authPersistenceReady = setPersistence(auth, isAppVendedorExterno || isAppDoCaixa ? browserLocalPersistence : browserSessionPersistence).catch((error) => {
   console.error('Erro ao configurar persistencia de sessao:', error);
 });
 export const storage = getStorage(app);

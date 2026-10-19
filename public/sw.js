@@ -41,7 +41,8 @@ const redePrimeiro = async (request) => {
     if (resposta && resposta.ok) cache.put(request, resposta.clone());
     return resposta;
   } catch (erro) {
-    const guardada = await cache.match(request) || await cache.match(request.url.includes('/vendedor') ? '/vendedor.html' : '/index.html');
+    const entrada = request.url.includes('/caixa') ? '/caixa.html' : request.url.includes('/vendedor') ? '/vendedor.html' : '/index.html';
+    const guardada = await cache.match(request) || await cache.match(entrada);
     if (guardada) return guardada;
     throw erro;
   }

@@ -22,6 +22,7 @@ import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/ped
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { PERMISSION_CATALOG, desmarcarPermissoes, estadoDaSelecao, marcarPermissoes } from '../../utils/permissionCatalog';
+import { MENSAGEM_FORA_DO_PLANO, permissaoForaDoPlano } from '../../utils/permissaoModuloDomain';
 import {
   DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
   ordenarFormasPagamento,
@@ -151,7 +152,7 @@ const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
  * Nenhuma opcao aparece nas duas: e' o que impede conflito entre filiais.
  */
 const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral' }) => {
-  const { currentUser, tenantId, userRole, grupo, isOwner, ehGestorDasFiliais, filialAtual } = useAuth();
+  const { currentUser, tenantId, userRole, grupo, isOwner, ehGestorDasFiliais, filialAtual, blockedModules } = useAuth();
   const { openTab } = useTabs();
   const mostrarGeral = modo === 'geral';
   const mostrarFilial = modo === 'filial';
@@ -1132,6 +1133,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   };
 
   const togglePermission = (perm: string) => {
+    // Modulo bloqueado pelo SuperAdmin (19/10/2026): a permissao dele nao liga.
+    if (permissaoForaDoPlano(perm, blockedModules)) return;
     setSelectedUserPermissions(prev =>
       prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
     );
@@ -1168,7 +1171,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   /** Liga/desliga o catalogo inteiro de uma vez (esta tela nao tem busca,
    *  entao o "visivel" e' sempre a lista toda). Ver permissionCatalog.ts. */
   const alternarTodasPermissoes = (marcar: boolean) => {
-    const ids = PERMISSION_CATALOG.map(item => item.id);
+    const ids = PERMISSION_CATALOG.map(item => item.id).filter((id) => !permissaoForaDoPlano(id, blockedModules));
     setSelectedUserPermissions(prev => (marcar ? marcarPermissoes(prev, ids) : desmarcarPermissoes(prev, ids)));
   };
 
@@ -3921,7 +3924,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       </h4>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                         <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
-                          {selectedUserPermissions.length} de {PERMISSION_CATALOG.length} liberadas
+                          {PERMISSION_CATALOG.filter((i) => !permissaoForaDoPlano(i.id, blockedModules) && selectedUserPermissions.includes(i.id)).length} de {PERMISSION_CATALOG.filter((i) => !permissaoForaDoPlano(i.id, blockedModules)).length} liberadas
                         </span>
                         <SeletorTodas
                           estado={estadoDaSelecao(selectedUserPermissions, PERMISSION_CATALOG.map(item => item.id))}
@@ -3940,10 +3943,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                         continuam la: entrar tambem em MODULE_GROUPS e ter branch em
                         routeAccess.ts). */}
                     {PERMISSION_CATALOG.map(mod => {
-                      const isChecked = selectedUserPermissions.includes(mod.id);
+                      // Fora do plano: aparece desligada e nao liga (a empresa nao tem o modulo).
+                      const foraDoPlano = permissaoForaDoPlano(mod.id, blockedModules);
+                      const isChecked = !foraDoPlano && selectedUserPermissions.includes(mod.id);
                       return (
-                        <label key={mod.id} style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer',
+                        <label key={mod.id} title={foraDoPlano ? MENSAGEM_FORA_DO_PLANO : undefined} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: foraDoPlano ? 'not-allowed' : 'pointer', opacity: foraDoPlano ? 0.5 : 1,
                           fontSize: '13px', color: isChecked ? 'var(--text-primary)' : 'var(--text-secondary)',
                           backgroundColor: isChecked ? 'rgba(255,255,255,0.03)' : 'var(--bg-primary)',
                           padding: '14px 16px', borderRadius: 'var(--radius-md)',

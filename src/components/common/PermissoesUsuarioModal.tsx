@@ -22,6 +22,7 @@ import {
   type NivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
 import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
+import { MENSAGEM_FORA_DO_PLANO, permissaoForaDoPlano } from '../../utils/permissaoModuloDomain';
 import { alterarAcessoAppNoServidor } from '../../services/usuarioAcessoService';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { podeUsarOutrasFiliais, rotuloFilial } from '../../utils/filialDomain';
@@ -45,7 +46,7 @@ interface PermissoesUsuarioModalProps {
  * bateria numa parede. O popup funciona pra quem ja esta na tela.
  */
 const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuarioId, usuarioNome, onClose, onSaved }) => {
-  const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario, grupo, userPermissions } = useAuth();
+  const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario, grupo, userPermissions, blockedModules } = useAuth();
   // Gerente (nivel de vendas) tambem abre este popup agora, mas so' pode
   // mexer nos modulos liberados -- nivel de acesso e acesso mobile
   // continuam so' Admin/Master/Dono (a regra do Firestore recusa a troca
@@ -53,7 +54,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
   const podeAlterarNivelEMobile = hasTenantFullAccess(userRole, isOwner);
   // Gerente so' da' e tira o que ELE MESMO tem (decisao do dono, 19/10/2026;
   // o banco recusa o resto -- ver permissoesMexidasSoAsDoGerente nas rules).
-  const podeMexer = (id: string) => podeAlterarNivelEMobile || userPermissions.includes(id);
+  // Modulo bloqueado pelo SuperAdmin (19/10/2026): a permissao dele fica apagada e ninguem liga.
+  const foraDoPlano = (id: string) => permissaoForaDoPlano(id, blockedModules);
+  const podeMexer = (id: string) => !foraDoPlano(id) && (podeAlterarNivelEMobile || userPermissions.includes(id));
   const [permissoes, setPermissoes] = useState<string[]>([]);
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [busca, setBusca] = useState('');
@@ -301,7 +304,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
             />
           </div>
           <span style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {permissoes.length} de {PERMISSION_CATALOG.length} liberadas
+            {PERMISSION_CATALOG.filter((i) => !foraDoPlano(i.id) && permissoes.includes(i.id)).length} de {PERMISSION_CATALOG.filter((i) => !foraDoPlano(i.id)).length} liberadas
           </span>
           {!podeAlterarNivelEMobile && (
             <p style={{ margin: 0, width: '100%', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -327,6 +330,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: '0 0 12px' }}>
                   <h4 style={{ margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', fontWeight: 700 }}>
                     {grupo.grupo}
+                    {grupo.itens.every((i) => foraDoPlano(i.id)) && (
+                      <span style={{ marginLeft: '8px', textTransform: 'none', letterSpacing: 0, fontWeight: 600, color: 'var(--text-muted)' }}>· não liberado para a empresa</span>
+                    )}
                   </h4>
                   <SeletorTodas
                     estado={estadoDaSelecao(permissoes, grupo.itens.map((i) => i.id).filter(podeMexer))}
@@ -337,12 +343,14 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '10px' }}>
                   {grupo.itens.map(item => {
-                    const marcada = permissoes.includes(item.id);
+                    // Fora do plano: aparece desligada (a empresa nao tem o modulo), sem mexer no que esta gravado.
+                    const fora = foraDoPlano(item.id);
+                    const marcada = !fora && permissoes.includes(item.id);
                     const bloqueada = !podeMexer(item.id);
                     return (
                       <label
                         key={item.id}
-                        title={bloqueada ? 'Você não tem esta permissão, então não pode liberar nem retirar.' : undefined}
+                        title={fora ? MENSAGEM_FORA_DO_PLANO : bloqueada ? 'Você não tem esta permissão, então não pode liberar nem retirar.' : undefined}
                         style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: bloqueada ? 'not-allowed' : 'pointer',
                           opacity: bloqueada ? 0.5 : 1,

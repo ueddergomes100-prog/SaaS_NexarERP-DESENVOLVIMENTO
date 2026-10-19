@@ -11,29 +11,29 @@ test('CNPJ com IE cadastrada: manda so os digitos', () => {
   assert.deepEqual(resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade: ' 123456789 ' }), { valor: '123456789' });
 });
 
-test('CNPJ sem IE: nao bloqueia, sai como nao contribuinte (sem stateTaxNumber) e avisa', () => {
+test('CNPJ com IE em branco: bloqueia pedindo a IE ou ISENTO (cadastro mal feito nao passa calado)', () => {
   const r = resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade: '', clienteNome: 'NATUMAIS' });
   assert.equal(r.valor, undefined);
-  assert.equal(r.erro, undefined);
-  assert.match(String(r.aviso), /O cliente "NATUMAIS" é pessoa jurídica sem Inscrição Estadual: a nota sai como não contribuinte/);
-  assert.match(String(r.aviso), /Cadastros → Clientes/);
-  // e o indFinal acompanha: sem IE e' consumidor final
-  assert.equal(destinatarioEConsumidorFinal({ documento: CNPJ, inscricaoEstadual: r.valor }), true);
+  assert.match(String(r.erro), /O cliente "NATUMAIS" é pessoa jurídica e está sem Inscrição Estadual no cadastro/);
+  assert.match(String(r.erro), /Cadastros → Clientes/);
+  assert.match(String(r.erro), /escreva ISENTO/);
 });
 
-test('CNPJ "ISENTO" (qualquer caixa): nao manda ISENTO (rejeicao 805 em varios estados), sai como nao contribuinte', () => {
+test('CNPJ "ISENTO" (qualquer caixa): nao manda ISENTO (rejeicao 805 em varios estados), sai como nao contribuinte e avisa', () => {
   for (const identidade of ['isento', 'ISENTO', ' Isento ']) {
-    const r = resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade });
+    const r = resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade, clienteNome: 'LUCINEIA' });
     assert.equal(r.valor, undefined);
     assert.equal(r.erro, undefined);
-    assert.match(String(r.aviso), /não contribuinte/);
+    assert.match(String(r.aviso), /O cliente "LUCINEIA" está como ISENTO de Inscrição Estadual: a nota sai como não contribuinte/);
+    // e o indFinal acompanha: sem IE e' consumidor final
+    assert.equal(destinatarioEConsumidorFinal({ documento: CNPJ, inscricaoEstadual: r.valor }), true);
   }
 });
 
 test('CNPJ com IE que nao parece valida: bloqueia citando o que esta la', () => {
   const r = resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade: 'abc', clienteNome: 'X' });
   assert.match(String(r.erro), /"abc"\) não parece válida/);
-  assert.match(String(r.erro), /deixe o campo em branco/);
+  assert.match(String(r.erro), /escreva ISENTO/);
   assert.match(String(resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade: '123' }).erro), /não parece válida/);
 });
 

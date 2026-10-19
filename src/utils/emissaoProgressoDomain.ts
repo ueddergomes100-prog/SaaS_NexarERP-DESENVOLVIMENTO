@@ -101,7 +101,7 @@ export const deveContinuarConsultando = (params: { iniciouEmMs: number; agoraMs:
 const ORIENTACAO_POR_CODIGO: Record<string, string> = {
   '232': 'A SEFAZ diz que este cliente é contribuinte do ICMS e a inscrição estadual (IE) não foi na nota. Cadastre a IE no cliente (Cadastros → Clientes) e retransmita.',
   // 19/10/2026: desde entao "ISENTO" sai como nao contribuinte; retransmitir resolve.
-  '805': 'O estado do cliente não aceita "contribuinte isento". Retransmita a nota: o sistema agora envia cliente sem IE (ou "ISENTO") como não contribuinte do ICMS.',
+  '805': 'O estado do cliente não aceita "contribuinte isento". Retransmita a nota: o sistema agora envia o cliente "ISENTO" como não contribuinte do ICMS.',
   '778': 'O NCM de um dos produtos é inválido. Corrija o NCM no cadastro do produto em Estoque e retransmita.',
   '806': 'Um produto com substituição tributária está sem CEST. Clique em "Corrigir na nota", informe o CEST do item destacado e transmita — o sistema oferece atualizar também o cadastro do produto.',
 };

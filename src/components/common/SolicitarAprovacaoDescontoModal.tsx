@@ -8,6 +8,9 @@ import { hasModuleAccess } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { normalizarCodigoVendedor } from '../../utils/vendedorPinDomain';
 import { validarVendedor, VendedorPinError } from '../../services/vendedorPinService';
+import { liberarDescontoNoServidor } from '../../services/liberacaoDescontoService';
+import { VendaServidorError } from '../../services/vendaServidorService';
+import type { TelaDoDesconto } from '../../utils/conferenciaDescontoDomain';
 import { showError } from '../../utils/alerts';
 import { useAuth } from '../../contexts/AuthContext';
 import { createAuditLog } from '../../services/logService';
@@ -19,13 +22,15 @@ const SECONDARY_APP_NAME = 'DescontoApprovalApp';
  * Reaproveita a mesma instancia nomeada entre chamadas -- initializeApp com
  * um nome ja usado lanca erro, e este modal pode abrir varias vezes na
  * mesma sessao de venda. */
-const validarSenha = async (email: string, senha: string): Promise<string> => {
+const validarSenha = async (email: string, senha: string): Promise<{ uid: string; idToken: string }> => {
   const existente = getApps().find((app) => app.name === SECONDARY_APP_NAME);
   const secondaryApp = existente || initializeApp(firebaseConfig, SECONDARY_APP_NAME);
   const secondaryAuth = getAuth(secondaryApp);
   try {
     const credential = await signInWithEmailAndPassword(secondaryAuth, email, senha);
-    return credential.user.uid;
+    // O token desta sessao recem-aberta e' a prova da senha que o servidor
+    // confere na venda pelo servidor (a senha em si nao sai daqui).
+    return { uid: credential.user.uid, idToken: await credential.user.getIdToken() };
   } finally {
     // Sempre desloga o app secundario, mesmo em falha -- nunca deixa uma
     // sessao paralela pendurada.
@@ -47,6 +52,8 @@ interface Aprovador {
 export interface AprovacaoDesconto {
   aprovadoPorId: string;
   aprovadoPorNome: string;
+  /** Venda pelo servidor: comprovante da liberacao, gasto no Finalizar. */
+  comprovanteId?: string;
 }
 
 interface SolicitarAprovacaoDescontoModalProps {
@@ -60,6 +67,12 @@ interface SolicitarAprovacaoDescontoModalProps {
   /** Modulo gravado no log de auditoria. 'vendas' cobre pedido, PDV e
    *  orcamento; a OS passa 'mecanica'. */
   moduloLog?: string;
+  /**
+   * Venda pelo servidor (19/10/2026): a senha/PIN e' conferida pelo servidor,
+   * que devolve o comprovante desta liberacao (tela e valores do desconto).
+   * Sem isto (chave desligada, Orcamento), a tela confere como sempre.
+   */
+  liberacaoNoServidor?: { tela: TelaDoDesconto; baseCentavos: number; descontoCentavos: number } | null;
 }
 
 /**
@@ -75,6 +88,7 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
   onClose,
   onAprovado,
   moduloLog = 'vendas',
+  liberacaoNoServidor = null,
 }) => {
   const { currentUser } = useAuth();
   const [aprovadores, setAprovadores] = useState<Aprovador[]>([]);
@@ -177,9 +191,24 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
       // tem login digita a senha; o vendedor de balcao digita o proprio PIN,
       // validado no backend (com limite de tentativas -- ver
       // server/services/vendedorPin.js).
-      const idConfirmado = aprovador.tipo === 'vendedor'
-        ? (await validarVendedor(aprovador.codigoVendedor || '', senha)).vendedorId
-        : await validarSenha(aprovador.email || '', senha);
+      let idConfirmado: string;
+      let comprovanteId = '';
+      if (liberacaoNoServidor) {
+        // Venda pelo servidor: quem decide e' o servidor (confere o PIN, ou a
+        // sessao recem-aberta com a senha, e a permissao de liberar).
+        const resultado = await liberarDescontoNoServidor({
+          ...liberacaoNoServidor,
+          aprovador: aprovador.tipo === 'vendedor'
+            ? { tipo: 'vendedor', codigo: aprovador.codigoVendedor || '', pin: senha }
+            : { tipo: 'login', idToken: (await validarSenha(aprovador.email || '', senha)).idToken },
+        });
+        idConfirmado = resultado.aprovadoPorId;
+        comprovanteId = resultado.comprovanteId;
+      } else {
+        idConfirmado = aprovador.tipo === 'vendedor'
+          ? (await validarVendedor(aprovador.codigoVendedor || '', senha)).vendedorId
+          : (await validarSenha(aprovador.email || '', senha)).uid;
+      }
 
       if (idConfirmado !== aprovador.id) {
         // Nao deveria acontecer (e-mail e codigo sao unicos por empresa), mas
@@ -197,12 +226,15 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
       // liberacao concedida numa venda que depois foi abandonada nao vira
       // documento nenhum, e era exatamente o caso que sumia sem deixar
       // rastro.
-      registrarLogDeAprovacao({
-        status: 'sucesso',
-        descricao: `${motivo} Liberado por ${aprovador.nome}.`,
-      });
+      // Pelo servidor, quem grava o log da liberacao e' o proprio servidor.
+      if (!liberacaoNoServidor) {
+        registrarLogDeAprovacao({
+          status: 'sucesso',
+          descricao: `${motivo} Liberado por ${aprovador.nome}.`,
+        });
+      }
 
-      onAprovado({ aprovadoPorId: aprovador.id, aprovadoPorNome: aprovador.nome });
+      onAprovado({ aprovadoPorId: aprovador.id, aprovadoPorNome: aprovador.nome, ...(comprovanteId ? { comprovanteId } : {}) });
       onClose();
     } catch (error: any) {
       const ehVendedor = aprovador.tipo === 'vendedor';
@@ -210,10 +242,12 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
       // O backend do PIN ja devolve recado pronto e especifico (senha errada,
       // vendedor bloqueado por tentativas, vendedor sem PIN cadastrado) --
       // trocar por um texto generico aqui jogaria fora a parte util.
+      // Recusa do servidor (venda pelo servidor) ja' vem em portugues e diz o motivo.
+      const recusaDoServidor = error instanceof VendaServidorError;
       const senhaErrada = ehVendedor
-        ? error instanceof VendedorPinError && error.status === 401
+        ? (error instanceof VendedorPinError || recusaDoServidor) && error.status === 401
         : codigo.includes('wrong-password') || codigo.includes('invalid-credential');
-      const mensagem = ehVendedor
+      const mensagem = ehVendedor || recusaDoServidor
         ? (error?.message || 'Não foi possível validar o PIN. Tente novamente.')
         : (senhaErrada ? 'Senha incorreta.' : 'Não foi possível validar a senha. Tente novamente.');
 

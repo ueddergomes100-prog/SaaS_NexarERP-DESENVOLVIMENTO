@@ -39,6 +39,7 @@ const travasRoutes = require('./routes/travas.routes');
 const romaneiosRoutes = require('./routes/romaneios.routes');
 const vendasRoutes = require('./routes/vendas.routes');
 const osRoutes = require('./routes/os.routes');
+const descontosRoutes = require('./routes/descontos.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
@@ -209,6 +210,8 @@ app.use('/api/romaneios', romaneiosRoutes);
 app.use('/api/vendas', vendasRoutes);
 // Item 8, fatia 3d (19/10/2026): finalizar, reabrir e cancelar a OS pelo servidor (mesma chave).
 app.use('/api/os', osRoutes);
+// Liberacao de desconto (19/10/2026): senha/PIN do aprovador conferidos aqui, viram comprovante de curta duracao.
+app.use('/api/descontos', descontosRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'
 // que precisam do banco do proprio ambiente -- ver manutencao.routes.js.
 app.use('/api/manutencao', manutencaoRoutes);

@@ -24,9 +24,15 @@
  * `sourceOrigin: 'pdv'` e o `pdvSessionId` (o fechamento do caixa soma por ele)
  * e nao entram na fila de conferencia (no balcao a mercadoria sai na hora).
  *
- * Limitacao conhecida (fica para a proxima fatia): o PRECO de cada item e o
- * desconto (com a aprovacao) ainda vem da tela -- o servidor refaz a conta,
- * mas nao reprecifica nem reconfere os limites de desconto.
+ * Desconto, liberacao e vendedor (19/10/2026): o servidor confere o limite do
+ * produto e o da tela (Configuracoes), no modo da empresa; no modo "senha" a
+ * venda gasta o comprovante de liberacao (services/liberacaoDesconto.js) e,
+ * com a identificacao do vendedor exigida, o comprovante do PIN do vendedor.
+ * Quem liberou vem do comprovante, nunca da tela. Regra em
+ * src/utils/conferenciaDescontoDomain.ts.
+ *
+ * Limitacao conhecida: o PRECO de cada item ainda vem da tela -- o servidor
+ * refaz a conta, mas nao reprecifica.
  */
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
@@ -38,6 +44,9 @@ const { parseParametrosVenda, bloqueioPorAtraso, maiorAtrasoEmDias } = require('
 const { STATUS_PRE_VENDA, isPedidoAberto, resolveOrigemPedido } = require('../domain/preVendaDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
+const cd = require('../domain/conferenciaDescontoDomain');
+const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
+const comprovantes = require('./comprovantes');
 
 class ErroVenda extends Error {
   constructor(status, message) {
@@ -122,6 +131,13 @@ const somarDeltas = (deltas) => {
  * Finaliza a venda. `corpo` e' o que a tela manda (ver lerPedidoDeFechamento).
  * Devolve { pedidoId, numeroPedido, vendedorId, vendedorNome, totalCentavos, ... }.
  */
+/** Desconto do cadastro do cliente (passa direto ate esse percentual). Sem cliente = 0. */
+const percentualDoClienteDaVenda = async (clienteId, tenantId) => {
+  if (!clienteId) return 0;
+  const snap = await db.collection('clientes').doc(String(clienteId)).get();
+  return snap.exists && snap.data().tenantId === tenantId ? descontoPadraoDoCliente(snap.data()) : 0;
+};
+
 const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const lido = venda.lerPedidoDeFechamento(corpo);
   if ('erro' in lido) throw new ErroVenda(400, lido.erro);
@@ -163,6 +179,22 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   pagamentos = fin.explodeInstallmentPaymentRecords(pagamentos);
   const resumo = fin.summarizePayments(pagamentos);
   const aPrazo = resumo.paymentCondition === 'aprazo';
+
+  // Desconto total contra o limite da tela, no modo da empresa (19/10/2026).
+  const tela = pedido.pdvSessionId ? 'pdv' : 'pedido';
+  const configDesconto = cd.configDoDesconto(config, tela);
+  const baseDoDescontoCentavos = fin.toCents(totais.valorTotalItens);
+  const descontoTotalCentavos = fin.toCents(totais.valorTotalDescontos);
+  const situacaoDesconto = cd.situacaoDoDescontoTotal({
+    tela,
+    config: configDesconto,
+    baseCentavos: baseDoDescontoCentavos,
+    descontoCentavos: descontoTotalCentavos,
+    percentualDoCliente: await percentualDoClienteDaVenda(pedido.clienteId, tenantId),
+  });
+  if (situacaoDesconto.erro) throw new ErroVenda(409, situacaoDesconto.erro);
+  // Identificacao do vendedor: so' o Pedido de Venda pede (o PDV nao).
+  const exigeIdentificacao = tela === 'pedido' && cd.exigeIdentificacaoDoVendedor(config);
 
   // Atraso e limite de credito (venda a prazo). Saldo lido FORA da transacao
   // (consulta); a versao do credito do cliente e' reconferida la dentro.
@@ -270,6 +302,26 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     if (!vendedorSnap.exists || vendedor.tenantId !== tenantId) throw new ErroVenda(400, 'O vendedor selecionado não pertence à empresa ativa.');
     const vendedorNome = vendedor.nome || vendedor.nomeResponsavel || user.nome || user.email || 'Vendedor';
 
+    // Comprovantes do servidor (19/10/2026): liberacao do desconto e PIN do vendedor.
+    const agoraMs = Date.now();
+    let liberacao = null;
+    if (situacaoDesconto.precisaLiberacao) {
+      const idLiberacao = pedido.descontoGeral.aprovacao && pedido.descontoGeral.aprovacao.comprovanteId;
+      if (!idLiberacao) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, cd.MENSAGEM_FALTA_LIBERACAO);
+      liberacao = await comprovantes.lerNaTransacao(tx, String(idLiberacao));
+      const problema = cd.problemaDaLiberacao(liberacao.dados, {
+        tenantId, emitidoPara: user.uid, tela, baseCentavos: baseDoDescontoCentavos, descontoCentavos: descontoTotalCentavos, agoraMs,
+      });
+      if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, problema);
+    }
+    let identificacao = null;
+    if (exigeIdentificacao) {
+      if (!pedido.comprovanteVendedorId) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, cd.MENSAGEM_FALTA_IDENTIFICACAO);
+      identificacao = await comprovantes.lerNaTransacao(tx, pedido.comprovanteVendedorId);
+      const problema = cd.problemaDaIdentificacao(identificacao.dados, { tenantId, emitidoPara: user.uid, vendedorId, agoraMs });
+      if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, problema);
+    }
+
     // Produtos: os da venda e os da reserva gravada (que pode ter item que saiu da venda).
     const reservaGravada = aberto && aberto.estoqueReservado === true ? toStockAdjustmentItems(aberto.itens || []) : [];
     const idsProdutos = [...new Set([...pedido.itens.map((i) => i.id), ...reservaGravada.map((r) => r.id)].filter((id) => id && id !== 'avulso'))];
@@ -280,6 +332,17 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       if (!s.exists) return;
       if (s.data().tenantId !== tenantId) throw new ErroVenda(400, 'Um dos produtos da venda não é desta empresa. Remova o item e lance de novo.');
       produtos[s.id] = s.data();
+    });
+
+    // Desconto de cada item: limite do produto (e o da tela, no Pedido com "bloquear").
+    pedido.itens.forEach((item) => {
+      const problema = cd.problemaNoDescontoDoItem({
+        nome: item.nome,
+        brutoCentavos: venda.brutoDaLinhaCentavos(item),
+        descontoCentavos: fin.toCents(item.desconto),
+        produto: produtos[item.id] || null,
+      }, tela, configDesconto);
+      if (problema) throw new ErroVenda(409, problema);
     });
 
     // Lotes: so' produto que controla lote; a soma tem de bater com a quantidade da linha.
@@ -431,10 +494,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
         tipo: pedido.descontoGeral.tipo,
         valorInformado: pedido.descontoGeral.valorInformado,
         valorAplicadoCentavos: totais.descontoGeralCentavos,
-        excedeuLimite: pedido.descontoGeral.excedeuLimite,
-        ...(pedido.descontoGeral.excedeuLimite && pedido.descontoGeral.aprovacao
-          ? { aprovacao: { ...pedido.descontoGeral.aprovacao, modo: 'senha', aprovadoEm: new Date().toISOString() } }
-          : {}),
+        excedeuLimite: situacaoDesconto.excedeu,
+        ...(liberacao ? { aprovacao: cd.aprovacaoDoComprovante(liberacao.dados, liberacao.ref.id) } : {}),
       },
       frete: pedido.frete,
       encargos: pedido.encargos,
@@ -479,6 +540,9 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
 
     // ---------------- ESCRITAS ----------------
     tx.set(pedidoRef, pedidoData);
+    // Cada comprovante vale para uma venda so'.
+    if (liberacao) tx.delete(liberacao.ref);
+    if (identificacao) tx.delete(identificacao.ref);
     if (!pedido.pedidoId) {
       tx.set(refSequencia(tenantId), { tenantId, chave: 'pedidos_venda', valor: proximoNumero, updatedAt: agora() }, { merge: true });
     }
@@ -556,4 +620,4 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   };
 };
 
-module.exports = { ErroVenda, finalizarVenda, temPermissao, situacaoDoCliente, lerColecaoDaEmpresa };
+module.exports = { ErroVenda, finalizarVenda, temPermissao, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda };

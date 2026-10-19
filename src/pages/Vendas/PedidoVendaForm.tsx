@@ -7,7 +7,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
-import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, finalizarVendaNoServidor } from '../../services/vendaServidorService';
+import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
+import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { brutoDaLinhaCentavos, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -547,6 +548,8 @@ const PedidoVendaForm: React.FC = () => {
   const [comissaoPadraoPecas, setComissaoPadraoPecas] = useState<number | undefined>(undefined);
   const [identificacaoAberta, setIdentificacaoAberta] = useState(false);
   const [descricaoIdentificacao, setDescricaoIdentificacao] = useState('');
+  /** Venda pelo servidor: a identificacao do Finalizar pede o comprovante do PIN ao servidor. */
+  const [identificacaoComComprovante, setIdentificacaoComComprovante] = useState(false);
   /**
    * Vendedor identificado para a venda EM ANDAMENTO.
    *
@@ -2205,12 +2208,14 @@ const PedidoVendaForm: React.FC = () => {
    * refinamento: um carrinho de 30 itens refeito na frente do cliente por
    * causa de um erro de senha seria inaceitavel no balcao.
    */
-  const garantirVendedorIdentificado = (acao: () => void, descricao: string): boolean => {
+  const garantirVendedorIdentificado = (acao: () => void, descricao: string, comComprovante = false): boolean => {
     if (!exigirIdentificacaoVendedor) return true;
-    if (vendedorIdentificadoRef.current) return true;
+    // Venda pelo servidor: identificacao sem comprovante (ex.: a da pre-venda) nao serve para finalizar.
+    if (vendedorIdentificadoRef.current && (!comComprovante || vendedorIdentificadoRef.current.comprovanteId)) return true;
 
     acaoAposIdentificarRef.current = acao;
     setDescricaoIdentificacao(descricao);
+    setIdentificacaoComComprovante(comComprovante);
     setIdentificacaoAberta(true);
     return false;
   };
@@ -3038,6 +3043,7 @@ const PedidoVendaForm: React.FC = () => {
     if (!garantirVendedorIdentificado(
       () => { void handleFinalizarVenda(); },
       `Finalizar venda de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}`,
+      vendaPeloServidor,
     )) return false;
 
     // Faturar um pedido que a expedicao ainda nao fechou. Nao e' bloqueio --
@@ -3269,6 +3275,7 @@ const PedidoVendaForm: React.FC = () => {
           ...(finalizandoPedidoAberto ? { pedidoId: id } : { idDocumento: idVendaServidorRef.current }),
           dataVenda: dataVendaParaGravar,
           vendedorId: vendedorIdentificadoRef.current?.vendedorId || vendedorId || currentUser.uid,
+          ...(vendedorIdentificadoRef.current?.comprovanteId ? { comprovanteVendedorId: vendedorIdentificadoRef.current.comprovanteId } : {}),
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
           observacao: observacaoPedido.trim(),
@@ -3929,6 +3936,12 @@ const PedidoVendaForm: React.FC = () => {
 
     } catch (error) {
       console.error('Erro ao finalizar venda:', error);
+      // Liberacao ou identificacao que o servidor nao aceitou (vencida, usada,
+      // de outro valor): esquece as duas, e o proximo Finalizar pede de novo.
+      if (error instanceof VendaServidorError && error.status === STATUS_PEDIR_DE_NOVO) {
+        esquecerVendedorIdentificado();
+        setAprovacaoDesconto(null);
+      }
       // Erro de infraestrutura (disputa entre vendedores, queda de conexao)
       // tem recado proprio -- sem isso a tela mostrava o texto cru do
       // Firestore, que nao diz ao operador que basta tentar de novo.
@@ -5068,6 +5081,7 @@ const PedidoVendaForm: React.FC = () => {
           acaoAposIdentificarRef.current = null;
         }}
         onIdentificado={handleVendedorIdentificado}
+        emitirComprovante={identificacaoComComprovante}
       />
 
       {pendingOrderStockWarnings.length > 0 && (
@@ -5129,6 +5143,9 @@ const PedidoVendaForm: React.FC = () => {
         motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste pedido, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
         onClose={() => setShowAprovacaoDesconto(false)}
         onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+        liberacaoNoServidor={vendaPeloServidor
+          ? { tela: 'pedido', baseCentavos: toCents(valorTotalItens), descontoCentavos: toCents(valorTotalDescontos) }
+          : null}
       />
 
       <CadastroRapidoClienteModal

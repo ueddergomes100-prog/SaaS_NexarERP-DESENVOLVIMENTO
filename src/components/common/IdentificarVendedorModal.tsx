@@ -40,6 +40,8 @@ interface IdentificarVendedorModalProps {
   descricaoOperacao?: string;
   onClose: () => void;
   onIdentificado: (vendedor: VendedorIdentificado) => void;
+  /** Venda pelo servidor: pede ao servidor o comprovante do PIN (gasto no Finalizar). */
+  emitirComprovante?: boolean;
 }
 
 const inputStyle: React.CSSProperties = {
@@ -60,6 +62,7 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
   descricaoOperacao,
   onClose,
   onIdentificado,
+  emitirComprovante = false,
 }) => {
   const [codigo, setCodigo] = useState('');
   const [pin, setPin] = useState('');
@@ -112,7 +115,7 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
     setValidando(true);
     setErro('');
     try {
-      const vendedor = await validarVendedor(codigo, pin);
+      const vendedor = await validarVendedor(codigo, pin, emitirComprovante);
       onIdentificado(vendedor);
       onClose();
     } catch (error) {

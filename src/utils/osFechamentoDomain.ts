@@ -311,6 +311,8 @@ export interface PedidoDeFinalizacaoDaOs {
   pagamentos: Array<Record<string, unknown>>;
   /** Lotes escolhidos por linha de peca (chave = indice da peca na OS gravada). */
   lotes: Record<string, LoteUsado[]>;
+  /** Comprovante da liberacao do desconto acima do limite (modo "senha", 19/10/2026). */
+  comprovanteAprovacaoId: string | null;
 }
 
 /** POST /api/os/finalizar: { osId, dataSaida, pagamentos (rascunhos), lotes? }. */
@@ -330,12 +332,15 @@ export const lerPedidoDeFinalizacaoDaOs = (corpo: unknown): { erro: string } | {
     if (lidos === null) return { erro: 'Lote inválido. Escolha o lote de novo.' };
     if (lidos.length > 0) lotes[chave] = lidos;
   }
+  const comprovanteAprovacaoId = c.comprovanteAprovacaoId ? String(c.comprovanteAprovacaoId) : null;
+  if (comprovanteAprovacaoId && !ID_VALIDO.test(comprovanteAprovacaoId)) return { erro: 'Liberação do desconto inválida. Finalize de novo e peça a liberação.' };
   return {
     pedido: {
       osId,
       dataSaida,
       pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p as Record<string, unknown> : {})),
       lotes,
+      comprovanteAprovacaoId,
     },
   };
 };

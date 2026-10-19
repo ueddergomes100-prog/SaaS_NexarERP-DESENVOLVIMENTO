@@ -118,7 +118,8 @@ import {
   mensagemOsCanceladaNaoReabre,
 } from '../../utils/osFechamentoDomain';
 import { cancelarOsPelaTela, finalizarOsPelaTela, reabrirOsPelaTela } from '../../services/osFechamentoService';
-import { cancelarOsNoServidor, finalizarOsNoServidor, reabrirOsNoServidor } from '../../services/osServidorService';
+import { cancelarOsNoServidor, finalizarOsNoServidor, reabrirOsNoServidor, OsServidorError } from '../../services/osServidorService';
+import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
 import { AVISO_OS_EM_ATENDIMENTO_NO_CAMPO, STATUS_OS_AGUARDANDO_CONFERENCIA, STATUS_OS_EM_ATENDIMENTO, osEmAtendimentoNoCampo, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 
@@ -1586,7 +1587,13 @@ const OSForm: React.FC = () => {
       }
 
       const finalizada = vendaPeloServidor
-        ? await finalizarOsNoServidor({ osId: savedOsId, dataSaida: paymentDate, pagamentos: paymentDrafts, lotes: planoLotes.porLinha })
+        ? await finalizarOsNoServidor({
+          osId: savedOsId,
+          dataSaida: paymentDate,
+          pagamentos: paymentDrafts,
+          lotes: planoLotes.porLinha,
+          ...(aprovacaoDesconto?.comprovanteId ? { comprovanteAprovacaoId: aprovacaoDesconto.comprovanteId } : {}),
+        })
         : await finalizarOsPelaTela(ctx, {
           osId: savedOsId,
           dataSaida: paymentDate,
@@ -1651,6 +1658,8 @@ const OSForm: React.FC = () => {
       return true;
     } catch (error) {
       console.error('Erro ao salvar OS:', error);
+      // Liberacao que o servidor nao aceitou (vencida, usada, de outro valor): o proximo Salvar pede de novo.
+      if (error instanceof OsServidorError && error.status === STATUS_PEDIR_DE_NOVO) setAprovacaoDesconto(null);
       // Erro de infraestrutura primeiro (disputa entre operadores, queda de
       // rede, permissao recusada): sem isto o texto cru do Firestore chegava
       // na tela -- foi assim que "Missing or insufficient permissions."
@@ -2351,6 +2360,9 @@ const OSForm: React.FC = () => {
           moduloLog="mecanica"
           onClose={() => setShowAprovacaoDesconto(false)}
           onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+          liberacaoNoServidor={vendaPeloServidor
+            ? { tela: 'os', baseCentavos: subtotalOSCentavos, descontoCentavos: descontoCents }
+            : null}
         />
 
         <CadastroRapidoClienteModal

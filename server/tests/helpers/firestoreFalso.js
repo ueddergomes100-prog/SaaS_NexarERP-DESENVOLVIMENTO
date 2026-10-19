@@ -129,6 +129,12 @@ const carregarComBancoFalso = (db, ...servicos) => {
       contas.set(email, uid);
       return { uid, email };
     },
+    // Token falso "falso:<uid>:<auth_time em segundos>" (liberacao de desconto, 19/10/2026).
+    verifyIdToken: async (token) => {
+      const [marca, uid, authTime] = String(token).split(':');
+      if (marca !== 'falso' || !uid) throw new Error('token invalido');
+      return { uid, auth_time: Number(authTime) };
+    },
   };
   require.cache[firebase] = {
     id: firebase, filename: firebase, loaded: true,
@@ -136,7 +142,9 @@ const carregarComBancoFalso = (db, ...servicos) => {
   };
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));
-  caminhos.forEach((c) => { delete require.cache[c]; });
+  // Servicos usados por dentro de outros (guardam o `db` ao carregar): sempre com o banco novo.
+  const sempreNovos = ['services/comprovantes', 'services/vendedorPin'].map((s) => require.resolve(path.join(base, s)));
+  [...sempreNovos, ...caminhos].forEach((c) => { delete require.cache[c]; });
   return caminhos.map((c) => require(c));
 };
 

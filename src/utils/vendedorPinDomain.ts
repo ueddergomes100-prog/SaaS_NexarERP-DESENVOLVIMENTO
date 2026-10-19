@@ -120,6 +120,8 @@ export interface VendedorIdentificado {
   vendedorId: string;
   vendedorNome: string;
   codigo: string;
+  /** Venda pelo servidor (19/10/2026): prova do PIN, gasta no Finalizar. */
+  comprovanteId?: string;
 }
 
 /**

@@ -24,7 +24,7 @@ export interface ResultadoDaFinalizacaoDaOs {
 }
 
 /** `pagamentos` = as linhas da tela (forma, valor, banco...). O total vem da OS gravada. */
-export const finalizarOsNoServidor = (args: { osId: string; dataSaida: string; pagamentos: unknown[]; lotes: Record<string, LoteUsado[]> }) =>
+export const finalizarOsNoServidor = (args: { osId: string; dataSaida: string; pagamentos: unknown[]; lotes: Record<string, LoteUsado[]>; comprovanteAprovacaoId?: string }) =>
   postarNoServidor<ResultadoDaFinalizacaoDaOs>('finalizar', { ...args },
     'Não foi possível finalizar a OS. O dinheiro e o estoque não foram mexidos. Tente novamente.',
     'Toque em Salvar de novo: se a OS já tiver sido finalizada, o sistema não finaliza duas vezes.', 'os');

@@ -151,10 +151,10 @@ exports.descontoInicial = descontoInicial;
  * hierarquia de 3 niveis com vendedor no meio e' a da COMISSAO
  * (resolveComissaoPercentual), nao a do desconto.
  *
- * ATENCAO, registrado de proposito: tudo isto e' conferido NA TELA. O
- * servidor nao valida desconto. Se algum dia esse limite precisar ser
- * inviolavel (regra "nada se altera pelo DevTools"), a checagem tem de subir
- * pro servidor -- e' mudanca maior, decisao a parte.
+ * Quem confere: com a chave "Venda pelo servidor" ligada (19/10/2026), o
+ * servidor confere estes mesmos limites no Finalizar do Pedido, do PDV e da
+ * OS, e a liberacao por senha vira um comprovante do servidor -- ver
+ * conferenciaDescontoDomain.ts. Com a chave desligada, so' a tela confere.
  */
 /** Percentual do cadastro do cliente, ou 0 quando nao tem. Sempre entre 0 e 100. */
 const descontoPadraoDoCliente = (cliente) => {

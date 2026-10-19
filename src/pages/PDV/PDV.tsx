@@ -44,7 +44,8 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { finalizarVendaNoServidor } from '../../services/vendaServidorService';
+import { finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
+import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, findEmbalagemIdByExactCode, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
@@ -1228,6 +1229,8 @@ const PDV: React.FC = () => {
       }
     } catch (error) {
       console.error('Erro ao finalizar PDV:', error);
+      // Liberacao que o servidor nao aceitou (vencida, usada, de outro valor): o proximo Finalizar pede de novo.
+      if (error instanceof VendaServidorError && error.status === STATUS_PEDIR_DE_NOVO) setAprovacaoDesconto(null);
       // Ver describeTransactionError: disputa entre operadores e queda de
       // conexao ganham recado proprio, em vez do texto cru do Firestore.
       showError(
@@ -1399,6 +1402,9 @@ const PDV: React.FC = () => {
         motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste cupom, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
         onClose={() => setShowAprovacaoDesconto(false)}
         onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+        liberacaoNoServidor={vendaPeloServidor
+          ? { tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos }
+          : null}
       />
 
       <DiscountModal

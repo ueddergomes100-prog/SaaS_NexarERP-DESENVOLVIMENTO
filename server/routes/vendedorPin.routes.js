@@ -1,6 +1,8 @@
 const express = require('express');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { definirPin, removerPin, validarPin } = require('../services/vendedorPin');
+const { emitirComprovante } = require('../services/comprovantes');
+const { TIPO_IDENTIFICACAO } = require('../domain/conferenciaDescontoDomain');
 
 const router = express.Router();
 
@@ -37,6 +39,18 @@ router.post('/validar', async (req, res) => {
       codigo: req.body?.codigo,
       pin: req.body?.pin,
     });
+    // Venda pelo servidor (19/10/2026): com a identificacao exigida, o Finalizar
+    // gasta este comprovante -- prova que o vendedor da venda digitou o PIN.
+    if (req.body?.emitirComprovante === true) {
+      const comprovante = await emitirComprovante({
+        tenantId: req.user.tenantId,
+        emitidoPara: req.user.uid,
+        tipo: TIPO_IDENTIFICACAO,
+        pessoaId: resultado.vendedorId,
+        pessoaNome: resultado.vendedorNome,
+      });
+      return res.json({ ...resultado, comprovanteId: comprovante.comprovanteId });
+    }
     return res.json(resultado);
   } catch (erro) {
     return responderErro(res, erro, 'validar');

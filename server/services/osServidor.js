@@ -15,9 +15,11 @@
  * o que saiu (gravado na OS); reabrir com parcela ja' recebida fica bloqueado;
  * a comissao fica "reaberta" e e' refeita ao finalizar de novo.
  *
- * Igual a venda (fatia 3a): o preco de cada item e o desconto (com a aprovacao
- * por senha) ainda vem da OS gravada pela tela -- o servidor refaz a conta, mas
- * nao reprecifica nem reconfere o limite de desconto.
+ * Desconto (19/10/2026): o servidor confere o limite da OS (Configuracoes) no
+ * modo da empresa; no modo "senha" a OS gasta o comprovante de liberacao e
+ * grava quem liberou a partir dele (src/utils/conferenciaDescontoDomain.ts).
+ * O preco de cada item ainda vem da OS gravada pela tela -- o servidor refaz a
+ * conta, mas nao reprecifica.
  */
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
@@ -28,7 +30,9 @@ const { parseParametrosVenda, bloqueioPorAtraso } = require('../domain/parametro
 const { bloqueioParaRefazerParcelas } = require('../domain/alteracaoValorTituloDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
-const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa } = require('./vendaFechamento');
+const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda } = require('./vendaFechamento');
+const cd = require('../domain/conferenciaDescontoDomain');
+const comprovantes = require('./comprovantes');
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
 const incremento = (n) => admin.firestore.FieldValue.increment(n);
@@ -139,6 +143,18 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
   // versao do credito do cliente e' reconferida la dentro.
   const clienteId = antes.clienteId ? String(antes.clienteId) : '';
   const clienteNome = String(antes.clienteNome || '').trim().toUpperCase();
+
+  // Desconto contra o limite da OS, no modo da empresa (19/10/2026).
+  const baseDoDescontoCentavos = fin.toCents(totais.subtotal);
+  const situacaoDesconto = cd.situacaoDoDescontoTotal({
+    tela: 'os',
+    config: cd.configDoDesconto(config, 'os'),
+    baseCentavos: baseDoDescontoCentavos,
+    descontoCentavos: totais.descontoCentavos,
+    percentualDoCliente: await percentualDoClienteDaVenda(clienteId, tenantId),
+  });
+  if (situacaoDesconto.erro) throw new ErroVenda(409, situacaoDesconto.erro);
+
   const parametros = parseParametrosVenda(config.parametrosVenda);
   const comLimite = credito.parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito) && aPrazo;
   let creditoVersaoNaChecagem = 0;
@@ -187,6 +203,17 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
     }
     if (osf.totaisDaOs(os).valorTotalCentavos !== totais.valorTotalCentavos) {
       throw new ErroVenda(409, `O valor da OS #${numeroOS} mudou enquanto você finalizava. Atualize a tela e finalize de novo.`);
+    }
+
+    // Liberacao do desconto (modo "senha"): comprovante do servidor, gasto nesta OS.
+    let liberacao = null;
+    if (situacaoDesconto.precisaLiberacao) {
+      if (!pedido.comprovanteAprovacaoId) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, cd.MENSAGEM_FALTA_LIBERACAO);
+      liberacao = await comprovantes.lerNaTransacao(tx, pedido.comprovanteAprovacaoId);
+      const problema = cd.problemaDaLiberacao(liberacao.dados, {
+        tenantId, emitidoPara: user.uid, tela: 'os', baseCentavos: baseDoDescontoCentavos, descontoCentavos: totais.descontoCentavos, agoraMs: Date.now(),
+      });
+      if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, problema);
     }
 
     const mecanicoId = String(os.mecanicoId || '');
@@ -290,11 +317,15 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
     tx.update(osRef, {
       ...plano.camposDaOs,
       fechadoPeloServidor: true,
+      // Quem liberou o desconto vem do comprovante, nunca da tela.
+      'desconto.excedeuLimite': situacaoDesconto.excedeu,
+      'desconto.aprovacao': liberacao ? cd.aprovacaoDoComprovante(liberacao.dados, liberacao.ref.id) : admin.firestore.FieldValue.delete(),
       finalizadaPor: user.uid,
       finalizadaEm: agora(),
       updatedAt: agora(),
       ...buildDocumentUpdateMetadata(user.uid, agora(), 'OS finalizada'),
     });
+    if (liberacao) tx.delete(liberacao.ref);
     estoque.forEach(([id, campos]) => tx.update(db.collection('estoque').doc(id), campos));
     escritasDeLote.forEach(([id, campos]) => tx.update(db.collection('estoque_lotes').doc(id), campos));
     if (clienteCreditoRef) tx.update(clienteCreditoRef, { [credito.CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1, updatedAt: agora() });

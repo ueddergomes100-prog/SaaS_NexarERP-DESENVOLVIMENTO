@@ -79,9 +79,13 @@ const post = async <T>(caminho: string, corpo: Record<string, unknown>): Promise
   return dados as T;
 };
 
-/** Valida codigo + PIN e devolve quem e' o vendedor. */
-export const validarVendedor = (codigo: string, pin: string): Promise<VendedorIdentificado> =>
-  post<VendedorIdentificado>('/validar', { codigo, pin });
+/**
+ * Valida codigo + PIN e devolve quem e' o vendedor. `emitirComprovante`
+ * (venda pelo servidor, 19/10/2026): o servidor devolve tambem um comprovante
+ * que o Finalizar gasta -- prova de que o vendedor da venda digitou o PIN.
+ */
+export const validarVendedor = (codigo: string, pin: string, emitirComprovante = false): Promise<VendedorIdentificado> =>
+  post<VendedorIdentificado>('/validar', { codigo, pin, ...(emitirComprovante ? { emitirComprovante: true } : {}) });
 
 /** Define ou reseta o PIN de um funcionario (somente administrador). */
 export const definirPinVendedor = (usuarioId: string, pin: string): Promise<{ ok: boolean; codigo: string }> =>

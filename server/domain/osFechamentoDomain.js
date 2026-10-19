@@ -204,12 +204,16 @@ const lerPedidoDeFinalizacaoDaOs = (corpo) => {
         if (lidos.length > 0)
             lotes[chave] = lidos;
     }
+    const comprovanteAprovacaoId = c.comprovanteAprovacaoId ? String(c.comprovanteAprovacaoId) : null;
+    if (comprovanteAprovacaoId && !ID_VALIDO.test(comprovanteAprovacaoId))
+        return { erro: 'Liberação do desconto inválida. Finalize de novo e peça a liberação.' };
     return {
         pedido: {
             osId,
             dataSaida,
             pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p : {})),
             lotes,
+            comprovanteAprovacaoId,
         },
     };
 };

@@ -170,6 +170,9 @@ const lerPedidoDeFechamento = (corpo) => {
         return { erro: 'Caixa do PDV inválido. Feche e abra o PDV de novo.' };
     if (pdvSessionId && pedidoId)
         return { erro: 'Venda do PDV é sempre nova. Atualize a tela e tente de novo.' };
+    const comprovanteVendedorId = c.comprovanteVendedorId ? String(c.comprovanteVendedorId) : null;
+    if (comprovanteVendedorId && !ID_VALIDO.test(comprovanteVendedorId))
+        return { erro: 'Identificação do vendedor inválida. Finalize de novo e digite o código e a senha.' };
     return {
         pedido: {
             pedidoId,
@@ -191,6 +194,7 @@ const lerPedidoDeFechamento = (corpo) => {
             pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p : {})),
             orcamentoId,
             pdvSessionId,
+            comprovanteVendedorId,
         },
     };
 };

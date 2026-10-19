@@ -75,7 +75,7 @@ export const postarNoServidor = async <T>(
   corpo: Record<string, unknown>,
   falhou: string,
   semResposta: string,
-  base: 'vendas' | 'os' = 'vendas',
+  base: 'vendas' | 'os' | 'descontos' = 'vendas',
 ): Promise<T> => {
   if (!API_URL) {
     throw new VendaServidorError('As vendas desta empresa são gravadas pelo servidor, que não está configurado neste ambiente. Avise o suporte.', 0);

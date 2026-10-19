@@ -4,10 +4,12 @@ import { collection, query, where, getDocs, doc, getDoc, Timestamp } from 'fireb
 import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showError, showSuccess } from '../../utils/alerts';
+import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import {
+  SERIE_PADRAO_SINTEGRA,
   buildSintegraFile,
   montarProdutosSintegra,
+  serieDaChaveDeAcesso,
   type ProdutoEstoqueSintegra, type SintegraEmpresa, type SintegraNota, type SintegraNotaItem, type SintegraProduto,
 } from '../../utils/sintegraDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
@@ -112,9 +114,17 @@ const Sintegra: React.FC = () => {
         return;
       }
 
+      // Serie vem da chave de acesso; nota sem chave gravada sai com a serie padrao (e avisa).
+      const semChave = notasValidas.filter((nota) => !serieDaChaveDeAcesso(nota.accessKey));
+      if (semChave.length > 0) {
+        showWarning(
+          'Nota sem chave de acesso',
+          `${semChave.map((nota) => `${nota.tipo || 'Nota'} nº ${nota.number || '?'}`).join(', ')} não tem a chave de acesso gravada e saiu com série ${SERIE_PADRAO_SINTEGRA}. Abra Notas Fiscais, use Sincronizar Notas e gere o SINTEGRA de novo se a série for outra.`,
+        );
+      }
       const notasSintegra: SintegraNota[] = notasValidas.map((nota) => ({
         modelo: nota.tipo === 'NFC-e' ? 65 : 55,
-        serie: '1',
+        serie: serieDaChaveDeAcesso(nota.accessKey) ?? SERIE_PADRAO_SINTEGRA,
         numero: nota.number || 0,
         // Data LOCAL da emissao: toISOString() e' UTC, e nota das 21h em diante
         // saia com o dia seguinte (no ultimo dia do mes, caia no arquivo do mes seguinte).

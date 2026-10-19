@@ -3,8 +3,19 @@ import assert from 'node:assert/strict';
 import {
   buildSintegraFile,
   montarProdutosSintegra,
+  serieDaChaveDeAcesso,
   type SintegraEmpresa, type SintegraNota, type SintegraProduto, type SintegraPeriodo,
 } from '../src/utils/sintegraDomain';
+
+test('serie da nota sai da chave de acesso (antes era sempre "1")', () => {
+  // UF 31 | AAMM 2610 | CNPJ 12345678000199 | modelo 55 | serie 002 | numero 000000093 | ...
+  const chave = `31261012345678000199550020000000931${'0'.repeat(9)}`;
+  assert.equal(chave.length, 44);
+  assert.equal(serieDaChaveDeAcesso(chave), '2');
+  assert.equal(serieDaChaveDeAcesso(`NFe${chave}`), '2');
+  assert.equal(serieDaChaveDeAcesso('123'), null);
+  assert.equal(serieDaChaveDeAcesso(undefined), null);
+});
 
 const empresa: SintegraEmpresa = {
   cnpj: '12.345.678/0001-99',

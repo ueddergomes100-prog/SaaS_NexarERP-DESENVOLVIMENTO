@@ -6,6 +6,7 @@ const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
+const { separarCscDaNumeracao } = require('../services/protegerSegredos');
 // Toda chamada a Spedy passa por aqui: tempo limite + erro em portugues
 // (ver utils/fetchComTimeout.js). Sem isso a tela ficava presa em
 // "Transmitindo..." quando a Spedy nao respondia.
@@ -384,8 +385,19 @@ router.put('/numbering', async (req, res) => {
       });
     }
 
+    // CSC da NFC-e so' na area protegida (19/10/2026): o documento publico
+    // (que todo usuario da empresa le) fica com a numeracao sem o CSC.
+    const apagar = () => admin.firestore.FieldValue.delete();
+    const { publico, nfceCsc } = separarCscDaNumeracao(payloadFinal, apagar);
+    if (nfceCsc) {
+      await db.collection('configuracoes_privadas').doc(tenantId).set({
+        tenantId,
+        nfceCsc,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }
     await db.collection('configuracoes').doc(tenantId).set({
-      spedyNumeracao: payloadFinal,
+      spedyNumeracao: publico,
       atualizadoEm: new Date().toISOString()
     }, { merge: true });
 

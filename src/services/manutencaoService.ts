@@ -68,6 +68,33 @@ export interface ResultadoConfiguracoesGerais {
   grupos: Array<{ grupo: string; filiais: Array<{ filial: string; campos: string[] }> }>;
 }
 
+export interface ResultadoProtecaoDeSegredos {
+  projeto: string | null;
+  modo: 'simular' | 'aplicar';
+  lidas: number;
+  empresas: Array<{ tenantId: string; nome: string; chaveSpedy: boolean; csc: boolean }>;
+}
+
+/** Segredos fiscais (19/10/2026): CSC e chave antiga da Spedy saem do documento comum. */
+export const rodarProtecaoDeSegredos = async (modo: 'simular' | 'aplicar'): Promise<ResultadoProtecaoDeSegredos> => {
+  if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new ManutencaoError('Sua sessão expirou. Entre novamente para continuar.', 401);
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/manutencao/proteger-segredos`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo }),
+    }, TEMPO_LIMITE.manutencao);
+  } catch (erro) {
+    throw new ManutencaoError(mensagemDeFalhaDeRede(erro), 0);
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
+  return dados as ResultadoProtecaoDeSegredos;
+};
+
 /** Configuracoes Gerais (15/10/2026): iguala os campos do grupo pelo valor da matriz. */
 export const rodarUnificacaoConfiguracoesGerais = async (modo: ModoDatasFaltantes): Promise<ResultadoConfiguracoesGerais> => {
   if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);

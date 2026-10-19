@@ -57,6 +57,17 @@ service cloud.firestore {
         currentProfile().nivelAcesso in ['gerente', 'administracao'];
     }
 
+    // Gerente so' da' e tira permissao que ELE MESMO tem (decisao do dono,
+    // 19/10/2026): o que entrou ou saiu da lista do funcionario tem de estar na
+    // lista do gerente. Antes o gerente liberava qualquer modulo (ate os que nao
+    // tinha), inclusive depois de inativado.
+    function permissoesMexidasSoAsDoGerente() {
+      let antes = resource.data.get('permissoes', []).toSet();
+      let depois = request.resource.data.get('permissoes', []).toSet();
+      return depois.difference(antes).union(antes.difference(depois))
+        .hasOnly(currentProfile().get('permissoes', []));
+    }
+
     function hasPermission(permission) {
       return hasProfile() &&
         currentProfile().permissoes is list &&
@@ -550,6 +561,7 @@ service cloud.firestore {
           // acesso, acesso mobile, criar/inativar e senha continuam so'
           // isTenantAdmin -- ver tenantUserEditableFields() acima.
           isGerenteDeEquipe() &&
+          perfilAtivo() &&
           resource.data.tenantId == currentTenantId() &&
           resource.data.role == 'Funcionario' &&
           !(resource.data.nivelAcesso in ['gerente', 'administracao']) &&
@@ -557,7 +569,8 @@ service cloud.firestore {
           request.resource.data.tenantId == resource.data.tenantId &&
           request.resource.data.role == resource.data.role &&
           request.resource.data.nivelAcesso == resource.data.nivelAcesso &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['permissoes'].concat(documentAuditFields()))
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['permissoes'].concat(documentAuditFields())) &&
+          permissoesMexidasSoAsDoGerente()
         ) ||
         (
           signedIn() &&
@@ -657,6 +670,16 @@ service cloud.firestore {
       return isTenantAdmin() || hasPermission('administrativo.config');
     }
 
+    // Segredo nao entra no documento que todos leem (19/10/2026): a chave da
+    // Spedy so' pode SAIR daqui (a tela apaga ao salvar) e a numeracao fiscal
+    // (onde vinha o CSC da NFC-e) so' o servidor grava. Os dois moram em
+    // configuracoes_privadas.
+    function semSegredoNovoNasConfiguracoes() {
+      let mexidos = request.resource.data.diff(resource.data).affectedKeys();
+      return !mexidos.hasAny(['spedyNumeracao']) &&
+        (!mexidos.hasAny(['spedyApiKey']) || request.resource.data.get('spedyApiKey', '') == '');
+    }
+
     match /configuracoes/{tenantId} {
       allow read: if canAccessTenant(tenantId);
       allow create: if isSuperAdmin() ||
@@ -664,14 +687,17 @@ service cloud.firestore {
           canEditTenantConfig() &&
           currentTenantId() == tenantId &&
           request.resource.data.tenantId == tenantId &&
-          !request.resource.data.keys().hasAny(platformManagedFields())
+          !request.resource.data.keys().hasAny(platformManagedFields()) &&
+          !request.resource.data.keys().hasAny(['spedyNumeracao']) &&
+          request.resource.data.get('spedyApiKey', '') == ''
         );
       allow update: if isSuperAdmin() ||
         (
           canEditTenantConfig() &&
           currentTenantId() == tenantId &&
           request.resource.data.tenantId == tenantId &&
-          doesNotChangePlatformManagedFields()
+          doesNotChangePlatformManagedFields() &&
+          semSegredoNovoNasConfiguracoes()
         );
       allow delete: if isSuperAdmin();
     }

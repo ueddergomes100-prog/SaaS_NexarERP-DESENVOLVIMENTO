@@ -5,6 +5,7 @@ const { limitadorPorChave, MINUTO_MS } = require('../middleware/rateLimit');
 const { preencherDatasFaltantes } = require('../services/datasFaltantes');
 const { unificarConfiguracoesGerais } = require('../services/configuracoesGerais');
 const { registrarLog } = require('../services/auditoria');
+const { protegerSegredos } = require('../services/protegerSegredos');
 
 /**
  * MANUTENCAO DO BANCO, pelo Painel da Plataforma (2026-10-15).
@@ -121,6 +122,45 @@ router.post('/configuracoes-gerais', limite, async (req, res) => {
       error: config.aplicar
         ? 'A unificação parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que continua diferente).'
         : 'Não foi possível ler as configurações das filiais agora. Tente de novo em alguns minutos.',
+    });
+  } finally {
+    emAndamento = false;
+  }
+});
+
+// Segredos fiscais (19/10/2026): CSC da NFC-e e chave antiga da Spedy saem do
+// documento que todos da empresa leem. Sem "desfazer" (ver protegerSegredos.js).
+router.post('/proteger-segredos', limite, async (req, res) => {
+  if (!req.user?.isPlatformAdmin) {
+    return res.status(403).json({ error: 'Só o administrador da plataforma pode rodar a manutenção do banco.' });
+  }
+  const modo = typeof req.body?.modo === 'string' ? req.body.modo : 'simular';
+  if (modo !== 'simular' && modo !== 'aplicar') {
+    return res.status(400).json({ error: 'Esta tarefa só tem Simular e Aplicar (desfazer poria o segredo de volta onde todos leem).' });
+  }
+  if (emAndamento) {
+    return res.status(409).json({ error: 'Já tem uma tarefa de manutenção rodando. Espere ela terminar e tente de novo.' });
+  }
+  emAndamento = true;
+  const projeto = projectId || admin.app().options.projectId || null;
+  try {
+    const resultado = await protegerSegredos({ db, apagar: () => admin.firestore.FieldValue.delete(), aplicar: modo === 'aplicar' });
+    console.log(`[Manutencao] proteger segredos: ${modo} por ${req.user.email || req.user.uid} no projeto ${projeto} -- ${resultado.empresas.length} empresas`);
+    if (modo === 'aplicar' && resultado.empresas.length > 0) {
+      registrarLog(req.user, {
+        modulo: 'manutencao',
+        acao: 'segredos_protegidos',
+        descricao: `CSC da NFC-e e chave da Spedy movidos para a área protegida em ${resultado.empresas.length} empresa(s): ${resultado.empresas.map((e) => e.nome).join(', ')}.`,
+        critico: true,
+      });
+    }
+    return res.json({ projeto, modo, ...resultado });
+  } catch (erro) {
+    console.error(`[Manutencao] proteger segredos (${modo}) falhou:`, erro.message);
+    return res.status(500).json({
+      error: modo === 'aplicar'
+        ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe em quem ainda tem segredo no documento comum).'
+        : 'Não foi possível ler as configurações agora. Tente de novo em alguns minutos.',
     });
   } finally {
     emAndamento = false;

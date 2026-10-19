@@ -53,6 +53,20 @@ export interface SintegraNota {
   itens: SintegraNotaItem[];
 }
 
+/**
+ * Serie da nota tirada da CHAVE DE ACESSO (44 digitos: UF 2, AAMM 4, CNPJ 14,
+ * modelo 2, SERIE 3, numero 9...). Antes o arquivo saia sempre com serie "1"
+ * (19/10/2026, auditoria de seguranca/fiscal). Sem chave valida: null.
+ */
+export const serieDaChaveDeAcesso = (chave: unknown): string | null => {
+  const digitos = String(chave ?? '').replace(/\D/g, '');
+  if (digitos.length !== 44) return null;
+  return String(Number.parseInt(digitos.slice(22, 25), 10));
+};
+
+/** Serie quando a nota nao tem chave gravada: a padrao do emissor. */
+export const SERIE_PADRAO_SINTEGRA = '1';
+
 export interface SintegraProduto {
   codigo: string;
   ncm: string;

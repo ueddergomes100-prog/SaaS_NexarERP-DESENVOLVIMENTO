@@ -393,11 +393,15 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         if (docSnap.exists()) {
           const data = docSnap.data();
           let privateSpedyApiKey = data.spedyApiKey ?? '';
+          // CSC da NFC-e mora na area protegida desde 19/10/2026 (so' o administrador le);
+          // empresa antiga ainda pode ter no documento comum ate a Manutencao limpar.
+          let cscPrivado: { csc?: string; tokenId?: string } | null = null;
           try {
             const privateSnap = await getDoc(doc(db, 'configuracoes_privadas', tenantId));
             if (privateSnap.exists()) {
               privateSpedyApiKey = privateSnap.data().spedyApiKey ?? privateSpedyApiKey;
               const privado = privateSnap.data();
+              cscPrivado = privado.nfceCsc && typeof privado.nfceCsc === 'object' ? privado.nfceCsc : null;
               setSmtp({
                 host: String(privado.smtpHost ?? ''),
                 porta: String(privado.smtpPorta ?? '465'),
@@ -528,8 +532,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
           setNumeracaoNfce({
             serie: numeracao.consumerInvoice?.series ?? '',
             numeroAtual: numeracao.consumerInvoice?.currentNumber != null ? String(numeracao.consumerInvoice.currentNumber) : '',
-            csc: numeracao.consumerInvoice?.csc ?? '',
-            cscId: numeracao.consumerInvoice?.tokenId ?? '',
+            csc: cscPrivado?.csc || numeracao.consumerInvoice?.csc || '',
+            cscId: cscPrivado?.tokenId || numeracao.consumerInvoice?.tokenId || '',
           });
           setNumeracaoNfse({
             serie: numeracao.serviceInvoice?.series ?? '',

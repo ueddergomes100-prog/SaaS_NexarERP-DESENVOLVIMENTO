@@ -44,12 +44,15 @@ interface PermissoesUsuarioModalProps {
  * bateria numa parede. O popup funciona pra quem ja esta na tela.
  */
 const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuarioId, usuarioNome, onClose, onSaved }) => {
-  const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario, grupo } = useAuth();
+  const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario, grupo, userPermissions } = useAuth();
   // Gerente (nivel de vendas) tambem abre este popup agora, mas so' pode
   // mexer nos modulos liberados -- nivel de acesso e acesso mobile
   // continuam so' Admin/Master/Dono (a regra do Firestore recusa a troca
   // desses dois campos vinda de quem nao e' isso; ver firestore.rules).
   const podeAlterarNivelEMobile = hasTenantFullAccess(userRole, isOwner);
+  // Gerente so' da' e tira o que ELE MESMO tem (decisao do dono, 19/10/2026;
+  // o banco recusa o resto -- ver permissoesMexidasSoAsDoGerente nas rules).
+  const podeMexer = (id: string) => podeAlterarNivelEMobile || userPermissions.includes(id);
   const [permissoes, setPermissoes] = useState<string[]>([]);
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [busca, setBusca] = useState('');
@@ -97,13 +100,15 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
   }, [usuarioId]);
 
   const toggle = (id: string) => {
+    if (!podeMexer(id)) return;
     setPermissoes(prev => (prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]));
   };
 
   /** Liga/desliga de uma vez o que esta VISIVEL na tela (a busca filtra).
    *  Ver a explicacao em permissionCatalog.ts. */
   const alternarVarias = (ids: string[], marcar: boolean) => {
-    setPermissoes(prev => (marcar ? marcarPermissoes(prev, ids) : desmarcarPermissoes(prev, ids)));
+    const permitidas = ids.filter(podeMexer);
+    setPermissoes(prev => (marcar ? marcarPermissoes(prev, permitidas) : desmarcarPermissoes(prev, permitidas)));
   };
 
   const gruposFiltrados = useMemo(() => {
@@ -116,8 +121,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
 
   /** O que o seletor do topo alcanca: so' o que a busca deixou na tela. */
   const idsVisiveis = useMemo(
-    () => gruposFiltrados.flatMap(grupo => grupo.itens.map(item => item.id)),
-    [gruposFiltrados],
+    () => gruposFiltrados.flatMap(grupo => grupo.itens.map(item => item.id)).filter(podeMexer),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gruposFiltrados, podeAlterarNivelEMobile, userPermissions],
   );
   const estadoVisivel = estadoDaSelecao(permissoes, idsVisiveis);
 
@@ -286,6 +292,11 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
           <span style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
             {permissoes.length} de {PERMISSION_CATALOG.length} liberadas
           </span>
+          {!podeAlterarNivelEMobile && (
+            <p style={{ margin: 0, width: '100%', fontSize: '12px', color: 'var(--text-muted)' }}>
+              Você só pode liberar ou retirar as permissões que você mesmo tem. As outras aparecem apagadas; para mudar essas, peça ao dono ou a um administrador.
+            </p>
+          )}
           <SeletorTodas
             estado={estadoVisivel}
             onAlternar={(marcar) => alternarVarias(idsVisiveis, marcar)}
@@ -307,19 +318,23 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
                     {grupo.grupo}
                   </h4>
                   <SeletorTodas
-                    estado={estadoDaSelecao(permissoes, grupo.itens.map((i) => i.id))}
+                    estado={estadoDaSelecao(permissoes, grupo.itens.map((i) => i.id).filter(podeMexer))}
                     onAlternar={(marcar) => alternarVarias(grupo.itens.map((i) => i.id), marcar)}
                     rotulo="todas"
+                    desabilitado={!grupo.itens.some((i) => podeMexer(i.id))}
                   />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '10px' }}>
                   {grupo.itens.map(item => {
                     const marcada = permissoes.includes(item.id);
+                    const bloqueada = !podeMexer(item.id);
                     return (
                       <label
                         key={item.id}
+                        title={bloqueada ? 'Você não tem esta permissão, então não pode liberar nem retirar.' : undefined}
                         style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: bloqueada ? 'not-allowed' : 'pointer',
+                          opacity: bloqueada ? 0.5 : 1,
                           fontSize: '13px', color: marcada ? 'var(--text-primary)' : 'var(--text-secondary)',
                           backgroundColor: marcada ? 'rgba(255,255,255,0.03)' : 'var(--bg-primary)',
                           padding: '12px 14px', borderRadius: 'var(--radius-md)',
@@ -332,7 +347,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
                         <span style={{ position: 'relative', width: '38px', height: '21px', backgroundColor: marcada ? item.color : 'var(--bg-tertiary)', borderRadius: '20px', transition: 'all 0.3s', border: `1px solid ${marcada ? item.color : 'var(--border-color)'}`, flexShrink: 0, marginLeft: '10px' }}>
                           <span style={{ position: 'absolute', top: '2px', left: marcada ? '19px' : '2px', width: '15px', height: '15px', backgroundColor: marcada ? '#fff' : 'var(--text-muted)', borderRadius: '50%', transition: 'all 0.3s' }} />
                         </span>
-                        <input type="checkbox" checked={marcada} onChange={() => toggle(item.id)} style={{ display: 'none' }} />
+                        <input type="checkbox" checked={marcada} disabled={bloqueada} onChange={() => toggle(item.id)} style={{ display: 'none' }} />
                       </label>
                     );
                   })}

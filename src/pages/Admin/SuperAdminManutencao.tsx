@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Building2, CalendarCheck, Loader2, RotateCcw, Search, Wrench } from 'lucide-react';
+import { Building2, CalendarCheck, KeyRound, Loader2, RotateCcw, Search, Wrench } from 'lucide-react';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import {
   rodarDatasFaltantes,
+  rodarProtecaoDeSegredos,
   rodarUnificacaoConfiguracoesGerais,
   type ModoDatasFaltantes,
   type ResultadoConfiguracoesGerais,
   type ResultadoDatasFaltantes,
+  type ResultadoProtecaoDeSegredos,
 } from '../../services/manutencaoService';
 
 /**
@@ -160,6 +162,103 @@ const CartaoConfiguracoesGerais: React.FC = () => {
   );
 };
 
+/**
+ * Segredos fiscais (19/10/2026): CSC da NFC-e e chave antiga da Spedy saem do
+ * documento de configuracoes que todo usuario da empresa le. Sem "desfazer".
+ */
+const CartaoProtegerSegredos: React.FC = () => {
+  const [rodando, setRodando] = useState<'simular' | 'aplicar' | null>(null);
+  const [resultado, setResultado] = useState<ResultadoProtecaoDeSegredos | null>(null);
+  const ambienteIdentificado = Boolean(resultado?.projeto);
+  const simulacaoComTrabalho = resultado?.modo === 'simular' && resultado.empresas.length > 0 && ambienteIdentificado;
+
+  const rodar = async (modo: 'simular' | 'aplicar') => {
+    if (modo === 'aplicar') {
+      const confirmacao = await NexusSwal.fire({
+        title: `Proteger ${resultado?.empresas.length ?? 0} empresa(s)?`,
+        html: `Ambiente: <strong>${rotuloDoProjeto(resultado?.projeto ?? null)}</strong>.<br/>O CSC e a chave da Spedy passam para a área que só o administrador da empresa e o servidor leem, e saem do documento comum. A emissão de notas não muda.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Proteger',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirmacao.isConfirmed) return;
+    }
+    setRodando(modo);
+    try {
+      const novo = await rodarProtecaoDeSegredos(modo);
+      setResultado(novo);
+      if (modo === 'aplicar') showSuccess(`${novo.empresas.length} ${novo.empresas.length === 1 ? 'empresa protegida' : 'empresas protegidas'}.`);
+    } catch (erro) {
+      showError('Não foi possível rodar a tarefa', erro instanceof Error ? erro.message : undefined);
+    } finally {
+      setRodando(null);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+        <span style={{ width: '42px', height: '42px', borderRadius: '13px', backgroundColor: 'rgba(124, 58, 237, 0.12)', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          <KeyRound size={21} />
+        </span>
+        <div>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 4px' }}>Proteger CSC e chave da Spedy</h2>
+          <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+            O CSC da NFC-e e, em empresas antigas, a chave da Spedy ficavam no documento de configurações que qualquer usuário da empresa consegue ler.
+            Esta tarefa passa os dois para a área protegida (só o administrador da empresa e o servidor) e apaga do documento comum.
+            <strong> Comece por Simular: nada é gravado.</strong>
+          </p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+        <button type="button" className="btn-secondary" onClick={() => rodar('simular')} disabled={rodando !== null} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {rodando === 'simular' ? <Loader2 size={18} className="spin-icon" /> : <Search size={18} />}
+          {rodando === 'simular' ? 'Simulando...' : 'Simular'}
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => rodar('aplicar')}
+          disabled={rodando !== null || !simulacaoComTrabalho}
+          title={simulacaoComTrabalho ? undefined : 'Rode Simular primeiro; Aplicar libera quando houver empresa com segredo no documento comum.'}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: rodando !== null || !simulacaoComTrabalho ? 0.6 : 1 }}
+        >
+          {rodando === 'aplicar' ? <Loader2 size={18} className="spin-icon" /> : <KeyRound size={18} />}
+          {rodando === 'aplicar' ? 'Gravando...' : `Aplicar${simulacaoComTrabalho ? ` (${resultado?.empresas.length})` : ''}`}
+        </button>
+      </div>
+
+      {resultado && !rodando && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Ambiente: <strong style={{ color: 'var(--text-primary)' }}>{rotuloDoProjeto(resultado.projeto)}</strong>
+            {' · '}
+            {resultado.modo === 'simular' ? 'Simulação (nada foi gravado)' : 'Gravado'}
+            {' · '}
+            {resultado.lidas} {resultado.lidas === 1 ? 'empresa lida' : 'empresas lidas'}
+          </div>
+          {resultado.empresas.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: '18px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
+              {resultado.empresas.map((e) => (
+                <li key={e.tenantId}><strong>{e.nome}</strong>: {[e.csc ? 'CSC da NFC-e' : '', e.chaveSpedy ? 'chave da Spedy' : ''].filter(Boolean).join(' e ')}</li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>Nada a proteger: nenhuma empresa tem segredo no documento comum.</p>
+          )}
+          {!ambienteIdentificado && (
+            <p style={{ margin: 0, fontSize: '14px', color: '#ef4444', fontWeight: 600 }}>
+              O servidor não informou em qual banco está ligado, então o Aplicar fica bloqueado. Avise o suporte.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SuperAdminManutencao: React.FC = () => {
   const [rodando, setRodando] = useState<ModoDatasFaltantes | null>(null);
   const [resultado, setResultado] = useState<ResultadoDatasFaltantes | null>(null);
@@ -304,6 +403,7 @@ const SuperAdminManutencao: React.FC = () => {
       </div>
 
       <CartaoConfiguracoesGerais />
+      <CartaoProtegerSegredos />
     </div>
   );
 };

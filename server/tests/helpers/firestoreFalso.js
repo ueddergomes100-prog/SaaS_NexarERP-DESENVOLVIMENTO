@@ -14,7 +14,18 @@ let contador = 0;
 const criarBancoFalso = (inicial, opcoes = {}) => {
   const dados = new Map(Object.entries(inicial).map(([k, v]) => [k, structuredClone(v)]));
   // Grava como o Firestore: "a.b" no update mexe no campo b dentro de a.
-  const aplicar = (chave, campos, substitui) => {
+  // set com merge mescla mapas aninhados (e aceita delete() la' dentro), como o Firestore.
+  const mapaSimples = (v) => v && typeof v === 'object' && !Array.isArray(v) && v !== DEL && v !== TS && !('__incremento' in v);
+  const mesclar = (alvo, valor) => {
+    for (const [k, v] of Object.entries(valor)) {
+      if (v === DEL) delete alvo[k];
+      else if (mapaSimples(v)) {
+        if (!mapaSimples(alvo[k])) alvo[k] = {};
+        mesclar(alvo[k], v);
+      } else alvo[k] = v;
+    }
+  };
+  const aplicar = (chave, campos, substitui, mesclaMapas = false) => {
     const atual = substitui ? {} : structuredClone(dados.get(chave) || {});
     for (const [campo, valor] of Object.entries(campos)) {
       const partes = substitui ? [campo] : campo.split('.');
@@ -26,7 +37,10 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
       const ultimo = partes[partes.length - 1];
       if (valor === DEL) delete alvo[ultimo];
       else if (valor && typeof valor === 'object' && '__incremento' in valor) alvo[ultimo] = Number(alvo[ultimo] || 0) + valor.__incremento;
-      else alvo[ultimo] = valor;
+      else if (mesclaMapas && mapaSimples(valor)) {
+        if (!mapaSimples(alvo[ultimo])) alvo[ultimo] = {};
+        mesclar(alvo[ultimo], valor);
+      } else alvo[ultimo] = valor;
     }
     dados.set(chave, atual);
   };
@@ -64,7 +78,7 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
     collection: (sub) => colecaoEm(`${caminho}/${id}/${sub}`),
     get: async () => ({ exists: dados.has(`${caminho}/${id}`), id, data: () => structuredClone(dados.get(`${caminho}/${id}`)) }),
     // Gravacao direta (fora de transacao).
-    set: async (campos, opcoesSet) => aplicar(`${caminho}/${id}`, campos, !opcoesSet?.merge),
+    set: async (campos, opcoesSet) => aplicar(`${caminho}/${id}`, campos, !opcoesSet?.merge, Boolean(opcoesSet?.merge)),
     update: async (campos) => {
       if (!dados.has(`${caminho}/${id}`)) throw new Error(`documento ${caminho}/${id} nao existe`);
       aplicar(`${caminho}/${id}`, campos, false);

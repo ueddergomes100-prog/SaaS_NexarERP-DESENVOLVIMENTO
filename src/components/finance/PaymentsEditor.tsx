@@ -101,6 +101,11 @@ interface PaymentsEditorProps {
   totalCents: number;
   transactionDate: string;
   transactionDateLabel: string;
+  /** Data de onde contam vencimentos e previsoes de recebimento (padrao: a do campo).
+   *  Pre-venda sendo faturada: o dia do faturamento (19/10/2026). */
+  dueDateBase?: string;
+  /** Aviso embaixo do campo de data. */
+  transactionDateHint?: string;
 }
 
 const PAYMENT_METHOD_PRESENTATION: Record<PaymentMethod, {
@@ -343,9 +348,13 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   sourceLabel = 'operação',
   tenantId,
   totalCents,
-  transactionDate,
+  transactionDate: dataDoCampo,
   transactionDateLabel,
+  dueDateBase,
+  transactionDateHint,
 }) => {
+  // Base dos vencimentos: o dia do faturamento quando a tela informa (pre-venda), senao a data do campo.
+  const transactionDate = dueDateBase || dataDoCampo;
   const { items: bandeiras } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId, {
     sortField: 'ordem',
   });
@@ -397,8 +406,11 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
           id={`${idPrefix}-date`}
           onChange={(event) => onTransactionDateChange(event.target.value)}
           type="date"
-          value={transactionDate}
+          value={dataDoCampo}
         />
+        {transactionDateHint && (
+          <small style={{ display: 'block', marginTop: '4px', color: 'var(--text-secondary)' }}>{transactionDateHint}</small>
+        )}
       </div>
 
       {drafts.map((payment, index) => {

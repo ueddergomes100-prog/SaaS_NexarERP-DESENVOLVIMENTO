@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Eye, Plus, Search, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, Eye, FileText, Plus, Search, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
@@ -19,6 +19,10 @@ import {
 } from '../../utils/condicionalDomain';
 import { ESTILO_STATUS, dataBr, moeda, type CondicionalDoc } from './condicionalTipos';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { montarDocumentoCondicionais } from '../../utils/relatorioMovimentosDomain';
 
 /**
  * Lista dos CONDICIONAIS (2026-10-05). Mercadoria com o cliente para provar:
@@ -76,6 +80,8 @@ const CondicionaisList: React.FC = () => {
   });
   const [aba, setAba] = useState<Aba>('aberto');
   const [busca, setBusca] = useState('');
+  // Relatorio (19/10/2026): sai o que a lista mostra (aba, busca e periodo).
+  const [previewAberto, setPreviewAberto] = useState(false);
   const hoje = getDateInputInTimeZone();
 
   const contagem = useMemo(() => {
@@ -105,6 +111,26 @@ const CondicionaisList: React.FC = () => {
     openTab(`/vendas/condicional/${c.id}`, `Condicional #${c.numeroCondicional}`);
   };
 
+  if (previewAberto) {
+    const emAberto = aba === 'aberto' || aba === 'vencidos';
+    return (
+      <RelatorioPreview
+        relatorioId="condicionais"
+        documento={montarDocumentoCondicionais(filtrados, {
+          hoje,
+          periodo: emAberto ? 'Em aberto, de qualquer data' : todoPeriodo ? 'Todo o período' : 'Este mês',
+          filtrosAplicados: [
+            `Lista: ${ABAS.find((a) => a.valor === aba)?.rotulo || aba}`,
+            busca.trim() ? `Busca: "${busca.trim()}"` : '',
+          ].filter(Boolean),
+        })}
+        nomeArquivo={nomeArquivoRelatorio('Condicionais', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar aos condicionais"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
@@ -116,9 +142,19 @@ const CondicionaisList: React.FC = () => {
             Peças que o cliente levou para provar. Registre o que voltou e feche: o que ficou vira pré-venda para finalizar com o pagamento.
           </p>
         </div>
-        <button className="btn-primary" onClick={() => openTab('/vendas/condicional/novo', 'Novo condicional')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={20} /> Novo condicional
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF os condicionais da lista, com prazo, peças e valor com o cliente (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          <button className="btn-primary" onClick={() => openTab('/vendas/condicional/novo', 'Novo condicional')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={20} /> Novo condicional
+          </button>
+        </div>
       </div>
 
       {contagem.vencidos > 0 && (

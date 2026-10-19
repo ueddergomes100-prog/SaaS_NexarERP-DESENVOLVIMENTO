@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight, ArrowRight, Eye, Plus } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, Eye, FileText, Plus } from 'lucide-react';
 import { collection, onSnapshot, query, where, Timestamp, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { assinarComReserva } from '../../services/consultaComReserva';
@@ -8,6 +8,10 @@ import AvisoHistoricoDoPeriodo from '../../components/common/AvisoHistoricoDoPer
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { montarDocumentoTransferencias } from '../../utils/relatorioMovimentosDomain';
 import { ROTULO_STATUS_TRANSFERENCIA } from '../../utils/transferenciaDomain';
 import { rotuloStatusNota } from '../../utils/notaTransferenciaDomain';
 import { ESTILO_STATUS_TRANSFERENCIA, dataHora, moeda, type TransferenciaDoc } from './transferenciaTipos';
@@ -25,6 +29,8 @@ const TransferenciasList: React.FC = () => {
   const [lista, setLista] = useState<TransferenciaDoc[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [aba, setAba] = useState<Aba>('receber');
+  // Relatorio (19/10/2026): sai o que a lista mostra (aba e periodo).
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   // Em transito de qualquer data + as enviadas neste mes -- ou de todo o
   // periodo quando a pessoa pede (otimizacao de leituras, 2026-10-14; antes:
@@ -93,6 +99,26 @@ const TransferenciasList: React.FC = () => {
 
   const abrir = (t: TransferenciaDoc) => openTab(`/estoque/transferencias/${t.id}`, `Transferência #${t.numeroTransferencia}`);
 
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const emTransito = aba === 'receber' || aba === 'transito';
+    return (
+      <RelatorioPreview
+        relatorioId="transferencias"
+        documento={montarDocumentoTransferencias(filtradas, {
+          periodo: emTransito ? 'Em trânsito, de qualquer data' : todoPeriodo ? 'Todo o período' : 'Enviadas neste mês',
+          filtrosAplicados: [
+            `Lista: ${ABAS.find((a) => a.valor === aba)?.rotulo || aba}`,
+            filialAtual ? `Filial: ${filialAtual.codigo} · ${filialAtual.nome}` : '',
+          ].filter(Boolean),
+        })}
+        nomeArquivo={nomeArquivoRelatorio('Transferencias', hoje, hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar às transferências"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
@@ -105,9 +131,19 @@ const TransferenciasList: React.FC = () => {
             {filialAtual && <> Você está na filial <strong>{filialAtual.codigo} · {filialAtual.nome}</strong>.</>}
           </p>
         </div>
-        <button className="btn-primary" onClick={() => openTab('/estoque/transferencias/nova', 'Nova transferência')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={20} /> Nova transferência
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF as transferências da lista, com origem, destino, valor e nota (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: carregando,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          <button className="btn-primary" onClick={() => openTab('/estoque/transferencias/nova', 'Nova transferência')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={20} /> Nova transferência
+          </button>
+        </div>
       </div>
 
       {contagem.receber > 0 && aba !== 'receber' && (

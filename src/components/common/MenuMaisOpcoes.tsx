@@ -67,7 +67,10 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
         aria-expanded={aberto}
         onClick={() => {
           const caixa = ref.current?.getBoundingClientRect();
-          setAlinharEsquerda(Boolean(caixa && caixa.right < LARGURA_MINIMA_MENU + 8));
+          // Mede a partir da area de conteudo (<main>), nao da janela: com o menu
+          // lateral aberto, abrir para a esquerda passava por baixo dele (19/10/2026).
+          const inicioDoConteudo = ref.current?.closest('main')?.getBoundingClientRect().left ?? 0;
+          setAlinharEsquerda(Boolean(caixa && caixa.right - LARGURA_MINIMA_MENU < inicioDoConteudo + 8));
           setAberto((atual) => !atual);
         }}
         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}

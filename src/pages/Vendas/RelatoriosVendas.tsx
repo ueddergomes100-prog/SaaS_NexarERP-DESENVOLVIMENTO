@@ -9,9 +9,17 @@ import {
   FilterX,
   Loader2,
   Printer,
+  RotateCcw,
   Search,
   Users,
 } from 'lucide-react';
+import { collection, query, Timestamp, where } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { lerComReserva } from '../../services/consultaComReserva';
+import { useAuth } from '../../contexts/AuthContext';
+import { showError } from '../../utils/alerts';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { dataDaDevolucao, montarDocumentoDevolucoes, type DevolucaoDoRelatorio } from '../../utils/relatorioMovimentosDomain';
 import {
   dateInputToUtcEnd,
   dateInputToUtcStart,
@@ -88,7 +96,43 @@ const RelatoriosVendas: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<'date' | 'number' | 'customer' | 'seller' | 'value' | 'status'>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [previewAberto, setPreviewAberto] = useState<'vendas' | 'vendedor' | null>(null);
+  const [previewAberto, setPreviewAberto] = useState<'vendas' | 'vendedor' | 'devolucoes' | null>(null);
+  // Relatorio de devolucoes (19/10/2026): as devolucoes FEITAS no periodo (data da devolucao).
+  const { tenantId } = useAuth();
+  const [devolucoes, setDevolucoes] = useState<DevolucaoDoRelatorio[]>([]);
+  const [carregandoDevolucoes, setCarregandoDevolucoes] = useState(false);
+  const abrirDevolucoes = async () => {
+    if (!tenantId || carregandoDevolucoes) return;
+    const inicio = dateInputToUtcStart(filters.startDate);
+    const fim = dateInputToUtcEnd(filters.endDate);
+    setCarregandoDevolucoes(true);
+    try {
+      const todas = query(collection(db, 'devolucoes_venda'), where('tenantId', '==', tenantId));
+      const doPeriodo = query(
+        todas,
+        ...(inicio ? [where('createdAt', '>=', Timestamp.fromDate(inicio))] : []),
+        ...(fim ? [where('createdAt', '<=', Timestamp.fromDate(fim))] : []),
+      );
+      const snap = await lerComReserva(doPeriodo, todas, 'Relatório de devoluções (período)');
+      const termoCliente = filters.customer.trim().toLowerCase();
+      // A reserva (sem indice) traz todas: o mesmo corte aqui.
+      const lista = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }) as DevolucaoDoRelatorio)
+        .filter((d) => {
+          const data = dataDaDevolucao(d);
+          return Boolean(data) && (!inicio || data! >= inicio) && (!fim || data! <= fim);
+        })
+        .filter((d) => !termoCliente || String(d.clienteNome || '').toLowerCase().includes(termoCliente))
+        .sort((a, b) => (dataDaDevolucao(a)?.getTime() || 0) - (dataDaDevolucao(b)?.getTime() || 0));
+      setDevolucoes(lista);
+      setPreviewAberto('devolucoes');
+    } catch (erro) {
+      console.error('Erro ao carregar as devoluções:', erro);
+      showError('Não foi possível abrir o relatório de devoluções', 'Confira sua conexão. Se continuar, peça a um responsável liberar "Vendas: Devolução" no seu usuário.');
+    } finally {
+      setCarregandoDevolucoes(false);
+    }
+  };
 
   const options = useMemo(() => {
     const customers = Array.from(new Set(data.sales.map((sale) => String(sale.clienteNome || '')).filter(Boolean))).sort();
@@ -184,6 +228,12 @@ const RelatoriosVendas: React.FC = () => {
 
   const documentoPreview = useMemo<DocumentoRelatorioSemEmpresa | null>(() => {
     if (!previewAberto) return null;
+    if (previewAberto === 'devolucoes') {
+      return montarDocumentoDevolucoes(devolucoes, {
+        periodo: periodoDescrito,
+        filtrosAplicados: filters.customer.trim() ? [`Cliente: ${filters.customer.trim()}`] : [],
+      });
+    }
     if (previewAberto === 'vendedor') {
       return {
         titulo: 'Vendas por Vendedor',
@@ -203,7 +253,7 @@ const RelatoriosVendas: React.FC = () => {
         secaoResumoVendedor(sellerSummary, { opcional: true, padrao: false }),
       ],
     };
-  }, [filteredSales, filtrosDescritos, periodoDescrito, previewAberto, sellerSummary, totals]);
+  }, [devolucoes, filteredSales, filters.customer, filtrosDescritos, periodoDescrito, previewAberto, sellerSummary, totals]);
 
   if (loading) {
     return <div style={{ minHeight: '60vh', display: 'grid', placeItems: 'center', color: 'var(--text-muted)' }}><Loader2 className="spin-icon" size={38} /></div>;
@@ -212,9 +262,9 @@ const RelatoriosVendas: React.FC = () => {
   if (previewAberto) {
     return (
       <RelatorioPreview
-        relatorioId={previewAberto === 'vendedor' ? 'vendas-por-vendedor' : 'relatorio-vendas'}
+        relatorioId={previewAberto === 'vendedor' ? 'vendas-por-vendedor' : previewAberto === 'devolucoes' ? 'devolucoes-venda' : 'relatorio-vendas'}
         documento={documentoPreview}
-        nomeArquivo={nomeArquivoRelatorio(previewAberto === 'vendedor' ? 'Vendas por Vendedor' : 'Relatório de Vendas', filters.startDate, filters.endDate)}
+        nomeArquivo={nomeArquivoRelatorio(previewAberto === 'vendedor' ? 'Vendas por Vendedor' : previewAberto === 'devolucoes' ? 'Devolucoes de Venda' : 'Relatório de Vendas', filters.startDate, filters.endDate)}
         onFechar={() => setPreviewAberto(null)}
         rotuloFechar="Voltar aos filtros"
       />
@@ -229,6 +279,14 @@ const RelatoriosVendas: React.FC = () => {
           <p style={{ color: 'var(--text-muted)' }}>Empresa ativa: dados isolados por tenant • Período {formatDateInputPtBr(filters.startDate)} a {formatDateInputPtBr(filters.endDate)}</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: carregandoDevolucoes ? 'Abrindo devoluções...' : 'Relatório de devoluções', Icone: RotateCcw,
+              titulo: 'Abre em PDF as devoluções feitas no período escolhido (data da devolução), com motivo, valor e para onde foi o dinheiro',
+              desabilitado: carregandoDevolucoes,
+              onClick: () => { void abrirDevolucoes(); },
+            }]}
+          />
           <button className="btn-secondary" onClick={() => setPreviewAberto('vendedor')} disabled={filteredSales.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Users size={18} /> Relatório por vendedor</button>
           <button className="btn-primary" onClick={() => setPreviewAberto('vendas')} disabled={filteredSales.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><FileText size={18} /> Visualizar relatório</button>
         </div>

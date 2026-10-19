@@ -3,7 +3,7 @@ import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTit
 import { conciliarCartaoNoBanco } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { Landmark, CreditCard, CheckCircle, Calendar, Search, Clock } from 'lucide-react';
+import { Landmark, CreditCard, CheckCircle, Calendar, Search, Clock, FileText } from 'lucide-react';
 import {
   fromCents,
   transactionMovesPhysicalCash,
@@ -11,6 +11,10 @@ import {
 } from '../../utils/financeDomain';
 import { addDaysToDateInput, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { montarDocumentoExtratoBanco } from '../../utils/relatorioExtratoBancoDomain';
 import './Financeiro.css';
 
 interface CartaoInfo {
@@ -74,6 +78,8 @@ const Banco: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // Relatorio (19/10/2026): extrato do periodo + cartao a conciliar, como a tela mostra.
+  const [previewAberto, setPreviewAberto] = useState(false);
   const { currentUser, tenantId } = useAuth();
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
@@ -169,6 +175,26 @@ const Banco: React.FC = () => {
     isWithinSelectedDays(t)
   ));
 
+  if (previewAberto) {
+    const hoje = getDateInputInTimeZone();
+    const periodo = diasFiltro === 0 ? 'Todo o período' : `Últimos ${diasFiltro} dias`;
+    return (
+      <RelatorioPreview
+        relatorioId="extrato-banco"
+        documento={montarDocumentoExtratoBanco({
+          extrato: extratoDigital,
+          cartaoAConciliar: pendentesCartao,
+          saldos: bancosAtivos.map((b) => ({ nome: b.nome, saldoCentavos: Number(b.saldoCentavos || 0) })),
+          periodo,
+          filtrosAplicados: searchTerm.trim() ? [`Busca no cartão a conciliar: "${searchTerm.trim()}"`] : [],
+        })}
+        nomeArquivo={nomeArquivoRelatorio('Extrato do Banco', diasFiltro === 0 ? '' : addDaysToDateInput(hoje, -diasFiltro), hoje)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar ao Banco"
+      />
+    );
+  }
+
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
@@ -181,7 +207,7 @@ const Banco: React.FC = () => {
             Conciliação de cartão e extrato digital (Pix, Transferência, cartão de crédito/débito)
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
           {bancosAtivos.length === 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(55, 215, 255, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(55, 215, 255, 0.2)' }}>
               <CheckCircle size={24} color="#37d7ff" />
@@ -200,6 +226,15 @@ const Banco: React.FC = () => {
               </div>
             ))
           )}
+          {/* No fim (canto direito): o menu abre para a esquerda sem passar por cima do menu lateral. */}
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF o extrato do período escolhido e o cartão a conciliar (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
         </div>
       </div>
 

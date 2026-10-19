@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Barcode, Eye, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
+import { Barcode, Eye, FileText, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
 import { collection, doc, getDocs, query, runTransaction, serverTimestamp, Timestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -14,6 +14,10 @@ import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFilt
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import NotaAvulsaDetalheModal, { type NotaAvulsaParaVer } from './NotaAvulsaDetalheModal';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { montarDocumentoNotasAvulsas } from '../../utils/relatorioMovimentosDomain';
 
 interface NotaAvulsaData extends NotaAvulsaParaVer {
   id: string;
@@ -45,6 +49,8 @@ const NotasAvulsasList: React.FC = () => {
   // Duplo clique na linha (ou o olho) abre a nota lancada, so' para ver (2026-10-01).
   const { linha } = useLinhaSelecionavel();
   const [notaAberta, setNotaAberta] = useState<NotaAvulsaData | null>(null);
+  // Relatorio (19/10/2026): sai o que a lista mostra (busca, status e periodo).
+  const [previewAberto, setPreviewAberto] = useState(false);
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODAS as
   // notas avulsas da empresa. Agora as lancadas no periodo do filtro
@@ -246,6 +252,26 @@ const NotasAvulsasList: React.FC = () => {
     }
   };
 
+  if (previewAberto) {
+    const dataBr = (dia: string) => (dia ? dia.split('-').reverse().join('/') : '');
+    return (
+      <RelatorioPreview
+        relatorioId="notas-avulsas"
+        documento={montarDocumentoNotasAvulsas(notasFiltradas, {
+          periodo: leituraDe || leituraAte ? `${dataBr(leituraDe) || 'início'} a ${dataBr(leituraAte) || 'hoje'}` : 'Todo o período',
+          filtrosAplicados: [
+            searchTerm.trim() ? `Busca: "${searchTerm.trim()}"` : '',
+            statusFiltro ? `Status: ${statusFiltro}` : '',
+          ].filter(Boolean),
+          statusCancelada: STATUS_NOTA_AVULSA_CANCELADA,
+        })}
+        nomeArquivo={nomeArquivoRelatorio('Notas Avulsas', leituraDe, leituraAte)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar às notas avulsas"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -256,9 +282,19 @@ const NotasAvulsasList: React.FC = () => {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Compras manuais de mercadoria sem XML fiscal.</p>
         </div>
-        <button className="btn-primary" onClick={() => openTab('/estoque/notas-avulsas/nova', 'Nova Nota Avulsa')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={20} /> Nova Nota Avulsa
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF as notas avulsas da lista, com fornecedor, pagamento e total (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: loading,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+          <button className="btn-primary" onClick={() => openTab('/estoque/notas-avulsas/nova', 'Nova Nota Avulsa')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={20} /> Nova Nota Avulsa
+          </button>
+        </div>
       </div>
 
       <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>

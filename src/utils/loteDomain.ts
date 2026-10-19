@@ -1,4 +1,8 @@
 import { quantidadeNoEstoque } from './custoEntradaDomain';
+// Devolver ao mesmo lote mora em loteRetornoDomain.ts (o servidor usa a mesma regra); reexportado aqui.
+import { distribuirRetornoAosLotes, somarLotesUsados, type LoteUsado } from './loteRetornoDomain';
+export { distribuirRetornoAosLotes, somarLotesUsados };
+export type { LoteUsado };
 
 /*
  * LOTE E VALIDADE (2026-09-25) -- regra pura, sem Firestore. Decisoes do dono
@@ -269,13 +273,6 @@ export interface LinhaParaLote {
   quantidade: number;
 }
 
-export interface LoteUsado {
-  loteId: string;
-  lote: string;
-  validade: string | null;
-  /** Unidade base do estoque. */
-  quantidade: number;
-}
 
 export interface PlanoDeLotes {
   /** Lotes tirados por linha (so' linhas de produto que controla lote). */
@@ -341,37 +338,3 @@ export const planejarBaixaPorLotes = (
   return plano;
 };
 
-/**
- * Devolucao/estorno: devolve ao MESMO lote de onde a venda tirou. Considera as `jaDevolvida`
- * unidades que ja voltaram (na ordem em que foram tiradas) e devolve `quantidade` a partir dali.
- * A parte que a venda tirou do saldo sem lote volta para o saldo sem lote (fica so' no estoque).
- */
-export const distribuirRetornoAosLotes = (lotesDoItem: LoteUsado[], jaDevolvida: number, quantidade: number): LoteUsado[] => {
-  let pular = Math.max(0, Number(jaDevolvida) || 0);
-  let devolver = Math.max(0, Number(quantidade) || 0);
-  const saida: LoteUsado[] = [];
-  for (const lote of lotesDoItem) {
-    if (devolver <= 0) break;
-    let disponivel = Number(lote.quantidade) || 0;
-    if (pular > 0) {
-      const descartado = Math.min(pular, disponivel);
-      pular = Math.round((pular - descartado) * 10000) / 10000;
-      disponivel = Math.round((disponivel - descartado) * 10000) / 10000;
-    }
-    if (disponivel <= 0) continue;
-    const volta = Math.round(Math.min(devolver, disponivel) * 10000) / 10000;
-    devolver = Math.round((devolver - volta) * 10000) / 10000;
-    saida.push({ ...lote, quantidade: volta });
-  }
-  return saida;
-};
-
-/** Soma o que varias linhas tiraram do MESMO lote (uma escrita por lote na transacao). */
-export const somarLotesUsados = (listas: LoteUsado[][]): LoteUsado[] => {
-  const mapa = new Map<string, LoteUsado>();
-  listas.flat().forEach((l) => {
-    const atual = mapa.get(l.loteId);
-    mapa.set(l.loteId, atual ? { ...atual, quantidade: Math.round((atual.quantidade + l.quantidade) * 10000) / 10000 } : { ...l });
-  });
-  return [...mapa.values()];
-};

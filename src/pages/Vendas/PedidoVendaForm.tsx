@@ -7,7 +7,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
-import { finalizarVendaNoServidor } from '../../services/vendaServidorService';
+import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, finalizarVendaNoServidor } from '../../services/vendaServidorService';
 import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -29,6 +29,18 @@ import { bloqueioParaRefazerParcelas, type TituloParaAlterarValor } from '../../
 import { bloqueioPorParcelaRenegociada } from '../../utils/renegociacaoDomain';
 import { classificarNotasDaVenda, listaDeNotas, validarJustificativaCancelamento, type NotaDaVenda } from '../../utils/cancelamentoNotaVendaDomain';
 import { cancelarNotaDaVenda } from '../../services/cancelamentoNotaService';
+import {
+  bloqueioDoCreditoNaAlteracao,
+  bloqueioParaAlterarPagamento,
+  camposDoCreditoDevolvido,
+  creditoUsadoNaVenda,
+  erroDaRotaParaCancelar,
+  erroDoMotivoDoCancelamento,
+  estornoDosTitulosDaVenda,
+  idDoCreditoDevolvido,
+  MOTIVO_CANCELAMENTO_MAXIMO,
+  type TravaDeRotaDoPedido,
+} from '../../utils/cancelamentoVendaDomain';
 import { centavosDoValorDigitado, descontoParaOTotalDigitado } from '../../utils/totalDigitadoDomain';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
@@ -74,7 +86,6 @@ import {
   resolveComissaoPercentual,
   summarizePayments,
   toCents,
-  transactionMovesPhysicalCash,
   type PaymentDraft,
   type PaymentMethod,
   type PaymentRecord,
@@ -552,6 +563,9 @@ const PedidoVendaForm: React.FC = () => {
   /** Destrava a secao de pagamento numa venda JA finalizada. Fora deste modo
    * a venda finalizada continua somente-leitura, como sempre foi. */
   const [editandoPagamento, setEditandoPagamento] = useState(false);
+  /** Pagamentos como estavam ao entrar em "Alterar Pagamento": o Cancelar volta
+   * a tela para eles (antes a escolha descartada ficava aparecendo -- 19/10/2026). */
+  const pagamentosAntesDaEdicaoRef = useRef<PaymentDraft[]>([]);
   // Origem do pedido CARREGADO (so faz sentido em modo visualizacao). Pedido
   // novo na tela ainda nao tem origem gravada -- nasce 'balcao' quando alguem
   // grava a pre-venda.
@@ -2560,9 +2574,15 @@ const PedidoVendaForm: React.FC = () => {
    * e' justamente o que diferencia isto de estornar uma venda finalizada.
    */
   /** Cancela a pre-venda no banco: libera a reserva de estoque e marca Cancelada.
-   *  Usado pelo botao "Cancelar Pre-venda" e por "Converter em troca". */
-  const cancelarPreVendaNoBanco = async (nota: string) => {
-    if (!currentUser || !id) return;
+   *  Usado pelo botao "Cancelar Pre-venda" e por "Converter em troca".
+   *  Com a chave "Venda pelo servidor" quem grava e' o servidor, que tambem reabre
+   *  o orcamento e registra o log (fatia 3b, 19/10/2026): devolve true. */
+  const cancelarPreVendaNoBanco = async (nota: string): Promise<boolean> => {
+    if (!currentUser || !id) return false;
+    if (vendaPeloServidor) {
+      await cancelarPreVendaNoServidor(id, nota);
+      return true;
+    }
       await runTransaction(db, async (transaction) => {
         const preVendaRef = doc(db, 'pedidos_venda', id);
         const snap = await transaction.get(preVendaRef);
@@ -2571,6 +2591,10 @@ const PedidoVendaForm: React.FC = () => {
         if (!isPedidoAberto(data.status)) {
           throw new Error('Esta pré-venda não está mais em aberto. Recarregue a tela.');
         }
+        // Pedido numa rota de entrega ainda aberta (19/10/2026): tirar da rota antes.
+        const travaSnap = await transaction.get(doc(db, 'romaneio_pedidos', id));
+        const erroRota = erroDaRotaParaCancelar(travaSnap.exists() ? travaSnap.data() as TravaDeRotaDoPedido : null, String(data.numeroPedido || ''));
+        if (erroRota) throw new Error(erroRota);
 
         if (data.estoqueReservado === true) {
           // Libera a reserva sem devolver quantidade: nada foi baixado do
@@ -2590,6 +2614,7 @@ const PedidoVendaForm: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), nota),
         });
       });
+    return false;
   };
 
   /**
@@ -2696,26 +2721,29 @@ const PedidoVendaForm: React.FC = () => {
 
     setIsLoading(true);
     try {
-      await cancelarPreVendaNoBanco('Pré-venda cancelada');
-      if (orcamentoId) {
-        void atualizarOrcamentoDeOrigem(orcamentoId, { status: 'Pendente' }, 'Reaberto pelo cancelamento da pré-venda');
-      }
+      const peloServidor = await cancelarPreVendaNoBanco('Pré-venda cancelada');
+      // Pelo servidor, orcamento e log ja' foram gravados la'.
+      if (!peloServidor) {
+        if (orcamentoId) {
+          void atualizarOrcamentoDeOrigem(orcamentoId, { status: 'Pendente' }, 'Reaberto pelo cancelamento da pré-venda');
+        }
 
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'vendas',
-          acao: 'cancelamento',
-          descricao: `Pré-venda #${numeroPedido} cancelada. Estoque reservado liberado.`,
-          registroRelacionadoId: id,
-          vendedorId: vendedorId || undefined,
-          status: 'sucesso',
-        });
-      } catch (err) {
-        console.error('Erro ao registrar log de cancelamento da pré-venda:', err);
+        try {
+          const { createAuditLog } = await import('../../services/logService');
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'vendas',
+            acao: 'cancelamento',
+            descricao: `Pré-venda #${numeroPedido} cancelada. Estoque reservado liberado.`,
+            registroRelacionadoId: id,
+            vendedorId: vendedorId || undefined,
+            status: 'sucesso',
+          });
+        } catch (err) {
+          console.error('Erro ao registrar log de cancelamento da pré-venda:', err);
+        }
       }
 
       setIsDirty(false);
@@ -2745,7 +2773,11 @@ const PedidoVendaForm: React.FC = () => {
    *  - venda com devolucao bloqueia: o valor ja se moveu por outro caminho;
    *  - lancamento ja estornado bloqueia: mexer por cima de um estorno
    *    duplicaria historico. Nesses casos o caminho certo e' Estorno ou
-   *    Devolucao, que preservam o que aconteceu de verdade.
+   *    Devolucao, que preservam o que aconteceu de verdade;
+   *  - parcela ja' recebida depois da venda (Dar Baixa, parcial, cheque
+   *    compensado) ou com boleto emitido bloqueia, e a parte em credito de
+   *    devolucao nao muda (19/10/2026, cancelamentoVendaDomain.ts).
+   * Com a chave "Venda pelo servidor" quem refaz tudo e' o servidor.
    */
   const handleSalvarPagamentoAlterado = async () => {
     if (submitLockRef.current) return;
@@ -2795,6 +2827,16 @@ const PedidoVendaForm: React.FC = () => {
     setIsLoading(true);
     let vendedorDaVenda: { id?: string; nome?: string } = {};
     try {
+      if (vendaPeloServidor) {
+        // Total da venda GRAVADA, lancamentos, saldo dos bancos e log refeitos
+        // pelo servidor (server/services/vendaCancelamento.js).
+        const resposta = await alterarPagamentoNoServidor(id, paymentDrafts);
+        setFormaPagamento(resposta.formaNova);
+        setEditandoPagamento(false);
+        setIsDirty(false);
+        showSuccess('Forma de pagamento alterada e financeiro refeito.');
+        return;
+      }
       const saleRef = doc(db, 'pedidos_venda', id);
       // Refs dos lancamentos atuais levantados FORA da transacao (query nao
       // roda dentro dela) -- mesmo padrao do cancelamento de venda.
@@ -2833,6 +2875,11 @@ const PedidoVendaForm: React.FC = () => {
           'venda',
         );
         if (bloqueioDeValorAlterado) throw new Error(bloqueioDeValorAlterado);
+        // Parcela recebida depois da venda, boleto emitido ou credito de devolucao (19/10/2026).
+        const bloqueioDeRecebimento = bloqueioParaAlterarPagamento(
+          snapshotsAntigos.filter((snapshot) => snapshot.exists()).map((snapshot) => snapshot.data() as Record<string, unknown>),
+        ) || bloqueioDoCreditoNaAlteracao(saleData.pagamentos, persistedPayments);
+        if (bloqueioDeRecebimento) throw new Error(bloqueioDeRecebimento);
 
         // Delta por banco: tira o que a composicao ANTIGA creditou e poe o
         // que a NOVA credita. Bancos que aparecem so de um lado entram com
@@ -4132,9 +4179,17 @@ const PedidoVendaForm: React.FC = () => {
         showError('Venda com parcela renegociada', bloqueioDeRenegociacao);
         return;
       }
+      // Pedido numa rota de entrega ainda aberta (19/10/2026, decisao do dono):
+      // tambem conferido antes de cancelar a nota, pelo mesmo motivo.
+      const travaSnap = await getDoc(doc(db, 'romaneio_pedidos', id));
+      const erroRota = erroDaRotaParaCancelar(travaSnap.exists() ? travaSnap.data() as TravaDeRotaDoPedido : null, String(numeroPedido || ''));
+      if (erroRota) {
+        showError('Pedido em rota de entrega', erroRota);
+        return;
+      }
     } catch (erroTitulos) {
-      console.error('Erro ao conferir as parcelas da venda antes de cancelar:', erroTitulos);
-      showError('Não foi possível conferir as parcelas da venda', 'O cancelamento não foi feito. Confira sua conexão e tente de novo.');
+      console.error('Erro ao conferir as parcelas e a rota da venda antes de cancelar:', erroTitulos);
+      showError('Não foi possível conferir a venda', 'O cancelamento não foi feito. Confira sua conexão e tente de novo.');
       return;
     }
 
@@ -4162,7 +4217,9 @@ const PedidoVendaForm: React.FC = () => {
       return;
     }
 
+    // Motivo obrigatorio (19/10/2026): com nota, e' a justificativa que vai para a SEFAZ.
     let justificativaDaNota = '';
+    let motivoDoCancelamento = '';
     if (notasParaCancelar.length > 0) {
       const notas = listaDeNotas(notasParaCancelar);
       // Mesma permissao de cancelar nota da tela Notas Fiscais (decisao do dono, 15/10).
@@ -4181,7 +4238,7 @@ const PedidoVendaForm: React.FC = () => {
           + '<br><br><small>A SEFAZ só aceita cancelar a nota dentro do prazo (24 horas na maioria dos casos). Se a mercadoria saiu e voltou, use "Devolução de itens" em vez de cancelar.</small>',
         icon: 'warning',
         input: 'textarea',
-        inputLabel: 'Motivo do cancelamento da nota (vai para a SEFAZ)',
+        inputLabel: 'Motivo do cancelamento (vai para a SEFAZ e fica gravado na venda)',
         inputAttributes: { maxlength: '255' },
         inputPlaceholder: 'Escreva o motivo real do cancelamento',
         inputValidator: (valor) => validarJustificativaCancelamento(valor) || undefined,
@@ -4192,17 +4249,24 @@ const PedidoVendaForm: React.FC = () => {
       });
       if (!resposta.isConfirmed) return;
       justificativaDaNota = String(resposta.value || '').trim();
+      motivoDoCancelamento = justificativaDaNota;
     } else {
       const confirm = await NexusSwal.fire({
         title: 'Cancelar Venda?',
         text: 'O estoque será devolvido e a transação financeira será estornada.',
         icon: 'warning',
+        input: 'textarea',
+        inputLabel: 'Motivo do cancelamento',
+        inputAttributes: { maxlength: String(MOTIVO_CANCELAMENTO_MAXIMO) },
+        inputPlaceholder: 'Escreva por que a venda está sendo cancelada',
+        inputValidator: (valor) => erroDoMotivoDoCancelamento(valor) || undefined,
         showCancelButton: true,
         confirmButtonText: 'Sim, Cancelar Venda',
         cancelButtonText: 'Manter Venda',
         confirmButtonColor: '#ef4444'
       });
       if (!confirm.isConfirmed) return;
+      motivoDoCancelamento = String(confirm.value || '').trim();
     }
 
     submitLockRef.current = true;
@@ -4241,7 +4305,19 @@ const PedidoVendaForm: React.FC = () => {
     }
     let vendedorDaVendaCancelada: { id?: string; nome?: string } = {};
     let snapshotAntesCancelamento: Record<string, unknown> | null = null;
+    let creditoDevolvidoCentavos = 0;
+    const avisoDoCredito = (centavos: number) => (centavos > 0
+      ? ` O crédito de devolução de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(centavos))} voltou para o cliente.`
+      : '');
     try {
+      if (vendaPeloServidor) {
+        // Estoque, lotes, banco, lancamentos, credito do cliente, orcamento e log
+        // gravados pelo servidor (server/services/vendaCancelamento.js).
+        const resposta = await cancelarVendaNoServidor(id, motivoDoCancelamento);
+        showSuccess(`Venda cancelada com sucesso!${avisoDoCredito(resposta.creditoDevolvidoCentavos)}`);
+        setStatus('Cancelada');
+        return;
+      }
       const saleRef = doc(db, 'pedidos_venda', id);
       const paymentTransactionsSnap = await getDocs(query(
         collection(db, 'transacoes'),
@@ -4261,6 +4337,18 @@ const PedidoVendaForm: React.FC = () => {
         }
         vendedorDaVendaCancelada = { id: saleData.vendedorId, nome: saleData.vendedorNome };
         snapshotAntesCancelamento = saleData;
+        const numeroDaVenda = String(saleData.numeroPedido || numeroPedido || '');
+
+        // Rota de entrega ainda aberta: conferida de novo aqui dentro (19/10/2026).
+        const travaSnap = await transaction.get(doc(db, 'romaneio_pedidos', id));
+        const erroRota = erroDaRotaParaCancelar(travaSnap.exists() ? travaSnap.data() as TravaDeRotaDoPedido : null, numeroDaVenda);
+        if (erroRota) throw new Error(erroRota);
+
+        // Credito de devolucao usado na venda volta para o cliente (decisao do
+        // dono, 19/10/2026). Id fixo por venda: nunca devolve duas vezes.
+        const creditoCentavos = creditoUsadoNaVenda(saleData.pagamentos);
+        const creditoRef = creditoCentavos > 0 ? doc(db, 'creditos_cliente', idDoCreditoDevolvido(id)) : null;
+        const creditoJaDevolvido = creditoRef ? (await transaction.get(creditoRef)).exists() : false;
 
         // Reverte o credito bancario aplicado na criacao da venda (pagamento
         // Pix/Cartao/Transferencia) -- antes ficava pra sempre no saldo do
@@ -4280,10 +4368,11 @@ const PedidoVendaForm: React.FC = () => {
         );
         if (bloqueioDeRenegociacao) throw new Error(bloqueioDeRenegociacao);
 
+        // Estoque: o que a venda GRAVADA tirou (mesma regra do servidor).
         await applyStockAdjustments(
           transaction,
           db,
-          toStockAdjustmentItems(itens),
+          toStockAdjustmentItems(Array.isArray(saleData.itens) ? saleData.itens : itens),
           'increment',
           true
         );
@@ -4293,6 +4382,9 @@ const PedidoVendaForm: React.FC = () => {
         transaction.update(saleRef, {
           status: 'Cancelada',
           ...(saleSnap.data().comissao ? { comissao: cancelCommissionSnapshot(saleSnap.data().comissao) } : {}),
+          motivoCancelamento: motivoDoCancelamento,
+          canceladaPor: currentUser.uid,
+          canceladaPorNome: currentUser.displayName || currentUser.email || 'Usuário',
           canceladaEm: serverTimestamp(),
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Venda cancelada'),
@@ -4308,59 +4400,37 @@ const PedidoVendaForm: React.FC = () => {
           });
         });
 
-        paymentSnapshots.forEach((paymentSnapshot) => {
-          if (!paymentSnapshot.exists()) return;
-          const paymentData = paymentSnapshot.data();
-          if (paymentData.status === 'Paga') {
-            const movesPhysicalCash = transactionMovesPhysicalCash(paymentData);
-            transaction.update(paymentSnapshot.ref, {
-              estornada: true,
-              statusOperacional: 'Cancelada',
-              estornadaEm: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estornada pelo cancelamento da venda'),
-            });
-            transaction.set(doc(db, 'transacoes', `estorno_cancelamento_${paymentSnapshot.id}`), {
-              descricao: `Estorno do cancelamento da venda #${numeroPedido}`,
-              categoria: 'Cancelamento de Venda',
-              valor: Number(paymentData.valor || 0),
-              valorCentavos: Number(paymentData.valorCentavos ?? toCents(paymentData.valor)),
-              valorBruto: Number(paymentData.valorBruto ?? paymentData.valor ?? 0),
-              valorBrutoCentavos: Number(paymentData.valorBrutoCentavos ?? paymentData.valorCentavos ?? toCents(paymentData.valor)),
-              valorTaxa: Number(paymentData.valorTaxa ?? paymentData.cartao?.valorTaxa ?? 0),
-              valorTaxaCentavos: Number(paymentData.valorTaxaCentavos ?? paymentData.cartao?.valorTaxaCentavos ?? 0),
-              valorLiquido: Number(paymentData.valorLiquido ?? paymentData.cartao?.valorLiquido ?? paymentData.valor ?? 0),
-              valorLiquidoCentavos: Number(paymentData.valorLiquidoCentavos ?? paymentData.cartao?.valorLiquidoCentavos ?? paymentData.valorCentavos ?? toCents(paymentData.valor)),
-              cartao: paymentData.cartao || null,
-              tipo: 'saida',
-              formaPagamento: paymentData.formaPagamento || 'Outros',
-              naturezaFinanceira: movesPhysicalCash
-                ? 'caixa_fisico'
-                : (paymentData.naturezaFinanceira || 'bancario_digital'),
-              movimentaCaixaFisico: movesPhysicalCash,
-              status: 'Paga',
-              data: getDateInputInTimeZone(),
-              pedidoId: id,
-              sourceType: 'cancelamento_pedido_venda',
-              sourceId: id,
-              sourcePaymentTransactionId: paymentSnapshot.id,
-              idempotencyKey: `cancelamento:${id}:transacao:${paymentSnapshot.id}`,
-              clienteNome: saleSnap.data().clienteNome || clienteNome,
-              usuarioResponsavelId: currentUser.uid,
-              tenantId,
-              createdAt: serverTimestamp(),
-              ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-            }, { merge: true });
-          } else {
-            transaction.update(paymentSnapshot.ref, {
-              status: 'Cancelada',
-              movimentaCaixaFisico: false,
-              estornadaEm: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cancelada junto com a venda'),
-            });
-          }
+        // Lancamentos: pago vira estorno, aberto e' cancelado (regra comum com o servidor).
+        const escritas = estornoDosTitulosDaVenda(
+          paymentSnapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => ({ id: snapshot.id, dados: snapshot.data() as Record<string, unknown> })),
+          { pedidoId: id, numeroPedido: numeroDaVenda, clienteNome: saleData.clienteNome || clienteNome, usuarioId: currentUser.uid, tenantId, hoje: getDateInputInTimeZone() },
+        );
+        escritas.atualizar.forEach((a) => {
+          transaction.update(doc(db, 'transacoes', a.id), {
+            ...a.campos,
+            estornadaEm: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), a.nota),
+          });
         });
+        escritas.criar.forEach((c) => {
+          transaction.set(doc(db, 'transacoes', c.id), {
+            ...c.campos,
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          }, { merge: true });
+        });
+
+        creditoDevolvidoCentavos = 0;
+        if (creditoRef && !creditoJaDevolvido) {
+          transaction.set(creditoRef, {
+            ...camposDoCreditoDevolvido({ pedidoId: id, numeroPedido: numeroDaVenda, clienteNome: saleData.clienteNome || clienteNome, valorCentavos: creditoCentavos, tenantId }),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          });
+          creditoDevolvidoCentavos = creditoCentavos;
+        }
       });
 
       try {
@@ -4371,7 +4441,7 @@ const PedidoVendaForm: React.FC = () => {
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas',
           acao: 'cancelamento',
-          descricao: `Venda Direta #${numeroPedido} CANCELADA e estoque estornado.`,
+          descricao: `Venda Direta #${numeroPedido} CANCELADA e estoque estornado. Motivo: ${motivoDoCancelamento}.${avisoDoCredito(creditoDevolvidoCentavos).replace(' voltou para o cliente', ' devolvido ao cliente')}`,
           registroRelacionadoId: id,
           vendedorId: vendedorDaVendaCancelada.id,
           vendedorNome: vendedorDaVendaCancelada.nome,
@@ -4395,7 +4465,7 @@ const PedidoVendaForm: React.FC = () => {
         }
       }
 
-      showSuccess('Venda cancelada com sucesso!');
+      showSuccess(`Venda cancelada com sucesso!${avisoDoCredito(creditoDevolvidoCentavos)}`);
       setStatus('Cancelada');
     } catch (err) {
       console.error('Erro ao cancelar:', err);
@@ -4855,7 +4925,7 @@ const PedidoVendaForm: React.FC = () => {
                       <ItemMaisAcoes Icone={RefreshCw} texto="Alterar Pagamento"
                         desabilitado={isLoading || Boolean(motivoBloqueioAlterarPagamento)}
                         titulo={motivoBloqueioAlterarPagamento || 'Corrigir a forma de pagamento sem alterar o valor da venda'}
-                        onClick={() => { setMaisAcoesAberto(false); setEditandoPagamento(true); }} />
+                        onClick={() => { setMaisAcoesAberto(false); pagamentosAntesDaEdicaoRef.current = paymentDrafts; setEditandoPagamento(true); }} />
                     )}
                     {canReturnVenda && !devolucaoBotaoSeparado && (
                       <ItemMaisAcoes Icone={RotateCcw} texto="Devolução de itens" titulo="Devolução de itens deste pedido"
@@ -5562,7 +5632,7 @@ const PedidoVendaForm: React.FC = () => {
                 <button className="btn-primary" onClick={handleSalvarPagamentoAlterado} disabled={isLoading} style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}>
                   {isLoading ? 'Salvando...' : 'Salvar Novo Pagamento'}
                 </button>
-                <button className="btn-secondary" onClick={() => setEditandoPagamento(false)} disabled={isLoading}>
+                <button className="btn-secondary" onClick={() => { setPaymentDrafts(pagamentosAntesDaEdicaoRef.current); setEditandoPagamento(false); }} disabled={isLoading}>
                   Cancelar
                 </button>
               </div>

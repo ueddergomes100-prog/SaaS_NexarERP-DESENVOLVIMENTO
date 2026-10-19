@@ -169,16 +169,8 @@ export const estornarLotesDaDevolucaoNaTransacao = (transaction: Transaction, db
   });
 };
 
-/** Itens gravados de uma venda -> entrada de devolverAosLotesNaTransacao (cancelamento devolve tudo o que saiu de lote). */
-export const devolucaoTotalDosLotes = (itensDaVenda: unknown): Array<{ lotes?: LoteUsado[]; jaDevolvido: number; quantidade: number }> => (
-  (Array.isArray(itensDaVenda) ? itensDaVenda : [])
-    .filter((item) => Array.isArray(item?.lotes) && item.lotes.length > 0)
-    .map((item) => ({
-      lotes: item.lotes as LoteUsado[],
-      jaDevolvido: 0,
-      quantidade: (item.lotes as LoteUsado[]).reduce((soma, l) => soma + Number(l.quantidade || 0), 0),
-    }))
-);
+/** Itens gravados de uma venda -> entrada de devolverAosLotesNaTransacao (mora em loteRetornoDomain.ts). */
+export { devolucaoTotalDosLotes } from '../utils/loteRetornoDomain';
 
 /* ------------------------------------------------------------------------------------------------
  * ENTRADA EM LOTE (Nota Avulsa, Producao): produto que controla lote so' entra com lote e validade.

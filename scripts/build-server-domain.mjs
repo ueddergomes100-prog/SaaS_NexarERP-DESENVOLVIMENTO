@@ -70,6 +70,11 @@ const MODULOS = [
   'src/utils/ajustesDaBaixaDomain.ts',
   // Pagamento parcial (16/10/2026).
   'src/utils/baixaParcialDomain.ts',
+  // Item 8, fatia 3b (19/10/2026): cancelar venda e alterar pagamento no servidor.
+  'src/utils/loteRetornoDomain.ts',
+  'src/utils/nomeArquivoDomain.ts',
+  'src/utils/cancelamentoNotaVendaDomain.ts',
+  'src/utils/cancelamentoVendaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

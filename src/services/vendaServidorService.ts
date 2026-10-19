@@ -6,6 +6,9 @@
  * servidor (server/services/vendaFechamento.js) grava pedido, estoque, lotes,
  * comissão, títulos e saldo do banco numa transação só. Repetir o envio da
  * mesma venda direta não duplica: o id da venda é gerado na tela e vai junto.
+ *
+ * Fatia 3b (19/10/2026): cancelar a venda finalizada, cancelar a pré-venda e
+ * alterar a forma de pagamento também passam pelo servidor com a chave ligada.
  */
 import { auth } from './firebase';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
@@ -62,3 +65,69 @@ export const finalizarVendaNoServidor = async (corpo: Record<string, unknown>): 
   }
   return dados as ResultadoDoFechamento;
 };
+
+/** POST numa rota de /api/vendas, com o token da sessão. `semResposta` = texto quando a rede falha. */
+const postarNoServidor = async <T>(rota: string, corpo: Record<string, unknown>, falhou: string, semResposta: string): Promise<T> => {
+  if (!API_URL) {
+    throw new VendaServidorError('As vendas desta empresa são gravadas pelo servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
+  }
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new VendaServidorError('Sua sessão expirou. Entre novamente para continuar.', 401);
+
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/vendas/${rota}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+  } catch (erro) {
+    throw new VendaServidorError(`${mensagemDeFalhaDeRede(erro)} ${semResposta}`, 0);
+  }
+
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new VendaServidorError(dados.error || falhou, resposta.status);
+  return dados as T;
+};
+
+const CONFIRA_ANTES = 'Abra a venda de novo para conferir se a operação foi gravada antes de tentar outra vez.';
+
+export interface ResultadoDoCancelamento {
+  ok: true;
+  pedidoId: string;
+  numeroPedido: string;
+  vendedorId: string;
+  vendedorNome: string;
+  totalCentavos: number;
+  creditoDevolvidoCentavos: number;
+}
+
+/** Venda finalizada. A nota fiscal autorizada tem de ter sido cancelada antes (pela tela). */
+export const cancelarVendaNoServidor = (pedidoId: string, motivo: string) =>
+  postarNoServidor<ResultadoDoCancelamento>('cancelar', { pedidoId, motivo },
+    'Não foi possível cancelar a venda. Nada foi gravado. Tente novamente.', CONFIRA_ANTES);
+
+export interface ResultadoDoCancelamentoDaPreVenda {
+  ok: true;
+  pedidoId: string;
+  numeroPedido: string;
+  reservaLiberada: boolean;
+}
+
+export const cancelarPreVendaNoServidor = (pedidoId: string, nota?: string) =>
+  postarNoServidor<ResultadoDoCancelamentoDaPreVenda>('cancelar-pre-venda', nota ? { pedidoId, nota } : { pedidoId },
+    'Não foi possível cancelar a pré-venda. Nada foi gravado. Tente novamente.', CONFIRA_ANTES);
+
+export interface ResultadoDaAlteracaoDePagamento {
+  ok: true;
+  pedidoId: string;
+  numeroPedido: string;
+  formaAnterior: string;
+  formaNova: string;
+  totalCentavos: number;
+}
+
+/** `pagamentos` = as linhas da tela (forma, valor, banco...). O total vem da venda gravada. */
+export const alterarPagamentoNoServidor = (pedidoId: string, pagamentos: unknown[]) =>
+  postarNoServidor<ResultadoDaAlteracaoDePagamento>('alterar-pagamento', { pedidoId, pagamentos },
+    'Não foi possível alterar a forma de pagamento. Nada foi gravado. Tente novamente.', CONFIRA_ANTES);

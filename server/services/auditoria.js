@@ -6,7 +6,7 @@ const { admin, db } = require('../config/firebase');
  * Auditoria nunca derruba a operacao que ja' aconteceu: falha aqui so' vai pro
  * console.
  */
-const registrarLog = (user, { modulo, acao, descricao, registroId, alteracoes, critico }) => {
+const registrarLog = (user, { modulo, acao, descricao, registroId, alteracoes, critico, vendedorId, vendedorNome, snapshotExcluido }) => {
   db.collection('empresas').doc(user.tenantId).collection('logs').add({
     usuarioId: user.uid,
     usuario: user.email || user.uid,
@@ -16,10 +16,11 @@ const registrarLog = (user, { modulo, acao, descricao, registroId, alteracoes, c
     registroRelacionadoId: registroId,
     valorAnterior: null,
     valorNovo: null,
-    vendedorId: null,
-    vendedorNome: null,
+    vendedorId: vendedorId || null,
+    vendedorNome: vendedorNome || null,
     alteracoes: alteracoes || null,
-    snapshotExcluido: null,
+    // Copia do registro antes de cancelar/excluir (o mesmo que o createAuditLog da tela grava).
+    snapshotExcluido: snapshotExcluido || null,
     status: 'sucesso',
     // Log critico nao e' apagado pela limpeza de 6 meses (runLogsCleanup).
     critical: critico ?? acao === 'exclusao',

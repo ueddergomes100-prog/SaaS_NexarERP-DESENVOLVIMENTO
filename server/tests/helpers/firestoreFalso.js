@@ -2,7 +2,7 @@
  * Firestore FALSO em memoria para testar servicos que gravam numa transacao
  * (baixa, estorno, movimento de banco) sem tocar em banco de dados nenhum.
  * Cobre so' o que os servicos usam: collection().doc(), runTransaction,
- * tx.get/update/set, serverTimestamp e delete.
+ * tx.get/update/set, serverTimestamp, delete e increment.
  */
 const path = require('node:path');
 
@@ -25,6 +25,7 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
       }
       const ultimo = partes[partes.length - 1];
       if (valor === DEL) delete alvo[ultimo];
+      else if (valor && typeof valor === 'object' && '__incremento' in valor) alvo[ultimo] = Number(alvo[ultimo] || 0) + valor.__incremento;
       else alvo[ultimo] = valor;
     }
     dados.set(chave, atual);
@@ -102,7 +103,7 @@ const carregarComBancoFalso = (db, ...servicos) => {
   const firebase = require.resolve(path.join(base, 'config/firebase'));
   require.cache[firebase] = {
     id: firebase, filename: firebase, loaded: true,
-    exports: { db, admin: { firestore: { FieldValue: { serverTimestamp: () => TS, delete: () => DEL } } } },
+    exports: { db, admin: { firestore: { FieldValue: { serverTimestamp: () => TS, delete: () => DEL, increment: (n) => ({ __incremento: n }) } } } },
   };
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));

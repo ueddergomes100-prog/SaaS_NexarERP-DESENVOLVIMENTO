@@ -3,6 +3,7 @@ const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { fromCents } = require('../domain/financeDomain');
 const { ErroVenda, finalizarVenda, temPermissao } = require('../services/vendaFechamento');
+const { alterarPagamento, cancelarPreVenda, cancelarVenda } = require('../services/vendaCancelamento');
 
 /**
  * VENDAS -- fechamento da venda pelo servidor (item 8 da auditoria, fatia 3).
@@ -49,6 +50,88 @@ router.post('/finalizar', async (req, res) => {
     if (erro instanceof ErroVenda) return res.status(erro.status).json({ error: erro.message });
     console.error('[Vendas] erro ao finalizar a venda:', erro);
     return res.status(500).json({ error: 'Não foi possível finalizar a venda. Nada foi gravado. Tente de novo em instantes.' });
+  }
+});
+
+/** Resposta comum dos erros das rotas abaixo. */
+const responderErro = (res, erro, oQue) => {
+  if (erro instanceof ErroVenda) return res.status(erro.status).json({ error: erro.message });
+  console.error(`[Vendas] erro ao ${oQue}:`, erro);
+  return res.status(500).json({ error: `Não foi possível ${oQue}. Nada foi gravado. Tente de novo em instantes.` });
+};
+
+/**
+ * POST /api/vendas/cancelar -- { pedidoId, motivo }. Venda finalizada (fatia 3b,
+ * 19/10/2026). A nota fiscal ja' foi cancelada pela tela; aqui so' se confere.
+ */
+router.post('/cancelar', async (req, res) => {
+  try {
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    if (!temPermissao(req.user, 'vendas.alterar')) {
+      return res.status(403).json({ error: 'Você não tem permissão para cancelar vendas. Peça a um responsável liberar "Vendas: Alterar" no seu usuário.' });
+    }
+    const r = await cancelarVenda({ user: req.user, tenantId, corpo: req.body || {} });
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'vendas',
+      acao: 'cancelamento',
+      descricao: `Venda Direta #${r.numeroPedido} CANCELADA e estoque estornado. Motivo: ${String(req.body.motivo).trim()}.`
+        + (r.creditoDevolvidoCentavos > 0 ? ` Crédito de devolução de ${reais(r.creditoDevolvidoCentavos)} devolvido ao cliente.` : ''),
+      registroId: r.pedidoId,
+      vendedorId: r.vendedorId,
+      vendedorNome: r.vendedorNome,
+      snapshotExcluido: r.snapshot,
+      critico: true,
+    });
+    const { snapshot, ...resposta } = r;
+    return res.json({ ok: true, ...resposta });
+  } catch (erro) {
+    return responderErro(res, erro, 'cancelar a venda');
+  }
+});
+
+/** POST /api/vendas/cancelar-pre-venda -- { pedidoId, nota? }. Libera a reserva de estoque. */
+router.post('/cancelar-pre-venda', async (req, res) => {
+  try {
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    if (!temPermissao(req.user, 'vendas.pre_venda_cancelar')) {
+      return res.status(403).json({ error: 'Você não tem permissão para cancelar pré-venda. Peça a um responsável liberar "Cancelar pré-venda" no seu usuário.' });
+    }
+    const r = await cancelarPreVenda({ user: req.user, tenantId, corpo: req.body || {} });
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'vendas',
+      acao: 'cancelamento',
+      descricao: `Pré-venda #${r.numeroPedido} cancelada.${r.reservaLiberada ? ' Estoque reservado liberado.' : ''}`,
+      registroId: r.pedidoId,
+      vendedorId: r.vendedorId,
+      vendedorNome: r.vendedorNome,
+      critico: false,
+    });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErro(res, erro, 'cancelar a pré-venda');
+  }
+});
+
+/** POST /api/vendas/alterar-pagamento -- { pedidoId, pagamentos }. Venda finalizada. */
+router.post('/alterar-pagamento', async (req, res) => {
+  try {
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    if (!temPermissao(req.user, 'vendas.alterar_pagamento_finalizada')) {
+      return res.status(403).json({ error: 'Você não tem permissão para alterar o pagamento de venda finalizada. Peça a um responsável liberar a permissão no seu usuário.' });
+    }
+    const r = await alterarPagamento({ user: req.user, tenantId, corpo: req.body || {} });
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'vendas',
+      acao: 'edicao',
+      descricao: `Forma de pagamento da venda #${r.numeroPedido} alterada de "${r.formaAnterior}" para "${r.formaNova}". Valor mantido em ${reais(r.totalCentavos)}.`,
+      registroId: r.pedidoId,
+      vendedorId: r.vendedorId,
+      vendedorNome: r.vendedorNome,
+      alteracoes: [{ campo: 'formaPagamento', valorAnterior: r.formaAnterior, valorNovo: r.formaNova }],
+    });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErro(res, erro, 'alterar a forma de pagamento');
   }
 });
 

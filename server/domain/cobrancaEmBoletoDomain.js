@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.camposParaCobrarEmBoleto = exports.vencimentoSugeridoDoBoleto = exports.validarVencimentoDoBoleto = exports.bloqueioParaCobrarEmBoleto = exports.FORMA_BOLETO = void 0;
+exports.faltandoNoPagador = exports.pagadorDoCadastro = exports.camposParaCobrarEmBoleto = exports.vencimentoSugeridoDoBoleto = exports.validarVencimentoDoBoleto = exports.bloqueioParaCobrarEmBoleto = exports.FORMA_BOLETO = void 0;
 /*
  * COBRAR UMA PARCELA EM BOLETO PELO "DAR BAIXA" (pedido do dono, 15/10/2026).
  *
@@ -74,3 +74,36 @@ const camposParaCobrarEmBoleto = (vencimento) => ({
     dataPrevistaRecebimento: vencimento,
 });
 exports.camposParaCobrarEmBoleto = camposParaCobrarEmBoleto;
+/**
+ * Cliente grava o CPF/CNPJ em `documento`; fornecedor, em `cnpj`. Os dois
+ * viram o mesmo pagador -- o boleto nao precisa saber de onde veio.
+ */
+const pagadorDoCadastro = (cadastro, nomeReserva = '') => {
+    const c = (cadastro && typeof cadastro === 'object' ? cadastro : {});
+    const txt = (v) => String(v ?? '').trim();
+    return {
+        nome: (txt(c.nome) || txt(nomeReserva)).toUpperCase(),
+        documento: txt(c.documento || c.cnpj || c.cpfCnpj || c.cpf).replace(/\D/g, ''),
+        endereco: txt(c.endereco || c.rua),
+        numero: txt(c.numero),
+        bairro: txt(c.bairro),
+        cep: txt(c.cep).replace(/\D/g, ''),
+        cidade: txt(c.cidade),
+        uf: txt(c.estado || c.uf).toUpperCase(),
+    };
+};
+exports.pagadorDoCadastro = pagadorDoCadastro;
+/** O que falta no cadastro para o banco aceitar o boleto (vazio = nada). */
+const faltandoNoPagador = (p) => {
+    const faltando = [];
+    if (p.documento.length !== 11 && p.documento.length !== 14)
+        faltando.push('CPF/CNPJ');
+    if (p.cep.length !== 8)
+        faltando.push('CEP');
+    if (!p.cidade)
+        faltando.push('cidade');
+    if (!p.uf)
+        faltando.push('UF');
+    return faltando;
+};
+exports.faltandoNoPagador = faltandoNoPagador;

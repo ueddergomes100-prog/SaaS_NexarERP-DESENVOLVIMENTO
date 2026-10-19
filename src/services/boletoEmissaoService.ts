@@ -20,6 +20,7 @@ import { nomeArquivoDocumento } from '../utils/nomeArquivoDomain';
 import { formatCompanyAddress } from '../utils/companyAddress';
 import { erroDoConvenioBoleto } from '../utils/boletoEmissaoDomain';
 import { mensagensDoBoleto } from '../utils/boletoRemessaSicoobDomain';
+import { pagadorDoCadastro } from '../utils/cobrancaEmBoletoDomain';
 
 export interface BancoBoleto {
   id: string;
@@ -45,6 +46,9 @@ export interface TituloBoleto {
   descricao: string;
   clienteId?: string | null;
   clienteNome?: string;
+  /** Conta a receber de fornecedor (lancada a mao, 19/10/2026): ele e' o pagador. */
+  fornecedorId?: string;
+  fornecedorNome?: string;
   valorCentavos: number;
   status: 'Paga' | 'Pendente' | 'Cancelada';
   dataVencimento?: string;
@@ -65,6 +69,7 @@ export const paraTituloBoleto = (id: string, data: DocumentData): TituloBoleto =
   descricao: data.descricao || '',
   clienteId: data.clienteId ?? null,
   clienteNome: data.clienteNome || '',
+  ...(data.fornecedorId ? { fornecedorId: String(data.fornecedorId), fornecedorNome: String(data.fornecedorNome || '') } : {}),
   valorCentavos: Number(data.valorCentavos ?? toCents(data.valor)),
   status: data.status || 'Pendente',
   dataVencimento: data.dataVencimento || data.dataPrevistaRecebimento || '',
@@ -195,6 +200,24 @@ export const recalcularBoleto = (titulo: TituloBoleto, bancosComBoleto: BancoBol
 };
 
 /**
+ * Cadastro de quem paga o titulo: o cliente (o do titulo ou o do pedido) ou, em
+ * conta a receber de fornecedor (19/10/2026), o fornecedor. So' da empresa.
+ * Usado pelo PDF do boleto e pela remessa.
+ */
+export const cadastroDoPagador = async (tenantId: string, a: { clienteId?: string | null; fornecedorId?: string | null }): Promise<{ dados: Record<string, unknown> | null; deFornecedor: boolean }> => {
+  if (a.clienteId) {
+    const snap = await getDoc(doc(db, 'clientes', a.clienteId));
+    if (snap.exists() && snap.data().tenantId === tenantId) return { dados: snap.data(), deFornecedor: false };
+  }
+  if (a.fornecedorId) {
+    const snap = await getDoc(doc(db, 'fornecedores', a.fornecedorId));
+    if (snap.exists() && snap.data().tenantId === tenantId) return { dados: snap.data(), deFornecedor: true };
+    return { dados: null, deFornecedor: true };
+  }
+  return { dados: null, deFornecedor: false };
+};
+
+/**
  * Dados do PDF do boleto (recibo do pagador + ficha de compensacao) a partir do titulo. Lanca erro
  * (mensagem em portugues) em vez de mostrar popup, pra cada chamador decidir como reagir.
  */
@@ -217,10 +240,9 @@ export const dadosPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBole
       clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
     }
   }
-  if (clienteId) {
-    const clienteSnap = await getDoc(doc(db, 'clientes', clienteId));
-    if (clienteSnap.exists() && clienteSnap.data().tenantId === tenantId) cliente = clienteSnap.data();
-  }
+  const pagadorCadastro = await cadastroDoPagador(tenantId, { clienteId, fornecedorId: titulo.fornecedorId });
+  // Fornecedor grava o CNPJ em `cnpj`; o PDF le `documento`.
+  if (pagadorCadastro.dados) cliente = { ...pagadorCadastro.dados, documento: pagadorDoCadastro(pagadorCadastro.dados).documento };
   const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
   const config: any = configSnap.exists() ? configSnap.data() : {};
 
@@ -253,7 +275,7 @@ export const dadosPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBole
       sacado: { tipoDocumento: 'CPF', documento: '', nome: '' },
     },
   );
-  const nome = String(cliente?.nome || titulo.clienteNome || 'Cliente').trim();
+  const nome = String(cliente?.nome || titulo.clienteNome || titulo.fornecedorNome || 'Cliente').trim();
   const cepEmpresa = String(config.cep || '').replace(/\D/g, '');
   return {
     bancoNome: 'SICOOB',

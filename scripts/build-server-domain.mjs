@@ -89,6 +89,8 @@ const MODULOS = [
   'src/utils/visibilidadeVendasDomain.ts',
   'src/utils/vendedorPinDomain.ts',
   'src/utils/conferenciaDescontoDomain.ts',
+  // Conta a receber lancada a mao (19/10/2026).
+  'src/utils/lancamentoReceberDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

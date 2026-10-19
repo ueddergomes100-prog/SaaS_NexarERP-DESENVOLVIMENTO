@@ -16,6 +16,7 @@ import { formatarLinhaDigitavel } from '../../utils/boletoDomain';
 import { gerarPdfBoletos, type DadosPdfBoleto } from '../../utils/boletoPdf';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import {
+  cadastroDoPagador,
   dadosPdfDoBoleto as dadosPdfDoBoletoComum,
   emitirUmTitulo as emitirUmTituloComum,
   gerarPdfDoBoleto as gerarPdfDoBoletoComum,
@@ -26,6 +27,7 @@ import {
   type BancoBoleto,
   type TituloBoleto,
 } from '../../services/boletoEmissaoService';
+import { faltandoNoPagador, pagadorDoCadastro } from '../../utils/cobrancaEmBoletoDomain';
 import {
   lerArquivoRetornoSicoob,
   faturadoNoPeriodo,
@@ -155,7 +157,7 @@ const Boletos: React.FC = () => {
   const porAba = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     const filtraBusca = (t: TituloBoleto) => !termo
-      || (t.clienteNome || '').toLowerCase().includes(termo)
+      || (t.clienteNome || t.fornecedorNome || '').toLowerCase().includes(termo)
       || (t.descricao || '').toLowerCase().includes(termo)
       || (t.boleto?.nossoNumero || '').includes(termo);
 
@@ -212,7 +214,7 @@ const Boletos: React.FC = () => {
     const confirmacao = await NexusSwal.fire({
       title: 'Emitir boleto?',
       html: `<div style="text-align:left;font-size:14px">`
-        + `<b>Cliente:</b> ${(titulo.clienteNome || 'Sem cliente').replace(/[<>&]/g, '')}<br/>`
+        + `<b>Cliente:</b> ${(titulo.clienteNome || titulo.fornecedorNome || 'Sem cliente').replace(/[<>&]/g, '')}<br/>`
         + `<b>Valor:</b> ${currency.format(fromCents(titulo.valorCentavos))}<br/>`
         + `<b>Vencimento:</b> ${vencimento.split('-').reverse().join('/')}<br/>`
         + `<b>Banco:</b> ${banco.nome.replace(/[<>&]/g, '')}`
@@ -285,7 +287,7 @@ const Boletos: React.FC = () => {
           await emitirUmTitulo(titulo, banco);
           emitidos += 1;
         } catch (erro: any) {
-          falhas.push(`${titulo.clienteNome || titulo.descricao || titulo.id}: ${erro?.message || 'erro desconhecido'}`);
+          falhas.push(`${titulo.clienteNome || titulo.fornecedorNome || titulo.descricao || titulo.id}: ${erro?.message || 'erro desconhecido'}`);
         }
       }
       setSelecionados(new Set());
@@ -382,7 +384,7 @@ const Boletos: React.FC = () => {
         try {
           dados.push(await dadosPdfDoBoleto(titulo));
         } catch (erro) {
-          falhas.push(`${titulo.clienteNome || 'Boleto'}: ${(erro as Error).message}`);
+          falhas.push(`${titulo.clienteNome || titulo.fornecedorNome || 'Boleto'}: ${(erro as Error).message}`);
         }
       }
       if (dados.length > 0) {
@@ -460,20 +462,15 @@ const Boletos: React.FC = () => {
             clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
           }
         }
-        const clienteSnap = clienteId ? await getDoc(doc(db, 'clientes', clienteId)) : null;
-        const cliente = clienteSnap && clienteSnap.exists() && clienteSnap.data().tenantId === tenantId
-          ? clienteSnap.data() as any
-          : null;
-        const nomeCliente = String(cliente?.nome || t.clienteNome || '').trim();
-        const documento = String(cliente?.documento || '').replace(/\D/g, '');
-        const cep = String(cliente?.cep || '').replace(/\D/g, '');
-        const faltando: string[] = [];
-        if (documento.length !== 11 && documento.length !== 14) faltando.push('CPF/CNPJ');
-        if (cep.length !== 8) faltando.push('CEP');
-        if (!String(cliente?.cidade || '').trim()) faltando.push('cidade');
-        if (!String(cliente?.estado || '').trim()) faltando.push('UF');
+        // Pagador: o cliente ou, em conta a receber de fornecedor (19/10/2026), o fornecedor.
+        const cadastro = await cadastroDoPagador(tenantId, { clienteId, fornecedorId: t.fornecedorId });
+        const pagador = pagadorDoCadastro(cadastro.dados, t.clienteNome || t.fornecedorNome || '');
+        const nomeCliente = pagador.nome;
+        const documento = pagador.documento;
+        const cep = pagador.cep;
+        const faltando = faltandoNoPagador(pagador);
         if (faltando.length > 0) {
-          problemas.push(`${nomeCliente || 'Cliente sem nome'} (título ${t.descricao || t.id}): falta ${faltando.join(', ')}`);
+          problemas.push(`${nomeCliente || 'Pagador sem nome'} (${cadastro.deFornecedor ? 'cadastro em Fornecedores' : 'cadastro em Clientes'}, título ${t.descricao || t.id}): falta ${faltando.join(', ')}`);
           continue;
         }
         const nossoNumero = Number(String(t.boleto?.nossoNumero || '0').slice(0, -1)) || indice + 1;
@@ -487,16 +484,16 @@ const Boletos: React.FC = () => {
             tipoDocumento: documento.length === 14 ? 'CNPJ' : 'CPF',
             documento,
             nome: nomeCliente,
-            endereco: [cliente?.endereco, cliente?.numero].map((x) => String(x || '').trim()).filter(Boolean).join(', '),
-            bairro: String(cliente?.bairro || ''),
+            endereco: [pagador.endereco, pagador.numero].filter(Boolean).join(', '),
+            bairro: pagador.bairro,
             cep,
-            cidade: String(cliente?.cidade || ''),
-            uf: String(cliente?.estado || ''),
+            cidade: pagador.cidade,
+            uf: pagador.uf,
           },
         });
       }
       if (problemas.length > 0) {
-        throw new Error(`Complete o cadastro em Clientes antes de gerar a remessa — o banco exige CPF/CNPJ, CEP, cidade e UF do pagador. ${problemas.join(' | ')}`);
+        throw new Error(`Complete o cadastro do pagador antes de gerar a remessa — o banco exige CPF/CNPJ, CEP, cidade e UF. ${problemas.join(' | ')}`);
       }
 
       const conteudo = montarRemessaSicoob({
@@ -818,7 +815,7 @@ const Boletos: React.FC = () => {
                         <input
                           type="checkbox"
                           title={aba === 'aguardando' ? 'Marcar para emitir vários boletos de uma vez' : 'Marcar para imprimir a 2ª via (ou, em Emitidos, mandar só estes na remessa)'}
-                          aria-label={aba === 'aguardando' ? `Marcar ${t.clienteNome || 'título'} para emitir` : `Marcar boleto de ${t.clienteNome || 'cliente'}`}
+                          aria-label={aba === 'aguardando' ? `Marcar ${t.clienteNome || t.fornecedorNome || 'título'} para emitir` : `Marcar boleto de ${t.clienteNome || t.fornecedorNome || 'cliente'}`}
                           checked={selecionados.has(t.id)}
                           onChange={(e) => {
                             const novo = new Set(selecionados);
@@ -827,7 +824,7 @@ const Boletos: React.FC = () => {
                           }}
                         />
                       </td>
-                      <td style={{ padding: '14px 16px' }}>{t.clienteNome || '—'}</td>
+                      <td style={{ padding: '14px 16px' }}>{t.clienteNome || (t.fornecedorNome ? `${t.fornecedorNome} (fornecedor)` : '—')}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>{t.descricao}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                         {t.faturadoEm ? t.faturadoEm.split('-').reverse().join('/') : '—'}

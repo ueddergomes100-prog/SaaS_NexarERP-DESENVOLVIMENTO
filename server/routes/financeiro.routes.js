@@ -23,6 +23,7 @@ const {
   desfazerRenegociacao,
 } = require('../services/renegociacao');
 const { PERMISSAO_RENEGOCIAR } = require('../domain/renegociacaoDomain');
+const { lancarContaAReceber, editarContaAReceber, cancelarContaAReceber } = require('../services/lancamentoReceber');
 const { descricaoDosAjustes } = require('../domain/ajustesDaBaixaDomain');
 const {
   conciliarCartao,
@@ -196,6 +197,75 @@ router.post('/alterar-valor', async (req, res) => {
     return res.json({ ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'alterar o valor da parcela');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CONTA A RECEBER LANCADA A MAO (19/10/2026) -- services/lancamentoReceber.js
+// ---------------------------------------------------------------------------
+
+const SEM_PERMISSAO_RECEBER = 'Você não tem permissão para lançar contas a receber. Peça a um responsável liberar "Financeiro: Contas a Receber" no seu usuário.';
+
+/** POST /api/financeiro/receber/lancar -- { idLancamento, devedor, descricao, categoria, formaPrevista, documento, observacao, parcelas } */
+router.post('/receber/lancar', async (req, res) => {
+  try {
+    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA.entrada)) return res.status(403).json({ error: SEM_PERMISSAO_RECEBER });
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await lancarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
+    if (!r.jaLancado) {
+      const quem = `${r.devedorTipo === 'fornecedor' ? 'fornecedor' : 'cliente'} ${r.devedorNome}`;
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'financeiro',
+        acao: 'criacao',
+        descricao: `Conta a receber lançada à mão por ${r.usuarioNome}: "${r.descricao}" do ${quem}, ${reais(r.totalCentavos)} em ${r.quantidade} parcela(s), forma prevista ${r.formaPrevista}.`,
+        registroId: r.ids[0],
+        critico: true,
+      });
+    }
+    return res.json({ ok: true, ids: r.ids, jaLancado: r.jaLancado, totalCentavos: r.totalCentavos, quantidade: r.quantidade });
+  } catch (erro) {
+    return responderErro(res, erro, 'lançar a conta a receber');
+  }
+});
+
+/** POST /api/financeiro/receber/editar -- conta avulsa em aberto: descritivos, vencimento e quem paga (valor, so' pelo "Alterar valor"). */
+router.post('/receber/editar', async (req, res) => {
+  try {
+    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA.entrada)) return res.status(403).json({ error: SEM_PERMISSAO_RECEBER });
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await editarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
+    if (r.alteracoes.length > 0) {
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'financeiro',
+        acao: 'edicao',
+        descricao: `Conta a receber "${r.descricao}" editada: ${r.alteracoes.map((a) => a.campo).join(', ')}.`,
+        registroId: req.body.transacaoId,
+        alteracoes: r.alteracoes,
+      });
+    }
+    return res.json({ ok: true, alterou: r.alteracoes.length > 0 });
+  } catch (erro) {
+    return responderErro(res, erro, 'editar a conta a receber');
+  }
+});
+
+/** POST /api/financeiro/receber/cancelar -- { transacaoId, motivo } */
+router.post('/receber/cancelar', async (req, res) => {
+  try {
+    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA.entrada)) return res.status(403).json({ error: SEM_PERMISSAO_RECEBER });
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await cancelarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'cancelamento',
+      descricao: `Conta a receber "${r.descricao}" de ${r.devedorNome || 'sem nome'} (${reais(r.valorCentavos)}) cancelada. Motivo: ${r.motivo}`,
+      registroId: req.body.transacaoId,
+      critico: true,
+      snapshotExcluido: r.snapshot,
+    });
+    return res.json({ ok: true });
+  } catch (erro) {
+    return responderErro(res, erro, 'cancelar a conta a receber');
   }
 });
 

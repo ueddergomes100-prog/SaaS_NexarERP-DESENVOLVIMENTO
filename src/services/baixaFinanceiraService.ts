@@ -56,7 +56,10 @@ type RotaFinanceiro =
   | '/cheque-emitido/compensar'
   | '/boleto/retorno'
   | '/banco/lancamento'
-  | '/banco/transferencia';
+  | '/banco/transferencia'
+  | '/receber/lancar'
+  | '/receber/editar'
+  | '/receber/cancelar';
 
 const chamarFinanceiro = async <T>(caminho: RotaFinanceiro, corpo: Record<string, unknown>, timeoutMs: number = TEMPO_LIMITE.padrao): Promise<T> => {
   if (!API_URL) {
@@ -221,6 +224,25 @@ export const executarEstorno = async (args: {
  */
 export const alterarValorDaParcela = (args: { transacaoId: string; novoValorCentavos: number; motivo: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean }>('/alterar-valor', { ...args })
+);
+
+/**
+ * Conta a receber lancada a mao (19/10/2026): de cliente ou fornecedor, em aberto,
+ * em uma ou mais parcelas. O servidor confere o cadastro de quem deve e grava o log
+ * de quem lancou. Repetir o envio (mesmo idLancamento) nao lanca duas vezes.
+ */
+export const lancarContaAReceber = (corpo: Record<string, unknown>) => (
+  chamarFinanceiro<{ ok: boolean; ids: string[]; jaLancado: boolean; totalCentavos: number; quantidade: number }>('/receber/lancar', corpo)
+);
+
+/** Edita uma conta avulsa em aberto (descricao, categoria, forma prevista, vencimento, documento, observacao, quem paga). */
+export const editarContaAReceber = (corpo: Record<string, unknown>) => (
+  chamarFinanceiro<{ ok: boolean; alterou: boolean }>('/receber/editar', corpo)
+);
+
+/** Cancela uma conta avulsa em aberto, com motivo (fica no log). */
+export const cancelarContaAReceber = (args: { transacaoId: string; motivo: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/receber/cancelar', { ...args })
 );
 
 /** "Dar Baixa" com forma Boleto (15/10/2026): a parcela passa a ser cobrada em boleto, com o vencimento

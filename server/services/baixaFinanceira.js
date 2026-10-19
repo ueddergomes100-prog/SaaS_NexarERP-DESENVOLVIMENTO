@@ -222,7 +222,12 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         movimentaCaixaFisico: formaPagamento === 'Dinheiro',
         ...(banco ? { bancoId, bancoNome } : {}),
         ...(tipo === 'entrada'
-          ? { clienteId: dados.clienteId || null, clienteNome: dados.clienteNome || null }
+          ? {
+            clienteId: dados.clienteId || null,
+            clienteNome: dados.clienteNome || null,
+            // Conta a receber de FORNECEDOR (lancada a mao, 19/10/2026): os juros ficam no nome dele.
+            ...(dados.fornecedorId ? { fornecedorId: dados.fornecedorId, fornecedorNome: dados.fornecedorNome || null } : {}),
+          }
           : { fornecedorId: dados.fornecedorId || null, fornecedorNome: dados.fornecedorNome || null }),
         ...(dados.vendedorId ? { vendedorId: dados.vendedorId } : {}),
         ...ligacao,

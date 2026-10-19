@@ -90,6 +90,9 @@ const bloqueioPorParcelaRenegociada = (titulos, acao) => {
 exports.bloqueioPorParcelaRenegociada = bloqueioPorParcelaRenegociada;
 /** Cliente da parcela, para conferir que a renegociacao e' de um cliente so'. */
 const chaveDoClienteDoTitulo = (titulo) => {
+    // Conta de fornecedor (19/10/2026): renegocia so' com contas do mesmo fornecedor.
+    if (titulo.fornecedorId)
+        return `fornecedor:${titulo.fornecedorId}`;
     if (titulo.clienteId)
         return `id:${titulo.clienteId}`;
     const nome = String(titulo.clienteNome || '').trim().toUpperCase().replace(/\s+/g, ' ');

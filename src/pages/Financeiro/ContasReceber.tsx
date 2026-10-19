@@ -4,7 +4,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit, Plus, Building2, Pencil, XCircle } from 'lucide-react';
 import {
   applyPaymentReceipt,
   fromCents,
@@ -38,7 +38,9 @@ import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCl
 import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
 import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
-import { alterarValorDaParcela, desfazerRenegociacaoDaParcela, estornarBaixaComConfirmacao, prepararCobrancaEmBoleto, registrarBaixa } from '../../services/baixaFinanceiraService';
+import { alterarValorDaParcela, cancelarContaAReceber, desfazerRenegociacaoDaParcela, estornarBaixaComConfirmacao, prepararCobrancaEmBoleto, registrarBaixa } from '../../services/baixaFinanceiraService';
+import LancarContaReceberModal, { type ContaParaEditar } from '../../components/finance/LancarContaReceberModal';
+import { CATEGORIAS_RECEITA_PADRAO, MOTIVO_MINIMO_CANCELAR, bloqueioParaMexerNaConta, ehContaAvulsa, nomeDoDevedor } from '../../utils/lancamentoReceberDomain';
 import RenegociacaoModal, { type ParcelaParaRenegociar } from '../../components/finance/RenegociacaoModal';
 import {
   PERMISSAO_RENEGOCIAR,
@@ -114,12 +116,24 @@ interface TransacaoData extends TituloParaEstorno {
   alteracaoValor?: Partial<AlteracaoValorRegistro> | null;
   /** Parcela NOVA de uma renegociacao (renegociacaoDomain). */
   renegociacao?: Partial<RegistroRenegociacao> | null;
+  /** Conta lancada a mao (19/10/2026, lancamentoReceberDomain): pode ser de fornecedor. */
+  fornecedorId?: string | null;
+  fornecedorNome?: string | null;
+  origemLancamento?: string | null;
+  origemImportacao?: string | null;
+  lancadoPorNome?: string;
+  documento?: string;
+  observacao?: string;
+  pagoParcialCentavos?: number;
+  parcialDaTransacaoId?: string;
 }
 
 interface GrupoCliente {
   chave: string;
   clienteId: string | null;
   clienteNome: string;
+  /** Grupo de conta a receber de FORNECEDOR (lancada a mao). */
+  deFornecedor: boolean;
   transacoes: TransacaoData[];
   totalPendente: number;
   vencimentoMaisAntigo: string | null;
@@ -198,6 +212,14 @@ const ContasReceber: React.FC = () => {
       .catch(() => { setConfigFilial({}); setParametrosVenda(PARAMETROS_VENDA_PADRAO); });
   }, [tenantId]);
   const emissaoDocumentos = useMemo(() => parseEmissaoDocumentos(configFilial.emissaoDocumentos), [configFilial]);
+  // Conta lancada a mao (19/10/2026): janela de lancar/editar e o plano de contas de receitas da filial.
+  const [lancamento, setLancamento] = useState<{ aberto: boolean; editando: ContaParaEditar | null }>({ aberto: false, editando: null });
+  const categoriasReceita = useMemo(() => {
+    const plano = configFilial.planoContasReceitas;
+    const lista = Array.isArray(plano) ? plano.map(String) : typeof plano === 'string' ? plano.split('\n') : [];
+    const limpas = lista.map((c) => c.trim()).filter(Boolean);
+    return limpas.length > 0 ? limpas : CATEGORIAS_RECEITA_PADRAO;
+  }, [configFilial]);
   // Formas de pagamento "Usa" da filial: o recebimento acompanha a venda (16/10/2026).
   const ordemFormasDaFilial = useMemo(() => parseOrdemFormasPagamento(configFilial.ordemFormasPagamento), [configFilial]);
   const formasOcultasDaFilial = useMemo(() => parseFormasOcultas(configFilial.formasPagamentoOcultas), [configFilial]);
@@ -219,6 +241,10 @@ const ContasReceber: React.FC = () => {
       if (t.clienteId) {
         const snapCliente = await getDoc(doc(db, 'clientes', t.clienteId));
         if (snapCliente.exists()) cadastroCliente = snapCliente.data();
+      } else if (t.fornecedorId) {
+        // Conta a receber de fornecedor (19/10/2026): o recibo sai com o cadastro dele.
+        const snapFornecedor = await getDoc(doc(db, 'fornecedores', t.fornecedorId));
+        if (snapFornecedor.exists()) cadastroCliente = snapFornecedor.data();
       }
       const recibo = montarRecibo({
         titulo: {
@@ -233,7 +259,7 @@ const ContasReceber: React.FC = () => {
         acrescimoCentavos: dados.acrescimoCentavos,
         descontoCentavos: dados.descontoCentavos,
         empresa: emitenteDaConfiguracao(configFilial),
-        cliente: parteDoCliente(cadastroCliente, t.clienteNome || 'Cliente'),
+        cliente: parteDoCliente(cadastroCliente, nomeDoDevedor(t) || 'Cliente'),
         mensagem: mensagemDoDocumento(parseMensagensPadrao(configFilial.mensagensPadrao), 'recibo'),
       });
       setPdfRecibo({ blob: gerarPdfRecibo(recibo, emissaoDocumentos.recibo.vias), nome: `RECIBO ${recibo.numero} - ${recibo.pagador.nome}.pdf` });
@@ -894,8 +920,65 @@ const ContasReceber: React.FC = () => {
     setValorAbater(0);
   };
 
+  // ---- Conta lancada a mao (19/10/2026): lancar, editar e cancelar pelo servidor, com log.
+  const abrirEdicao = (t: TransacaoData) => {
+    const bloqueio = bloqueioParaMexerNaConta(t, 'editar');
+    if (bloqueio) { showWarning('Não dá para editar esta conta', bloqueio); return; }
+    setLancamento({
+      aberto: true,
+      editando: {
+        id: t.id,
+        descricao: t.descricao,
+        categoria: t.categoria,
+        formaPagamento: t.formaPagamento,
+        vencimento: dataReferenciaTransacao(t) || t.data,
+        valor: transactionNetAmount(t),
+        documento: t.documento,
+        observacao: t.observacao,
+        clienteId: t.clienteId,
+        clienteNome: t.clienteNome,
+        fornecedorId: t.fornecedorId,
+        fornecedorNome: t.fornecedorNome,
+      },
+    });
+  };
+
+  const handleCancelarConta = async (t: TransacaoData) => {
+    if (!tenantId) return;
+    const bloqueio = bloqueioParaMexerNaConta(t, 'cancelar');
+    if (bloqueio) { showWarning('Não dá para cancelar esta conta', bloqueio); return; }
+    const valorTexto = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t));
+    const resposta = await NexusSwal.fire({
+      title: 'Cancelar esta conta a receber?',
+      html: `<div style="text-align:left"><b>${escaparHtml(t.descricao)}</b><br/>${escaparHtml(nomeDoDevedor(t) || 'Sem nome')} · ${valorTexto}<br/><br/>A conta sai do Contas a Receber e fica registrada como cancelada, com o motivo no log.</div>`,
+      input: 'text',
+      inputPlaceholder: 'Motivo do cancelamento',
+      showCancelButton: true,
+      confirmButtonText: 'Cancelar a conta',
+      cancelButtonText: 'Voltar',
+      confirmButtonColor: '#ef4444',
+      preConfirm: (motivo) => {
+        if (!motivo || String(motivo).trim().length < MOTIVO_MINIMO_CANCELAR) {
+          NexusSwal.showValidationMessage(`Escreva o motivo (pelo menos ${MOTIVO_MINIMO_CANCELAR} letras).`);
+          return false;
+        }
+        return String(motivo).trim();
+      },
+    });
+    if (!resposta.isConfirmed) return;
+    setIsProcessing(true);
+    try {
+      await cancelarContaAReceber({ transacaoId: t.id, motivo: String(resposta.value), tenantId });
+      showSuccess('Conta a receber cancelada.');
+    } catch (erro) {
+      showError('Não foi possível cancelar', erro instanceof Error ? erro.message : 'Tente de novo em instantes.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleCobrarWhatsApp = (t: TransacaoData) => {
-    const nomeCliente = t.clienteNome || 'Cliente';
+    const nomeCliente = nomeDoDevedor(t) || 'Cliente';
     const valorMsg = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor));
     
     const mensagem = `Olá ${nomeCliente}. Gostaríamos de lembrar amigavelmente sobre uma pendência financeira referente à(o) ${t.descricao} no valor de ${valorMsg}. O acerto tempestivo é fundamental para mantermos nossa excelência no atendimento. Aguardamos o seu retorno e estamos à disposição para eventuais dúvidas.`;
@@ -943,8 +1026,10 @@ const ContasReceber: React.FC = () => {
   const gruposPorCliente: GrupoCliente[] = (() => {
     const mapa = new Map<string, GrupoCliente>();
     titulosFiltrados.forEach((t) => {
-      const nome = t.clienteNome?.trim() || 'Cliente não identificado';
-      const chave = t.clienteId ? `id:${t.clienteId}` : `nome:${nome.toUpperCase()}`;
+      // Conta de fornecedor (lancada a mao, 19/10/2026) agrupa pelo fornecedor, nunca junto de cliente com o mesmo nome.
+      const deFornecedor = Boolean(t.fornecedorId);
+      const nome = (deFornecedor ? t.fornecedorNome?.trim() : t.clienteNome?.trim()) || (deFornecedor ? 'Fornecedor não identificado' : 'Cliente não identificado');
+      const chave = deFornecedor ? `fornecedor:${t.fornecedorId}` : t.clienteId ? `id:${t.clienteId}` : `nome:${nome.toUpperCase()}`;
       const dataRef = dataReferenciaTransacao(t);
       const diasAtraso = dataRef && t.status === 'Pendente' ? (differenceInCalendarDays(dataRef, hojeStr) ?? 0) : 0;
 
@@ -954,6 +1039,7 @@ const ContasReceber: React.FC = () => {
           chave,
           clienteId: t.clienteId || null,
           clienteNome: nome,
+          deFornecedor,
           transacoes: [],
           totalPendente: 0,
           vencimentoMaisAntigo: null,
@@ -990,7 +1076,7 @@ const ContasReceber: React.FC = () => {
     const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, hojeStr);
     return {
       id: t.id,
-      nome: t.clienteNome?.trim() || 'Cliente não identificado',
+      nome: nomeDoDevedor(t) || 'Cliente não identificado',
       descricao: t.descricao,
       vencimento: dataReferenciaTransacao(t) || t.data || '',
       valorCentavos: transactionNetCents(t),
@@ -1072,6 +1158,15 @@ const ContasReceber: React.FC = () => {
               { texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') },
             ]}
           />
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setLancamento({ aberto: true, editando: null })}
+            style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
+            title="Lançar à mão um valor que um cliente ou fornecedor deve à empresa"
+          >
+            <Plus size={18} /> Lançar conta
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
             <Clock size={24} color="#10b981" />
             <div>
@@ -1188,8 +1283,11 @@ const ContasReceber: React.FC = () => {
                         </td>
                         <td style={{ padding: '16px', fontWeight: 600 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <User size={16} style={{ color: 'var(--text-muted)' }} />
+                            {grupo.deFornecedor ? <Building2 size={16} style={{ color: 'var(--text-muted)' }} /> : <User size={16} style={{ color: 'var(--text-muted)' }} />}
                             {grupo.clienteNome}
+                            {grupo.deFornecedor && (
+                              <span style={{ fontSize: '11px', fontWeight: 600, color: '#8b5cf6', border: '1px solid rgba(139, 92, 246, 0.4)', borderRadius: '4px', padding: '1px 6px' }}>Fornecedor</span>
+                            )}
                           </div>
                         </td>
                         <td style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>{grupo.transacoes.length}</td>
@@ -1252,6 +1350,14 @@ const ContasReceber: React.FC = () => {
                                       {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number }) && (
                                         <div style={{ fontSize: '11px', fontWeight: 600, color: '#10b981', marginTop: '2px' }}>
                                           {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number })}
+                                        </div>
+                                      )}
+                                      {t.origemLancamento === 'manual' && (
+                                        <div
+                                          title={[t.documento ? `Documento: ${t.documento}` : '', t.observacao ? `Observação: ${t.observacao}` : ''].filter(Boolean).join(' · ') || undefined}
+                                          style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)', marginTop: '2px' }}
+                                        >
+                                          Lançada à mão{t.lancadoPorNome ? ` por ${t.lancadoPorNome}` : ''}{t.documento ? ` · doc. ${t.documento}` : ''}
                                         </div>
                                       )}
                                       {ehParcelaDeRenegociacao(t) && (
@@ -1352,6 +1458,28 @@ const ContasReceber: React.FC = () => {
                                           >
                                             <Undo2 size={13} /> Desfazer renegociação
                                           </button>
+                                        )}
+                                        {ehContaAvulsa(t) && (
+                                          <>
+                                            <button
+                                              onClick={() => abrirEdicao(t)}
+                                              disabled={isProcessing}
+                                              title="Editar esta conta (descrição, vencimento, forma prevista, quem paga)"
+                                              aria-label={`Editar ${t.descricao}`}
+                                              style={{ backgroundColor: 'transparent', border: '1px solid #f59e0b', color: '#f59e0b', cursor: 'pointer', borderRadius: '6px', width: '30px', height: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: isProcessing ? 0.6 : 1 }}
+                                            >
+                                              <Pencil size={14} />
+                                            </button>
+                                            <button
+                                              onClick={() => void handleCancelarConta(t)}
+                                              disabled={isProcessing}
+                                              title="Cancelar esta conta (pede o motivo, fica no log)"
+                                              aria-label={`Cancelar ${t.descricao}`}
+                                              style={{ backgroundColor: 'transparent', border: '1px solid #ef4444', color: '#ef4444', cursor: 'pointer', borderRadius: '6px', width: '30px', height: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: isProcessing ? 0.6 : 1 }}
+                                            >
+                                              <XCircle size={14} />
+                                            </button>
+                                          </>
                                         )}
                                       </div>
                                       )}
@@ -1492,6 +1620,16 @@ const ContasReceber: React.FC = () => {
         </div>
       )}
 
+      {tenantId && (
+        <LancarContaReceberModal
+          aberto={lancamento.aberto}
+          tenantId={tenantId}
+          categorias={categoriasReceita}
+          editando={lancamento.editando}
+          onFechar={() => setLancamento({ aberto: false, editando: null })}
+          onSalvo={(mensagem) => { setLancamento({ aberto: false, editando: null }); showSuccess(mensagem); }}
+        />
+      )}
       {pdfRecibo && <PdfVisualizador titulo="Recibo de pagamento" nomeArquivo={pdfRecibo.nome} pdf={pdfRecibo.blob} onFechar={() => setPdfRecibo(null)} />}
       {pdfBoleto && <PdfVisualizador titulo="Boleto" nomeArquivo={pdfBoleto.nome} pdf={pdfBoleto.blob} onFechar={() => setPdfBoleto(null)} />}
       <ChequeCaptureModal

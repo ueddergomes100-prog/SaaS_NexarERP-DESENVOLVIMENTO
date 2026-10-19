@@ -103,7 +103,9 @@ const criarRenegociacao = async ({ user, tenantId, pedido, hoje }) => {
     const base = antigos[0].dados;
     const clienteId = base.clienteId || null;
     const clienteNome = base.clienteNome || null;
-    resumo.clienteNome = clienteNome || 'cliente';
+    // Conta de fornecedor (lancada a mao, 19/10/2026): as parcelas novas continuam dele.
+    const doFornecedor = base.fornecedorId ? { fornecedorId: base.fornecedorId, fornecedorNome: base.fornecedorNome || '' } : {};
+    resumo.clienteNome = clienteNome || base.fornecedorNome || 'cliente';
     resumo.quantidadeAntigas = antigos.length;
     resumo.totalOrigemCentavos = totalOrigemCentavos;
     resumo.totalNovoCentavos = totalNovoCentavos;
@@ -146,6 +148,7 @@ const criarRenegociacao = async ({ user, tenantId, pedido, hoje }) => {
         dataPrevistaRecebimento: parcela.vencimento,
         clienteId,
         clienteNome,
+        ...doFornecedor,
         ...(base.vendedorId ? { vendedorId: base.vendedorId } : {}),
         renegociacao: { ...registroBase, parcela: i + 1, em: agora() },
         idempotencyKey: `renegociacao:${renegociacaoId}:parcela:${i + 1}`,

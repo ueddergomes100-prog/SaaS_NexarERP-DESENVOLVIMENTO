@@ -71,3 +71,50 @@ export const camposParaCobrarEmBoleto = (vencimento: string) => ({
   dataVencimento: vencimento,
   dataPrevistaRecebimento: vencimento,
 });
+
+// ---------------------------------------------------------------------------
+// PAGADOR DO BOLETO (cliente ou, em conta lancada a mao, fornecedor -- 19/10/2026)
+// ---------------------------------------------------------------------------
+
+/** Cadastro de quem paga o boleto, do jeito que o banco pede. */
+export interface PagadorDoBoleto {
+  nome: string;
+  /** So' digitos (CPF ou CNPJ). */
+  documento: string;
+  endereco: string;
+  numero: string;
+  bairro: string;
+  /** So' digitos. */
+  cep: string;
+  cidade: string;
+  uf: string;
+}
+
+/**
+ * Cliente grava o CPF/CNPJ em `documento`; fornecedor, em `cnpj`. Os dois
+ * viram o mesmo pagador -- o boleto nao precisa saber de onde veio.
+ */
+export const pagadorDoCadastro = (cadastro: unknown, nomeReserva = ''): PagadorDoBoleto => {
+  const c = (cadastro && typeof cadastro === 'object' ? cadastro : {}) as Record<string, unknown>;
+  const txt = (v: unknown) => String(v ?? '').trim();
+  return {
+    nome: (txt(c.nome) || txt(nomeReserva)).toUpperCase(),
+    documento: txt(c.documento || c.cnpj || c.cpfCnpj || c.cpf).replace(/\D/g, ''),
+    endereco: txt(c.endereco || c.rua),
+    numero: txt(c.numero),
+    bairro: txt(c.bairro),
+    cep: txt(c.cep).replace(/\D/g, ''),
+    cidade: txt(c.cidade),
+    uf: txt(c.estado || c.uf).toUpperCase(),
+  };
+};
+
+/** O que falta no cadastro para o banco aceitar o boleto (vazio = nada). */
+export const faltandoNoPagador = (p: PagadorDoBoleto): string[] => {
+  const faltando: string[] = [];
+  if (p.documento.length !== 11 && p.documento.length !== 14) faltando.push('CPF/CNPJ');
+  if (p.cep.length !== 8) faltando.push('CEP');
+  if (!p.cidade) faltando.push('cidade');
+  if (!p.uf) faltando.push('UF');
+  return faltando;
+};

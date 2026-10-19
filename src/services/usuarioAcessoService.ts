@@ -43,6 +43,35 @@ const getAuthHeaders = async () => {
   };
 };
 
+/** POST numa rota de /api/usuarios; devolve o JSON ou lanca o erro em portugues. */
+const postar = async <T>(rota: string, corpo: Record<string, unknown>, falhou: string): Promise<T> => {
+  const base = ensureApiUrl();
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${base}/api/usuarios/${rota}`, {
+      method: 'POST',
+      headers: await getAuthHeaders(),
+      body: JSON.stringify(corpo),
+    });
+  } catch (erro) {
+    throw new UsuarioAcessoError(mensagemDeFalhaDeRede(erro), 0);
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new UsuarioAcessoError(dados?.error || falhou, resposta.status);
+  return dados as T;
+};
+
+/**
+ * Limites do plano (19/10/2026): o login novo e' criado pelo servidor, que
+ * confere o limite de usuarios contratado (server/services/limitesDoPlano.js).
+ */
+export const criarLoginNoServidor = (dados: { nome: string; usuario: string; senha: string; codigoVendedor?: string }) =>
+  postar<{ uid: string; limite: number; emUso: number }>('criar', { ...dados }, 'Não foi possível criar o usuário. Tente novamente.');
+
+/** Liga/desliga o app Vendas de um funcionario ou vendedor; ligar confere a vaga contratada. */
+export const alterarAcessoAppNoServidor = (usuarioId: string, ligar: boolean) =>
+  postar<{ ligado: boolean }>('acesso-app', { usuarioId, ligar }, 'Não foi possível alterar o acesso ao aplicativo. Tente novamente.');
+
 /** Redefine a senha de acesso (login) de um funcionario. Somente administrador. */
 export const redefinirSenhaAcesso = async (usuarioId: string, novaSenha: string): Promise<void> => {
   const base = ensureApiUrl();

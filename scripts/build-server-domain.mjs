@@ -81,6 +81,9 @@ const MODULOS = [
   'src/utils/oficinaDomain.ts',
   'src/utils/osCampoDomain.ts',
   'src/utils/osFechamentoDomain.ts',
+  // Seguranca (19/10/2026): limites do plano (logins e app) conferidos pelo servidor.
+  'src/utils/loginIdentidadeDomain.ts',
+  'src/utils/limitesDoPlanoDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

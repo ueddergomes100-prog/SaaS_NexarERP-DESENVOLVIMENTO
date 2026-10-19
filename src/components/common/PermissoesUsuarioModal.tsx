@@ -22,6 +22,7 @@ import {
   type NivelAcesso,
 } from '../../utils/visibilidadeVendasDomain';
 import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
+import { alterarAcessoAppNoServidor } from '../../services/usuarioAcessoService';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { podeUsarOutrasFiliais, rotuloFilial } from '../../utils/filialDomain';
 import { definirFilialPadrao } from '../../services/filialService';
@@ -149,11 +150,21 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
     try {
       await updateDoc(doc(db, 'usuarios', usuarioId), {
         permissoes,
-        // Gerente nao manda estes dois campos -- so' os de quem tem acesso
-        // total, pra nunca colidir com o que a regra do Firestore aceita.
-        ...(podeAlterarNivelEMobile ? { nivelAcesso, acessoAppMobile } : {}),
+        // Gerente nao manda o nivel -- so' quem tem acesso total, pra nunca
+        // colidir com o que a regra do Firestore aceita.
+        ...(podeAlterarNivelEMobile ? { nivelAcesso } : {}),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Permissões atualizadas'),
       });
+      // App Vendas (19/10/2026): ligar/desligar passa pelo servidor, que confere a vaga contratada.
+      if (podeAlterarNivelEMobile && acessoAppMobile !== acessoAppMobileOriginal) {
+        try {
+          await alterarAcessoAppNoServidor(usuarioId, acessoAppMobile);
+        } catch (erroApp) {
+          showError('Permissões salvas, mas o aplicativo não', erroApp instanceof Error ? erroApp.message : 'Tente de novo em instantes.');
+          onSaved?.(permissoes);
+          return;
+        }
+      }
       // Filial padrao vai pelo servidor (so' ele grava, conferindo o grupo e a permissao).
       if (grupo && podeAlterarNivelEMobile && casaDoUsuario && filialPadraoEfetiva !== filialPadraoOriginal) {
         try {

@@ -278,8 +278,19 @@ service cloud.firestore {
     // que as permissoes davam. Dono/Admin nao sao inativados pela tela e
     // ficam de fora de proposito (mesma regra do AuthContext).
     function perfilAtivo() {
-      return currentProfile().get('status', 'Ativo') != 'Inativo' ||
-        currentProfile().get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin'];
+      return (
+        currentProfile().get('status', 'Ativo') != 'Inativo' ||
+        currentProfile().get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin']
+      ) && sessaoCombinaComOCadastro();
+    }
+
+    // Cadastro de vendedor de balcao (sem login) so' entra pelo app, com o
+    // token do codigo+PIN (claim isVendedorBalcao). Uma conta de e-mail ligada
+    // a um cadastro desses (pelo DevTools) seria um login fora do limite do
+    // plano -- recusado (19/10/2026).
+    function sessaoCombinaComOCadastro() {
+      return currentProfile().get('tipoRegistro', '') != 'vendedor' ||
+        request.auth.token.get('isVendedorBalcao', false) == true;
     }
 
     function canAccessTenant(tenantId) {
@@ -537,11 +548,17 @@ service cloud.firestore {
       allow list: if isSuperAdmin() ||
         (hasProfile() && perfilAtivo() && resource.data.tenantId == currentTenantId());
 
+      // Limites do plano (19/10/2026): login novo so' pelo servidor
+      // (POST /api/usuarios/criar, confere o limite). Pela tela nasce so'
+      // cadastro de vendedor de balcao, e sem o app ligado (ligar o app e'
+      // POST /api/usuarios/acesso-app, que confere a vaga).
       allow create: if isSuperAdmin() ||
         (
           isTenantAdmin() &&
           request.resource.data.tenantId == currentTenantId() &&
           request.resource.data.role == 'Funcionario' &&
+          request.resource.data.get('tipoRegistro', '') == 'vendedor' &&
+          request.resource.data.get('acessoAppMobile', false) != true &&
           !request.resource.data.keys().hasAny(platformManagedFields())
         );
 
@@ -552,7 +569,11 @@ service cloud.firestore {
           request.resource.data.tenantId == resource.data.tenantId &&
           request.resource.data.role == resource.data.role &&
           resource.data.role == 'Funcionario' &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(tenantUserEditableFields())
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(tenantUserEditableFields()) &&
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['acessoAppMobile']) ||
+            request.resource.data.acessoAppMobile != true
+          )
         ) ||
         (
           // Gerente so' mexe em 'permissoes' (os modulos liberados) de um
@@ -641,18 +662,10 @@ service cloud.firestore {
     // em VendedoresList.tsx.
     match /vendedores_mobile_login/{chave} {
       allow get, list: if isSuperAdmin();
-      allow create: if isSuperAdmin() ||
-        (
-          isTenantAdmin() &&
-          request.resource.data.tenantId == currentTenantId()
-        );
-      // Mesmo motivo do /usernames: so' regrava o indice da propria empresa.
-      allow update: if isSuperAdmin() ||
-        (
-          isTenantAdmin() &&
-          resource.data.tenantId == currentTenantId() &&
-          request.resource.data.tenantId == currentTenantId()
-        );
+      // Desde 19/10/2026 so' o servidor grava (POST /api/usuarios/acesso-app,
+      // que confere o limite do plano); a tela ainda pode APAGAR a chave
+      // (desligar o app, inativar o vendedor).
+      allow create, update: if isSuperAdmin();
       allow delete: if isSuperAdmin() ||
         (
           isTenantAdmin() &&

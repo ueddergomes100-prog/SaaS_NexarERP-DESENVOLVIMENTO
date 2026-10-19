@@ -1,6 +1,9 @@
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { normalizarCnpj } from './loginIdentidadeDomain';
+import { LIMITE_ACESSO_MOBILE_PADRAO, lerLimiteDoPlano, mensagemLimiteDoApp } from './limitesDoPlanoDomain';
+
+export { LIMITE_ACESSO_MOBILE_PADRAO };
 
 /**
  * Acesso ao aplicativo mobile do vendedor externo (Usuarios ou Vendedores de
@@ -10,7 +13,6 @@ import { normalizarCnpj } from './loginIdentidadeDomain';
  * FECHADO (0), ao contrario do limiteUsuarios (que cai pra 3). Ninguem tem
  * acesso mobile ate o suporte liberar no SuperAdmin.
  */
-export const LIMITE_ACESSO_MOBILE_PADRAO = 0;
 
 /** Quantos registros desta empresa (Usuario com login OU Vendedor de balcao)
  *  estao com o acesso mobile ligado agora. */
@@ -33,18 +35,12 @@ export const checarLimiteAcessoMobile = async (tenantId: string, registroTenantI
   // O limite contratado mora no registro da empresa (cadastro do dono). Numa
   // filial (2026-10-06), e' o da MATRIZ do grupo -- o plano e' do grupo.
   const tenantSnap = await getDoc(doc(db, 'usuarios', registroTenantId));
-  const limite = tenantSnap.exists() && tenantSnap.data().limiteAcessoMobile !== undefined
-    ? tenantSnap.data().limiteAcessoMobile
-    : LIMITE_ACESSO_MOBILE_PADRAO;
+  const limite = lerLimiteDoPlano(tenantSnap.exists() ? tenantSnap.data().limiteAcessoMobile : undefined, LIMITE_ACESSO_MOBILE_PADRAO);
 
   const usados = await contarAcessoMobileAtivo(tenantId);
 
-  if (usados >= limite) {
-    const motivo = limite === 0
-      ? 'Sua empresa ainda não tem o aplicativo mobile contratado. Fale com o suporte para contratar o acesso antes de liberar para alguém.'
-      : `Sua empresa atingiu o limite de ${limite} acesso${limite === 1 ? '' : 's'} ao aplicativo mobile contratado${limite === 1 ? '' : 's'}. Fale com o suporte para aumentar o limite do seu plano.`;
-    return { ok: false, motivo };
-  }
+  // Pre-checagem da tela (resposta rapida); quem confere de verdade e' o servidor (19/10/2026).
+  if (usados >= limite) return { ok: false, motivo: mensagemLimiteDoApp(limite) };
 
   return { ok: true, motivo: '' };
 };

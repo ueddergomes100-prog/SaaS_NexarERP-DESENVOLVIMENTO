@@ -11,7 +11,6 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
-  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -41,6 +40,7 @@ import {
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
+import { alterarAcessoAppNoServidor } from '../../services/usuarioAcessoService';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -339,7 +339,7 @@ const VendedoresList: React.FC = () => {
           codigoVendedor: codigo,
           status: form.status,
           permissoes,
-          acessoAppMobile: form.acessoAppMobile,
+          // acessoAppMobile: so' o servidor liga (confere a vaga) -- logo abaixo.
           ...comissao,
           comissaoPercentualServicos: percentualServicos === undefined ? deleteField() : percentualServicos,
           comissaoPercentualPecas: percentualPecas === undefined ? deleteField() : percentualPecas,
@@ -356,7 +356,8 @@ const VendedoresList: React.FC = () => {
           tipoRegistro: 'vendedor',
           role: 'Funcionario',
           permissoes,
-          acessoAppMobile: form.acessoAppMobile,
+          // Nasce sem o app: ligar e' pelo servidor, que confere a vaga (logo abaixo).
+          acessoAppMobile: false,
           nivelAcesso: DEFAULT_NIVEL_ACESSO,
           status: form.status,
           tenantId,
@@ -370,27 +371,26 @@ const VendedoresList: React.FC = () => {
         vendedorId = novo.id;
       }
 
-      // Indice de login do app mobile: apaga a chave antiga (se o codigo
-      // mudou ou o acesso foi desligado) e grava a nova (se o acesso esta
-      // ligado agora). Nao trava o salvamento do vendedor se isto falhar --
-      // o cadastro ja foi gravado, e' so o atalho de login que ficaria
-      // pendente (o admin pode reabrir e salvar de novo).
+      // App mobile (19/10/2026): ligar, desligar e o indice de login do app
+      // passam pelo servidor, que confere a vaga contratada. Codigo trocado com
+      // o app ligado: a chave velha sai e o servidor grava a nova. Nao trava o
+      // salvamento do vendedor -- o cadastro ja' foi gravado.
       try {
-        const chaveAntiga = editando?.acessoAppMobile
-          ? montarChaveVendedorMobileLogin(cnpjEmpresa, editando.codigoVendedor)
-          : '';
-        const chaveNova = form.acessoAppMobile
-          ? montarChaveVendedorMobileLogin(cnpjEmpresa, codigo)
-          : '';
-        if (chaveAntiga && chaveAntiga !== chaveNova) {
-          await deleteDoc(doc(db, 'vendedores_mobile_login', chaveAntiga));
+        const appEstavaLigado = editando?.acessoAppMobile === true;
+        const codigoMudou = Boolean(editando) && editando?.codigoVendedor !== codigo;
+        if (appEstavaLigado && (codigoMudou || !form.acessoAppMobile)) {
+          const chaveAntiga = montarChaveVendedorMobileLogin(cnpjEmpresa, editando?.codigoVendedor);
+          if (chaveAntiga) await deleteDoc(doc(db, 'vendedores_mobile_login', chaveAntiga));
         }
-        if (chaveNova) {
-          await setDoc(doc(db, 'vendedores_mobile_login', chaveNova), { tenantId, vendedorId });
+        if (form.acessoAppMobile && (!appEstavaLigado || codigoMudou)) {
+          if (appEstavaLigado) await alterarAcessoAppNoServidor(vendedorId, false);
+          await alterarAcessoAppNoServidor(vendedorId, true);
+        } else if (!form.acessoAppMobile && appEstavaLigado) {
+          await alterarAcessoAppNoServidor(vendedorId, false);
         }
       } catch (error) {
-        console.error('Erro ao atualizar índice de login do app mobile:', error);
-        showWarning(`${nome} foi salvo, mas o acesso ao aplicativo mobile pode não ter sido atualizado. Abra a edição e salve de novo.`);
+        console.error('Erro ao atualizar o acesso ao app mobile:', error);
+        showWarning(`${nome} foi salvo, mas o aplicativo mobile não foi atualizado. ${error instanceof Error && error.message ? error.message : 'Abra a edição e salve de novo.'}`);
       }
 
       if (definindoPin) {

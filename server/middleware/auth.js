@@ -65,6 +65,11 @@ async function authenticate(req, res, next) {
       if (userData.status === 'Inativo' && !isPlatformAdminRole(role) && !isTenantManagerRole(role)) {
         return res.status(403).json({ error: 'Seu usuário foi inativado pelo administrador da empresa. Fale com ele para reativar o acesso.' });
       }
+      // Vendedor de balcao (sem login) so' pelo app, com o token do codigo+PIN
+      // (19/10/2026; mesma regra das firestore.rules).
+      if (userData.tipoRegistro === 'vendedor' && decodedToken.isVendedorBalcao !== true) {
+        return res.status(403).json({ error: 'Este cadastro é de vendedor de balcão: ele entra só pelo aplicativo, com o código e a senha de vendedor.' });
+      }
     }
 
     if (isPlatformAdminRole(claimRole)) {

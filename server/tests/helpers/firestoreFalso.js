@@ -116,9 +116,23 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
 const carregarComBancoFalso = (db, ...servicos) => {
   const base = path.join(__dirname, '..', '..');
   const firebase = require.resolve(path.join(base, 'config/firebase'));
+  // Auth falso (criar conta pelo servidor, 19/10/2026): e-mail repetido falha como no Firebase.
+  const contas = new Map();
+  const authFalso = {
+    createUser: async ({ email }) => {
+      if (contas.has(email)) {
+        const erro = new Error('email ja existe');
+        erro.code = 'auth/email-already-exists';
+        throw erro;
+      }
+      const uid = `conta${contas.size + 1}`;
+      contas.set(email, uid);
+      return { uid, email };
+    },
+  };
   require.cache[firebase] = {
     id: firebase, filename: firebase, loaded: true,
-    exports: { db, admin: { firestore: { FieldValue: { serverTimestamp: () => TS, delete: () => DEL, increment: (n) => ({ __incremento: n }) } } } },
+    exports: { db, admin: { auth: () => authFalso, firestore: { FieldValue: { serverTimestamp: () => TS, delete: () => DEL, increment: (n) => ({ __incremento: n }) } } } },
   };
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));

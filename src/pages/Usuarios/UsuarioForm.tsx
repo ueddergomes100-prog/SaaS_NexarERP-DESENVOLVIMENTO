@@ -2,14 +2,12 @@ import React, { useState } from 'react';
 import { ArrowLeft, Save, UserCog, AlertCircle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
-import { db, firebaseConfig } from '../../services/firebase';
+import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import {
   checarPrefixoDaEmpresa,
   checarUsername,
-  montarChaveUsername,
-  montarEmailSintetico,
   normalizarUsername,
   type ChecagemPrefixo,
 } from '../../utils/loginIdentidadeDomain';
@@ -25,15 +23,10 @@ import {
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
-import { redefinirSenhaAcesso, UsuarioAcessoError } from '../../services/usuarioAcessoService';
+import { criarLoginNoServidor, redefinirSenhaAcesso, UsuarioAcessoError } from '../../services/usuarioAcessoService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
-
-// Importa app secundário para criar usuário sem deslogar o dono
-import { initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 
 const UsuarioForm: React.FC = () => {
   const navigate = useNavigate();
@@ -325,63 +318,28 @@ const UsuarioForm: React.FC = () => {
 
     // A MESMA funcao que a tela de login usa pra montar a chave -- e' isso
     // que garante que criacao e login nunca mais divirjam.
-    const usernameFinal = montarChaveUsername(checagem.cnpj, checagemUsuario.username);
-
     setIsLoading(true);
 
-    const fakeEmail = montarEmailSintetico(usernameFinal);
-
     try {
-      // 1. Inicia um App Secundário para não deslogar o dono
-      const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
-      const secondaryAuth = getAuth(secondaryApp);
-
-      // 2. Cria a conta no Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, fakeEmail, formData.senha);
-      const novoUID = userCredential.user.uid;
-
-      // Desloga do app secundário para limpar a sessão paralela
-      await signOut(secondaryAuth);
-
-      await setDoc(doc(db, 'usuarios', novoUID), {
+      // Limites do plano (19/10/2026): o servidor cria a conta, o cadastro e o
+      // indice de login, conferindo o limite de usuarios contratado. Nivel de
+      // acesso nasce no mais restrito e permissoes vazias, como sempre.
+      const { uid: novoUID } = await criarLoginNoServidor({
         nome: formData.nome,
-        username: usernameFinal,
-        email: fakeEmail,
-        // Codigo do vendedor: chave curta usada no popup de identificacao na
-        // venda. Nao e' segredo (o PIN e' que e'). Omitido quando vazio --
-        // Firestore recusa undefined.
+        usuario: checagemUsuario.username,
+        senha: formData.senha,
         ...(codigoVendedor ? { codigoVendedor } : {}),
-        role: 'Funcionario',
-        // Nivel de visibilidade de vendas. Nasce no nivel mais restrito; quem
-        // precisa ver as vendas dos colegas e' promovido a 'administracao'
-        // no popup do escudo (tela de Usuarios) ou em Configuracoes >
-        // Permissao de Usuarios. Ver src/utils/visibilidadeVendasDomain.ts.
-        nivelAcesso: DEFAULT_NIVEL_ACESSO,
-        permissoes: [], // Sem acesso a princípio
-        tenantId: tenantId, // Vincula à oficina do dono
-        createdAt: serverTimestamp(),
-        createdBy: currentUser.uid,
-        status: 'Ativo',
-        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-      });
-
-      // 4. Salva no índice global de usernames para o Login poder descobrir o email depois
-      await setDoc(doc(db, 'usernames', usernameFinal), {
-        email: fakeEmail,
-        tenantId: tenantId
       });
 
       await salvarVinculoMotorista(novoUID, formData.nome);
       showSuccess('Usuário criado com sucesso!');
       navigate('/usuarios');
-      
-    } catch (error: any) {
+    } catch (error) {
       console.error('Erro ao criar usuário:', error);
-      if (error.code === 'auth/email-already-in-use') {
-        showError('Erro', 'Este nome de usuário já está em uso.');
-      } else {
-        showError('Erro', 'Não foi possível criar o usuário. Tente novamente.');
-      }
+      showError(
+        error instanceof UsuarioAcessoError && error.status === 409 ? 'Não foi possível criar' : 'Erro',
+        error instanceof Error && error.message ? error.message : 'Não foi possível criar o usuário. Tente novamente.',
+      );
     } finally {
       setIsLoading(false);
     }

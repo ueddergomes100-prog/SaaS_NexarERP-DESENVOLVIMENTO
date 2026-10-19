@@ -321,4 +321,5 @@ module.exports = {
   reservarTentativa,
   duracaoDoBloqueioMinutos,
   formatarDuracao,
+  normalizarCodigo,
 };

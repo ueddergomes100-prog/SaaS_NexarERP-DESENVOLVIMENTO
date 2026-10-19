@@ -391,6 +391,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return;
             }
 
+            // Cadastro de vendedor de balcao (sem login) so' entra pelo app, com
+            // o codigo e a senha dele (token com isVendedorBalcao). Login de
+            // e-mail ligado a um cadastro desses seria uma vaga fora do plano
+            // (19/10/2026; as firestore.rules recusam do mesmo jeito).
+            if (data.tipoRegistro === 'vendedor') {
+              const claims = (await getIdTokenResult(user)).claims;
+              if (claims.isVendedorBalcao !== true) {
+                clearUserState();
+                if (unsubscribeUserSnapshot) {
+                  unsubscribeUserSnapshot();
+                  unsubscribeUserSnapshot = null;
+                }
+                await signOut(auth);
+                Swal.fire({
+                  title: 'Acesso não autorizado',
+                  text: 'Este cadastro é de vendedor de balcão: ele entra só pelo aplicativo, com o código e a senha de vendedor. Para usar o sistema, o administrador precisa criar um login em Equipe & Acessos.',
+                  icon: 'warning',
+                  confirmButtonColor: '#8b5cf6'
+                });
+                setLoading(false);
+                return;
+              }
+            }
+
             // Funcionario inativado em Equipe & Acessos (UsuariosList.tsx) --
             // derruba a sessao ao vivo, nao so na proxima tela. O dono/gestor
             // nunca cai aqui: a tela nem mostra o botao de inativar pra

@@ -2,6 +2,7 @@ const express = require('express');
 const { admin, db } = require('../config/firebase');
 const { onlyDigits } = require('../utils/cnpjLookup');
 const { validarPin } = require('../services/vendedorPin');
+const { vagaNoApp } = require('../services/limitesDoPlano');
 const { limitadorPublico, limitadorPorChave } = require('../middleware/rateLimit');
 
 const router = express.Router();
@@ -106,6 +107,15 @@ router.post('/mobile-login', limitePorIp, limitePorVendedor, async (req, res) =>
     const papel = usuarioSnap.data().role || 'Funcionario';
     if (papel !== 'Funcionario') {
       const erro = new Error('Este cadastro é de administrador e não pode entrar no aplicativo pelo código e senha de vendedor. Entre pelo login normal do sistema.');
+      erro.status = 403;
+      throw erro;
+    }
+
+    // Limite do plano (19/10/2026): so' entra quem esta' dentro das vagas
+    // contratadas do app (os primeiros a ganhar o acesso).
+    const semVaga = await vagaNoApp(tenantId, identificado.vendedorId);
+    if (semVaga) {
+      const erro = new Error(semVaga);
       erro.status = 403;
       throw erro;
     }

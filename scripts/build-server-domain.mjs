@@ -75,6 +75,8 @@ const MODULOS = [
   'src/utils/nomeArquivoDomain.ts',
   'src/utils/cancelamentoNotaVendaDomain.ts',
   'src/utils/cancelamentoVendaDomain.ts',
+  // IE do destinatario (19/10/2026): CNPJ sem IE = nao contribuinte (NF-e de devolucao no servidor).
+  'src/utils/destinatarioFiscalDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

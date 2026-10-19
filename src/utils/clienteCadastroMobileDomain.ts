@@ -112,7 +112,7 @@ export const validarClienteMobile = (f: FormularioClienteMobile): string[] => {
   }
 
   if (tipoPessoaDoDocumento(f.documento) === 'PJ' && !f.identidade.trim()) {
-    erros.push('Informe a Inscrição Estadual da empresa, ou escreva ISENTO se ela for isenta — sem isso a nota fiscal é rejeitada.');
+    erros.push('Informe a Inscrição Estadual da empresa, ou escreva ISENTO se ela for isenta.');
   }
 
   if (apenasDigitos(f.cep).length !== 8) {

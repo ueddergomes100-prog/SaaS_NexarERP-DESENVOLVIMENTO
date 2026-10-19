@@ -216,10 +216,8 @@ test('destinatario PJ completo: dados so com digitos, UF em caixa alta, IE e e-m
   assert.equal(r.receiver.address.city.code, '3139409');
 });
 
-test('destinatario: PJ sem IE ou ISENTO sai como nao contribuinte (sem IE); IE invalida bloqueia; PF nao manda IE', () => {
-  const semIe = montarDestinatario({ ...CLIENTE_PJ, identidade: '' });
-  assert.deepEqual(semIe.erros, []);
-  assert.equal(semIe.receiver.stateTaxNumber, undefined);
+test('destinatario: PJ sem IE bloqueia; ISENTO sai como nao contribuinte (sem IE); IE invalida bloqueia; PF nao manda IE', () => {
+  assert.match(montarDestinatario({ ...CLIENTE_PJ, identidade: '' }).erros[0], /está sem Inscrição Estadual no cadastro/);
   const isento = montarDestinatario({ ...CLIENTE_PJ, identidade: 'isento' });
   assert.deepEqual(isento.erros, []);
   assert.equal(isento.receiver.stateTaxNumber, undefined);

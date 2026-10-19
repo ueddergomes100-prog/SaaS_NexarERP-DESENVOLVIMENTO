@@ -70,7 +70,7 @@ const MODULOS = [
   'src/utils/ajustesDaBaixaDomain.ts',
   // Pagamento parcial (16/10/2026).
   'src/utils/baixaParcialDomain.ts',
-  // IE do destinatario (19/10/2026): CNPJ sem IE ou "ISENTO" = nao contribuinte (NF-e de devolucao no servidor).
+  // IE do destinatario (19/10/2026): "ISENTO" = nao contribuinte; em branco bloqueia (NF-e de devolucao no servidor).
   'src/utils/destinatarioFiscalDomain.ts',
 ];
 

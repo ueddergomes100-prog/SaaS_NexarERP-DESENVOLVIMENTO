@@ -13,21 +13,22 @@
  * de Inscricao Estadual") e, em branco, o sistema bloqueava. Pela regra da NF-e,
  * empresa sem IE e' NAO CONTRIBUINTE do ICMS (indIEDest = 9, "pode ou nao
  * possuir IE") -- e' assim que o ERP antigo do cliente emite (IE em branco,
- * CFOP 6102, autorizada). Decisao do dono (19/10): sem IE ou "ISENTO" sai como
- * nao contribuinte, com aviso. Feito em duas etapas: primeiro so' "sem IE"; a
- * NF-e da cliente saiu autorizada sem IE (a Spedy manda CNPJ sem IE como
- * indIEDest 9), e entao o "ISENTO" passou a sair igual -- varios estados
- * recusam o "contribuinte isento" (805).
+ * CFOP 6102, autorizada). A NF-e da cliente saiu autorizada sem IE: a Spedy
+ * manda CNPJ sem `stateTaxNumber` como indIEDest 9.
+ *
+ * Decisoes do dono (19/10): "ISENTO" sai como nao contribuinte (varios estados
+ * recusam o "contribuinte isento", 805). Campo EM BRANCO, porem, e' cadastro
+ * incompleto -- a empresa pode ter IE e so' nao ter sido cadastrada; seguir
+ * como nao contribuinte emitiria errado calado (nem todo estado confere e
+ * devolve 232). Entao em branco bloqueia pedindo a IE ou "ISENTO".
  *
  * Regras:
  *  - PESSOA JURIDICA com IE (5 a 14 digitos): vai em `stateTaxNumber`
  *    (contribuinte, indIEDest = 1).
- *  - PESSOA JURIDICA sem IE, ou "ISENTO": NAO manda `stateTaxNumber` -- a nota
- *    sai como nao contribuinte / consumidor final, e a tela avisa (se a empresa
- *    for contribuinte do ICMS, a IE tem de ser cadastrada).
- *  - PESSOA JURIDICA com algo que nao e' IE ("abc", "123"): bloqueia citando o
- *    que esta' la' -- seguir seria tratar como nao contribuinte quem talvez
- *    tenha a IE digitada errada.
+ *  - PESSOA JURIDICA "ISENTO": NAO manda `stateTaxNumber` -- a nota sai como
+ *    nao contribuinte / consumidor final, e a tela avisa.
+ *  - PESSOA JURIDICA sem nada, ou com algo que nao e' IE ("abc", "123"):
+ *    bloqueia dizendo o que fazer (IE ou ISENTO).
  *  - PESSOA FISICA (CPF): o campo guarda o RG, que NAO e' Inscricao Estadual --
  *    nunca vai no payload.
  */
@@ -44,13 +45,15 @@ const resolverInscricaoEstadualDestinatario = (params) => {
         return { valor: digitos };
     const nome = String(params.clienteNome ?? '').trim();
     const quem = nome ? `O cliente "${nome}"` : 'O cliente';
-    if (!bruto || /^isento$/i.test(bruto)) {
+    if (/^isento$/i.test(bruto)) {
         return {
-            aviso: `${quem} é pessoa jurídica sem Inscrição Estadual: a nota sai como não contribuinte do ICMS (consumidor final). Se a empresa tiver Inscrição Estadual, cadastre em Cadastros → Clientes (campo "Inscrição Estadual / RG").`,
+            aviso: `${quem} está como ISENTO de Inscrição Estadual: a nota sai como não contribuinte do ICMS (consumidor final). Se a empresa tiver Inscrição Estadual, cadastre em Cadastros → Clientes (campo "Inscrição Estadual / RG").`,
         };
     }
     return {
-        erro: `${quem} é pessoa jurídica e a Inscrição Estadual cadastrada ("${bruto}") não parece válida. Corrija em Cadastros → Clientes (campo "Inscrição Estadual / RG"); se a empresa não tiver Inscrição Estadual, deixe o campo em branco — a nota sai como não contribuinte.`,
+        erro: bruto
+            ? `${quem} é pessoa jurídica e a Inscrição Estadual cadastrada ("${bruto}") não parece válida. Corrija em Cadastros → Clientes (campo "Inscrição Estadual / RG"); se a empresa não tiver Inscrição Estadual, escreva ISENTO — a nota sai como não contribuinte.`
+            : `${quem} é pessoa jurídica e está sem Inscrição Estadual no cadastro. Informe a IE em Cadastros → Clientes (campo "Inscrição Estadual / RG"); se a empresa não tiver Inscrição Estadual, escreva ISENTO — a nota sai como não contribuinte.`,
     };
 };
 exports.resolverInscricaoEstadualDestinatario = resolverInscricaoEstadualDestinatario;

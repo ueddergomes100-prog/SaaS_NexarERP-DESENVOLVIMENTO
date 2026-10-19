@@ -692,6 +692,12 @@ const PedidoVendaForm: React.FC = () => {
   const pedidoEstaAberto = isViewing && isPedidoAberto(status);
   const isPendingFromAgent = pedidoEstaAberto && origemPedido === 'agente';
   const isPreVendaAberta = pedidoEstaAberto && origemPedido === 'balcao';
+  // Pre-venda (ou pedido do agente) sendo faturada: os vencimentos que a tela
+  // mostra ja' contam do dia do faturamento (19/10/2026). Antes contavam da data
+  // da pre-venda e so' andavam ao gravar -- a tela mostrava o boleto errado e,
+  // se alguem acertasse a data na mao, ela andava de novo ao gravar.
+  const faturandoPreVenda = isPreVendaAberta || isPendingFromAgent;
+  const diaDoFaturamentoNaTela = getDateInputInTimeZone();
 
   const temPermissao = (permissao: string) => (
     isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions && userPermissions.includes(permissao))
@@ -1092,7 +1098,7 @@ const PedidoVendaForm: React.FC = () => {
               });
             }
             if (Array.isArray(p.pagamentos) && p.pagamentos.length > 0) {
-              setPaymentDrafts(p.pagamentos.map((payment: PaymentRecord, index: number) => ({
+              const draftsGravados: PaymentDraft[] = p.pagamentos.map((payment: PaymentRecord, index: number) => ({
                 id: payment.id || `pagamento-${index + 1}`,
                 forma: payment.formaPagamento || 'Outros',
                 valor: fromCents(Number(payment.valorCentavos ?? toCents(payment.valor))).toFixed(2),
@@ -1112,7 +1118,12 @@ const PedidoVendaForm: React.FC = () => {
                 chequeEmitente: payment.cheque?.emitente || '',
                 chequeDocumentoEmitente: payment.cheque?.documentoEmitente || '',
                 chequeNumero: payment.cheque?.numeroCheque || '',
-              })));
+              }));
+              // Pedido ainda aberto (pre-venda/agente): o faturamento vale a data de
+              // hoje, entao os vencimentos gravados ja' abrem contados de hoje.
+              setPaymentDrafts(isPedidoAberto(p.status)
+                ? reancorarVencimentosNoFaturamento(draftsGravados, p.dataVenda || '', getDateInputInTimeZone())
+                : draftsGravados);
               paymentDraftCounter.current = p.pagamentos.length;
             } else {
               // Pre-venda e' gravada sem forma de pagamento (a forma e' decidida
@@ -3082,7 +3093,9 @@ const PedidoVendaForm: React.FC = () => {
     let pagamentosParaFechar = paymentDrafts;
     if (isPreVendaAberta || isPendingFromAgent) {
       const diaDoFaturamento = getDateInputInTimeZone();
-      pagamentosParaFechar = reancorarVencimentosNoFaturamento(paymentDrafts, dataVenda, diaDoFaturamento);
+      // A tela ja' calcula os vencimentos a partir do dia do faturamento
+      // (diaDoFaturamentoNaTela); so' andam se o dia virou com a tela aberta.
+      pagamentosParaFechar = reancorarVencimentosNoFaturamento(paymentDrafts, diaDoFaturamentoNaTela, diaDoFaturamento);
       dataVendaParaGravar = diaDoFaturamento;
       // A tela so' troca a data e os vencimentos DEPOIS de gravar (ver
       // saveSucceeded): se a venda for recusada (limite de credito, estoque...),
@@ -5662,6 +5675,10 @@ const PedidoVendaForm: React.FC = () => {
               totalCents={valorTotalPedidoCentavos}
               transactionDate={dataVenda}
               transactionDateLabel="Data da venda"
+              dueDateBase={faturandoPreVenda ? diaDoFaturamentoNaTela : undefined}
+              transactionDateHint={faturandoPreVenda && dataVenda !== diaDoFaturamentoNaTela
+                ? `Ao faturar, a venda sai com a data de hoje (${formatDateInputPtBr(diaDoFaturamentoNaTela)}) e os vencimentos contam a partir dela.`
+                : undefined}
             />
           </div>
 

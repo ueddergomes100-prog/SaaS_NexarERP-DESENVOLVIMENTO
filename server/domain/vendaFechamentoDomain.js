@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.configFinanceiraDaEmpresa = void 0;
+exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
 /*
  * FECHAMENTO DA VENDA NO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026).
  *
@@ -30,15 +30,24 @@ const configFinanceiraDaEmpresa = (config) => {
     };
 };
 exports.configFinanceiraDaEmpresa = configFinanceiraDaEmpresa;
+/**
+ * Valor bruto da linha em centavos, ARREDONDADO POR LINHA (preco em centavos x
+ * quantidade). E' a conta do PDV (cartLineGrossCents) e da NF-e. Desde a fatia
+ * 3c (19/10/2026) o Pedido de Venda e o servidor somam assim tambem -- antes
+ * somavam preco x quantidade sem arredondar e, com quantidade fracionada (kg),
+ * o total podia diferir 1 centavo do PDV.
+ */
+const brutoDaLinhaCentavos = (linha) => (Math.max(0, Math.round((0, financeDomain_1.toCents)(linha.precoUnitario) * linha.quantidade)));
+exports.brutoDaLinhaCentavos = brutoDaLinhaCentavos;
 /** Subtotal da linha como a grade grava: preco x quantidade - desconto, nunca negativo. */
-const subtotalDaLinha = (linha) => ((0, financeDomain_1.fromCents)(Math.max(0, (0, financeDomain_1.toCents)(linha.precoUnitario * linha.quantidade - linha.desconto))));
+const subtotalDaLinha = (linha) => ((0, financeDomain_1.fromCents)(Math.max(0, (0, exports.brutoDaLinhaCentavos)(linha) - (0, financeDomain_1.toCents)(linha.desconto))));
 exports.subtotalDaLinha = subtotalDaLinha;
 /**
  * Mesma conta do Pedido de Venda: o desconto GERAL incide sobre o subtotal
  * ja' com os descontos de item (nao sobre frete/encargos, que sao acrescimos).
  */
 const totaisDoFechamento = (args) => {
-    const valorTotalItens = args.itens.reduce((acc, i) => acc + (i.precoUnitario * i.quantidade), 0);
+    const valorTotalItens = (0, financeDomain_1.fromCents)(args.itens.reduce((acc, i) => acc + (0, exports.brutoDaLinhaCentavos)(i), 0));
     const valorTotalDescontosItens = args.itens.reduce((acc, i) => acc + i.desconto, 0);
     const baseCentavos = (0, financeDomain_1.toCents)(Math.max(0, valorTotalItens - valorTotalDescontosItens));
     const descontoGeralCentavos = (0, descontoDomain_1.calcularDescontoCents)(args.descontoGeralTipo, args.descontoGeralValor, baseCentavos);
@@ -154,6 +163,11 @@ const lerPedidoDeFechamento = (corpo) => {
     const orcamentoId = c.orcamentoId ? String(c.orcamentoId) : null;
     if (orcamentoId && !ID_VALIDO.test(orcamentoId))
         return { erro: 'Orçamento de origem inválido.' };
+    const pdvSessionId = c.pdvSessionId ? String(c.pdvSessionId) : null;
+    if (pdvSessionId && !ID_VALIDO.test(pdvSessionId))
+        return { erro: 'Caixa do PDV inválido. Feche e abra o PDV de novo.' };
+    if (pdvSessionId && pedidoId)
+        return { erro: 'Venda do PDV é sempre nova. Atualize a tela e tente de novo.' };
     return {
         pedido: {
             pedidoId,
@@ -174,6 +188,7 @@ const lerPedidoDeFechamento = (corpo) => {
             encargos,
             pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p : {})),
             orcamentoId,
+            pdvSessionId,
         },
     };
 };

@@ -44,6 +44,8 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { finalizarVendaNoServidor } from '../../services/vendaServidorService';
+import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, findEmbalagemIdByExactCode, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -131,6 +133,10 @@ const PDV: React.FC = () => {
   const [products, setProducts] = useState<PdvProduct[]>([]);
   const [clients, setClients] = useState<PdvClient[]>([]);
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
+  // Chave "Venda pelo servidor" da empresa (SuperAdmin) -- fatia 3c, 19/10/2026.
+  const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
+  // Id da venda gerado na tela: reenviar o mesmo cupom nao duplica no servidor.
+  const idVendaServidorRef = useRef('');
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [limiteDescontoPdv, setLimiteDescontoPdv] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>(DEFAULT_MODO_LIMITE_DESCONTO);
@@ -295,6 +301,7 @@ const PDV: React.FC = () => {
         setProducts(nextProducts);
         setClients(nextClients);
         setAllowNegativeStock(configData?.venderSemEstoque === true);
+        setVendaPeloServidor(parseVendaPeloServidor(configData?.vendaPeloServidor));
         setFormasPrecoAVista(parseFormasAVista(configData?.formasPrecoAVista));
         setVenderPorEmbalagem(configData?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
         setLimiteDescontoPdv(parseLimiteDescontoConfig(configData?.limiteDescontoPdv));
@@ -346,6 +353,7 @@ const PDV: React.FC = () => {
   }, [cartItems.length, paymentModalOpen]);
 
   const resetSale = useCallback(() => {
+    idVendaServidorRef.current = '';
     setSearch('');
     setSelectedProduct(null);
     setCartItems([]);
@@ -931,6 +939,61 @@ const PDV: React.FC = () => {
       });
       if (planoLotes === null) return; // quem vende cancelou a escolha do lote
 
+      // Espelha na tela a baixa que acabou de ser gravada. Soma TODAS as linhas
+      // do mesmo produto (ele pode aparecer em quilo e em saco ao mesmo tempo) e
+      // sempre na unidade base.
+      const espelharBaixaNaTela = () => setProducts((current) => current.map((product) => {
+        const vendidoBase = cartItems
+          .filter((item) => item.productId === product.id)
+          .reduce((soma, item) => soma + toBaseQuantity(item.quantidade, item.fatorConversao), 0);
+        return vendidoBase > 0
+          ? { ...product, quantidade: Math.max(0, product.quantidade - vendidoBase) }
+          : product;
+      }));
+
+      if (vendaPeloServidor) {
+        // Fatia 3c (19/10/2026): o servidor confere o caixa aberto, refaz totais,
+        // pagamentos e comissao e grava venda, estoque, lotes, lancamentos e saldo
+        // do banco numa transacao so' (server/services/vendaFechamento.js).
+        if (!idVendaServidorRef.current) idVendaServidorRef.current = doc(collection(db, 'pedidos_venda')).id;
+        const resposta = await finalizarVendaNoServidor({
+          idDocumento: idVendaServidorRef.current,
+          pdvSessionId: session.id,
+          dataVenda: getDateInputInTimeZone(),
+          vendedorId: currentUser.uid,
+          clienteId: selectedClient?.id || null,
+          clienteNome: selectedClient?.nome || 'CONSUMIDOR FINAL',
+          observacao: observation.trim(),
+          itens: cartItems.map((item, indiceDoItem) => ({
+            id: item.productId,
+            nome: item.nome,
+            precoUnitario: fromCents(item.precoUnitarioCentavos),
+            quantidade: item.quantidade,
+            desconto: fromCents(item.descontoCentavos),
+            ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla, unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais ?? 0 } : {}),
+            ...(item.origemPreco ? { origemPreco: item.origemPreco } : {}),
+            ...(item.promocaoId ? { promocaoId: item.promocaoId, promocaoNome: item.promocaoNome || '' } : {}),
+            ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
+            ...(item.embalagemId ? { embalagemId: item.embalagemId, fatorConversao: item.fatorConversao, quantidadeBase: item.quantidadeBase } : {}),
+          })),
+          descontoGeral: {
+            tipo: 'valor',
+            valorInformado: fromCents(totals.vendaDescontoCentavos),
+            excedeuLimite: checagemLimiteDesconto.excedeu,
+            ...(checagemLimiteDesconto.excedeu && aprovacaoDesconto ? { aprovacao: aprovacaoDesconto } : {}),
+          },
+          frete: 0,
+          encargos: 0,
+          pagamentos: drafts,
+        });
+        idVendaServidorRef.current = '';
+        showSuccess(`Venda PDV #${resposta.numeroPedido} finalizada`);
+        espelharBaixaNaTela();
+        resetSale();
+        setPaymentModalOpen(false);
+        return;
+      }
+
       const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
       let finalNumeroPedido = '';
       let newPedidoId = '';
@@ -1157,17 +1220,7 @@ const PDV: React.FC = () => {
       });
 
       showSuccess(`Venda PDV #${finalNumeroPedido} finalizada`);
-      // Espelha localmente a baixa que a transacao acabou de fazer. Soma TODAS
-      // as linhas do mesmo produto (ele pode aparecer em quilo e em saco ao
-      // mesmo tempo) e sempre na unidade base.
-      setProducts((current) => current.map((product) => {
-        const vendidoBase = cartItems
-          .filter((item) => item.productId === product.id)
-          .reduce((soma, item) => soma + toBaseQuantity(item.quantidade, item.fatorConversao), 0);
-        return vendidoBase > 0
-          ? { ...product, quantidade: Math.max(0, product.quantidade - vendidoBase) }
-          : product;
-      }));
+      espelharBaixaNaTela();
       resetSale();
       setPaymentModalOpen(false);
       if (newPedidoId) {

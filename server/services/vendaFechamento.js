@@ -19,6 +19,11 @@
  * vem DEPOIS (recibo, NFC-e/NF-e, boleto, minuta) tambem continua la, com o
  * id e o numero devolvidos.
  *
+ * PDV (fatia 3c, 19/10/2026): com `pdvSessionId` a venda e' do caixa do PDV --
+ * o caixa tem de estar aberto e ser do operador; a venda e os lancamentos levam
+ * `sourceOrigin: 'pdv'` e o `pdvSessionId` (o fechamento do caixa soma por ele)
+ * e nao entram na fila de conferencia (no balcao a mercadoria sai na hora).
+ *
  * Limitacao conhecida (fica para a proxima fatia): o PRECO de cada item e o
  * desconto (com a aprovacao) ainda vem da tela -- o servidor refaz a conta,
  * mas nao reprecifica nem reconfere os limites de desconto.
@@ -241,6 +246,22 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       throw new ErroVenda(409, 'Esta venda já foi gravada de outro jeito. Atualize a tela e confira em Pedidos de Venda.');
     }
 
+    // Venda do PDV: o caixa tem de estar aberto e ser de quem esta' vendendo.
+    const pdv = Boolean(pedido.pdvSessionId);
+    if (pdv) {
+      const caixaSnap = await tx.get(db.collection('caixas_pdv').doc(pedido.pdvSessionId));
+      const caixa = caixaSnap.exists ? caixaSnap.data() : null;
+      if (!caixa || caixa.tenantId !== tenantId) {
+        throw new ErroVenda(404, 'O caixa do PDV não foi encontrado. Feche o PDV, abra o caixa de novo e finalize a venda.');
+      }
+      if (caixa.status !== 'aberto') {
+        throw new ErroVenda(409, 'Este caixa do PDV já foi fechado. Abra o caixa de novo para continuar vendendo; a venda não foi gravada.');
+      }
+      if (caixa.operadorId && caixa.operadorId !== user.uid) {
+        throw new ErroVenda(403, 'Este caixa do PDV é de outro operador. Abra o seu caixa para vender.');
+      }
+    }
+
     const [seqSnap, seqLegadaSnap] = pedido.pedidoId ? [null, null] : await Promise.all([tx.get(refSequencia(tenantId)), tx.get(refSequenciaLegada(tenantId))]);
 
     const vendedorId = pedido.vendedorId || user.uid;
@@ -432,7 +453,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       totalLiquidoFinanceiroCentavos: resumo.financialNetCents,
       dataVenda: pedido.dataVenda,
       status: 'Finalizada',
-      ...(conferenciaAtiva ? { statusConferencia: (aberto && aberto.statusConferencia) || 'aguardando' } : {}),
+      // PDV: mercadoria sai no balcao, nao entra na fila de conferencia.
+      ...(conferenciaAtiva && !pdv ? { statusConferencia: (aberto && aberto.statusConferencia) || 'aguardando' } : {}),
       ...(aberto && aberto.conferidoPor ? { conferidoPor: aberto.conferidoPor } : {}),
       ...(aberto && aberto.conferidoPorNome ? { conferidoPorNome: aberto.conferidoPorNome } : {}),
       ...(aberto && aberto.conferidoEm ? { conferidoEm: aberto.conferidoEm } : {}),
@@ -441,7 +463,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       vendedorId,
       vendedorNome,
       comissao,
-      origem: origemDoAberto,
+      origem: pdv ? 'pdv' : origemDoAberto,
+      ...(pdv ? { sourceOrigin: 'pdv', pdvSessionId: pedido.pdvSessionId } : {}),
       estoqueReservado: false,
       fechadoPeloServidor: true,
       ...(aberto
@@ -468,7 +491,7 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       tx.update(db.collection('bancos').doc(bancoId), {
         saldoCentavos: (saldoDosBancos.get(bancoId) || 0) + delta,
         updatedAt: agora(),
-        ...buildDocumentUpdateMetadata(user.uid, agora(), `Crédito da venda #${numeroPedido}`),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Crédito da venda ${pdv ? 'PDV ' : ''}#${numeroPedido}`),
       });
     });
     consumos.forEach((c) => {
@@ -483,7 +506,7 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     pagamentosGravados.forEach((p) => {
       const parcela = p.cartao && p.cartao.numero ? ` (Parcela ${p.cartao.numero}/${p.cartao.totalParcelas})` : '';
       tx.set(db.collection('transacoes').doc(p.transactionId), {
-        descricao: `Venda Direta #${numeroPedido} - ${p.formaPagamento}${parcela}`,
+        descricao: `${pdv ? 'PDV' : 'Venda Direta'} #${numeroPedido} - ${p.formaPagamento}${parcela}`,
         categoria: 'Venda de Peças',
         valor: p.valor,
         valorCentavos: p.valorCentavos,
@@ -509,8 +532,9 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
         pedidoId: pedidoRef.id,
         sourceType: 'pedido_venda',
         sourceId: pedidoRef.id,
+        ...(pdv ? { sourceOrigin: 'pdv', pdvSessionId: pedido.pdvSessionId } : {}),
         paymentIndex: p.indice,
-        idempotencyKey: `pedido:${pedidoRef.id}:pagamento:${p.indice}`,
+        idempotencyKey: `${pdv ? 'pdv' : 'pedido'}:${pedidoRef.id}:pagamento:${p.indice}`,
         clienteId: pedido.clienteId,
         clienteNome: pedido.clienteNome,
         usuarioResponsavelId: user.uid,
@@ -521,7 +545,7 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       });
     });
 
-    return { jaEnviado: false, pedidoId: pedidoRef.id, numeroPedido, vendedorId, vendedorNome };
+    return { jaEnviado: false, pedidoId: pedidoRef.id, numeroPedido, vendedorId, vendedorNome, pdv };
   });
 
   return {

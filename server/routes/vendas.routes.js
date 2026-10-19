@@ -32,16 +32,20 @@ router.post('/finalizar', async (req, res) => {
   try {
     const tenantId = empresaDaOperacao(req.user, req.body);
     // Pre-venda e pedido do agente: a permissao depende do status e e'
-    // conferida no servico, com o pedido lido do banco.
-    if (!req.body?.pedidoId && !temPermissao(req.user, 'vendas.pedidos')) {
+    // conferida no servico, com o pedido lido do banco. PDV (fatia 3c): a do PDV.
+    if (req.body?.pdvSessionId) {
+      if (!temPermissao(req.user, 'vendas.pdv')) {
+        return res.status(403).json({ error: 'Você não tem permissão para vender no PDV. Peça a um responsável liberar "Vendas: Frente de Caixa (PDV)" no seu usuário.' });
+      }
+    } else if (!req.body?.pedidoId && !temPermissao(req.user, 'vendas.pedidos')) {
       return res.status(403).json({ error: 'Você não tem permissão para vender. Peça a um responsável liberar "Vendas: Pedidos" no seu usuário.' });
     }
     const resultado = await finalizarVenda({ user: req.user, tenantId, corpo: req.body || {} });
     if (!resultado.jaEnviado) {
       registrarLog({ ...req.user, tenantId }, {
         modulo: 'vendas',
-        acao: 'criacao',
-        descricao: `Venda #${resultado.numeroPedido} finalizada pelo servidor no valor de ${reais(resultado.totalCentavos)} (${resultado.formaPagamento}). Cliente: ${String(req.body?.clienteNome || 'CONSUMIDOR FINAL').toUpperCase()}. Vendedor: ${resultado.vendedorNome}.`,
+        acao: resultado.pdv ? 'criar_pdv' : 'criacao',
+        descricao: `${resultado.pdv ? 'Venda PDV' : 'Venda'} #${resultado.numeroPedido} finalizada pelo servidor no valor de ${reais(resultado.totalCentavos)} (${resultado.formaPagamento}). Cliente: ${String(req.body?.clienteNome || 'CONSUMIDOR FINAL').toUpperCase()}. Vendedor: ${resultado.vendedorNome}.`,
         registroId: resultado.pedidoId,
       });
     }

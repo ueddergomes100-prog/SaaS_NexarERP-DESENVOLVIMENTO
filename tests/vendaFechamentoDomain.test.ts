@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  brutoDaLinhaCentavos,
   configFinanceiraDaEmpresa,
   lerPedidoDeFechamento,
   subtotalDaLinha,
@@ -93,4 +94,25 @@ test('lotes do item passam validados', () => {
   const r = lerPedidoDeFechamento(corpoBase({ itens: [{ id: 'p1', nome: 'X', precoUnitario: 10, quantidade: 2, lotes: [{ loteId: 'L1', lote: 'A1', validade: '2027-01-01', quantidade: 2 }] }] }));
   assert.ok('pedido' in r);
   if ('pedido' in r) assert.deepEqual(r.pedido.itens[0].lotes, [{ loteId: 'L1', lote: 'A1', validade: '2027-01-01', quantidade: 2 }]);
+});
+
+test('fatia 3c: bruto arredondado por linha, igual ao PDV e a NF-e', () => {
+  assert.equal(brutoDaLinhaCentavos({ precoUnitario: 12.9, quantidade: 0.355 }), 458);
+  assert.equal(brutoDaLinhaCentavos({ precoUnitario: 1, quantidade: 0.005 }), 1);
+  const t = totaisDoFechamento({
+    itens: [1, 2, 3].map(() => ({ precoUnitario: 1, quantidade: 0.005, desconto: 0 })),
+    descontoGeralTipo: 'valor', descontoGeralValor: 0, frete: 0, encargos: 0,
+  });
+  assert.equal(t.valorTotalCentavos, 3, 'três linhas de R$ 0,01 dão R$ 0,03 (antes dava R$ 0,02)');
+  assert.equal(subtotalDaLinha({ precoUnitario: 12.9, quantidade: 0.355, desconto: 0.08 }), 4.5);
+});
+
+test('fatia 3c: o PDV manda a sessão do caixa; venda do PDV é sempre nova', () => {
+  const base = { idDocumento: 'v1', dataVenda: '2026-10-19', itens: [{ id: 'p1', nome: 'X', precoUnitario: 1, quantidade: 1 }], pagamentos: [{ forma: 'Dinheiro' }] };
+  const ok = lerPedidoDeFechamento({ ...base, pdvSessionId: 'cx_1' });
+  assert.ok('pedido' in ok && ok.pedido.pdvSessionId === 'cx_1');
+  const semPdv = lerPedidoDeFechamento(base);
+  assert.ok('pedido' in semPdv && semPdv.pedido.pdvSessionId === null);
+  assert.match(String((lerPedidoDeFechamento({ ...base, pdvSessionId: '../x' }) as { erro: string }).erro), /Caixa do PDV inválido/);
+  assert.match(String((lerPedidoDeFechamento({ ...base, idDocumento: undefined, pedidoId: 'pv1', pdvSessionId: 'cx_1' }) as { erro: string }).erro), /sempre nova/);
 });

@@ -51,9 +51,20 @@ export interface LinhaComValor {
   desconto: number;
 }
 
+/**
+ * Valor bruto da linha em centavos, ARREDONDADO POR LINHA (preco em centavos x
+ * quantidade). E' a conta do PDV (cartLineGrossCents) e da NF-e. Desde a fatia
+ * 3c (19/10/2026) o Pedido de Venda e o servidor somam assim tambem -- antes
+ * somavam preco x quantidade sem arredondar e, com quantidade fracionada (kg),
+ * o total podia diferir 1 centavo do PDV.
+ */
+export const brutoDaLinhaCentavos = (linha: { precoUnitario: number; quantidade: number }): number => (
+  Math.max(0, Math.round(toCents(linha.precoUnitario) * linha.quantidade))
+);
+
 /** Subtotal da linha como a grade grava: preco x quantidade - desconto, nunca negativo. */
 export const subtotalDaLinha = (linha: LinhaComValor): number => (
-  fromCents(Math.max(0, toCents(linha.precoUnitario * linha.quantidade - linha.desconto)))
+  fromCents(Math.max(0, brutoDaLinhaCentavos(linha) - toCents(linha.desconto)))
 );
 
 export interface TotaisDoFechamento {
@@ -77,7 +88,7 @@ export const totaisDoFechamento = (args: {
   frete: number;
   encargos: number;
 }): TotaisDoFechamento => {
-  const valorTotalItens = args.itens.reduce((acc, i) => acc + (i.precoUnitario * i.quantidade), 0);
+  const valorTotalItens = fromCents(args.itens.reduce((acc, i) => acc + brutoDaLinhaCentavos(i), 0));
   const valorTotalDescontosItens = args.itens.reduce((acc, i) => acc + i.desconto, 0);
   const baseCentavos = toCents(Math.max(0, valorTotalItens - valorTotalDescontosItens));
   const descontoGeralCentavos = calcularDescontoCents(args.descontoGeralTipo, args.descontoGeralValor, baseCentavos);
@@ -137,6 +148,8 @@ export interface PedidoDeFechamento {
   encargos: number;
   pagamentos: Array<Record<string, unknown>>;
   orcamentoId: string | null;
+  /** Venda do PDV (fatia 3c, 19/10/2026): sessao de caixa aberta do operador. */
+  pdvSessionId: string | null;
 }
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
@@ -219,6 +232,9 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
   if (clienteId && !ID_VALIDO.test(clienteId)) return { erro: 'Cliente inválido. Escolha o cliente de novo.' };
   const orcamentoId = c.orcamentoId ? String(c.orcamentoId) : null;
   if (orcamentoId && !ID_VALIDO.test(orcamentoId)) return { erro: 'Orçamento de origem inválido.' };
+  const pdvSessionId = c.pdvSessionId ? String(c.pdvSessionId) : null;
+  if (pdvSessionId && !ID_VALIDO.test(pdvSessionId)) return { erro: 'Caixa do PDV inválido. Feche e abra o PDV de novo.' };
+  if (pdvSessionId && pedidoId) return { erro: 'Venda do PDV é sempre nova. Atualize a tela e tente de novo.' };
 
   return {
     pedido: {
@@ -240,6 +256,7 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
       encargos,
       pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p as Record<string, unknown> : {})),
       orcamentoId,
+      pdvSessionId,
     },
   };
 };

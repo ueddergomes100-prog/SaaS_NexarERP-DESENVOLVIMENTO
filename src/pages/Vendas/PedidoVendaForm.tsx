@@ -8,7 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
 import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, finalizarVendaNoServidor } from '../../services/vendaServidorService';
-import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
+import { brutoDaLinhaCentavos, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
@@ -2055,7 +2055,8 @@ const PedidoVendaForm: React.FC = () => {
       }, [])
     : [];
 
-  const valorTotalItens = itens.reduce((acc, curr) => acc + (curr.precoUnitario * curr.quantidade), 0);
+  // Arredondado por linha, como o PDV, a NF-e e o servidor (fatia 3c, 19/10/2026).
+  const valorTotalItens = fromCents(itens.reduce((acc, curr) => acc + brutoDaLinhaCentavos(curr), 0));
   const valorTotalDescontosItens = itens.reduce((acc, curr) => acc + curr.desconto, 0);
   // Desconto geral incide sobre o subtotal JA COM os descontos de item
   // aplicados (mesma base que o PDV usa pro desconto do cupom) -- nao sobre

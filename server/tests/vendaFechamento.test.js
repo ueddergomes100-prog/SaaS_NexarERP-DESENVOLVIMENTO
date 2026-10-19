@@ -215,3 +215,56 @@ test('credito de devolucao: trocar o nome na tela nao gasta o credito de outro c
   );
   assert.equal(fake.ler('creditos_cliente/devolucao_d2').saldoDisponivel, 50);
 });
+
+// ------------------------------------------------------------------ PDV (fatia 3c, 19/10/2026)
+
+const OPERADOR = { uid: 'vend1', tenantId: 'loja', email: 'v@loja', permissoes: ['vendas.pdv'] };
+const caixaAberto = { 'caixas_pdv/cx1': { tenantId: 'loja', operadorId: 'vend1', status: 'aberto', saldoInicialCentavos: 0 } };
+
+test('PDV: venda com o caixa aberto leva origem PDV e a sessao do caixa na venda e nos lancamentos; fora da conferencia', async () => {
+  const fake = criarBancoFalso(base({ ...caixaAberto, 'configuracoes/loja': { tenantId: 'loja', conferenciaMercadoria: true } }), { consultas: true });
+  const r = await carregar(fake.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1' }) });
+  assert.equal(r.pdv, true);
+  const pedido = fake.ler('pedidos_venda/venda1');
+  assert.equal(pedido.origem, 'pdv');
+  assert.equal(pedido.sourceOrigin, 'pdv');
+  assert.equal(pedido.pdvSessionId, 'cx1');
+  assert.equal(pedido.statusConferencia, undefined, 'balcao nao entra na fila de conferencia');
+  const titulo = fake.ler('transacoes/venda1');
+  assert.equal(titulo.pdvSessionId, 'cx1');
+  assert.equal(titulo.sourceOrigin, 'pdv');
+  assert.match(titulo.descricao, /^PDV #0001 - Dinheiro/);
+  assert.equal(titulo.idempotencyKey, 'pdv:venda1:pagamento:1');
+  assert.equal(titulo.movimentaCaixaFisico, true);
+});
+
+test('PDV: caixa fechado, de outro operador ou inexistente recusa sem gravar nada', async () => {
+  const fechado = criarBancoFalso(base({ 'caixas_pdv/cx1': { tenantId: 'loja', operadorId: 'vend1', status: 'fechado' } }), { consultas: true });
+  await assert.rejects(
+    () => carregar(fechado.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1' }) }),
+    (erro) => erro.status === 409 && /já foi fechado/.test(erro.message),
+  );
+  assert.equal(fechado.ler('pedidos_venda/venda1'), undefined);
+  assert.equal(fechado.ler('estoque/p1').quantidade, 10);
+
+  const deOutro = criarBancoFalso(base({ 'caixas_pdv/cx1': { tenantId: 'loja', operadorId: 'outro', status: 'aberto' } }), { consultas: true });
+  await assert.rejects(
+    () => carregar(deOutro.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1' }) }),
+    (erro) => erro.status === 403 && /outro operador/.test(erro.message),
+  );
+
+  const semCaixa = criarBancoFalso(base(), { consultas: true });
+  await assert.rejects(
+    () => carregar(semCaixa.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1' }) }),
+    (erro) => erro.status === 404,
+  );
+});
+
+test('total arredondado por linha (kg): duas linhas fracionadas fecham com o valor que o PDV mostra', async () => {
+  // 0,355 kg x R$ 12,90 = 4,5795 -> R$ 4,58 por linha; duas linhas = R$ 9,16 (somando sem arredondar daria R$ 9,16 tambem
+  // aqui, entao usa um caso que diverge: 3 x 0,005 kg x R$ 1,00 = 0,005 cada -> 0,01 por linha = R$ 0,03; sem arredondar = R$ 0,02).
+  const itens = [1, 2, 3].map((n) => ({ id: 'p1', nome: `RAÇÃO ${n}`, precoUnitario: 1, quantidade: 0.005, desconto: 0, subtotal: 0.01 }));
+  const fake = criarBancoFalso(base({ ...caixaAberto, 'configuracoes/loja': { tenantId: 'loja', venderSemEstoque: true } }), { consultas: true });
+  const r = await carregar(fake.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1', itens, pagamentos: [pagamento({ valor: '0.03' })] }) });
+  assert.equal(r.totalCentavos, 3);
+});

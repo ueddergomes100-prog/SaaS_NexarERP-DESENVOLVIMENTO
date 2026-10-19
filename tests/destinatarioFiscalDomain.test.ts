@@ -21,9 +21,12 @@ test('CNPJ sem IE: nao bloqueia, sai como nao contribuinte (sem stateTaxNumber) 
   assert.equal(destinatarioEConsumidorFinal({ documento: CNPJ, inscricaoEstadual: r.valor }), true);
 });
 
-test('CNPJ "ISENTO" (qualquer caixa): manda ISENTO (por enquanto -- ver a nota do arquivo)', () => {
+test('CNPJ "ISENTO" (qualquer caixa): nao manda ISENTO (rejeicao 805 em varios estados), sai como nao contribuinte', () => {
   for (const identidade of ['isento', 'ISENTO', ' Isento ']) {
-    assert.deepEqual(resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade }), { valor: 'ISENTO' });
+    const r = resolverInscricaoEstadualDestinatario({ documento: CNPJ, identidade });
+    assert.equal(r.valor, undefined);
+    assert.equal(r.erro, undefined);
+    assert.match(String(r.aviso), /não contribuinte/);
   }
 });
 

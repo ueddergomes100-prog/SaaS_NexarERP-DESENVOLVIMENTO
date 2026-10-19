@@ -2126,8 +2126,8 @@ const NFE: React.FC = () => {
       const cleanCep = formData.cep.replace(/\D/g, '');
 
       // IE do destinatario (pessoa juridica): vem do cadastro do cliente e vai em
-      // receiver.stateTaxNumber. Sem IE a nota sai como nao contribuinte, com
-      // aviso (19/10/2026); IE invalida bloqueia. Ver
+      // receiver.stateTaxNumber. Sem IE (ou "ISENTO") a nota sai como nao
+      // contribuinte, com aviso (19/10/2026); IE invalida bloqueia. Ver
       // destinatarioFiscalDomain.ts.
       let stateTaxNumberDestinatario: string | undefined;
       if (formData.tipo === 'NF-e') {
@@ -3470,13 +3470,13 @@ const NFE: React.FC = () => {
                       <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inscrição Estadual do destinatário</label>
                       <input
                         type="text"
-                        placeholder='Número da IE, "ISENTO", ou em branco se não tiver'
+                        placeholder='Número da IE, ou em branco se não tiver'
                         value={formData.inscricaoEstadual}
                         onChange={(e) => setFormData({ ...formData, inscricaoEstadual: e.target.value })}
                         style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                       />
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Vem do cadastro do cliente (Inscrição Estadual / RG). Empresa sem IE (em branco) sai como não contribuinte do ICMS. Para não precisar digitar de novo, corrija lá
+                        Vem do cadastro do cliente (Inscrição Estadual / RG). Empresa sem IE (em branco ou "ISENTO") sai como não contribuinte do ICMS. Para não precisar digitar de novo, corrija lá
                         {formData.clienteId ? (
                           <> e clique em <button type="button" onClick={atualizarDoCadastro} disabled={atualizandoCadastro} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-primary, #3b82f6)', textDecoration: 'underline', font: 'inherit' }}>atualizar do cadastro</button>.</>
                         ) : '.'}

@@ -29,6 +29,8 @@
  * Tudo aqui e' funcao pura (sem Firestore nem HTTP) pra ser testada.
  */
 
+const { resolverInscricaoEstadualDestinatario } = require('../domain/destinatarioFiscalDomain');
+
 // CFOP da venda -> CFOP da devolucao (Ajuste SINIEF 07/01, tabela de CFOP).
 const CFOP_DEVOLUCAO_POR_ORIGEM = {
   5101: 1201, 6101: 2201, // producao do estabelecimento
@@ -279,19 +281,11 @@ const montarDestinatario = (cliente) => {
     erros.push(`${quem} está sem ${faltando.join(', ')} no cadastro. Complete em Cadastros → Clientes antes de emitir a devolução.`);
   }
 
-  // IE (so' pessoa juridica) -- mesma regra de src/utils/destinatarioFiscalDomain.ts
-  let stateTaxNumber;
-  if (documento.length === 14) {
-    const bruto = String(cliente.identidade || '').trim();
-    const digitos = somenteDigitos(bruto);
-    if (/^isento$/i.test(bruto)) stateTaxNumber = 'ISENTO';
-    else if (digitos.length >= 5 && digitos.length <= 14) stateTaxNumber = digitos;
-    else {
-      erros.push(bruto
-        ? `${quem} é pessoa jurídica e a Inscrição Estadual cadastrada ("${bruto}") não parece válida. Corrija em Cadastros → Clientes ou informe "ISENTO", se for isento.`
-        : `${quem} é pessoa jurídica e não tem Inscrição Estadual cadastrada. Informe em Cadastros → Clientes ou escreva "ISENTO", se for isento.`);
-    }
-  }
+  // IE (so' pessoa juridica) -- a mesma regra da tela (src/utils/destinatarioFiscalDomain.ts):
+  // sem IE ou "ISENTO" sai como nao contribuinte (19/10/2026).
+  const ie = resolverInscricaoEstadualDestinatario({ documento, identidade: cliente.identidade, clienteNome: nome });
+  if (ie.erro) erros.push(ie.erro);
+  const stateTaxNumber = ie.valor;
 
   if (erros.length > 0) return { erros };
   const email = String(cliente.emailNfe || cliente.email || '').trim();

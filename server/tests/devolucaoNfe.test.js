@@ -216,9 +216,12 @@ test('destinatario PJ completo: dados so com digitos, UF em caixa alta, IE e e-m
   assert.equal(r.receiver.address.city.code, '3139409');
 });
 
-test('destinatario: PJ sem IE bloqueia; ISENTO passa; PF nao manda IE', () => {
-  assert.match(montarDestinatario({ ...CLIENTE_PJ, identidade: '' }).erros[0], /não tem Inscrição Estadual/);
+test('destinatario: PJ sem IE sai como nao contribuinte (sem IE); ISENTO passa; IE invalida bloqueia; PF nao manda IE', () => {
+  const semIe = montarDestinatario({ ...CLIENTE_PJ, identidade: '' });
+  assert.deepEqual(semIe.erros, []);
+  assert.equal(semIe.receiver.stateTaxNumber, undefined);
   assert.equal(montarDestinatario({ ...CLIENTE_PJ, identidade: 'isento' }).receiver.stateTaxNumber, 'ISENTO');
+  assert.match(montarDestinatario({ ...CLIENTE_PJ, identidade: 'abc' }).erros[0], /não parece válida/);
   const pf = montarDestinatario({ ...CLIENTE_PJ, documento: '529.982.247-25', identidade: '123456789' });
   assert.deepEqual(pf.erros, []);
   assert.equal(pf.receiver.stateTaxNumber, undefined);
@@ -270,9 +273,9 @@ test('nota original sem chave de acesso: bloqueia', () => {
 });
 
 test('cliente com cadastro incompleto bloqueia a emissao', () => {
-  const r = preparar({ cliente: { ...CLIENTE_PJ, identidade: '' } });
+  const r = preparar({ cliente: { ...CLIENTE_PJ, bairro: '' } });
   assert.equal(r.ok, false);
-  assert.match(r.erros[0], /Inscrição Estadual/);
+  assert.match(r.erros[0], /bairro/);
 });
 
 test('CFOP sem mapa: nao e erro, e pedido de escolha (ok false, sem erros, com precisaCfop)', () => {

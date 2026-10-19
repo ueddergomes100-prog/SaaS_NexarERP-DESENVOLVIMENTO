@@ -8,17 +8,16 @@ import PlatformAdminLayout from './components/layout/PlatformAdminLayout';
 import AppLayout from './components/layout/AppLayout';
 import PageLoader from './components/layout/PageLoader';
 
-// PDV, painel da plataforma e as rotas publicas ficam fora do sistema de
-// abas (Sistema de Abas, F19) -- continuam com import direto aqui. Todo o
-// resto do "miolo" do app vive em src/routes/appRoutesConfig.tsx, montado
-// uma vez por aba.
+// Painel da plataforma e as rotas publicas ficam fora do sistema de abas
+// (Sistema de Abas, F19) -- continuam com import direto aqui. Todo o resto
+// do "miolo" do app vive em src/routes/appRoutesConfig.tsx, montado uma vez
+// por aba. A Frente de Caixa (PDV) e' app separado, em /caixa (CaixaShell).
 const AuthPage = lazy(() => import('./pages/Auth/AuthPage'));
-const PDV = lazy(() => import('./pages/PDV/PDV'));
 const SuperAdmin = lazy(() => import('./pages/Admin/SuperAdmin'));
 const SuperAdminBackup = lazy(() => import('./pages/Admin/SuperAdminBackup'));
 const SuperAdminManutencao = lazy(() => import('./pages/Admin/SuperAdminManutencao'));
 // App do vendedor externo (mobile): shell + login proprios, sem Sidebar/
-// TopBar nem Sistema de Abas -- mesmo motivo do PDV acima. O login fica
+// TopBar nem Sistema de Abas -- mesmo motivo do painel da plataforma. O login fica
 // PUBLICO (fora de ProtectedRoute, que redireciona pro /login normal) e o
 // shell faz sua PROPRIA checagem de sessao + acessoAppMobile (ver
 // VendedorShell.tsx), porque o vendedor de balcao loga com codigo+PIN, nao
@@ -77,7 +76,6 @@ function App() {
 
                 {/* Rotas Protegidas (Exigem Login) */}
                 <Route element={<ProtectedRoute />}>
-                  <Route path="/pdv" element={<PDV />} />
                   {/* AppLayout casa qualquer sub-rota; o conteudo real de
                       cada uma vem de appRoutesConfig, renderizado dentro
                       do MemoryRouter isolado de cada aba (ver TabPane). */}

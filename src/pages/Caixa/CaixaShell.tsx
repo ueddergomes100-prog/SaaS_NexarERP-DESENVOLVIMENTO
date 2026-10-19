@@ -48,7 +48,7 @@ const CaixaShell: React.FC = () => {
     <>
       <VerificadorDataDoSistema />
       <Routes>
-        <Route index element={<PDV modo="app" />} />
+        <Route index element={<PDV />} />
         <Route path="*" element={<Navigate to={CAMINHO_APP_CAIXA} replace />} />
       </Routes>
     </>

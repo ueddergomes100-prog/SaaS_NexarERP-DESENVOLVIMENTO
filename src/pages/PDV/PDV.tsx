@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, LockKeyhole, Maximize2, PackageSearch, Store, X } from 'lucide-react';
+import { Loader2, LockKeyhole, Maximize2, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -109,15 +109,11 @@ interface Banco { id: string; nome: string; ativo: boolean; }
 const normalizeText = (value: unknown) => String(value || '').trim();
 
 /**
- * `modo` (19/10/2026): 'sistema' e' o PDV aberto de dentro do sistema (/pdv),
- * com a seta de voltar; 'app' e' a Frente de Caixa separada (/caixa, ver
- * CaixaShell.tsx) -- sem seta, e o X encerra o login do caixa.
+ * Frente de Caixa como app separado (19/10/2026): abre so' em /caixa, pela
+ * casca CaixaShell.tsx -- sem seta de voltar ao sistema; o X encerra o login
+ * do caixa.
  */
-interface PDVProps {
-  modo?: 'sistema' | 'app';
-}
-
-const PDV: React.FC<PDVProps> = ({ modo = 'sistema' }) => {
+const PDV: React.FC = () => {
   const navigate = useNavigate();
   const {
     currentUser,
@@ -1328,11 +1324,6 @@ const PDV: React.FC<PDVProps> = ({ modo = 'sistema' }) => {
     <div className="pdv-shell">
       <header className="pdv-topbar">
         <div className="pdv-brand">
-          {modo === 'sistema' && (
-            <button type="button" onClick={() => navigate('/dashboard')} title="Voltar para a retaguarda">
-              <ArrowLeft size={20} />
-            </button>
-          )}
           <img src={hennderIcon} alt="Hennder ERP" className="pdv-logo" />
           <span>
             <small>{selectedTenant?.nomeOficina || 'Hennder Company'}</small>
@@ -1347,15 +1338,9 @@ const PDV: React.FC<PDVProps> = ({ modo = 'sistema' }) => {
           <button type="button" title="Tela cheia" onClick={() => document.documentElement.requestFullscreen?.()}>
             <Maximize2 size={18} />
           </button>
-          {modo === 'sistema' ? (
-            <button type="button" title="Sair do PDV" onClick={() => navigate('/dashboard')}>
-              <X size={20} />
-            </button>
-          ) : (
-            <button type="button" title="Sair da Frente de Caixa" onClick={() => void sairDoCaixa()}>
-              <X size={20} />
-            </button>
-          )}
+          <button type="button" title="Sair da Frente de Caixa" onClick={() => void sairDoCaixa()}>
+            <X size={20} />
+          </button>
         </div>
       </header>
 

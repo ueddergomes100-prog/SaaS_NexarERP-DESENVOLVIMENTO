@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
 import {
   Award,
@@ -105,7 +104,6 @@ const Sidebar: React.FC = () => {
     nivelAcesso,
     grupo
   } = useAuth();
-  const navigate = useNavigate();
   const { tabs, activeTabId, openTab } = useTabs();
   const currentPath = tabs.find((tab) => tab.id === activeTabId)?.path || '';
 
@@ -184,7 +182,6 @@ const Sidebar: React.FC = () => {
       label: 'Comercial',
       icon: ShoppingCart,
       items: [
-        { label: 'Frente de Caixa', to: '/pdv', icon: Store, module: 'comercial.pedidos', permission: 'vendas.pdv' },
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
@@ -409,7 +406,6 @@ const Sidebar: React.FC = () => {
   ].filter(canAccess);
 
   const quickActions = [
-    { label: 'PDV', to: '/pdv', icon: Store, permission: 'vendas.pdv', module: 'comercial.pedidos' },
     { label: 'Venda', to: '/pedidos-venda/novo', icon: ShoppingCart, permission: 'vendas.pedidos', module: 'comercial.pedidos' },
     { label: 'Cliente', to: '/clientes/novo', icon: Users, permission: 'cadastros.clientes', module: 'cadastros.clientes' },
     { label: 'OS', to: '/os/nova', icon: ClipboardList, permission: 'mecanica.os', module: 'mecanica.os' },
@@ -428,17 +424,12 @@ const Sidebar: React.FC = () => {
     localStorage.setItem('nexus_sidebar_groups', JSON.stringify(nextState));
   };
 
-  // PDV e' a unica tela fora do sistema de abas (tela cheia, sem menu
-  // lateral/barra de abas) -- continua navegacao real. Todo o resto abre
-  // ou reaproveita uma aba.
+  // Toda navegacao do menu abre ou reaproveita uma aba. A Frente de Caixa
+  // virou app separado (/caixa, 19/10/2026) e saiu do menu.
   const navigateTo = (to: string, label?: string) => {
     setActionMenuOpen(false);
     document.body.classList.remove('mobile-sidebar-open');
-    if (to === '/pdv') {
-      navigate(to);
-    } else {
-      openTab(to, label);
-    }
+    openTab(to, label);
   };
 
   const handleLogout = useCallback(() => {

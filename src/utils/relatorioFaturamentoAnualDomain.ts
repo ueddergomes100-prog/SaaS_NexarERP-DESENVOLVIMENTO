@@ -13,6 +13,8 @@
  * Arquivo puro: sem firebase e sem React.
  */
 import {
+  abateReceita,
+  contaComoReceita,
   isRevenueReversal,
   toCents,
   transactionFeeAmount,
@@ -33,6 +35,8 @@ export interface TransacaoFaturamento extends ValorDoLancamento {
   status?: string;
   formaPagamento?: string;
   sourceType?: string;
+  estornada?: boolean;
+  statusOperacional?: string;
   createdAt?: { seconds?: number } | null;
 }
 
@@ -62,8 +66,12 @@ const mesDoLancamento = (t: TransacaoFaturamento): string => {
 const ehServico = (t: TransacaoFaturamento) => t.categoria === 'Serviços' || t.categoria === 'Serviços Automotivos';
 const ehPecas = (t: TransacaoFaturamento) => t.categoria === 'Venda de Peças';
 
-/** Receita de verdade: entrada que nao e' credito de devolucao. */
-const ehReceita = (t: TransacaoFaturamento) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução';
+/** Receita de verdade: entrada paga nao desfeita (venda/OS cancelada some -- 19/10/2026),
+ *  que nao e' credito de devolucao nem estorno de devolucao. */
+const ehReceita = (t: TransacaoFaturamento) => contaComoReceita(t);
+
+/** Devolucao de venda que ainda vale: abate a receita no mes dela. */
+const ehDevolucao = (t: TransacaoFaturamento) => abateReceita(t);
 
 /** Despesa de verdade: saida que nao e' estorno de receita. */
 const ehDespesa = (t: TransacaoFaturamento) => t.tipo === 'saida' && !isRevenueReversal(t);
@@ -126,15 +134,15 @@ export const calcularFaturamentoAnual = (
   const receitaPecasCentavos = somar(receitasFiltradas.filter(ehPecas), brutoCentavos);
   const receitaOutrosCentavos = somar(receitasFiltradas.filter((t) => !ehServico(t) && !ehPecas(t)), brutoCentavos);
 
-  // Estorno (OS/venda cancelada, devolucao) ANULA receita -- nao e' despesa.
-  // Vira uma LINHA PROPRIA do DRE, e nao um desconto mudo no total: assim a
-  // quebra por categoria (Pecas/Servicos/Outros) continua somando
-  // exatamente a receita bruta.
-  const estornosCentavos = somar(transacoesAno.filter(isRevenueReversal), liquidoCentavos);
+  // Venda/OS cancelada ja' SAIU da receita (decisao do dono, 19/10/2026): o
+  // estorno do cancelamento nao conta. So' a devolucao de venda abate, numa
+  // LINHA PROPRIA do DRE -- assim a quebra por categoria (Pecas/Servicos/
+  // Outros) continua somando exatamente a receita bruta. Nunca negativa.
+  const estornosCentavos = somar(transacoesAno.filter(ehDevolucao), liquidoCentavos);
 
   const receitaBrutaCentavos = receitaServicosCentavos + receitaPecasCentavos + receitaOutrosCentavos;
   const taxasCartaoCentavos = somar(receitasFiltradas, taxaCentavos);
-  const receitaLiquidaCentavos = receitaBrutaCentavos - taxasCartaoCentavos - estornosCentavos;
+  const receitaLiquidaCentavos = Math.max(0, receitaBrutaCentavos - taxasCartaoCentavos - estornosCentavos);
   const despesasCentavos = somar(transacoesAno.filter(ehDespesa), liquidoCentavos);
   const lucroLiquidoCentavos = receitaLiquidaCentavos - despesasCentavos;
   const margemLucro = receitaBrutaCentavos > 0 ? (lucroLiquidoCentavos / receitaBrutaCentavos) * 100 : 0;
@@ -154,12 +162,12 @@ export const calcularFaturamentoAnual = (
     const mesStr = String(indice + 1).padStart(2, '0');
     const transacoesMes = transacoesAno.filter((t) => mesDoLancamento(t) === mesStr);
     const receitasMes = transacoesMes.filter(ehReceita);
-    // Mesmo criterio do DRE: estorno abate receita, nao vira despesa.
-    const estornosMes = transacoesMes.filter(isRevenueReversal);
+    // Mesmo criterio do DRE: cancelada some, devolucao abate no mes dela, nunca negativo.
+    const devolucoesMes = transacoesMes.filter(ehDevolucao);
 
-    const receitaBrutaMes = somar(receitasMes, brutoCentavos) - somar(estornosMes, brutoCentavos);
-    const taxasMes = somar(receitasMes, taxaCentavos) - somar(estornosMes, taxaCentavos);
-    const receitaLiquidaMes = somar(receitasMes, liquidoCentavos) - somar(estornosMes, liquidoCentavos);
+    const receitaBrutaMes = Math.max(0, somar(receitasMes, brutoCentavos) - somar(devolucoesMes, brutoCentavos));
+    const taxasMes = Math.max(0, somar(receitasMes, taxaCentavos) - somar(devolucoesMes, taxaCentavos));
+    const receitaLiquidaMes = Math.max(0, somar(receitasMes, liquidoCentavos) - somar(devolucoesMes, liquidoCentavos));
     const despesasMes = somar(transacoesMes.filter(ehDespesa), liquidoCentavos);
     return {
       indice,
@@ -214,7 +222,7 @@ export const linhasDre = (resumo: ResumoFaturamentoAnual): LinhaDre[] => [
   { linha: '   • Serviços (mão de obra / OS)', valorCentavos: resumo.receitaServicosCentavos },
   { linha: '   • Outras receitas', valorCentavos: resumo.receitaOutrosCentavos },
   { linha: '2. (-) Taxas de cartão', valorCentavos: resumo.taxasCartaoCentavos },
-  { linha: '3. (-) Cancelamentos e devoluções', valorCentavos: resumo.estornosCentavos },
+  { linha: '3. (-) Devoluções de venda', valorCentavos: resumo.estornosCentavos },
   { linha: '4. (=) Receita líquida financeira', valorCentavos: resumo.receitaLiquidaCentavos },
   { linha: '5. (-) Despesas / custos totais', valorCentavos: resumo.despesasCentavos },
   { linha: '(=) Lucro líquido do exercício', valorCentavos: resumo.lucroLiquidoCentavos },

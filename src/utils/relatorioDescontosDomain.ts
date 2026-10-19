@@ -1,4 +1,5 @@
 import { getDateInputInTimeZone } from './dateTime';
+import { isPedidoCancelado } from './preVendaDomain';
 import { isVendaDoUsuario, type VendaComVendedor } from './visibilidadeVendasDomain';
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
 
@@ -82,6 +83,8 @@ export const documentosComDesconto = (
   const resultados: DocumentoComDesconto[] = [];
 
   fontes.pedidos.forEach((doc) => {
+    // Venda cancelada nao concedeu desconto nenhum (cancelar so' remove -- 19/10/2026).
+    if (isPedidoCancelado(doc.status)) return;
     if (vendasVisiveisDeUsuarioId && !isVendaDoUsuario(doc as VendaComVendedor, vendasVisiveisDeUsuarioId)) return;
     const desconto: DescontoSnapshot | undefined = doc.descontoGeral;
     if (!desconto || !desconto.valorAplicadoCentavos) return;
@@ -100,6 +103,7 @@ export const documentosComDesconto = (
   });
 
   fontes.ordens.forEach((doc) => {
+    if (String(doc.status || '').trim() === 'Cancelada') return;
     const desconto: DescontoSnapshot | undefined = doc.desconto;
     if (!desconto || !desconto.valorAplicadoCentavos) return;
     const data = extrairDataDocumento(doc, 'dataSaida', 'dataEntrada');

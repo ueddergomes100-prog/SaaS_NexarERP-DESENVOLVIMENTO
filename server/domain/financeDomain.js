@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.transactionFeeCents = exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.pedeBancoDeDestino = exports.isSimplifiedChequePayment = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
-exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = void 0;
+exports.receitaDoConjuntoCentavos = exports.abateReceita = exports.contaComoReceita = exports.lancamentoDesfeito = exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = void 0;
 const dateTime_1 = require("./dateTime");
 const toCents = (value) => {
     if (typeof value === 'string') {
@@ -954,7 +954,8 @@ const parseComissaoPercentualInput = (valor) => {
     if (!limpo)
         return undefined;
     const numero = Number(limpo.replace(',', '.'));
-    return Number.isFinite(numero) ? numero : undefined;
+    // Comissao nunca negativa (19/10/2026): "-5" vira 0.
+    return Number.isFinite(numero) ? Math.max(0, numero) : undefined;
 };
 exports.parseComissaoPercentualInput = parseComissaoPercentualInput;
 const buildCommissionSnapshot = (args) => {
@@ -1261,3 +1262,32 @@ const isRevenueReversal = (transaction) => {
     return String(transaction.sourceType || '').startsWith('cancelamento_');
 };
 exports.isRevenueReversal = isRevenueReversal;
+/** Lancamento desfeito por cancelamento ou estorno (fica gravado, mas nao conta). */
+const lancamentoDesfeito = (t) => (t.estornada === true || ['Cancelada', 'Estornada'].includes(String(t.statusOperacional || '').trim()));
+exports.lancamentoDesfeito = lancamentoDesfeito;
+/** Entrada paga que e' receita de verdade (nao desfeita, nao credito de devolucao, nao estorno de devolucao). */
+const contaComoReceita = (t) => (t.tipo === 'entrada'
+    && t.status === 'Paga'
+    && !(0, exports.lancamentoDesfeito)(t)
+    && t.formaPagamento !== 'Crédito de Devolução'
+    && !exports.REVENUE_REVERSAL_CATEGORIES.includes(String(t.categoria || '').trim()));
+exports.contaComoReceita = contaComoReceita;
+/** Saida paga que abate receita: so' a devolucao de venda que ainda vale (estorno de cancelamento nao abate). */
+const abateReceita = (t) => (t.tipo === 'saida'
+    && t.status === 'Paga'
+    && !(0, exports.lancamentoDesfeito)(t)
+    && String(t.categoria || '').trim() === 'Devolução de Venda');
+exports.abateReceita = abateReceita;
+/** Receita de um conjunto de lancamentos (ja' recortado no periodo), em centavos. Nunca negativa. */
+const receitaDoConjuntoCentavos = (lista, valor = exports.transactionNetCents) => {
+    let receita = 0;
+    let abatido = 0;
+    lista.forEach((t) => {
+        if ((0, exports.contaComoReceita)(t))
+            receita += valor(t);
+        else if ((0, exports.abateReceita)(t))
+            abatido += valor(t);
+    });
+    return Math.max(0, receita - abatido);
+};
+exports.receitaDoConjuntoCentavos = receitaDoConjuntoCentavos;

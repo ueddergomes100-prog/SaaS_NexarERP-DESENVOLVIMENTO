@@ -21,8 +21,12 @@ const lancamentos: TransacaoFaturamento[] = [
   t({ valor: 200.1, categoria: 'Outros', formaPagamento: undefined, data: '2025-05-01' }),
   // Despesa real.
   t({ valor: 400, tipo: 'saida', categoria: 'Aluguel', data: '2025-04-05' }),
-  // Estorno de venda: abate receita, nao e' despesa.
-  t({ valor: 100, tipo: 'saida', categoria: 'Cancelamento de Venda', data: '2025-04-20' }),
+  // Venda cancelada (19/10/2026): a entrada fica marcada como estornada e o
+  // estorno do cancelamento nao conta -- os dois somem da receita.
+  t({ valor: 700, data: '2025-03-20', estornada: true, statusOperacional: 'Cancelada' }),
+  t({ valor: 700, tipo: 'saida', categoria: 'Cancelamento de Venda', data: '2025-04-20' }),
+  // Devolucao de venda: abate receita no mes dela, nao e' despesa.
+  t({ valor: 100, tipo: 'saida', categoria: 'Devolução de Venda', data: '2025-04-20' }),
   // Credito de devolucao nao e' receita.
   t({ valor: 999, formaPagamento: 'Crédito de Devolução', data: '2025-04-21' }),
   // Pendente e de outro ano ficam fora.
@@ -58,7 +62,7 @@ test('formas de pagamento: receita líquida, da maior para a menor, "Não inform
   ]);
 });
 
-test('balancete: estorno abate a receita do mês; ano anterior mostra os 12 meses e divide por 12', () => {
+test('balancete: devolução abate a receita do mês; ano anterior mostra os 12 meses e divide por 12', () => {
   const r = calcularFaturamentoAnual(lancamentos, 2025, hoje2026);
   assert.equal(r.mesesExibidos.length, 12);
   assert.equal(r.mesesTranscorridos, 12);
@@ -125,4 +129,50 @@ test('linhasDre segue a ordem da tela', () => {
   assert.equal(linhas[4], '2. (-) Taxas de cartão');
   assert.equal(linhas[6], '4. (=) Receita líquida financeira');
   assert.equal(linhas[8], '(=) Lucro líquido do exercício');
+});
+
+test('venda cancelada em outro mês/ano some da receita e nunca deixa nada negativo (19/10/2026)', () => {
+  const lista = [
+    // Vendida em dezembro, cancelada em janeiro do ano seguinte.
+    t({ valor: 500, data: '2025-12-20', estornada: true, statusOperacional: 'Cancelada' }),
+    t({ valor: 500, tipo: 'saida', categoria: 'Cancelamento de Venda', sourceType: 'cancelamento_pedido_venda', data: '2026-01-05' }),
+    // Parte paga com credito de devolucao, cancelada no mesmo dia (o caso do -R$ 5,00).
+    t({ valor: 5, formaPagamento: 'Crédito de Devolução', data: '2026-01-10', estornada: true, statusOperacional: 'Cancelada' }),
+    t({ valor: 5, tipo: 'saida', formaPagamento: 'Crédito de Devolução', categoria: 'Cancelamento de Venda', data: '2026-01-10' }),
+  ];
+  const ano2025 = calcularFaturamentoAnual(lista, 2025, hoje2026);
+  assert.equal(ano2025.receitaBrutaCentavos, 0);
+  assert.equal(ano2025.meses[11].receitaLiquidaCentavos, 0);
+  const ano2026 = calcularFaturamentoAnual(lista, 2026, hoje2026);
+  assert.equal(ano2026.estornosCentavos, 0, 'estorno de cancelamento não abate');
+  assert.equal(ano2026.receitaLiquidaCentavos, 0);
+  assert.equal(ano2026.meses[0].receitaBrutaCentavos, 0);
+  assert.equal(ano2026.meses[0].receitaLiquidaCentavos, 0);
+  ano2026.meses.forEach((m) => {
+    assert.ok(m.receitaBrutaCentavos >= 0 && m.taxasCentavos >= 0 && m.receitaLiquidaCentavos >= 0, m.nomeMes);
+  });
+});
+
+test('devolução maior que as vendas do mês: a receita do mês zera, não fica negativa', () => {
+  const lista = [
+    t({ valor: 100, data: '2026-03-05' }),
+    t({ valor: 300, tipo: 'saida', categoria: 'Devolução de Venda', data: '2026-03-06' }),
+  ];
+  const r = calcularFaturamentoAnual(lista, 2026, hoje2026);
+  assert.equal(r.meses[2].receitaBrutaCentavos, 0);
+  assert.equal(r.meses[2].receitaLiquidaCentavos, 0);
+  assert.equal(r.receitaLiquidaCentavos, 0);
+});
+
+test('devolução estornada sai das duas pontas', () => {
+  const lista = [
+    t({ valor: 400, data: '2026-03-05' }),
+    t({ valor: 150, tipo: 'saida', categoria: 'Devolução de Venda', data: '2026-03-06', estornada: true, statusOperacional: 'Estornada' }),
+    // Estorno da devolucao: entrada com a mesma categoria -- nao e' receita nova.
+    t({ valor: 150, tipo: 'entrada', categoria: 'Devolução de Venda', data: '2026-03-07' }),
+  ];
+  const r = calcularFaturamentoAnual(lista, 2026, hoje2026);
+  assert.equal(r.receitaBrutaCentavos, 40000);
+  assert.equal(r.estornosCentavos, 0);
+  assert.equal(r.receitaLiquidaCentavos, 40000);
 });

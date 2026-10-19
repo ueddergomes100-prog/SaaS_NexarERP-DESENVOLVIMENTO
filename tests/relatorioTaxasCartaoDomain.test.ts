@@ -63,3 +63,13 @@ test('sem pagamentos em cartão: vazio não quebra', () => {
   assert.equal(doc.secoes[0].linhas.length, 0);
   assert.equal(doc.indicadores.find((i) => i.rotulo === 'Taxa média geral')?.valor, '-');
 });
+
+test('venda cancelada não conta a taxa duas vezes: recebimento estornado, parcela cancelada e o estorno ficam fora (19/10/2026)', () => {
+  const lista = transacoesCartaoNoPeriodo([
+    { ...cartao('a', '2026-09-02', 'Visa', 10000, 250), tipo: 'entrada', status: 'Paga' },
+    { ...cartao('b', '2026-09-02', 'Visa', 10000, 250), tipo: 'entrada', status: 'Paga', estornada: true, statusOperacional: 'Cancelada' },
+    { ...cartao('c', '2026-09-03', 'Visa', 10000, 250), tipo: 'saida', status: 'Paga' },
+    { ...cartao('d', '2026-09-04', 'Visa', 10000, 250), tipo: 'entrada', status: 'Cancelada' },
+  ], '2026-09-01', '2026-09-30');
+  assert.deepEqual(lista.map((t) => t.id), ['a']);
+});

@@ -8,12 +8,20 @@ import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './rela
  * bandeira que mais pagou taxa para a que menos pagou. A taxa media e'
  * ponderada pelo valor bruto (taxa / bruto), por bandeira e no total.
  *
+ * 19/10/2026 (cancelar so' remove): venda cancelada nao entra -- o recebimento
+ * desfeito, a parcela cancelada e o lancamento de estorno (que copia o `cartao`)
+ * contavam a taxa de novo.
+ *
  * Regra pura: recebe as transacoes ja lidas e devolve o documento.
  */
 
 export interface TransacaoCartao {
   id: string;
   data?: string;
+  tipo?: string;
+  status?: string;
+  estornada?: boolean;
+  statusOperacional?: string;
   cartao?: {
     bandeira?: string;
     valorBrutoCentavos?: number;
@@ -30,8 +38,16 @@ export interface TotaisBandeira {
   liquidoCentavos: number;
 }
 
+/** Lancamento de cartao que ainda vale: entrada (estorno e' saida), nao cancelada, nao estornada. */
+const cartaoValendo = (t: TransacaoCartao): boolean => (
+  (t.tipo === undefined || t.tipo === 'entrada')
+  && t.status !== 'Cancelada'
+  && t.estornada !== true
+  && !['Cancelada', 'Estornada'].includes(String(t.statusOperacional || ''))
+);
+
 export const transacoesCartaoNoPeriodo = (transacoes: TransacaoCartao[], inicio: string, fim: string): TransacaoCartao[] => (
-  transacoes.filter((t) => Boolean(t.cartao) && Boolean(t.data) && (t.data as string) >= inicio && (t.data as string) <= fim)
+  transacoes.filter((t) => Boolean(t.cartao) && cartaoValendo(t) && Boolean(t.data) && (t.data as string) >= inicio && (t.data as string) <= fim)
 );
 
 export const totaisPorBandeira = (transacoes: TransacaoCartao[]): TotaisBandeira[] => {

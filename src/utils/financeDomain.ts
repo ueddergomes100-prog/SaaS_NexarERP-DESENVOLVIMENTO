@@ -1384,7 +1384,8 @@ export const parseComissaoPercentualInput = (valor: string): number | undefined 
   const limpo = valor.trim();
   if (!limpo) return undefined;
   const numero = Number(limpo.replace(',', '.'));
-  return Number.isFinite(numero) ? numero : undefined;
+  // Comissao nunca negativa (19/10/2026): "-5" vira 0.
+  return Number.isFinite(numero) ? Math.max(0, numero) : undefined;
 };
 
 export const buildCommissionSnapshot = (args: {
@@ -1780,4 +1781,60 @@ export const isRevenueReversal = (transaction: ReversibleTransaction): boolean =
 
   // Rede de seguranca pra estornos que venham sem categoria preenchida.
   return String(transaction.sourceType || '').startsWith('cancelamento_');
+};
+
+/*
+ * RECEITA NUNCA NEGATIVA (decisao do dono, 19/10/2026): "cancelar ou excluir nao
+ * pode negativar nada -- so' remove". Antes os paineis SUBTRAIAM o estorno do
+ * cancelamento no dia em que ele acontecia: venda de ontem cancelada hoje deixava
+ * a receita de hoje negativa, e a parte paga com credito de devolucao (que nunca
+ * entrou na receita) era abatida mesmo assim.
+ *
+ * Agora: lancamento desfeito (venda/OS cancelada, devolucao estornada) SOME da
+ * receita e o estorno do cancelamento nao conta. So' a devolucao de venda que
+ * ainda vale abate -- no dia dela --, e o total nunca fica abaixo de zero.
+ * Caixa e banco continuam mostrando o dinheiro que voltou ao cliente.
+ */
+
+export interface TransacaoDeReceita extends ReversibleTransaction, FinancialTransactionValue {
+  status?: string;
+  formaPagamento?: string;
+  estornada?: boolean;
+  statusOperacional?: string;
+}
+
+/** Lancamento desfeito por cancelamento ou estorno (fica gravado, mas nao conta). */
+export const lancamentoDesfeito = (t: TransacaoDeReceita): boolean => (
+  t.estornada === true || ['Cancelada', 'Estornada'].includes(String(t.statusOperacional || '').trim())
+);
+
+/** Entrada paga que e' receita de verdade (nao desfeita, nao credito de devolucao, nao estorno de devolucao). */
+export const contaComoReceita = (t: TransacaoDeReceita): boolean => (
+  t.tipo === 'entrada'
+  && t.status === 'Paga'
+  && !lancamentoDesfeito(t)
+  && t.formaPagamento !== 'Crédito de Devolução'
+  && !(REVENUE_REVERSAL_CATEGORIES as readonly string[]).includes(String(t.categoria || '').trim())
+);
+
+/** Saida paga que abate receita: so' a devolucao de venda que ainda vale (estorno de cancelamento nao abate). */
+export const abateReceita = (t: TransacaoDeReceita): boolean => (
+  t.tipo === 'saida'
+  && t.status === 'Paga'
+  && !lancamentoDesfeito(t)
+  && String(t.categoria || '').trim() === 'Devolução de Venda'
+);
+
+/** Receita de um conjunto de lancamentos (ja' recortado no periodo), em centavos. Nunca negativa. */
+export const receitaDoConjuntoCentavos = (
+  lista: TransacaoDeReceita[],
+  valor: (t: TransacaoDeReceita) => number = transactionNetCents,
+): number => {
+  let receita = 0;
+  let abatido = 0;
+  lista.forEach((t) => {
+    if (contaComoReceita(t)) receita += valor(t);
+    else if (abateReceita(t)) abatido += valor(t);
+  });
+  return Math.max(0, receita - abatido);
 };

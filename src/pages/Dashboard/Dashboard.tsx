@@ -62,7 +62,7 @@ import {
 } from '../../utils/dateTime';
 import { contaComoFaturamento, isPedidoAberto } from '../../utils/preVendaDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
-import { isRevenueReversal, transactionDueDateInput, transactionNetAmount } from '../../utils/financeDomain';
+import { contaComoReceita, fromCents, isRevenueReversal, receitaDoConjuntoCentavos, transactionDueDateInput, transactionNetAmount, type TransacaoDeReceita } from '../../utils/financeDomain';
 import { calcularProgressoMeta, faltaParaMeta, parseMetaFaturamentoMensal } from '../../utils/metaFaturamentoDomain';
 import './Dashboard.css';
 
@@ -488,12 +488,8 @@ const Dashboard: React.FC = () => {
     const pagasNoMes = transacoes.filter((t) => (
       t.status === 'Paga' && isWithinDateRange(transactionDate(t), currentMonthRange.start, currentMonthRange.end)
     ));
-    const estornos = pagasNoMes
-      .filter(isRevenueReversal)
-      .reduce((acc, t) => acc + transactionNetAmount(t), 0);
-    return pagasNoMes
-      .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
-      .reduce((acc, t) => acc + transactionNetAmount(t), 0) - estornos;
+    // Venda/OS cancelada some da receita; so' devolucao abate; nunca negativa (19/10/2026).
+    return fromCents(receitaDoConjuntoCentavos(pagasNoMes));
   }, [currentMonthRange, transacoes]);
 
   const metrics = useMemo(() => {
@@ -548,22 +544,14 @@ const Dashboard: React.FC = () => {
     const transacoesPagasMes = transacoes.filter((t) => (
       t.status === 'Paga' && isWithinDateRange(transactionDate(t), selectedPeriodRange.start, selectedPeriodRange.end)
     ));
-    // Estorno (OS/venda cancelada, devolucao) ANULA receita -- nao e' despesa.
-    // Antes, uma OS cancelada inflava as duas pontas ao mesmo tempo: a entrada
-    // original seguia somando na receita e o lancamento compensatorio entrava
-    // como despesa operacional. O saldo fechava, mas os dois numeros mentiam.
-    const estornosMes = transacoesPagasMes.filter(isRevenueReversal);
-    const totalEstornosMes = estornosMes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
-
-    const faturamentoMes = transacoesPagasMes
-      .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução')
-      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0) - totalEstornosMes;
-    const faturamentoHoje = transacoesPagasMes
-      .filter((t) => t.tipo === 'entrada' && t.formaPagamento !== 'Crédito de Devolução' && sameDay(transactionDate(t), hoje))
-      .reduce((acc, curr) => acc + transactionNetAmount(curr), 0)
-      - estornosMes
-        .filter((t) => sameDay(transactionDate(t), hoje))
-        .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
+    // Estorno (OS/venda cancelada, devolucao) nao e' despesa. Desde 19/10/2026
+    // (decisao do dono) venda/OS cancelada SOME da receita -- o estorno do
+    // cancelamento nao conta --, so' a devolucao abate, e a receita nunca fica
+    // negativa. Ver receitaDoConjuntoCentavos (financeDomain.ts).
+    const faturamentoMes = fromCents(receitaDoConjuntoCentavos(transacoesPagasMes));
+    const faturamentoHoje = fromCents(receitaDoConjuntoCentavos(
+      transacoesPagasMes.filter((t) => sameDay(transactionDate(t), hoje)),
+    ));
     const despesasMes = transacoesPagasMes
       .filter((t) => t.tipo === 'saida' && !isRevenueReversal(t))
       .reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
@@ -650,28 +638,28 @@ const Dashboard: React.FC = () => {
   }, [currentDate, estoque, orcamentos, osList, pedidos, selectedPeriodRange, transacoes]);
 
   const cashFlowData = useMemo(() => {
-    const buckets = new Map<string, { name: string; order: number; entradas: number; saidas: number; saldo: number }>();
+    const buckets = new Map<string, { name: string; order: number; entradas: number; saidas: number; saldo: number; lancamentos: TransacaoDeReceita[] }>();
     transacoes
       .filter((transaction) => transaction.status === 'Paga' && isWithinDateRange(transactionDate(transaction), selectedPeriodRange.start, selectedPeriodRange.end))
       .forEach((transaction) => {
         const date = transactionDate(transaction);
         if (!date) return;
         const bucket = periodBucket(date, dashboardPeriod);
-        const current = buckets.get(bucket.key) || { name: bucket.name, order: bucket.order, entradas: 0, saidas: 0, saldo: 0 };
-        // Mesmo criterio do bloco de metricas: estorno abate a entrada, nao
-        // engorda a saida (senao o grafico mostra pico de receita e de despesa
-        // no mesmo dia por causa de um cancelamento).
-        if (isRevenueReversal(transaction)) {
-          current.entradas -= transactionNetAmount(transaction);
-        } else if (transaction.tipo === 'entrada' && transaction.formaPagamento !== 'Crédito de Devolução') {
-          current.entradas += transactionNetAmount(transaction);
-        } else if (transaction.tipo === 'saida') {
+        const current = buckets.get(bucket.key) || { name: bucket.name, order: bucket.order, entradas: 0, saidas: 0, saldo: 0, lancamentos: [] };
+        // Mesmo criterio do bloco de metricas: estorno nao e' despesa, e as
+        // entradas de cada ponto sao a receita dele (nunca negativa).
+        current.lancamentos.push(transaction);
+        if (transaction.tipo === 'saida' && !isRevenueReversal(transaction)) {
           current.saidas += transactionNetAmount(transaction);
         }
-        current.saldo = current.entradas - current.saidas;
         buckets.set(bucket.key, current);
       });
-    return Array.from(buckets.values()).sort((a, b) => a.order - b.order);
+    return Array.from(buckets.values())
+      .map(({ lancamentos, ...ponto }) => {
+        const entradas = fromCents(receitaDoConjuntoCentavos(lancamentos));
+        return { ...ponto, entradas, saldo: entradas - ponto.saidas };
+      })
+      .sort((a, b) => a.order - b.order);
   }, [dashboardPeriod, selectedPeriodRange, transacoes]);
 
   const performanceData = useMemo(() => {
@@ -696,6 +684,8 @@ const Dashboard: React.FC = () => {
       if (!contaComoFaturamento(sale.status) || !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) || !date) return;
       ensureBucket(date).pedidos += 1;
     });
+    // Receita de cada ponto: venda/OS cancelada some, devolucao abate, nunca negativa.
+    const lancamentosPorPonto = new Map<ReturnType<typeof ensureBucket>, TransacaoDeReceita[]>();
     transacoes.forEach((transaction) => {
       const date = transactionDate(transaction);
       if (
@@ -703,16 +693,11 @@ const Dashboard: React.FC = () => {
         !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) ||
         !date
       ) return;
-
-      // Estorno abate a receita da curva de performance, em vez de ser
-      // ignorado -- senao o grafico continua mostrando o pico da venda que
-      // foi cancelada.
-      if (isRevenueReversal(transaction)) {
-        ensureBucket(date).receita -= transactionNetAmount(transaction);
-        return;
-      }
-      if (transaction.tipo !== 'entrada' || transaction.formaPagamento === 'Crédito de Devolução') return;
-      ensureBucket(date).receita += transactionNetAmount(transaction);
+      const ponto = ensureBucket(date);
+      lancamentosPorPonto.set(ponto, [...(lancamentosPorPonto.get(ponto) || []), transaction]);
+    });
+    lancamentosPorPonto.forEach((lancamentos, ponto) => {
+      ponto.receita = fromCents(receitaDoConjuntoCentavos(lancamentos));
     });
 
     return Array.from(buckets.values()).sort((a, b) => a.order - b.order);
@@ -737,9 +722,8 @@ const Dashboard: React.FC = () => {
     const map: Record<string, number> = {};
     transacoes
       .filter((t) => (
-        t.status === 'Paga' &&
-        t.tipo === 'entrada' &&
-        t.formaPagamento !== 'Crédito de Devolução' &&
+        // Venda/OS cancelada nao entra (19/10/2026): mesma regra da receita.
+        contaComoReceita(t) &&
         isWithinDateRange(transactionDate(t), selectedPeriodRange.start, selectedPeriodRange.end)
       ))
       .forEach((t) => {

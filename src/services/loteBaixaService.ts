@@ -162,6 +162,31 @@ export const devolverAosLotesNaTransacao = (
   return voltas;
 };
 
+/**
+ * Estorno de uma devolucao, ANTES das escritas: nenhum lote pode ficar negativo
+ * (19/10/2026 -- "cancelar nao pode negativar nada"). Se a mercadoria devolvida
+ * ja' saiu do lote de novo (venda ou ajuste), recusa dizendo o que fazer.
+ */
+export const conferirLotesDoEstornoNaTransacao = async (
+  transaction: Transaction,
+  db: Firestore,
+  lotesDevolvidos: LoteUsado[] | undefined,
+): Promise<void> => {
+  const porLote = new Map<string, { nome: string; quantidade: number }>();
+  (lotesDevolvidos || []).forEach((l) => {
+    const atual = porLote.get(l.loteId);
+    porLote.set(l.loteId, { nome: l.lote || atual?.nome || l.loteId, quantidade: (atual?.quantidade || 0) + Number(l.quantidade || 0) });
+  });
+  for (const [loteId, { nome, quantidade }] of porLote) {
+    const snap = await transaction.get(doc(db, 'estoque_lotes', loteId));
+    if (!snap.exists()) continue;
+    const saldo = Number(snap.data().quantidade || 0);
+    if (saldo < quantidade) {
+      throw new Error(`Não dá para estornar esta devolução: o lote ${nome} tem ${saldo} e o estorno tiraria ${quantidade}. A mercadoria devolvida já saiu desse lote (venda ou ajuste). Ajuste o estoque do lote antes de estornar.`);
+    }
+  }
+};
+
 /** Estorno de uma devolucao: retira de novo dos lotes que a devolucao tinha reposto. */
 export const estornarLotesDaDevolucaoNaTransacao = (transaction: Transaction, db: Firestore, lotesDevolvidos: LoteUsado[] | undefined): void => {
   (lotesDevolvidos || []).forEach((lote) => {

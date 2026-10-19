@@ -62,7 +62,7 @@ export const entradaComissaoDaVenda = (
   const seller = userMap[sellerIdValue];
   const snapshot = sale.comissao;
   const baseCents = Number(snapshot?.baseAtualCentavos ?? toCents((sale.itens || []).reduce((sum: number, item: any) => sum + Number(item.subtotal || 0), 0)));
-  const legacyPercentage = seller?.recebeComissaoPecas === true ? Number(seller.comissaoPercentualPecas || 0) : 0;
+  const legacyPercentage = seller?.recebeComissaoPecas === true ? Math.max(0, Number(seller.comissaoPercentualPecas || 0)) : 0;
   const historical = Boolean(snapshot?.regraVersion);
   const cancelledSale = sale.status === 'Cancelada';
   return {
@@ -99,8 +99,8 @@ export const entradaComissaoDaOS = (
   const servicesBase = (serviceOrder.servicos || []).reduce((sum: number, item: any) => sum + Number(item.preco || 0) * Number(item.quantidade || item.tempoHoras || 1), 0);
   const partsBase = (serviceOrder.pecas || []).reduce((sum: number, item: any) => sum + Number(item.preco || item.precoVenda || 0) * Number(item.quantidade || 1), 0);
   const baseCents = Number(snapshot?.baseAtualCentavos ?? toCents(servicesBase + partsBase));
-  const servicePercentage = mechanic?.recebeComissaoServicos === true ? Number(mechanic.comissaoPercentualServicos || 0) : 0;
-  const partsPercentage = mechanic?.recebeComissaoPecas === true ? Number(mechanic.comissaoPercentualPecas || 0) : 0;
+  const servicePercentage = mechanic?.recebeComissaoServicos === true ? Math.max(0, Number(mechanic.comissaoPercentualServicos || 0)) : 0;
+  const partsPercentage = mechanic?.recebeComissaoPecas === true ? Math.max(0, Number(mechanic.comissaoPercentualPecas || 0)) : 0;
   const legacyValueCents = Math.round(toCents(servicesBase) * (servicePercentage / 100)) + Math.round(toCents(partsBase) * (partsPercentage / 100));
   const historical = Boolean(snapshot?.regraVersion);
   const cancelledServiceOrder = serviceOrder.status === 'Cancelada';

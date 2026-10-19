@@ -247,7 +247,7 @@ const CondicionalForm: React.FC = () => {
 
         <div className="input-group">
           <label>Observação</label>
-          <input type="text" maxLength={OBSERVACAO_MAX} value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Opcional" style={campo} />
+          <input type="text" maxLength={OBSERVACAO_MAX} value={observacao} onChange={(e) => setObservacao(e.target.value)} title="Opcional" style={campo} />
         </div>
       </div>
 

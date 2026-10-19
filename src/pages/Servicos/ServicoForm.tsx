@@ -189,7 +189,7 @@ const ServicoForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Comissão (%)</label>
-              <input type="number" name="comissaoPercentual" step="0.01" min="0" placeholder="Sem comissão própria" value={formData.comissaoPercentual} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="number" name="comissaoPercentual" step="0.01" min="0" title="Sem comissão própria" value={formData.comissaoPercentual} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, a OS usa a comissão do mecânico ou do sistema.</span>
             </div>
           </div>

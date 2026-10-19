@@ -261,7 +261,7 @@ const FrotaList: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Placa *</label>
-                  <input type="text" value={form.placa} onChange={(e) => setForm({ ...form, placa: e.target.value.toUpperCase() })} placeholder="ABC-1D23" maxLength={8} style={{ ...campoStyle, textTransform: 'uppercase', fontFamily: 'monospace' }} />
+                  <input type="text" value={form.placa} onChange={(e) => setForm({ ...form, placa: e.target.value.toUpperCase() })} title="ABC-1D23" maxLength={8} style={{ ...campoStyle, textTransform: 'uppercase', fontFamily: 'monospace' }} />
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Modelo *</label>
@@ -299,7 +299,7 @@ const FrotaList: React.FC = () => {
               </div>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={rotuloStyle}>Observação</label>
-                <textarea value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} rows={2} placeholder="Opcional" style={{ ...campoStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+                <textarea value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} rows={2} title="Opcional" style={{ ...campoStyle, resize: 'vertical', fontFamily: 'inherit' }} />
               </div>
             </div>
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

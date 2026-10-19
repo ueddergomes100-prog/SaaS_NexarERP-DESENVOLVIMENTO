@@ -242,7 +242,7 @@ const FilialFormModal: React.FC<FilialFormModalProps> = ({ aberto, filial, proxi
             <div style={estiloSecao}>Identificação</div>
             <div style={{ display: 'grid', gridTemplateColumns: '90px minmax(0, 1fr)', gap: '12px' }}>
               {campo('Código', 'codigo', { inputMode: 'numeric', maxLength: 3, required: true })}
-              {campo('Nome resumido', 'nome', { required: true, maxLength: 40, placeholder: 'Como aparece no seletor do topo' })}
+              {campo('Nome resumido', 'nome', { required: true, maxLength: 40, })}
             </div>
 
             {/* Toda filial tem CNPJ proprio (decisao de 13/10/2026): sem a

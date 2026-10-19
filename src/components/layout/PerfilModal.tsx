@@ -122,7 +122,7 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData
                 className="input-field" 
                 value={nome}
                 onChange={(e) => setNome(aplicarCaixaAltaCadastro(e.target, e.target.value))}
-                placeholder="Como você quer ser chamado?"
+                title="Como você quer ser chamado?"
                 required
                 style={{ width: '100%', paddingLeft: '38px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 10px 10px 38px', color: 'var(--text-primary)', outline: 'none' }}
               />

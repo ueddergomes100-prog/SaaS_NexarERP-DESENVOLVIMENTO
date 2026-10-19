@@ -409,7 +409,7 @@ const UsuarioForm: React.FC = () => {
               <label>Senha de Acesso *</label>
               <input 
                 type="password" 
-                placeholder="Mínimo 6 caracteres"
+                title="Mínimo 6 caracteres"
                 value={formData.senha}
                 onChange={(e) => setFormData({...formData, senha: e.target.value})}
                 required
@@ -426,7 +426,7 @@ const UsuarioForm: React.FC = () => {
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="password"
-                placeholder="Nova senha (mín. 6 caracteres)"
+                title="Nova senha (mín. 6 caracteres)"
                 value={novaSenhaAcesso}
                 onChange={(e) => setNovaSenhaAcesso(e.target.value)}
                 minLength={6}
@@ -476,7 +476,7 @@ const UsuarioForm: React.FC = () => {
               <input
                 type="password"
                 inputMode="numeric"
-                placeholder="Senha"
+                title="Senha"
                 value={pinVendedor}
                 onChange={(e) => setPinVendedor(e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_MAX_DIGITOS))}
                 style={{ flex: 1 }}
@@ -531,7 +531,7 @@ const UsuarioForm: React.FC = () => {
               <label>CNH</label>
               <input
                 type="text"
-                placeholder="Número da habilitação"
+                title="Número da habilitação"
                 value={dadosMotorista.cnh}
                 onChange={(e) => setDadosMotorista({ ...dadosMotorista, cnh: e.target.value })}
                 style={{ width: '100%' }}

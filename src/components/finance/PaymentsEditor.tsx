@@ -647,7 +647,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                       disabled={disabled}
                       id={`${idPrefix}-authorization-${payment.id}`}
                       onChange={(event) => onUpdatePayment(payment.id, { autorizacao: event.target.value })}
-                      placeholder="Opcional"
+                      title="Opcional"
                       value={payment.autorizacao}
                     />
                   </div>

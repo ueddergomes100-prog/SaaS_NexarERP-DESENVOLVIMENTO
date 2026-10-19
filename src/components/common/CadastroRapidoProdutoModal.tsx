@@ -307,21 +307,21 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
                 </select>
                 <input
                   type="text"
-                  placeholder="Fator"
+                  title="Fator"
                   value={novaEmbalagem.fatorConversao}
                   onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, fatorConversao: e.target.value }))}
                   style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
                 />
                 <input
                   type="text"
-                  placeholder="Preço venda"
+                  title="Preço venda"
                   value={novaEmbalagem.precoVenda}
                   onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, precoVenda: e.target.value }))}
                   style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
                 />
                 <input
                   type="text"
-                  placeholder="Cód. barras"
+                  title="Cód. barras"
                   value={novaEmbalagem.codigoBarras}
                   onChange={(e) => setNovaEmbalagem((atual) => ({ ...atual, codigoBarras: e.target.value }))}
                   style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}

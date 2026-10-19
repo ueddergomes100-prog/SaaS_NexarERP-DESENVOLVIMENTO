@@ -66,7 +66,7 @@ const CabecalhoDaNota: React.FC<CabecalhoDaNotaProps> = ({
       </div>
       <div className="input-group">
         <label style={campoLabelStyle}>Observação</label>
-        <input type="text" value={observacao} onChange={(e) => onObservacao(e.target.value)} placeholder="Opcional — aparece no histórico desta entrada" style={campoInputStyle} maxLength={300} />
+        <input type="text" value={observacao} onChange={(e) => onObservacao(e.target.value)} title="Opcional — aparece no histórico desta entrada" style={campoInputStyle} maxLength={300} />
       </div>
     </div>
 

@@ -1633,7 +1633,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               <input
                 type="text"
                 name="inscricaoEstadual"
-                placeholder="Isento, se aplicável"
+                title="Isento, se aplicável"
                 value={formData.inscricaoEstadual}
                 onChange={handleChange}
                 disabled={!isEditingMode}
@@ -2021,7 +2021,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
-                    placeholder="Nova categoria de receita..."
+                    title="Nova categoria de receita..."
                     value={novaReceitaInput}
                     onChange={(e) => setNovaReceitaInput(e.target.value)}
                     disabled={!isEditingMode}
@@ -2055,7 +2055,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
-                    placeholder="Nova categoria de despesa..."
+                    title="Nova categoria de despesa..."
                     value={novaDespesaInput}
                     onChange={(e) => setNovaDespesaInput(e.target.value)}
                     disabled={!isEditingMode}
@@ -2565,7 +2565,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <label style={rotulo}>Prazo para devolução de venda (dias)</label>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                    <input type="number" min={1} max={3650} inputMode="numeric" value={pv.prazoDevolucaoDias} onChange={(e) => mudar('prazoDevolucaoDias', e.target.value)} disabled={!isEditingMode} placeholder="Sem prazo" style={campo} />
+                    <input type="number" min={1} max={3650} inputMode="numeric" value={pv.prazoDevolucaoDias} onChange={(e) => mudar('prazoDevolucaoDias', e.target.value)} disabled={!isEditingMode} title="Sem prazo" style={campo} />
                     <select value={pv.acaoDevolucao} onChange={(e) => mudar('acaoDevolucao', e.target.value)} disabled={!isEditingMode || !pv.prazoDevolucaoDias.trim()} style={campo}>
                       <option value="avisar">Depois do prazo: avisar</option>
                       <option value="bloquear">Depois do prazo: bloquear</option>
@@ -2583,7 +2583,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 260px))', gap: '12px' }}>
                       <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <span style={rotulo}>Dias de atraso para bloquear</span>
-                        <input type="number" min={0} inputMode="numeric" value={pv.diasAtraso} onChange={(e) => mudar('diasAtraso', e.target.value)} disabled={!isEditingMode} placeholder="0 = qualquer vencido" style={campo} />
+                        <input type="number" min={0} inputMode="numeric" value={pv.diasAtraso} onChange={(e) => mudar('diasAtraso', e.target.value)} disabled={!isEditingMode} title="0 = qualquer vencido" style={campo} />
                       </label>
                       <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <span style={rotulo}>Carência (dias de tolerância)</span>
@@ -2893,7 +2893,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder="Sem meta"
+                    title="Sem meta"
                     value={formData.metaFaturamentoMensal}
                     onChange={(e) => setFormData({ ...formData, metaFaturamentoMensal: e.target.value })}
                     disabled={!isEditingMode}
@@ -3107,7 +3107,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                           min="0"
                           max={formData[key].tipo === 'percentual' ? 100 : undefined}
                           step="0.01"
-                          placeholder="Sem limite"
+                          title="Sem limite"
                           value={formData[key].valor}
                           onChange={(e) => setFormData({ ...formData, [key]: { ...formData[key], valor: e.target.value } })}
                           disabled={!isEditingMode}
@@ -3547,7 +3547,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       <input
                         type={mostrarSpedyApiKey ? 'text' : 'password'}
                         name="spedyApiKey"
-                        placeholder="Insira a chave obtida no painel Spedy"
+                        title="Insira a chave obtida no painel Spedy"
                         value={formData.spedyApiKey || ''}
                         onChange={handleChange}
                         disabled={!isEditingMode || semAcessoAChaveSpedy}
@@ -3594,11 +3594,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Usuário (normalmente o próprio e-mail)</label>
-                        <input type="text" placeholder={formData.email ? `Vazio = ${formData.email}` : undefined} value={smtp.usuario} onChange={(e) => setSmtp({ ...smtp, usuario: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" title={formData.email ? `Vazio = ${formData.email}` : undefined} value={smtp.usuario} onChange={(e) => setSmtp({ ...smtp, usuario: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                       <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Senha do e-mail</label>
-                        <input type="password" autoComplete="new-password" placeholder={smtpSenhaJaSalva ? '•••••••• (já salva — deixe em branco para manter)' : 'Senha (ou senha de aplicativo)'} value={smtp.senha} onChange={(e) => setSmtp({ ...smtp, senha: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="password" autoComplete="new-password" title={smtpSenhaJaSalva ? 'Senha já salva — deixe em branco para manter' : 'Senha ou senha de aplicativo'} value={smtp.senha} onChange={(e) => setSmtp({ ...smtp, senha: e.target.value })} disabled={!isEditingMode || semAcessoAChaveSpedy} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        {smtpSenhaJaSalva && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Senha já salva. Deixe em branco para manter.</span>}
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -3646,8 +3647,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                         <option value="production">Produção (nota fiscal real)</option>
                       </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
-                        <input type="text" placeholder="Série" value={numeracaoNfe.serie} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
-                        <input type="number" min="1" placeholder="Próximo número" value={numeracaoNfe.proximoNumero} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" title="Série" value={numeracaoNfe.serie} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="number" min="1" title="Próximo número" value={numeracaoNfe.proximoNumero} onChange={(e) => setNumeracaoNfe(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                     </div>
 
@@ -3659,12 +3660,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                         <option value="production">Produção (nota fiscal real)</option>
                       </select>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
-                        <input type="text" placeholder="Série" value={numeracaoNfce.serie} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
-                        <input type="number" min="1" placeholder="Número atual" value={numeracaoNfce.numeroAtual} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, numeroAtual: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" title="Série" value={numeracaoNfce.serie} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="number" min="1" title="Número atual" value={numeracaoNfce.numeroAtual} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, numeroAtual: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <input type="text" placeholder="CSC (Código de Segurança do Contribuinte)" value={numeracaoNfce.csc} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, csc: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
-                        <input type="text" placeholder="Id do CSC" value={numeracaoNfce.cscId} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, cscId: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" title="CSC (Código de Segurança do Contribuinte)" value={numeracaoNfce.csc} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, csc: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" title="Id do CSC" value={numeracaoNfce.cscId} onChange={(e) => setNumeracaoNfce(prev => ({ ...prev, cscId: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                       <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>CSC e Id do CSC vêm do painel da Sefaz do seu estado -- necessários pra gerar o QR Code do cupom.</p>
                     </div>
@@ -3672,8 +3673,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>NFS-e (Serviço)</label>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
-                        <input type="text" placeholder="Série" value={numeracaoNfse.serie} onChange={(e) => setNumeracaoNfse(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
-                        <input type="number" min="1" placeholder="Próximo número" value={numeracaoNfse.proximoNumero} onChange={(e) => setNumeracaoNfse(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="text" title="Série" value={numeracaoNfse.serie} onChange={(e) => setNumeracaoNfse(prev => ({ ...prev, serie: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
+                        <input type="number" min="1" title="Próximo número" value={numeracaoNfse.proximoNumero} onChange={(e) => setNumeracaoNfse(prev => ({ ...prev, proximoNumero: e.target.value }))} disabled={!isEditingMode} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }} />
                       </div>
                     </div>
 
@@ -3867,7 +3868,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                               type="number"
                               min="0"
                               max="100"
-                              placeholder="Usa o padrão do sistema"
+                              title="Usa o padrão do sistema"
                               value={comissaoPercentualServicos}
                               onChange={(e) => setComissaoPercentualServicos(e.target.value)}
                               style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
@@ -3897,7 +3898,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                               type="number"
                               min="0"
                               max="100"
-                              placeholder="Usa o padrão do sistema"
+                              title="Usa o padrão do sistema"
                               value={comissaoPercentualPecas}
                               onChange={(e) => setComissaoPercentualPecas(e.target.value)}
                               style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}

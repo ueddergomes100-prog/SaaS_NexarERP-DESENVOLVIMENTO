@@ -681,7 +681,7 @@ const VendedoresList: React.FC = () => {
                 <input
                   type="password"
                   inputMode="numeric"
-                  placeholder={editando ? 'Deixe vazio para manter' : 'Senha'}
+                  title={editando ? 'Deixe vazio para manter' : 'Senha'}
                   value={form.pin}
                   onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_MAX_DIGITOS) })}
                   style={{ ...inputStyle, fontSize: '18px', letterSpacing: '6px', fontWeight: 700 }}
@@ -797,7 +797,7 @@ const VendedoresList: React.FC = () => {
                         type="number"
                         min="0"
                         max="100"
-                        placeholder="Usa o padrão do sistema"
+                        title="Usa o padrão do sistema"
                         value={form.comissaoPercentualPecas}
                         onChange={(e) => setForm({ ...form, comissaoPercentualPecas: e.target.value })}
                         style={{ ...inputStyle, width: '200px' }}
@@ -820,7 +820,7 @@ const VendedoresList: React.FC = () => {
                         type="number"
                         min="0"
                         max="100"
-                        placeholder="Usa o padrão do sistema"
+                        title="Usa o padrão do sistema"
                         value={form.comissaoPercentualServicos}
                         onChange={(e) => setForm({ ...form, comissaoPercentualServicos: e.target.value })}
                         style={{ ...inputStyle, width: '200px' }}

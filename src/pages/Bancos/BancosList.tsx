@@ -675,7 +675,7 @@ const BancosList: React.FC = () => {
                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Código do cliente / beneficiário (opcional)</label>
                         <input
                           type="text"
-                          placeholder="Vazio = conta + dígito"
+                          title="Vazio = conta + dígito"
                           value={modalForm.boletoCodigoCliente}
                           onChange={(e) => setModalForm({ ...modalForm, boletoCodigoCliente: e.target.value.replace(/\D/g, '').slice(0, 7) })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
@@ -686,7 +686,7 @@ const BancosList: React.FC = () => {
                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>CNPJ do cedente</label>
                         <input
                           type="text"
-                          placeholder="Só números"
+                          title="Só números"
                           value={modalForm.boletoCnpjCedente}
                           onChange={(e) => setModalForm({ ...modalForm, boletoCnpjCedente: e.target.value })}
                           style={{ width: '100%', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}

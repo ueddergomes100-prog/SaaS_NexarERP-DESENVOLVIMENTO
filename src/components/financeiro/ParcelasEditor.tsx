@@ -124,7 +124,7 @@ const ParcelasEditor: React.FC<ParcelasEditorProps> = ({ parcelas, onParcelas, t
           </div>
           <div className="input-group" style={{ width: '170px' }}>
             <label style={campoLabelStyle}>1º nº do cheque</label>
-            <input type="text" value={primeiroCheque} onChange={(e) => setPrimeiroCheque(e.target.value)} placeholder="Numera em sequência" style={campoInputStyle} />
+            <input type="text" value={primeiroCheque} onChange={(e) => setPrimeiroCheque(e.target.value)} title="Numera em sequência" style={campoInputStyle} />
           </div>
           <button type="button" className="btn-secondary" onClick={() => { onParcelas(aplicarChequesNasParcelas(parcelas, bancoDeTodos, primeiroCheque)); onAceitar(false); }} style={{ fontSize: '12px' }}>Aplicar a todos os cheques</button>
           <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>O cheque só sai do banco quando você confirma a compensação em Financeiro › Cheques › Emitidos.</span>

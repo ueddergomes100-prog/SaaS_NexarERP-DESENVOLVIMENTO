@@ -513,7 +513,7 @@ const ConferenciaForm: React.FC = () => {
                             ref={(campo) => { manualRefs.current[item.produtoId] = campo; }}
                             type="number"
                             min={1}
-                            placeholder="Qtd"
+                            title="Qtd"
                             value={manualInputs[item.produtoId] || ''}
                             onChange={(e) => setManualInputs((prev) => ({ ...prev, [item.produtoId]: e.target.value }))}
                             onKeyDown={(e) => {
@@ -561,7 +561,7 @@ const ConferenciaForm: React.FC = () => {
             // Ctrl+Enter fecha a conferencia sem sair do teclado (Enter sozinho quebra linha).
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !isClosing) { e.preventDefault(); void handleFecharConferencia(); } }}
             rows={2}
-            placeholder="Alguma observação sobre esta conferência (opcional)..."
+            title="Alguma observação sobre esta conferência (opcional)..."
             style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', resize: 'vertical' }}
           />
         </div>

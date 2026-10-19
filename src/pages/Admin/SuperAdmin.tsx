@@ -407,7 +407,6 @@ const SuperAdmin: React.FC = () => {
         title: 'Confirme o nome da empresa',
         input: 'text',
         inputLabel: `Digite o nome da empresa para confirmar: ${tenantName}`,
-        inputPlaceholder: tenantName,
         icon: 'error',
         showCancelButton: true,
         confirmButtonColor: '#ef4444',
@@ -475,7 +474,6 @@ const SuperAdmin: React.FC = () => {
       title: 'Aviso Global',
       input: 'textarea',
       inputLabel: 'Mensagem (Deixe em branco para remover o aviso atual)',
-      inputPlaceholder: 'Escreva o aviso que todas as empresas vão ver',
       showCancelButton: true,
       confirmButtonColor: '#f59e0b',
       confirmButtonText: 'Publicar',
@@ -770,7 +768,7 @@ const SuperAdmin: React.FC = () => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="password"
-                    placeholder={spedyMasterKeyStatus?.sandboxConfigured ? 'Já configurada — cole uma nova pra trocar' : 'Cole a chave mestra de sandbox'}
+                    title={spedyMasterKeyStatus?.sandboxConfigured ? 'Já configurada — cole uma nova pra trocar' : 'Cole a chave mestra de sandbox'}
                     value={spedyMasterKeySandbox}
                     onChange={(e) => setSpedyMasterKeySandbox(e.target.value)}
                     style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
@@ -787,7 +785,7 @@ const SuperAdmin: React.FC = () => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="password"
-                    placeholder={spedyMasterKeyStatus?.productionConfigured ? 'Já configurada — cole uma nova pra trocar' : 'Cole a chave mestra de produção'}
+                    title={spedyMasterKeyStatus?.productionConfigured ? 'Já configurada — cole uma nova pra trocar' : 'Cole a chave mestra de produção'}
                     value={spedyMasterKeyProducao}
                     onChange={(e) => setSpedyMasterKeyProducao(e.target.value)}
                     style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}

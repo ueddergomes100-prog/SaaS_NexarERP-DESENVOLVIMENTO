@@ -129,7 +129,7 @@ const VendedorItemPickerTroca: React.FC<Props> = ({ produtos, itens, onItensChan
           value={motivoDescricao}
           maxLength={DESCRICAO_MOTIVO_MAX}
           onChange={(e) => setMotivoDescricao(e.target.value)}
-          placeholder="Descreva o motivo"
+          title="Descreva o motivo"
           style={campoBase}
         />
       )}

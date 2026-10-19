@@ -277,7 +277,7 @@ const FornecedorForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Inscrição Estadual / C.I.</label>
-              <input type="text" name="identidade" placeholder="Isento, se não houver" value={formData.identidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="identidade" title="Isento, se não houver" value={formData.identidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
@@ -354,7 +354,7 @@ const FornecedorForm: React.FC = () => {
 
           <div className="input-group">
             <label>Observações</label>
-            <textarea name="observacoes" placeholder="Anotações gerais sobre este fornecedor" value={formData.observacoes} onChange={handleChange} rows={3} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
+            <textarea name="observacoes" title="Anotações gerais sobre este fornecedor" value={formData.observacoes} onChange={handleChange} rows={3} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
           </div>
 
         </div>

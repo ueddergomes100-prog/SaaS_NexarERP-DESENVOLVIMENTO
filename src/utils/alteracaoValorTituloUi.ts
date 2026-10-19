@@ -60,8 +60,8 @@ export const pedirNovoValorDaParcela = async (args: {
       <input id="alterar-valor-novo" type="text" inputmode="decimal" class="swal2-input" value="${(args.atualCentavos / 100).toFixed(2).replace('.', ',')}" style="${ESTILO_CAMPO}" />
       <div id="alterar-valor-diferenca" style="${ESTILO_AJUDA}"></div>
       <label for="alterar-valor-motivo" style="${ESTILO_ROTULO}">Motivo da alteração</label>
-      <textarea id="alterar-valor-motivo" class="swal2-textarea" maxlength="${MOTIVO_ALTERACAO_MAXIMO}" placeholder="Escreva por que o valor desta parcela muda" style="${ESTILO_CAMPO}"></textarea>
-      <div style="${ESTILO_AJUDA}">O motivo, quem alterou e o valor de antes ficam gravados na parcela e no log do sistema.</div>`,
+      <textarea id="alterar-valor-motivo" class="swal2-textarea" maxlength="${MOTIVO_ALTERACAO_MAXIMO}" style="${ESTILO_CAMPO}"></textarea>
+      <div style="${ESTILO_AJUDA}">O motivo, quem alterou e o valor de antes ficam gravados na parcela.</div>`,
     focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: 'Alterar valor',

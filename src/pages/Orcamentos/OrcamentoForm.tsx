@@ -1084,7 +1084,7 @@ const OrcamentoForm: React.FC = () => {
                       type="text"
                       value={extras.condicaoDetalhe}
                       maxLength={80}
-                      placeholder="Parcelas ou prazos combinados"
+                      title="Parcelas ou prazos combinados"
                       onChange={(e) => mudarExtras({ condicaoDetalhe: e.target.value })}
                     />
                   </div>
@@ -1122,7 +1122,7 @@ const OrcamentoForm: React.FC = () => {
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Serviço</label>
                   <input
                     type="text"
-                    placeholder="Nome do Serviço..."
+                    title="Nome do Serviço..."
                     value={servicoNomeInput}
                     ref={servicoNomeInputRef}
                     onChange={(e) => { setServicoNomeInput(aplicarCaixaAltaCadastro(e.target, e.target.value)); setIsServicoDropdownOpen(true); }}

@@ -211,7 +211,7 @@ const TransferenciaForm: React.FC = () => {
             onChange={setBusca}
             products={comEstoque}
             onSelect={adicionar}
-            placeholder="Nome, código ou código de barras (# lista tudo)"
+            placeholder="Buscar produto por nome, código ou código de barras"
             ariaLabel="Produto para transferir"
             renderItem={(p) => (
               <>
@@ -264,7 +264,7 @@ const TransferenciaForm: React.FC = () => {
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Observação</span>
-          <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} maxLength={500} placeholder="Opcional" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
+          <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} maxLength={500} title="Opcional" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} />
         </label>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

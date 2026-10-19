@@ -570,7 +570,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Observação (opcional)</label>
                   <input
                     type="text"
-                    placeholder="Detalhes adicionais..."
+                    title="Detalhes adicionais..."
                     value={observacao}
                     onChange={e => setObservacao(aplicarCaixaAltaCadastro(e.target, e.target.value))}
                     style={{ width: '100%', padding: '10px 12px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}

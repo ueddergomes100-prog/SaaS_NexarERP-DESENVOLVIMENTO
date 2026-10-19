@@ -6,9 +6,10 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import ClientAutocomplete from '../common/ClientAutocomplete';
 import ParcelasEditor from '../financeiro/ParcelasEditor';
+import NovaCategoriaInline from './NovaCategoriaInline';
 import { showError } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents, toCents } from '../../utils/financeDomain';
 import { dividirEmParcelas } from '../../utils/pagamentoEntradaDomain';
 import { avisoDeSoma } from '../../utils/despesaParceladaDomain';
@@ -31,7 +32,13 @@ import { editarContaAReceber, lancarContaAReceber } from '../../services/baixaFi
  * Editando, a mesma janela mexe numa parcela so': descricao, categoria, forma
  * prevista, vencimento, documento, observacao e quem paga. O valor muda pelo
  * "Alterar valor" (pede motivo).
+ *
+ * Conta nova vence em 30 dias (pedido do dono); a categoria pode ser criada ali
+ * mesmo (NovaCategoriaInline). Sem texto dentro dos campos (decisao do dono).
  */
+
+/** Vencimento sugerido de uma conta nova: daqui a 30 dias. */
+const PRAZO_PADRAO_DIAS = 30;
 
 export interface ContaParaEditar {
   id: string;
@@ -56,6 +63,8 @@ interface Props {
   editando?: ContaParaEditar | null;
   onFechar: () => void;
   onSalvo: (mensagem: string) => void;
+  /** Categoria criada na janela: a tela atualiza o plano de contas que ela guarda. */
+  onCategoriasAtualizadas?: (lista: string[]) => void;
 }
 
 interface Cadastro {
@@ -81,7 +90,7 @@ const opcional = <span style={{ color: 'var(--text-muted)' }}>(opcional)</span>;
 const reais = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const numeroDoCampo = (v: string) => Number(String(v).replace(/\./g, '').replace(',', '.')) || 0;
 
-const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias, editando = null, onFechar, onSalvo }) => {
+const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias, editando = null, onFechar, onSalvo, onCategoriasAtualizadas }) => {
   const { items: clientes } = useTenantCollection<Cadastro>('clientes', tenantId, { enabled: aberto });
   const { items: fornecedores } = useTenantCollection<Cadastro>('fornecedores', tenantId, { enabled: aberto });
   const fornecedoresAtivos = useMemo(() => fornecedores.filter((f) => f.ativo !== false), [fornecedores]);
@@ -92,7 +101,7 @@ const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias
   const [descricao, setDescricao] = useState('');
   const [categoria, setCategoria] = useState('');
   const [valor, setValor] = useState('');
-  const [vencimento, setVencimento] = useState(getDateInputInTimeZone());
+  const [vencimento, setVencimento] = useState(() => addDaysToDateInput(getDateInputInTimeZone(), PRAZO_PADRAO_DIAS));
   const [forma, setForma] = useState<string>('Boleto');
   const [parcelar, setParcelar] = useState(false);
   const [parcelas, setParcelas] = useState<ParcelaComCheque[]>([]);
@@ -133,7 +142,7 @@ const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias
       setDescricao('');
       setCategoria(categorias[0] || '');
       setValor('');
-      setVencimento(getDateInputInTimeZone());
+      setVencimento(addDaysToDateInput(getDateInputInTimeZone(), PRAZO_PADRAO_DIAS));
       setForma('Boleto');
       setDocumento('');
       setObservacao('');
@@ -312,7 +321,6 @@ const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias
               value={descricao}
               maxLength={200}
               onChange={(e) => setDescricao(aplicarCaixaAltaCadastro(e.target, e.target.value))}
-              placeholder="Do que é este valor a receber"
               style={{ ...campo, textTransform: 'uppercase' }}
               required
             />
@@ -328,7 +336,7 @@ const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias
                 value={valor}
                 onChange={(e) => { setValor(e.target.value.replace(/[^0-9,.]/g, '')); setParcelasAceitas(false); }}
                 disabled={Boolean(editando)}
-                title={editando ? 'Para mudar o valor, use "Alterar valor" na conta (fica registrado com o motivo).' : undefined}
+                title={editando ? 'Para mudar o valor, use "Alterar valor" na conta.' : undefined}
                 style={{ ...campo, fontWeight: 600, fontSize: '16px', opacity: editando ? 0.7 : 1 }}
                 required={!editando}
               />
@@ -346,7 +354,7 @@ const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias
           </div>
           {editando && (
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-8px' }}>
-              O valor não muda aqui: use "Alterar valor" na conta (pede o motivo e fica no log).
+              O valor não muda aqui: para mudar, use "Alterar valor" na conta.
             </div>
           )}
 
@@ -357,10 +365,18 @@ const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias
                 {categoria && !categorias.some((c) => c.toUpperCase() === categoria.toUpperCase()) && <option value={categoria}>{categoria.toUpperCase()}</option>}
                 {categorias.map((c) => <option key={c} value={c}>{c.toUpperCase()}</option>)}
               </select>
+              <NovaCategoriaInline
+                tipo="receita"
+                tenantId={tenantId}
+                onCriada={(nome, lista) => {
+                  onCategoriasAtualizadas?.(lista);
+                  setCategoria(lista.find((c) => c.toUpperCase() === nome.toUpperCase()) || nome);
+                }}
+              />
             </div>
             <div style={grupo}>
               <label style={rotulo} htmlFor="lcr-documento">Nº do documento {opcional}</label>
-              <input id="lcr-documento" type="text" value={documento} maxLength={60} onChange={(e) => setDocumento(e.target.value)} placeholder="Número de referência" style={campo} />
+              <input id="lcr-documento" type="text" value={documento} maxLength={60} onChange={(e) => setDocumento(e.target.value)} style={campo} />
             </div>
           </div>
 
@@ -388,7 +404,7 @@ const LancarContaReceberModal: React.FC<Props> = ({ aberto, tenantId, categorias
 
           <div style={grupo}>
             <label style={rotulo} htmlFor="lcr-observacao">Observação {opcional}</label>
-            <textarea id="lcr-observacao" value={observacao} maxLength={500} rows={2} onChange={(e) => setObservacao(e.target.value)} placeholder="Detalhes da cobrança" style={{ ...campo, resize: 'vertical' }} />
+            <textarea id="lcr-observacao" value={observacao} maxLength={500} rows={2} onChange={(e) => setObservacao(e.target.value)} style={{ ...campo, resize: 'vertical' }} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>

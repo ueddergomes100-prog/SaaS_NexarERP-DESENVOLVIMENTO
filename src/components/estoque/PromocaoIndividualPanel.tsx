@@ -168,7 +168,7 @@ const PromocaoIndividualPanel: React.FC<Props> = ({ tenantId, uid, produto }) =>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
           Quantidade em promoção
-          <input inputMode="numeric" value={form.quota} onChange={(e) => setForm({ ...form, quota: e.target.value })} placeholder="Sem limite" style={campo} />
+          <input inputMode="numeric" value={form.quota} onChange={(e) => setForm({ ...form, quota: e.target.value })} title="Sem limite" style={campo} />
         </label>
       </div>
       <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', marginTop: '10px', fontSize: '13px', color: 'var(--text-secondary)' }}>

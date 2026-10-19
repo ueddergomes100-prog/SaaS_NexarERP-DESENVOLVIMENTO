@@ -24,6 +24,7 @@ const {
 } = require('../services/renegociacao');
 const { PERMISSAO_RENEGOCIAR } = require('../domain/renegociacaoDomain');
 const { lancarContaAReceber, editarContaAReceber, cancelarContaAReceber } = require('../services/lancamentoReceber');
+const { adicionarCategoria, ErroConfiguracoesGerais } = require('../services/configuracoesGerais');
 const { descricaoDosAjustes } = require('../domain/ajustesDaBaixaDomain');
 const {
   conciliarCartao,
@@ -266,6 +267,33 @@ router.post('/receber/cancelar', async (req, res) => {
     return res.json({ ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'cancelar a conta a receber');
+  }
+});
+
+/**
+ * POST /api/financeiro/categorias -- { tipo: 'receita'|'despesa', nome }. Categoria nova no plano
+ * de contas pela tela de lancamento (19/10/2026): quem lanca a conta pode criar; so' acrescenta.
+ */
+router.post('/categorias', async (req, res) => {
+  try {
+    const tipo = req.body?.tipo === 'despesa' ? 'despesa' : 'receita';
+    const permissao = tipo === 'despesa' ? PERMISSAO_DA_BAIXA.saida : PERMISSAO_DA_BAIXA.entrada;
+    if (!temPermissao(req.user, permissao)) {
+      return res.status(403).json({ error: `Você não tem permissão para criar categorias de ${tipo}. Peça a um responsável liberar "${tipo === 'despesa' ? 'Financeiro: Contas a Pagar' : 'Financeiro: Contas a Receber'}" no seu usuário.` });
+    }
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await adicionarCategoria({ user: req.user, tenantId, corpo: req.body || {} });
+    if (!r.jaExistia) {
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'configuracoes',
+        acao: 'criacao',
+        descricao: `Categoria de ${r.tipo} "${r.nome}" criada no plano de contas pela tela de lançamento${r.filiais > 1 ? ` (vale nas ${r.filiais} filiais)` : ''}.`,
+      });
+    }
+    return res.json({ ok: true, nome: r.nome, lista: r.lista, jaExistia: r.jaExistia });
+  } catch (erro) {
+    if (erro instanceof ErroConfiguracoesGerais) return res.status(erro.status).json({ error: erro.message });
+    return responderErro(res, erro, 'criar a categoria');
   }
 });
 

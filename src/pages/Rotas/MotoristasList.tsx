@@ -268,12 +268,12 @@ const MotoristasList: React.FC = () => {
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>CNH</label>
-                  <input type="text" value={form.cnh} onChange={(e) => setForm({ ...form, cnh: e.target.value })} placeholder="Número da habilitação" style={{ padding: '11px 13px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                  <input type="text" value={form.cnh} onChange={(e) => setForm({ ...form, cnh: e.target.value })} title="Número da habilitação" style={{ padding: '11px 13px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
                 </div>
               </div>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Observação</label>
-                <textarea value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} rows={2} placeholder="Opcional" style={{ padding: '11px 13px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', resize: 'vertical', fontFamily: 'inherit' }} />
+                <textarea value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} rows={2} title="Opcional" style={{ padding: '11px 13px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', resize: 'vertical', fontFamily: 'inherit' }} />
               </div>
             </div>
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

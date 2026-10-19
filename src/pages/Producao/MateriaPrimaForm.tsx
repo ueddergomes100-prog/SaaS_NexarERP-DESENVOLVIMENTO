@@ -332,7 +332,7 @@ const MateriaPrimaForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Referência</label>
-              <input type="text" name="referencia" placeholder="Referência do sistema antigo (opcional)" value={formData.referencia} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
+              <input type="text" name="referencia" title="Referência do sistema antigo (opcional)" value={formData.referencia} onChange={handleChange} style={{ ...inputStyle, textTransform: 'uppercase' }} />
             </div>
           </div>
 

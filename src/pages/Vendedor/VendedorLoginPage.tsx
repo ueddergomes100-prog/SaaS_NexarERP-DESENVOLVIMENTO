@@ -216,7 +216,7 @@ const VendedorLoginPage: React.FC = () => {
                     className="auth-input"
                     type="password"
                     inputMode="numeric"
-                    placeholder="Senha do balcão"
+                    title="Senha do balcão"
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 10))}
                     disabled={carregando}
@@ -235,7 +235,7 @@ const VendedorLoginPage: React.FC = () => {
                   <input
                     className="auth-input"
                     type="text"
-                    placeholder="Seu usuário"
+                    title="Seu usuário"
                     value={usuario}
                     onChange={(e) => setUsuario(e.target.value)}
                     disabled={carregando}
@@ -250,7 +250,7 @@ const VendedorLoginPage: React.FC = () => {
                   <input
                     className="auth-input"
                     type="password"
-                    placeholder="Sua senha"
+                    title="Sua senha"
                     value={senha}
                     onChange={(e) => setSenha(e.target.value)}
                     disabled={carregando}

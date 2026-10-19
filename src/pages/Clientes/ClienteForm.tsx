@@ -483,7 +483,7 @@ const ClienteForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Inscrição Estadual / RG</label>
-              <input type="text" name="identidade" placeholder="Isento, se não houver" value={formData.identidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="identidade" title="Isento, se não houver" value={formData.identidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
@@ -519,7 +519,7 @@ const ClienteForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>E-mail para Nota Fiscal</label>
-              <input type="email" name="emailNfe" placeholder="Deixe em branco pra usar o e-mail acima" value={formData.emailNfe} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="email" name="emailNfe" title="Deixe em branco pra usar o e-mail acima" value={formData.emailNfe} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
@@ -740,7 +740,7 @@ const ClienteForm: React.FC = () => {
                   maxLength={ALERTA_TAMANHO_MAXIMO}
                   rows={3}
                   autoFocus
-                  placeholder="O que a equipe precisa saber antes de vender para este cliente"
+                  title="O que a equipe precisa saber antes de vender para este cliente"
                   onChange={(e) => setFormData((prev) => ({ ...prev, alertaTexto: e.target.value }))}
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid #f59e0b', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical', fontFamily: 'inherit', fontSize: '14px' }}
                 />

@@ -551,7 +551,7 @@ const ImportarProdutos: React.FC = () => {
                         {item.status === 'REVISAR' && !itensExcluidos.has(item.linhaId) ? (
                           <input
                             type="text"
-                            placeholder="Digite o valor"
+                            title="Digite o valor"
                             value={ajustesQuantidade[item.linhaId] ?? ''}
                             onChange={(e) => setAjustesQuantidade((atual) => ({ ...atual, [item.linhaId]: e.target.value }))}
                             style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '4px 8px', color: 'var(--text-primary)' }}
@@ -630,7 +630,7 @@ const ImportarProdutos: React.FC = () => {
                       Fator de conversão (unidades base por embalagem):
                       <input
                         type="text"
-                        placeholder={grupo.fatorConversaoSugerido === null ? 'digite o fator' : ''}
+                        title={grupo.fatorConversaoSugerido === null ? 'digite o fator' : ''}
                         value={decisao.fatorConversao}
                         onChange={(e) => atualizarDecisao(grupo, { fatorConversao: e.target.value })}
                         style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 10px', color: 'var(--text-primary)' }}

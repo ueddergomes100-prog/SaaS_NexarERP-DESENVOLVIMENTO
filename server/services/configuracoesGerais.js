@@ -146,4 +146,36 @@ const unificarConfiguracoesGerais = async ({ aplicar, desfazer, grupoId = '' }) 
   return { gruposLidos, filiaisAlteradas, grupos: relatorio };
 };
 
-module.exports = { ErroConfiguracoesGerais, salvarConfiguracoesGerais, unificarConfiguracoesGerais };
+/**
+ * CATEGORIA NOVA PELA TELA DE LANCAMENTO (19/10/2026): acrescenta uma
+ * categoria ao plano de contas (receita ou despesa) de todas as filiais do
+ * grupo, como as Configuracoes Gerais -- so' acrescenta, nunca apaga nem
+ * renomeia. Quem pode: quem lanca a conta (a rota confere a permissao).
+ */
+const adicionarCategoria = async ({ user, tenantId, corpo }) => {
+  const leitura = dominio.lerNovaCategoria(corpo?.tipo, corpo?.nome);
+  if (!leitura.ok) throw new ErroConfiguracoesGerais(400, leitura.erro);
+  const campo = dominio.CAMPO_DO_PLANO_DE_CONTAS[leitura.tipo];
+
+  return db.runTransaction(async (tx) => {
+    const grupo = await lerGrupo(tx, tenantId);
+    const alvos = grupo ? grupo.filiais.map((f) => f.tenantId) : [tenantId];
+    const snaps = [];
+    for (const alvo of alvos) snaps.push(await tx.get(db.collection('configuracoes').doc(alvo)));
+    const resultados = snaps.map((snap, i) => ({ tenantId: alvos[i], ...dominio.listaComNovaCategoria(snap.exists ? snap.data()[campo] : undefined, leitura.tipo, leitura.nome) }));
+    const daEmpresa = resultados.find((r) => r.tenantId === tenantId) || resultados[0];
+    if (daEmpresa.cheia) throw new ErroConfiguracoesGerais(409, dominio.mensagemPlanoCheio(leitura.tipo));
+    resultados.forEach((r) => {
+      if (r.jaExistia || r.cheia) return;
+      tx.set(db.collection('configuracoes').doc(r.tenantId), {
+        [campo]: r.lista,
+        tenantId: r.tenantId,
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Categoria de ${leitura.tipo} "${leitura.nome}" no plano de contas`),
+      }, { merge: true });
+    });
+    return { nome: leitura.nome, tipo: leitura.tipo, lista: daEmpresa.lista, jaExistia: daEmpresa.jaExistia, filiais: alvos.length };
+  });
+};
+
+module.exports = { ErroConfiguracoesGerais, salvarConfiguracoesGerais, unificarConfiguracoesGerais, adicionarCategoria };

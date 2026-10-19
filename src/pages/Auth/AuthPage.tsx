@@ -699,7 +699,7 @@ const AuthPage: React.FC = () => {
           <input
             type="password"
             className="auth-input"
-            placeholder="Minimo 8, letra maiuscula, minuscula e numero"
+            title="Minimo 8, letra maiuscula, minuscula e numero"
             value={signupPassword}
             onChange={(event) => setSignupPassword(event.target.value)}
             disabled={signupLoading}
@@ -714,7 +714,7 @@ const AuthPage: React.FC = () => {
           <input
             type="password"
             className="auth-input"
-            placeholder="Repita a senha"
+            title="Repita a senha"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
             disabled={signupLoading}

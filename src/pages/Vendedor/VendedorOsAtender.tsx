@@ -432,7 +432,7 @@ const VendedorOsAtender: React.FC = () => {
             <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
               <div style={{ flex: 1 }}><label style={rotulo}>Saída</label><input type="time" value={deslocamento.horaSaida} onChange={(e) => atualizarDeslocamento({ horaSaida: e.target.value })} style={campo} /></div>
               <div style={{ flex: 1 }}><label style={rotulo}>Chegada</label><input type="time" value={deslocamento.horaChegada} onChange={(e) => atualizarDeslocamento({ horaChegada: e.target.value })} style={campo} /></div>
-              <div style={{ flex: 1.3 }}><label style={rotulo}>Veículo</label><input type="text" value={deslocamento.veiculoEmpresa} onChange={(e) => atualizarDeslocamento({ veiculoEmpresa: e.target.value })} placeholder="Placa ou nome" style={campo} /></div>
+              <div style={{ flex: 1.3 }}><label style={rotulo}>Veículo</label><input type="text" value={deslocamento.veiculoEmpresa} onChange={(e) => atualizarDeslocamento({ veiculoEmpresa: e.target.value })} title="Placa ou nome" style={campo} /></div>
             </div>
             <p style={{ margin: '10px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>
               {cobraDeslocamento
@@ -444,7 +444,7 @@ const VendedorOsAtender: React.FC = () => {
 
         <section style={cardStyle}>
           <div style={tituloSecao}><ClipboardList size={15} /> Serviço executado / observações</div>
-          <textarea value={relatorio} onChange={(e) => { setRelatorio(e.target.value); marcar(); }} rows={4} placeholder="O que foi encontrado e o que foi feito no equipamento…" style={{ ...campo, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'inherit' }} />
+          <textarea value={relatorio} onChange={(e) => { setRelatorio(e.target.value); marcar(); }} rows={4} title="O que foi encontrado e o que foi feito no equipamento…" style={{ ...campo, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'inherit' }} />
         </section>
 
         <section style={cardStyle}>
@@ -460,7 +460,7 @@ const VendedorOsAtender: React.FC = () => {
                     <a href={foto.url} target="_blank" rel="noreferrer"><img src={foto.url} alt={foto.legenda || `Foto ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '10px', display: 'block' }} /></a>
                     <button type="button" aria-label="Apagar foto" onClick={() => void apagarFoto(foto)} style={{ position: 'absolute', top: '4px', right: '4px', width: '28px', height: '28px', borderRadius: '8px', border: 'none', backgroundColor: 'rgba(0,0,0,0.6)', color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={14} /></button>
                   </div>
-                  <input type="text" defaultValue={foto.legenda} placeholder="Legenda" onBlur={(e) => void salvarLegenda(i, e.target.value)} style={{ ...campo, height: '32px', fontSize: '12px', padding: '0 8px' }} />
+                  <input type="text" defaultValue={foto.legenda} title="Legenda" onBlur={(e) => void salvarLegenda(i, e.target.value)} style={{ ...campo, height: '32px', fontSize: '12px', padding: '0 8px' }} />
                 </div>
               ))}
               {fotosPendentes.map((f) => (

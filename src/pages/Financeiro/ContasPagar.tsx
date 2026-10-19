@@ -18,6 +18,7 @@ import {
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
 import { estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
 import ParcelasEditor from '../../components/financeiro/ParcelasEditor';
+import NovaCategoriaInline from '../../components/finance/NovaCategoriaInline';
 import { FORMAS_DE_PAGAMENTO, dividirEmParcelas } from '../../utils/pagamentoEntradaDomain';
 import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
 import { avisoDeSoma, erroDaDespesa, montarTitulosDaDespesa } from '../../utils/despesaParceladaDomain';
@@ -363,7 +364,6 @@ const ContasPagar: React.FC = () => {
       inputAttributes: {
         minlength: '12',
         required: 'true',
-        placeholder: 'Motivo do cancelamento...'
       },
       showCancelButton: true,
       confirmButtonText: 'Confirmar Cancelamento',
@@ -1219,6 +1219,17 @@ const ContasPagar: React.FC = () => {
                     <option key={idx} value={cat}>{cat.toUpperCase()}</option>
                   ))}
                 </select>
+                {/* Categoria nova ali mesmo (19/10/2026): vale para o plano de contas de todas as filiais. */}
+                {tenantId && (
+                  <NovaCategoriaInline
+                    tipo="despesa"
+                    tenantId={tenantId}
+                    onCriada={(nome, lista) => {
+                      setCategoriasDespesa(lista);
+                      setFormData((atual) => ({ ...atual, categoria: lista.find((c) => c.toUpperCase() === nome.toUpperCase()) || nome }));
+                    }}
+                  />
+                )}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>

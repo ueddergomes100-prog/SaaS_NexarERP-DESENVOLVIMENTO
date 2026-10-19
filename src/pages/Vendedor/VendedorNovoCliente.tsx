@@ -206,7 +206,7 @@ const VendedorNovoCliente: React.FC = () => {
               style={estiloCampo}
               inputMode="numeric"
               autoComplete="off"
-              placeholder="000.000.000-00 ou 00.000.000/0000-00"
+              title="000.000.000-00 ou 00.000.000/0000-00"
               value={form.documento}
               onChange={(e) => alterar('documento', mascaraDocumento(e.target.value))}
             />
@@ -262,7 +262,7 @@ const VendedorNovoCliente: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           <div style={{ width: '120px', flexShrink: 0 }}>
             <Campo rotulo="Número *">
-              <input style={{ ...estiloCampo, textTransform: 'uppercase' }} autoComplete="off" placeholder="S/N" value={form.numero} onChange={(e) => alterar('numero', e.target.value.toUpperCase())} />
+              <input style={{ ...estiloCampo, textTransform: 'uppercase' }} autoComplete="off" title="S/N" value={form.numero} onChange={(e) => alterar('numero', e.target.value.toUpperCase())} />
             </Campo>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>

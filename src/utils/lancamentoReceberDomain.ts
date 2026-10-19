@@ -16,6 +16,7 @@
  * Funcoes puras, compiladas para o servidor (scripts/build-server-domain.mjs).
  */
 import { financialNatureForPayment, fromCents, type PaymentMethod } from './financeDomain';
+import { CATEGORIAS_PADRAO_DOS_LANCAMENTOS } from './configuracoesGeraisDomain';
 
 export const ORIGEM_LANCAMENTO_MANUAL = 'manual';
 
@@ -23,7 +24,7 @@ export const ORIGEM_LANCAMENTO_MANUAL = 'manual';
 export const FORMAS_PREVISTAS_RECEBER = ['Boleto', 'Pix', 'Transferência', 'Dinheiro', 'Cheque', 'Outros'] as const;
 
 /** Mesmas categorias de receita padrao do Caixa (Configuracoes › Plano de Contas troca). */
-export const CATEGORIAS_RECEITA_PADRAO = ['Serviços', 'Venda de Peças', 'Outras Receitas'];
+export const CATEGORIAS_RECEITA_PADRAO = CATEGORIAS_PADRAO_DOS_LANCAMENTOS.receita;
 export const CATEGORIA_SEM_ESCOLHA = 'OUTRAS RECEITAS';
 
 export const LIMITE_PARCELAS_LANCAMENTO = 60;

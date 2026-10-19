@@ -1721,7 +1721,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Preço à vista{embalagens.length > 0 ? ` (por ${baseUnidadeSigla})` : ''}</label>
-                  <input type="number" name="precoAVista" step="0.01" min="0" placeholder="Igual ao preço de venda" value={formData.precoAVista} onChange={handleChange} />
+                  <input type="number" name="precoAVista" step="0.01" min="0" title="Igual ao preço de venda" value={formData.precoAVista} onChange={handleChange} />
                   <span className="field-hint">Vale para dinheiro, Pix, débito e crédito 1x. Parcelado, boleto, crediário e cheque usam o "Preço de venda". Em branco = preço de venda sempre.</span>
                   {embalagens.length > 0 && (
                     <span className="field-hint">Este é o preço de 1 {baseUnidadeSigla}. O preço à vista de cada embalagem (saco, caixa...) fica na aba Embalagens.</span>
@@ -1840,7 +1840,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Comissão (%)</label>
-                  <input type="number" name="comissaoPercentual" step="0.01" min="0" value={formData.comissaoPercentual} onChange={handleChange} placeholder="Sem comissão própria" />
+                  <input type="number" name="comissaoPercentual" step="0.01" min="0" value={formData.comissaoPercentual} onChange={handleChange} title="Sem comissão própria" />
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, a venda usa a comissão do vendedor ou do sistema.</span>
                 </div>
                 <div className="input-group">
@@ -2051,7 +2051,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Localização</label>
-                  <input type="text" name="localizacaoEstoque" placeholder="Corredor, prateleira, gaveta" value={formData.localizacaoEstoque} onChange={handleChange} />
+                  <input type="text" name="localizacaoEstoque" title="Corredor, prateleira, gaveta" value={formData.localizacaoEstoque} onChange={handleChange} />
                 </div>
               </div>
 
@@ -2115,7 +2115,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>NCM *</label>
-                  <input type="text" name="ncm" maxLength={8} placeholder="8 dígitos" value={formData.ncm} onChange={handleChange} required={!validarCadastroProduto} />
+                  <input type="text" name="ncm" maxLength={8} title="8 dígitos" value={formData.ncm} onChange={handleChange} required={!validarCadastroProduto} />
                   <span className="field-hint">Obrigatório para emissão fiscal. Use apenas números.</span>
                 </div>
                 <div className="input-group">
@@ -2152,7 +2152,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>CFOP interestadual</label>
-                  <input type="text" name="cfopInterestadual" maxLength={4} placeholder="Automático" value={formData.cfopInterestadual} onChange={handleChange} />
+                  <input type="text" name="cfopInterestadual" maxLength={4} title="Automático" value={formData.cfopInterestadual} onChange={handleChange} />
                   <span className="field-hint">Venda para outro estado. Em branco, o sistema troca sozinho (5102 → 6102). Produto com ST precisa informar (ex.: 6102 ou 6404, conforme o destino).</span>
                 </div>
                 <div className="input-group">
@@ -2383,7 +2383,7 @@ const EstoqueForm: React.FC = () => {
                     type="number"
                     step="0.01"
                     min="0"
-                    placeholder={`Vazio = ${formatCurrency(precoVenda)} × fator`}
+                    title={`Vazio = ${formatCurrency(precoVenda)} × fator`}
                     value={novaEmbalagem.precoVenda}
                     onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, precoVenda: e.target.value }))}
                   />
@@ -2394,7 +2394,7 @@ const EstoqueForm: React.FC = () => {
                     type="number"
                     step="0.01"
                     min="0"
-                    placeholder={toNumber(novaEmbalagem.precoVenda) > 0
+                    title={toNumber(novaEmbalagem.precoVenda) > 0
                       ? 'Vazio = preço de venda'
                       : (toNumber(formData.precoAVista) > 0 ? `Vazio = ${formatCurrency(toNumber(formData.precoAVista))} × fator` : 'Vazio = preço de venda')}
                     value={novaEmbalagem.precoAVista}
@@ -2750,7 +2750,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Imagens múltiplas</label>
-                  <textarea name="imagensMarketplace" rows={6} placeholder="Uma URL por linha" value={formData.imagensMarketplace} onChange={handleChange} />
+                  <textarea name="imagensMarketplace" rows={6} title="Uma URL por linha" value={formData.imagensMarketplace} onChange={handleChange} />
                   <span className="field-hint">Estrutura pronta para upload múltiplo e compressão automática.</span>
                 </div>
               </div>

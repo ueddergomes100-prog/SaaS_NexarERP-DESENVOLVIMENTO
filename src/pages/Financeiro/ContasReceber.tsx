@@ -886,7 +886,6 @@ const ContasReceber: React.FC = () => {
       icon: 'warning',
       input: 'textarea',
       inputLabel: 'Motivo',
-      inputPlaceholder: 'Escreva por que a renegociação está sendo desfeita',
       showCancelButton: true,
       confirmButtonText: 'Desfazer renegociação',
       cancelButtonText: 'Manter',
@@ -950,9 +949,8 @@ const ContasReceber: React.FC = () => {
     const valorTexto = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t));
     const resposta = await NexusSwal.fire({
       title: 'Cancelar esta conta a receber?',
-      html: `<div style="text-align:left"><b>${escaparHtml(t.descricao)}</b><br/>${escaparHtml(nomeDoDevedor(t) || 'Sem nome')} · ${valorTexto}<br/><br/>A conta sai do Contas a Receber e fica registrada como cancelada, com o motivo no log.</div>`,
+      html: `<div style="text-align:left"><b>${escaparHtml(t.descricao)}</b><br/>${escaparHtml(nomeDoDevedor(t) || 'Sem nome')} · ${valorTexto}<br/><br/>A conta sai do Contas a Receber e fica registrada como cancelada. Escreva o motivo do cancelamento:</div>`,
       input: 'text',
-      inputPlaceholder: 'Motivo do cancelamento',
       showCancelButton: true,
       confirmButtonText: 'Cancelar a conta',
       cancelButtonText: 'Voltar',
@@ -1473,7 +1471,7 @@ const ContasReceber: React.FC = () => {
                                             <button
                                               onClick={() => void handleCancelarConta(t)}
                                               disabled={isProcessing}
-                                              title="Cancelar esta conta (pede o motivo, fica no log)"
+                                              title="Cancelar esta conta"
                                               aria-label={`Cancelar ${t.descricao}`}
                                               style={{ backgroundColor: 'transparent', border: '1px solid #ef4444', color: '#ef4444', cursor: 'pointer', borderRadius: '6px', width: '30px', height: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: isProcessing ? 0.6 : 1 }}
                                             >
@@ -1628,6 +1626,7 @@ const ContasReceber: React.FC = () => {
           editando={lancamento.editando}
           onFechar={() => setLancamento({ aberto: false, editando: null })}
           onSalvo={(mensagem) => { setLancamento({ aberto: false, editando: null }); showSuccess(mensagem); }}
+          onCategoriasAtualizadas={(lista) => setConfigFilial((atual) => ({ ...atual, planoContasReceitas: lista }))}
         />
       )}
       {pdfRecibo && <PdfVisualizador titulo="Recibo de pagamento" nomeArquivo={pdfRecibo.nome} pdf={pdfRecibo.blob} onFechar={() => setPdfRecibo(null)} />}

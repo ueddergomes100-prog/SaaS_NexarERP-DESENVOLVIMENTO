@@ -218,7 +218,7 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
                   if (e.key === 'Enter') { e.preventDefault(); void confirmar(); }
                 }}
                 style={inputStyle}
-                placeholder="Senha"
+                title="Senha"
               />
             </div>
           </div>

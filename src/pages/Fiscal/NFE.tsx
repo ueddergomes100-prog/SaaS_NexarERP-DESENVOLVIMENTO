@@ -1650,7 +1650,6 @@ const NFE: React.FC = () => {
       input: 'textarea',
       inputLabel: 'Justificativa de Cancelamento (de 15 a 255 caracteres)',
       inputAttributes: { maxlength: '255' },
-      inputPlaceholder: 'Escreva o motivo real do cancelamento...',
       showCancelButton: true,
       confirmButtonText: 'Confirmar Cancelamento',
       cancelButtonText: 'Voltar',
@@ -3470,7 +3469,7 @@ const NFE: React.FC = () => {
                       <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inscrição Estadual do destinatário *</label>
                       <input
                         type="text"
-                        placeholder='Número da IE, ou ISENTO se a empresa não tiver'
+                        title='Número da IE, ou ISENTO se a empresa não tiver'
                         value={formData.inscricaoEstadual}
                         onChange={(e) => setFormData({ ...formData, inscricaoEstadual: e.target.value })}
                         style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
@@ -3497,7 +3496,7 @@ const NFE: React.FC = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', gridColumn: '1 / -1' }}>
                     <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Descrição do Serviço / Produtos *</label>
                     <textarea
-                      placeholder="Descrição detalhada para a nota fiscal..."
+                      title="Descrição detalhada para a nota fiscal..."
                       rows={2}
                       value={formData.descricao}
                       onChange={(e) => setFormData({...formData, descricao: e.target.value})}
@@ -3629,7 +3628,7 @@ const NFE: React.FC = () => {
                                   value={item.ncm || ''}
                                   onChange={(e) => handleItemTaxChange(idx, 'ncm', e.target.value)}
                                   maxLength={8}
-                                  placeholder="8 dígitos"
+                                  title="8 dígitos"
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />
                               </td>
@@ -3639,7 +3638,7 @@ const NFE: React.FC = () => {
                                   value={item.cest || ''}
                                   onChange={(e) => handleItemTaxChange(idx, 'cest', e.target.value)}
                                   maxLength={7}
-                                  placeholder="7 dígitos"
+                                  title="7 dígitos"
                                   aria-label={`CEST do item ${idx + 1}`}
                                   style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
                                 />

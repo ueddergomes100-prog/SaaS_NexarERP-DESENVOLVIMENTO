@@ -18,7 +18,7 @@
  * as que so' alguma filial tinha (Painel da Plataforma > Manutencao).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ROTULO_DO_CAMPO_GERAL = exports.camposDiferentes = exports.valoresUnificados = exports.semCamposGerais = exports.lerConfiguracoesGerais = exports.juntarCategorias = exports.LIMITE_DO_NOME_DA_CATEGORIA = exports.LIMITE_DE_CATEGORIAS = exports.CAMPOS_GERAIS = void 0;
+exports.ROTULO_DO_CAMPO_GERAL = exports.camposDiferentes = exports.valoresUnificados = exports.semCamposGerais = exports.lerConfiguracoesGerais = exports.juntarCategorias = exports.mensagemPlanoCheio = exports.listaComNovaCategoria = exports.lerNovaCategoria = exports.CAMPO_DO_PLANO_DE_CONTAS = exports.CATEGORIAS_PADRAO_DOS_LANCAMENTOS = exports.LIMITE_DO_NOME_DA_CATEGORIA = exports.LIMITE_DE_CATEGORIAS = exports.CAMPOS_GERAIS = void 0;
 const clienteValidacaoDomain_1 = require("./clienteValidacaoDomain");
 const notaTransferenciaDomain_1 = require("./notaTransferenciaDomain");
 exports.CAMPOS_GERAIS = [
@@ -32,6 +32,53 @@ exports.CAMPOS_GERAIS = [
 ];
 exports.LIMITE_DE_CATEGORIAS = 200;
 exports.LIMITE_DO_NOME_DA_CATEGORIA = 60;
+/** O que as telas de lancamento (Caixa, Contas a Receber/Pagar) mostram enquanto a empresa nao salvou o plano de contas. */
+exports.CATEGORIAS_PADRAO_DOS_LANCAMENTOS = {
+    receita: ['Serviços', 'Venda de Peças', 'Outras Receitas'],
+    despesa: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Fornecedores de Peças', 'Outros'],
+};
+exports.CAMPO_DO_PLANO_DE_CONTAS = {
+    receita: 'planoContasReceitas',
+    despesa: 'planoContasDespesas',
+};
+/**
+ * CATEGORIA NOVA PELA TELA DE LANCAMENTO (pedido do dono, 19/10/2026): quem
+ * lanca a conta cria a categoria ali mesmo, sem ir em Configuracoes. So'
+ * acrescenta (nunca apaga nem renomeia) e vale para todas as filiais, como o
+ * resto do plano de contas.
+ */
+const lerNovaCategoria = (tipo, nome) => {
+    if (tipo !== 'receita' && tipo !== 'despesa')
+        return { ok: false, erro: 'Tipo de categoria inválido. Atualize a tela e tente de novo.' };
+    const limpo = typeof nome === 'string' ? nome.trim().replace(/\s+/g, ' ') : '';
+    if (!limpo)
+        return { ok: false, erro: 'Digite o nome da nova categoria.' };
+    if (limpo.length > exports.LIMITE_DO_NOME_DA_CATEGORIA)
+        return { ok: false, erro: `O nome da categoria passa de ${exports.LIMITE_DO_NOME_DA_CATEGORIA} letras. Use um nome mais curto.` };
+    return { ok: true, tipo, nome: limpo };
+};
+exports.lerNovaCategoria = lerNovaCategoria;
+/**
+ * A lista da filial com a categoria nova no fim. Sem plano salvo, parte das
+ * categorias que a tela mostrava (para nao sumirem). Ja' existe (maiuscula ou
+ * minuscula nao conta) = nada muda.
+ */
+const listaComNovaCategoria = (listaGravada, tipo, nome) => {
+    const gravada = Array.isArray(listaGravada)
+        ? listaGravada
+        : typeof listaGravada === 'string' ? listaGravada.split('\n') : [];
+    const atual = (0, exports.juntarCategorias)(gravada);
+    const base = atual.length > 0 ? atual : exports.CATEGORIAS_PADRAO_DOS_LANCAMENTOS[tipo];
+    const jaExistia = base.some((c) => c.toLocaleLowerCase('pt-BR') === nome.toLocaleLowerCase('pt-BR'));
+    if (jaExistia)
+        return { lista: base, jaExistia: true, cheia: false };
+    if (base.length >= exports.LIMITE_DE_CATEGORIAS)
+        return { lista: base, jaExistia: false, cheia: true };
+    return { lista: (0, exports.juntarCategorias)(base, [nome]), jaExistia: false, cheia: false };
+};
+exports.listaComNovaCategoria = listaComNovaCategoria;
+const mensagemPlanoCheio = (tipo) => (`O plano de contas aceita até ${exports.LIMITE_DE_CATEGORIAS} categorias de ${tipo}. Junte as parecidas em Configurações › Plano de Contas antes de criar outra.`);
+exports.mensagemPlanoCheio = mensagemPlanoCheio;
 const MODOS_VALIDACAO_CLIENTE = ['permitir', 'bloquear', 'perguntar'];
 const TRIBUTACOES = notaTransferenciaDomain_1.TRIBUTACAO_TRANSFERENCIA_OPCOES.map((o) => o.value);
 const nomeDaCategoria = (valor) => (typeof valor === 'string' ? valor.trim().replace(/\s+/g, ' ') : '');

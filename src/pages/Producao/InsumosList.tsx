@@ -277,7 +277,7 @@ const InsumosList: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '16px' }}>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Código</label>
-                  <input type="text" value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} placeholder="Opcional" style={campoStyle} />
+                  <input type="text" value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} title="Opcional" style={campoStyle} />
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Nome *</label>
@@ -306,12 +306,12 @@ const InsumosList: React.FC = () => {
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>Fornecedor</label>
-                  <input type="text" value={form.fornecedor} onChange={(e) => setForm({ ...form, fornecedor: e.target.value })} placeholder="Opcional" style={campoStyle} />
+                  <input type="text" value={form.fornecedor} onChange={(e) => setForm({ ...form, fornecedor: e.target.value })} title="Opcional" style={campoStyle} />
                 </div>
               </div>
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={rotuloStyle}>Observação</label>
-                <textarea value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} rows={2} placeholder="Opcional" style={{ ...campoStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+                <textarea value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} rows={2} title="Opcional" style={{ ...campoStyle, resize: 'vertical', fontFamily: 'inherit' }} />
               </div>
             </div>
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

@@ -1299,7 +1299,6 @@ const OSForm: React.FC = () => {
         input: 'textarea',
         inputLabel: 'Motivo do cancelamento',
         inputAttributes: { maxlength: String(MOTIVO_CANCELAMENTO_MAXIMO) },
-        inputPlaceholder: 'Escreva por que a OS está sendo cancelada',
         inputValidator: (valor) => erroDoMotivoDoCancelamento(valor) || undefined,
         showCancelButton: true,
         confirmButtonText: 'Sim, cancelar a OS',
@@ -2115,7 +2114,7 @@ const OSForm: React.FC = () => {
 
               <input
                 type="number"
-                placeholder="R$ por hora"
+                title="R$ por hora"
                 value={servicoPrecoInput}
                 onChange={(e) => setServicoPrecoInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddServico(); } }}
@@ -2137,7 +2136,7 @@ const OSForm: React.FC = () => {
                             type="text"
                             value={s.detalhamento || ''}
                             onChange={e => updateDetalhamentoServico(index, e.target.value)}
-                            placeholder="Detalhamento do serviço executado"
+                            title="Detalhamento do serviço executado"
                             style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '7px 9px', borderRadius: '4px', fontSize: '12px' }}
                           />
                           <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '7px' }}>
@@ -2264,7 +2263,7 @@ const OSForm: React.FC = () => {
 
               <input
                 type="number"
-                placeholder="R$ Valor"
+                title="R$ Valor"
                 value={pecaPrecoInput}
                 onChange={(e) => setPecaPrecoInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddPeca(); } }}
@@ -2408,11 +2407,11 @@ const OSForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>{rotulos.defeito}{modoOficina === 'veiculos' ? ' (Cliente)' : ''}</label>
-              <textarea name="defeitoRelatado" placeholder={rotulos.defeitoPlaceholder} rows={3} value={formData.defeitoRelatado} onChange={handleChange}></textarea>
+              <textarea name="defeitoRelatado" title={rotulos.defeitoPlaceholder} rows={3} value={formData.defeitoRelatado} onChange={handleChange}></textarea>
             </div>
             <div className="input-group" style={{ flex: 1 }}>
               <label>Relatório do Técnico (O que foi feito)</label>
-              <textarea name="relatorioTecnico" placeholder={rotulos.relatorioPlaceholder} rows={10} value={formData.relatorioTecnico} onChange={handleChange}></textarea>
+              <textarea name="relatorioTecnico" title={rotulos.relatorioPlaceholder} rows={10} value={formData.relatorioTecnico} onChange={handleChange}></textarea>
             </div>
             <div className="input-group">
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Package size={14} /> Materiais fornecidos pelo cliente</label>
@@ -2424,7 +2423,7 @@ const OSForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Observações do recibo</label>
-              <textarea name="observacoes" placeholder="Orientações, garantias específicas ou recomendações ao cliente..." rows={4} value={formData.observacoes} onChange={handleChange}></textarea>
+              <textarea name="observacoes" title="Orientações, garantias específicas ou recomendações ao cliente..." rows={4} value={formData.observacoes} onChange={handleChange}></textarea>
             </div>
           </div>
         </div>

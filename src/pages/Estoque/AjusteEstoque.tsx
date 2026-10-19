@@ -618,7 +618,7 @@ const AjusteEstoque: React.FC = () => {
 
           <div className="input-group">
             <label>Observação</label>
-            <textarea rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Detalhes opcionais sobre o ajuste" />
+            <textarea rows={2} value={observacao} onChange={(e) => setObservacao(e.target.value)} title="Detalhes opcionais sobre o ajuste" />
           </div>
 
           <div className="ajuste-estoque__acoes">

@@ -238,8 +238,9 @@ export const pedirLotesDeEntrada = async (
   if (itens.length === 0) return {};
   const linhas = itens.map((item) => (
     `<div style="text-align:left;margin-bottom:14px"><div style="font-weight:600;margin-bottom:4px">${escaparHtml(item.nome)} <span style="color:#a1a1aa;font-weight:400">· ${item.quantidade} un.</span></div>`
-    + `<div style="display:flex;gap:8px"><input data-lote="${escaparHtml(item.chave)}" class="swal2-input" placeholder="Lote" style="margin:0;flex:1;background:#27272a;color:#fff">`
-    + `<input data-validade="${escaparHtml(item.chave)}" type="date" class="swal2-input" style="margin:0;flex:1;background:#27272a;color:#fff"></div></div>`
+    // Sem texto dentro do campo (decisao do dono, 19/10/2026): o nome vai em cima.
+    + `<div style="display:flex;gap:8px"><label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#a1a1aa">Lote<input data-lote="${escaparHtml(item.chave)}" class="swal2-input" style="margin:0;background:#27272a;color:#fff"></label>`
+    + `<label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#a1a1aa">Validade<input data-validade="${escaparHtml(item.chave)}" type="date" class="swal2-input" style="margin:0;background:#27272a;color:#fff"></label></div></div>`
   )).join('');
   const resposta = await NexusSwal.fire({
     title: titulo,

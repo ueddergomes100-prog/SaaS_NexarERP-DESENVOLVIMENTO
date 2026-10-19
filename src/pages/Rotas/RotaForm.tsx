@@ -331,7 +331,6 @@ const RotaForm: React.FC = () => {
               opcoes={opcoesVeiculo}
               value={rota.veiculo}
               onChange={(e) => setRota({ ...rota, veiculo: aplicarCaixaAltaCadastro(e.target, e.target.value) })}
-              placeholder={opcoesVeiculo.length > 0 ? 'Escolha o veículo ou digite a placa' : 'Placa e/ou modelo'}
               style={{ ...estiloCampo, textTransform: 'uppercase' }}
             />
           </div>
@@ -343,7 +342,7 @@ const RotaForm: React.FC = () => {
 
           <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: '1 / -1' }}>
             <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Observação</label>
-            <input type="text" value={rota.observacao} onChange={(e) => setRota({ ...rota, observacao: e.target.value })} placeholder="Opcional: para onde foi a rota ou algo a lembrar" style={estiloCampo} />
+            <input type="text" value={rota.observacao} onChange={(e) => setRota({ ...rota, observacao: e.target.value })} title="Opcional: para onde foi a rota ou algo a lembrar" style={estiloCampo} />
           </div>
         </div>
 
@@ -386,10 +385,10 @@ const RotaForm: React.FC = () => {
                       </select>
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={despesa.descricao} onChange={(e) => mudarDespesa(indice, { descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder={despesa.tipo === TIPO_DESPESA_OUTROS ? 'Obrigatório em "Outros"' : 'Opcional'} style={{ ...estiloCampo, padding: '8px 10px' }} />
+                      <input type="text" value={despesa.descricao} onChange={(e) => mudarDespesa(indice, { descricao: aplicarCaixaAltaCadastro(e.target, e.target.value) })} title={despesa.tipo === TIPO_DESPESA_OUTROS ? 'Obrigatório em "Outros"' : 'Opcional'} style={{ ...estiloCampo, padding: '8px 10px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input type="text" value={despesa.comprovante} onChange={(e) => mudarDespesa(indice, { comprovante: aplicarCaixaAltaCadastro(e.target, e.target.value) })} placeholder="Nº da notinha" style={{ ...estiloCampo, padding: '8px 10px' }} />
+                      <input type="text" value={despesa.comprovante} onChange={(e) => mudarDespesa(indice, { comprovante: aplicarCaixaAltaCadastro(e.target, e.target.value) })} title="Nº da notinha" style={{ ...estiloCampo, padding: '8px 10px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="number" min="0" step="0.01" value={despesa.valor || ''} onChange={(e) => mudarDespesa(indice, { valor: Number(e.target.value) || 0 })} style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600 }} />
@@ -459,7 +458,7 @@ const RotaForm: React.FC = () => {
                 maxLength={30}
                 onChange={(e) => setNovoTipo(aplicarCaixaAltaCadastro(e.target, e.target.value))}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void adicionarTipo(); } }}
-                placeholder="Novo tipo"
+                title="Novo tipo"
                 style={{ ...estiloCampo, flex: 1 }}
               />
               <button type="button" className="btn-primary" disabled={salvandoTipos} onClick={() => void adicionarTipo()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

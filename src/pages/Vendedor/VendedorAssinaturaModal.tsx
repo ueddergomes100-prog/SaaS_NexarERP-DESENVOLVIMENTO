@@ -121,7 +121,7 @@ const VendedorAssinaturaModal: React.FC<Props> = ({ nomeSugerido, onConfirmar, o
           type="text"
           value={nome}
           onChange={(e) => setNome(e.target.value)}
-          placeholder="Nome de quem assina"
+          title="Nome de quem assina"
           style={{ width: '100%', height: '44px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', padding: '0 14px', boxSizing: 'border-box' }}
         />
       </div>

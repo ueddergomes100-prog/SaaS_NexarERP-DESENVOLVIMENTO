@@ -213,7 +213,7 @@ const VendedorOsNova: React.FC = () => {
             value={reclamacao}
             onChange={(e) => setReclamacao(e.target.value)}
             rows={4}
-            placeholder={rotulos.defeitoPlaceholder}
+            title={rotulos.defeitoPlaceholder}
             style={{ ...campo, height: 'auto', padding: '10px 12px', resize: 'vertical', fontFamily: 'inherit' }}
           />
         </section>

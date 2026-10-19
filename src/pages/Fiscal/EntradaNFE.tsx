@@ -579,7 +579,8 @@ const EntradaNFE: React.FC = () => {
           value={buscaVinculo}
           onChange={(e) => { setBuscaVinculo(e.target.value); setLimiteVinculo(LIMITE_INICIAL_VINCULO); setListaVinculoVisivel(true); }}
           onFocus={() => setListaVinculoVisivel(true)}
-          placeholder="Nome, código ou código de barras... (# lista tudo)"
+          placeholder="Buscar produto por nome, código ou código de barras"
+          title="Digite # para listar todos"
           aria-label="Buscar produto ou matéria-prima para vincular"
           style={{ ...campoInputStyle, marginBottom: '8px' }}
         />
@@ -1599,7 +1600,7 @@ const EntradaNFE: React.FC = () => {
                 value={chaveBusca}
                 onChange={(e) => setChaveBusca(e.target.value.replace(/\D/g, '').slice(0, 44))}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !buscandoPorChave) void buscarNotaPelaChave(); }}
-                placeholder="Cole ou digite a chave de acesso (44 números)"
+                title="Cole ou digite a chave de acesso (44 números)"
                 disabled={buscandoPorChave}
                 style={{ flex: 1, minWidth: '320px', padding: '12px 14px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '14px', letterSpacing: '0.5px' }}
               />
@@ -1804,7 +1805,7 @@ const EntradaNFE: React.FC = () => {
                       inputMode="numeric"
                       value={frete.chaveCte}
                       onChange={(e) => setFrete({ ...frete, chaveCte: somenteDigitos(e.target.value).slice(0, 44) })}
-                      placeholder="Opcional — cole a chave do conhecimento"
+                      title="Opcional — cole a chave do conhecimento"
                       style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '13px' }}
                     />
                     {frete.chaveCte.length > 0 && (

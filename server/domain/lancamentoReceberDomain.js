@@ -19,11 +19,12 @@ exports.nomeDoDevedor = exports.lerPedidoDeCancelamento = exports.mudancasDaEdic
  * Funcoes puras, compiladas para o servidor (scripts/build-server-domain.mjs).
  */
 const financeDomain_1 = require("./financeDomain");
+const configuracoesGeraisDomain_1 = require("./configuracoesGeraisDomain");
 exports.ORIGEM_LANCAMENTO_MANUAL = 'manual';
 /** Como a conta deve ser paga (prevista; a forma de verdade e' a da baixa). Cartao fica fora: e' da tela Banco. */
 exports.FORMAS_PREVISTAS_RECEBER = ['Boleto', 'Pix', 'Transferência', 'Dinheiro', 'Cheque', 'Outros'];
 /** Mesmas categorias de receita padrao do Caixa (Configuracoes › Plano de Contas troca). */
-exports.CATEGORIAS_RECEITA_PADRAO = ['Serviços', 'Venda de Peças', 'Outras Receitas'];
+exports.CATEGORIAS_RECEITA_PADRAO = configuracoesGeraisDomain_1.CATEGORIAS_PADRAO_DOS_LANCAMENTOS.receita;
 exports.CATEGORIA_SEM_ESCOLHA = 'OUTRAS RECEITAS';
 exports.LIMITE_PARCELAS_LANCAMENTO = 60;
 exports.MOTIVO_MINIMO_CANCELAR = 12;

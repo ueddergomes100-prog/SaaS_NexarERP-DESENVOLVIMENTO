@@ -386,7 +386,7 @@ const VendedorConferencia: React.FC = () => {
             onChange={(e) => { observacaoTocada.current = true; setObservacao(e.target.value); }}
             onBlur={() => { if (observacaoTocada.current && status === 'em_conferencia') gravarProgresso(itens, observacao); }}
             rows={2}
-            placeholder="Alguma observação sobre esta conferência"
+            title="Alguma observação sobre esta conferência"
             style={{ ...campo, resize: 'vertical', fontSize: '15px' }}
           />
         </label>

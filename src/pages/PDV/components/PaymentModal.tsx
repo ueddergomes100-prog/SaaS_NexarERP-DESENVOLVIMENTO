@@ -218,7 +218,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
             rows={3}
             value={observation}
             onChange={(event) => setObservation(event.target.value)}
-            placeholder="Observação interna da venda"
+            title="Observação interna da venda"
           />
         </label>
 

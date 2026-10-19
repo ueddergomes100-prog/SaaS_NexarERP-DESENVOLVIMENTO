@@ -204,7 +204,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '12px' }}>
         <div className="input-group">
           <label style={campoLabelStyle}>Lote{exigeLote ? ' *' : ''}</label>
-          <input type="text" value={config.lote} onChange={(e) => onAlterarCampo('lote', e.target.value)} placeholder={exigeLote ? (item.lotes[0]?.numero ? `Da nota: ${item.lotes[0].numero}` : 'Obrigatório') : 'Opcional'} style={campoInputStyle} />
+          <input type="text" value={config.lote} onChange={(e) => onAlterarCampo('lote', e.target.value)} title={exigeLote ? (item.lotes[0]?.numero ? `Da nota: ${item.lotes[0].numero}` : 'Obrigatório') : 'Opcional'} style={campoInputStyle} />
         </div>
         <div className="input-group">
           <label style={campoLabelStyle}>Validade{exigeLote ? ' *' : ''}</label>

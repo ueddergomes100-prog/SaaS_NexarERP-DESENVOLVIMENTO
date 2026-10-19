@@ -264,12 +264,12 @@ const PromocaoForm: React.FC = () => {
         </div>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <span style={estiloRotulo}>Limite por venda (unidades)</span>
-          <input inputMode="numeric" value={promocao.limitePorVenda ?? ''} onChange={(e) => mudar({ limitePorVenda: numero(e.target.value) || null })} placeholder="Sem limite" style={estiloCampo} />
+          <input inputMode="numeric" value={promocao.limitePorVenda ?? ''} onChange={(e) => mudar({ limitePorVenda: numero(e.target.value) || null })} title="Sem limite" style={estiloCampo} />
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Máximo de cada produto, por venda, no preço promocional.</span>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: '1 / -1' }}>
           <span style={estiloRotulo}>Observação</span>
-          <input value={promocao.observacao} onChange={(e) => mudar({ observacao: e.target.value })} placeholder="Opcional" style={estiloCampo} />
+          <input value={promocao.observacao} onChange={(e) => mudar({ observacao: e.target.value })} title="Opcional" style={estiloCampo} />
         </label>
       </div>
 
@@ -286,7 +286,7 @@ const PromocaoForm: React.FC = () => {
               onChange={setBusca}
               products={produtos}
               onSelect={(p) => { adicionar([p]); setBusca(''); setChaveBusca((k) => k + 1); }}
-              placeholder="Nome, código ou código de barras (# lista tudo)"
+              placeholder="Buscar produto por nome, código ou código de barras"
               ariaLabel="Buscar produto para a promoção"
               renderItem={(p) => (
                 <span style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', width: '100%' }}>
@@ -322,7 +322,7 @@ const PromocaoForm: React.FC = () => {
             <option value="valor">Preço fixo (R$)</option>
           </select>
           <input inputMode="decimal" value={paraTodos.valor} onChange={(e) => setParaTodos({ ...paraTodos, valor: e.target.value })} style={{ ...estiloCampo, width: '120px' }} />
-          <input inputMode="numeric" value={paraTodos.quota} onChange={(e) => setParaTodos({ ...paraTodos, quota: e.target.value })} placeholder="Quota (opcional)" style={{ ...estiloCampo, width: '150px' }} />
+          <input inputMode="numeric" value={paraTodos.quota} onChange={(e) => setParaTodos({ ...paraTodos, quota: e.target.value })} title="Quota (opcional)" style={{ ...estiloCampo, width: '150px' }} />
           <button type="button" className="btn-secondary" onClick={aplicarATodos} disabled={promocao.itens.length === 0}>Aplicar</button>
           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Também vale para os próximos produtos adicionados.</span>
         </div>
@@ -382,7 +382,7 @@ const PromocaoForm: React.FC = () => {
                     <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-secondary)' }}>{p.custo > 0 ? moeda(p.custo) : '—'}</td>
                     <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600, color: margem.abaixoDoCusto ? '#ef4444' : 'var(--text-primary)' }}>{margem.lucroPercentual === null ? '—' : `${margem.lucroPercentual.toFixed(1)}%`}</td>
                     <td style={{ padding: '8px' }}>
-                      <input inputMode="numeric" defaultValue={i.quota ?? ''} key={`${i.produtoId}-q-${i.quota}`} onBlur={(e) => mudarItem(i.produtoId, { quota: numero(e.target.value) || null })} placeholder="Sem limite" style={{ ...estiloCampo, padding: '7px 8px' }} />
+                      <input inputMode="numeric" defaultValue={i.quota ?? ''} key={`${i.produtoId}-q-${i.quota}`} onBlur={(e) => mudarItem(i.produtoId, { quota: numero(e.target.value) || null })} title="Sem limite" style={{ ...estiloCampo, padding: '7px 8px' }} />
                     </td>
                     {id && <td style={{ padding: '8px', textAlign: 'right' }}>{vendido[i.produtoId] || 0}{i.quota ? ` / ${i.quota}` : ''}</td>}
                     <td style={{ padding: '8px', textAlign: 'center' }}>

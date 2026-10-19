@@ -59,7 +59,8 @@ type RotaFinanceiro =
   | '/banco/transferencia'
   | '/receber/lancar'
   | '/receber/editar'
-  | '/receber/cancelar';
+  | '/receber/cancelar'
+  | '/categorias';
 
 const chamarFinanceiro = async <T>(caminho: RotaFinanceiro, corpo: Record<string, unknown>, timeoutMs: number = TEMPO_LIMITE.padrao): Promise<T> => {
   if (!API_URL) {
@@ -240,7 +241,15 @@ export const editarContaAReceber = (corpo: Record<string, unknown>) => (
   chamarFinanceiro<{ ok: boolean; alterou: boolean }>('/receber/editar', corpo)
 );
 
-/** Cancela uma conta avulsa em aberto, com motivo (fica no log). */
+/**
+ * Categoria nova no plano de contas pela tela de lancamento (19/10/2026): so'
+ * acrescenta e vale em todas as filiais. Devolve a lista atualizada.
+ */
+export const criarCategoriaDoPlano = (args: { tipo: 'receita' | 'despesa'; nome: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean; nome: string; lista: string[]; jaExistia: boolean }>('/categorias', { ...args })
+);
+
+/** Cancela uma conta avulsa em aberto, com motivo (registrado nos logs). */
 export const cancelarContaAReceber = (args: { transacaoId: string; motivo: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean }>('/receber/cancelar', { ...args })
 );

@@ -423,7 +423,7 @@ const LembreteForm: React.FC = () => {
               {formData.motivoLembrete === 'Outro' && (
                 <input 
                   type="text" 
-                  placeholder="Digite o motivo..." 
+                  title="Digite o motivo..." 
                   value={motivoPersonalizado}
                   onChange={(e) => setMotivoPersonalizado(e.target.value)}
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', marginTop: '8px' }}

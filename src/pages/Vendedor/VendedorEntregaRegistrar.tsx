@@ -232,11 +232,11 @@ const VendedorEntregaRegistrar: React.FC = () => {
               <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <span style={rotulo}>Quem recebeu *</span>
-                  <input value={recebedorNome} onChange={(e) => setRecebedorNome(e.target.value.toUpperCase())} placeholder="Nome de quem recebeu" style={{ ...campo, textTransform: 'uppercase' }} />
+                  <input value={recebedorNome} onChange={(e) => setRecebedorNome(e.target.value.toUpperCase())} title="Nome de quem recebeu" style={{ ...campo, textTransform: 'uppercase' }} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <span style={rotulo}>Documento (RG/CPF)</span>
-                  <input value={recebedorDocumento} onChange={(e) => setRecebedorDocumento(e.target.value)} placeholder="Opcional" inputMode="numeric" style={campo} />
+                  <input value={recebedorDocumento} onChange={(e) => setRecebedorDocumento(e.target.value)} title="Opcional" inputMode="numeric" style={campo} />
                 </label>
               </div>
             )}
@@ -257,7 +257,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                     <span style={rotulo}>Recebeu (R$)</span>
-                    <input inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} placeholder="Em branco se não recebeu" style={campo} />
+                    <input inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} title="Em branco se não recebeu" style={campo} />
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                     <span style={rotulo}>Como</span>
@@ -277,7 +277,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
                         value={justificativa}
                         onChange={(e) => setJustificativa(e.target.value)}
                         rows={3}
-                        placeholder="Explique o motivo da diferença"
+                        title="Explique o motivo da diferença"
                         style={{ ...campo, height: 'auto', padding: '10px 14px', resize: 'vertical', fontSize: '14px' }}
                       />
                     </label>
@@ -289,7 +289,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
 
             <label style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <span style={rotulo}>Observação</span>
-              <input value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Opcional" style={campo} />
+              <input value={observacao} onChange={(e) => setObservacao(e.target.value)} title="Opcional" style={campo} />
             </label>
 
             <div style={cardStyle}>

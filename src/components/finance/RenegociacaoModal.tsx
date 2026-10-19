@@ -210,7 +210,7 @@ const RenegociacaoModal: React.FC<{
                 maxLength={MOTIVO_RENEGOCIACAO_MAXIMO}
                 value={motivo}
                 disabled={enviando}
-                placeholder="Escreva o que foi combinado com o cliente"
+                title="Escreva o que foi combinado com o cliente"
                 onChange={(e) => { setMotivo(e.target.value); setErro(''); }}
               />
             </div>

@@ -176,7 +176,8 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
           value={produtoBusca}
           onChange={(e) => { setProdutoBusca(e.target.value); setLimite(RESULTADOS_LIMITE); }}
           onFocus={() => setFocado(true)}
-          placeholder="Buscar produto por nome ou código (# lista tudo)"
+          placeholder="Buscar produto por nome ou código"
+          title="Digite # para listar todos"
           aria-label="Buscar produto"
           style={{
             width: '100%', height: '48px', padding: '0 14px 0 42px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)',

@@ -170,7 +170,7 @@ const TrocaDetalhe: React.FC = () => {
     const r = await NexusSwal.fire({
       icon: 'warning', title: `Cancelar a troca #${troca.numeroTroca}?`,
       text: troca.estoqueReservado ? 'A reserva de estoque da reposição será liberada.' : undefined,
-      input: 'text', inputPlaceholder: 'Motivo (opcional)', inputAttributes: { maxlength: '200' },
+      input: 'text', inputLabel: 'Motivo (opcional)', inputAttributes: { maxlength: '200' },
       showCancelButton: true, confirmButtonText: 'Sim, cancelar', cancelButtonText: 'Voltar', confirmButtonColor: '#ef4444',
     });
     if (r.isConfirmed) await executar('cancelar', () => trocaService.cancelar(troca.id, String(r.value || '')), 'Troca cancelada.');

@@ -314,7 +314,6 @@ const RomaneioForm: React.FC = () => {
       html,
       input: 'textarea',
       inputLabel: 'Motivo (obrigatório)',
-      inputPlaceholder: 'Escreva por que, para ficar no histórico',
       showCancelButton: true,
       confirmButtonText: confirmar,
       cancelButtonText: 'Voltar',
@@ -510,11 +509,11 @@ const RomaneioForm: React.FC = () => {
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <span style={estiloRotulo}>KM de saída</span>
-            <input inputMode="numeric" value={romaneio.kmSaida ?? ''} onChange={(e) => mudar({ kmSaida: kmDoTexto(e.target.value) })} placeholder="Em branco = preencher à mão" style={estiloCampo} />
+            <input inputMode="numeric" value={romaneio.kmSaida ?? ''} onChange={(e) => mudar({ kmSaida: kmDoTexto(e.target.value) })} title="Em branco = preencher à mão" style={estiloCampo} />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: '1 / -1' }}>
             <span style={estiloRotulo}>Observação</span>
-            <input value={romaneio.observacao} onChange={(e) => mudar({ observacao: e.target.value })} placeholder="Opcional — sai impressa no romaneio" style={estiloCampo} />
+            <input value={romaneio.observacao} onChange={(e) => mudar({ observacao: e.target.value })} title="Opcional — sai impressa no romaneio" style={estiloCampo} />
           </label>
         </div>
       </fieldset>
@@ -650,7 +649,7 @@ const RomaneioForm: React.FC = () => {
                       <td style={{ padding: '8px', fontWeight: 600 }}>{l.tipo}</td>
                       <td style={{ padding: '8px', fontSize: '12.5px', color: 'var(--text-muted)' }}>{ROTULO_NATUREZA_ACERTO[l.natureza]}</td>
                       <td style={{ padding: '8px' }}>
-                        <input value={l.descricao} onChange={(e) => mudarAcerto(l.tipo, 'descricao', e.target.value)} placeholder="Opcional" style={{ ...estiloCampo, padding: '8px 10px' }} />
+                        <input value={l.descricao} onChange={(e) => mudarAcerto(l.tipo, 'descricao', e.target.value)} title="Opcional" style={{ ...estiloCampo, padding: '8px 10px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input
@@ -690,7 +689,7 @@ const RomaneioForm: React.FC = () => {
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '16px' }}>
               <span style={estiloRotulo}>Observação do acerto</span>
-              <input value={romaneio.observacaoAcerto} onChange={(e) => mudar({ observacaoAcerto: e.target.value })} placeholder="Opcional: o que ficou pendente no acerto" style={estiloCampo} />
+              <input value={romaneio.observacaoAcerto} onChange={(e) => mudar({ observacaoAcerto: e.target.value })} title="Opcional: o que ficou pendente no acerto" style={estiloCampo} />
             </label>
 
             {emRota && despesasJaLancadas && (
@@ -1065,7 +1064,7 @@ const RegistrarEntregaModal: React.FC<{
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: '1 / -1' }}>
               <span style={estiloRotulo}>Documento (RG/CPF) de quem recebeu</span>
-              <input value={recebedorDocumento} onChange={(e) => setRecebedorDocumento(e.target.value)} placeholder="Opcional" style={estiloCampo} />
+              <input value={recebedorDocumento} onChange={(e) => setRecebedorDocumento(e.target.value)} title="Opcional" style={estiloCampo} />
             </label>
           </div>
         )}
@@ -1108,7 +1107,7 @@ const RegistrarEntregaModal: React.FC<{
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
           <span style={estiloRotulo}>Observação</span>
-          <input value={observacao} onChange={(e) => setObservacao(e.target.value)} placeholder="Opcional" style={estiloCampo} />
+          <input value={observacao} onChange={(e) => setObservacao(e.target.value)} title="Opcional" style={estiloCampo} />
         </label>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -1183,7 +1182,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
 
         <h4 style={{ margin: '0 0 8px', fontSize: '14px' }}>Motivos de não entrega</h4>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          <input value={novoMotivo} maxLength={40} onChange={(e) => setNovoMotivo(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarMotivo(); } }} placeholder="Novo motivo" style={{ ...estiloCampo, flex: 1 }} />
+          <input value={novoMotivo} maxLength={40} onChange={(e) => setNovoMotivo(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); adicionarMotivo(); } }} title="Novo motivo" style={{ ...estiloCampo, flex: 1 }} />
           <button type="button" className="btn-secondary" onClick={adicionarMotivo}><Plus size={16} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '24px' }}>
@@ -1200,7 +1199,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
           O tipo decide a conta do saldo: adiantamento soma (a loja deu), despesa subtrai (o motorista pagou), informação não entra na conta.
         </p>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-          <input value={novoTipo} maxLength={40} onChange={(e) => setNovoTipo(e.target.value.toUpperCase())} placeholder="Novo item" style={{ ...estiloCampo, flex: 1, minWidth: '160px' }} />
+          <input value={novoTipo} maxLength={40} onChange={(e) => setNovoTipo(e.target.value.toUpperCase())} title="Novo item" style={{ ...estiloCampo, flex: 1, minWidth: '160px' }} />
           <select value={novaNatureza} onChange={(e) => setNovaNatureza(e.target.value as NaturezaAcerto)} style={{ ...estiloCampo, width: 'auto' }}>
             {(Object.keys(ROTULO_NATUREZA_ACERTO) as NaturezaAcerto[]).map((n) => <option key={n} value={n}>{ROTULO_NATUREZA_ACERTO[n]}</option>)}
           </select>

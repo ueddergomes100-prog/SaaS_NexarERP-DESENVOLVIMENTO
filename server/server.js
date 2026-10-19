@@ -38,6 +38,7 @@ const numeracaoRoutes = require('./routes/numeracao.routes');
 const travasRoutes = require('./routes/travas.routes');
 const romaneiosRoutes = require('./routes/romaneios.routes');
 const vendasRoutes = require('./routes/vendas.routes');
+const osRoutes = require('./routes/os.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
@@ -206,6 +207,8 @@ app.use('/api/travas', travasRoutes);
 app.use('/api/romaneios', romaneiosRoutes);
 // Item 8, fatia 3 (2026-10-13): fechamento da venda pelo servidor (chave por empresa).
 app.use('/api/vendas', vendasRoutes);
+// Item 8, fatia 3d (19/10/2026): finalizar, reabrir e cancelar a OS pelo servidor (mesma chave).
+app.use('/api/os', osRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'
 // que precisam do banco do proprio ambiente -- ver manutencao.routes.js.
 app.use('/api/manutencao', manutencaoRoutes);

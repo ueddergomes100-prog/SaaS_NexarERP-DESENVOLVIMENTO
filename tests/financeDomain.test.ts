@@ -563,6 +563,16 @@ test('normalizePayments propaga bancoId/bancoNome pro PaymentRecord', () => {
   assert.equal(semBanco.bancoId, undefined);
 });
 
+test('banco esquecido no rascunho (trocou Pix por Dinheiro/A Prazo) nao vai para o pagamento nem credita o banco', () => {
+  const [dinheiro] = normalizePayments(10_000, [payment({ forma: 'Dinheiro', bancoId: 'banco-1', bancoNome: 'SICOOB' })]);
+  assert.equal(dinheiro.bancoId, undefined);
+  assert.equal(computeBankCreditsMap([dinheiro]).size, 0);
+  const [aPrazo] = normalizePayments(10_000, [payment({ forma: 'Pagamento a Prazo', prazoDias: '30', bancoId: 'banco-1' })], { saleDate: '2026-10-19' });
+  assert.equal(aPrazo.bancoId, undefined);
+  const [pix] = normalizePayments(10_000, [payment({ forma: 'Pix', bancoId: 'banco-1', bancoNome: 'SICOOB' })]);
+  assert.equal(pix.bancoId, 'banco-1');
+});
+
 test('transferência entre bancos exige origem, destino distintos e valor positivo', () => {
   assert.doesNotThrow(() => validateBankTransfer({ originId: 'banco-a', destinationId: 'banco-b', amountCents: 5_000 }));
   assert.throws(() => validateBankTransfer({ originId: '', destinationId: 'banco-b', amountCents: 5_000 }));

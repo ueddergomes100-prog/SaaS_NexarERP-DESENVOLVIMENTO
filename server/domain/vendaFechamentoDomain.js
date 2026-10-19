@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
+exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
 /*
  * FECHAMENTO DA VENDA NO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026).
  *
@@ -73,6 +73,7 @@ const numero = (valor) => {
     return Number.isFinite(n) ? n : Number.NaN;
 };
 const texto = (valor, maximo) => String(valor ?? '').trim().slice(0, maximo);
+/** Lotes de uma linha, como a tela manda (null = invalido). Tambem usado pela OS (osFechamentoDomain). */
 const lerLotes = (valor) => {
     if (valor === undefined || valor === null)
         return [];
@@ -88,6 +89,7 @@ const lerLotes = (valor) => {
     }
     return lotes;
 };
+exports.lerLotes = lerLotes;
 /** Valida e normaliza o corpo do POST. Devolve a primeira coisa errada, em portugues. */
 const lerPedidoDeFechamento = (corpo) => {
     const c = (corpo && typeof corpo === 'object' ? corpo : {});
@@ -124,7 +126,7 @@ const lerPedidoDeFechamento = (corpo) => {
             return { erro: `${nome}: desconto inválido.` };
         if (desconto > precoUnitario * quantidade + 0.005)
             return { erro: `${nome}: o desconto é maior que o valor do item.` };
-        const lotes = lerLotes(i.lotes);
+        const lotes = (0, exports.lerLotes)(i.lotes);
         if (lotes === null)
             return { erro: `${nome}: lote inválido. Remova o item e lance de novo.` };
         const fator = i.fatorConversao === undefined || i.fatorConversao === null ? undefined : numero(i.fatorConversao);

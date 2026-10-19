@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lerPedidoDeAlteracaoDePagamento = exports.lerPedidoDeCancelamentoDaPreVenda = exports.lerPedidoDeCancelamento = exports.bloqueioDoCreditoNaAlteracao = exports.bloqueioParaAlterarPagamento = exports.estornoDosTitulosDaVenda = exports.camposDoCreditoDevolvido = exports.idDoCreditoDevolvido = exports.creditoUsadoNaVenda = exports.FORMA_CREDITO_DEVOLUCAO = exports.erroDaRotaParaCancelar = exports.erroDoMotivoDoCancelamento = exports.MOTIVO_CANCELAMENTO_MAXIMO = exports.MOTIVO_CANCELAMENTO_MINIMO = void 0;
+exports.lerPedidoDeAlteracaoDePagamento = exports.lerPedidoDeCancelamentoDaPreVenda = exports.lerPedidoDeCancelamento = exports.bloqueioDoCreditoNaAlteracao = exports.bloqueioParaAlterarPagamento = exports.estornoDosTitulosDaVenda = exports.estornoDosTitulos = exports.camposDoCreditoDevolvido = exports.idDoCreditoDevolvido = exports.creditoUsadoNaVenda = exports.FORMA_CREDITO_DEVOLUCAO = exports.erroDaRotaParaCancelar = exports.erroDoMotivoDoCancelamento = exports.MOTIVO_CANCELAMENTO_MAXIMO = exports.MOTIVO_CANCELAMENTO_MINIMO = void 0;
 const financeDomain_1 = require("./financeDomain");
 /*
  * CANCELAR VENDA E ALTERAR A FORMA DE PAGAMENTO (item 8, fatia 3b -- 19/10/2026).
@@ -78,13 +78,33 @@ const numero = (valor, padrao = 0) => {
     const n = Number(valor);
     return Number.isFinite(n) ? n : padrao;
 };
+/** O que muda entre o cancelamento da venda e o da OS (fatia 3d, 19/10/2026). */
+const ROTULOS_DO_ESTORNO = {
+    venda: {
+        campoOrigem: 'pedidoId',
+        sourceType: 'cancelamento_pedido_venda',
+        categoria: 'Cancelamento de Venda',
+        documento: 'da venda',
+        notaEstornada: 'Estornada pelo cancelamento da venda',
+        notaCancelada: 'Cancelada junto com a venda',
+    },
+    os: {
+        campoOrigem: 'osId',
+        sourceType: 'cancelamento_ordem_servico',
+        categoria: 'Cancelamento de OS',
+        documento: 'da OS',
+        notaEstornada: 'Estornada pelo cancelamento da OS',
+        notaCancelada: 'Cancelada junto com a OS',
+    },
+};
 /**
  * Pago vira "estornado" + um lancamento de saida que devolve o dinheiro (mesma
  * forma de pagamento); o que estava em aberto e' so' cancelado. Mesmos campos
  * que o cancelamento pela tela sempre gravou. Lancamento ja' cancelado fica como
- * esta'.
+ * esta'. Serve a venda e a OS (`tipo`).
  */
-const estornoDosTitulosDaVenda = (titulos, args) => {
+const estornoDosTitulos = (titulos, args, tipo) => {
+    const rotulos = ROTULOS_DO_ESTORNO[tipo];
     const escritas = { atualizar: [], criar: [] };
     titulos.forEach(({ id, dados }) => {
         if (dados.status === 'Cancelada')
@@ -93,12 +113,12 @@ const estornoDosTitulosDaVenda = (titulos, args) => {
             const cartao = (dados.cartao || null);
             const valorCentavos = numero(dados.valorCentavos ?? (0, financeDomain_1.toCents)(numero(dados.valor)));
             const movimentaCaixa = (0, financeDomain_1.transactionMovesPhysicalCash)(dados);
-            escritas.atualizar.push({ id, campos: { estornada: true, statusOperacional: 'Cancelada' }, nota: 'Estornada pelo cancelamento da venda' });
+            escritas.atualizar.push({ id, campos: { estornada: true, statusOperacional: 'Cancelada' }, nota: rotulos.notaEstornada });
             escritas.criar.push({
                 id: `estorno_cancelamento_${id}`,
                 campos: {
-                    descricao: `Estorno do cancelamento da venda #${args.numeroPedido}`,
-                    categoria: 'Cancelamento de Venda',
+                    descricao: `Estorno do cancelamento ${rotulos.documento} #${args.numero}`,
+                    categoria: rotulos.categoria,
                     valor: numero(dados.valor),
                     valorCentavos,
                     valorBruto: numero(dados.valorBruto ?? dados.valor),
@@ -114,11 +134,11 @@ const estornoDosTitulosDaVenda = (titulos, args) => {
                     movimentaCaixaFisico: movimentaCaixa,
                     status: 'Paga',
                     data: args.hoje,
-                    pedidoId: args.pedidoId,
-                    sourceType: 'cancelamento_pedido_venda',
-                    sourceId: args.pedidoId,
+                    [rotulos.campoOrigem]: args.documentoId,
+                    sourceType: rotulos.sourceType,
+                    sourceId: args.documentoId,
                     sourcePaymentTransactionId: id,
-                    idempotencyKey: `cancelamento:${args.pedidoId}:transacao:${id}`,
+                    idempotencyKey: `cancelamento:${args.documentoId}:transacao:${id}`,
                     clienteNome: args.clienteNome,
                     usuarioResponsavelId: args.usuarioId,
                     tenantId: args.tenantId,
@@ -126,10 +146,19 @@ const estornoDosTitulosDaVenda = (titulos, args) => {
             });
             return;
         }
-        escritas.atualizar.push({ id, campos: { status: 'Cancelada', movimentaCaixaFisico: false }, nota: 'Cancelada junto com a venda' });
+        escritas.atualizar.push({ id, campos: { status: 'Cancelada', movimentaCaixaFisico: false }, nota: rotulos.notaCancelada });
     });
     return escritas;
 };
+exports.estornoDosTitulos = estornoDosTitulos;
+const estornoDosTitulosDaVenda = (titulos, args) => (0, exports.estornoDosTitulos)(titulos, {
+    documentoId: args.pedidoId,
+    numero: args.numeroPedido,
+    clienteNome: args.clienteNome,
+    usuarioId: args.usuarioId,
+    tenantId: args.tenantId,
+    hoje: args.hoje,
+}, 'venda');
 exports.estornoDosTitulosDaVenda = estornoDosTitulosDaVenda;
 // ---------------------------------------------------------------------------
 // ALTERAR A FORMA DE PAGAMENTO
@@ -144,25 +173,30 @@ const reais = (centavos) => `R$ ${(0, financeDomain_1.fromCents)(centavos).toFix
  * parcial, cheque compensado) ou que tem boleto emitido: refazer as parcelas
  * apagaria isso sem ninguem perceber. Pagamento que JA' NASCEU pago (dinheiro,
  * Pix na hora) nao conta -- e' justamente o que a alteracao corrige.
+ * `contexto` (fatia 3d): a OS usa a mesma regra para reabrir.
  */
-const bloqueioParaAlterarPagamento = (titulos) => {
+const bloqueioParaAlterarPagamento = (titulos, contexto = {}) => {
+    const documento = contexto.documento || 'venda';
+    const fazer = contexto.acao || 'alterar a forma de pagamento';
     for (const t of titulos) {
         if (!t || t.status === 'Cancelada' || t.estornada === true)
             continue;
-        const descricao = String(t.descricao || 'da venda');
-        const acao = 'Estorne o recebimento em Contas a Receber antes de alterar a forma de pagamento.';
+        const descricao = String(t.descricao || `da ${documento}`);
+        const acao = `Estorne o recebimento em Contas a Receber antes de ${fazer}.`;
         if (t.parcialDaTransacaoId) {
-            return `Esta venda tem um recebimento parcial de ${reais(numero(t.valorCentavos))}${dataBr(t.dataPagamento) ? ` em ${dataBr(t.dataPagamento)}` : ''}. ${acao}`;
+            return `Esta ${documento} tem um recebimento parcial de ${reais(numero(t.valorCentavos))}${dataBr(t.dataPagamento) ? ` em ${dataBr(t.dataPagamento)}` : ''}. ${acao}`;
         }
         if (numero(t.pagoParcialCentavos) > 0) {
             return `A parcela "${descricao}" já tem ${reais(numero(t.pagoParcialCentavos))} recebidos por partes. ${acao}`;
         }
         const boleto = t.boleto;
         if (boleto && boleto.status !== 'cancelado') {
-            return `A parcela "${descricao}" tem boleto emitido. Desfaça a emissão em Financeiro › Boletos antes de alterar a forma de pagamento.`;
+            return `A parcela "${descricao}" tem boleto emitido. Desfaça a emissão em Financeiro › Boletos antes de ${fazer}.`;
         }
         if (t.status === 'Paga' && (t.formaPagamento === 'Cheque' || t.cheque)) {
-            return `O cheque da parcela "${descricao}" já foi compensado. A forma de pagamento não pode mais ser alterada por aqui.`;
+            return contexto.acao
+                ? `O cheque da parcela "${descricao}" já foi compensado. Não é possível ${fazer} depois do cheque compensado.`
+                : `O cheque da parcela "${descricao}" já foi compensado. A forma de pagamento não pode mais ser alterada por aqui.`;
         }
         if (t.status === 'Paga' && t.baixaManual) {
             return `A parcela "${descricao}" já foi recebida${dataBr(t.dataPagamento) ? ` em ${dataBr(t.dataPagamento)}` : ''} no Contas a Receber. ${acao}`;

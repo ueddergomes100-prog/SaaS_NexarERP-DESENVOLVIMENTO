@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.transactionFeeCents = exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.pedeBancoDeDestino = exports.isSimplifiedChequePayment = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
-exports.receitaDoConjuntoCentavos = exports.abateReceita = exports.contaComoReceita = exports.lancamentoDesfeito = exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = void 0;
+exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.reopenCommissionSnapshot = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.pedeBancoDeDestino = exports.isSimplifiedChequePayment = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
+exports.receitaDoConjuntoCentavos = exports.abateReceita = exports.contaComoReceita = exports.lancamentoDesfeito = exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = void 0;
 const dateTime_1 = require("./dateTime");
 const toCents = (value) => {
     if (typeof value === 'string') {
@@ -408,7 +408,10 @@ const normalizePayments = (totalCents, drafts, options = {}) => {
             naturezaFinanceira: nature,
             movimentaCaixaFisico: draft.forma === 'Dinheiro',
         };
-        if (effectiveBancoId?.trim()) {
+        // So' forma que pede banco guarda banco (19/10/2026). A tela nao limpa o
+        // banco ao trocar Pix por Dinheiro (ou A Prazo): o banco escondido ficava no
+        // rascunho e o dinheiro entrava no caixa fisico E no saldo do banco.
+        if (effectiveBancoId?.trim() && ((0, exports.paymentRequiresBankAccount)(draft.forma) || isSimplifiedCard)) {
             record.bancoId = effectiveBancoId.trim();
             record.bancoNome = effectiveBancoNome?.trim() || '';
         }
@@ -1143,6 +1146,18 @@ const cancelCommissionSnapshot = (snapshot, cancelledAt = new Date().toISOString
     canceladaEm: cancelledAt,
 });
 exports.cancelCommissionSnapshot = cancelCommissionSnapshot;
+/**
+ * OS reaberta (fatia 3d, 19/10/2026): a comissao fica sem valor enquanto a OS
+ * estiver reaberta e e' refeita quando a OS for finalizada de novo.
+ */
+const reopenCommissionSnapshot = (snapshot, reopenedAt = new Date().toISOString()) => ({
+    ...snapshot,
+    valorAtualCentavos: 0,
+    valorAtual: 0,
+    status: 'reaberta',
+    reabertaEm: reopenedAt,
+});
+exports.reopenCommissionSnapshot = reopenCommissionSnapshot;
 /**
  * Data em que o titulo VENCE (nao a da operacao que o gerou).
  *

@@ -556,4 +556,4 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   };
 };
 
-module.exports = { ErroVenda, finalizarVenda, temPermissao };
+module.exports = { ErroVenda, finalizarVenda, temPermissao, situacaoDoCliente, lerColecaoDaEmpresa };

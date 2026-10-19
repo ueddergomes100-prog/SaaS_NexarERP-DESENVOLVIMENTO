@@ -66,8 +66,17 @@ export const finalizarVendaNoServidor = async (corpo: Record<string, unknown>): 
   return dados as ResultadoDoFechamento;
 };
 
-/** POST numa rota de /api/vendas, com o token da sessão. `semResposta` = texto quando a rede falha. */
-const postarNoServidor = async <T>(rota: string, corpo: Record<string, unknown>, falhou: string, semResposta: string): Promise<T> => {
+/**
+ * POST numa rota de /api/<base> (vendas; os desde a fatia 3d), com o token da
+ * sessão. `semResposta` = texto quando a rede falha.
+ */
+export const postarNoServidor = async <T>(
+  rota: string,
+  corpo: Record<string, unknown>,
+  falhou: string,
+  semResposta: string,
+  base: 'vendas' | 'os' = 'vendas',
+): Promise<T> => {
   if (!API_URL) {
     throw new VendaServidorError('As vendas desta empresa são gravadas pelo servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
   }
@@ -76,7 +85,7 @@ const postarNoServidor = async <T>(rota: string, corpo: Record<string, unknown>,
 
   let resposta: Response;
   try {
-    resposta = await fetchComTimeout(`${API_URL}/api/vendas/${rota}`, {
+    resposta = await fetchComTimeout(`${API_URL}/api/${base}/${rota}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(corpo),

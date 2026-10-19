@@ -73,6 +73,7 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
   });
   const db = {
     collection: (colecao) => colecaoEm(colecao),
+    getAll: async (...refs) => Promise.all(refs.map((r) => r.get())),
     runTransaction: async (fn) => {
       const escritas = [];
       const tx = {

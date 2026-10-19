@@ -77,6 +77,10 @@ const MODULOS = [
   'src/utils/cancelamentoVendaDomain.ts',
   // IE do destinatario (19/10/2026): "ISENTO" = nao contribuinte; em branco bloqueia (NF-e de devolucao no servidor).
   'src/utils/destinatarioFiscalDomain.ts',
+  // Item 8, fatia 3d (19/10/2026): finalizar, reabrir e cancelar a OS no servidor.
+  'src/utils/oficinaDomain.ts',
+  'src/utils/osCampoDomain.ts',
+  'src/utils/osFechamentoDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

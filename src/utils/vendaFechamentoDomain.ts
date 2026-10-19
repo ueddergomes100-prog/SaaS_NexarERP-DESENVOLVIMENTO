@@ -163,7 +163,8 @@ const numero = (valor: unknown): number => {
 
 const texto = (valor: unknown, maximo: number): string => String(valor ?? '').trim().slice(0, maximo);
 
-const lerLotes = (valor: unknown): LoteDoItem[] | null => {
+/** Lotes de uma linha, como a tela manda (null = invalido). Tambem usado pela OS (osFechamentoDomain). */
+export const lerLotes = (valor: unknown): LoteDoItem[] | null => {
   if (valor === undefined || valor === null) return [];
   if (!Array.isArray(valor) || valor.length > 50) return null;
   const lotes: LoteDoItem[] = [];

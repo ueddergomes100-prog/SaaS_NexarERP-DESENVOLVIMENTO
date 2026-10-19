@@ -195,7 +195,7 @@ export const comissaoAPagarCentavos = (entry: EntradaComissao): number => (
 
 /** Base de calculo que conta no total: origem cancelada nao tem mais base. */
 export const baseConsideradaCentavos = (entry: EntradaComissao): number => (
-  entry.status === 'cancelada' ? 0 : entry.baseCents
+  entry.status === 'cancelada' || entry.status === 'reaberta' ? 0 : entry.baseCents
 );
 
 export interface TotaisComissoes {
@@ -251,6 +251,7 @@ const ROTULO_STATUS: Record<string, string> = {
   gerada: 'Gerada',
   nao_aplicavel: 'Não aplicável',
   cancelada: 'Cancelada',
+  reaberta: 'Reaberta',
   estimativa_legada: 'Estimativa legada',
 };
 

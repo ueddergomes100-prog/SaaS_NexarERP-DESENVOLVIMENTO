@@ -234,10 +234,12 @@ export interface CommissionSnapshot {
   valorOriginal: number;
   valorAtualCentavos: number;
   valorAtual: number;
-  status: 'gerada' | 'nao_aplicavel' | 'cancelada';
+  /** 'reaberta' (19/10/2026): OS reaberta -- sem valor ate' finalizar de novo, quando e' refeita. */
+  status: 'gerada' | 'nao_aplicavel' | 'cancelada' | 'reaberta';
   regraVersion: 1;
   geradaEm: string;
   canceladaEm?: string;
+  reabertaEm?: string;
   pagaEm?: string;
   /** Presente so em vendas geradas por buildCommissionSnapshotFromItems.
    * Ausente = snapshot antigo (flat) -- recalculateCommissionAfterReturn
@@ -750,7 +752,10 @@ export const normalizePayments = (
       movimentaCaixaFisico: draft.forma === 'Dinheiro',
     };
 
-    if (effectiveBancoId?.trim()) {
+    // So' forma que pede banco guarda banco (19/10/2026). A tela nao limpa o
+    // banco ao trocar Pix por Dinheiro (ou A Prazo): o banco escondido ficava no
+    // rascunho e o dinheiro entrava no caixa fisico E no saldo do banco.
+    if (effectiveBancoId?.trim() && (paymentRequiresBankAccount(draft.forma) || isSimplifiedCard)) {
       record.bancoId = effectiveBancoId.trim();
       record.bancoNome = effectiveBancoNome?.trim() || '';
     }
@@ -1612,6 +1617,21 @@ export const cancelCommissionSnapshot = (
   valorAtual: 0,
   status: 'cancelada' as const,
   canceladaEm: cancelledAt,
+});
+
+/**
+ * OS reaberta (fatia 3d, 19/10/2026): a comissao fica sem valor enquanto a OS
+ * estiver reaberta e e' refeita quando a OS for finalizada de novo.
+ */
+export const reopenCommissionSnapshot = <T extends { valorAtualCentavos?: number; valorAtual?: number; status?: string }>(
+  snapshot: T,
+  reopenedAt = new Date().toISOString(),
+) => ({
+  ...snapshot,
+  valorAtualCentavos: 0,
+  valorAtual: 0,
+  status: 'reaberta' as const,
+  reabertaEm: reopenedAt,
 });
 
 /**

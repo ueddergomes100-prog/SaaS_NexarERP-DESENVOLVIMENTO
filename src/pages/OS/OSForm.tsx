@@ -3,20 +3,18 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History, Truck, Camera } from 'lucide-react';
-import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, deleteField } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
-import { baixarLotesNaTransacao, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
-import { somarLotesUsados, type PlanoDeLotes } from '../../utils/loteDomain';
-import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
+import { linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
+import { type PlanoDeLotes } from '../../utils/loteDomain';
+import { applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import {
-  computeReservationCommit,
   computeReservationDelta,
   computeReservationRelease,
-  computeReservationReturn,
   DEFAULT_MOMENTO_BAIXA_ESTOQUE,
   type MomentoBaixaEstoque,
 } from '../../utils/estoqueReservaDomain';
@@ -44,9 +42,7 @@ import {
 } from '../../utils/clienteValidacaoDomain';
 import {
   CAMPO_CREDITO_VERSAO,
-  creditoFoiAlteradoDurante,
   excedeLimiteCredito,
-  MENSAGEM_CREDITO_CONCORRENTE,
   parseCreditoVersao,
   parseTrabalhaComLimiteCredito,
 } from '../../utils/creditoDomain';
@@ -85,9 +81,6 @@ import {
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
   buildCardFeeSchedulesByBrand,
-  buildServiceOrderCommissionSnapshot,
-  cancelCommissionSnapshot,
-  computeBankCreditsMap,
   createEmptyPaymentDraft,
   DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO,
   formaPagamentoInicial,
@@ -99,10 +92,8 @@ import {
   parseCreditTerms,
   parsePagamentoCartaoSimplificadoAtivo,
   resolveBancoPadraoSimplificado,
-  resolveComissaoPercentual,
   summarizePayments,
   toCents,
-  transactionMovesPhysicalCash,
   type PaymentDraft,
   type PaymentMethod,
   type PaymentRecord,
@@ -114,10 +105,22 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { useModoOficina } from '../../hooks/useModoOficina';
-import { bloqueioParaRefazerParcelas, type TituloParaAlterarValor } from '../../utils/alteracaoValorTituloDomain';
-import { bloqueioPorParcelaRenegociada } from '../../utils/renegociacaoDomain';
+import { MOTIVO_CANCELAMENTO_MAXIMO, erroDoMotivoDoCancelamento } from '../../utils/cancelamentoVendaDomain';
+import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
+import {
+  STATUS_OS_CANCELADA,
+  STATUS_OS_FINALIZADA,
+  STATUS_OS_REABERTA_PADRAO,
+  assinaturaDaCobrancaDaOs,
+  camposDescritivosDaOs,
+  corDoStatusDaOs,
+  erroDasNotasParaCancelarOs,
+  mensagemOsCanceladaNaoReabre,
+} from '../../utils/osFechamentoDomain';
+import { cancelarOsPelaTela, finalizarOsPelaTela, reabrirOsPelaTela } from '../../services/osFechamentoService';
+import { cancelarOsNoServidor, finalizarOsNoServidor, reabrirOsNoServidor } from '../../services/osServidorService';
 import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
-import { AVISO_OS_EM_ATENDIMENTO_NO_CAMPO, CORES_STATUS_OS_CAMPO, STATUS_OS_AGUARDANDO_CONFERENCIA, STATUS_OS_EM_ATENDIMENTO, osEmAtendimentoNoCampo, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
+import { AVISO_OS_EM_ATENDIMENTO_NO_CAMPO, STATUS_OS_AGUARDANDO_CONFERENCIA, STATUS_OS_EM_ATENDIMENTO, osEmAtendimentoNoCampo, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
 interface Banco { id: string; nome: string; ativo: boolean; }
@@ -237,6 +240,15 @@ const OSForm: React.FC = () => {
   });
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
+  /** Como a OS abriu (fatia 3d): decide se salvar so' grava os dados, reabre ou refaz a cobranca. */
+  const statusGravadoRef = useRef<string | null>(null);
+  const estoqueBaixadoGravadoRef = useRef(false);
+  /** Finalizada agora ou antes de ser reaberta: so' essa pode ter nota fiscal (a NF-e/NFS-e sai de OS finalizada). */
+  const osJaFoiFinalizadaRef = useRef(false);
+  const assinaturaCarregadaRef = useRef<string | null>(null);
+  const rascunhosCarregadosRef = useRef<string | null>(null);
+  /** Chave "Venda pelo servidor" (SuperAdmin): finalizar/reabrir/cancelar pelo servidor. */
+  const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
   const servicoNomeInputRef = useRef<HTMLInputElement>(null);
   const pecaNomeInputRef = useRef<HTMLInputElement | null>(null);
   const clienteInputRef = useRef<HTMLInputElement>(null);
@@ -367,6 +379,8 @@ const OSForm: React.FC = () => {
   useEffect(() => {
     const isConsumidorFinal = formData.clienteNome.toLowerCase().includes('consumidor final');
     if (!isConsumidorFinal) return;
+    // OS ja' finalizada: o pagamento gravado e' o que vale (trocar aqui refaria a cobranca ao salvar).
+    if (statusGravadoRef.current === STATUS_OS_FINALIZADA) return;
 
     setPaymentDrafts((current) => current.map((payment) => (
       payment.forma === 'Dinheiro' || payment.forma === 'Pix'
@@ -476,6 +490,7 @@ const OSForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setVendaPeloServidor(parseVendaPeloServidor(config.vendaPeloServidor));
           setFormasPrecoAVista(parseFormasAVista(config.formasPrecoAVista));
           setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
           setPecaSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
@@ -610,8 +625,12 @@ const OSForm: React.FC = () => {
                 valor: Number(os.desconto.valorInformado) > 0 ? String(os.desconto.valorInformado) : '',
               });
             }
+            statusGravadoRef.current = os.status || 'Orçamento Pendente';
+            estoqueBaixadoGravadoRef.current = os.estoqueBaixado === true;
+            osJaFoiFinalizadaRef.current = os.status === STATUS_OS_FINALIZADA || Boolean(os.reabertaEm) || (Array.isArray(os.pagamentos) && os.pagamentos.length > 0);
+            assinaturaCarregadaRef.current = assinaturaDaCobrancaDaOs(os);
             if (Array.isArray(os.pagamentos) && os.pagamentos.length > 0) {
-              setPaymentDrafts(os.pagamentos.map((payment: PaymentRecord, index: number) => ({
+              const rascunhos: PaymentDraft[] = os.pagamentos.map((payment: PaymentRecord, index: number) => ({
                 id: payment.id || `pagamento-${index + 1}`,
                 forma: payment.formaPagamento || 'Outros',
                 valor: fromCents(Number(payment.valorCentavos ?? toCents(payment.valor))).toFixed(2),
@@ -631,15 +650,19 @@ const OSForm: React.FC = () => {
                 chequeEmitente: payment.cheque?.emitente || '',
                 chequeDocumentoEmitente: payment.cheque?.documentoEmitente || '',
                 chequeNumero: payment.cheque?.numeroCheque || '',
-              })));
+              }));
+              setPaymentDrafts(rascunhos);
+              rascunhosCarregadosRef.current = JSON.stringify(rascunhos);
               paymentDraftCounter.current = os.pagamentos.length;
             } else {
               // OS em aberto e' gravada sem forma de pagamento: abre como um
               // pagamento novo, conforme Configuracoes.
-              setPaymentDrafts([{
+              const rascunhos: PaymentDraft[] = [{
                 ...createEmptyPaymentDraft('pagamento-1', toCents(os.valorTotal || 0)),
                 forma: formaDoDocumentoSemPagamentos(os.formaPagamento, formaInicialDaEmpresa),
-              }]);
+              }];
+              setPaymentDrafts(rascunhos);
+              rascunhosCarregadosRef.current = JSON.stringify(rascunhos);
             }
           } else {
             showError('Erro', 'OS não encontrada.');
@@ -1088,21 +1111,18 @@ const OSForm: React.FC = () => {
       : current);
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Finalizada': return '#10b981'; // Verde
-      case 'Orçamento Pendente': return '#3b82f6'; // Azul
-      case 'Aguardando Peça': return '#f59e0b'; // Amarelo
-      case 'Em Manutenção': return '#8b5cf6'; // Roxo
-      case STATUS_OS_EM_ATENDIMENTO: return CORES_STATUS_OS_CAMPO[STATUS_OS_EM_ATENDIMENTO]; // app do tecnico, no campo
-      case STATUS_OS_AGUARDANDO_CONFERENCIA: return CORES_STATUS_OS_CAMPO[STATUS_OS_AGUARDANDO_CONFERENCIA]; // tecnico concluiu; oficina finaliza
-      case 'Cancelada': return '#ef4444'; // Vermelho
-      default: return '#6b7280'; // Cinza
-    }
-  };
 
   /** Devolve true/false (sucesso) -- usado tanto pelo clique do botao
-   * quanto pelo useUnsavedChangesGuard (fechar aba -> "Salvar e fechar"). */
+   * quanto pelo useUnsavedChangesGuard (fechar aba -> "Salvar e fechar").
+   *
+   * Fatia 3d (19/10/2026): salvar virou ate' quatro etapas, cada uma pelo
+   * servidor (chave "Venda pelo servidor" ligada) ou pela tela (desligada),
+   * sempre com o mesmo plano (osFechamentoDomain.ts):
+   *   1. reabrir -- OS finalizada que vai mudar de situacao ou de cobranca;
+   *   2. gravar a OS -- dados, servicos, pecas, desconto e reserva, sem dinheiro;
+   *   3. finalizar -- estoque, lotes, comissao, lancamentos e banco;
+   *   ou cancelar -- com motivo, direto sobre a OS gravada.
+   * OS finalizada (ou cancelada) sem mudanca na cobranca so' grava os dados descritivos. */
   const saveOS = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
@@ -1118,10 +1138,35 @@ const OSForm: React.FC = () => {
       return false;
     }
 
+    const alvo = formData.status;
+    const nomeClienteFormatado = formData.clienteNome.toUpperCase().trim();
+    const statusGravado = isEditing ? statusGravadoRef.current : null;
+    if (statusGravado === STATUS_OS_CANCELADA && alvo !== STATUS_OS_CANCELADA) {
+      showError('OS cancelada', mensagemOsCanceladaNaoReabre(formData.numeroOS));
+      return false;
+    }
+    const eraFinalizada = statusGravado === STATUS_OS_FINALIZADA;
+    const cobrancaMudou = eraFinalizada && (
+      assinaturaDaCobrancaDaOs({
+        servicos: servicosSelecionados,
+        pecas: pecasSelecionadas,
+        desconto: { tipo: descontoInput.tipo, valorInformado: descontoInput.valor },
+        clienteNome: nomeClienteFormatado,
+        mecanicoId: formData.mecanicoId,
+        dataSaida: formData.dataSaida,
+      }) !== assinaturaCarregadaRef.current
+      || JSON.stringify(paymentDrafts) !== rascunhosCarregadosRef.current
+    );
+    const reabrir = eraFinalizada && alvo !== STATUS_OS_CANCELADA && (alvo !== STATUS_OS_FINALIZADA || cobrancaMudou);
+    const soDescritivo = (eraFinalizada && alvo === STATUS_OS_FINALIZADA && !cobrancaMudou)
+      || (statusGravado === STATUS_OS_CANCELADA && alvo === STATUS_OS_CANCELADA);
+    const cancelar = isEditing && alvo === STATUS_OS_CANCELADA && statusGravado !== STATUS_OS_CANCELADA;
+    const finalizar = alvo === STATUS_OS_FINALIZADA && !soDescritivo;
+
     // Nivel 2 (sistema): so faz sentido checar o desconto no momento em que
     // a OS vira receita de verdade -- mesmo gate que ja existe pra validar
     // pagamento logo abaixo.
-    if (formData.status === 'Finalizada' && checagemLimiteDesconto.excedeu) {
+    if (finalizar && checagemLimiteDesconto.excedeu) {
       if (modoLimiteDesconto === 'bloquear') {
         showError('Desconto acima do limite', `O desconto desta OS (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado. Reduza o desconto para continuar.`);
         return false;
@@ -1145,7 +1190,7 @@ const OSForm: React.FC = () => {
 
     let paymentRecords: PaymentRecord[] = [];
     let paymentSummary: ReturnType<typeof summarizePayments> | null = null;
-    if (formData.status === 'Finalizada') {
+    if (finalizar) {
       try {
         paymentRecords = normalizePayments(totalOSCentavos, paymentDrafts, {
           saleDate: paymentDate,
@@ -1167,29 +1212,182 @@ const OSForm: React.FC = () => {
       }
     }
 
-    const nomeClienteFormatado = formData.clienteNome.toUpperCase().trim();
     const clienteEncontrado = clientesDisponiveis.find(c => c.nome.toUpperCase() === nomeClienteFormatado);
 
-    const acaoValidacaoCliente = resolverAcaoValidacaoCliente(modoValidacaoCliente, !!clienteEncontrado, formData.clienteNome.trim());
-    if (acaoValidacaoCliente.tipo === 'bloquear') {
-      showError('Cliente não cadastrado', acaoValidacaoCliente.motivo);
-      return false;
+    if (!soDescritivo && !cancelar) {
+      const acaoValidacaoCliente = resolverAcaoValidacaoCliente(modoValidacaoCliente, !!clienteEncontrado, formData.clienteNome.trim());
+      if (acaoValidacaoCliente.tipo === 'bloquear') {
+        showError('Cliente não cadastrado', acaoValidacaoCliente.motivo);
+        return false;
+      }
+      if (acaoValidacaoCliente.tipo === 'perguntar') {
+        const confirmCadastro = await NexusSwal.fire({
+          title: 'Cliente não cadastrado',
+          text: `"${nomeClienteFormatado}" ainda não tem cadastro. Deseja cadastrar agora?`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Cadastrar cliente',
+          cancelButtonText: 'Cancelar',
+        });
+        if (confirmCadastro.isConfirmed) setCadastroRapidoAberto(true);
+        return false;
+      }
     }
-    if (acaoValidacaoCliente.tipo === 'perguntar') {
-      const confirmCadastro = await NexusSwal.fire({
-        title: 'Cliente não cadastrado',
-        text: `"${nomeClienteFormatado}" ainda não tem cadastro. Deseja cadastrar agora?`,
+
+    // OS finalizada com cobranca mudada: avisa que ela sera' reaberta e finalizada de novo.
+    if (reabrir && alvo === STATUS_OS_FINALIZADA) {
+      const confirmar = await NexusSwal.fire({
+        title: 'Refazer a cobrança desta OS?',
+        text: `A OS #${formData.numeroOS} já está finalizada. Para gravar a mudança, ela é reaberta (os lançamentos são cancelados, o banco é estornado e as peças voltam ao estoque) e finalizada de novo com o que está na tela.`,
         icon: 'question',
         showCancelButton: true,
-        confirmButtonText: 'Cadastrar cliente',
-        cancelButtonText: 'Cancelar',
+        confirmButtonText: 'Reabrir e finalizar de novo',
+        cancelButtonText: 'Voltar',
       });
-      if (confirmCadastro.isConfirmed) setCadastroRapidoAberto(true);
-      return false;
+      if (!confirmar.isConfirmed) return false;
+    }
+
+    const ctx = { db, tenantId, usuarioId: currentUser.uid, usuarioNome: currentUser.displayName || currentUser.email || 'Usuário' };
+    /** Log do que a TELA gravou. Finalizar/reabrir/cancelar pelo servidor: o servidor grava o log. */
+    const registrarLog = async (acao: 'criacao' | 'edicao' | 'cancelamento', descricao: string, registroId: string, critical = false) => {
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'mecanica',
+          acao,
+          descricao,
+          registroRelacionadoId: registroId,
+          status: 'sucesso',
+          ...(critical ? { critical: true } : {}),
+        });
+      } catch (logError) {
+        console.error('Erro ao registrar log de auditoria da OS:', logError);
+      }
+    };
+    const terminar = () => {
+      initialSnapshotRef.current = buildDirtySnapshot();
+      setIsDirty(false);
+    };
+
+    // ------------------------------------------------------------------
+    // CANCELAR: motivo, nota fiscal e "Retornar estoque?" (decisoes de 19/10).
+    // ------------------------------------------------------------------
+    if (cancelar && id) {
+      if (!vendaPeloServidor && osJaFoiFinalizadaRef.current) {
+        // Pelo servidor a nota e' conferida la' (sem depender da permissao fiscal de quem cancela).
+        try {
+          const snapNotas = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('osId', '==', id)));
+          const erroNota = erroDasNotasParaCancelarOs(snapNotas.docs.map((d) => ({ id: d.id, ...d.data() })), formData.numeroOS);
+          if (erroNota) {
+            showError('A OS tem nota fiscal', erroNota);
+            return false;
+          }
+        } catch (erroNotas) {
+          console.error('Erro ao conferir as notas da OS antes de cancelar:', erroNotas);
+          showError('Não foi possível conferir a nota fiscal da OS', 'Para não cancelar uma OS com nota válida, o cancelamento não foi feito. Confira sua conexão e tente de novo. Se o seu usuário não tem acesso às Notas Fiscais, peça a quem emite as notas para cancelar a OS.');
+          return false;
+        }
+      }
+      const confirmacao = await NexusSwal.fire({
+        title: `Cancelar a OS #${formData.numeroOS}?`,
+        text: statusGravado === STATUS_OS_FINALIZADA ? 'Os lançamentos da OS serão estornados e a comissão cancelada.' : 'A OS fica registrada como cancelada.',
+        icon: 'warning',
+        input: 'textarea',
+        inputLabel: 'Motivo do cancelamento',
+        inputAttributes: { maxlength: String(MOTIVO_CANCELAMENTO_MAXIMO) },
+        inputPlaceholder: 'Escreva por que a OS está sendo cancelada',
+        inputValidator: (valor) => erroDoMotivoDoCancelamento(valor) || undefined,
+        showCancelButton: true,
+        confirmButtonText: 'Sim, cancelar a OS',
+        cancelButtonText: 'Manter a OS',
+        confirmButtonColor: '#ef4444',
+      });
+      if (!confirmacao.isConfirmed) return false;
+      const motivo = String(confirmacao.value || '').trim();
+
+      let devolverEstoque = false;
+      if (estoqueBaixadoGravadoRef.current) {
+        const confirmRetorno = await NexusSwal.fire({
+          title: 'Retornar Estoque?',
+          text: 'Esta OS foi cancelada. Deseja retornar as peças utilizadas para o estoque?',
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Sim, retornar peças',
+          cancelButtonText: 'Não, manter fora do estoque',
+        });
+        devolverEstoque = confirmRetorno.isConfirmed;
+      }
+
+      submitLockRef.current = true;
+      setIsLoading(true);
+      try {
+        const resultado = vendaPeloServidor
+          ? await cancelarOsNoServidor(id, motivo, devolverEstoque)
+          : await cancelarOsPelaTela(ctx, id, motivo, devolverEstoque);
+        if (!vendaPeloServidor) await registrarLog('cancelamento', `OS #${resultado.numeroOS} cancelada${resultado.devolveuEstoque ? ' e peças devolvidas ao estoque' : ''}. Motivo: ${motivo}.`, id, true);
+        setFormData((prev) => ({ ...prev, statusPagamento: 'Cancelada', ...(resultado.devolveuEstoque ? { estoqueBaixado: false } : {}), estoqueReservado: false }));
+        showSuccess('OS cancelada!');
+        terminar();
+        navigate('/os');
+        return true;
+      } catch (error) {
+        console.error('Erro ao cancelar a OS:', error);
+        showError('Não foi possível cancelar a OS', describeTransactionError(error) || (error instanceof Error && error.message ? error.message : 'Verifique a conexão e tente novamente.'));
+        return false;
+      } finally {
+        submitLockRef.current = false;
+        setIsLoading(false);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // SO' OS DADOS DESCRITIVOS: OS finalizada sem mudanca na cobranca, ou cancelada.
+    // ------------------------------------------------------------------
+    if (soDescritivo && id) {
+      submitLockRef.current = true;
+      setIsLoading(true);
+      try {
+        const osRef = doc(db, 'ordens_de_servico', id);
+        await runTransaction(db, async (transaction) => {
+          const atual = await transaction.get(osRef);
+          if (!atual.exists() || atual.data().status !== statusGravado) {
+            throw new Error(`A OS #${formData.numeroOS} mudou de situação enquanto você editava (talvez por outra pessoa). Atualize a tela.`);
+          }
+          transaction.update(osRef, {
+            ...camposDescritivosDaOs(formData),
+            deslocamento: temDeslocamento(deslocamento) ? deslocamento : null,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Dados da OS atualizados'),
+          });
+        });
+        await registrarLog('edicao', `OS #${formData.numeroOS} atualizada (dados do atendimento; cobrança sem mudança).`, id);
+        showSuccess('OS atualizada!');
+        terminar();
+        navigate('/os');
+        return true;
+      } catch (error) {
+        console.error('Erro ao salvar OS:', error);
+        showError('Erro ao salvar', describeTransactionError(error) || (error instanceof Error && error.message ? error.message : 'Verifique a conexão e tente novamente.'));
+        return false;
+      } finally {
+        submitLockRef.current = false;
+        setIsLoading(false);
+      }
     }
 
     submitLockRef.current = true;
     setIsLoading(true);
+
+    // Ate' onde chegou (para a mensagem de erro dizer em que estado a OS ficou).
+    let etapa: 'nada' | 'reaberta' | 'gravada' = 'nada';
+    const statusDoRascunho = alvo === STATUS_OS_FINALIZADA
+      ? (statusGravado && statusGravado !== STATUS_OS_FINALIZADA ? statusGravado : STATUS_OS_REABERTA_PADRAO)
+      : alvo;
+    let savedOsId = id || '';
+    let finalNumeroOS = formData.numeroOS;
 
     try {
       // 1. Check and Create Client if new
@@ -1213,16 +1411,17 @@ const OSForm: React.FC = () => {
       // cliente nao aceita consulta dentro de transacao. A versao lida junto
       // com o saldo e' reconferida DENTRO da transacao -- e' o que impede
       // uma OS e uma venda a prazo do mesmo cliente, ao mesmo tempo, de
-      // furarem o limite juntas. Ver creditoDomain.ts.
+      // furarem o limite juntas. Ver creditoDomain.ts. Pelo servidor, o
+      // servidor refaz as duas conferencias.
       // Parametros de venda (fase A): cliente com titulo vencido ha' mais de N
       // dias nao fecha OS a prazo -- independe do limite de credito estar ligado.
-      if (formData.status === 'Finalizada' && paymentSummary?.paymentCondition === 'aprazo' && parametrosVenda.bloqueioAtraso.ativo && clienteIdParaSalvar) {
+      if (finalizar && paymentSummary?.paymentCondition === 'aprazo' && parametrosVenda.bloqueioAtraso.ativo && clienteIdParaSalvar) {
         const situacao = await situacaoEmAbertoDoCliente(tenantId, clienteIdParaSalvar, Boolean(grupo));
         const bloqueioAtraso = bloqueioPorAtraso(parametrosVenda, situacao.maiorAtrasoDias, nomeClienteFormatado);
         if (bloqueioAtraso) throw new Error(bloqueioAtraso);
       }
 
-      const osEhAprazo = formData.status === 'Finalizada'
+      const osEhAprazo = finalizar
         && trabalhaComLimiteCredito
         && paymentSummary?.paymentCondition === 'aprazo';
       let creditoVersaoNaChecagem = 0;
@@ -1249,49 +1448,24 @@ const OSForm: React.FC = () => {
         }
       }
 
-      let estoqueFoiBaixado = formData.estoqueBaixado || false;
-      let deveRetornarEstoque = false;
-      let novoEstoqueReservado = false;
-
-      if (formData.status === 'Cancelada' && estoqueFoiBaixado) {
-        const confirmRetorno = await NexusSwal.fire({
-          title: 'Retornar Estoque?',
-          text: 'Esta OS foi cancelada. Deseja retornar as peças utilizadas para o estoque?',
-          icon: 'question',
-          showCancelButton: true,
-          confirmButtonText: 'Sim, retornar peças',
-          cancelButtonText: 'Não, manter fora do estoque'
-        });
-
-        if (confirmRetorno.isConfirmed) {
-          deveRetornarEstoque = true;
-          estoqueFoiBaixado = false;
-        }
+      // 2. REABRIR (desfaz a finalizacao inteira; bloqueado com parcela ja' recebida).
+      if (reabrir && id) {
+        const statusDaReabertura = alvo === STATUS_OS_FINALIZADA ? STATUS_OS_REABERTA_PADRAO : alvo;
+        const reaberta = vendaPeloServidor
+          ? await reabrirOsNoServidor(id, statusDaReabertura)
+          : await reabrirOsPelaTela(ctx, id, statusDaReabertura);
+        etapa = 'reaberta';
+        statusGravadoRef.current = statusDaReabertura;
+        estoqueBaixadoGravadoRef.current = false;
+        if (!vendaPeloServidor) await registrarLog('edicao', `OS #${reaberta.numeroOS} reaberta (situação "${statusDaReabertura}"). Lançamentos cancelados e crédito do banco estornado${reaberta.pecasDevolvidas ? '; peças de volta ao estoque' : ''}.`, id);
       }
 
-      // Lote e Validade: so' o produto que controla lote entra; os demais seguem so' com o estoque.
-      // A baixa de estoque da OS acontece ao FINALIZAR (ou ao confirmar a reserva), entao e' ali que o lote sai.
-      let planoLotes: PlanoDeLotes | null = null;
-      if (formData.status === 'Finalizada' && !formData.estoqueBaixado && pecasSelecionadas.length > 0) {
-        planoLotes = await prepararBaixaDeLotes({
-          db,
-          tenantId,
-          linhas: linhasParaLote(pecasSelecionadas.map((peca) => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade }))),
-          modo: loteModoSaida,
-          avisarVencido: loteAvisarVencido,
-        });
-        if (planoLotes === null) return false; // quem operou cancelou a escolha do lote (o finally solta o bloqueio)
-      }
-      // Lotes de onde as pecas sairam, guardados na OS para o retorno/cancelamento devolver ao mesmo lote.
-      // undefined = nao mexe no que ja esta gravado; [] = limpa (as pecas voltaram).
-      let lotesBaixadosDaOs: ReturnType<typeof somarLotesUsados> | undefined;
-
-      let finalNumeroOS = formData.numeroOS;
+      // 3. GRAVAR A OS: dados, servicos, pecas, desconto e reserva -- sem dinheiro.
       const currentMaxOs = !isEditing
         ? await getCurrentMaxSequence(db, 'ordens_de_servico', tenantId, 'numeroOS').catch(() => 0)
         : 0;
-      let didCancelJustNow = false;
-      let savedOsId = id || '';
+      let novoEstoqueReservado = false;
+      let estoqueJaBaixado = false;
 
       await runTransaction(db, async (transaction) => {
         let nextOs: number | null = null;
@@ -1304,121 +1478,22 @@ const OSForm: React.FC = () => {
         savedOsId = osRef.id;
         const existingOsSnap = isEditing ? await transaction.get(osRef) : null;
         const existingOsData = existingOsSnap?.exists() ? existingOsSnap.data() : null;
-        const mechanicSnap = formData.mecanicoId
-          ? await transaction.get(doc(db, 'usuarios', formData.mecanicoId))
-          : null;
-
-        // Guarda do limite de credito: outra venda/OS a prazo do mesmo
-        // cliente entrou depois que o saldo foi lido la fora? Entao o saldo
-        // em maos esta velho e esta gravacao para. Leitura antes de
-        // qualquer escrita, como o Firestore exige.
-        const clienteCreditoRef = osEhAprazo && clienteIdParaSalvar
-          ? doc(db, 'clientes', clienteIdParaSalvar)
-          : null;
-        let creditoVersaoAtual = 0;
-        if (clienteCreditoRef) {
-          const clienteSnapTx = await transaction.get(clienteCreditoRef);
-          creditoVersaoAtual = parseCreditoVersao(clienteSnapTx.data()?.[CAMPO_CREDITO_VERSAO]);
-          if (creditoFoiAlteradoDurante(creditoVersaoNaChecagem, creditoVersaoAtual)) {
-            throw new Error(MENSAGEM_CREDITO_CONCORRENTE);
-          }
-        }
-        const persistedPayments = paymentRecords.map((payment, index) => ({
-          ...payment,
-          transactionId: index === 0 ? osRef.id : `${osRef.id}_pag_${index + 1}`,
-        }));
-        const existingPaymentIds = Array.isArray(existingOsData?.pagamentos) && existingOsData.pagamentos.length > 0
-          ? existingOsData.pagamentos.map((payment: PaymentRecord, index: number) => (
-              payment.transactionId || (index === 0 ? osRef.id : `${osRef.id}_pag_${index + 1}`)
-            ))
-          : [osRef.id];
-        const currentPaymentIds = persistedPayments.map((payment) => payment.transactionId);
-        const paymentTransactionIds = isEditing
-          ? Array.from(new Set([...existingPaymentIds, ...currentPaymentIds]))
-          : [];
-        const paymentTransactionSnapshots = await Promise.all(
-          paymentTransactionIds.map((transactionId) => transaction.get(doc(db, 'transacoes', transactionId))),
-        );
-        const paymentTransactionById = new Map(
-          paymentTransactionSnapshots.map((snapshot) => [snapshot.id, snapshot]),
-        );
-        // Parcela com valor alterado no Contas a Receber (15/10/2026): salvar a
-        // OS refaz as parcelas e apagaria a alteracao. Cancelar a OS continua livre.
-        const titulosDaOs = paymentTransactionSnapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => snapshot.data() as TituloParaAlterarValor & { descricao?: string });
-        if (formData.status !== 'Cancelada') {
-          const bloqueioDeValorAlterado = bloqueioParaRefazerParcelas(titulosDaOs, 'OS');
-          if (bloqueioDeValorAlterado) throw new Error(bloqueioDeValorAlterado);
-        } else {
-          // Renegociacao (15/10/2026): cancelar a OS com parcela renegociada deixaria a
-          // renegociacao cobrando uma divida cancelada.
-          const bloqueioDeRenegociacao = bloqueioPorParcelaRenegociada(titulosDaOs, 'cancelar a OS');
-          if (bloqueioDeRenegociacao) throw new Error(bloqueioDeRenegociacao);
-        }
-
-        const wasAlreadyFinalized = existingOsData?.status === 'Finalizada';
-        const bankCreditsByBanco = formData.status === 'Finalizada' && !wasAlreadyFinalized
-          ? computeBankCreditsMap(persistedPayments)
-          : new Map<string, number>();
-        // Reverte o credito bancario aplicado na finalizacao sempre que a OS
-        // deixa de estar Finalizada -- cobre tanto cancelamento quanto
-        // "reabertura" (troca de status pra qualquer outro), que antes
-        // deixavam o saldo do banco inflado pra sempre. Le do
-        // existingOsData.pagamentos (o que foi creditado de fato), nao do
-        // formData atual (que pode ter mudado forma de pagamento na mesma
-        // edicao). Naturalmente idempotente: so roda quando o status
-        // PERSISTIDO ainda era Finalizada, entao nao reverte duas vezes.
-        const bankDebitsByBanco = wasAlreadyFinalized && formData.status !== 'Finalizada'
-          ? computeBankCreditsMap(existingOsData?.pagamentos || [])
-          : new Map<string, number>();
-        const bankBalancesById = new Map<string, number>();
-        for (const bancoId of new Set([...bankCreditsByBanco.keys(), ...bankDebitsByBanco.keys()])) {
-          const bancoSnap = await transaction.get(doc(db, 'bancos', bancoId));
-          if (!bancoSnap.exists()) {
-            if (bankCreditsByBanco.has(bancoId)) throw new Error('O banco de destino selecionado não foi encontrado.');
-            continue; // banco do credito original nao existe mais -- reversao segue sem quebrar o fluxo
-          }
-          bankBalancesById.set(bancoId, Number(bancoSnap.data().saldoCentavos || 0));
+        if (existingOsData && (existingOsData.status === STATUS_OS_FINALIZADA || existingOsData.status === STATUS_OS_CANCELADA)) {
+          throw new Error(`A OS #${existingOsData.numeroOS || finalNumeroOS} mudou de situação enquanto você editava (talvez por outra pessoa). Atualize a tela.`);
         }
 
         // Reserva de estoque (Modulo 13, Fatia 1) -- so tem efeito real quando
-        // momentoBaixaEstoque === 'pedido'. Para todo tenant no default
-        // ('imediato'), hasOrphanReservation e' sempre false (nunca houve
-        // reserva pra essa OS) e o fluxo cai exatamente nos mesmos dois
-        // applyStockAdjustments de sempre, inalterados.
+        // momentoBaixaEstoque === 'pedido'. Reserva que sobrou de quando a
+        // empresa reservava (ou de OS cancelada nesta gravacao) e' solta.
         const wasReserved = existingOsData?.estoqueReservado === true;
         const previousReserved = wasReserved ? (existingOsData.pecas || []) : [];
-        const wasAlreadyBaixado = existingOsData?.estoqueBaixado === true;
-        const hasOrphanReservation = wasReserved && previousReserved.length > 0;
+        estoqueJaBaixado = existingOsData?.estoqueBaixado === true;
         const pecasItems = pecasSelecionadas.map(peca => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade }));
-
-        if (formData.status === 'Finalizada' && !formData.estoqueBaixado) {
-          if (hasOrphanReservation || momentoBaixaEstoque === 'pedido') {
-            const deltas = computeReservationCommit(previousReserved, pecasItems);
-            if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, permitirVendaSemEstoque, { respeitarReserva: true });
-          } else {
-            await applyStockAdjustments(transaction, db, pecasItems, 'decrement', permitirVendaSemEstoque, { respeitarReserva: true });
-          }
-          baixarLotesNaTransacao(transaction, db, planoLotes);
-          lotesBaixadosDaOs = planoLotes ? somarLotesUsados(Object.values(planoLotes.porLinha)) : [];
-          estoqueFoiBaixado = true;
-        } else if (deveRetornarEstoque) {
-          if (hasOrphanReservation) {
-            const deltas = computeReservationReturn(previousReserved, pecasItems);
-            await applyStockFieldDeltas(transaction, db, deltas, true);
-          } else {
-            await applyStockAdjustments(transaction, db, pecasItems, 'increment', true);
-            // Volta ao MESMO lote de onde a baixa tirou (guardado na OS).
-            devolverAosLotesNaTransacao(transaction, db, devolucaoTotalDosLotes([{ lotes: existingOsData?.lotesBaixados }]));
-            lotesBaixadosDaOs = [];
-          }
-        } else if (formData.status === 'Cancelada' && hasOrphanReservation) {
-          const deltas = computeReservationRelease(previousReserved);
-          if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, true);
-        } else if (momentoBaixaEstoque === 'pedido' && !wasAlreadyBaixado && formData.status !== 'Cancelada') {
+        if (statusDoRascunho !== STATUS_OS_CANCELADA && momentoBaixaEstoque === 'pedido' && !estoqueJaBaixado) {
           const deltas = computeReservationDelta(previousReserved, pecasItems);
           if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, permitirVendaSemEstoque);
           novoEstoqueReservado = pecasItems.length > 0;
-        } else if (hasOrphanReservation) {
+        } else if (wasReserved && previousReserved.length > 0) {
           const deltas = computeReservationRelease(previousReserved);
           if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, true);
         }
@@ -1427,59 +1502,12 @@ const OSForm: React.FC = () => {
           writeTenantSequenceValue(transaction, db, tenantId, 'ordens_de_servico', nextOs);
         }
 
-        const existingCommission = existingOsData?.comissao || null;
-        let commission = existingCommission;
-        const wasAlreadyCancelled = existingOsData?.status === 'Cancelada';
-        if (formData.status === 'Finalizada' && !existingCommission && !wasAlreadyFinalized) {
-          const mechanicProfile = mechanicSnap?.exists() ? mechanicSnap.data() : {};
-          // Hierarquia da comissao, por item: servico/peca (comissao propria,
-          // se configurada) > mecanico (cadastro, se "recebe comissao" =
-          // sim) > padrao do sistema. Ver resolveComissaoPercentual em
-          // financeDomain.ts.
-          commission = buildServiceOrderCommissionSnapshot({
-            sellerId: formData.mecanicoId,
-            sellerName: formData.mecanicoNome || mechanicProfile.nome || 'Não identificado',
-            itensServicos: servicosSelecionados.map((servico) => ({
-              id: servico.id,
-              nome: servico.nome,
-              baseCents: toCents(getServiceTotal(servico)),
-              percentual: resolveComissaoPercentual({
-                itemPercentual: servicosCatalogo.find((s) => s.id === servico.id)?.comissaoPercentual,
-                recebeComissao: mechanicProfile.recebeComissaoServicos,
-                percentualVendedor: mechanicProfile.comissaoPercentualServicos,
-                percentualPadraoSistema: comissaoPadraoServicos,
-              }),
-            })),
-            itensPecas: pecasSelecionadas.map((peca) => ({
-              id: peca.id,
-              nome: peca.nome,
-              baseCents: toCents(peca.preco * peca.quantidade),
-              percentual: resolveComissaoPercentual({
-                itemPercentual: pecasEstoque.find((p) => p.id === peca.id)?.comissaoPercentual,
-                recebeComissao: mechanicProfile.recebeComissaoPecas,
-                percentualVendedor: mechanicProfile.comissaoPercentualPecas,
-                percentualPadraoSistema: comissaoPadraoPecas,
-              }),
-            })),
-          });
-        } else if (formData.status === 'Cancelada' && existingCommission?.regraVersion) {
-          commission = cancelCommissionSnapshot(existingCommission);
-        }
-
-        const finalizedPaymentStatus = paymentSummary
-          ? (
-              paymentSummary.pendingCents === 0
-                ? 'Paga'
-                : paymentSummary.receivedCents > 0
-                  ? 'Parcial'
-                  : 'Pendente'
-            )
-          : formData.statusPagamento;
         const osData = {
           ...formData,
+          status: statusDoRascunho,
           numeroOS: finalNumeroOS,
           clienteId: clienteIdParaSalvar,
-          clienteNome: formData.clienteNome.toUpperCase().trim(),
+          clienteNome: nomeClienteFormatado,
           servicos: servicosSelecionados,
           pecas: pecasSelecionadas,
           deslocamento: temDeslocamento(deslocamento) ? deslocamento : null,
@@ -1497,34 +1525,16 @@ const OSForm: React.FC = () => {
               ? { aprovacao: { modo: 'senha' as const, ...aprovacaoDesconto, aprovadoEm: new Date().toISOString() } }
               : {}),
           },
-          statusColor: getStatusColor(formData.status),
-          estoqueBaixado: estoqueFoiBaixado,
-          ...(lotesBaixadosDaOs !== undefined ? { lotesBaixados: lotesBaixadosDaOs } : {}),
+          statusColor: corDoStatusDaOs(statusDoRascunho),
+          // Estoque e pagamento sao do banco: so' finalizar/reabrir/cancelar mudam.
+          estoqueBaixado: estoqueJaBaixado,
           estoqueReservado: novoEstoqueReservado,
-          formaPagamento: paymentSummary?.paymentMethodLabel || formData.formaPagamento,
-          statusPagamento: formData.status === 'Cancelada'
+          statusPagamento: statusDoRascunho === STATUS_OS_CANCELADA
             ? 'Cancelada'
-            : formData.status === 'Finalizada'
-              ? finalizedPaymentStatus
-              : formData.statusPagamento,
-          ...(formData.status === 'Finalizada' && paymentSummary ? {
-            dataSaida: paymentDate,
-            dataPagamento: paymentDate,
-            condicaoPagamento: paymentSummary.paymentCondition,
-            pagamentos: persistedPayments,
-            totalRecebido: paymentSummary.received,
-            totalRecebidoCentavos: paymentSummary.receivedCents,
-            totalPendente: paymentSummary.pending,
-            totalPendenteCentavos: paymentSummary.pendingCents,
-            totalTaxasPagamento: paymentSummary.cardFee,
-            totalTaxasPagamentoCentavos: paymentSummary.cardFeeCents,
-            totalLiquidoFinanceiro: paymentSummary.financialNet,
-            totalLiquidoFinanceiroCentavos: paymentSummary.financialNetCents,
-          } : {}),
-          ...(commission ? { comissao: commission } : {})
+            : String(existingOsData?.statusPagamento || formData.statusPagamento || 'Pendente'),
         };
 
-        if (isEditing && id) {
+        if (existingOsData) {
           transaction.update(osRef, {
             ...osData,
             updatedAt: serverTimestamp(),
@@ -1539,212 +1549,74 @@ const OSForm: React.FC = () => {
           });
         }
 
-        // Fecha a guarda: a proxima venda/OS a prazo deste cliente que tiver
-        // lido o saldo antes desta aqui vai ver a versao diferente e parar.
-        if (clienteCreditoRef) {
-          transaction.update(clienteCreditoRef, {
-            [CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1,
-            updatedAt: serverTimestamp(),
-          });
-        }
-
-        bankCreditsByBanco.forEach((deltaCents, bancoId) => {
-          transaction.update(doc(db, 'bancos', bancoId), {
-            saldoCentavos: (bankBalancesById.get(bancoId) || 0) + deltaCents,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da OS #${finalNumeroOS}`),
-          });
-        });
-        bankDebitsByBanco.forEach((deltaCents, bancoId) => {
-          const currentBalance = bankBalancesById.get(bancoId);
-          if (currentBalance === undefined) return;
-          transaction.update(doc(db, 'bancos', bancoId), {
-            saldoCentavos: currentBalance - deltaCents,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno do crédito da OS #${finalNumeroOS}`),
-          });
-        });
-
-        if (formData.status === 'Finalizada') {
-          persistedPayments.forEach((payment) => {
-            const paymentRef = doc(db, 'transacoes', payment.transactionId);
-            const existingPaymentSnapshot = paymentTransactionById.get(payment.transactionId);
-            const parcelaLabel = payment.cartao?.numero
-              ? ` (Parcela ${payment.cartao.numero}/${payment.cartao.totalParcelas})`
-              : '';
-            transaction.set(paymentRef, {
-              descricao: `Recebimento OS #${finalNumeroOS || osRef.id.substring(0,6).toUpperCase()} - ${payment.formaPagamento}${parcelaLabel}`,
-              categoria: 'Serviços',
-              valor: payment.valor,
-              valorCentavos: payment.valorCentavos,
-              valorBruto: payment.valor,
-              valorBrutoCentavos: payment.valorCentavos,
-              valorTaxa: payment.cartao?.valorTaxa || 0,
-              valorTaxaCentavos: payment.cartao?.valorTaxaCentavos || 0,
-              valorLiquido: payment.cartao?.valorLiquido ?? payment.valor,
-              valorLiquidoCentavos: payment.cartao?.valorLiquidoCentavos ?? payment.valorCentavos,
-              tipo: 'entrada',
-              formaPagamento: payment.formaPagamento,
-              condicaoPagamento: payment.condicaoPagamento,
-              status: payment.status === 'confirmado' ? 'Paga' : 'Pendente',
-              naturezaFinanceira: payment.naturezaFinanceira,
-              movimentaCaixaFisico: payment.movimentaCaixaFisico,
-              bancoId: payment.bancoId || null,
-              bancoNome: payment.bancoNome || null,
-              prazoDias: payment.prazoDias || null,
-              data: payment.dataVencimento || paymentDate,
-              dataVencimento: payment.dataVencimento || null,
-              dataPrevistaRecebimento: payment.dataPrevistaRecebimento || null,
-              cartao: payment.cartao || null,
-              osId: osRef.id,
-              sourceType: 'ordem_servico',
-              sourceId: osRef.id,
-              paymentIndex: payment.indice,
-              idempotencyKey: `os:${osRef.id}:pagamento:${payment.indice}`,
-              clienteId: clienteIdParaSalvar,
-              clienteNome: formData.clienteNome.toUpperCase().trim(),
-              usuarioResponsavelId: currentUser.uid,
-              mecanicoId: formData.mecanicoId,
-              tenantId,
-              // Alteracao de valor antiga (ja' desfeita ou de parcela cancelada) nao vale para a parcela refeita.
-              ...(existingPaymentSnapshot?.exists() && existingPaymentSnapshot.data()?.alteracaoValor ? { alteracaoValor: deleteField() } : {}),
-              ...(existingPaymentSnapshot?.exists()
-                ? { updatedAt: serverTimestamp(), ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) }
-                : { createdAt: serverTimestamp(), ...buildDocumentMetadata(currentUser.uid, serverTimestamp()) }),
-            }, { merge: true });
-          });
-
-          paymentTransactionSnapshots.forEach((paymentSnapshot) => {
-            if (!paymentSnapshot.exists() || currentPaymentIds.includes(paymentSnapshot.id)) return;
-            transaction.update(paymentSnapshot.ref, {
-              status: 'Cancelada',
-              movimentaCaixaFisico: false,
-              substituidaEm: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Substituída por novo pagamento'),
-            });
-          });
-        } else if (isEditing) {
-          if (formData.status === 'Cancelada' && !wasAlreadyCancelled) {
-            didCancelJustNow = true;
-            paymentTransactionSnapshots.forEach((paymentSnapshot) => {
-              if (!paymentSnapshot.exists()) return;
-              const existingTransaction = paymentSnapshot.data();
-
-              if (existingTransaction.status === 'Paga' && existingTransaction.estornada !== true) {
-                const movesPhysicalCash = transactionMovesPhysicalCash(existingTransaction);
-                transaction.update(paymentSnapshot.ref, {
-                  estornada: true,
-                  statusOperacional: 'Cancelada',
-                  estornadaEm: serverTimestamp(),
-                  updatedAt: serverTimestamp(),
-                  ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estornada pelo cancelamento da OS'),
-                });
-                transaction.set(doc(db, 'transacoes', `estorno_cancelamento_${paymentSnapshot.id}`), {
-                  descricao: `Estorno do cancelamento da OS #${finalNumeroOS}`,
-                  categoria: 'Cancelamento de OS',
-                  valor: Number(existingTransaction.valor || 0),
-                  valorCentavos: Number(existingTransaction.valorCentavos ?? toCents(existingTransaction.valor)),
-                  valorBruto: Number(existingTransaction.valorBruto ?? existingTransaction.valor ?? 0),
-                  valorBrutoCentavos: Number(existingTransaction.valorBrutoCentavos ?? existingTransaction.valorCentavos ?? toCents(existingTransaction.valor)),
-                  valorTaxa: Number(existingTransaction.valorTaxa ?? existingTransaction.cartao?.valorTaxa ?? 0),
-                  valorTaxaCentavos: Number(existingTransaction.valorTaxaCentavos ?? existingTransaction.cartao?.valorTaxaCentavos ?? 0),
-                  valorLiquido: Number(existingTransaction.valorLiquido ?? existingTransaction.cartao?.valorLiquido ?? existingTransaction.valor ?? 0),
-                  valorLiquidoCentavos: Number(existingTransaction.valorLiquidoCentavos ?? existingTransaction.cartao?.valorLiquidoCentavos ?? existingTransaction.valorCentavos ?? toCents(existingTransaction.valor)),
-                  cartao: existingTransaction.cartao || null,
-                  tipo: 'saida',
-                  formaPagamento: existingTransaction.formaPagamento || 'Outros',
-                  naturezaFinanceira: movesPhysicalCash
-                    ? 'caixa_fisico'
-                    : (existingTransaction.naturezaFinanceira || 'bancario_digital'),
-                  movimentaCaixaFisico: movesPhysicalCash,
-                  status: 'Paga',
-                  data: getDateInputInTimeZone(),
-                  osId: osRef.id,
-                  sourceType: 'cancelamento_ordem_servico',
-                  sourceId: osRef.id,
-                  sourcePaymentTransactionId: paymentSnapshot.id,
-                  idempotencyKey: `cancelamento:${osRef.id}:transacao:${paymentSnapshot.id}`,
-                  clienteNome: formData.clienteNome.toUpperCase().trim(),
-                  usuarioResponsavelId: currentUser.uid,
-                  tenantId,
-                  createdAt: serverTimestamp(),
-                  ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-                }, { merge: true });
-              } else {
-                transaction.update(paymentSnapshot.ref, {
-                  status: 'Cancelada',
-                  movimentaCaixaFisico: false,
-                  estornadaEm: serverTimestamp(),
-                  updatedAt: serverTimestamp(),
-                  ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cancelada junto com a OS'),
-                });
-              }
-            });
-          } else if (formData.status !== 'Cancelada') {
-            paymentTransactionSnapshots.forEach((paymentSnapshot) => {
-              if (!paymentSnapshot.exists()) return;
-              transaction.update(paymentSnapshot.ref, {
-                status: 'Pendente',
-                movimentaCaixaFisico: false,
-                updatedAt: serverTimestamp(),
-                ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Reaberta (OS deixou de estar Finalizada)'),
-              });
-            });
-          }
-        }
-
         if (formData.orcamentoId) {
-          const novoStatusOrcamento = formData.status === 'Cancelada' ? 'Pendente' : 'Finalizado';
           transaction.update(doc(db, 'orcamentos', formData.orcamentoId), {
-            status: novoStatusOrcamento,
+            status: statusDoRascunho === STATUS_OS_CANCELADA ? 'Pendente' : 'Finalizado',
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `OS #${finalNumeroOS} atualizou o status`),
           });
         }
       });
+      etapa = 'gravada';
+      statusGravadoRef.current = statusDoRascunho;
+      reservaPropriaRef.current = novoEstoqueReservado ? mapaDaReservaDaOs(pecasSelecionadas) : new Map();
 
-      if (didCancelJustNow) {
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser.uid,
-            usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'mecanica',
-            acao: 'cancelamento',
-            descricao: `OS #${finalNumeroOS} cancelada.`,
-            registroRelacionadoId: id || finalNumeroOS,
-            status: 'sucesso',
-            critical: true,
-          });
-        } catch (logError) {
-          console.error('Erro ao registrar log de cancelamento da OS:', logError);
-        }
-      } else {
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser.uid,
-            usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'mecanica',
-            acao: isEditing ? 'edicao' : 'criacao',
-            descricao: `OS #${finalNumeroOS} ${isEditing ? 'atualizada' : 'criada'} (cliente: ${formData.clienteNome.toUpperCase().trim()}).`,
-            registroRelacionadoId: savedOsId,
-            status: 'sucesso',
-          });
-        } catch (logError) {
-          console.error('Erro ao registrar log de auditoria da OS:', logError);
+      if (!finalizar) {
+        await registrarLog(isEditing ? 'edicao' : 'criacao', `OS #${finalNumeroOS} ${isEditing ? 'atualizada' : 'criada'} (cliente: ${nomeClienteFormatado}).`, savedOsId);
+        setFormData(prev => ({ ...prev, numeroOS: finalNumeroOS, estoqueReservado: novoEstoqueReservado }));
+        showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
+        terminar();
+        navigate('/os');
+        return true;
+      }
+
+      // 4. FINALIZAR: lotes escolhidos aqui; estoque, comissao, lancamentos e banco no plano.
+      // A baixa de estoque da OS acontece ao FINALIZAR, entao e' ali que o lote sai.
+      let planoLotes: PlanoDeLotes | null = { porLinha: {}, semLote: {}, vencidosUsados: [] };
+      if (!estoqueJaBaixado && pecasSelecionadas.length > 0) {
+        planoLotes = await prepararBaixaDeLotes({
+          db,
+          tenantId,
+          linhas: linhasParaLote(pecasSelecionadas.map((peca) => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade }))),
+          modo: loteModoSaida,
+          avisarVencido: loteAvisarVencido,
+        });
+        if (planoLotes === null) {
+          throw new Error('A escolha do lote foi cancelada.');
         }
       }
 
-      reservaPropriaRef.current = novoEstoqueReservado ? mapaDaReservaDaOs(pecasSelecionadas) : new Map();
+      const finalizada = vendaPeloServidor
+        ? await finalizarOsNoServidor({ osId: savedOsId, dataSaida: paymentDate, pagamentos: paymentDrafts, lotes: planoLotes.porLinha })
+        : await finalizarOsPelaTela(ctx, {
+          osId: savedOsId,
+          dataSaida: paymentDate,
+          pagamentos: paymentRecords,
+          lotesPorLinha: planoLotes.porLinha,
+          permitirSemEstoque: permitirVendaSemEstoque,
+          // Hierarquia da comissao, por item: servico/peca (comissao propria,
+          // se configurada) > mecanico (cadastro, se "recebe comissao" = sim)
+          // > padrao do sistema. Ver resolveComissaoPercentual em financeDomain.ts.
+          percentualDoServico: (servicoId) => servicosCatalogo.find((s) => s.id === servicoId)?.comissaoPercentual,
+          percentualDaPeca: (pecaId) => pecasEstoque.find((p) => p.id === pecaId)?.comissaoPercentual,
+          comissaoPadraoServicos,
+          comissaoPadraoPecas,
+          guardaDoCredito: osEhAprazo && clienteIdParaSalvar ? { clienteId: clienteIdParaSalvar, versaoNaChecagem: creditoVersaoNaChecagem } : null,
+        });
+      statusGravadoRef.current = STATUS_OS_FINALIZADA;
+      const reais = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(finalizada.totalCentavos));
+      if (!vendaPeloServidor) {
+        await registrarLog(isEditing ? 'edicao' : 'criacao', `OS #${finalizada.numeroOS} ${isEditing ? '' : 'criada e '}finalizada no valor de ${reais} (${finalizada.formaPagamento}). Cliente: ${nomeClienteFormatado}.`, savedOsId);
+      } else if (!isEditing) {
+        await registrarLog('criacao', `OS #${finalizada.numeroOS} criada (cliente: ${nomeClienteFormatado}).`, savedOsId);
+      }
+
+      reservaPropriaRef.current = new Map();
       setFormData(prev => ({
         ...prev,
         numeroOS: finalNumeroOS,
-        estoqueBaixado: estoqueFoiBaixado,
-        estoqueReservado: novoEstoqueReservado,
-        ...(formData.status === 'Finalizada' && paymentSummary ? {
+        estoqueBaixado: true,
+        estoqueReservado: false,
+        ...(paymentSummary ? {
           dataSaida: paymentDate,
           formaPagamento: paymentSummary.paymentMethodLabel,
           statusPagamento: paymentSummary.pendingCents === 0
@@ -1754,10 +1626,9 @@ const OSForm: React.FC = () => {
               : 'Pendente',
         } : {}),
       }));
-      
+
       showSuccess(`OS ${isEditing ? 'atualizada' : 'criada'}!`);
-      initialSnapshotRef.current = buildDirtySnapshot();
-      setIsDirty(false);
+      terminar();
 
       // Mesma oferta da venda: fechou em boleto, pergunta se emite agora.
       // "Deixar pendente" nao trava nada -- fica em Financeiro > Boletos.
@@ -1786,11 +1657,17 @@ const OSForm: React.FC = () => {
       // apareceu pro cliente. As mensagens de negocio lancadas aqui dentro
       // ("Estoque insuficiente para X") continuam vindo pelo fallback, que
       // sao sempre mais especificas do que qualquer texto generico.
-      showError(
-        'Erro ao salvar',
-        describeTransactionError(error)
-          || (error instanceof Error && error.message ? error.message : 'Verifique a conexão e tente novamente.'),
-      );
+      const motivo = describeTransactionError(error)
+        || (error instanceof Error && error.message ? error.message : 'Verifique a conexão e tente novamente.');
+      if (etapa === 'reaberta') {
+        showError('A OS foi reaberta, mas não foi gravada', `${motivo} A OS #${formData.numeroOS} ficou reaberta ("${statusGravadoRef.current}"): os lançamentos foram cancelados e as peças voltaram ao estoque. Corrija e salve de novo.`);
+      } else if (etapa === 'gravada' && finalizar) {
+        showError('A OS foi gravada, mas não foi finalizada', `${motivo} A OS #${finalNumeroOS} ficou como "${statusDoRascunho}", sem mexer no dinheiro nem no estoque. Corrija e salve de novo como Finalizada.`);
+        // OS nova: dali em diante a tela edita a OS que ja' existe (salvar de novo nao cria outra).
+        if (!isEditing && savedOsId) navigate(`/os/editar/${savedOsId}`, { replace: true });
+      } else {
+        showError('Erro ao salvar', motivo);
+      }
       return false;
     } finally {
       submitLockRef.current = false;
@@ -1861,9 +1738,9 @@ const OSForm: React.FC = () => {
         <div className="form-column">
           
           {/* Controle de Status */}
-          <div className="card form-section os-status-card" style={{ borderColor: `${getStatusColor(formData.status)}50` }}>
+          <div className="card form-section os-status-card" style={{ borderColor: `${corDoStatusDaOs(formData.status)}50` }}>
              <div className="section-header">
-              <Activity size={20} className="section-icon" style={{ color: getStatusColor(formData.status) }} />
+              <Activity size={20} className="section-icon" style={{ color: corDoStatusDaOs(formData.status) }} />
               <h3>Status da Ordem de Serviço</h3>
             </div>
             <div className="input-group">

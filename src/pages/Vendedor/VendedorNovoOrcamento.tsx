@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { showError, showSuccess } from '../../utils/alerts';
 import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
@@ -31,6 +32,8 @@ const VendedorNovoOrcamento: React.FC = () => {
   const { tenantId, currentUser, userPermissions } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
+  // Promocoes de hoje (19/10/2026): orcamento mostra o preco da promocao, sem consumir quota (como no desktop).
+  const promocoesVigentes = usePromocoesVigentes(tenantId);
 
   const [rascunhoAberto] = useState(() => (
     localId && tenantId && currentUser ? buscarRascunho(tenantId, currentUser.uid, localId) : null
@@ -124,7 +127,7 @@ const VendedorNovoOrcamento: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque />
+        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque precos={promocoesVigentes} />
       </div>
 
       <VendedorRodapeRascunho aoSalvar={handleSalvar} />

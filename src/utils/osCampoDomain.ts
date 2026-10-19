@@ -84,7 +84,25 @@ export const caminhoDaAssinaturaOS = (tenantId: string, osId: string, carimbo: n
 // ---------------------------------------------------------------------------
 
 /** A peca como a OS grava (mesmo formato do desktop, PecaSelecionada). */
-export interface PecaCampo {
+/**
+ * Rastreio do preco da peca (promocoes no app, 19/10/2026): os mesmos campos
+ * que a OS do desktop grava. Passam intactos entre a OS e o seletor de itens,
+ * para a OS do desktop trocar o preco sozinha quando a forma de pagamento muda.
+ */
+export interface PrecoRastreado {
+  tabelaPreco?: { venda: number; vista: number; promocao?: { id: string; nome: string; preco: number; soAVista: boolean } | null };
+  origemPreco?: 'venda' | 'vista' | 'promocao' | 'manual';
+  promocaoId?: string;
+  promocaoNome?: string;
+}
+
+const rastreioDoPreco = (x: PrecoRastreado): PrecoRastreado => ({
+  ...(x.tabelaPreco ? { tabelaPreco: x.tabelaPreco } : {}),
+  ...(x.origemPreco ? { origemPreco: x.origemPreco } : {}),
+  ...(x.promocaoId ? { promocaoId: x.promocaoId, promocaoNome: x.promocaoNome || '' } : {}),
+});
+
+export interface PecaCampo extends PrecoRastreado {
   id: string;
   nome: string;
   preco: number;
@@ -96,7 +114,7 @@ export interface PecaCampo {
 }
 
 /** O item como o VendedorItemPicker trabalha (ItemVendaExterna). */
-export interface ItemPickerCampo {
+export interface ItemPickerCampo extends PrecoRastreado {
   id: string;
   nome: string;
   codigo?: string;
@@ -120,6 +138,7 @@ export const pecaParaItemPicker = (p: PecaCampo): ItemPickerCampo => ({
   unidadeMedidaSigla: p.unidadeMedidaSigla || 'UN',
   unidadeMedidaFracionado: p.unidadeMedidaFracionado === true,
   unidadeMedidaCasasDecimais: Number(p.unidadeMedidaCasasDecimais || 0),
+  ...rastreioDoPreco(p),
 });
 
 export const itemPickerParaPeca = (i: ItemPickerCampo): PecaCampo => ({
@@ -131,6 +150,7 @@ export const itemPickerParaPeca = (i: ItemPickerCampo): PecaCampo => ({
   unidadeMedidaSigla: i.unidadeMedidaSigla || 'UN',
   unidadeMedidaFracionado: i.unidadeMedidaFracionado === true,
   unidadeMedidaCasasDecimais: Number(i.unidadeMedidaCasasDecimais || 0),
+  ...rastreioDoPreco(i),
 });
 
 /** O servico como a OS grava (ServicoSelecionado do desktop): preco x horas. */

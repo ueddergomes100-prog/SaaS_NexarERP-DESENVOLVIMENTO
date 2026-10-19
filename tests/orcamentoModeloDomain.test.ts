@@ -6,6 +6,7 @@ import {
   avisoDaConfigOrcamento,
   camposExtrasParaGravar,
   linhasDoOrcamentoGravado,
+  pecaComPreco,
   linhasDoPdfDoOrcamento,
   modeloDaConfig,
   mostraVeiculo,
@@ -111,4 +112,12 @@ test('converter para venda le pecas e servicos gravados (itens so de reserva)', 
   assert.deepEqual(linhas.map((l) => `${l.tipo}:${l.nome}`), ['peca:RETENTOR', 'servico:TROCA']);
   assert.deepEqual(linhasDoOrcamentoGravado<{ tipo?: string }>({ itens: [{ tipo: 'peca' }] }), [{ tipo: 'peca' }]);
   assert.deepEqual(linhasDoOrcamentoGravado({}), []);
+});
+
+test('orcamento do app Vendas (so precoUnitario) e lido com o preco; preco gravado vale', () => {
+  const linhas = linhasDoOrcamentoGravado<{ tipo?: string; preco?: number }>({ pecas: [{ id: 'p1', precoUnitario: 12.5, quantidade: 2 }] });
+  assert.equal(linhas[0].preco, 12.5);
+  assert.equal(linhas[0].tipo, 'peca');
+  assert.deepEqual(pecaComPreco({ preco: 10, precoUnitario: 12.5 }), { preco: 10, precoUnitario: 12.5 });
+  assert.deepEqual(pecaComPreco({ nome: 'X' }), { nome: 'X' });
 });

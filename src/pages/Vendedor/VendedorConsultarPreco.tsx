@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
+import { precificarNoApp, promocaoParaMostrar } from '../../utils/precoAppVendasDomain';
+import { showWarning } from '../../utils/alerts';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada } from '../../utils/unidadeMedidaDomain';
@@ -18,6 +21,8 @@ const VendedorConsultarPreco: React.FC = () => {
   const { tenantId } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const produtosAtivos = useMemo(() => produtos.filter((p) => p.ativo !== false), [produtos]);
+  // Promocoes de hoje (19/10/2026): mostra o preco da promocao e o item ja' vai para o pedido com ele.
+  const promocoesVigentes = usePromocoesVigentes(tenantId);
 
   const [busca, setBusca] = useState('');
   const [selecionado, setSelecionado] = useState<ProdutoVendedorExterno | null>(null);
@@ -36,21 +41,25 @@ const VendedorConsultarPreco: React.FC = () => {
   }, [idsMaisVendidos, produtosAtivos]);
 
   const unidade = selecionado ? resolveUnidadeMedidaProduto(selecionado) : null;
+  const promocaoDoSelecionado = selecionado ? promocaoParaMostrar(promocoesVigentes, selecionado) : null;
 
   const irParaNovoPedido = (produto: ProdutoVendedorExterno) => {
     const un = resolveUnidadeMedidaProduto(produto);
+    const preco = precificarNoApp({ precos: promocoesVigentes, produto, quantidade: 1, naVenda: [], consomeQuota: true });
+    if (preco.aviso) showWarning(preco.aviso);
     const state: VendedorNovoPedidoNavState = {
       itemPreAdicionado: {
         id: produto.id,
         nome: produto.nome,
         ...(produto.codigo ? { codigo: produto.codigo } : {}),
-        precoUnitario: produto.precoVenda || 0,
+        precoUnitario: preco.preco,
         quantidade: 1,
         desconto: 0,
-        subtotal: produto.precoVenda || 0,
+        subtotal: preco.preco,
         unidadeMedidaSigla: un.unidadeMedidaSigla,
         unidadeMedidaFracionado: un.unidadeMedidaFracionado,
         unidadeMedidaCasasDecimais: un.unidadeMedidaCasasDecimais,
+        ...(preco.campos || {}),
       },
     };
     navigate('/vendedor/pedido/novo', { state });
@@ -84,6 +93,12 @@ const VendedorConsultarPreco: React.FC = () => {
               {formatarMoeda(selecionado.precoVenda || 0)}
               <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-muted)' }}> / {unidade?.unidadeMedidaSigla}</span>
             </div>
+            {promocaoDoSelecionado && (
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#10b981' }}>
+                {promocaoDoSelecionado.soAVista ? 'Promoção à vista' : 'Promoção'}: {formatarMoeda(promocaoDoSelecionado.preco)}
+                <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}> · {promocaoDoSelecionado.nome}</span>
+              </div>
+            )}
             <div style={{ fontSize: '14px', color: (selecionado.quantidade || 0) > 0 ? 'var(--text-secondary)' : '#ef4444', marginTop: '4px' }}>
               {(selecionado.quantidade || 0) > 0
                 ? `${selecionado.quantidade} ${unidade?.unidadeMedidaSigla} em estoque`
@@ -133,6 +148,10 @@ const VendedorConsultarPreco: React.FC = () => {
                   </div>
                   <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '2px' }}>
                     {formatarMoeda(produto.precoVenda || 0)}
+                    {(() => {
+                      const promo = promocaoParaMostrar(promocoesVigentes, produto);
+                      return promo ? <span style={{ color: '#10b981', fontWeight: 700 }}> · {promo.soAVista ? 'promoção à vista' : 'promoção'} {formatarMoeda(promo.preco)}</span> : null;
+                    })()}
                   </div>
                 </button>
                 <button

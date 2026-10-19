@@ -5,6 +5,7 @@ import { Camera, CheckCircle2, ClipboardList, Images, PenLine, Plus, Printer, Sa
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { useModoOficina } from '../../hooks/useModoOficina';
 import { NexusSwal, escaparHtml, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
@@ -80,6 +81,8 @@ const VendedorOsAtender: React.FC = () => {
   const { modo, rotulos, configMaquinas } = useModoOficina();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: catalogoServicos } = useTenantCollection<ServicoCatalogo>('servicos', tenantId);
+  // Promocoes de hoje nas pecas (19/10/2026), sem consumir quota -- igual a OS do desktop.
+  const promocoesVigentes = usePromocoesVigentes(tenantId);
 
   const [os, setOs] = useState<OsDoc | null>(null);
   const [erro, setErro] = useState('');
@@ -365,6 +368,7 @@ const VendedorOsAtender: React.FC = () => {
             onItensChange={(itens) => { setPecas(itens.map(itemPickerParaPeca)); marcar(); }}
             permitirVendaSemEstoque={Boolean(permiteVendaSemEstoque)}
             mostrarValores={veValores}
+            precos={promocoesVigentes}
           />
         </section>
 

@@ -13,6 +13,8 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/doc
 import { toCents } from '../utils/financeDomain';
 import { isPedidoAberto, STATUS_CANCELADA, STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
 import { getDateInputInTimeZone } from '../utils/dateTime';
+import { idsDasPromocoes } from '../utils/precoAppVendasDomain';
+import type { OrigemPreco, TabelaDePrecoDoItem } from '../utils/precoVendaDomain';
 
 /**
  * Criacao de Pedido/Orcamento pelo aplicativo do vendedor externo.
@@ -49,6 +51,11 @@ export interface ItemVendaExterna {
   unidadeMedidaSigla: string;
   unidadeMedidaFracionado: boolean;
   unidadeMedidaCasasDecimais: number;
+  /** Promocoes no app (19/10/2026): os mesmos campos do Pedido de Venda. Item antigo nao tem. */
+  tabelaPreco?: TabelaDePrecoDoItem;
+  origemPreco?: OrigemPreco;
+  promocaoId?: string;
+  promocaoNome?: string;
 }
 
 const semDesconto = () => ({
@@ -123,6 +130,8 @@ export const criarPreVendaExterna = async (
       clienteId,
       clienteNome,
       itens,
+      // Promocoes do pedido: e' por este campo que a quota conta o que saiu.
+      promocaoIds: idsDasPromocoes(itens),
       valorTotalItens,
       valorTotalItensCentavos: toCents(valorTotalItens),
       valorTotalDescontos: 0,
@@ -213,7 +222,9 @@ export const criarOrcamentoExterno = async (
       status: 'Pendente',
       validadeDias: '15',
       servicos: [],
-      pecas: itens,
+      // `preco` e' o campo que o orcamento le (tela de Orcamentos e "Converter
+      // para Venda"); sem ele a peca abria com preco zero.
+      pecas: itens.map((item) => ({ ...item, preco: item.precoUnitario })),
       valorTotal: valorTotalItens,
       desconto: semDesconto(),
       tenantId,

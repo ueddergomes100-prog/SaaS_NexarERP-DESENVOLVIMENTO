@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, getDocsFromServer, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../utils/dateTime';
@@ -90,9 +90,13 @@ export const alterarSituacaoDaPromocao = async (uid: string, id: string, inativa
  * Quanto da quota ja saiu: soma, nos pedidos NAO cancelados que levaram a
  * promocao, a quantidade (na unidade base) dos itens dela. Venda cancelada
  * devolve a quota sozinha, porque deixa de entrar na soma.
+ *
+ * Sempre do servidor (19/10/2026): no app Vendas offline o cache local daria
+ * uma conta incompleta; sem internet, falha e quem chama trata como "nao
+ * conferido".
  */
 export const vendidoNaPromocao = async (tenantId: string, promocaoId: string, ignorarPedidoId?: string): Promise<Record<string, number>> => {
-  const snap = await getDocs(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('promocaoIds', 'array-contains', promocaoId)));
+  const snap = await getDocsFromServer(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('promocaoIds', 'array-contains', promocaoId)));
   const vendido: Record<string, number> = {};
   snap.forEach((d) => {
     const pedido = d.data();

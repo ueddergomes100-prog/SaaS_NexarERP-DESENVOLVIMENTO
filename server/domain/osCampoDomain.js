@@ -58,6 +58,11 @@ const caminhoDaFotoOS = (tenantId, osId, carimbo, indice) => (`empresas/${soSegu
 exports.caminhoDaFotoOS = caminhoDaFotoOS;
 const caminhoDaAssinaturaOS = (tenantId, osId, carimbo) => (`empresas/${soSeguro(tenantId)}/os/${soSeguro(osId)}/assinatura-${carimbo}.png`);
 exports.caminhoDaAssinaturaOS = caminhoDaAssinaturaOS;
+const rastreioDoPreco = (x) => ({
+    ...(x.tabelaPreco ? { tabelaPreco: x.tabelaPreco } : {}),
+    ...(x.origemPreco ? { origemPreco: x.origemPreco } : {}),
+    ...(x.promocaoId ? { promocaoId: x.promocaoId, promocaoNome: x.promocaoNome || '' } : {}),
+});
 const pecaParaItemPicker = (p) => ({
     id: p.id,
     nome: p.nome,
@@ -69,6 +74,7 @@ const pecaParaItemPicker = (p) => ({
     unidadeMedidaSigla: p.unidadeMedidaSigla || 'UN',
     unidadeMedidaFracionado: p.unidadeMedidaFracionado === true,
     unidadeMedidaCasasDecimais: Number(p.unidadeMedidaCasasDecimais || 0),
+    ...rastreioDoPreco(p),
 });
 exports.pecaParaItemPicker = pecaParaItemPicker;
 const itemPickerParaPeca = (i) => ({
@@ -80,6 +86,7 @@ const itemPickerParaPeca = (i) => ({
     unidadeMedidaSigla: i.unidadeMedidaSigla || 'UN',
     unidadeMedidaFracionado: i.unidadeMedidaFracionado === true,
     unidadeMedidaCasasDecimais: Number(i.unidadeMedidaCasasDecimais || 0),
+    ...rastreioDoPreco(i),
 });
 exports.itemPickerParaPeca = itemPickerParaPeca;
 const servicoDeCatalogo = (s, horas = 1) => ({

@@ -247,13 +247,23 @@ export const totaisDoPdfDoOrcamento = (
 // ---------------------------------------------------------------------------
 
 /**
+ * Peca gravada pelo app Vendas ate' 19/10/2026: tinha so' `precoUnitario` (o
+ * formato do pedido), e o orcamento le `preco` -- abria e convertia com preco
+ * zero. O app passou a gravar `preco`; aqui o formato antigo e' lido certo.
+ */
+export const pecaComPreco = <T>(peca: T): T => {
+  const p = peca as unknown as Record<string, unknown>;
+  return p && p.preco === undefined && typeof p.precoUnitario === 'number' ? { ...peca, preco: p.precoUnitario } : peca;
+};
+
+/**
  * Linhas gravadas do orcamento, com o tipo. O OrcamentoForm grava `servicos`
  * e `pecas`; o "Converter para Venda" de 13/10 lia `itens` (que o orcamento
  * nunca gravou) e abria o pedido vazio. `itens` fica como reserva.
  */
 export const linhasDoOrcamentoGravado = <T extends { tipo?: string }>(orcamento: { itens?: unknown; pecas?: unknown; servicos?: unknown }): T[] => {
   const lista = (valor: unknown): T[] => (Array.isArray(valor) ? valor as T[] : []);
-  const pecas = lista(orcamento.pecas).map((p) => ({ ...p, tipo: 'peca' }));
+  const pecas = lista(orcamento.pecas).map((p) => ({ ...pecaComPreco(p), tipo: 'peca' }));
   const servicos = lista(orcamento.servicos).map((s) => ({ ...s, tipo: 'servico' }));
   if (pecas.length > 0 || servicos.length > 0) return [...pecas, ...servicos];
   return lista(orcamento.itens);

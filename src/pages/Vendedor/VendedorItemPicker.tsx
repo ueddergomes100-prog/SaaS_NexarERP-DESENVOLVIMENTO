@@ -6,12 +6,15 @@ import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMe
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
+import { precificarNoApp, promocaoParaMostrar, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
 
 export interface ProdutoVendedorExterno {
   id: string;
   nome: string;
   codigo?: string;
   precoVenda: number;
+  /** Preco a vista (0/ausente = nao cadastrado). Entra na tabela do item (promocoes, 19/10/2026). */
+  precoAVista?: number;
   quantidade: number;
   unidadeMedidaSigla?: string;
   unidadeMedidaFracionado?: boolean;
@@ -26,6 +29,10 @@ interface Props {
   permitirVendaSemEstoque: boolean;
   /** App do tecnico (fase 3): a empresa pode esconder os valores em R$ do tecnico. Padrao mostra. */
   mostrarValores?: boolean;
+  /** Promocoes de hoje (usePromocoesVigentes). Sem isto, preco de venda puro. */
+  precos?: PrecosDoApp | null;
+  /** Pedido confere quota e limite por venda da promocao; orcamento e OS nao (como no desktop). */
+  consomeQuota?: boolean;
 }
 
 const RESULTADOS_LIMITE = 15;
@@ -48,7 +55,7 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
  * painel -- exatamente o oposto do que precisa aqui. Escrever a lista de novo
  * aqui evita arriscar as telas desktop, que continuam com o fluxo de sempre.
  */
-const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true }) => {
+const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true, precos = null, consomeQuota = false }) => {
   const [produtoBusca, setProdutoBusca] = useState('');
   // Tocar na busca ja' mostra a lista (mesmo comportamento do Pedido de Venda);
   // "Mostrar mais" aumenta o corte. "#" lista tudo, "#gel" filtra.
@@ -90,6 +97,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
     const erros: string[] = [];
     const semUnidade: string[] = [];
+    const foraDaPromocao: string[] = [];
     const novosItens: ItemVendaExterna[] = [];
 
     idsSelecionados.forEach((id) => {
@@ -118,17 +126,21 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
       if (!temUnidadeMedidaCadastrada(produto)) semUnidade.push(produto.nome);
 
+      // Preco pela tabela do dia (promocao), como no desktop. Ver precoAppVendasDomain.
+      const preco = precificarNoApp({ precos, produto, quantidade: qtd, naVenda: [...itens, ...novosItens], consomeQuota });
+      if (preco.aviso) foraDaPromocao.push(preco.aviso);
       novosItens.push({
         id: produto.id,
         nome: produto.nome,
         ...(produto.codigo ? { codigo: produto.codigo } : {}),
-        precoUnitario: produto.precoVenda,
+        precoUnitario: preco.preco,
         quantidade: qtd,
         desconto: 0,
-        subtotal: produto.precoVenda * qtd,
+        subtotal: Math.round(preco.preco * qtd * 100) / 100,
         unidadeMedidaSigla: unidade.unidadeMedidaSigla,
         unidadeMedidaFracionado: unidade.unidadeMedidaFracionado,
         unidadeMedidaCasasDecimais: unidade.unidadeMedidaCasasDecimais,
+        ...(preco.campos || {}),
       });
     });
 
@@ -144,6 +156,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
     onItensChange([...itens, ...novosItens]);
     semUnidade.forEach((nome) => showWarning(avisoUnidadeMedidaAusente(nome).text));
+    foraDaPromocao.forEach((aviso) => showWarning(aviso));
     setSelecionados({});
     setProdutoBusca('');
   };
@@ -203,6 +216,14 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <ProdutoOpcaoBusca produto={produto} termo={produtoBusca} />
+                    {mostrarValores && (() => {
+                      const promo = promocaoParaMostrar(precos, produto);
+                      return promo ? (
+                        <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#10b981' }} title={promo.nome}>
+                          {promo.soAVista ? 'Promoção à vista' : 'Promoção'}: {formatarMoeda(promo.preco)}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
 
                   {marcado && (
@@ -272,6 +293,11 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                 <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
                   {item.quantidade} {item.unidadeMedidaSigla}{mostrarValores ? <> &times; {formatarMoeda(item.precoUnitario)}</> : null}
                 </div>
+                {mostrarValores && item.origemPreco === 'promocao' && item.tabelaPreco && (
+                  <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#10b981', marginTop: '2px' }} title={item.promocaoNome}>
+                    promoção · de <s>{formatarMoeda(item.tabelaPreco.venda)}</s>
+                  </div>
+                )}
               </div>
               {mostrarValores && <div style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.subtotal)}</div>}
               <button

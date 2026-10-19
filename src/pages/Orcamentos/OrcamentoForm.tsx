@@ -66,6 +66,7 @@ import {
   camposExtrasParaGravar,
   mostraVeiculo,
   parseConfigOrcamento,
+  pecaComPreco,
   reaisDoCampo,
   totalDoOrcamentoCentavos,
   type ConfigOrcamento,
@@ -362,7 +363,7 @@ const OrcamentoForm: React.FC = () => {
             
             const loadedItens: ItemOrcamento[] = [];
             if (data.servicos) data.servicos.forEach((s: any) => loadedItens.push({ ...s, tipo: 'servico' }));
-            if (data.pecas) data.pecas.forEach((p: any) => loadedItens.push({ ...p, tipo: 'peca' }));
+            if (data.pecas) data.pecas.forEach((p: any) => loadedItens.push({ ...pecaComPreco(p), tipo: 'peca' }));
             setItens(loadedItens);
             if (data.desconto) {
               setDescontoInput({

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
+import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { showError, showSuccess } from '../../utils/alerts';
 import type { SearchableClient } from '../../utils/clientSearch';
 import VendedorHeader from './VendedorHeader';
@@ -40,6 +41,8 @@ const VendedorNovoPedido: React.FC = () => {
   const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions, controlaFiscal } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
+  // Promocoes de hoje (19/10/2026): o pedido do app entra no preco da promocao e consome a quota.
+  const promocoesVigentes = usePromocoesVigentes(tenantId);
 
   // VendedorShell so' renderiza depois do login carregado, entao tenantId e
   // currentUser ja existem aqui -- da pra ler o rascunho direto no estado
@@ -156,7 +159,7 @@ const VendedorNovoPedido: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} />
+        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} precos={promocoesVigentes} consomeQuota />
 
         <div style={{ marginTop: '22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

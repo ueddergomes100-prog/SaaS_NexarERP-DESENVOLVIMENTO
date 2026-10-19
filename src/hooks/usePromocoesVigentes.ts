@@ -17,6 +17,10 @@ import { vendidoNaPromocao } from '../services/promocaoService';
  *
  * `ignorarDocumentoId`: o proprio pedido/OS em edicao, para a quota nao
  * contar o que ele mesmo ja' gravou.
+ *
+ * `quotaConferida` (app Vendas, 19/10/2026): false enquanto nao se sabe quanto
+ * ja' saiu das promocoes com quota (carregando ou sem internet). Ao voltar a
+ * internet, confere de novo.
  */
 export const usePromocoesVigentes = (tenantId: string | null | undefined, ignorarDocumentoId?: string) => {
   const { items } = useTenantCollection<{ id: string } & Record<string, unknown>>('promocoes', tenantId ?? null, { enabled: Boolean(tenantId) });
@@ -28,15 +32,27 @@ export const usePromocoesVigentes = (tenantId: string | null | undefined, ignora
 
   // promocaoId -> produtoId -> quantidade ja' vendida em OUTROS documentos.
   const [vendidoPorPromocao, setVendidoPorPromocao] = useState<Record<string, Record<string, number>>>({});
+  const [quotaConferida, setQuotaConferida] = useState(true);
+  const [voltouInternet, setVoltouInternet] = useState(0);
+  useEffect(() => {
+    const ligou = () => setVoltouInternet((n) => n + 1);
+    window.addEventListener('online', ligou);
+    return () => window.removeEventListener('online', ligou);
+  }, []);
   useEffect(() => {
     if (!tenantId) return undefined;
     const comQuota = promocoes.filter((p) => p.itens.some((i) => i.quota !== null));
-    if (comQuota.length === 0) { setVendidoPorPromocao({}); return undefined; }
+    if (comQuota.length === 0) { setVendidoPorPromocao({}); setQuotaConferida(true); return undefined; }
     let cancelado = false;
-    Promise.all(comQuota.map(async (p) => [p.id, await vendidoNaPromocao(tenantId, p.id, ignorarDocumentoId).catch(() => ({}))] as const))
-      .then((pares) => { if (!cancelado) setVendidoPorPromocao(Object.fromEntries(pares)); });
+    setQuotaConferida(false);
+    Promise.all(comQuota.map(async (p) => [p.id, await vendidoNaPromocao(tenantId, p.id, ignorarDocumentoId).catch(() => null)] as const))
+      .then((pares) => {
+        if (cancelado) return;
+        setVendidoPorPromocao(Object.fromEntries(pares.map(([id, vendido]) => [id, vendido || {}])));
+        setQuotaConferida(pares.every(([, vendido]) => vendido !== null));
+      });
     return () => { cancelado = true; };
-  }, [tenantId, promocoes, ignorarDocumentoId]);
+  }, [tenantId, promocoes, ignorarDocumentoId, voltouInternet]);
 
   const tabelaDe = useCallback(
     (produto: ProdutoPrecificavel, unidade?: UnidadeDoItem): TabelaDePrecoDoItem => tabelaComPromocao(produto, promocoes, hoje, unidade),
@@ -60,5 +76,5 @@ export const usePromocoesVigentes = (tenantId: string | null | undefined, ignora
     return { promo, liberada: quantidadeLiberadaNaPromocao(promo, vendidoPorPromocao[promo.promocaoId]?.[produto.id] || 0, jaNestaVenda) };
   }, [promocaoDe, vendidoPorPromocao]);
 
-  return { promocoes, hoje, tabelaDe, promocaoDe, quantidadeLiberada };
+  return { promocoes, hoje, tabelaDe, promocaoDe, quantidadeLiberada, quotaConferida };
 };

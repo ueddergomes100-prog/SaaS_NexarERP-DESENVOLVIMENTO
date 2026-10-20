@@ -21,6 +21,7 @@ const TrocaMinutaPrint = lazy(() => import('../pages/Trocas/TrocaMinutaPrint'));
 const TrocaMinutaPrintLote = lazy(() => import('../pages/Trocas/TrocaMinutaPrintLote'));
 const TrocaForm = lazy(() => import('../pages/Trocas/TrocaForm'));
 const CondicionaisList = lazy(() => import('../pages/Condicional/CondicionaisList'));
+const CashbackClientes = lazy(() => import('../pages/Cashback/CashbackClientes'));
 const CondicionalForm = lazy(() => import('../pages/Condicional/CondicionalForm'));
 const CondicionalDetalhe = lazy(() => import('../pages/Condicional/CondicionalDetalhe'));
 const RelatorioPreVendas = lazy(() => import('../pages/Vendas/RelatorioPreVendas'));
@@ -138,6 +139,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'vendas/promocoes/nova', element: <PromocaoForm /> },
   { path: 'vendas/promocoes/:id', element: <PromocaoForm /> },
   { path: 'vendas/condicional', element: <CondicionaisList /> },
+  { path: 'vendas/cashback', element: <CashbackClientes /> },
   { path: 'vendas/condicional/novo', element: <CondicionalForm /> },
   { path: 'vendas/condicional/:id', element: <CondicionalDetalhe /> },
   { path: 'vendas/trocas', element: <TrocasList /> },

@@ -22,7 +22,7 @@
  * gerar para mostrar; o servidor calcula de novo na hora de gerar.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.devolucaoDoUso = exports.planoDeUso = exports.ordenarLotesParaUso = exports.conferirPagamentoComCashback = exports.valorSugeridoDoCashback = exports.cashbackDisponivelParaVenda = exports.faixasDisponiveis = exports.valorDaFaixa = exports.cashbackUsadoNaVenda = exports.lerResumoCashback = exports.FORMA_PAGAMENTO_CASHBACK = exports.formatarCashback = exports.parteProporcional = exports.abaterDoLote = exports.novoLoteComDivida = exports.resumoDosLotes = exports.loteVigente = exports.saldoDosMovimentos = exports.pontosParaProximaFaixa = exports.faixaAlcancada = exports.validadeDoCashback = exports.cashbackDaVenda = exports.lerConfigCashback = exports.lerFaixas = exports.parseConfigCashback = exports.ROTULO_MODELO_CASHBACK = exports.LIMITE_DE_FAIXAS = exports.DEFAULT_CONFIG_CASHBACK = void 0;
+exports.devolucaoDoUso = exports.planoDeUso = exports.ordenarLotesParaUso = exports.resumoPelosMovimentos = exports.movimentoNaTela = exports.ROTULO_MOVIMENTO_CASHBACK = exports.venceEmAte = exports.parteDoSaldoVenceu = exports.temSaldo = exports.temDivida = exports.textoDoSaldo = exports.conferirPagamentoComCashback = exports.valorSugeridoDoCashback = exports.cashbackDisponivelParaVenda = exports.faixasDisponiveis = exports.valorDaFaixa = exports.cashbackUsadoNaVenda = exports.lerResumoCashback = exports.FORMA_PAGAMENTO_CASHBACK = exports.formatarCashback = exports.parteProporcional = exports.abaterDoLote = exports.novoLoteComDivida = exports.resumoDosLotes = exports.loteVigente = exports.saldoDosMovimentos = exports.pontosParaProximaFaixa = exports.faixaAlcancada = exports.validadeDoCashback = exports.cashbackDaVenda = exports.lerConfigCashback = exports.lerFaixas = exports.parseConfigCashback = exports.ROTULO_MODELO_CASHBACK = exports.LIMITE_DE_FAIXAS = exports.DEFAULT_CONFIG_CASHBACK = void 0;
 exports.DEFAULT_CONFIG_CASHBACK = {
     ativo: false,
     modelo: 'reais',
@@ -334,6 +334,68 @@ const conferirPagamentoComCashback = (config, resumo, totalCentavos, valorCentav
     return { ok: true, centavos: 0, pontos: faixa.faixa.pontos };
 };
 exports.conferirPagamentoComCashback = conferirPagamentoComCashback;
+// ---------------------------------------------------------------------------
+// Tela Comercial > Cashback, cadastro do cliente e app (fase 3, 20/10/2026)
+// ---------------------------------------------------------------------------
+/** Saldo do resumo, no modelo em que foi gravado ("R$ 12,35" ou "244 ponto(s)"). */
+const textoDoSaldo = (resumo) => ((0, exports.formatarCashback)(resumo.modelo, resumo.saldoCentavos, resumo.saldoPontos));
+exports.textoDoSaldo = textoDoSaldo;
+const temDivida = (resumo) => resumo.dividaCentavos > 0 || resumo.dividaPontos > 0;
+exports.temDivida = temDivida;
+const temSaldo = (resumo) => (resumo.modelo === 'pontos' ? resumo.saldoPontos > 0 : resumo.saldoCentavos > 0);
+exports.temSaldo = temSaldo;
+/**
+ * O resumo e' regravado a cada venda/baixa do cliente. Se o lote mais proximo
+ * venceu depois disso, o saldo mostrado ainda conta com ele ate a proxima
+ * gravacao -- a tela avisa (o servidor sempre confere pelos lotes na venda).
+ */
+const parteDoSaldoVenceu = (resumo, hoje) => (Boolean(resumo.proximoVencimento && resumo.proximoVencimento < hoje));
+exports.parteDoSaldoVenceu = parteDoSaldoVenceu;
+/** Vence nos proximos `dias` (contando hoje). */
+const venceEmAte = (resumo, hoje, dias) => {
+    if (!resumo.proximoVencimento || resumo.proximoVencimento < hoje)
+        return false;
+    const [a, m, d] = hoje.split('-').map(Number);
+    if (!a || !m || !d)
+        return false;
+    const limite = new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+    return resumo.proximoVencimento <= limite;
+};
+exports.venceEmAte = venceEmAte;
+exports.ROTULO_MOVIMENTO_CASHBACK = {
+    gerado: 'Gerado na venda',
+    usado: 'Usado na venda',
+    estornado: 'Estornado',
+    ajuste: 'Devolvido (venda cancelada)',
+    expirado: 'Venceu',
+};
+const TIPOS_MOVIMENTO = ['gerado', 'usado', 'estornado', 'ajuste', 'expirado'];
+const movimentoNaTela = (id, dados) => {
+    const tipo = TIPOS_MOVIMENTO.includes(dados.tipo) ? dados.tipo : 'ajuste';
+    const criado = dados.createdAt;
+    return {
+        id,
+        tipo,
+        rotulo: exports.ROTULO_MOVIMENTO_CASHBACK[tipo],
+        sinal: tipo === 'gerado' || tipo === 'ajuste' ? 1 : -1,
+        modelo: dados.modelo === 'pontos' ? 'pontos' : 'reais',
+        centavos: Math.round(numero(dados.centavos)),
+        pontos: Math.round(numero(dados.pontos)),
+        numeroPedido: String(dados.numeroPedido ?? ''),
+        descricao: String(dados.descricao ?? ''),
+        criadoEmMs: typeof criado?.toMillis === 'function' ? criado.toMillis() : (Number(criado?.seconds) || 0) * 1000,
+        validade: typeof dados.validade === 'string' && dados.validade ? dados.validade : null,
+        restanteCentavos: Math.round(numero(dados.restanteCentavos)),
+        restantePontos: Math.round(numero(dados.restantePontos)),
+        estornado: dados.estornado === true,
+    };
+};
+exports.movimentoNaTela = movimentoNaTela;
+/** Saldo de hoje pelos lotes (ja' sem os vencidos), para o detalhe do cliente. */
+const resumoPelosMovimentos = (movimentos, hoje, divida) => (0, exports.resumoDosLotes)(movimentos.filter((m) => m.tipo === 'gerado').map((m) => ({
+    centavos: m.centavos, pontos: m.pontos, restanteCentavos: m.restanteCentavos, restantePontos: m.restantePontos, validade: m.validade, estornado: m.estornado,
+})), hoje, divida);
+exports.resumoPelosMovimentos = resumoPelosMovimentos;
 /** Vence antes, sai antes; sem validade sai por ultimo; empate pela ordem de criacao. */
 const ordenarLotesParaUso = (lotes, hoje) => (lotes.filter((l) => (0, exports.loteVigente)(l, hoje)).sort((a, b) => {
     if (a.validade && b.validade && a.validade !== b.validade)

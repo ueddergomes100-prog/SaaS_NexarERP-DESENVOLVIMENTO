@@ -25,6 +25,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.alterar': ['comercial.pedidos'],
   'vendas.excluir': ['comercial.pedidos'],
   'vendas.promocoes': ['comercial.pedidos'],
+  'vendas.cashback': ['comercial.pedidos'],
   'vendas.pedidos_pendentes_editar': ['comercial.pedidos'],
   'vendas.pedidos_pendentes_editar_cliente': ['comercial.pedidos'],
   'vendas.pedidos_pendentes_alterar_qtd': ['comercial.pedidos'],

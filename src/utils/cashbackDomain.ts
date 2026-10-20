@@ -452,6 +452,103 @@ export const conferirPagamentoComCashback = (
   return { ok: true, centavos: 0, pontos: faixa.faixa.pontos };
 };
 
+// ---------------------------------------------------------------------------
+// Tela Comercial > Cashback, cadastro do cliente e app (fase 3, 20/10/2026)
+// ---------------------------------------------------------------------------
+
+/** Saldo do resumo, no modelo em que foi gravado ("R$ 12,35" ou "244 ponto(s)"). */
+export const textoDoSaldo = (resumo: ResumoCashbackDoCliente): string => (
+  formatarCashback(resumo.modelo, resumo.saldoCentavos, resumo.saldoPontos)
+);
+
+export const temDivida = (resumo: ResumoCashbackDoCliente): boolean => resumo.dividaCentavos > 0 || resumo.dividaPontos > 0;
+
+export const temSaldo = (resumo: ResumoCashbackDoCliente): boolean => (
+  resumo.modelo === 'pontos' ? resumo.saldoPontos > 0 : resumo.saldoCentavos > 0
+);
+
+/**
+ * O resumo e' regravado a cada venda/baixa do cliente. Se o lote mais proximo
+ * venceu depois disso, o saldo mostrado ainda conta com ele ate a proxima
+ * gravacao -- a tela avisa (o servidor sempre confere pelos lotes na venda).
+ */
+export const parteDoSaldoVenceu = (resumo: ResumoCashbackDoCliente, hoje: string): boolean => (
+  Boolean(resumo.proximoVencimento && resumo.proximoVencimento < hoje)
+);
+
+/** Vence nos proximos `dias` (contando hoje). */
+export const venceEmAte = (resumo: ResumoCashbackDoCliente, hoje: string, dias: number): boolean => {
+  if (!resumo.proximoVencimento || resumo.proximoVencimento < hoje) return false;
+  const [a, m, d] = hoje.split('-').map(Number);
+  if (!a || !m || !d) return false;
+  const limite = new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+  return resumo.proximoVencimento <= limite;
+};
+
+export const ROTULO_MOVIMENTO_CASHBACK: Record<TipoMovimentoCashback, string> = {
+  gerado: 'Gerado na venda',
+  usado: 'Usado na venda',
+  estornado: 'Estornado',
+  ajuste: 'Devolvido (venda cancelada)',
+  expirado: 'Venceu',
+};
+
+/** Linha de movimento como a tela mostra (documento de cashback_movimentos). */
+export interface MovimentoNaTela {
+  id: string;
+  tipo: TipoMovimentoCashback;
+  rotulo: string;
+  /** +1 entra no saldo, -1 sai. */
+  sinal: 1 | -1;
+  modelo: ModeloCashback;
+  centavos: number;
+  pontos: number;
+  numeroPedido: string;
+  descricao: string;
+  criadoEmMs: number;
+  /** So' no lote (gerado). */
+  validade: string | null;
+  restanteCentavos: number;
+  restantePontos: number;
+  estornado: boolean;
+}
+
+const TIPOS_MOVIMENTO: TipoMovimentoCashback[] = ['gerado', 'usado', 'estornado', 'ajuste', 'expirado'];
+
+export const movimentoNaTela = (id: string, dados: Record<string, unknown>): MovimentoNaTela => {
+  const tipo = TIPOS_MOVIMENTO.includes(dados.tipo as TipoMovimentoCashback) ? dados.tipo as TipoMovimentoCashback : 'ajuste';
+  const criado = dados.createdAt as { toMillis?: () => number; seconds?: number } | undefined;
+  return {
+    id,
+    tipo,
+    rotulo: ROTULO_MOVIMENTO_CASHBACK[tipo],
+    sinal: tipo === 'gerado' || tipo === 'ajuste' ? 1 : -1,
+    modelo: dados.modelo === 'pontos' ? 'pontos' : 'reais',
+    centavos: Math.round(numero(dados.centavos)),
+    pontos: Math.round(numero(dados.pontos)),
+    numeroPedido: String(dados.numeroPedido ?? ''),
+    descricao: String(dados.descricao ?? ''),
+    criadoEmMs: typeof criado?.toMillis === 'function' ? criado.toMillis() : (Number(criado?.seconds) || 0) * 1000,
+    validade: typeof dados.validade === 'string' && dados.validade ? dados.validade : null,
+    restanteCentavos: Math.round(numero(dados.restanteCentavos)),
+    restantePontos: Math.round(numero(dados.restantePontos)),
+    estornado: dados.estornado === true,
+  };
+};
+
+/** Saldo de hoje pelos lotes (ja' sem os vencidos), para o detalhe do cliente. */
+export const resumoPelosMovimentos = (
+  movimentos: readonly MovimentoNaTela[],
+  hoje: string,
+  divida: DividaCashback,
+): ResumoCashback => resumoDosLotes(
+  movimentos.filter((m) => m.tipo === 'gerado').map((m) => ({
+    centavos: m.centavos, pontos: m.pontos, restanteCentavos: m.restanteCentavos, restantePontos: m.restantePontos, validade: m.validade, estornado: m.estornado,
+  })),
+  hoje,
+  divida,
+);
+
 /** Lote gravado, com a ordem de criacao para o desempate. */
 export interface LoteParaUso extends LoteCashback {
   id: string;

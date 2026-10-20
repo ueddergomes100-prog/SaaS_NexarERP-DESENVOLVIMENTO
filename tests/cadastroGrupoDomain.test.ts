@@ -129,6 +129,13 @@ test('clientes: tudo e\' do grupo; consumidor final de cada empresa fica de fora
   assert.deepEqual(processar(ctx, 'cf'), []);
 });
 
+test('cashback do cliente e\' da filial: nao vai para o grupo nem muda a assinatura', () => {
+  const comSaldo = { nome: 'MARIA', cidade: 'SERRA', cashback: { modelo: 'reais', saldoCentavos: 500 } };
+  const campos = camposDoGrupo('clientes', comSaldo);
+  assert.equal('cashback' in campos, false);
+  assert.equal(hashDoCadastro(campos), hashDoCadastro(camposDoGrupo('clientes', { nome: 'MARIA', cidade: 'SERRA' })));
+});
+
 test('assinatura ignora ordem das chaves e campos de controle', () => {
   const a = camposDoGrupo('clientes', { nome: 'X', cidade: 'SERRA', tenantId: 'a', cadastroHash: '1', alteradoEm: 'ontem' });
   const b = camposDoGrupo('clientes', { cidade: 'SERRA', nome: 'X', tenantId: 'b', cadastroHash: '2' });

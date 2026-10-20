@@ -20,6 +20,8 @@ import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
 import { ALERTA_TAMANHO_MAXIMO, camposDoAlertaParaGravar, erroDoAlertaDoCliente } from '../../utils/clienteAlertaDomain';
 import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/filialDomain';
+import { formatarCashback, lerResumoCashback, parteDoSaldoVenceu, temDivida, textoDoSaldo, type ResumoCashbackDoCliente } from '../../utils/cashbackDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
@@ -86,7 +88,9 @@ const ClienteForm: React.FC = () => {
   const [isFetching, setIsFetching] = useState(isEditing);
   /** Cliente que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
   const [inativo, setInativo] = useState(false);
-  const { currentUser, tenantId, grupo, ehGestorDasFiliais, userPermissions } = useAuth();
+  const { currentUser, tenantId, grupo, ehGestorDasFiliais, userPermissions, configCashback } = useAuth();
+  // Cashback (20/10/2026): resumo gravado pelo servidor, so' para mostrar.
+  const [resumoCashback, setResumoCashback] = useState<ResumoCashbackDoCliente | null>(null);
 
   // Busca ao vivo de cidades pra pegar o codigo IBGE -- mesmo mecanismo de
   // Configuracoes.tsx (cidade da empresa), reaproveitado aqui porque a
@@ -265,6 +269,7 @@ const ClienteForm: React.FC = () => {
               alertaTexto: String(data.alertaTexto ?? ''),
             }));
             setDtUltimaCompraSistemaAntigo(data.dtUltimaCompraSistemaAntigo || '');
+            setResumoCashback(lerResumoCashback(data.cashback));
             setInativo(data.ativo === false);
           }
         } else {
@@ -376,8 +381,13 @@ const ClienteForm: React.FC = () => {
         ? null
         : Number(formData.limiteDeCredito);
 
+      // O resumo do cashback e' do servidor (firestore.rules recusam a tela
+      // mexer nele): nunca volta na gravacao do cadastro. Se o saldo mudou com
+      // o cadastro aberto, regravar o valor antigo derrubaria o salvar.
+      const { cashback: _resumoDoServidor, ...semCashback } = formData as typeof formData & { cashback?: unknown };
+      void _resumoDoServidor;
       const dataToSave = {
-        ...formData,
+        ...semCashback,
         nome: formData.nome.toUpperCase().trim(),
         limiteDeCredito: Number.isFinite(limiteDeCreditoParsed) ? limiteDeCreditoParsed : null,
         // Numero, nao texto: e' assim que a venda le. Campo em branco vira 0
@@ -706,6 +716,24 @@ const ClienteForm: React.FC = () => {
               não tem desconto fixo.
             </small>
           </div>
+
+          {configCashback.ativo && resumoCashback && (
+            <div className="input-group">
+              <label>Cashback</label>
+              <div style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', fontWeight: 600 }}>
+                {textoDoSaldo(resumoCashback)}
+                {temDivida(resumoCashback) && (
+                  <span style={{ color: '#ef4444', fontWeight: 500 }}> · saldo negativo de {formatarCashback(resumoCashback.modelo, resumoCashback.dividaCentavos, resumoCashback.dividaPontos)}</span>
+                )}
+              </div>
+              <small style={{ color: 'var(--text-muted)' }}>
+                {resumoCashback.proximoVencimento
+                  ? `Parte do saldo vence em ${resumoCashback.proximoVencimento.split('-').reverse().join('/')}${parteDoSaldoVenceu(resumoCashback, getDateInputInTimeZone()) ? ' (já venceu; o saldo é atualizado na próxima venda)' : ''}. `
+                  : ''}
+                Só leitura: o saldo muda com as vendas pagas e com o uso como forma de pagamento. Lotes e movimentos em Comercial › Cashback.
+              </small>
+            </div>
+          )}
 
           <div className="input-group">
             <label>Limite de Crédito (R$)</label>

@@ -12,6 +12,8 @@ import type { SearchableClient } from '../../utils/clientSearch';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import { clienteComCodigo } from '../../utils/pedidoVendedorDomain';
 import VendedorHeader from './VendedorHeader';
+import { cashbackDisponivelParaVenda, lerResumoCashback, parteDoSaldoVenceu, temDivida, textoDoSaldo } from '../../utils/cashbackDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 
 interface ClienteVendedor extends SearchableClient {
@@ -23,6 +25,8 @@ interface ClienteVendedor extends SearchableClient {
   bairro?: string;
   cidade?: string;
   estado?: string;
+  /** Resumo do cashback gravado pelo servidor (20/10/2026). */
+  cashback?: unknown;
 }
 
 interface HistoricoItem {
@@ -43,7 +47,7 @@ const toMillis = (value: unknown): number => {
 
 const VendedorConsultarCliente: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, userPermissions, grupo } = useAuth();
+  const { tenantId, userPermissions, grupo, configCashback } = useAuth();
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
   const [busca, setBusca] = useState('');
@@ -232,6 +236,22 @@ const VendedorConsultarCliente: React.FC = () => {
                   Saldo em aberto: {formatarMoeda(saldoCents / 100)}
                 </div>
               )}
+
+              {(() => {
+                // Cashback (20/10/2026): o vendedor ve o saldo para avisar o cliente.
+                const resumo = configCashback.ativo ? lerResumoCashback(selecionado.cashback) : null;
+                if (!resumo) return null;
+                const usavel = cashbackDisponivelParaVenda(configCashback, resumo) !== null;
+                return (
+                  <div style={{ fontSize: '14px', color: usavel ? '#10b981' : 'var(--text-secondary)', fontWeight: 600 }}>
+                    Cashback: {textoDoSaldo(resumo)}
+                    {temDivida(resumo) && <span style={{ color: '#ef4444' }}> (saldo negativo)</span>}
+                    {resumo.proximoVencimento && !parteDoSaldoVenceu(resumo, getDateInputInTimeZone()) && (
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · parte vence em {resumo.proximoVencimento.split('-').reverse().join('/')}</span>
+                    )}
+                  </div>
+                );
+              })()}
 
               <button
                 type="button"

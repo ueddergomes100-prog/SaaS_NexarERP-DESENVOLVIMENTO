@@ -14,6 +14,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ClipboardList,
+  Coins,
   CreditCard,
   DollarSign,
   Factory,
@@ -102,6 +103,7 @@ const Sidebar: React.FC = () => {
     habilitarTelaPrecificacao,
     trabalhaComCondicional,
     usaGradeDeProdutos,
+    configCashback,
     temVendedorCadastrado,
     nivelAcesso,
     grupo
@@ -159,6 +161,8 @@ const Sidebar: React.FC = () => {
     if (!trabalhaComCondicional && item.module === 'comercial.condicional') return false;
     // Grades so' com "Loja utiliza grade de produtos" (Configuracoes Gerais, 19/10/2026).
     if (!usaGradeDeProdutos && item.module === 'cadastros.grades') return false;
+    // Cashback so' com o cashback ligado (Configuracoes Gerais, 20/10/2026).
+    if (!configCashback.ativo && item.to === '/vendas/cashback') return false;
     // Transferencias so' existem em empresa com filiais (2026-10-06).
     if (!grupo && item.to === '/estoque/transferencias') return false;
     // Filiais aparece sempre (15/10/2026): toda empresa nasce com a Matriz, e e' no
@@ -170,7 +174,7 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, usaGradeDeProdutos, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, usaGradeDeProdutos, configCashback.ativo, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -191,6 +195,8 @@ const Sidebar: React.FC = () => {
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
         { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
         { label: 'Promoções', to: '/vendas/promocoes', icon: Tag, module: 'comercial.pedidos', permission: 'vendas.promocoes' },
+        // Cashback so' com o cashback ligado -- ver canAccess.
+        { label: 'Cashback', to: '/vendas/cashback', icon: Coins, module: 'comercial.pedidos', permission: 'vendas.cashback' },
         { label: 'Trocas', to: '/vendas/trocas', icon: Repeat, module: 'comercial.trocas', permission: 'vendas.troca_gerenciar' },
         { label: 'Condicional', to: '/vendas/condicional', icon: ShoppingBag, module: 'comercial.condicional', permission: 'vendas.condicional' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' },

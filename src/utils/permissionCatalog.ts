@@ -64,6 +64,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
       { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },
       { id: 'vendas.promocoes', label: 'Vendas: Promoções (criar e encerrar)', color: '#f59e0b' },
+      // Cashback (20/10/2026): so' consulta -- saldo, lotes e movimentos dos clientes.
+      { id: 'vendas.cashback', label: 'Vendas: Cashback (ver o saldo dos clientes)', color: '#f59e0b' },
       // Trocas (reposicao sem cobranca de produto estragado). Duas permissoes de
       // proposito: quem PEDE a troca (vendedor no aplicativo) nao e' quem APROVA e
       // baixa o estoque (a loja). Ver docs/PLANO_TROCAS_VENDEDOR.md.

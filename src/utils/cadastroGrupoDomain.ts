@@ -34,6 +34,14 @@ const CAMPOS_DE_CONTROLE = new Set([
 ]);
 
 /**
+ * Campos do CLIENTE que sao da filial e nunca vao para o grupo (20/10/2026):
+ * o resumo do cashback (`cashback`) e' gravado pelo servidor a partir dos
+ * lotes DAQUELA filial (cashback_movimentos.tenantId). Espelhado, o saldo de
+ * uma filial aparecia nas outras -- e o resumo de uma sobrescrevia o da outra.
+ */
+const CAMPOS_DA_FILIAL_NO_CLIENTE = new Set(['cashback']);
+
+/**
  * Campos do PRODUTO que sao do grupo. Lista fechada de proposito: campo novo
  * no produto nasce "da filial" ate alguem decidir que e' do grupo -- o erro
  * seguro e' nao espalhar.
@@ -99,6 +107,7 @@ export const camposDoGrupo = (colecao: ColecaoEspelhada, dados: Record<string, u
   }
   for (const [campo, valor] of Object.entries(dados)) {
     if (CAMPOS_DE_CONTROLE.has(campo) || valor === undefined) continue;
+    if (colecao === 'clientes' && CAMPOS_DA_FILIAL_NO_CLIENTE.has(campo)) continue;
     // Referencia de unidade e' id local de cada filial (remapeado pela sigla).
     if (campo === 'unidadeMedidaId') continue;
     resultado[campo] = valor;
@@ -229,6 +238,7 @@ const copiaInicial = (ctx: ContextoDoEspelho, chave: string, base: DocDoEspelho,
   const copia: Record<string, unknown> = {};
   for (const [campo, valor] of Object.entries(modelo)) {
     if (CAMPOS_DE_CONTROLE.has(campo) || valor === undefined) continue;
+    if (ctx.colecao === 'clientes' && CAMPOS_DA_FILIAL_NO_CLIENTE.has(campo)) continue;
     copia[campo] = valor;
   }
   return {

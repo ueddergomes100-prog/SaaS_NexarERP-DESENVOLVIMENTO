@@ -174,3 +174,32 @@ test('o que a tela oferece: saldo no modelo da empresa; valor sugerido = saldo a
   assert.equal(valorSugeridoDoCashback(p, 10000, 10000), 1500, '300 pontos = 15% de R$ 100,00');
   assert.equal(cashbackUsadoNaVenda([{ formaPagamento: 'Cashback', valorCentavos: 500 }, { formaPagamento: 'Cashback', valor: 2.5 }, { formaPagamento: 'Pix', valorCentavos: 100 }]), 750);
 });
+
+// ---------------------------------------------------------------- tela (fase 3)
+
+test('tela: saldo, divida, vencimento e movimentos', async () => {
+  const m = await import('../src/utils/cashbackDomain');
+  const resumo = m.lerResumoCashback({ modelo: 'reais', saldoCentavos: 1235, dividaCentavos: 0, proximoVencimento: '2026-10-25' });
+  assert.ok(resumo);
+  assert.equal(m.temSaldo(resumo), true);
+  assert.equal(m.temDivida(resumo), false);
+  assert.equal(m.parteDoSaldoVenceu(resumo, '2026-10-20'), false);
+  assert.equal(m.parteDoSaldoVenceu(resumo, '2026-10-26'), true);
+  assert.equal(m.venceEmAte(resumo, '2026-10-20', 5), true);
+  assert.equal(m.venceEmAte(resumo, '2026-10-20', 4), false);
+  const pontos = m.lerResumoCashback({ modelo: 'pontos', saldoPontos: -10, dividaPontos: 10 });
+  assert.ok(pontos);
+  assert.equal(m.temSaldo(pontos), false);
+  assert.equal(m.temDivida(pontos), true);
+  assert.match(m.textoDoSaldo(pontos), /-10 ponto/);
+
+  const lote = m.movimentoNaTela('gerado_v1', { tipo: 'gerado', modelo: 'reais', centavos: 500, restanteCentavos: 200, validade: '2026-10-19', createdAt: { seconds: 10 } });
+  const uso = m.movimentoNaTela('usado_v2', { tipo: 'usado', modelo: 'reais', centavos: 300, numeroPedido: '0002' });
+  const vivo = m.movimentoNaTela('gerado_v3', { tipo: 'gerado', modelo: 'reais', centavos: 400, restanteCentavos: 400, validade: null });
+  assert.equal(lote.sinal, 1);
+  assert.equal(uso.sinal, -1);
+  assert.equal(uso.rotulo, 'Usado na venda');
+  assert.equal(lote.criadoEmMs, 10000);
+  // Lote vencido ontem nao conta mais no saldo de hoje.
+  assert.equal(m.resumoPelosMovimentos([lote, uso, vivo], '2026-10-20', { centavos: 0, pontos: 0 }).saldoCentavos, 400);
+});

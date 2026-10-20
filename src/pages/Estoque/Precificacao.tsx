@@ -32,8 +32,11 @@ interface ProdutoPrecificacao {
   precoAPrazo?: number | null;
   custoNaUltimaPrecificacao?: number | null;
   /** Grade de produtos (gradeProdutosDomain.ts): o principal manda o preco nas
-   * variacoes sem preco proprio; a variacao com preco proprio se precifica sozinha. */
-  temGrade: boolean;
+   * variacoes sem preco proprio; a variacao com preco proprio se precifica sozinha.
+   * Chama-se `principalDeGrade` (e nao `temGrade`) de proposito: a busca
+   * compartilhada (produtoVendavel) esconde `temGrade`, e AQUI o principal
+   * precisa aparecer -- e' por ele que se precifica. */
+  principalDeGrade: boolean;
   ehVariacao: boolean;
   precoProprio: boolean;
   produtoPaiChave: string;
@@ -111,7 +114,7 @@ const Precificacao: React.FC = () => {
             precoAVista: data.precoAVista ?? data.precos?.aVista ?? null,
             precoAPrazo: data.precoAPrazo ?? data.precos?.aPrazo ?? null,
             custoNaUltimaPrecificacao: data.custoNaUltimaPrecificacao ?? null,
-            temGrade: data.temGrade === true,
+            principalDeGrade: data.temGrade === true,
             ehVariacao: data.ehVariacao === true,
             precoProprio: data.precoProprio === true,
             produtoPaiChave: String(data.produtoPaiChave || ''),
@@ -135,7 +138,7 @@ const Precificacao: React.FC = () => {
   );
   /** Variacoes que seguem o preco deste principal. */
   const variacoesQueSeguem = (principal: ProdutoPrecificacao): ProdutoPrecificacao[] => (
-    principal.temGrade
+    principal.principalDeGrade
       ? Array.from(produtos.values()).filter((p) => p.ehVariacao && !p.precoProprio && p.produtoPaiChave === principal.chave)
       : []
   );

@@ -14,6 +14,7 @@ import {
   situacaoDaNotaEmitida,
   totaisContador,
 } from '../src/utils/relatorioContadorDomain';
+import { montarItemNotaFiscal, totaisImpostosDosItens, type ProdutoFiscal } from '../src/utils/notaFiscalItemDomain';
 
 const CHAVE = '32261050672123000147550010000001231000001230';
 
@@ -86,6 +87,8 @@ test('nota emitida: serie da chave, CFOPs por item, impostos, CC-e e operacao', 
   assert.equal(transferencia.operacao, 'transferencia_saida');
   assert.equal(servico.operacao, 'servico');
   assert.equal(servico.situacao, 'rejeitada');
+  assert.equal(servico.numero, '', 'sem numero: em branco, nunca 0');
+  assert.equal(venda.numero, '123');
 });
 
 test('nota recebida: CFOP convertido, totais do XML e devolucao do cliente', () => {
@@ -145,4 +148,24 @@ test('documento: quatro secoes, filtros escritos e cartas de correcao', () => {
   assert.ok(doc.filtros.some((t) => t === 'CFOP: 5.102'));
   assert.equal(doc.secoes[3].linhas.length, 1);
   assert.equal(doc.indicadores[0].valor, '2');
+});
+
+test('nota emitida com itens do construtor REAL da emissao: valor e impostos batem com a nota', () => {
+  const farinha: ProdutoFiscal = { nome: 'FARINHA DE AVEIA 500G', codigo: '0028', ncm: '11041200', cfop: '5102', origem: '0', csosn: '102', cstPis: '99', cstCofins: '99', cstIpi: '99', percentualTributos: 13.45 };
+  const montar = (produto: ProdutoFiscal, venda: { quantidade: number; precoUnitario: number; desconto: number }, regime: 'simples_nacional' | 'lucro_real') => {
+    const r = montarItemNotaFiscal({ produto, venda: { ...venda, unidadeSigla: 'UN' }, contexto: { regime, interestadual: false }, codigoItem: produto.codigo || '1' });
+    if (!r.ok) throw new Error(r.erro);
+    return r.item as Record<string, unknown>;
+  };
+  const simples = montar(farinha, { quantidade: 5, precoUnitario: 6.6, desconto: 1.34 }, 'simples_nacional');
+  const normal = montar({ ...farinha, codigo: '0029', cfop: '5101', csosn: '00', aliquotaIcms: 18, cstPis: '01', aliquotaPis: 1, cstCofins: '01', aliquotaCofins: 3, cstIpi: '' }, { quantidade: 1, precoUnitario: 100, desconto: 0 }, 'lucro_real');
+  const linha = linhaDaNotaEmitida({ id: 'r1', tipo: 'NF-e', status: 'authorized', number: 10, data: '2026-10-01', clienteNome: 'X', itensFiscais: [simples, normal] });
+  const esperado = totaisImpostosDosItens([simples, normal]);
+  assert.equal(linha.valor, Math.round((31.66 + 100) * 100), 'sem valor gravado: soma dos itens liquida do desconto');
+  assert.equal(linha.baseIcms, Math.round(esperado.icmsBaseTax * 100));
+  assert.equal(linha.icms, Math.round(esperado.icmsAmount * 100));
+  assert.equal(linha.pis, Math.round(esperado.pisAmount * 100));
+  assert.equal(linha.cofins, Math.round(esperado.cofinsAmount * 100));
+  assert.deepEqual(linha.cfops, ['5101', '5102']);
+  assert.deepEqual(linha.porCfop.map((g) => [g.cfop, g.valor]), [['5101', 10000], ['5102', 3166]]);
 });

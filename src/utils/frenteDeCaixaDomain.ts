@@ -69,4 +69,19 @@ export const destinoAposLogin = (perfil: PerfilParaOCaixa, loginDaPlataforma: bo
   return entraDiretoNoCaixa(perfil) ? CAMINHO_APP_CAIXA : '/dashboard';
 };
 
+/**
+ * Nome do operador do caixa (pedido do dono, 20/10/2026): o do CADASTRO do
+ * usuario. Antes ia o displayName/e-mail do login ("50672123000147-uedder"),
+ * que nao diz quem e' a pessoa. Sem cadastro legivel, fica o que foi gravado.
+ */
+export const nomeDoOperador = (
+  perfil: { nome?: unknown; nomeResponsavel?: unknown } | null | undefined,
+  gravado: string,
+): string => {
+  const nome = typeof perfil?.nome === 'string' ? perfil.nome.trim() : '';
+  if (nome) return nome;
+  const responsavel = typeof perfil?.nomeResponsavel === 'string' ? perfil.nomeResponsavel.trim() : '';
+  return responsavel || gravado;
+};
+
 export const MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.';

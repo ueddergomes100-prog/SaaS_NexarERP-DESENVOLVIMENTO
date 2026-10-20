@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = exports.destinoAposLogin = exports.entraDiretoNoCaixa = exports.podeUsarFrenteDeCaixa = exports.ehAppDoCaixa = exports.CAMINHO_INSTALACAO_CAIXA = exports.CAMINHO_LOGIN_CAIXA = exports.CAMINHO_APP_CAIXA = exports.MODULO_DO_CAIXA = exports.PERMISSOES_QUE_OPERAM_O_CAIXA = exports.PERMISSAO_SO_CAIXA = exports.PERMISSAO_PDV = void 0;
+exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = exports.nomeDoOperador = exports.destinoAposLogin = exports.entraDiretoNoCaixa = exports.podeUsarFrenteDeCaixa = exports.ehAppDoCaixa = exports.CAMINHO_INSTALACAO_CAIXA = exports.CAMINHO_LOGIN_CAIXA = exports.CAMINHO_APP_CAIXA = exports.MODULO_DO_CAIXA = exports.PERMISSOES_QUE_OPERAM_O_CAIXA = exports.PERMISSAO_SO_CAIXA = exports.PERMISSAO_PDV = void 0;
 /*
  * FRENTE DE CAIXA COMO APP SEPARADO (pedido do dono, 19/10/2026).
  *
@@ -55,4 +55,17 @@ const destinoAposLogin = (perfil, loginDaPlataforma) => {
     return (0, exports.entraDiretoNoCaixa)(perfil) ? exports.CAMINHO_APP_CAIXA : '/dashboard';
 };
 exports.destinoAposLogin = destinoAposLogin;
+/**
+ * Nome do operador do caixa (pedido do dono, 20/10/2026): o do CADASTRO do
+ * usuario. Antes ia o displayName/e-mail do login ("50672123000147-uedder"),
+ * que nao diz quem e' a pessoa. Sem cadastro legivel, fica o que foi gravado.
+ */
+const nomeDoOperador = (perfil, gravado) => {
+    const nome = typeof perfil?.nome === 'string' ? perfil.nome.trim() : '';
+    if (nome)
+        return nome;
+    const responsavel = typeof perfil?.nomeResponsavel === 'string' ? perfil.nomeResponsavel.trim() : '';
+    return responsavel || gravado;
+};
+exports.nomeDoOperador = nomeDoOperador;
 exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.';

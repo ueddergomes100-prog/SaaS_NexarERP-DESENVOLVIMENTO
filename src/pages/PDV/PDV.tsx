@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, LockKeyhole, Maximize2, PackageSearch, Store, X } from 'lucide-react';
+import { Banknote, Loader2, LockKeyhole, Maximize2, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -22,7 +22,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
-import { CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
+import { CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, nomeDoOperador, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
 import {
   applyStockAdjustments,
   describeTransactionError,
@@ -74,7 +74,7 @@ import {
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, type CamposDePrecoDoItem } from '../../utils/precoComPromocaoDomain';
 import { FORMAS_A_VISTA_PADRAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico } from '../../utils/precoVendaDomain';
-import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, lerResumoCashback, type CashbackDisponivel } from '../../utils/cashbackDomain';
+import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, formatarCashback, lerResumoCashback, type CashbackDisponivel } from '../../utils/cashbackDomain';
 import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
@@ -115,6 +115,13 @@ const normalizeText = (value: unknown) => String(value || '').trim();
  * casca CaixaShell.tsx -- sem seta de voltar ao sistema; o X encerra o login
  * do caixa.
  */
+/** "14:53" da abertura do caixa, no fuso da loja; vazio se a data nao vier. */
+const horaDeAbertura = (iso: string | null | undefined): string => {
+  const data = iso ? new Date(iso) : null;
+  if (!data || Number.isNaN(data.getTime())) return '';
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(data);
+};
+
 const PDV: React.FC = () => {
   const navigate = useNavigate();
   const {
@@ -174,11 +181,12 @@ const PDV: React.FC = () => {
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  // Cashback (20/10/2026): saldo do cliente lido na hora de pagar (o cadastro
-  // carregado na abertura do caixa pode estar velho). So' pelo servidor.
+  // Cashback (20/10/2026): saldo do cliente lido ao escolher o cliente (selo
+  // na coluna do total) e de novo ao abrir o pagamento (o cadastro carregado na
+  // abertura do caixa pode estar velho). So' pelo servidor.
   const [cashbackDoCliente, setCashbackDoCliente] = useState<CashbackDisponivel | null>(null);
   useEffect(() => {
-    if (!paymentModalOpen || !vendaPeloServidor || !configCashback.ativo || !selectedClient || selectedClient.isPadrao) {
+    if (!vendaPeloServidor || !configCashback.ativo || !selectedClient || selectedClient.isPadrao) {
       setCashbackDoCliente(null);
       return undefined;
     }
@@ -248,7 +256,17 @@ const PDV: React.FC = () => {
     [currentUser?.uid, tenantId],
   );
 
-  const operatorName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Operador';
+  // Nome do operador = o do cadastro do usuario (20/10/2026), nunca o login.
+  const [nomeDoCadastro, setNomeDoCadastro] = useState('');
+  useEffect(() => {
+    if (!currentUser?.uid) return undefined;
+    let ativo = true;
+    getDoc(doc(db, 'usuarios', currentUser.uid))
+      .then((snap) => { if (ativo) setNomeDoCadastro(nomeDoOperador(snap.exists() ? snap.data() : null, '')); })
+      .catch(() => { /* sem o cadastro, fica o login */ });
+    return () => { ativo = false; };
+  }, [currentUser?.uid]);
+  const operatorName = nomeDoCadastro || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Operador';
 
   const totals = useMemo(
     () => calculatePdvTotals(cartItems, saleDiscountCents),
@@ -1398,15 +1416,31 @@ const PDV: React.FC = () => {
             <strong>Frente de Caixa</strong>
           </span>
         </div>
-        <div className="pdv-status">
-          {loading ? <Loader2 className="spin-animation" size={18} /> : <Store size={18} />}
-          <span>{session ? 'Caixa aberto' : 'Caixa fechado'}</span>
-        </div>
         <div className="pdv-window-actions">
-          <button type="button" title="Tela cheia" onClick={() => document.documentElement.requestFullscreen?.()}>
+          <div className={session ? 'pdv-status' : 'pdv-status pdv-status--fechado'}>
+            {loading ? <Loader2 className="spin-animation" size={16} /> : <Store size={16} aria-hidden="true" />}
+            <span>{session
+              ? `Caixa aberto · ${session.operadorId === currentUser?.uid ? operatorName : session.operadorNome}${horaDeAbertura(session.abertoEm) ? ` · desde ${horaDeAbertura(session.abertoEm)}` : ''}`
+              : 'Caixa fechado'}</span>
+          </div>
+          {session ? (
+            <>
+              <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
+                <Banknote size={16} aria-hidden="true" /> Sangria
+              </button>
+              <button type="button" className="pdv-topbar-button" onClick={() => void closeSession()} title="Contar o dinheiro e fechar o caixa">
+                Fechar caixa
+              </button>
+            </>
+          ) : (
+            <button type="button" className="pdv-topbar-button pdv-topbar-button--primary" onClick={openSession} disabled={loading}>
+              Abrir caixa
+            </button>
+          )}
+          <button type="button" className="pdv-topbar-icon" title="Tela cheia" aria-label="Tela cheia" onClick={() => document.documentElement.requestFullscreen?.()}>
             <Maximize2 size={18} />
           </button>
-          <button type="button" title="Sair da Frente de Caixa" onClick={() => void sairDoCaixa()}>
+          <button type="button" className="pdv-topbar-icon" title="Sair da Frente de Caixa" aria-label="Sair da Frente de Caixa" onClick={() => void sairDoCaixa()}>
             <X size={20} />
           </button>
         </div>
@@ -1432,6 +1466,17 @@ const PDV: React.FC = () => {
               onDestacado={setSelectedProduct}
             />
 
+            <CartPanel
+              items={cartItems}
+              selectedItemId={selectedItemId}
+              onSelectItem={setSelectedItemId}
+              onQuantityChange={updateItemQuantity}
+              onDiscountChange={updateItemDiscount}
+              onRemoveItem={removeItem}
+              unitOptionsByItemId={unitOptionsByItemId}
+              onUnitChange={venderPorEmbalagem ? changeItemUnit : undefined}
+            />
+
             {!session && (
               <div className="pdv-closed-overlay">
                 <PackageSearch size={30} />
@@ -1441,30 +1486,17 @@ const PDV: React.FC = () => {
             )}
           </div>
 
-          <CartPanel
-            items={cartItems}
-            selectedItemId={selectedItemId}
-            onSelectItem={setSelectedItemId}
-            onQuantityChange={updateItemQuantity}
-            onDiscountChange={updateItemDiscount}
-            onRemoveItem={removeItem}
-            unitOptionsByItemId={unitOptionsByItemId}
-            onUnitChange={venderPorEmbalagem ? changeItemUnit : undefined}
-          />
-
           <PdvSummary
             totals={totals}
             client={selectedClient}
             session={session}
             disabled={cartItems.length === 0}
             discountWarning={checagemLimiteDesconto.excedeu ? `Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% acima do limite configurado.` : undefined}
+            cashbackTexto={cashbackDoCliente ? formatarCashback(cashbackDoCliente.modelo, cashbackDoCliente.saldoCentavos, cashbackDoCliente.saldoPontos) : null}
             onOpenClient={() => setClientModalOpen(true)}
             onOpenDiscount={() => setDiscountModalOpen(true)}
             onOpenPayment={() => setPaymentModalOpen(true)}
             onClearSale={clearSale}
-            onOpenSession={openSession}
-            onCloseSession={closeSession}
-            onOpenSangria={() => setSangriaModalOpen(true)}
           />
         </main>
       )}

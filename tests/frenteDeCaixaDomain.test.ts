@@ -40,3 +40,10 @@ test('destino depois do login e caminho do app', () => {
   assert.equal(ehAppDoCaixa('/pdv'), false);
   assert.match(MENSAGEM_SEM_ACESSO_AO_CAIXA, /Frente de Caixa/);
 });
+
+test('nomeDoOperador: o nome do cadastro vence o login gravado', async () => {
+  const { nomeDoOperador } = await import('../src/utils/frenteDeCaixaDomain');
+  assert.equal(nomeDoOperador({ nome: 'Uedder Gomes' }, '50672123000147-uedder'), 'Uedder Gomes');
+  assert.equal(nomeDoOperador({ nome: '  ', nomeResponsavel: 'Dono' }, 'login'), 'Dono');
+  assert.equal(nomeDoOperador(null, '50672123000147-uedder'), '50672123000147-uedder');
+});

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -11,6 +11,7 @@ import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { montarDocumentoCaixaPdv } from '../../utils/relatorioCaixaPdvDomain';
 import { fromCents } from '../../utils/financeDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
+import { nomeDoOperador } from '../../utils/frenteDeCaixaDomain';
 import './Financeiro.css';
 
 interface SangriaData {
@@ -23,6 +24,7 @@ interface SangriaData {
 
 interface CaixaSessaoData {
   id: string;
+  operadorId?: string;
   operadorNome: string;
   status: 'aberto' | 'fechado';
   saldoInicialCentavos: number;
@@ -90,6 +92,26 @@ const CaixaRegistros: React.FC = () => {
     [sessoesLidas],
   );
 
+  // Operador pelo nome do CADASTRO (pedido do dono, 20/10/2026): as sessoes
+  // antigas gravaram o login ("50672123000147-uedder"). Um cadastro por
+  // operador; sem permissao de ler (outra filial), fica o nome gravado.
+  const [nomesDosOperadores, setNomesDosOperadores] = useState<Record<string, string>>({});
+  const idsDosOperadores = useMemo(
+    () => [...new Set(sessoesLidas.map((s) => s.operadorId).filter((id): id is string => Boolean(id)))].sort().join('|'),
+    [sessoesLidas],
+  );
+  useEffect(() => {
+    const ids = idsDosOperadores ? idsDosOperadores.split('|') : [];
+    if (ids.length === 0) return undefined;
+    let ativo = true;
+    Promise.all(ids.map((id) => getDoc(doc(db, 'usuarios', id))
+      .then((snap) => [id, nomeDoOperador(snap.exists() ? snap.data() : null, '')] as const)
+      .catch(() => [id, ''] as const)))
+      .then((pares) => { if (ativo) setNomesDosOperadores(Object.fromEntries(pares.filter(([, nome]) => nome))); });
+    return () => { ativo = false; };
+  }, [idsDosOperadores]);
+  const nomeDaSessao = (s: CaixaSessaoData): string => (s.operadorId && nomesDosOperadores[s.operadorId]) || s.operadorNome || '';
+
   const caixasAbertos = useMemo(() => sessoes.filter((s) => s.status === 'aberto'), [sessoes]);
 
   const historico = useMemo(() => {
@@ -112,7 +134,7 @@ const CaixaRegistros: React.FC = () => {
         documento={montarDocumentoCaixaPdv(
           [...caixasAbertos, ...historico].map((s) => ({
             id: s.id,
-            operadorNome: s.operadorNome || '',
+            operadorNome: nomeDaSessao(s),
             status: s.status,
             abertoEm: toDate(s.createdAt),
             fechadoEm: toDate(s.fechadoEm),
@@ -274,7 +296,7 @@ const CaixaRegistros: React.FC = () => {
               ) : (
                 caixasAbertos.flatMap((sessao) => [
                   <tr key={sessao.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => toggleExpand(sessao)}>
-                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{sessao.operadorNome}</td>
+                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{nomeDaSessao(sessao)}</td>
                     <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.createdAt)}</td>
                     <td style={{ padding: '10px 8px', textAlign: 'right' }}>{currencyFormat(fromCents(sessao.saldoInicialCentavos))}</td>
                     <td style={{ padding: '10px 8px', textAlign: 'right', color: '#f59e0b' }}>{currencyFormat(fromCents(sessao.totalSangriasCentavos))}</td>
@@ -334,7 +356,7 @@ const CaixaRegistros: React.FC = () => {
                   const diferenca = sessao.diferencaCentavos || 0;
                   return [
                     <tr key={sessao.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => toggleExpand(sessao)}>
-                      <td style={{ padding: '10px 8px', fontWeight: 500 }}>{sessao.operadorNome}</td>
+                      <td style={{ padding: '10px 8px', fontWeight: 500 }}>{nomeDaSessao(sessao)}</td>
                       <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.createdAt)}</td>
                       <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.fechadoEm)}</td>
                       <td style={{ padding: '10px 8px', textAlign: 'right' }}>{currencyFormat(fromCents(sessao.saldoInicialCentavos))}</td>

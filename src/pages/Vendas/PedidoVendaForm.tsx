@@ -2596,7 +2596,9 @@ const PedidoVendaForm: React.FC = () => {
       if (!isPreVendaAberta) navigate(`/pedidos-venda/visualizar/${preVendaId}`);
     } catch (error) {
       console.error('Erro ao gravar pré-venda:', error);
-      showError('Erro ao gravar pré-venda', error instanceof Error ? error.message : 'Tente novamente.');
+      // Erro de infraestrutura (permissao, conexao, concorrencia) vira recado
+      // em portugues; erro de negocio ja' vem com a propria mensagem.
+      showError('Erro ao gravar pré-venda', describeTransactionError(error) ?? (error instanceof Error ? error.message : 'Tente novamente.'));
     } finally {
       setIsLoading(false);
       submitLockRef.current = false;

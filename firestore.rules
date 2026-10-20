@@ -22,7 +22,9 @@ service cloud.firestore {
     // servidor (services/filiais.js confere o grupo e a permissao "Utiliza
     // outras filiais"); sem ele, a filial "casa" do usuario (tenantId).
     function currentTenantId() {
-      return hasProfile() ? currentProfile().get('filialAtiva', currentProfile().tenantId) : null;
+      // Uma leitura do perfil (2026-10-20): e' chamada varias vezes por regra.
+      let perfil = hasProfile() ? currentProfile() : {};
+      return perfil.get('filialAtiva', perfil.get('tenantId', null));
     }
 
     function currentRole() {
@@ -38,12 +40,16 @@ service cloud.firestore {
       );
     }
 
+    // Orcamento de 1000 expressoes (2026-10-20): isSuperAdmin() roda tres
+    // vezes na atualizacao de estoque (documento, situacao, permissao), e
+    // currentRole() refazia hasProfile() que o chamador acabou de conferir.
+    // Le o papel direto do perfil: mesmo resultado, menos expressoes.
     function isSuperAdmin() {
-      return tokenIsSuperAdmin() || (hasProfile() && currentRole() in ['NexarAdmin', 'SuperAdmin']);
+      return tokenIsSuperAdmin() || (hasProfile() && currentProfile().role in ['NexarAdmin', 'SuperAdmin']);
     }
 
     function isTenantAdmin() {
-      return hasProfile() && currentRole() in ['Master', 'Admin'];
+      return hasProfile() && currentProfile().role in ['Master', 'Admin'];
     }
 
     // Funcionario nivel Gerente (nivelAcesso, campo de VISIBILIDADE DE
@@ -68,16 +74,16 @@ service cloud.firestore {
         .hasOnly(currentProfile().get('permissoes', []));
     }
 
+    // Uma leitura do perfil por chamada (2026-10-20): antes eram duas, e a
+    // regra de atualizacao chama isto meia duzia de vezes.
     function hasPermission(permission) {
-      return hasProfile() &&
-        currentProfile().permissoes is list &&
-        currentProfile().permissoes.hasAny([permission]);
+      let permissoes = hasProfile() ? currentProfile().get('permissoes', []) : [];
+      return permissoes is list && permissoes.hasAny([permission]);
     }
 
     function hasAnyPermission(permissions) {
-      return hasProfile() &&
-        currentProfile().permissoes is list &&
-        currentProfile().permissoes.hasAny(permissions);
+      let permissoes = hasProfile() ? currentProfile().get('permissoes', []) : [];
+      return permissoes is list && permissoes.hasAny(permissions);
     }
 
     function platformManagedFields() {
@@ -290,21 +296,19 @@ service cloud.firestore {
     // que as permissoes davam. Dono/Admin nao sao inativados pela tela e
     // ficam de fora de proposito (mesma regra do AuthContext).
     function perfilAtivo() {
+      // Uma leitura do perfil (2026-10-20); a conferencia do vendedor de balcao
+      // (sessaoCombinaComOCadastro) esta' repetida aqui pelo mesmo motivo.
+      let perfil = currentProfile();
       return (
-        currentProfile().get('status', 'Ativo') != 'Inativo' ||
-        currentProfile().get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin']
-      ) && sessaoCombinaComOCadastro();
+        perfil.get('status', 'Ativo') != 'Inativo' ||
+        perfil.get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin']
+      ) && (perfil.get('tipoRegistro', '') != 'vendedor' || request.auth.token.get('isVendedorBalcao', false) == true);
     }
 
     // Cadastro de vendedor de balcao (sem login) so' entra pelo app, com o
     // token do codigo+PIN (claim isVendedorBalcao). Uma conta de e-mail ligada
     // a um cadastro desses (pelo DevTools) seria um login fora do limite do
     // plano -- recusado (19/10/2026).
-    function sessaoCombinaComOCadastro() {
-      return currentProfile().get('tipoRegistro', '') != 'vendedor' ||
-        request.auth.token.get('isVendedorBalcao', false) == true;
-    }
-
     function canAccessTenant(tenantId) {
       return isSuperAdmin() || (hasProfile() && perfilAtivo() && currentTenantId() == tenantId);
     }
@@ -1065,6 +1069,15 @@ service cloud.firestore {
         'caixas_pdv',
         'notas_avulsas'
       ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && cashbackSoPeloServidor(collectionName) && romaneioAbertoNaTela(collectionName) && (
+        // Gestor da empresa (Master/Admin) primeiro (2026-10-20): ele ja' era
+        // liberado por canWriteTenantCollection, mas so' depois de avaliar
+        // canAdjustStockQuantity inteira -- um Admin SEM as permissoes de venda
+        // na lista (o dono, que entra pelo papel) estourava as 1000 expressoes
+        // ao reservar estoque na pre-venda e recebia "Missing or insufficient
+        // permissions" (medido no simulador de regras). As conferencias acima
+        // (situacao, grupo, cashback, romaneio) continuam valendo pra ele.
+        // So' isTenantAdmin aqui (barato); SuperAdmin segue pelo caminho de sempre.
+        isTenantAdmin() ||
         // Os movimentos de SALDO vem PRIMEIRO de proposito (2026-09-29): sao
         // as escritas mais comuns (toda venda mexe em estoque e banco) e as
         // mais baratas de conferir. O Firestore para de avaliar a regra depois

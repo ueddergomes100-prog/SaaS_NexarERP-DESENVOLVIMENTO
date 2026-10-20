@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Barcode, PackageSearch } from 'lucide-react';
-import type { PdvProduct } from '../types';
+import type { PdvCartItem, PdvProduct } from '../types';
 import { currency } from '../pdvHelpers';
+import { fromCents } from '../../../utils/financeDomain';
 import ProductAutocomplete from '../../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../../components/common/ProductSearchModal';
 import type { ProductSearchMode } from '../../../utils/productSearch';
@@ -18,6 +19,9 @@ interface ProductSearchProps {
   onSelect: (product: PdvProduct) => void;
   /** Produto em destaque na lista de busca (ou null): vira o quadro de consulta. */
   onDestacado: (product: PdvProduct | null) => void;
+  /** Item selecionado no cupom (pedido do dono, 20/10/2026): sem busca em
+   *  andamento, o quadro mostra a foto e os dados dele. */
+  itemSelecionado?: { item: PdvCartItem; produto: PdvProduct | null } | null;
 }
 
 // A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
@@ -40,6 +44,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
   onChange,
   onSelect,
   onDestacado,
+  itemSelecionado = null,
 }) => {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
@@ -71,12 +76,14 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
       {/* Consulta (decisao do dono, 20/10/2026): mostra o produto em destaque
           na busca, antes de lancar; some quando o item entra no cupom, quando a
           busca e' apagada e quando um item e' removido. */}
-      <div className={selectedProduct ? 'pdv-product-card' : 'pdv-product-card pdv-product-card--vazio'} aria-live="polite">
-        <span className="pdv-product-card__label">Produto pesquisado</span>
+      <div className={selectedProduct || itemSelecionado ? 'pdv-product-card' : 'pdv-product-card pdv-product-card--vazio'} aria-live="polite">
+        <span className="pdv-product-card__label">{selectedProduct || !itemSelecionado ? 'Produto pesquisado' : 'Item selecionado no cupom'}</span>
         {selectedProduct ? (
           <>
             <div className="pdv-product-card__name">
-              {selectedProduct.imagemProduto ? <img src={selectedProduct.imagemProduto} alt="" /> : null}
+              <span className="pdv-product-card__foto">
+                {selectedProduct.imagemProduto ? <img src={selectedProduct.imagemProduto} alt="" /> : <PackageSearch size={26} aria-hidden="true" />}
+              </span>
               <strong>{selectedProduct.nome}</strong>
             </div>
             <div className="pdv-product-card__facts">
@@ -85,6 +92,23 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
               <span><small>Categoria</small><b>{selectedProduct.categoria || '-'}</b></span>
             </div>
             <span className="pdv-product-card__hint">Some ao lançar o item.</span>
+          </>
+        ) : itemSelecionado ? (
+          <>
+            <div className="pdv-product-card__name">
+              <span className="pdv-product-card__foto">
+                {(itemSelecionado.produto?.imagemProduto || itemSelecionado.item.imagemProduto)
+                  ? <img src={itemSelecionado.produto?.imagemProduto || itemSelecionado.item.imagemProduto} alt="" />
+                  : <PackageSearch size={26} aria-hidden="true" />}
+              </span>
+              <strong>{itemSelecionado.item.nome}</strong>
+            </div>
+            <div className="pdv-product-card__facts">
+              <span><small>Preço</small><b>{currency.format(fromCents(itemSelecionado.item.precoUnitarioCentavos))}</b></span>
+              <span><small>Qtd</small><b>{itemSelecionado.item.quantidade.toLocaleString('pt-BR')} {itemSelecionado.item.unidadeMedidaSigla || 'UN'}</b></span>
+              <span><small>Estoque</small><b>{itemSelecionado.produto ? `${(itemSelecionado.produto.quantidade || 0).toLocaleString('pt-BR')} ${itemSelecionado.produto.unidadeMedidaSigla || 'UN'}` : '-'}</b></span>
+            </div>
+            <span className="pdv-product-card__hint">Clique em outro item do cupom para ver o dele.</span>
           </>
         ) : (
           <span className="pdv-product-card__vazio">

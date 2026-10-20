@@ -1458,6 +1458,7 @@ const PDV: React.FC = () => {
               value={search}
               products={products}
               selectedProduct={selectedProduct}
+              itemSelecionado={selectedItem ? { item: selectedItem, produto: products.find((p) => p.id === selectedItem.productId) || null } : null}
               inputRef={productInputRef}
               mode={productSearchMode}
               disabled={!session}

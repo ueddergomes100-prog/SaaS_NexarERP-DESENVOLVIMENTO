@@ -1,5 +1,5 @@
 import React from 'react';
-import { Minus, Plus, ShoppingBag, Trash2 } from 'lucide-react';
+import { Minus, Package, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import type { PdvCartItem } from '../types';
 import type { OpcaoUnidadeVenda } from '../../../utils/embalagemDomain';
 import { cartLineGrossCents, cartLineNetCents, currency, fromCurrencyInput, toCurrencyInput } from '../pdvHelpers';
@@ -66,6 +66,10 @@ const CartPanel: React.FC<CartPanelProps> = ({
           >
             <div className="pdv-cart-product">
               <small>{String(index + 1).padStart(3, '0')}</small>
+              {/* Foto do item no cupom (pedido do dono, 20/10/2026). */}
+              <span className="pdv-cart-foto" aria-hidden="true">
+                {item.imagemProduto ? <img src={item.imagemProduto} alt="" loading="lazy" /> : <Package size={18} />}
+              </span>
               <div>
                 <strong>{item.nome}</strong>
                 {showUnitSelect ? (

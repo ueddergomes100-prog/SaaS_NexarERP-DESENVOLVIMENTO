@@ -1481,12 +1481,14 @@ const PedidoVendaForm: React.FC = () => {
   const creditoDisponivelCentavos = somarCreditosCentavos(creditosCliente);
 
   // Cashback como forma de pagamento (20/10/2026): so' pelo servidor (a tela
-  // nunca mexe no saldo) e so' para cliente cadastrado com saldo no modelo da empresa.
+  // nunca mexe no saldo) e so' para cliente cadastrado com saldo no modelo da
+  // empresa. Vale na venda nova e ao FATURAR a pre-venda (e' ali que a empresa
+  // que trabalha com pre-venda escolhe o pagamento); pedido ja' finalizado nao.
   const cashbackDisponivel = useMemo(() => (
-    vendaPeloServidor && !isViewing && clienteEscolhido && clienteEscolhido.isPadrao !== true
+    vendaPeloServidor && (!isViewing || faturandoPreVenda) && clienteEscolhido && clienteEscolhido.isPadrao !== true
       ? cashbackDisponivelParaVenda(configCashback, lerResumoCashback(clienteEscolhido.cashback))
       : null
-  ), [vendaPeloServidor, isViewing, clienteEscolhido, configCashback]);
+  ), [vendaPeloServidor, isViewing, faturandoPreVenda, clienteEscolhido, configCashback]);
 
   // Carrega o credito de devolucao do cliente escolhido e oferece o
   // abatimento uma unica vez por cliente. So em venda nova: reabrir um

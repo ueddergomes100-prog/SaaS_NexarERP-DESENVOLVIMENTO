@@ -44,6 +44,9 @@ interface ProdutoBasico {
   /** `false` = produto inativado -- searchProducts() ja exclui isso da
    * busca (src/utils/productSearch.ts), precisa vir junto do Firestore. */
   ativo?: boolean;
+  /** `true` = principal de uma grade (gradeProdutosDomain.ts): sem estoque,
+   * quem se vende sao as variacoes -- searchProducts() tambem exclui. */
+  temGrade?: boolean;
 }
 
 interface BancoBasico {
@@ -123,6 +126,7 @@ const NotaAvulsaForm: React.FC = () => {
         unidadeMedidaFracionado: d.data().unidadeMedidaFracionado,
         embalagens: d.data().embalagens,
         ativo: d.data().ativo ?? d.data().statusAtivo ?? true,
+        temGrade: d.data().temGrade === true,
       }))),
       (error) => console.error('Erro ao carregar produtos:', error),
     );

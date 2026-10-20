@@ -282,6 +282,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     tipoDescontoPadrao: DEFAULT_TIPO_DESCONTO_PADRAO as DescontoTipo,
     modoValidacaoCliente: DEFAULT_MODO_VALIDACAO_CLIENTE,
     trabalhaComLimiteCredito: false,
+    usaGradeDeProdutos: false,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
@@ -455,6 +456,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             tipoDescontoPadrao: parseTipoDescontoPadrao(data.tipoDescontoPadrao),
             modoValidacaoCliente: parseModoValidacaoCliente(data.modoValidacaoCliente),
             trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
+            usaGradeDeProdutos: data.usaGradeDeProdutos === true,
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
@@ -1282,6 +1284,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         validarCadastroProduto: formData.validarCadastroProduto === true,
         modoValidacaoCliente: formData.modoValidacaoCliente,
         trabalhaComLimiteCredito: formData.trabalhaComLimiteCredito === true,
+        usaGradeDeProdutos: formData.usaGradeDeProdutos === true,
         transferenciaSemNota: formData.transferenciaSemNota === true,
         transferenciaNfeTributacao: formData.transferenciaNfeTributacao,
         ...(isPlatformAdmin ? { tenantId } : {}),
@@ -2123,6 +2126,28 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   Permitir cadastrar produto apenas com nome, preço e quantidade
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Quando marcado, o cadastro de produtos exige apenas nome, preço de venda e quantidade inicial de estoque.</p>
+              </div>
+
+              {/* Grade de produtos (19/10/2026): lojas de roupa. Ver gradeProdutosDomain.ts. */}
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Grade de produtos (tamanho, cor...)</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    Quando ligado, aparece o cadastro de Grades (Cadastros Auxiliares) e o produto pode ter variações:
+                    cada combinação (P / AZUL, M / AZUL...) vira um item com estoque e código de barras próprios.
+                    Desligar só esconde: nenhuma variação já cadastrada é apagada.
+                  </p>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.usaGradeDeProdutos === true}
+                    onChange={(e) => setFormData({ ...formData, usaGradeDeProdutos: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Loja utiliza grade de produtos
+                </label>
               </div>
 
               <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>

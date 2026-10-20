@@ -23,8 +23,8 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.estoquePorFilial = exports.chaveDoProdutoPeloId = exports.mudouCadastroDoGrupo = exports.itemDaFilial = exports.aplicarNoIndice = exports.planejarEspelho = exports.indexar = exports.criarIndice = exports.chaveNatural = exports.idDaCopia = exports.chaveDoGrupo = exports.hashDoCadastro = exports.camposDoGrupo = exports.participaDoEspelho = exports.CAMPOS_DO_PRODUTO_NO_GRUPO = exports.COLECOES_ESPELHADAS = void 0;
-/** Na ordem em que o servidor liga o espelho: catalogos antes dos produtos (unidade). */
-exports.COLECOES_ESPELHADAS = ['unidades_medida', 'categorias', 'marcas', 'clientes', 'estoque'];
+/** Na ordem em que o servidor liga o espelho: catalogos antes dos produtos (unidade, grade). */
+exports.COLECOES_ESPELHADAS = ['unidades_medida', 'categorias', 'marcas', 'grades', 'clientes', 'estoque'];
 /** Campos de controle de cada copia: nunca sao comparados nem copiados. */
 const CAMPOS_DE_CONTROLE = new Set([
     'id', 'tenantId', 'grupoChave', 'filialOrigem', 'cadastroHash',
@@ -46,6 +46,9 @@ exports.CAMPOS_DO_PRODUTO_NO_GRUPO = [
     'produzidoInternamente', 'produtoServico', 'produtoRevenda', 'controlarEstoque',
     'exigirSerialLote', 'controlarLote', 'permiteCondicional', 'permitirCashback', 'produtoDestaque',
     'ativo', 'statusAtivo',
+    // Grade de produtos (19/10/2026): o vinculo pai x variacao e' do grupo -- a
+    // chave do pai e' a mesma em toda filial. Ver gradeProdutosDomain.ts.
+    'temGrade', 'gradeNomes', 'ehVariacao', 'produtoPaiChave', 'variacao', 'variacaoRotulo',
 ];
 /**
  * Campos do produto que NAO vao para a copia de uma filial nova (o estoque
@@ -130,7 +133,7 @@ exports.idDaCopia = idDaCopia;
 const chaveNatural = (colecao, dados) => {
     if (colecao === 'unidades_medida')
         return normalizar(dados.sigla) || null;
-    if (colecao === 'categorias' || colecao === 'marcas')
+    if (colecao === 'categorias' || colecao === 'marcas' || colecao === 'grades')
         return normalizar(dados.nome) || null;
     if (colecao === 'clientes') {
         const documento = String(dados.documento ?? '').replace(/\D/g, '');

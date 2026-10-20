@@ -29,6 +29,9 @@ exports.CAMPOS_GERAIS = [
     'trabalhaComLimiteCredito',
     'transferenciaSemNota',
     'transferenciaNfeTributacao',
+    // Grade de produtos (19/10/2026): o cadastro de produto e' do grupo, entao a
+    // chave que liga a grade tambem vale para todas as filiais.
+    'usaGradeDeProdutos',
 ];
 exports.LIMITE_DE_CATEGORIAS = 200;
 exports.LIMITE_DO_NOME_DA_CATEGORIA = 60;
@@ -136,6 +139,9 @@ const lerConfiguracoesGerais = (corpo) => {
     const semNota = lerSimNao(dados.transferenciaSemNota, 'Permitir transferência sem nota');
     if (!semNota.ok)
         return { ok: false, erro: semNota.erro };
+    const grade = lerSimNao(dados.usaGradeDeProdutos, 'Loja utiliza grade de produtos');
+    if (!grade.ok)
+        return { ok: false, erro: grade.erro };
     if (!MODOS_VALIDACAO_CLIENTE.includes(dados.modoValidacaoCliente)) {
         return { ok: false, erro: 'Escolha o que fazer com cliente não cadastrado: permitir, bloquear ou perguntar.' };
     }
@@ -152,6 +158,7 @@ const lerConfiguracoesGerais = (corpo) => {
             trabalhaComLimiteCredito: limiteCredito.valor,
             transferenciaSemNota: semNota.valor,
             transferenciaNfeTributacao: dados.transferenciaNfeTributacao,
+            usaGradeDeProdutos: grade.valor,
         },
     };
 };
@@ -212,4 +219,5 @@ exports.ROTULO_DO_CAMPO_GERAL = {
     trabalhaComLimiteCredito: 'limite de crédito',
     transferenciaSemNota: 'transferência sem nota',
     transferenciaNfeTributacao: 'tributação da transferência',
+    usaGradeDeProdutos: 'grade de produtos',
 };

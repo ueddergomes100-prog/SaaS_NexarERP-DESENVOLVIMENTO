@@ -239,6 +239,9 @@ interface ProdutoEstoque {
   /** `false` = produto inativado -- searchProducts() ja exclui isso da
    * busca (src/utils/productSearch.ts), precisa vir junto do Firestore. */
   ativo?: boolean;
+  /** `true` = principal de uma grade (gradeProdutosDomain.ts): sem estoque,
+   * quem se vende sao as variacoes -- searchProducts() tambem exclui. */
+  temGrade?: boolean;
 }
 interface ItemVenda {
   id: string;
@@ -970,7 +973,8 @@ const PedidoVendaForm: React.FC = () => {
           embalagens: doc.data().embalagens,
           descontoMaximoPercentual: doc.data().descontoMaximoPercentual,
           comissaoPercentual: doc.data().comissaoPercentual,
-          ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true
+          ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
+          temGrade: doc.data().temGrade === true,
         });
       });
       setProdutosCatalogo(dataE);

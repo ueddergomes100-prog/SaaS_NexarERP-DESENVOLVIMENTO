@@ -93,6 +93,8 @@ const MODULOS = [
   'src/utils/lancamentoReceberDomain.ts',
   // Frente de Caixa como app separado (19/10/2026).
   'src/utils/frenteDeCaixaDomain.ts',
+  // Grade de produtos (19/10/2026): pai e variacoes (filhos) no estoque.
+  'src/utils/gradeProdutosDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

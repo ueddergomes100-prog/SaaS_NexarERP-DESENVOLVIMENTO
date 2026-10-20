@@ -20,7 +20,14 @@ export interface SearchableProduct {
    * produto inativado nao pode ser oferecido pra adicionar numa venda/OS/
    * orcamento nova, mesmo que ainda exista no catalogo. */
   ativo?: boolean | null;
+  /** `true` = produto principal de uma grade (gradeProdutosDomain.ts): nao
+   * tem estoque, quem se vende sao as variacoes (produtos filhos). Fica
+   * fora de toda busca de venda/OS/orcamento, como o inativo. */
+  temGrade?: boolean | null;
 }
+
+/** Pode ser oferecido numa venda: ativo e nao e' o principal de uma grade. */
+export const produtoVendavel = (product: SearchableProduct): boolean => product.ativo !== false && product.temGrade !== true;
 
 export interface ProductSearchOptions {
   mode?: ProductSearchMode;
@@ -124,8 +131,9 @@ export const productMatchesSearch = <T extends SearchableProduct>(
   // Produto inativado nunca "bate" numa busca -- ver comentario em
   // SearchableProduct.ativo. Usado direto (sem passar por searchProducts())
   // pela busca global da TopBar, entao o corte precisa estar aqui tambem,
-  // nao so no filtro de origem que searchProducts() ja faz.
-  if (product.ativo === false) return false;
+  // nao so no filtro de origem que searchProducts() ja faz. O principal de
+  // uma grade segue a mesma regra (ver produtoVendavel).
+  if (!produtoVendavel(product)) return false;
 
   const termos = splitSearchTerms(term);
   if (termos.length === 0) return false;
@@ -162,8 +170,9 @@ export const searchProducts = <T extends SearchableProduct>(
   // verdade (historico e estoque intactos), so some da busca. Filtrado aqui
   // (nao no array de origem que as telas guardam) pra nao quebrar lookup
   // de item ja adicionado a um documento antigo, que pode referenciar um
-  // produto ja inativado desde entao.
-  const produtosAtivos = products.filter((product) => product.ativo !== false);
+  // produto ja inativado desde entao. O principal de uma grade tambem fica
+  // de fora: o que se vende e' a variacao.
+  const produtosAtivos = products.filter(produtoVendavel);
 
   // Curinga antes de qualquer filtro: `#` nao e' termo de busca, e' "me
   // mostra tudo". `total` traz o catalogo inteiro, entao o "Ver mais" do

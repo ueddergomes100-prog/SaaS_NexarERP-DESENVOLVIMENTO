@@ -20,6 +20,7 @@ const GERAIS = {
   trabalhaComLimiteCredito: true,
   transferenciaSemNota: false,
   transferenciaNfeTributacao: 'nao_incide',
+  usaGradeDeProdutos: false,
 };
 
 const filial = (tenantId, codigo, matriz) => ({

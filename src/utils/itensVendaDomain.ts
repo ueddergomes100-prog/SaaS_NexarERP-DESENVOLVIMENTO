@@ -1,4 +1,4 @@
-import { productMatchesExactCode, type SearchableProduct } from './productSearch';
+import { productMatchesExactCode, produtoVendavel, type SearchableProduct } from './productSearch';
 
 /*
  * TABELA DE ITENS DA VENDA -- lancamento por codigo e edicao na linha
@@ -36,7 +36,7 @@ export const ROTULO_CAMPO: Record<CampoEditavel, string> = {
 export const localizarProdutoPorCodigo = <P extends SearchableProduct>(catalogo: ReadonlyArray<P>, codigo: string): P | null => {
   const termo = String(codigo ?? '').trim();
   if (!termo) return null;
-  return catalogo.find((p) => p.ativo !== false && productMatchesExactCode(p, termo)) ?? null;
+  return catalogo.find((p) => produtoVendavel(p) && productMatchesExactCode(p, termo)) ?? null;
 };
 
 /** "1.234,56" / "1234.56" / "3" -> numero; vazio ou lixo -> NaN. */

@@ -35,6 +35,7 @@ import {
   ShoppingBag,
   Route,
   IdCard,
+  LayoutGrid,
   RotateCcw,
   Scale,
   Search,
@@ -100,6 +101,7 @@ const Sidebar: React.FC = () => {
     devolucaoBotaoSeparado,
     habilitarTelaPrecificacao,
     trabalhaComCondicional,
+    usaGradeDeProdutos,
     temVendedorCadastrado,
     nivelAcesso,
     grupo
@@ -155,6 +157,8 @@ const Sidebar: React.FC = () => {
     if (!habilitarTelaPrecificacao && item.module === 'estoque.precificacao') return false;
     // Condicional so' aparece com "Trabalha com condicional" ligado em Configuracoes.
     if (!trabalhaComCondicional && item.module === 'comercial.condicional') return false;
+    // Grades so' com "Loja utiliza grade de produtos" (Configuracoes Gerais, 19/10/2026).
+    if (!usaGradeDeProdutos && item.module === 'cadastros.grades') return false;
     // Transferencias so' existem em empresa com filiais (2026-10-06).
     if (!grupo && item.to === '/estoque/transferencias') return false;
     // Filiais aparece sempre (15/10/2026): toda empresa nasce com a Matriz, e e' no
@@ -166,7 +170,7 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, usaGradeDeProdutos, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -247,6 +251,8 @@ const Sidebar: React.FC = () => {
         { label: 'Categorias', to: '/categorias', icon: Tags, module: 'cadastros.categorias', permission: 'cadastros.categorias' },
         { label: 'Marcas', to: '/marcas', icon: Award, module: 'cadastros.marcas', permission: 'cadastros.marcas' },
         { label: 'Unidades de Medida', to: '/unidades-medida', icon: Scale, module: 'cadastros.unidades_medida', permission: 'cadastros.unidades_medida' },
+        // Grades (tamanho, cor...) so' com "Loja utiliza grade de produtos" ligado -- ver canAccess.
+        { label: 'Grades', to: '/grades', icon: LayoutGrid, module: 'cadastros.grades', permission: 'cadastros.grades' },
         { label: 'Bandeiras de Cartão', to: '/bandeiras-cartao', icon: CreditCard, module: 'cadastros.bandeiras_cartao', permission: 'cadastros.bandeiras_cartao' },
         { label: 'Bancos', to: '/bancos', icon: Building2, module: 'cadastros.bancos', permission: 'cadastros.bancos' },
         { label: 'Matéria-Prima', to: '/materias-primas', icon: Factory, module: 'cadastros.materia_prima', permission: 'cadastros.materia_prima' },

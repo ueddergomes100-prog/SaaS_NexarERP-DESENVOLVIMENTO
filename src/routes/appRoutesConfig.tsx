@@ -90,6 +90,7 @@ const PrintRelatorioVendas = lazy(() => import('../pages/RelatoriosDiversos/Prin
 const PrintRelatorioTaxasCartao = lazy(() => import('../pages/RelatoriosDiversos/PrintRelatorioTaxasCartao'));
 const PrintRelatorioDescontos = lazy(() => import('../pages/RelatoriosDiversos/PrintRelatorioDescontos'));
 const UnidadesMedidaList = lazy(() => import('../pages/UnidadesMedida/UnidadesMedidaList'));
+const GradesList = lazy(() => import('../pages/Grades/GradesList'));
 const BandeirasCartaoList = lazy(() => import('../pages/BandeirasCartao/BandeirasCartaoList'));
 const BancosList = lazy(() => import('../pages/Bancos/BancosList'));
 const VendedoresList = lazy(() => import('../pages/Vendedores/VendedoresList'));
@@ -218,6 +219,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'marcas/editar/:id', element: <MarcaForm /> },
 
   { path: 'unidades-medida', element: <UnidadesMedidaList /> },
+  { path: 'grades', element: <GradesList /> },
   { path: 'bandeiras-cartao', element: <BandeirasCartaoList /> },
   { path: 'bancos', element: <BancosList /> },
   { path: 'vendedores', element: <VendedoresList /> },

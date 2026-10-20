@@ -26,6 +26,9 @@ export interface PdvProduct {
    * granel...) -- nunca aparece pra venda, so continua no controle de
    * estoque. Ausente/true = vendavel normalmente. */
   produtoRevenda?: boolean;
+  /** true = principal de uma grade (gradeProdutosDomain.ts): sem estoque, quem
+   * se vende sao as variacoes. Nunca aparece pra venda. */
+  temGrade?: boolean;
   /** Array cru do documento de estoque -- normalizado por embalagemDomain. */
   embalagens?: unknown;
   descontoMaximoPercentual?: number;

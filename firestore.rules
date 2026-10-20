@@ -233,6 +233,8 @@ service cloud.firestore {
         (collectionName == 'marcas' && hasAnyPermission(['cadastros.marcas', 'cadastros.estoque_alterar', 'cadastros.materia_prima'])) ||
         (collectionName == 'servicos' && hasPermission('cadastros.servicos')) ||
         (collectionName == 'unidades_medida' && hasPermission('cadastros.unidades_medida')) ||
+        // Grade de produtos (19/10/2026): tamanho, cor... -- ver src/utils/gradeProdutosDomain.ts.
+        (collectionName == 'grades' && hasPermission('cadastros.grades')) ||
         (collectionName == 'bandeiras_cartao' && hasPermission('cadastros.bandeiras_cartao')) ||
         // Banco: cadastro (agencia, conta, convenio do boleto) so' com a
         // permissao do cadastro. Venda, OS, baixa etc. mexem SO' no saldo --
@@ -464,7 +466,7 @@ service cloud.firestore {
     function cadastroComSituacao(collectionName) {
       return collectionName in [
         'clientes', 'fornecedores', 'motoristas', 'estoque', 'materias_primas', 'categorias', 'marcas',
-        'servicos', 'veiculos', 'unidades_medida', 'bancos', 'bandeiras_cartao'
+        'servicos', 'veiculos', 'unidades_medida', 'bancos', 'bandeiras_cartao', 'grades'
       ];
     }
 
@@ -526,7 +528,8 @@ service cloud.firestore {
         'skuSistema', 'slugUrl', 'seoTitulo', 'seoDescricao', 'descricaoMarketplace', 'imagensMarketplace',
         'produzidoInternamente', 'produtoServico', 'produtoRevenda', 'controlarEstoque',
         'exigirSerialLote', 'controlarLote', 'permiteCondicional', 'permitirCashback', 'produtoDestaque',
-        'ativo', 'statusAtivo', 'grupoChave', 'filialOrigem', 'cadastroHash'];
+        'ativo', 'statusAtivo', 'temGrade', 'gradeNomes', 'ehVariacao', 'produtoPaiChave', 'variacao', 'variacaoRotulo',
+        'grupoChave', 'filialOrigem', 'cadastroHash'];
     }
 
     // Filiais F4: a nota de entrada lancada pela transferencia (servidor) nao
@@ -910,6 +913,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'grades',
         'bandeiras_cartao',
         'bancos',
         'lancamentos_bancarios',
@@ -967,6 +971,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'grades',
         'bandeiras_cartao',
         'bancos',
         'lancamentos_bancarios',
@@ -1016,6 +1021,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'grades',
         'bandeiras_cartao',
         'bancos',
         'notas_fiscais',
@@ -1078,6 +1084,7 @@ service cloud.firestore {
         'orcamentos',
         'devolucoes_venda',
         'unidades_medida',
+        'grades',
         'bandeiras_cartao',
         'bancos',
         'notas_fiscais',

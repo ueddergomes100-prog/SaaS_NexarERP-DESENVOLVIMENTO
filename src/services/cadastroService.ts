@@ -14,7 +14,7 @@ const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV 
 
 export type ColecaoCadastro =
   | 'clientes' | 'fornecedores' | 'estoque' | 'materias_primas' | 'categorias' | 'marcas'
-  | 'servicos' | 'veiculos' | 'unidades_medida' | 'bancos' | 'bandeiras_cartao';
+  | 'servicos' | 'veiculos' | 'unidades_medida' | 'bancos' | 'bandeiras_cartao' | 'grades';
 
 export class CadastroError extends Error {
   status: number;

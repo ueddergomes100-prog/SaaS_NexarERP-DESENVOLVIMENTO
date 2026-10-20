@@ -26,6 +26,17 @@ const product = (overrides: Partial<FakeProduct>): FakeProduct => ({
   ...overrides,
 });
 
+test('principal de uma grade (temGrade) fica fora da busca de venda, como o inativo', () => {
+  const products = [
+    product({ id: 'pai', nome: 'Camiseta basica', codigo: '123', temGrade: true }),
+    product({ id: 'filho', nome: 'Camiseta basica P azul', codigo: '123.01' }),
+  ];
+  assert.equal(productMatchesSearch(products[0], 'camiseta'), false);
+  assert.equal(productMatchesSearch(products[1], 'camiseta'), true);
+  assert.deepEqual(searchProducts(products, '123').items.map((p) => p.id), ['filho']);
+  assert.deepEqual(searchProducts(products, '#').items.map((p) => p.id), ['filho']);
+});
+
 test('codigo exato vence nome: retorna somente o produto com codigo identico', () => {
   const products = [
     product({ id: 'a', nome: 'Parafuso ABA 10mm', codigo: '999' }),

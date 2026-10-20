@@ -119,6 +119,9 @@ interface PecaOrcamento {
   /** `false` = produto inativado -- searchProducts() ja exclui isso da
    * busca (src/utils/productSearch.ts), precisa vir junto do Firestore. */
   ativo?: boolean;
+  /** `true` = principal de uma grade (gradeProdutosDomain.ts): sem estoque,
+   * quem se vende sao as variacoes -- searchProducts() tambem exclui. */
+  temGrade?: boolean;
 }
 interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
 
@@ -291,6 +294,7 @@ const OrcamentoForm: React.FC = () => {
             unidadeMedidaFracionado: data.unidadeMedidaFracionado,
             unidadeMedidaCasasDecimais: data.unidadeMedidaCasasDecimais,
             ativo: data.ativo ?? data.statusAtivo ?? true,
+            temGrade: data.temGrade === true,
           });
         });
         setPecasEstoque(dataE);

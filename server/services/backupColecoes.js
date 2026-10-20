@@ -30,6 +30,7 @@ const COLECOES_DA_EMPRESA = [
   'marcas',
   'servicos',
   'unidades_medida',
+  'grades',
   'fornecedores',
   'bancos',
   'bandeiras_cartao',

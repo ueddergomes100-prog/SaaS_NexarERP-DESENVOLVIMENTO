@@ -47,8 +47,11 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
   // Consulta simples (==, in, array-contains, >=, <=) so' quando o teste pede
   // (opcoes.consultas). Sem isso, where() falha como antes -- alguns
   // servicos tratam esse erro (ex.: piso da numeracao).
-  const consulta = (caminho, filtros) => ({
-    where: (campo, op, valor) => consulta(caminho, [...filtros, [campo, op, valor]]),
+  const consulta = (caminho, filtros, limite = 0) => ({
+    where: (campo, op, valor) => consulta(caminho, [...filtros, [campo, op, valor]], limite),
+    // limit() corta; select() so' escolhe campos no Firestore real -- aqui devolve o documento inteiro.
+    limit: (n) => consulta(caminho, filtros, n),
+    select: () => consulta(caminho, filtros, limite),
     get: async () => {
       const docs = [...dados.entries()]
         .filter(([k]) => k.startsWith(`${caminho}/`) && !k.slice(caminho.length + 1).includes('/'))
@@ -60,12 +63,19 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
                   : op === '<=' ? v[campo] !== undefined && v[campo] <= valor
                 : false
         )))
-        .map(([k, v]) => ({ id: k.slice(caminho.length + 1), exists: true, data: () => structuredClone(v), ref: ref(caminho, k.slice(caminho.length + 1)) }));
+        .map(([k, v]) => ({ id: k.slice(caminho.length + 1), exists: true, data: () => structuredClone(v), ref: ref(caminho, k.slice(caminho.length + 1)) }))
+        .slice(0, limite > 0 ? limite : undefined);
       return { empty: docs.length === 0, size: docs.length, docs };
     },
   });
   const colecaoEm = (caminho) => ({
     doc: (id) => ref(caminho, id || `auto${(contador += 1)}`),
+    // add() = doc() sem id + set (log de auditoria, por exemplo).
+    add: async (campos) => {
+      const novo = ref(caminho, `auto${(contador += 1)}`);
+      await novo.set(campos);
+      return novo;
+    },
     // A colecao inteira (ex.: todos os grupos, na manutencao).
     get: () => consulta(caminho, []).get(),
     where: opcoes.consultas
@@ -88,10 +98,23 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
   const db = {
     collection: (colecao) => colecaoEm(colecao),
     getAll: async (...refs) => Promise.all(refs.map((r) => r.get())),
+    // batch(): as gravacoes so' acontecem no commit, como no Firestore.
+    batch: () => {
+      const escritas = [];
+      const lote = {
+        set: (r, campos, opcoes) => { escritas.push(() => aplicar(r.chave, campos, !opcoes?.merge, Boolean(opcoes?.merge))); return lote; },
+        update: (r, campos) => { escritas.push(() => aplicar(r.chave, campos, false)); return lote; },
+        delete: (r) => { escritas.push(() => dados.delete(r.chave)); return lote; },
+        commit: async () => { escritas.forEach((gravar) => gravar()); },
+      };
+      return lote;
+    },
     runTransaction: async (fn) => {
       const escritas = [];
+      // Como o Firestore real: ler depois de gravar na mesma transacao e' erro.
+      const lerAntes = () => { if (escritas.length) throw new Error('Firestore transactions require all reads to be executed before all writes.'); };
       const tx = {
-        get: async (r) => ({ exists: dados.has(r.chave), id: r.id, data: () => structuredClone(dados.get(r.chave)) }),
+        get: async (r) => { lerAntes(); return { exists: dados.has(r.chave), id: r.id, data: () => structuredClone(dados.get(r.chave)) }; },
         getAll: async (...refs) => Promise.all(refs.map((r) => tx.get(r))),
         update: (r, campos) => escritas.push([r, campos, false]),
         set: (r, campos, opcoes) => escritas.push([r, campos, !opcoes?.merge]),

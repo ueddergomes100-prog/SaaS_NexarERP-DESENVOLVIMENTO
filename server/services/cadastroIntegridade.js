@@ -1,5 +1,7 @@
 const { admin, db } = require('../config/firebase');
 const { registrarLog } = require('./auditoria');
+const grade = require('../domain/gradeProdutosDomain');
+const { chaveDoProdutoPeloId } = require('../domain/cadastroGrupoDomain');
 
 /**
  * INTEGRIDADE DOS CADASTROS -- inativar, reativar e excluir (2026-09-19).
@@ -71,6 +73,8 @@ const CADASTROS = {
   unidades_medida: { rotulo: 'unidade de medida', plural: 'unidades de medida', artigo: 'a', permissoes: ['cadastros.unidades_medida'] },
   bancos: { rotulo: 'banco', plural: 'bancos', artigo: 'o', permissoes: ['cadastros.bancos'] },
   bandeiras_cartao: { rotulo: 'bandeira de cartão', plural: 'bandeiras de cartão', artigo: 'a', permissoes: ['cadastros.bandeiras_cartao'] },
+  // Grade de produtos (19/10/2026): tamanho, cor... -- ver domain/gradeProdutosDomain.js.
+  grades: { rotulo: 'grade', plural: 'grades', artigo: 'a', permissoes: ['cadastros.grades'] },
 };
 
 // ---------------------------------------------------------------------------
@@ -277,6 +281,17 @@ const PENDENCIAS_INATIVACAO = {
     return receitas.length ? [`é componente da receita de ${listarNomes(receitas)}`] : [];
   },
 
+  /** Grade em uso por produto ativo (pelo NOME, que e' o que o produto guarda) nao inativa. */
+  async grades(tenantId, id, dados) {
+    const nome = grade.normalizarOpcao(dados.nome);
+    if (!nome) return [];
+    const produtos = (await buscar('estoque', tenantId, 'temGrade', true))
+      .filter((d) => estaAtivo('estoque', d.data())
+        && (Array.isArray(d.data().gradeNomes) ? d.data().gradeNomes : []).some((g) => grade.normalizarOpcao(g) === nome))
+      .map((d) => nomeDoCadastro(d.data()));
+    return produtos.length ? [`está em uso por ${produtos.length} produto(s) ativo(s), como ${listarNomes(produtos, 2)}`] : [];
+  },
+
   async veiculos(tenantId, id, dados) {
     if (!dados.placa) return [];
     const os = (await buscar('ordens_de_servico', tenantId, 'placa', dados.placa))
@@ -402,88 +417,158 @@ const carregar = async (user, colecao, id) => {
 };
 
 
+// ---------------------------------------------------------------------------
+// Grade de produtos (19/10/2026): o principal e as variacoes andam juntos
+// ---------------------------------------------------------------------------
+//
+// Inativar, reativar ou excluir o PRINCIPAL vale para todas as variacoes
+// (produtos filhos, ver domain/gradeProdutosDomain.js): cada uma passa pelas
+// mesmas checagens de um produto comum e, se alguma bloqueia, nada muda.
+// Uma variacao sozinha e' um produto como outro qualquer -- so' nao reativa
+// com o principal inativo.
+
+const chaveDoPai = (tenantId, id, dados) => String(dados.grupoChave || '').trim() || chaveDoProdutoPeloId(id, tenantId);
+
+/** As variacoes do principal nesta empresa (ativas e inativas). */
+const variacoesDoPai = async (tenantId, id, dados) => (
+  grade.ehProdutoComGrade(dados)
+    ? (await buscar('estoque', tenantId, 'produtoPaiChave', chaveDoPai(tenantId, id, dados)))
+      .map((d) => ({ id: d.id, ref: d.ref, dados: d.data() }))
+    : []
+);
+
+/** O principal de uma variacao nesta empresa: o proprio id da chave, ou a copia da filial. */
+const paiDaVariacao = async (tenantId, dados) => {
+  const chave = String(dados.produtoPaiChave || '').trim();
+  if (!chave) return null;
+  for (const id of [chave, `${chave}_${tenantId}`]) {
+    const snap = await db.collection('estoque').doc(id).get();
+    if (snap.exists && snap.data().tenantId === tenantId) return snap.data();
+  }
+  return null;
+};
+
+const rotuloDaVariacao = (dados) => String(dados.variacaoRotulo || '').trim() || nomeDoCadastro(dados);
+
 /**
- * Ativa ou inativa um cadastro. Devolve { ativo, saldoZerado } --
+ * Inativa um produto/materia-prima dentro da transacao, zerando o saldo se
+ * houver (com o registro no Relatorio de Ajustes). Devolve o saldo zerado.
+ */
+const inativarNaTransacao = (tx, { user, cfg, colecao, ref, id, dados, nome, motivo }) => {
+  // Saldo relido aqui dentro: entre a checagem e agora uma venda pode ter
+  // mexido no estoque. O que zera e' o saldo deste instante.
+  const quantidadeAntes = cfg.temSaldo ? Number(dados.quantidade || 0) : 0;
+  const zerar = cfg.temSaldo && Number.isFinite(quantidadeAntes) && quantidadeAntes !== 0;
+  tx.update(ref, {
+    ativo: false,
+    ...(colecao === 'estoque' ? { statusAtivo: false } : {}),
+    ...(zerar ? { quantidade: 0 } : {}),
+    updatedAt: TIMESTAMP(),
+    alteradoPor: user.uid,
+    alteradoEm: TIMESTAMP(),
+    ultimaAlteracao: zerar
+      ? `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} inativad${cfg.artigo} (estoque zerado de ${quantidadeAntes})${motivo}`
+      : `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} inativad${cfg.artigo}${motivo}`,
+  });
+  if (!zerar) return 0;
+  tx.set(db.collection('ajustes_estoque').doc(), {
+    tenantId: user.tenantId,
+    produtoId: id,
+    produtoNome: nome,
+    ...(dados.codigo ? { produtoCodigo: String(dados.codigo) } : {}),
+    tipo: quantidadeAntes > 0 ? 'saida' : 'entrada',
+    quantidade: Math.abs(quantidadeAntes),
+    motivo: quantidadeAntes > 0 ? 'correcao_inventario' : 'correcao_cadastro',
+    observacao: `Estoque zerado automaticamente na inativação ${cfg.artigo === 'a' ? 'da' : 'do'} ${cfg.rotulo}${motivo}.`,
+    quantidadeAntes,
+    quantidadeDepois: 0,
+    usuarioId: user.uid,
+    usuarioNome: user.email || user.uid,
+    ...(colecao === 'materias_primas' ? { origem: 'materia_prima' } : {}),
+    createdAt: TIMESTAMP(),
+  });
+  return quantidadeAntes;
+};
+
+/**
+ * Ativa ou inativa um cadastro. Devolve { ativo, saldoZerado, variacoes } --
  * saldoZerado e' a quantidade que estava no estoque quando a inativacao
- * zerou o saldo (0 quando nao havia saldo).
+ * zerou o saldo (0 quando nao havia saldo); variacoes, quantas acompanharam
+ * o principal de uma grade.
  */
 async function alterarSituacao({ user, colecao, id, ativo }) {
   if (typeof ativo !== 'boolean') throw new ErroCadastro(400, 'Situação inválida.');
   const { cfg, ref, dados } = await carregar(user, colecao, id);
   const nome = nomeDoCadastro(dados);
+  const variacoes = colecao === 'estoque' ? await variacoesDoPai(user.tenantId, id, dados) : [];
 
   if (ativo) {
-    await ref.update({
-      ativo: true,
-      ...(colecao === 'estoque' ? { statusAtivo: true } : {}),
-      updatedAt: TIMESTAMP(),
-      alteradoPor: user.uid,
-      alteradoEm: TIMESTAMP(),
-      ultimaAlteracao: `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} reativad${cfg.artigo}`,
-    });
-    registrarLog(user, { modulo: colecao, acao: 'ativacao', descricao: `${nome} reativad${cfg.artigo}.`, registroId: id,
+    if (colecao === 'estoque' && grade.ehVariacao(dados)) {
+      const pai = await paiDaVariacao(user.tenantId, dados);
+      if (pai && !estaAtivo('estoque', pai)) {
+        throw new ErroCadastro(409, `A variação "${nome}" pertence ao produto "${nomeDoCadastro(pai)}", que está inativo. Reative o produto principal: as variações voltam junto.`);
+      }
+    }
+    const reativadas = variacoes.filter((v) => !estaAtivo('estoque', v.dados));
+    const lote = db.batch();
+    for (const alvo of [{ ref, id, dados }, ...reativadas]) {
+      lote.update(alvo.ref, {
+        ativo: true,
+        ...(colecao === 'estoque' ? { statusAtivo: true } : {}),
+        updatedAt: TIMESTAMP(),
+        alteradoPor: user.uid,
+        alteradoEm: TIMESTAMP(),
+        ultimaAlteracao: `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} reativad${cfg.artigo}${alvo.id === id ? '' : ' junto com o produto principal'}`,
+      });
+    }
+    await lote.commit();
+    registrarLog(user, { modulo: colecao, acao: 'ativacao', descricao: `${nome} reativad${cfg.artigo}${reativadas.length ? ` com ${reativadas.length} variação(ões)` : ''}.`, registroId: id,
       alteracoes: [{ campo: 'ativo', valorAnterior: false, valorNovo: true }] });
-    return { ativo: true, saldoZerado: 0 };
+    return { ativo: true, saldoZerado: 0, variacoes: reativadas.length };
   }
 
   const checar = PENDENCIAS_INATIVACAO[colecao];
   const bloqueios = checar ? await checar(user.tenantId, id, dados) : [];
   if (bloqueios.length) throw new ErroCadastro(409, mensagemBloqueioInativacao(cfg, nome, bloqueios));
+  // Variacao presa (reserva, receita, producao) segura o principal inteiro.
+  const inativadas = variacoes.filter((v) => estaAtivo('estoque', v.dados));
+  for (const v of inativadas) {
+    const bloqueiosDaVariacao = await checar(user.tenantId, v.id, v.dados);
+    if (bloqueiosDaVariacao.length) {
+      throw new ErroCadastro(409, `Não é possível inativar o produto "${nome}": a variação ${rotuloDaVariacao(v.dados)} ${bloqueiosDaVariacao.join('; ')}. Resolva essas pendências e tente de novo.`);
+    }
+  }
 
   let saldoZerado = 0;
+  const saldosDasVariacoes = [];
   await db.runTransaction(async (tx) => {
-    const atual = await tx.get(ref);
-    const d = atual.data();
-    // Saldo relido aqui dentro: entre a checagem e agora uma venda pode ter
-    // mexido no estoque. O que zera e' o saldo deste instante.
-    const quantidadeAntes = cfg.temSaldo ? Number(d.quantidade || 0) : 0;
-    const zerar = cfg.temSaldo && Number.isFinite(quantidadeAntes) && quantidadeAntes !== 0;
-    tx.update(ref, {
-      ativo: false,
-      ...(colecao === 'estoque' ? { statusAtivo: false } : {}),
-      ...(zerar ? { quantidade: 0 } : {}),
-      updatedAt: TIMESTAMP(),
-      alteradoPor: user.uid,
-      alteradoEm: TIMESTAMP(),
-      ultimaAlteracao: zerar
-        ? `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} inativad${cfg.artigo} (estoque zerado de ${quantidadeAntes})`
-        : `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} inativad${cfg.artigo}`,
-    });
-    if (zerar) {
-      saldoZerado = quantidadeAntes;
-      tx.set(db.collection('ajustes_estoque').doc(), {
-        tenantId: user.tenantId,
-        produtoId: id,
-        produtoNome: nome,
-        ...(d.codigo ? { produtoCodigo: String(d.codigo) } : {}),
-        tipo: quantidadeAntes > 0 ? 'saida' : 'entrada',
-        quantidade: Math.abs(quantidadeAntes),
-        motivo: quantidadeAntes > 0 ? 'correcao_inventario' : 'correcao_cadastro',
-        observacao: `Estoque zerado automaticamente na inativação ${cfg.artigo === 'a' ? 'da' : 'do'} ${cfg.rotulo}.`,
-        quantidadeAntes,
-        quantidadeDepois: 0,
-        usuarioId: user.uid,
-        usuarioNome: user.email || user.uid,
-        ...(colecao === 'materias_primas' ? { origem: 'materia_prima' } : {}),
-        createdAt: TIMESTAMP(),
+    // Toda leitura antes de qualquer escrita: o Firestore recusa ler depois de gravar na mesma transacao.
+    const [atual, ...atuaisDasVariacoes] = await tx.getAll(ref, ...inativadas.map((v) => v.ref));
+    saldoZerado = inativarNaTransacao(tx, { user, cfg, colecao, ref, id, dados: atual.data(), nome, motivo: '' });
+    inativadas.forEach((v, i) => {
+      const zerado = inativarNaTransacao(tx, {
+        user, cfg, colecao, ref: v.ref, id: v.id, dados: atuaisDasVariacoes[i].data(), nome: nomeDoCadastro(v.dados), motivo: ' junto com o produto principal',
       });
-    }
+      saldosDasVariacoes.push({ id: v.id, nome: nomeDoCadastro(v.dados), zerado });
+    });
   });
 
   registrarLog(user, {
     modulo: colecao,
     acao: 'inativacao',
-    descricao: `${nome} inativad${cfg.artigo}${saldoZerado ? ` (estoque zerado de ${saldoZerado})` : ''}.`,
+    descricao: `${nome} inativad${cfg.artigo}${saldoZerado ? ` (estoque zerado de ${saldoZerado})` : ''}`
+      + `${inativadas.length ? ` com ${inativadas.length} variação(ões)` : ''}.`,
     registroId: id,
     alteracoes: [
       { campo: 'ativo', valorAnterior: true, valorNovo: false },
       ...(saldoZerado ? [{ campo: 'quantidade', valorAnterior: saldoZerado, valorNovo: 0 }] : []),
+      ...saldosDasVariacoes.filter((s) => s.zerado).map((s) => ({ campo: `estoque de ${s.nome}`, valorAnterior: s.zerado, valorNovo: 0 })),
     ],
   });
-  return { ativo: false, saldoZerado };
+  return { ativo: false, saldoZerado, variacoes: inativadas.length };
 }
 
-/** Exclui um cadastro que nunca teve movimentacao. */
+/** Exclui um cadastro que nunca teve movimentacao (o principal de uma grade leva as variacoes junto). */
 async function excluirCadastro({ user, colecao, id }) {
   const { cfg, ref, dados } = await carregar(user, colecao, id);
   if (!cfg.excluivel) throw new ErroCadastro(400, `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} não pode ser excluíd${cfg.artigo} — apenas inativad${cfg.artigo}.`);
@@ -491,15 +576,27 @@ async function excluirCadastro({ user, colecao, id }) {
   if (dados.isPadrao) throw new ErroCadastro(409, `"${nome}" é um cadastro padrão do sistema e não pode ser excluído.`);
   const movimentos = await MOVIMENTOS_EXCLUSAO[colecao](user.tenantId, id, dados);
   if (movimentos.length) throw new ErroCadastro(409, mensagemBloqueioExclusao(cfg, nome, movimentos));
+  const variacoes = colecao === 'estoque' ? await variacoesDoPai(user.tenantId, id, dados) : [];
+  for (const v of variacoes) {
+    const movimentosDaVariacao = await MOVIMENTOS_EXCLUSAO.estoque(user.tenantId, v.id, v.dados);
+    if (movimentosDaVariacao.length) {
+      throw new ErroCadastro(409, `Não é possível excluir o produto "${nome}" porque a variação ${rotuloDaVariacao(v.dados)} já tem movimentação (${movimentosDaVariacao.join(', ')}). `
+        + 'Cadastro com histórico não pode ser apagado — inative o produto em vez de excluir.');
+    }
+  }
 
   const lote = db.batch();
   lote.delete(ref);
   // A receita do proprio produto e' parte do cadastro dele: vai junto.
   if (colecao === 'estoque') lote.delete(db.collection('produtos_composicao').doc(id));
+  for (const v of variacoes) {
+    lote.delete(v.ref);
+    lote.delete(db.collection('produtos_composicao').doc(v.id));
+  }
   await lote.commit();
 
-  registrarLog(user, { modulo: colecao, acao: 'exclusao', descricao: `${nome} excluíd${cfg.artigo} (sem movimentação).`, registroId: id });
-  return { excluido: true };
+  registrarLog(user, { modulo: colecao, acao: 'exclusao', descricao: `${nome} excluíd${cfg.artigo} (sem movimentação)${variacoes.length ? ` com ${variacoes.length} variação(ões)` : ''}.`, registroId: id });
+  return { excluido: true, variacoes: variacoes.length };
 }
 
 module.exports = {

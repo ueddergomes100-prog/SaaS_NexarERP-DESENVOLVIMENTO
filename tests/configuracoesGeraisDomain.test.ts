@@ -17,6 +17,7 @@ const valido = {
   trabalhaComLimiteCredito: false,
   transferenciaSemNota: true,
   transferenciaNfeTributacao: 'nao_incide',
+  usaGradeDeProdutos: false,
 };
 
 test('lerConfiguracoesGerais aceita o que a tela manda e limpa as categorias', () => {
@@ -26,6 +27,7 @@ test('lerConfiguracoesGerais aceita o que a tela manda e limpa as categorias', (
   assert.deepEqual(r.valores.planoContasReceitas, ['Serviços', 'venda de produtos']);
   assert.equal(r.valores.modoValidacaoCliente, 'perguntar');
   assert.equal(r.valores.transferenciaSemNota, true);
+  assert.equal(r.valores.usaGradeDeProdutos, false);
 });
 
 test('lerConfiguracoesGerais recusa com mensagem em portugues', () => {
@@ -36,6 +38,7 @@ test('lerConfiguracoesGerais recusa com mensagem em portugues', () => {
     [{ ...valido, validarCadastroProduto: 'sim' }, /Validar cadastro de produto/],
     [{ ...valido, modoValidacaoCliente: 'talvez' }, /cliente não cadastrado/],
     [{ ...valido, transferenciaNfeTributacao: 'icms' }, /tributação da nota de transferência/],
+    [{ ...valido, usaGradeDeProdutos: undefined }, /Loja utiliza grade de produtos/],
   ];
   for (const [corpo, mensagem] of casos) {
     const r = lerConfiguracoesGerais(corpo);

@@ -11,6 +11,9 @@ export const getProximoCodigoProduto = async (tenantId: string): Promise<string>
   const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
   const snap = await getDocs(q);
   const maxCodigo = snap.docs.reduce((max, docSnap) => {
+    // Variacao de produto com grade tem codigo "<pai>.<numero>" (123.01): nao
+    // entra na sequencia, senao "12301" viraria o maior codigo. Ver gradeProdutosDomain.ts.
+    if (docSnap.data().ehVariacao === true) return max;
     const parsed = Number.parseInt(String(docSnap.data().codigo || '').replace(/\D/g, ''), 10);
     return Number.isFinite(parsed) ? Math.max(max, parsed) : max;
   }, 0);

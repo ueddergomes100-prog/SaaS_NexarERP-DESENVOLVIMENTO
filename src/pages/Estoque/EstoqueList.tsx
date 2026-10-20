@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2 } from 'lucide-react';
-import { itemDaFilial } from '../../utils/cadastroGrupoDomain';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2, ChevronDown, ChevronRight } from 'lucide-react';
+import { chaveDoProdutoPeloId, itemDaFilial } from '../../utils/cadastroGrupoDomain';
+import { agruparVariacoes, somaDasVariacoes } from '../../utils/gradeProdutosDomain';
 import { collection, query, onSnapshot, doc, where, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { db } from '../../services/firebase';
@@ -35,6 +36,13 @@ interface PecaData {
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
   ativo?: boolean;
+  /** Grade de produtos (gradeProdutosDomain.ts): principal (temGrade) e variacao (ehVariacao). */
+  temGrade?: boolean;
+  ehVariacao?: boolean;
+  produtoPaiChave?: string;
+  grupoChave?: string;
+  variacaoRotulo?: string;
+  codigoBarras?: string;
 }
 
 const EstoqueList: React.FC = () => {
@@ -60,6 +68,8 @@ const EstoqueList: React.FC = () => {
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Principais de grade com as variacoes abertas (chevron). */
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   /** Configuracoes -> Estoque: mostrar os cartoes de resumo no topo. */
   const [mostrarResumo, setMostrarResumo] = useState(DEFAULT_MOSTRAR_RESUMO_ESTOQUE);
 
@@ -145,6 +155,15 @@ const EstoqueList: React.FC = () => {
       : vaiZerar
         ? avisoInativacaoComSaldo(peca.nome, peca.quantidade, peca.unidadeMedidaSigla)
         : avisoInativacaoSemSaldo(peca.nome);
+    // Principal de grade: o saldo e' das variacoes, e elas vao junto (gradeProdutosDomain.ts).
+    if (novoStatus && peca.temGrade) {
+      aviso.text = 'As variações deste produto voltam junto com ele e reaparecem nas buscas de venda, OS e orçamento.';
+    }
+    if (!novoStatus && peca.temGrade) {
+      aviso.text = `${vaiZerar
+        ? `As variações deste produto somam ${peca.quantidade} ${peca.unidadeMedidaSigla || 'UN'} em estoque. O sistema vai zerar o saldo de cada variação (registrado no Relatório de Ajustes) e inativar todas junto com o produto principal.`
+        : 'As variações deste produto são inativadas junto com ele.'} Variação presa em pré-venda, condicional, OS ou troca impede a inativação.`;
+    }
 
     const confirm = await NexusSwal.fire({
       ...aviso,
@@ -219,19 +238,52 @@ const EstoqueList: React.FC = () => {
     }
   };
 
-  // Mesma busca das telas de venda: acento nao conta e "+" exige todas as
-  // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms.
-  const filteredPecas = pecasList.filter((peca) => {
+  // Grade de produtos (19/10/2026): as variacoes ficam embaixo do principal e o
+  // saldo dele e' a soma das variacoes ativas (ele mesmo nao tem saldo). Ver
+  // gradeProdutosDomain.ts.
+  const chaveDaPeca = (peca: PecaData) => peca.grupoChave || chaveDoProdutoPeloId(peca.id, tenantId);
+  const { principais, variacoesPorPai } = agruparVariacoes(pecasList, chaveDaPeca);
+  const variacoesDe = (peca: PecaData): PecaData[] => (peca.temGrade ? variacoesPorPai.get(chaveDaPeca(peca)) ?? [] : []);
+  const comSaldoDasVariacoes = (peca: PecaData): PecaData => (peca.temGrade ? { ...peca, ...somaDasVariacoes(variacoesDe(peca)) } : peca);
+
+  const passaNosFiltros = (peca: PecaData) => {
     const ativo = peca.ativo !== false;
     const passaNoStatus = filtroStatus === 'todos' || (filtroStatus === 'ativos' ? ativo : !ativo);
     const passaNaFilial = !grupo || escopoFilial === 'grupo' || itemDaFilial(peca, tenantId);
-    const passaNaReserva = !soComReserva || resumoDeReserva(peca).temReserva;
-    return passaNoStatus && passaNaFilial && passaNaReserva && matchesAllSearchTerms([peca.nome, peca.codigo, peca.categoria], searchTerm);
+    const passaNaReserva = !soComReserva || resumoDeReserva(comSaldoDasVariacoes(peca)).temReserva;
+    return passaNoStatus && passaNaFilial && passaNaReserva;
+  };
+  // Mesma busca das telas de venda: acento nao conta e "+" exige todas as
+  // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms. A variacao
+  // tambem bate pela combinacao (P / AZUL) e pelo codigo de barras dela.
+  const passaNaBusca = (peca: PecaData) => matchesAllSearchTerms(
+    [peca.nome, peca.codigo, peca.categoria, ...(peca.ehVariacao ? [peca.variacaoRotulo ?? '', peca.codigoBarras ?? ''] : [])],
+    searchTerm,
+  );
+  const buscando = searchTerm.trim() !== '';
+  /** O principal aparece se ele ou alguma variacao passa; buscando, as variacoes que bateram ja' vem abertas. */
+  const linhasVisiveis = principais.flatMap((peca) => {
+    const todas = variacoesDe(peca);
+    const variacoesQueBatem = todas.filter((v) => passaNosFiltros(v) && passaNaBusca(v));
+    if (!(passaNosFiltros(peca) && passaNaBusca(peca)) && variacoesQueBatem.length === 0) return [];
+    const aberto = buscando ? variacoesQueBatem.length > 0 : expandidos.has(peca.id);
+    const variacoes = !aberto ? [] : buscando ? variacoesQueBatem : todas.filter(passaNosFiltros);
+    return [{ peca, variacoes, aberto, totalDeVariacoes: todas.length }];
   });
 
+  const alternarExpandido = (id: string) => {
+    setExpandidos((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(id)) novo.delete(id); else novo.add(id);
+      return novo;
+    });
+  };
+
   // Cartoes de resumo seguem o filtro de filial (07/10): numa filial nova, os
-  // 700 itens do grupo sem estoque aqui apareciam como 'esgotados'.
-  const pecasDoResumo = grupo && escopoFilial === 'filial' ? pecasList.filter((peca) => itemDaFilial(peca, tenantId)) : pecasList;
+  // 700 itens do grupo sem estoque aqui apareciam como 'esgotados'. O principal
+  // de grade fica de fora: quem tem saldo sao as variacoes.
+  const semPrincipaisDeGrade = pecasList.filter((peca) => peca.temGrade !== true);
+  const pecasDoResumo = grupo && escopoFilial === 'filial' ? semPrincipaisDeGrade.filter((peca) => itemDaFilial(peca, tenantId)) : semPrincipaisDeGrade;
 
   const getStatusBadge = (quantidade: number) => {
     if (quantidade <= 0) {
@@ -256,6 +308,138 @@ const EstoqueList: React.FC = () => {
         </span>
       );
     }
+  };
+
+  /**
+   * Uma linha da tabela: produto comum, principal de grade (saldo = soma das
+   * variacoes, chevron para abri-las) ou variacao (indentada, abre o principal).
+   */
+  const linhaDoProduto = (pecaCrua: PecaData, opcoes: { principal?: PecaData; aberto?: boolean; totalDeVariacoes?: number }) => {
+    const { principal, aberto = false, totalDeVariacoes = 0 } = opcoes;
+    const peca = comSaldoDasVariacoes(pecaCrua);
+    const ehPrincipalDeGrade = pecaCrua.temGrade === true;
+    const idParaAbrir = principal ? principal.id : peca.id;
+    return (
+    <tr
+      key={peca.id}
+      // Sem permissao de abrir o cadastro a linha nao abre nada --
+      // seria um duplo clique que so devolve erro.
+      className={canEditProduto ? (selectedId === peca.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
+      onClick={canEditProduto ? () => setSelectedId(peca.id) : undefined}
+      onDoubleClick={canEditProduto ? () => abrirProduto(idParaAbrir) : undefined}
+      // Enter abre o produto selecionado -- o duplo clique sozinho
+      // deixaria a linha inacessivel por teclado.
+      onKeyDown={canEditProduto ? (event) => {
+        if (event.key === 'Enter') abrirProduto(idParaAbrir);
+      } : undefined}
+      tabIndex={canEditProduto ? 0 : undefined}
+      title={canEditProduto ? (principal ? 'Duplo clique abre o produto principal (a variação se edita no quadro da grade)' : 'Clique para selecionar, duplo clique para editar') : undefined}
+      style={travasProdutos.has(peca.id) ? { opacity: 0.55 } : undefined}
+    >
+      <td className="font-medium" style={{ color: 'var(--text-muted)', paddingLeft: principal ? '28px' : undefined }}>{peca.codigo}</td>
+      <td>
+        {ehPrincipalDeGrade && (
+          // Abre/fecha as variacoes sem selecionar nem abrir a linha.
+          <button
+            type="button"
+            className="icon-btn"
+            title={aberto ? 'Esconder variações' : 'Mostrar variações'}
+            onClick={(e) => { e.stopPropagation(); alternarExpandido(peca.id); }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            style={{ marginRight: '6px', verticalAlign: 'middle' }}
+          >
+            {aberto ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>
+        )}
+        {principal ? (
+          <span style={{ paddingLeft: '18px', color: 'var(--text-primary)' }}>
+            ↳ {peca.variacaoRotulo || peca.nome}
+            {peca.codigoBarras && <span style={{ marginLeft: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>{peca.codigoBarras}</span>}
+          </span>
+        ) : peca.nome}
+        {ehPrincipalDeGrade && (
+          <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1px 7px', whiteSpace: 'nowrap' }}>
+            Grade · {totalDeVariacoes} variação(ões)
+          </span>
+        )}
+        <MarcaEmEdicao trava={travasProdutos.get(peca.id)} />
+      </td>
+      <td>{peca.categoria}</td>
+      <td className="font-medium">
+        {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
+      </td>
+      {(() => {
+        // Reservado e disponivel sem abrir o cadastro; clicar no
+        // reservado mostra em que documento ele esta preso.
+        const reserva = resumoDeReserva(peca);
+        const casas = peca.unidadeMedidaCasasDecimais ?? 0;
+        return (
+          <>
+            <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+              {reserva.temReserva && ehPrincipalDeGrade ? (
+                // A reserva esta' nas variacoes: abra o principal para ver cada uma.
+                <span style={{ color: '#c084fc', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{reserva.reservada.toFixed(casas)}</span>
+              ) : reserva.temReserva ? (
+                <button
+                  type="button"
+                  onClick={() => setReservaAberta(peca)}
+                  title="Ver de onde vem a reserva"
+                  style={{ background: 'color-mix(in srgb, #a855f7 16%, transparent)', color: '#c084fc', border: 'none', borderRadius: '999px', padding: '2px 10px', fontWeight: 600, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {reserva.reservada.toFixed(casas)}
+                </button>
+              ) : (
+                <span style={{ color: 'var(--text-muted)' }}>—</span>
+              )}
+            </td>
+            <td className="font-medium" style={{ color: reserva.temReserva ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+              {reserva.disponivel.toFixed(casas)}
+            </td>
+          </>
+        );
+      })()}
+      <td>
+        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(peca.precoVenda))}
+      </td>
+      <td>{getStatusBadge(Number(peca.quantidade))}</td>
+      <td>
+        <span style={{
+          backgroundColor: peca.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
+          color: peca.ativo === false ? 'var(--text-muted)' : '#10b981',
+          padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+        }}>
+          {peca.ativo === false ? 'Inativo' : 'Ativo'}
+        </span>
+      </td>
+      <td>
+        {canEditProduto && (
+          // stopPropagation: sem isso, um duplo clique acidental
+          // em cima do botao tambem abriria a tela de edicao.
+          <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <button className="icon-btn" title={principal ? 'Abrir o produto principal' : 'Editar'} onClick={() => abrirProduto(idParaAbrir)}>
+              <Edit size={16} />
+            </button>
+            <button
+              className="icon-btn"
+              title={peca.ativo === false ? 'Ativar' : 'Inativar'}
+              style={{ color: peca.ativo === false ? '#10b981' : '#ef4444' }}
+              onClick={() => handleToggleAtivo(peca)}
+            >
+              <Power size={16} />
+            </button>
+            <button
+              className="icon-btn"
+              title="Excluir (só sem movimentação)"
+              style={{ color: '#ef4444' }}
+              onClick={() => { if (!avisarSeEmEdicao(travasProdutos, 'produto', peca.id)) void confirmarEExcluirCadastro('estoque', peca.id, peca.nome, principal ? 'a variação' : 'o produto'); }}
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+    );
   };
 
   return (
@@ -420,108 +604,17 @@ const EstoqueList: React.FC = () => {
                 <tr>
                   <td colSpan={10} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
                 </tr>
-              ) : filteredPecas.length === 0 ? (
+              ) : linhasVisiveis.length === 0 ? (
                 <tr>
                   <td colSpan={10} style={{ padding: '8px' }}>
                     <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'} compacto />
                   </td>
                 </tr>
               ) : (
-                filteredPecas.map((peca) => (
-                  <tr
-                    key={peca.id}
-                    // Sem permissao de abrir o cadastro a linha nao abre nada --
-                    // seria um duplo clique que so devolve erro.
-                    className={canEditProduto ? (selectedId === peca.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
-                    onClick={canEditProduto ? () => setSelectedId(peca.id) : undefined}
-                    onDoubleClick={canEditProduto ? () => abrirProduto(peca.id) : undefined}
-                    // Enter abre o produto selecionado -- o duplo clique sozinho
-                    // deixaria a linha inacessivel por teclado.
-                    onKeyDown={canEditProduto ? (event) => {
-                      if (event.key === 'Enter') abrirProduto(peca.id);
-                    } : undefined}
-                    tabIndex={canEditProduto ? 0 : undefined}
-                    title={canEditProduto ? 'Clique para selecionar, duplo clique para editar' : undefined}
-                    style={travasProdutos.has(peca.id) ? { opacity: 0.55 } : undefined}
-                  >
-                    <td className="font-medium" style={{ color: 'var(--text-muted)' }}>{peca.codigo}</td>
-                    <td>
-                      {peca.nome}
-                      <MarcaEmEdicao trava={travasProdutos.get(peca.id)} />
-                    </td>
-                    <td>{peca.categoria}</td>
-                    <td className="font-medium">
-                      {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
-                    </td>
-                    {(() => {
-                      // Reservado e disponivel sem abrir o cadastro; clicar no
-                      // reservado mostra em que documento ele esta preso.
-                      const reserva = resumoDeReserva(peca);
-                      const casas = peca.unidadeMedidaCasasDecimais ?? 0;
-                      return (
-                        <>
-                          <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                            {reserva.temReserva ? (
-                              <button
-                                type="button"
-                                onClick={() => setReservaAberta(peca)}
-                                title="Ver de onde vem a reserva"
-                                style={{ background: 'color-mix(in srgb, #a855f7 16%, transparent)', color: '#c084fc', border: 'none', borderRadius: '999px', padding: '2px 10px', fontWeight: 600, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
-                              >
-                                {reserva.reservada.toFixed(casas)}
-                              </button>
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)' }}>—</span>
-                            )}
-                          </td>
-                          <td className="font-medium" style={{ color: reserva.temReserva ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                            {reserva.disponivel.toFixed(casas)}
-                          </td>
-                        </>
-                      );
-                    })()}
-                    <td>
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(peca.precoVenda))}
-                    </td>
-                    <td>{getStatusBadge(Number(peca.quantidade))}</td>
-                    <td>
-                      <span style={{
-                        backgroundColor: peca.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
-                        color: peca.ativo === false ? 'var(--text-muted)' : '#10b981',
-                        padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
-                      }}>
-                        {peca.ativo === false ? 'Inativo' : 'Ativo'}
-                      </span>
-                    </td>
-                    <td>
-                      {canEditProduto && (
-                        // stopPropagation: sem isso, um duplo clique acidental
-                        // em cima do botao tambem abriria a tela de edicao.
-                        <div style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                          <button className="icon-btn" title="Editar" onClick={() => abrirProduto(peca.id)}>
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title={peca.ativo === false ? 'Ativar' : 'Inativar'}
-                            style={{ color: peca.ativo === false ? '#10b981' : '#ef4444' }}
-                            onClick={() => handleToggleAtivo(peca)}
-                          >
-                            <Power size={16} />
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title="Excluir (só sem movimentação)"
-                            style={{ color: '#ef4444' }}
-                            onClick={() => { if (!avisarSeEmEdicao(travasProdutos, 'produto', peca.id)) void confirmarEExcluirCadastro('estoque', peca.id, peca.nome, 'o produto'); }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                linhasVisiveis.flatMap(({ peca, variacoes, aberto, totalDeVariacoes }) => [
+                  linhaDoProduto(peca, { aberto, totalDeVariacoes }),
+                  ...variacoes.map((variacao) => linhaDoProduto(variacao, { principal: peca })),
+                ])
               )}
             </tbody>
           </table>

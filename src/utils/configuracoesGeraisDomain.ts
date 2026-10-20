@@ -28,6 +28,9 @@ export const CAMPOS_GERAIS = [
   'trabalhaComLimiteCredito',
   'transferenciaSemNota',
   'transferenciaNfeTributacao',
+  // Grade de produtos (19/10/2026): o cadastro de produto e' do grupo, entao a
+  // chave que liga a grade tambem vale para todas as filiais.
+  'usaGradeDeProdutos',
 ] as const;
 
 export type CampoGeral = typeof CAMPOS_GERAIS[number];
@@ -40,6 +43,7 @@ export interface ConfiguracoesGerais {
   trabalhaComLimiteCredito: boolean;
   transferenciaSemNota: boolean;
   transferenciaNfeTributacao: TributacaoTransferencia;
+  usaGradeDeProdutos: boolean;
 }
 
 export const LIMITE_DE_CATEGORIAS = 200;
@@ -151,6 +155,8 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
   if (!limiteCredito.ok) return { ok: false, erro: limiteCredito.erro };
   const semNota = lerSimNao(dados.transferenciaSemNota, 'Permitir transferência sem nota');
   if (!semNota.ok) return { ok: false, erro: semNota.erro };
+  const grade = lerSimNao(dados.usaGradeDeProdutos, 'Loja utiliza grade de produtos');
+  if (!grade.ok) return { ok: false, erro: grade.erro };
   if (!MODOS_VALIDACAO_CLIENTE.includes(dados.modoValidacaoCliente as ModoValidacaoCliente)) {
     return { ok: false, erro: 'Escolha o que fazer com cliente não cadastrado: permitir, bloquear ou perguntar.' };
   }
@@ -167,6 +173,7 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
       trabalhaComLimiteCredito: limiteCredito.valor,
       transferenciaSemNota: semNota.valor,
       transferenciaNfeTributacao: dados.transferenciaNfeTributacao as TributacaoTransferencia,
+      usaGradeDeProdutos: grade.valor,
     },
   };
 };
@@ -235,4 +242,5 @@ export const ROTULO_DO_CAMPO_GERAL: Record<CampoGeral, string> = {
   trabalhaComLimiteCredito: 'limite de crédito',
   transferenciaSemNota: 'transferência sem nota',
   transferenciaNfeTributacao: 'tributação da transferência',
+  usaGradeDeProdutos: 'grade de produtos',
 };

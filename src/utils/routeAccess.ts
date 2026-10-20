@@ -33,6 +33,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/categorias')) routeModule = 'cadastros.categorias';
   else if (path.startsWith('/marcas')) routeModule = 'cadastros.marcas';
   else if (path.startsWith('/unidades-medida')) routeModule = 'cadastros.unidades_medida';
+  else if (path.startsWith('/grades')) routeModule = 'cadastros.grades';
   else if (path.startsWith('/bandeiras-cartao')) routeModule = 'cadastros.bandeiras_cartao';
   else if (path.startsWith('/bancos')) routeModule = 'cadastros.bancos';
   else if (path.startsWith('/fornecedores')) routeModule = 'cadastros.fornecedores';
@@ -98,6 +99,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/categorias')) routePermission = 'cadastros.categorias';
   else if (path.startsWith('/marcas')) routePermission = 'cadastros.marcas';
   else if (path.startsWith('/unidades-medida')) routePermission = 'cadastros.unidades_medida';
+  else if (path.startsWith('/grades')) routePermission = 'cadastros.grades';
   else if (path.startsWith('/bandeiras-cartao')) routePermission = 'cadastros.bandeiras_cartao';
   else if (path.startsWith('/bancos')) routePermission = 'cadastros.bancos';
   // Fornecedores ganhou permissao propria em 2026-08-18 (antes usava

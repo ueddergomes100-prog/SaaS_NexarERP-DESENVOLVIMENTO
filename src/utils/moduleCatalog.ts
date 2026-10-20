@@ -43,6 +43,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'cadastros.categorias', label: 'Categorias' },
     { id: 'cadastros.marcas', label: 'Marcas' },
     { id: 'cadastros.unidades_medida', label: 'Unidades de Medida' },
+    { id: 'cadastros.grades', label: 'Grades de produto (tamanho, cor)' },
     { id: 'cadastros.bandeiras_cartao', label: 'Bandeiras de Cartão' },
     { id: 'cadastros.bancos', label: 'Bancos' },
     { id: 'cadastros.fornecedores', label: 'Fornecedores' },

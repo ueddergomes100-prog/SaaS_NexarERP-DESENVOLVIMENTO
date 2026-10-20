@@ -21,10 +21,10 @@
  * trava de edicao; o servidor usa para planejar as gravacoes.
  */
 
-export type ColecaoEspelhada = 'unidades_medida' | 'categorias' | 'marcas' | 'clientes' | 'estoque';
+export type ColecaoEspelhada = 'unidades_medida' | 'categorias' | 'marcas' | 'grades' | 'clientes' | 'estoque';
 
-/** Na ordem em que o servidor liga o espelho: catalogos antes dos produtos (unidade). */
-export const COLECOES_ESPELHADAS: ColecaoEspelhada[] = ['unidades_medida', 'categorias', 'marcas', 'clientes', 'estoque'];
+/** Na ordem em que o servidor liga o espelho: catalogos antes dos produtos (unidade, grade). */
+export const COLECOES_ESPELHADAS: ColecaoEspelhada[] = ['unidades_medida', 'categorias', 'marcas', 'grades', 'clientes', 'estoque'];
 
 /** Campos de controle de cada copia: nunca sao comparados nem copiados. */
 const CAMPOS_DE_CONTROLE = new Set([
@@ -48,6 +48,9 @@ export const CAMPOS_DO_PRODUTO_NO_GRUPO = [
   'produzidoInternamente', 'produtoServico', 'produtoRevenda', 'controlarEstoque',
   'exigirSerialLote', 'controlarLote', 'permiteCondicional', 'permitirCashback', 'produtoDestaque',
   'ativo', 'statusAtivo',
+  // Grade de produtos (19/10/2026): o vinculo pai x variacao e' do grupo -- a
+  // chave do pai e' a mesma em toda filial. Ver gradeProdutosDomain.ts.
+  'temGrade', 'gradeNomes', 'ehVariacao', 'produtoPaiChave', 'variacao', 'variacaoRotulo',
 ];
 
 /**
@@ -138,7 +141,7 @@ export const idDaCopia = (chave: string, tenantDestino: string): string => `${ch
  */
 export const chaveNatural = (colecao: ColecaoEspelhada, dados: Record<string, unknown>): string | null => {
   if (colecao === 'unidades_medida') return normalizar(dados.sigla) || null;
-  if (colecao === 'categorias' || colecao === 'marcas') return normalizar(dados.nome) || null;
+  if (colecao === 'categorias' || colecao === 'marcas' || colecao === 'grades') return normalizar(dados.nome) || null;
   if (colecao === 'clientes') {
     const documento = String(dados.documento ?? '').replace(/\D/g, '');
     return documento.length >= 11 ? documento : null;

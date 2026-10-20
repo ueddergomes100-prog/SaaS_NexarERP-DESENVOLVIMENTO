@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import PromocaoIndividualPanel from '../../components/estoque/PromocaoIndividualPanel';
-import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2, LayoutGrid } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,6 +28,23 @@ import { compararMargem, precoParaMargem } from '../../utils/precificacaoDomain'
 import { ROTULO_POR_ORIGEM, chaveComponente, colecaoDoComponente, normalizarComponente, type ComponenteComposicao, type OrigemComponente } from '../../utils/producaoDomain';
 import { calcularCustoDaReceita } from '../../utils/custoProducaoDomain';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
+import { alterarSituacaoCadastro } from '../../services/cadastroService';
+import {
+  bloqueioParaDesligarGrade,
+  bloqueioParaLigarGrade,
+  camposDaVariacao,
+  lerFilho,
+  mesmaVariacao,
+  montarLinhasDaGrade,
+  normalizarOpcao,
+  planejarVariacoes,
+  totalLigadas,
+  variacaoPrecisaAtualizar,
+  type FilhoExistente,
+  type GradeCadastro,
+  type LinhaDaGrade,
+  type PlanoDasVariacoes,
+} from '../../utils/gradeProdutosDomain';
 import './Estoque.css';
 
 interface UnidadeMedida {
@@ -38,7 +55,13 @@ interface UnidadeMedida {
   permiteFracionado: boolean;
 }
 
-type TabId = 'geral' | 'precos' | 'historico' | 'estoque' | 'fiscal' | 'compras' | 'embalagens' | 'composicao' | 'atacado' | 'ecommerce' | 'avancado';
+type TabId = 'geral' | 'precos' | 'historico' | 'estoque' | 'grade' | 'fiscal' | 'compras' | 'embalagens' | 'composicao' | 'atacado' | 'ecommerce' | 'avancado';
+
+/** Grade do cadastro (Cadastros Auxiliares > Grades) no formato do quadro. */
+interface GradeDisponivel extends GradeCadastro {
+  id: string;
+  ativo: boolean;
+}
 
 /** Linha da aba Embalagens no formato do formulario (campos como string, igual
  * a AtacadoFaixa). Vira Embalagem de verdade so no handleSave, quando a unidade
@@ -115,6 +138,11 @@ interface ProdutoOriginalData {
    * mesma leitura que a carga do formulario ja faz. */
   ativo?: boolean;
   statusAtivo?: boolean;
+  /** Saldo no banco: produto com saldo nao vira principal de grade (gradeProdutosDomain.ts). */
+  quantidade?: number;
+  temGrade?: boolean;
+  /** Filiais: chave do cadastro no grupo (a mesma em toda filial). */
+  grupoChave?: string;
 }
 
 interface ProdutoFormData {
@@ -224,6 +252,7 @@ const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'precos', label: 'Preços e Custos' },
   { id: 'historico', label: 'Histórico de Preços' },
   { id: 'estoque', label: 'Estoque' },
+  { id: 'grade', label: 'Grade de variações' },
   { id: 'fiscal', label: 'Fiscal (Tributação)' },
   { id: 'compras', label: 'Compras' },
   { id: 'embalagens', label: 'Embalagens' },
@@ -465,6 +494,17 @@ const EstoqueForm: React.FC = () => {
   const [unidadesDB, setUnidadesDB] = useState<UnidadeMedida[]>([]);
   const [validarCadastroProduto, setValidarCadastroProduto] = useState(false);
   const [regimeTributario, setRegimeTributario] = useState<RegimeTributario>(DEFAULT_REGIME_TRIBUTARIO);
+  // Grade de produtos (19/10/2026): o principal escolhe ate' duas grades e cada
+  // combinacao ligada no quadro vira um produto filho. Ver gradeProdutosDomain.ts.
+  const [usaGradeDeProdutos, setUsaGradeDeProdutos] = useState(false);
+  const [gradesDB, setGradesDB] = useState<GradeDisponivel[]>([]);
+  const [temGrade, setTemGrade] = useState(false);
+  /** Nomes das grades escolhidas (ate' 2), na ordem do quadro -- e' o que o produto guarda. */
+  const [gradeNomes, setGradeNomes] = useState<string[]>([]);
+  const [filhos, setFilhos] = useState<FilhoExistente[]>([]);
+  /** Documento cru de cada filho, pra so' regravar o que mudou. */
+  const [dadosDosFilhos, setDadosDosFilhos] = useState<Map<string, Record<string, unknown>>>(new Map());
+  const [linhasDaGrade, setLinhasDaGrade] = useState<LinhaDaGrade[]>([]);
   const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal, grupo, ehGestorDasFiliais } = useAuth();
 
   const fallbackUnidades: UnidadeMedida[] = [
@@ -523,7 +563,64 @@ const EstoqueForm: React.FC = () => {
   );
   const sugestaoSlug = useMemo(() => slugify(formData.nome), [formData.nome]);
   const skuCalculado = useMemo(() => makeSku(tenantId, formData.codigo), [tenantId, formData.codigo]);
-  const quantidadeEstoqueEditavel = !isEditing;
+  // Principal de uma grade nao tem saldo: o estoque fica em cada variacao.
+  const quantidadeEstoqueEditavel = !isEditing && !temGrade;
+
+  /** As grades escolhidas, pela ordem de gradeNomes (grade apagada/inativa que o produto ja' usa continua valendo). */
+  const gradesEscolhidas = useMemo(() => (
+    gradeNomes
+      .map((nome) => gradesDB.find((g) => normalizarOpcao(g.nome) === normalizarOpcao(nome)))
+      .filter((g): g is GradeDisponivel => Boolean(g))
+  ), [gradeNomes, gradesDB]);
+
+  // O quadro acompanha as grades escolhidas e os filhos ja' gravados. O que a
+  // pessoa digitou numa linha (codigo de barras, preco, estoque inicial, ligada)
+  // fica, desde que a combinacao continue existindo.
+  useEffect(() => {
+    const base = montarLinhasDaGrade(gradesEscolhidas, filhos);
+    setLinhasDaGrade((anteriores) => base.map((linha) => {
+      const anterior = anteriores.find((a) => a.filhoId === linha.filhoId && mesmaVariacao(a.opcoes, linha.opcoes));
+      return anterior
+        ? { ...linha, ligada: anterior.ligada, codigoBarras: anterior.codigoBarras, precoProprio: anterior.precoProprio, precoVenda: anterior.precoVenda, quantidadeInicial: anterior.quantidadeInicial }
+        : linha;
+    }));
+  }, [gradesEscolhidas, filhos]);
+
+  const atualizarLinhaDaGrade = (rotulo: string, mudancas: Partial<LinhaDaGrade>) => {
+    setLinhasDaGrade((linhas) => linhas.map((l) => (l.rotulo === rotulo ? { ...l, ...mudancas } : l)));
+  };
+
+  const escolherGrade = (posicao: 0 | 1, nome: string) => {
+    setGradeNomes((atual) => {
+      if (posicao === 0) return nome ? [nome, ...(atual[1] && atual[1] !== nome ? [atual[1]] : [])] : [];
+      return nome ? [atual[0], nome] : [atual[0]];
+    });
+  };
+
+  const alternarGrade = (ligar: boolean) => {
+    if (ligar) {
+      const bloqueio = bloqueioParaLigarGrade({
+        quantidade: isEditing ? produtoOriginal?.quantidade : 0,
+        quantidadeReservada: isEditing ? produtoOriginal?.quantidadeReservada : 0,
+      });
+      if (bloqueio) {
+        showError('Produto com estoque', bloqueio);
+        return;
+      }
+      setTemGrade(true);
+      setFormData((prev) => ({ ...prev, quantidade: '' }));
+      setActiveTab('grade');
+      return;
+    }
+    const bloqueio = bloqueioParaDesligarGrade(filhos.length > 0);
+    if (bloqueio) {
+      showError('Produto com variações', bloqueio);
+      return;
+    }
+    setTemGrade(false);
+    setGradeNomes([]);
+    if (activeTab === 'grade') setActiveTab('geral');
+  };
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -536,10 +633,27 @@ const EstoqueForm: React.FC = () => {
           setValidarCadastroProduto(configData.validarCadastroProduto === true);
           setVenderPorEmbalagem(configData.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario((configData.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
+          setUsaGradeDeProdutos(configData.usaGradeDeProdutos === true);
         } else {
           setValidarCadastroProduto(false);
           setVenderPorEmbalagem(DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario(DEFAULT_REGIME_TRIBUTARIO);
+          setUsaGradeDeProdutos(false);
+        }
+
+        // Grades (tamanho, cor...): so' sugestao do quadro -- lista vazia nao
+        // impede de abrir o produto, como marcas e fornecedores abaixo.
+        try {
+          const snapGrades = await getDocs(query(collection(db, 'grades'), where('tenantId', '==', tenantId)));
+          setGradesDB(snapGrades.docs.map((d) => ({
+            id: d.id,
+            nome: String(d.data().nome || ''),
+            opcoes: Array.isArray(d.data().opcoes) ? d.data().opcoes.map(String) : [],
+            ativo: d.data().ativo !== false,
+          })).filter((g) => g.nome && g.opcoes.length > 0).sort((a, b) => a.nome.localeCompare(b.nome)));
+        } catch (gradeError) {
+          console.error('Erro ao carregar as grades (quadro de variações):', gradeError);
+          setGradesDB([]);
         }
 
         const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
@@ -599,7 +713,34 @@ const EstoqueForm: React.FC = () => {
           const docSnap = await getDoc(doc(db, 'estoque', id));
           if (docSnap.exists()) {
             const data = docSnap.data();
+            // Variacao nao tem cadastro proprio: nome, categoria, preco e o
+            // resto vem do principal, e e' no quadro dele que ela se edita.
+            if (data.ehVariacao === true) {
+              const chave = String(data.produtoPaiChave || '');
+              let idDoPai: string | null = null;
+              for (const candidato of [chave, `${chave}_${tenantId}`]) {
+                if (!chave) break;
+                const paiSnap = await getDoc(doc(db, 'estoque', candidato));
+                if (paiSnap.exists() && paiSnap.data().tenantId === tenantId) { idDoPai = candidato; break; }
+              }
+              if (!idDoPai) {
+                showError('Variação sem produto principal', `"${data.nome || 'Esta variação'}" é uma variação de grade, mas o produto principal dela não foi encontrado. Avise o suporte.`);
+                navigate('/estoque');
+                return;
+              }
+              showWarning('Variação de produto', 'Nome, categoria, preço e o resto do cadastro vêm do produto principal. Abrindo o produto principal: a variação fica na aba "Grade de variações".');
+              navigate(`/estoque/editar/${idDoPai}`, { replace: true });
+              return;
+            }
             setProdutoOriginal(data);
+            if (data.temGrade === true) {
+              setTemGrade(true);
+              setGradeNomes(Array.isArray(data.gradeNomes) ? data.gradeNomes.map(String) : []);
+              const chave = String(data.grupoChave || '') || chaveDoProdutoPeloId(id, tenantId);
+              const snapFilhos = await getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId), where('produtoPaiChave', '==', chave)));
+              setFilhos(snapFilhos.docs.map((d) => lerFilho(d.id, d.data())));
+              setDadosDosFilhos(new Map(snapFilhos.docs.map((d) => [d.id, d.data()])));
+            }
             setHistoricoPrecos(data.historicoPrecos || []);
             setAtacadoFaixas(normalizeAtacadoFaixas(data.atacado?.faixas || data.atacadoFaixas));
             setEmbalagens(normalizeEmbalagens(data.embalagens).map((embalagem) => ({
@@ -995,6 +1136,12 @@ const EstoqueForm: React.FC = () => {
       return false;
     }
 
+    if (temGrade && gradesEscolhidas.length === 0) {
+      setActiveTab('grade');
+      showError('Grade não escolhida', 'Escolha a Grade 1 na aba "Grade de variações" (por exemplo, TAMANHO). Se ainda não existe, cadastre em Cadastros Auxiliares › Grades.');
+      return false;
+    }
+
     if (validarCadastroProduto) {
       // Item de uso interno (produtoRevenda: false -- embalagem, peca de
       // veiculo, material de consumo) nao tem preco de venda porque nao
@@ -1008,7 +1155,8 @@ const EstoqueForm: React.FC = () => {
         return false;
       }
 
-      if (formData.quantidade.trim() === '' || toNumber(formData.quantidade) < 0) {
+      // Principal de grade nao tem saldo proprio (o estoque inicial e' de cada variacao).
+      if (!temGrade && (formData.quantidade.trim() === '' || toNumber(formData.quantidade) < 0)) {
         setActiveTab('estoque');
         showError('Estoque inicial obrigatório', 'Informe a quantidade inicial de estoque do produto.');
         return false;
@@ -1074,6 +1222,91 @@ const EstoqueForm: React.FC = () => {
     const qSku = query(collection(db, 'estoque'), where('tenantId', '==', tenantId), where('skuSistema', '==', sku));
     const snap = await getDocs(qSku);
     return snap.docs.every(item => item.id === id);
+  };
+
+  /**
+   * Grava as variacoes planejadas depois que o principal foi salvo: cria as
+   * novas (com o estoque inicial do quadro), regrava as existentes so' se algo
+   * mudou (nunca saldo nem situacao) e manda inativar/reativar pelo servidor,
+   * que confere reserva e zera o saldo como em qualquer produto.
+   */
+  const aplicarPlanoDaGrade = async (plano: PlanoDasVariacoes, idDoPai: string, dadosDoPai: Record<string, unknown>) => {
+    if (!currentUser) return;
+    const produtoPaiChave = String(produtoOriginal?.grupoChave || '') || chaveDoProdutoPeloId(idDoPai, tenantId);
+    const identidade = (v: { nome: string; codigo?: string; sku?: string; codigoBarras: string; opcoes: string[]; rotulo: string; precoProprio: boolean; precoVenda: number }, codigo: string, sku: string) => ({
+      nome: v.nome, codigo, sku, codigoBarras: v.codigoBarras, opcoes: v.opcoes, rotulo: v.rotulo, produtoPaiChave, precoProprio: v.precoProprio, precoVenda: v.precoVenda,
+    });
+
+    for (const nova of plano.criar) {
+      const campos = camposDaVariacao(dadosDoPai, identidade(nova, nova.codigo, nova.sku));
+      await addDoc(collection(db, 'estoque'), {
+        ...campos,
+        quantidade: nova.quantidadeInicial,
+        estoqueConfig: { ...(campos.estoqueConfig as Record<string, unknown>), quantidadeAtual: nova.quantidadeInicial },
+        ativo: true,
+        statusAtivo: true,
+        historicoPrecos: [],
+        tenantId: tenantId || '',
+        createdAt: serverTimestamp(),
+        ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+      });
+    }
+
+    let atualizadas = 0;
+    for (const existente of plano.atualizar) {
+      const atual = dadosDosFilhos.get(existente.id) ?? {};
+      const campos = camposDaVariacao(dadosDoPai, identidade(existente, String(atual.codigo || ''), String(atual.skuSistema || '')));
+      // O saldo atual continua no espelho legado; so' o principal muda o resto.
+      campos.estoqueConfig = { ...(campos.estoqueConfig as Record<string, unknown>), quantidadeAtual: Number(atual.quantidade ?? 0) };
+      if (!variacaoPrecisaAtualizar(atual, campos)) continue;
+      await updateDoc(doc(db, 'estoque', existente.id), {
+        ...campos,
+        // Preco proprio (ou principal sem preco a vista/a prazo): a chave sai de vez, como no principal.
+        ...(campos.precoAVista === undefined ? { precoAVista: deleteField() } : {}),
+        ...(campos.precoAPrazo === undefined ? { precoAPrazo: deleteField() } : {}),
+        ...(campos.comissaoPercentual === undefined ? { comissaoPercentual: deleteField() } : {}),
+        tenantId: tenantId || '',
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+      });
+      atualizadas += 1;
+    }
+
+    const naoMudaram: string[] = [];
+    for (const [lista, ativar] of [[plano.reativar, true], [plano.inativar, false]] as const) {
+      for (const v of lista) {
+        try {
+          await alterarSituacaoCadastro('estoque', v.id, ativar);
+        } catch (error) {
+          naoMudaram.push(`${v.rotulo}: ${(error as Error).message}`);
+        }
+      }
+    }
+    if (naoMudaram.length) {
+      showError(
+        plano.inativar.length ? 'Variação não inativada' : 'Variação não reativada',
+        `O produto foi salvo, mas: ${naoMudaram.join(' ')}`,
+      );
+    }
+
+    const mexeu = plano.criar.length + atualizadas + plano.inativar.length + plano.reativar.length - naoMudaram.length;
+    if (mexeu > 0) {
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'estoque',
+          acao: isEditing ? 'edicao' : 'criacao',
+          descricao: `Variações de ${String(dadosDoPai.nome || '')}: ${plano.criar.length} criada(s), ${atualizadas} atualizada(s), ${plano.inativar.length} inativada(s), ${plano.reativar.length} reativada(s).`,
+          registroRelacionadoId: idDoPai,
+          status: 'sucesso',
+        });
+      } catch {
+        // Ignorar erro de log de auditoria.
+      }
+    }
   };
 
   const handleSave = async (e?: React.FormEvent | React.MouseEvent) => {
@@ -1392,6 +1625,40 @@ const EstoqueForm: React.FC = () => {
       if (precoAVistaValor === undefined) delete (produtoData as Record<string, unknown>).precoAVista;
       if (precoAPrazoValor === undefined) delete (produtoData as Record<string, unknown>).precoAPrazo;
 
+      // Grade de produtos: o principal guarda as grades e nao tem saldo; o que
+      // vai ser gravado nas variacoes e' planejado AQUI, antes de qualquer
+      // escrita -- se o quadro tem erro, nada e' gravado pela metade.
+      const dadosDaGrade = temGrade
+        ? { temGrade: true, gradeNomes: gradesEscolhidas.map((g) => g.nome), quantidade: 0 }
+        : {};
+      Object.assign(produtoData, dadosDaGrade);
+      if (temGrade) produtoData.estoqueConfig.quantidadeAtual = 0;
+      let planoDaGrade: PlanoDasVariacoes | null = null;
+      if (temGrade) {
+        const snapCatalogo = await getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)));
+        const codigosDeBarrasEmUso = new Map<string, string>();
+        snapCatalogo.forEach((d) => {
+          const barras = String(d.data().codigoBarras || '').trim();
+          if (barras) codigosDeBarrasEmUso.set(barras, d.id);
+        });
+        if (produtoData.codigoBarras.trim()) codigosDeBarrasEmUso.set(produtoData.codigoBarras.trim(), id || 'principal');
+        const plano = planejarVariacoes({
+          linhas: linhasDaGrade,
+          filhos,
+          codigoPai: produtoData.codigo,
+          skuPai: skuFinal,
+          nomePai: nomeProduto,
+          codigosDeBarrasEmUso,
+          unidadeFracionada: produtoData.unidadeMedidaFracionado,
+        });
+        if (!plano.ok) {
+          setActiveTab('grade');
+          showError('Confira a grade', plano.erro);
+          return;
+        }
+        planoDaGrade = plano.plano;
+      }
+
       if (isEditing && id) {
         // Na edicao o formulario NAO manda saldo nem situacao: o saldo so'
         // muda por movimentacao (venda, nota, Ajuste de Estoque) e a
@@ -1421,10 +1688,13 @@ const EstoqueForm: React.FC = () => {
           ...(comissaoPercentualValor === undefined ? { comissaoPercentual: deleteField() } : {}),
           ...(precoAVistaValor === undefined ? { precoAVista: deleteField() } : {}),
           ...(precoAPrazoValor === undefined ? { precoAPrazo: deleteField() } : {}),
+          // Grade desligada (so' sem variacoes): as marcas de principal saem de vez.
+          ...(!temGrade && produtoOriginal?.temGrade === true ? { temGrade: deleteField(), gradeNomes: deleteField() } : {}),
           tenantId: tenantId || '',
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        if (planoDaGrade) await aplicarPlanoDaGrade(planoDaGrade, id, produtoData);
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
@@ -1459,6 +1729,7 @@ const EstoqueForm: React.FC = () => {
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
+        if (planoDaGrade) await aplicarPlanoDaGrade(planoDaGrade, newDocRef.id, produtoData);
         try {
           const { createAuditLog } = await import('../../services/logService');
           createAuditLog({
@@ -1564,7 +1835,10 @@ const EstoqueForm: React.FC = () => {
       <form className="product-form" onSubmit={handleSave} autoComplete="off">
         <div className="product-tabs">
           {tabs
-            .filter(tab => modoCadastro === 'avancado' || ['geral', 'precos', 'historico', 'estoque', 'fiscal'].includes(tab.id))
+            .filter(tab => modoCadastro === 'avancado' || ['geral', 'precos', 'historico', 'estoque', 'grade', 'fiscal'].includes(tab.id))
+            // A aba Grade de variacoes so' existe com a chave da empresa ligada
+            // e o produto marcado como "com grade" (aba Geral).
+            .filter(tab => tab.id !== 'grade' || (usaGradeDeProdutos && temGrade))
             // A aba Embalagens acompanha a chave "Vender por embalagem" das
             // Configuracoes. Desligar so esconde: nenhuma embalagem ja
             // cadastrada e apagada, e religar traz tudo de volta.
@@ -1613,6 +1887,13 @@ const EstoqueForm: React.FC = () => {
                   <input type="checkbox" checked={formData.statusAtivo} disabled readOnly />
                   <span>{formData.statusAtivo ? 'Produto ativo' : 'Produto inativo'}</span>
                 </label>
+                {/* Grade de produtos (19/10/2026): liga a aba "Grade de variacoes". */}
+                {usaGradeDeProdutos && (
+                  <label className="switch-row compact-switch" title="Tamanho, cor...: cada combinação vira um item com estoque e código de barras próprios">
+                    <input type="checkbox" checked={temGrade} onChange={(e) => alternarGrade(e.target.checked)} />
+                    <span>Produto com grade (tamanho, cor...)</span>
+                  </label>
+                )}
               </div>
 
               <div className="input-group">
@@ -2019,8 +2300,13 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>Quantidade atual</label>
-                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={!quantidadeEstoqueEditavel} required={validarCadastroProduto && !isEditing} />
-                  {isEditing && (
+                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={!quantidadeEstoqueEditavel} required={validarCadastroProduto && !isEditing && !temGrade} />
+                  {temGrade && (
+                    <span className="field-hint">
+                      Produto com grade: o estoque fica em cada variação (aba "Grade de variações"). O principal não tem saldo.
+                    </span>
+                  )}
+                  {isEditing && !temGrade && (
                     <span className="field-hint">
                       <>
                             Em produto já cadastrado, a quantidade muda por NFE, venda, cancelamento, movimentação ou pelo{' '}
@@ -2767,6 +3053,182 @@ const EstoqueForm: React.FC = () => {
                   <p>SKU único por empresa para futuras sincronizações.</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'grade' && (
+            <div className="card form-section product-card">
+              <div className="section-header">
+                <LayoutGrid size={20} className="section-icon" />
+                <div>
+                  <h3>Grade de variações</h3>
+                  <p>Escolha até duas grades e ligue as combinações que a loja vende. Cada combinação ligada vira um item com estoque e código de barras próprios; nome, categoria, preço e o resto vêm deste cadastro.</p>
+                </div>
+              </div>
+
+              <div className="form-grid-3">
+                <div className="input-group">
+                  <label>Grade 1 *</label>
+                  <select
+                    className="form-select"
+                    value={gradeNomes[0] ?? ''}
+                    onChange={(e) => escolherGrade(0, e.target.value)}
+                    disabled={filhos.length > 0}
+                  >
+                    <option value="">Selecione...</option>
+                    {gradesDB.filter((g) => g.ativo || normalizarOpcao(g.nome) === normalizarOpcao(gradeNomes[0] ?? '')).map((g) => (
+                      <option key={g.id} value={g.nome}>{g.nome} ({g.opcoes.join(', ')})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Grade 2 (opcional)</label>
+                  <select
+                    className="form-select"
+                    value={gradeNomes[1] ?? ''}
+                    onChange={(e) => escolherGrade(1, e.target.value)}
+                    disabled={filhos.length > 0 || !gradeNomes[0]}
+                  >
+                    <option value="">Nenhuma</option>
+                    {gradesDB
+                      .filter((g) => normalizarOpcao(g.nome) !== normalizarOpcao(gradeNomes[0] ?? ''))
+                      .filter((g) => g.ativo || normalizarOpcao(g.nome) === normalizarOpcao(gradeNomes[1] ?? ''))
+                      .map((g) => <option key={g.id} value={g.nome}>{g.nome} ({g.opcoes.join(', ')})</option>)}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Combinações ligadas</label>
+                  <input type="text" value={`${totalLigadas(linhasDaGrade)} de ${linhasDaGrade.length}`} readOnly />
+                </div>
+              </div>
+
+              {gradesDB.length === 0 && (
+                <span className="field-hint">Nenhuma grade cadastrada ainda. Cadastre TAMANHO, COR ou outra em Cadastros Auxiliares › Grades e volte aqui.</span>
+              )}
+              {filhos.length > 0 && (
+                <span className="field-hint">
+                  As grades deste produto não mudam depois que as variações existem. Para acrescentar uma opção (um tamanho novo, por exemplo),
+                  edite a grade em Cadastros Auxiliares › Grades: a combinação nova aparece aqui para ser ligada.
+                </span>
+              )}
+
+              {gradesEscolhidas.length > 0 && (
+                <>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setLinhasDaGrade((linhas) => linhas.map((l) => (l.foraDaGrade ? l : { ...l, ligada: true })))}
+                    >
+                      Ligar todas
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setLinhasDaGrade((linhas) => linhas.map((l) => ({ ...l, ligada: false })))}
+                    >
+                      Desligar todas
+                    </button>
+                  </div>
+                  <div className="table-wrapper">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '70px' }}>Ligada</th>
+                          <th>Variação</th>
+                          <th style={{ width: '110px' }}>Código</th>
+                          <th style={{ width: '190px' }}>Código de barras</th>
+                          <th style={{ width: '210px' }}>Preço próprio</th>
+                          <th style={{ width: '150px' }}>Estoque</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {linhasDaGrade.map((linha) => (
+                          <tr key={linha.rotulo} style={linha.foraDaGrade ? { opacity: 0.7 } : undefined}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                checked={linha.ligada}
+                                onChange={(e) => atualizarLinhaDaGrade(linha.rotulo, { ligada: e.target.checked })}
+                                disabled={linha.foraDaGrade && !linha.filhoId}
+                                title={linha.filhoId ? (linha.ligada ? 'Desligar inativa a variação ao salvar' : 'Ligar reativa a variação ao salvar') : 'Ligar cria a variação ao salvar'}
+                                style={{ width: '16px', height: '16px', accentColor: 'var(--accent-purple)' }}
+                              />
+                            </td>
+                            <td className="font-medium">
+                              {linha.rotulo}
+                              {linha.foraDaGrade && (
+                                <span title="A opção saiu da grade: a variação continua existindo, só não é mais oferecida" style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1px 7px' }}>
+                                  fora da grade
+                                </span>
+                              )}
+                              {linha.filhoId && !linha.filhoAtivo && (
+                                <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1px 7px' }}>
+                                  inativa
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ color: 'var(--text-muted)' }}>{linha.codigo || (linha.ligada ? 'ao salvar' : '—')}</td>
+                            <td>
+                              <input
+                                type="text"
+                                value={linha.codigoBarras}
+                                onChange={(e) => atualizarLinhaDaGrade(linha.rotulo, { codigoBarras: e.target.value.replace(/\s/g, '') })}
+                                disabled={!linha.ligada && !linha.filhoId}
+                                title="Em branco, o sistema gera um código interno ao salvar. Pode ser trocado pelo EAN do fornecedor."
+                                style={{ width: '100%' }}
+                              />
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={linha.precoProprio}
+                                  onChange={(e) => atualizarLinhaDaGrade(linha.rotulo, { precoProprio: e.target.checked, precoVenda: e.target.checked ? linha.precoVenda : '' })}
+                                  disabled={!linha.ligada && !linha.filhoId}
+                                  title="Desmarcado: a variação vende pelo preço deste cadastro, inclusive quando ele mudar"
+                                  style={{ width: '16px', height: '16px', accentColor: 'var(--accent-purple)' }}
+                                />
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={linha.precoVenda}
+                                  onChange={(e) => atualizarLinhaDaGrade(linha.rotulo, { precoVenda: e.target.value })}
+                                  disabled={!linha.precoProprio || (!linha.ligada && !linha.filhoId)}
+                                  title={linha.precoProprio ? 'Preço de venda desta variação' : `Igual ao preço de venda do produto (${formatCurrency(precoVenda)})`}
+                                  style={{ width: '120px' }}
+                                />
+                              </div>
+                            </td>
+                            <td>
+                              {linha.filhoId ? (
+                                <span className="font-medium" title={linha.quantidadeReservada > 0 ? `${linha.quantidadeReservada} reservado em pré-venda, condicional, OS ou troca` : undefined}>
+                                  {linha.quantidade}{linha.quantidadeReservada > 0 ? ` (${linha.quantidadeReservada} res.)` : ''}
+                                </span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={linha.quantidadeInicial}
+                                  onChange={(e) => atualizarLinhaDaGrade(linha.rotulo, { quantidadeInicial: e.target.value })}
+                                  disabled={!linha.ligada}
+                                  title="Estoque inicial da variação"
+                                  style={{ width: '100px' }}
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <span className="field-hint">
+                    Depois de criada, a quantidade de cada variação muda por venda, nota, devolução ou Ajuste Manual de Estoque — como qualquer produto.
+                    Desligar uma variação que já existe a inativa ao salvar (o servidor confere reserva e zera o saldo).
+                  </span>
+                </>
+              )}
             </div>
           )}
 

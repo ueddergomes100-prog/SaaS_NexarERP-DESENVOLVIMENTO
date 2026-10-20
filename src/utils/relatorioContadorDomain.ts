@@ -226,7 +226,8 @@ export const linhaDaNotaEmitida = (nota: NotaEmitidaParaContador): LinhaContador
     origem: 'emitida',
     modelo,
     data: nota.data,
-    numero: texto(nota.number),
+    // Rejeitada/na fila ainda nao tem numero (a Spedy grava 0 ou null): fica em branco.
+    numero: numero(nota.number) > 0 ? String(Math.trunc(numero(nota.number))) : '',
     serie: serieDaChaveDeAcesso(chave) ?? '',
     chave,
     situacao: situacaoDaNotaEmitida(nota.status),

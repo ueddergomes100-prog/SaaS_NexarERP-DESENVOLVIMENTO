@@ -64,16 +64,19 @@ const EstoqueList: React.FC = () => {
   const [filtroStatus, setFiltroStatus] = useState<'ativos' | 'inativos' | 'todos'>('ativos');
   // Reserva visivel (maquinas pesadas, fase 2): filtro 'so com reserva' e a janela de onde vem.
   const [soComReserva, setSoComReserva] = useState(false);
+  /** Grade de produtos: so' os principais com variacoes (pedido do dono, 20/10). */
+  const [soComGrade, setSoComGrade] = useState(false);
   const [reservaAberta, setReservaAberta] = useState<PecaData | null>(null);
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** Principais de grade com as variacoes abertas (chevron). */
-  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
+  /** Principais de grade que a pessoa abriu/fechou no chevron (vale por cima do
+   * padrao: fechado sem busca, aberto quando a busca bateu numa variacao). */
+  const [expandidos, setExpandidos] = useState<Map<string, boolean>>(new Map());
   /** Configuracoes -> Estoque: mostrar os cartoes de resumo no topo. */
   const [mostrarResumo, setMostrarResumo] = useState(DEFAULT_MOSTRAR_RESUMO_ESTOQUE);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, grupo, podeTrocarFilial } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, grupo, podeTrocarFilial, usaGradeDeProdutos } = useAuth();
   // Filiais (2026-10-06): a lista ja' vem nos itens desta filial (cadastrados
   // nela ou com estoque nela); quem usa outras filiais ve o catalogo do grupo.
   const [escopoFilial, setEscopoFilial] = useState<'filial' | 'grupo'>('filial');
@@ -261,22 +264,20 @@ const EstoqueList: React.FC = () => {
     searchTerm,
   );
   const buscando = searchTerm.trim() !== '';
-  /** O principal aparece se ele ou alguma variacao passa; buscando, as variacoes que bateram ja' vem abertas. */
+  /** O principal aparece se ele ou alguma variacao passa; buscando, as variacoes
+   * que bateram ja' vem abertas -- e o chevron abre/fecha em qualquer caso. */
   const linhasVisiveis = principais.flatMap((peca) => {
+    if (soComGrade && peca.temGrade !== true) return [];
     const todas = variacoesDe(peca);
     const variacoesQueBatem = todas.filter((v) => passaNosFiltros(v) && passaNaBusca(v));
     if (!(passaNosFiltros(peca) && passaNaBusca(peca)) && variacoesQueBatem.length === 0) return [];
-    const aberto = buscando ? variacoesQueBatem.length > 0 : expandidos.has(peca.id);
+    const aberto = expandidos.get(peca.id) ?? (buscando && variacoesQueBatem.length > 0);
     const variacoes = !aberto ? [] : buscando ? variacoesQueBatem : todas.filter(passaNosFiltros);
     return [{ peca, variacoes, aberto, totalDeVariacoes: todas.length }];
   });
 
-  const alternarExpandido = (id: string) => {
-    setExpandidos((atual) => {
-      const novo = new Set(atual);
-      if (novo.has(id)) novo.delete(id); else novo.add(id);
-      return novo;
-    });
+  const alternarExpandido = (id: string, abertoAgora: boolean) => {
+    setExpandidos((atual) => new Map(atual).set(id, !abertoAgora));
   };
 
   // Cartoes de resumo seguem o filtro de filial (07/10): numa filial nova, os
@@ -344,7 +345,7 @@ const EstoqueList: React.FC = () => {
             type="button"
             className="icon-btn"
             title={aberto ? 'Esconder variações' : 'Mostrar variações'}
-            onClick={(e) => { e.stopPropagation(); alternarExpandido(peca.id); }}
+            onClick={(e) => { e.stopPropagation(); alternarExpandido(peca.id, aberto); }}
             onDoubleClick={(e) => e.stopPropagation()}
             style={{ marginRight: '6px', verticalAlign: 'middle' }}
           >
@@ -358,9 +359,16 @@ const EstoqueList: React.FC = () => {
           </span>
         ) : peca.nome}
         {ehPrincipalDeGrade && (
-          <span style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1px 7px', whiteSpace: 'nowrap' }}>
-            Grade · {totalDeVariacoes} variação(ões)
-          </span>
+          // O selo tambem abre/fecha: e' o alvo mais facil de acertar que o chevron.
+          <button
+            type="button"
+            title={aberto ? 'Esconder variações' : 'Mostrar variações'}
+            onClick={(e) => { e.stopPropagation(); alternarExpandido(peca.id, aberto); }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            style={{ marginLeft: '8px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '1px 7px', whiteSpace: 'nowrap', background: 'transparent', cursor: 'pointer' }}
+          >
+            Grade · {totalDeVariacoes} variação(ões) {aberto ? '▾' : '▸'}
+          </button>
         )}
         <MarcaEmEdicao trava={travasProdutos.get(peca.id)} />
       </td>
@@ -564,6 +572,18 @@ const EstoqueList: React.FC = () => {
           >
             Com reserva
           </button>
+          {usaGradeDeProdutos && (
+            <button
+              type="button"
+              className="btn-secondary filter-btn"
+              onClick={() => setSoComGrade((v) => !v)}
+              aria-pressed={soComGrade}
+              title="Mostrar só os produtos com grade (tamanho, cor...) e suas variações"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', ...(soComGrade ? { borderColor: '#a855f7', color: '#c084fc' } : {}) }}
+            >
+              Com grade
+            </button>
+          )}
           {grupo && podeTrocarFilial && (
             <label
               className="btn-secondary filter-btn"

@@ -29,6 +29,8 @@ export interface PdvProduct {
   /** true = principal de uma grade (gradeProdutosDomain.ts): sem estoque, quem
    * se vende sao as variacoes. Nunca aparece pra venda. */
   temGrade?: boolean;
+  /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
+  bloquearVendaSemEstoque?: boolean;
   /** Array cru do documento de estoque -- normalizado por embalagemDomain. */
   embalagens?: unknown;
   descontoMaximoPercentual?: number;

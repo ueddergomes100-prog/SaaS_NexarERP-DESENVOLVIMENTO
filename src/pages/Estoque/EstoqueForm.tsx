@@ -9,7 +9,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/unidadeMedidaDomain';
-import { isPlatformAdminRole } from '../../utils/roles';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { chaveDoProdutoPeloId, mudouCadastroDoGrupo } from '../../utils/cadastroGrupoDomain';
@@ -18,6 +18,8 @@ import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/fili
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { ENQUADRAMENTO_IPI_PADRAO, IPI_CST_SAIDA_OPTIONS, PIS_COFINS_CST_SAIDA_OPTIONS } from '../../utils/notaFiscalItemDomain';
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
+import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
+import { situacaoDoLote, ROTULO_SITUACAO_LOTE } from '../../utils/loteDomain';
 import { opcoesDeCategoria, separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
@@ -231,20 +233,16 @@ interface ProdutoFormData {
   seoDescricao: string;
   descricaoMarketplace: string;
   imagensMarketplace: string;
+  /** Marcado sozinho quando o produto ganha composicao (custo vem da receita). */
   produzidoInternamente: boolean;
-  produtoServico: boolean;
+  /** false = item de uso interno: some de toda venda. */
   produtoRevenda: boolean;
+  /** Trava deste produto mesmo com "Permitir venda sem estoque" ligado na filial (estoqueReservaDomain.ts). */
   bloquearVendaSemEstoque: boolean;
-  exigirSerialLote: boolean;
-  lote: string;
-  validade: string;
+  /** So' produto marcado baixa lote na saida (loteDomain.ts). Os lotes vivem em estoque_lotes. */
   controlarLote: boolean;
-  /** Pode sair em condicional (Vendas > Condicional). Ver condicionalDomain.ts. */
-  permiteCondicional: boolean;
   permitirCashback: boolean;
-  produtoDestaque: boolean;
   impedirVendaAbaixoCusto: boolean;
-  autosaveOpcional: boolean;
 }
 
 const tabs: Array<{ id: TabId; label: string }> = [
@@ -391,18 +389,11 @@ const emptyFormData: ProdutoFormData = {
   descricaoMarketplace: '',
   imagensMarketplace: '',
   produzidoInternamente: false,
-  produtoServico: false,
   produtoRevenda: true,
   bloquearVendaSemEstoque: false,
-  exigirSerialLote: false,
-  lote: '',
-  validade: '',
   controlarLote: false,
-  permiteCondicional: false,
   permitirCashback: false,
-  produtoDestaque: false,
   impedirVendaAbaixoCusto: false,
-  autosaveOpcional: false
 };
 
 const toNumber = (value: string) => Number(String(value).replace(',', '.')) || 0;
@@ -472,6 +463,8 @@ const EstoqueForm: React.FC = () => {
   const produtoInativo = isEditing && produtoOriginal !== null
     && (produtoOriginal.statusAtivo ?? produtoOriginal.ativo) === false;
   const [modoCadastro, setModoCadastro] = useState<'rapido' | 'avancado'>('avancado');
+  /** Lotes do produto (estoque_lotes), mostrados na aba Avancado com "Controlar lote" marcado. */
+  const [lotesDoProduto, setLotesDoProduto] = useState<Array<{ id: string; lote: string; validade: string | null; quantidade: number }>>([]);
 
   // Composicao (Modulo 4, sub-etapa "a"): quais materias-primas e em que
   // quantidade sao consumidas pra produzir 1 unidade deste produto.
@@ -505,7 +498,37 @@ const EstoqueForm: React.FC = () => {
   /** Documento cru de cada filho, pra so' regravar o que mudou. */
   const [dadosDosFilhos, setDadosDosFilhos] = useState<Map<string, Record<string, unknown>>>(new Map());
   const [linhasDaGrade, setLinhasDaGrade] = useState<LinhaDaGrade[]>([]);
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal, grupo, ehGestorDasFiliais } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal, grupo, ehGestorDasFiliais, nivelAcesso } = useAuth();
+  // Modo Avancado (compras, embalagens, composicao, atacado, e-commerce e as
+  // configuracoes avancadas) so' para dono, administrador e gerente (decisao
+  // do dono, 20/10/2026). Funcionario fica no basico.
+  const podeModoAvancado = hasTenantFullAccess(userRole, Boolean(isOwner)) || nivelAcesso === 'gerente';
+  useEffect(() => {
+    if (!podeModoAvancado && modoCadastro === 'avancado') setModoCadastro('rapido');
+  }, [podeModoAvancado, modoCadastro]);
+
+  // Lotes do produto: so' com "Controlar lote" marcado e produto ja' salvo.
+  useEffect(() => {
+    if (!isEditing || !id || !tenantId || !formData.controlarLote) { setLotesDoProduto([]); return; }
+    let ativo = true;
+    getDocs(query(collection(db, 'estoque_lotes'), where('tenantId', '==', tenantId), where('produtoId', '==', id)))
+      .then((snap) => {
+        if (!ativo) return;
+        const lotes = snap.docs.map((d) => ({
+          id: d.id,
+          lote: String(d.data().lote || ''),
+          validade: d.data().validade ? String(d.data().validade) : null,
+          quantidade: Number(d.data().quantidade || 0),
+        }));
+        lotes.sort((a, b) => (a.validade || '9999').localeCompare(b.validade || '9999') || a.lote.localeCompare(b.lote));
+        setLotesDoProduto(lotes);
+      })
+      .catch((error) => {
+        console.error('Erro ao carregar os lotes do produto:', error);
+        if (ativo) setLotesDoProduto([]);
+      });
+    return () => { ativo = false; };
+  }, [isEditing, id, tenantId, formData.controlarLote]);
 
   const fallbackUnidades: UnidadeMedida[] = [
     { id: 'un', sigla: 'UN', nome: 'UNIDADE', casasDecimais: 0, permiteFracionado: false },
@@ -834,18 +857,11 @@ const EstoqueForm: React.FC = () => {
               descricaoMarketplace: data.descricaoMarketplace || data.ecommerce?.descricaoMarketplace || '',
               imagensMarketplace: Array.isArray(data.ecommerce?.imagens) ? data.ecommerce.imagens.join('\n') : data.imagensMarketplace || '',
               produzidoInternamente: Boolean(data.produzidoInternamente ?? data.avancado?.produzidoInternamente ?? false),
-              produtoServico: Boolean(data.produtoServico ?? data.avancado?.produtoServico ?? false),
               produtoRevenda: Boolean(data.produtoRevenda ?? data.avancado?.produtoRevenda ?? true),
               bloquearVendaSemEstoque: Boolean(data.bloquearVendaSemEstoque ?? data.avancado?.bloquearVendaSemEstoque ?? false),
-              exigirSerialLote: Boolean(data.exigirSerialLote ?? data.avancado?.exigirSerialLote ?? false),
-              lote: data.lote || data.avancado?.lote || '',
-              validade: data.validade || data.avancado?.validade || '',
               controlarLote: Boolean(data.controlarLote ?? data.avancado?.controlarLote ?? false),
-              permiteCondicional: data.permiteCondicional === true,
               permitirCashback: Boolean(data.permitirCashback ?? data.avancado?.permitirCashback ?? false),
-              produtoDestaque: Boolean(data.produtoDestaque ?? data.avancado?.produtoDestaque ?? false),
               impedirVendaAbaixoCusto: Boolean(data.impedirVendaAbaixoCusto ?? data.precos?.impedirVendaAbaixoCusto ?? false),
-              autosaveOpcional: Boolean(data.autosaveOpcional ?? false)
             });
           }
         } else {
@@ -1600,15 +1616,10 @@ const EstoqueForm: React.FC = () => {
         },
         avancado: {
           produzidoInternamente: formData.produzidoInternamente,
-          produtoServico: formData.produtoServico,
           produtoRevenda: formData.produtoRevenda,
           bloquearVendaSemEstoque: formData.bloquearVendaSemEstoque,
-          exigirSerialLote: formData.exigirSerialLote,
-          lote: formData.lote,
-          validade: formData.validade,
           controlarLote: formData.controlarLote,
           permitirCashback: formData.permitirCashback,
-          produtoDestaque: formData.produtoDestaque
         },
         integracoes: {
           firebaseMultiempresa: true,
@@ -1800,10 +1811,12 @@ const EstoqueForm: React.FC = () => {
           </div>
         </div>
         <div className="product-header-actions">
-          <div className="mode-switch" aria-label="Modo de cadastro">
-            <button type="button" className={modoCadastro === 'rapido' ? 'active' : ''} onClick={() => setModoCadastro('rapido')}>Rápido</button>
-            <button type="button" className={modoCadastro === 'avancado' ? 'active' : ''} onClick={() => setModoCadastro('avancado')}>Avançado</button>
-          </div>
+          {podeModoAvancado && (
+            <div className="mode-switch" aria-label="Modo de cadastro">
+              <button type="button" className={modoCadastro === 'rapido' ? 'active' : ''} onClick={() => setModoCadastro('rapido')}>Rápido</button>
+              <button type="button" className={modoCadastro === 'avancado' ? 'active' : ''} onClick={() => setModoCadastro('avancado')}>Avançado</button>
+            </div>
+          )}
           <button
             className="btn-primary"
             onClick={handleSave}
@@ -3241,36 +3254,67 @@ const EstoqueForm: React.FC = () => {
                 </div>
               </div>
 
+              {/* Cada chave aqui FAZ alguma coisa (revisao com o dono, 20/10/2026):
+                  as que ninguem lia (produto servico, exigir serial/lote, produto
+                  destaque, auto save, permite condicional) sairam. */}
               <div className="settings-grid">
-                {[
-                  ['produzidoInternamente', 'Produto produzido internamente'],
-                  ['produtoServico', 'Produto serviço'],
-                  ['produtoRevenda', 'Produto revenda'],
-                  ['bloquearVendaSemEstoque', 'Bloquear venda sem estoque'],
-                  ['exigirSerialLote', 'Exigir serial/lote'],
-                  ['controlarLote', 'Controlar lote'],
-                  ['permiteCondicional', 'Permite condicional'],
-                  ['permitirCashback', 'Permitir cashback'],
-                  ['produtoDestaque', 'Produto destaque'],
-                  ['autosaveOpcional', 'Auto save opcional']
-                ].map(([field, label]) => (
-                  <label className="switch-row" key={field}>
-                    <input type="checkbox" checked={Boolean(formData[field as keyof ProdutoFormData])} onChange={handleCheckbox(field as keyof ProdutoFormData)} />
+                {([
+                  ['produzidoInternamente', 'Produto produzido internamente', 'Marcado sozinho quando o produto tem composição: o custo passa a vir da receita e a transferência sai com CFOP de produção.'],
+                  ['produtoRevenda', 'Produto revenda', 'Desmarcado = item de uso interno (embalagem, material de consumo): some de toda venda, OS e orçamento.'],
+                  ['bloquearVendaSemEstoque', 'Bloquear venda sem estoque', 'Este produto não vende sem saldo, mesmo com "Permitir venda sem estoque" ligado na filial.'],
+                  ['controlarLote', 'Controlar lote', 'Entradas e saídas deste produto passam pelos lotes (Lotes e Validades). Os lotes nascem na entrada de nota, nota avulsa ou Ajuste Manual.'],
+                  ['permitirCashback', 'Permitir cashback', 'Venda deste produto gera cashback para o cliente usar na próxima compra.'],
+                ] as Array<[keyof ProdutoFormData, string, string]>).map(([field, label, dica]) => (
+                  <label className="switch-row" key={field} title={dica}>
+                    <input type="checkbox" checked={Boolean(formData[field])} onChange={handleCheckbox(field)} />
                     <span>{label}</span>
                   </label>
                 ))}
               </div>
 
-              <div className="form-grid-3">
-                <div className="input-group">
-                  <label>Lote</label>
-                  <input type="text" name="lote" value={formData.lote} onChange={handleChange} />
+              {formData.controlarLote && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>Lotes deste produto</h4>
+                      <span className="field-hint">Lote é movimento de estoque: entra pela nota, pela nota avulsa ou pelo Ajuste Manual, nunca pelo cadastro.</span>
+                    </div>
+                    {isEditing && id ? (
+                      <button type="button" className="btn-secondary" onClick={() => navigate(`/estoque/ajuste?produtoId=${id}`)}>
+                        Lançar lote (Ajuste Manual)
+                      </button>
+                    ) : (
+                      <span className="field-hint">Salve o produto; depois lance os lotes pelo Ajuste Manual de Estoque.</span>
+                    )}
+                  </div>
+                  {isEditing && (
+                    <div className="table-wrapper">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Lote</th>
+                            <th style={{ width: '160px' }}>Validade</th>
+                            <th style={{ width: '140px' }}>Situação</th>
+                            <th style={{ width: '120px' }}>Saldo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lotesDoProduto.length === 0 ? (
+                            <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '14px' }}>Nenhum lote lançado ainda.</td></tr>
+                          ) : lotesDoProduto.map((l) => (
+                            <tr key={l.id}>
+                              <td className="font-medium">{l.lote || '—'}</td>
+                              <td>{l.validade ? formatDateInputPtBr(l.validade) : 'sem validade'}</td>
+                              <td>{ROTULO_SITUACAO_LOTE[situacaoDoLote(l.validade, getDateInputInTimeZone())]}</td>
+                              <td className="font-medium">{l.quantidade}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-                <div className="input-group">
-                  <label>Validade</label>
-                  <input type="date" name="validade" value={formData.validade} onChange={handleChange} />
-                </div>
-              </div>
+              )}
             </div>
           )}
         </fieldset>

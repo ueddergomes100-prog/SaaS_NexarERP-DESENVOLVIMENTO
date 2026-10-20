@@ -21,6 +21,7 @@
 
 // Grade de produtos: o principal nao tem saldo, a troca e' da variacao.
 const grade = require('../domain/gradeProdutosDomain');
+const reserva = require('../domain/estoqueReservaDomain');
 
 const MOTIVOS_TROCA = [
   { value: 'embalagem_rasgada', label: 'Embalagem rasgada' },
@@ -285,7 +286,8 @@ const planoDeReserva = ({ itens, produtosPorId, permiteSemEstoque = false }) => 
     const quantidade = numero(produto.quantidade);
     const reservada = numero(produto.quantidadeReservada);
     const disponivel = arredondar(quantidade - reservada, PRECISAO_QUANTIDADE);
-    const liberado = permiteSemEstoque || produto.permitirEstoqueNegativo === true;
+    // "Bloquear venda sem estoque" do produto vence a chave da filial.
+    const liberado = reserva.podeVenderSemEstoque(permiteSemEstoque, produto) || produto.permitirEstoqueNegativo === true;
     if (!liberado && disponivel < linha.quantidade) {
       erros.push(`Estoque insuficiente para "${linha.nome}": a troca pede ${linha.quantidade}, disponível ${Math.max(0, disponivel)}.${DICA_SEM_ESTOQUE}`);
       continue;

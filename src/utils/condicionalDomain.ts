@@ -23,16 +23,12 @@
 import { resolveUnidadeMedidaProduto, type UnidadeMedidaProduto } from './unidadeMedidaDomain';
 import { STATUS_PRE_VENDA } from './preVendaDomain';
 import { mensagemPrincipalDeGrade } from './gradeProdutosDomain';
+import { podeVenderSemEstoque } from './estoqueReservaDomain';
 
 export const PERMISSAO_CONDICIONAL = 'vendas.condicional';
 
 export const DEFAULT_TRABALHA_COM_CONDICIONAL = false;
 export const parseTrabalhaComCondicional = (valor: unknown): boolean => valor === true;
-
-/** Campo do cadastro do produto (aba Avançado). */
-export const produtoPermiteCondicional = (produto: { permiteCondicional?: unknown } | null | undefined): boolean => (
-  produto?.permiteCondicional === true
-);
 
 export type StatusCondicional = 'aberto' | 'finalizado' | 'devolvido' | 'cancelado';
 
@@ -149,7 +145,8 @@ export interface ProdutoParaCondicional {
   statusAtivo?: boolean;
   /** Principal de uma grade: nao sai em condicional, so' a variacao (gradeProdutosDomain.ts). */
   temGrade?: boolean;
-  permiteCondicional?: boolean;
+  /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
+  bloquearVendaSemEstoque?: boolean;
   quantidade?: number;
   quantidadeReservada?: number;
   permitirEstoqueNegativo?: boolean;
@@ -178,10 +175,6 @@ export const montarItensDoCondicional = (args: {
     const nome = String(produto.nome || 'Produto sem nome');
     if (!produtoAtivo(produto)) { erros.push(`"${nome}" está inativo e não pode sair em condicional.`); continue; }
     if (produto.temGrade === true) { erros.push(mensagemPrincipalDeGrade(nome)); continue; }
-    if (!produtoPermiteCondicional(produto)) {
-      erros.push(`"${nome}" não está liberado para condicional. Marque "Permite condicional" no cadastro do produto em Estoque.`);
-      continue;
-    }
     const unidade = resolveUnidadeMedidaProduto(produto);
     if (!String(produto.unidadeMedidaSigla ?? '').trim()) semUnidade.push(nome);
     if (!unidade.unidadeMedidaFracionado && !Number.isInteger(pedido.quantidade)) {
@@ -217,9 +210,14 @@ export const planoDeReserva = (args: {
     if (!produto) { erros.push(`O produto "${item.nome}" não foi encontrado no cadastro.`); continue; }
     const reservada = numero(produto.quantidadeReservada);
     const disponivel = arredondar(numero(produto.quantidade) - reservada);
-    const liberado = args.permiteSemEstoque || produto.permitirEstoqueNegativo === true;
+    // "Bloquear venda sem estoque" do produto vence a chave da filial.
+    const liberado = podeVenderSemEstoque(args.permiteSemEstoque, produto) || produto.permitirEstoqueNegativo === true;
     if (!liberado && disponivel < item.quantidade) {
-      erros.push(`Estoque insuficiente para "${item.nome}": o condicional leva ${item.quantidade}, disponível ${Math.max(0, disponivel)}. Dê entrada do produto no Estoque ou ligue "Permitir venda sem estoque" em Configurações da filial.`);
+      erros.push(`Estoque insuficiente para "${item.nome}": o condicional leva ${item.quantidade}, disponível ${Math.max(0, disponivel)}. ${
+        produto.bloquearVendaSemEstoque === true
+          ? 'Este produto não sai sem estoque ("Bloquear venda sem estoque" no cadastro). Dê entrada do produto no Estoque.'
+          : 'Dê entrada do produto no Estoque ou ligue "Permitir venda sem estoque" em Configurações da filial.'
+      }`);
       continue;
     }
     reservas.push({ id: item.id, reservadaDepois: arredondar(reservada + item.quantidade) });

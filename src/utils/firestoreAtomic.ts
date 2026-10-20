@@ -10,7 +10,7 @@ import {
   type Transaction,
   where,
 } from 'firebase/firestore';
-import type { StockFieldDelta } from './estoqueReservaDomain';
+import { podeVenderSemEstoque, type StockFieldDelta } from './estoqueReservaDomain';
 // Reexportado para as telas importarem transacao e traducao de erro do
 // mesmo lugar. A funcao mora em modulo puro (sem Firestore) pra ficar
 // coberta pelo harness de testes, que so compila dominio puro.
@@ -174,7 +174,7 @@ export const applyStockAdjustments = async (
   db: Firestore,
   items: StockAdjustmentItem[],
   direction: 'decrement' | 'increment',
-  allowNegativeStock = false,
+  allowNegativeStockDaFilial = false,
   opcoes: OpcoesDeSaidaDeEstoque = {},
 ) => {
   const itemsById = new Map<string, StockAdjustmentItem>();
@@ -207,6 +207,8 @@ export const applyStockAdjustments = async (
   for (const { item, stockRef, stockSnap } of adjustmentReads) {
     if (!stockSnap.exists()) continue;
 
+    // "Bloquear venda sem estoque" do produto vence a chave da filial.
+    const allowNegativeStock = podeVenderSemEstoque(allowNegativeStockDaFilial, stockSnap.data());
     const currentQuantity = Number(stockSnap.data().quantidade || 0);
     const nextQuantity =
       direction === 'decrement'
@@ -240,7 +242,7 @@ export const applyStockFieldDeltas = async (
   transaction: Transaction,
   db: Firestore,
   deltas: StockFieldDelta[],
-  allowNegativeStock = false,
+  allowNegativeStockDaFilial = false,
   opcoes: OpcoesDeSaidaDeEstoque = {},
 ) => {
   if (deltas.length === 0) return;
@@ -259,6 +261,8 @@ export const applyStockFieldDeltas = async (
   for (const { delta, stockRef, stockSnap } of reads) {
     if (!stockSnap.exists()) continue;
 
+    // "Bloquear venda sem estoque" do produto vence a chave da filial.
+    const allowNegativeStock = podeVenderSemEstoque(allowNegativeStockDaFilial, stockSnap.data());
     const currentQuantidade = Number(stockSnap.data().quantidade || 0);
     const currentReservada = Number(stockSnap.data().quantidadeReservada || 0);
     const nextQuantidade = currentQuantidade + delta.quantidadeDelta;

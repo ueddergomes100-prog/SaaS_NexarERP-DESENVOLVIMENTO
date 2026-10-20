@@ -40,18 +40,35 @@ test('criar: reserva o estoque, numera e grava os dados do cadastro', async () =
   assert.equal(fake.ler('contadores/emp1/sequencias/condicionais').valor, 1);
 });
 
-test('criar: bloqueia com a empresa sem "Trabalha com condicional" e produto sem "Permite condicional"', async () => {
+test('criar: bloqueia com a empresa sem "Trabalha com condicional"; a marca por produto saiu (20/10)', async () => {
   const desligado = criarBancoFalso(base({ 'configuracoes/emp1': {} }));
   await assert.rejects(
     () => carregar(desligado.db).criarCondicional({ user: USER, tenantId: 'emp1', corpo: pedidoCriar(), hoje: HOJE }),
     /Trabalha com condicional/,
   );
-  const semLiberar = criarBancoFalso(base({ 'estoque/p2': produto({ nome: 'BLUSA BRANCA P', permiteCondicional: false }) }));
+  // "Permite condicional" por produto deixou de existir: com a chave da filial ligada, todo produto ativo sai.
+  const semMarca = criarBancoFalso(base({ 'estoque/p2': produto({ nome: 'BLUSA BRANCA P', permiteCondicional: false, quantidade: 2 }) }));
+  const r = await carregar(semMarca.db).criarCondicional({ user: USER, tenantId: 'emp1', corpo: pedidoCriar(), hoje: HOJE });
+  assert.equal(semMarca.ler(`condicionais/${r.id}`).status, 'aberto');
+});
+
+test('criar: "Bloquear venda sem estoque" do produto vence a chave da filial', async () => {
+  const travado = criarBancoFalso(base({
+    'configuracoes/emp1': { trabalhaComCondicional: true, venderSemEstoque: true },
+    'estoque/p2': produto({ nome: 'BLUSA BRANCA P', quantidade: 0, bloquearVendaSemEstoque: true }),
+  }));
   await assert.rejects(
-    () => carregar(semLiberar.db).criarCondicional({ user: USER, tenantId: 'emp1', corpo: pedidoCriar(), hoje: HOJE }),
-    /BLUSA BRANCA P.*Permite condicional/,
+    () => carregar(travado.db).criarCondicional({ user: USER, tenantId: 'emp1', corpo: pedidoCriar(), hoje: HOJE }),
+    /BLUSA BRANCA P.*Bloquear venda sem estoque/,
   );
-  assert.equal(semLiberar.ler('estoque/p1').quantidadeReservada, 0, 'nada reservado se algum item for recusado');
+  assert.equal(travado.ler('estoque/p1').quantidadeReservada, 0, 'nada reservado se algum item for recusado');
+  // Sem a trava, a chave da filial libera.
+  const livre = criarBancoFalso(base({
+    'configuracoes/emp1': { trabalhaComCondicional: true, venderSemEstoque: true },
+    'estoque/p2': produto({ nome: 'BLUSA BRANCA P', quantidade: 0 }),
+  }));
+  const r = await carregar(livre.db).criarCondicional({ user: USER, tenantId: 'emp1', corpo: pedidoCriar(), hoje: HOJE });
+  assert.equal(livre.ler(`condicionais/${r.id}`).status, 'aberto');
 });
 
 test('criar: falta de estoque, cliente de outra empresa e prazo no passado sao recusados', async () => {

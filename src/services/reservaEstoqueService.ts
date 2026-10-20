@@ -3,6 +3,7 @@ import { db } from './firebase';
 import { STATUS_PEDIDO_ABERTO } from '../utils/preVendaDomain';
 import {
   analisarSaidaComReserva,
+  podeVenderSemEstoque,
   quantidadeDoProdutoNosItens,
   textoDaSaidaComReserva,
   type AnaliseDaSaida,
@@ -64,6 +65,8 @@ export interface ProdutoComReserva {
   nome: string;
   quantidade?: unknown;
   quantidadeReservada?: unknown;
+  /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
+  bloquearVendaSemEstoque?: unknown;
   unidadeMedidaSigla?: string | null;
   unidadeMedidaCasasDecimais?: number | null;
 }
@@ -96,7 +99,8 @@ export const conferirSaidaDoProduto = (args: ArgsDaSaida): ConferenciaDaSaida =>
     quantidadeReservada: args.produto.quantidadeReservada,
     pedida: args.pedida,
     reservadoPeloDocumento: args.reservadoPeloDocumento,
-    permiteVendaSemEstoque: args.permiteVendaSemEstoque,
+    // "Bloquear venda sem estoque" do produto vence a chave da filial.
+    permiteVendaSemEstoque: podeVenderSemEstoque(args.permiteVendaSemEstoque, args.produto),
   });
   const resumo = textoDaSaidaComReserva({
     analise,

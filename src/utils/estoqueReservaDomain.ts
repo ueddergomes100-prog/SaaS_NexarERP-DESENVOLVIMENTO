@@ -224,6 +224,16 @@ const numeroOuZero = (valor: unknown): number => {
  * ja' segura gravado (pre-venda ou OS aberta com reserva) -- ele nao conta
  * contra o proprio documento.
  */
+/**
+ * "Permitir venda sem estoque" e' da filial, mas o produto pode se trancar
+ * ("Bloquear venda sem estoque" no cadastro, 20/10/2026): marcado, nao sai
+ * sem saldo em nenhuma tela nem no servidor, mesmo com a chave ligada.
+ */
+export const podeVenderSemEstoque = (
+  permiteNaFilial: boolean,
+  produto: { bloquearVendaSemEstoque?: unknown } | null | undefined,
+): boolean => permiteNaFilial && produto?.bloquearVendaSemEstoque !== true;
+
 export const analisarSaidaComReserva = (args: {
   quantidade: unknown;
   quantidadeReservada: unknown;

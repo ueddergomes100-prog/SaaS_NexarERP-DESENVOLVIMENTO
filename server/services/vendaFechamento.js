@@ -436,12 +436,14 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       const proximo = estoqueAtual + d.quantidadeDelta;
       const reservadaDepois = Math.max(0, reservadaAtual + d.quantidadeReservadaDelta);
       const nome = d.nome || produto.nome || 'item';
-      if (d.quantidadeDelta < 0 && !permitirSemEstoque) {
+      // "Bloquear venda sem estoque" do produto vence a chave da filial.
+      const permitirSemEstoqueDoProduto = reserva.podeVenderSemEstoque(permitirSemEstoque, produto);
+      if (d.quantidadeDelta < 0 && !permitirSemEstoqueDoProduto) {
         if (proximo < -1e-9) throw new ErroVenda(409, `Estoque insuficiente para ${nome}. Disponível: ${estoqueAtual}.`);
         if (proximo < reservadaDepois - 1e-9) throw new ErroVenda(409, mensagemDeReserva(nome, estoqueAtual, reservadaDepois));
       }
       escritasDeEstoque.push([d.id, {
-        quantidade: permitirSemEstoque ? proximo : Math.max(0, proximo),
+        quantidade: permitirSemEstoqueDoProduto ? proximo : Math.max(0, proximo),
         quantidadeReservada: reservadaDepois,
         updatedAt: agora(),
       }]);

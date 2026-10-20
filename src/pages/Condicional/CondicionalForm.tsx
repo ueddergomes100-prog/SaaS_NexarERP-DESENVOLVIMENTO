@@ -15,9 +15,9 @@ import {
   OBSERVACAO_MAX,
   PRAZO_MAXIMO_DIAS,
   prazoPadrao,
-  produtoPermiteCondicional,
   validarPrazoDevolucao,
 } from '../../utils/condicionalDomain';
+import { podeVenderSemEstoque } from '../../utils/estoqueReservaDomain';
 import { CondicionalError, condicionalService, novoIdDeCondicional } from '../../services/condicionalService';
 import { MensagemCondicionalDesligado, MensagemSemPermissaoCondicional, usePodeUsarCondicional } from './CondicionaisList';
 import { moeda } from './condicionalTipos';
@@ -41,7 +41,7 @@ interface ProdutoBusca {
   unidadeMedidaCasasDecimais?: number;
   ativo?: boolean;
   statusAtivo?: boolean;
-  permiteCondicional?: boolean;
+  bloquearVendaSemEstoque?: boolean;
 }
 interface ItemRascunho { id: string; nome: string; codigo?: string; quantidade: number; unidade: string; preco: number }
 
@@ -61,9 +61,10 @@ const CondicionalForm: React.FC = () => {
   const { items: clientes } = useTenantCollection<ClienteBusca>('clientes', tenantId, { enabled: ativo });
   const { items: produtos } = useTenantCollection<ProdutoBusca>('estoque', tenantId, { enabled: ativo });
   const clientesAtivos = useMemo(() => clientes.filter((c) => c.ativo !== false), [clientes]);
-  // Só aparecem os produtos liberados no cadastro ("Permite condicional").
+  // Com "Trabalha com condicional" ligado, todo produto ativo pode sair
+  // (a marca por produto "Permite condicional" saiu em 20/10/2026, decisao do dono).
   const produtosLiberados = useMemo(
-    () => produtos.filter((p) => p.ativo !== false && p.statusAtivo !== false && produtoPermiteCondicional(p)),
+    () => produtos.filter((p) => p.ativo !== false && p.statusAtivo !== false),
     [produtos],
   );
 
@@ -94,7 +95,7 @@ const CondicionalForm: React.FC = () => {
       return;
     }
     const jaNaLista = itens.filter((i) => i.id === produto.id).reduce((s, i) => s + i.quantidade, 0);
-    if (!permiteVendaSemEstoque && jaNaLista + qtd > disponivel(produto)) {
+    if (!podeVenderSemEstoque(permiteVendaSemEstoque, produto) && jaNaLista + qtd > disponivel(produto)) {
       showError('Estoque insuficiente', `"${produto.nome}" tem ${disponivel(produto)} disponível (descontado o que já está reservado). Dê entrada no Estoque ou diminua a quantidade.`);
       return;
     }

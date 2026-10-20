@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.textoDaSaidaComReserva = exports.analisarSaidaComReserva = exports.quantidadeDoProdutoNosItens = exports.ROTULO_ORIGEM_RESERVA = exports.textoDaReserva = exports.resumoDeReserva = exports.computeReservationRelease = exports.computeReservationReturn = exports.computeReservationCommit = exports.computeReservationDelta = exports.computeAvailableStock = exports.DEFAULT_MOMENTO_BAIXA_ESTOQUE = exports.MOMENTO_BAIXA_ESTOQUE_OPTIONS = void 0;
+exports.textoDaSaidaComReserva = exports.analisarSaidaComReserva = exports.podeVenderSemEstoque = exports.quantidadeDoProdutoNosItens = exports.ROTULO_ORIGEM_RESERVA = exports.textoDaReserva = exports.resumoDeReserva = exports.computeReservationRelease = exports.computeReservationReturn = exports.computeReservationCommit = exports.computeReservationDelta = exports.computeAvailableStock = exports.DEFAULT_MOMENTO_BAIXA_ESTOQUE = exports.MOMENTO_BAIXA_ESTOQUE_OPTIONS = void 0;
 exports.MOMENTO_BAIXA_ESTOQUE_OPTIONS = [
     { value: 'imediato', label: 'Baixar imediatamente (padrão)' },
     { value: 'pedido', label: 'Reservar no Pedido e na OS (baixa só ao finalizar)' },
@@ -146,6 +146,13 @@ const numeroOuZero = (valor) => {
  * ja' segura gravado (pre-venda ou OS aberta com reserva) -- ele nao conta
  * contra o proprio documento.
  */
+/**
+ * "Permitir venda sem estoque" e' da filial, mas o produto pode se trancar
+ * ("Bloquear venda sem estoque" no cadastro, 20/10/2026): marcado, nao sai
+ * sem saldo em nenhuma tela nem no servidor, mesmo com a chave ligada.
+ */
+const podeVenderSemEstoque = (permiteNaFilial, produto) => permiteNaFilial && produto?.bloquearVendaSemEstoque !== true;
+exports.podeVenderSemEstoque = podeVenderSemEstoque;
 const analisarSaidaComReserva = (args) => {
     const estoque = numeroOuZero(args.quantidade);
     const reservada = Math.max(0, numeroOuZero(args.quantidadeReservada));

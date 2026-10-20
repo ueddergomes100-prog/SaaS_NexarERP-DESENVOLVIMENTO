@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MENSAGEM_CONDICIONAL_DESLIGADO = exports.acoesDoCondicional = exports.resumirCondicional = exports.STATUS_DA_PRE_VENDA_GERADA = exports.itensQueFicaram = exports.planejarDevolucao = exports.planoDeLiberacao = exports.planoDeReserva = exports.montarItensDoCondicional = exports.validarItensDoPedido = exports.somarPorProduto = exports.estaVencido = exports.validarPrazoDevolucao = exports.prazoPadrao = exports.normalizarObservacao = exports.quantidadePendente = exports.OBSERVACAO_MAX = exports.MAX_ITENS = exports.PRAZO_MAXIMO_DIAS = exports.PRAZO_PADRAO_DIAS = exports.ROTULO_STATUS_CONDICIONAL = exports.produtoPermiteCondicional = exports.parseTrabalhaComCondicional = exports.DEFAULT_TRABALHA_COM_CONDICIONAL = exports.PERMISSAO_CONDICIONAL = void 0;
+exports.MENSAGEM_CONDICIONAL_DESLIGADO = exports.acoesDoCondicional = exports.resumirCondicional = exports.STATUS_DA_PRE_VENDA_GERADA = exports.itensQueFicaram = exports.planejarDevolucao = exports.planoDeLiberacao = exports.planoDeReserva = exports.montarItensDoCondicional = exports.validarItensDoPedido = exports.somarPorProduto = exports.estaVencido = exports.validarPrazoDevolucao = exports.prazoPadrao = exports.normalizarObservacao = exports.quantidadePendente = exports.OBSERVACAO_MAX = exports.MAX_ITENS = exports.PRAZO_MAXIMO_DIAS = exports.PRAZO_PADRAO_DIAS = exports.ROTULO_STATUS_CONDICIONAL = exports.parseTrabalhaComCondicional = exports.DEFAULT_TRABALHA_COM_CONDICIONAL = exports.PERMISSAO_CONDICIONAL = void 0;
 /*
  * CONDICIONAL -- o cliente leva mercadoria para provar em casa, devolve o que
  * nao quiser e o que fica vira venda. Pedido do dono em 2026-10-05.
@@ -26,13 +26,11 @@ exports.MENSAGEM_CONDICIONAL_DESLIGADO = exports.acoesDoCondicional = exports.re
 const unidadeMedidaDomain_1 = require("./unidadeMedidaDomain");
 const preVendaDomain_1 = require("./preVendaDomain");
 const gradeProdutosDomain_1 = require("./gradeProdutosDomain");
+const estoqueReservaDomain_1 = require("./estoqueReservaDomain");
 exports.PERMISSAO_CONDICIONAL = 'vendas.condicional';
 exports.DEFAULT_TRABALHA_COM_CONDICIONAL = false;
 const parseTrabalhaComCondicional = (valor) => valor === true;
 exports.parseTrabalhaComCondicional = parseTrabalhaComCondicional;
-/** Campo do cadastro do produto (aba Avançado). */
-const produtoPermiteCondicional = (produto) => (produto?.permiteCondicional === true);
-exports.produtoPermiteCondicional = produtoPermiteCondicional;
 exports.ROTULO_STATUS_CONDICIONAL = {
     aberto: 'Com o cliente',
     finalizado: 'Virou pré-venda',
@@ -143,10 +141,6 @@ const montarItensDoCondicional = (args) => {
             erros.push((0, gradeProdutosDomain_1.mensagemPrincipalDeGrade)(nome));
             continue;
         }
-        if (!(0, exports.produtoPermiteCondicional)(produto)) {
-            erros.push(`"${nome}" não está liberado para condicional. Marque "Permite condicional" no cadastro do produto em Estoque.`);
-            continue;
-        }
         const unidade = (0, unidadeMedidaDomain_1.resolveUnidadeMedidaProduto)(produto);
         if (!String(produto.unidadeMedidaSigla ?? '').trim())
             semUnidade.push(nome);
@@ -182,9 +176,12 @@ const planoDeReserva = (args) => {
         }
         const reservada = numero(produto.quantidadeReservada);
         const disponivel = arredondar(numero(produto.quantidade) - reservada);
-        const liberado = args.permiteSemEstoque || produto.permitirEstoqueNegativo === true;
+        // "Bloquear venda sem estoque" do produto vence a chave da filial.
+        const liberado = (0, estoqueReservaDomain_1.podeVenderSemEstoque)(args.permiteSemEstoque, produto) || produto.permitirEstoqueNegativo === true;
         if (!liberado && disponivel < item.quantidade) {
-            erros.push(`Estoque insuficiente para "${item.nome}": o condicional leva ${item.quantidade}, disponível ${Math.max(0, disponivel)}. Dê entrada do produto no Estoque ou ligue "Permitir venda sem estoque" em Configurações da filial.`);
+            erros.push(`Estoque insuficiente para "${item.nome}": o condicional leva ${item.quantidade}, disponível ${Math.max(0, disponivel)}. ${produto.bloquearVendaSemEstoque === true
+                ? 'Este produto não sai sem estoque ("Bloquear venda sem estoque" no cadastro). Dê entrada do produto no Estoque.'
+                : 'Dê entrada do produto no Estoque ou ligue "Permitir venda sem estoque" em Configurações da filial.'}`);
             continue;
         }
         reservas.push({ id: item.id, reservadaDepois: arredondar(reservada + item.quantidade) });

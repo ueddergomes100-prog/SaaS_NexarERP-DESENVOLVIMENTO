@@ -283,6 +283,7 @@ const PDV: React.FC = () => {
               statusAtivo: data.statusAtivo ?? data.ativo ?? true,
               produtoRevenda: data.produtoRevenda,
               temGrade: data.temGrade === true,
+              bloquearVendaSemEstoque: data.bloquearVendaSemEstoque === true,
               embalagens: data.embalagens,
               descontoMaximoPercentual: data.descontoMaximoPercentual,
             } as PdvProduct;

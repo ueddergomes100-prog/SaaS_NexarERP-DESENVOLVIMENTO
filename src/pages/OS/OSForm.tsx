@@ -159,6 +159,8 @@ interface PecaData {
   /** `true` = principal de uma grade (gradeProdutosDomain.ts): sem estoque,
    * quem se vende sao as variacoes -- searchProducts() tambem exclui. */
   temGrade?: boolean;
+  /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
+  bloquearVendaSemEstoque?: boolean;
 }
 interface PecaSelecionada {
   id: string;
@@ -482,6 +484,7 @@ const OSForm: React.FC = () => {
           comissaoPercentual: doc.data().comissaoPercentual,
           ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
           temGrade: doc.data().temGrade === true,
+          bloquearVendaSemEstoque: doc.data().bloquearVendaSemEstoque === true,
         });
       });
       setPecasEstoque(dataE);

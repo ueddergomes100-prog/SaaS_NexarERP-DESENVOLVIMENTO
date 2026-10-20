@@ -4,6 +4,7 @@ import ProdutoOpcaoBusca from '../../components/common/ProdutoOpcaoBusca';
 import { LISTAR_TUDO_TERM, searchProducts } from '../../utils/productSearch';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { podeVenderSemEstoque } from '../../utils/estoqueReservaDomain';
 import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import { precificarNoApp, promocaoParaMostrar, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
@@ -20,6 +21,8 @@ export interface ProdutoVendedorExterno {
   unidadeMedidaFracionado?: boolean;
   unidadeMedidaCasasDecimais?: number;
   ativo?: boolean;
+  /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
+  bloquearVendaSemEstoque?: boolean;
 }
 
 interface Props {
@@ -112,7 +115,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
       const unidade = resolveUnidadeMedidaProduto(produto);
 
-      if (!permitirVendaSemEstoque && qtd > (produto.quantidade || 0)) {
+      if (!podeVenderSemEstoque(permitirVendaSemEstoque, produto) && qtd > (produto.quantidade || 0)) {
         erros.push(`${produto.nome}: só há ${produto.quantidade || 0} ${unidade.unidadeMedidaSigla} em estoque`);
         return;
       }

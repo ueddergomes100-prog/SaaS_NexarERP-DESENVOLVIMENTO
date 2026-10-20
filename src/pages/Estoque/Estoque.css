@@ -65,10 +65,19 @@
   cursor: pointer;
 }
 
-.mode-switch button.active {
+/* Hover e selecionado explicitos (20/10/2026): o hover global de botao
+   deixava a letra branca sobre fundo claro, e o roxo do selecionado era
+   claro demais para ler. */
+.mode-switch button:hover:not(.active) {
   color: var(--text-primary);
   background: var(--bg-tertiary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.mode-switch button.active,
+.mode-switch button.active:hover {
+  color: #ffffff;
+  background: var(--accent-purple);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
 .product-form {

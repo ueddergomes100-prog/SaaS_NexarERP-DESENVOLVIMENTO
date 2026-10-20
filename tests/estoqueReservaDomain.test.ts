@@ -14,7 +14,15 @@ import {
   quantidadeDoProdutoNosItens,
   analisarSaidaComReserva,
   textoDaSaidaComReserva,
+  podeVenderSemEstoque,
 } from '../src/utils/estoqueReservaDomain';
+
+test('podeVenderSemEstoque: a trava do produto vence a chave da filial', () => {
+  assert.equal(podeVenderSemEstoque(true, {}), true);
+  assert.equal(podeVenderSemEstoque(true, { bloquearVendaSemEstoque: true }), false);
+  assert.equal(podeVenderSemEstoque(false, {}), false);
+  assert.equal(podeVenderSemEstoque(true, null), true);
+});
 
 const item = (id: string, quantidade: number, nome?: string): StockLineItem => ({ id, nome, quantidade });
 

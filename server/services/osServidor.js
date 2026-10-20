@@ -30,6 +30,7 @@ const { parseParametrosVenda, bloqueioPorAtraso } = require('../domain/parametro
 const { bloqueioParaRefazerParcelas } = require('../domain/alteracaoValorTituloDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const grade = require('../domain/gradeProdutosDomain');
+const reserva = require('../domain/estoqueReservaDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda } = require('./vendaFechamento');
 const cd = require('../domain/conferenciaDescontoDomain');
@@ -82,7 +83,8 @@ const lerProdutos = async (tx, ids, tenantId) => {
 
 /** Escritas de estoque com a conferencia de saldo e de reserva (regra em osFechamentoDomain). */
 const escritasDeEstoque = (deltas, produtos, permitirSemEstoque) => deltas.flatMap((d) => {
-  const saldo = osf.novoSaldoDoProduto(d, produtos[d.id], permitirSemEstoque);
+  // "Bloquear venda sem estoque" do produto vence a chave da filial.
+  const saldo = osf.novoSaldoDoProduto(d, produtos[d.id], reserva.podeVenderSemEstoque(permitirSemEstoque, produtos[d.id]));
   if (!saldo) return []; // produto apagado: a tela tambem pulava
   if ('erro' in saldo) throw new ErroVenda(409, saldo.erro);
   return [[d.id, { ...saldo, updatedAt: agora() }]];

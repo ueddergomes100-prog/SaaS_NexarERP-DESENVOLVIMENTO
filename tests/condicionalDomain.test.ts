@@ -10,7 +10,6 @@ import {
   planoDeLiberacao,
   planoDeReserva,
   prazoPadrao,
-  produtoPermiteCondicional,
   quantidadePendente,
   resumirCondicional,
   validarItensDoPedido,
@@ -51,9 +50,6 @@ test('configuracao e produto: so\' liga com true de verdade', () => {
   assert.equal(parseTrabalhaComCondicional(true), true);
   assert.equal(parseTrabalhaComCondicional('true'), false);
   assert.equal(parseTrabalhaComCondicional(undefined), false);
-  assert.equal(produtoPermiteCondicional({ permiteCondicional: true }), true);
-  assert.equal(produtoPermiteCondicional({}), false);
-  assert.equal(produtoPermiteCondicional(null), false);
 });
 
 test('prazo: padrao de 3 dias, passado/inexistente/longe demais recusados', () => {
@@ -80,14 +76,11 @@ test('itens do pedido: junta repetidos e recusa vazio, id ruim e quantidade zero
   assert.match(validarItensDoPedido(Array.from({ length: 101 }, (_, i) => ({ id: `p${i}`, quantidade: 1 }))).erros[0], /100 itens/);
 });
 
-test('montar itens: dados do cadastro, bloqueia produto sem "Permite condicional", inativo e fracao', () => {
+test('montar itens: dados do cadastro, bloqueia principal de grade, inativo e fracao', () => {
   const ok = montarItensDoCondicional({ itens: [{ id: 'p1', quantidade: 2 }], produtosPorId: { p1: produto() } });
   assert.deepEqual(ok.erros, []);
   assert.equal(ok.itens[0].precoUnitario, 120);
   assert.equal(ok.itens[0].quantidadeDevolvida, 0);
-
-  const semLiberar = montarItensDoCondicional({ itens: [{ id: 'p1', quantidade: 1 }], produtosPorId: { p1: produto({ permiteCondicional: false }) } });
-  assert.match(semLiberar.erros[0], /Permite condicional/);
 
   // Principal de grade nao tem saldo: quem sai em condicional e' a variacao.
   const principal = montarItensDoCondicional({ itens: [{ id: 'p1', quantidade: 1 }], produtosPorId: { p1: produto({ temGrade: true }) } });
@@ -125,6 +118,9 @@ test('reserva: confere disponivel (quantidade - reservada) e libera com "vender 
   assert.deepEqual(liberado.reservas, [{ id: 'p1', reservadaDepois: 12 }]);
   const negativoNoProduto = planoDeReserva({ itens: [item({ quantidade: 9 })], produtosPorId: { p1: produto({ quantidade: 0, permitirEstoqueNegativo: true }) }, permiteSemEstoque: false });
   assert.equal(negativoNoProduto.erros.length, 0);
+  // "Bloquear venda sem estoque" no produto vence a chave da filial.
+  const travadoNoProduto = planoDeReserva({ itens: [item({ quantidade: 9 })], produtosPorId: { p1: produto({ quantidade: 1, bloquearVendaSemEstoque: true }) }, permiteSemEstoque: true });
+  assert.match(travadoNoProduto.erros[0], /Bloquear venda sem estoque/);
 });
 
 test('liberacao: nunca deixa a reserva negativa e ignora produto que sumiu', () => {

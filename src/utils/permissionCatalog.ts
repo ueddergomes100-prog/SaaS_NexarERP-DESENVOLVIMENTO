@@ -201,6 +201,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // liberava o Historico de Entradas junto, sem controle independente.
       { id: 'fiscal.entrada_historico', label: 'Fiscal: Histórico de Entradas', color: '#f59e0b' },
       { id: 'fiscal.excluir', label: 'Fiscal: Excluir/Cancelar Nota Fiscal', color: '#ef4444' },
+      // Relatorio do contador (20/10/2026): notas de saida e entrada por CFOP, operacao e situacao.
+      { id: 'fiscal.relatorio_contador', label: 'Fiscal: Relatório do Contador', color: '#f59e0b' },
       { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
     ],
   },

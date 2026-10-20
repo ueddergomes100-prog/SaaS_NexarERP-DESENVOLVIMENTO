@@ -307,6 +307,7 @@ const Sidebar: React.FC = () => {
       icon: Receipt,
       items: [
         { label: 'Notas Fiscais', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
+        { label: 'Relatório do Contador', to: '/fiscal/relatorio-contador', icon: FileText, module: 'fiscal.nfe', permission: 'fiscal.relatorio_contador' },
         { label: 'Entrada de XML', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
         { label: 'Histórico de Entradas', to: '/fiscal/entrada-nfe/historico', icon: History, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada_historico' }
       ]

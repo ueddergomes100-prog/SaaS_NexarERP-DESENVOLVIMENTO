@@ -117,6 +117,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/financeiro/faturamento', 'Faturamento'],
   ['/financeiro/comissoes', 'Comissões'],
   ['/fiscal/nfe', 'Notas Fiscais'],
+  ['/fiscal/relatorio-contador', 'Relatório do Contador'],
   ['/fiscal/entrada-nfe', 'Entrada de XML'],
   ['/utilitarios/sintegra', 'SINTEGRA'],
   ['/relatorios-diversos', 'Relatórios Diversos'],

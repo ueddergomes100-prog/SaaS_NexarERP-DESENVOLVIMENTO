@@ -158,6 +158,7 @@ const planejarEstornoReceber = (titulo) => {
         return bloqueado(exports.MENSAGEM_SO_PAGA, false);
     const forma = String(titulo.formaPagamento || '');
     if (forma === 'Crédito de Devolução'
+        || forma === 'Cashback'
         || titulo.naturezaFinanceira === 'credito_cliente'
         || titulo.sourcePaymentTransactionId) {
         return bloqueado(`Este recebimento foi pago com crédito do cliente e não pode ser estornado por aqui, `

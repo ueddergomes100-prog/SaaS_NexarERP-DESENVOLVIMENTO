@@ -13,6 +13,11 @@
  *    o proximo cashback abate.
  *  - estornarDevolucao(devolucaoId): devolucao parcial tira do lote a parte
  *    proporcional ao valor devolvido.
+ *  - prepararUso/gravarUso (fase 2): a venda PELO SERVIDOR paga com a forma
+ *    "Cashback" -- confere o saldo e baixa os lotes (vence antes, sai antes)
+ *    dentro da transacao da venda (vendaFechamento.js), gravando o movimento
+ *    `usado_{pedidoId}`; devolverUso(pedidoId) devolve tudo quando essa venda
+ *    e' cancelada (estornarVenda chama os dois caminhos).
  *
  * Cada operacao e' uma transacao propria (leituras antes das escritas), por
  * isso roda DEPOIS da transacao da venda/baixa, como registrarLog -- nao e'
@@ -80,6 +85,7 @@ const fatorDaBase = (venda, itens) => {
 };
 
 const refLote = (pedidoId) => db.collection('cashback_movimentos').doc(`gerado_${pedidoId}`);
+const refUso = (pedidoId) => db.collection('cashback_movimentos').doc(`usado_${pedidoId}`);
 
 const lotesDoCliente = async (tx, tenantId, clienteId) => {
   const snap = await tx.get(db.collection('cashback_movimentos')
@@ -95,14 +101,27 @@ const dividaDoCliente = (cliente) => ({
 });
 
 /** Regrava o resumo do cliente a partir dos lotes (ja' com as mudancas desta transacao). */
-const gravarResumo = (tx, clienteRef, modelo, lotes, divida, hoje) => {
+const gravarResumo = (tx, clienteRef, modelo, lotes, divida, hoje, maisCampos = {}) => {
   const resumo = cb.resumoDosLotes(lotes, hoje, divida);
   tx.set(clienteRef, {
+    ...maisCampos,
     cashback: { modelo, ...resumo, atualizadoEm: agora() },
     updatedAt: agora(),
   }, { merge: true });
   return resumo;
 };
+
+/** Lotes como o dominio le (ordem de criacao para o desempate do "vence antes, sai antes"). */
+const lotesParaUso = (lotes) => lotes.map((l, posicao) => ({
+  id: l.id,
+  centavos: inteiro(l.dados.centavos),
+  pontos: inteiro(l.dados.pontos),
+  restanteCentavos: inteiro(l.dados.restanteCentavos),
+  restantePontos: inteiro(l.dados.restantePontos),
+  validade: l.dados.validade || null,
+  estornado: l.dados.estornado === true,
+  ordem: l.dados.createdAt && typeof l.dados.createdAt.toMillis === 'function' ? l.dados.createdAt.toMillis() : posicao,
+}));
 
 // ---------------------------------------------------------------------------
 // Gerar
@@ -267,9 +286,12 @@ const abaterDaVenda = async ({ user, tenantId, pedidoId, parte, motivo, idMovime
   return resultado;
 };
 
-const estornarVenda = ({ user, tenantId, pedidoId, motivo = 'Cashback estornado: venda cancelada' }) => abaterDaVenda({
-  user, tenantId, pedidoId, parte: null, motivo, idMovimento: `estornado_${texto(pedidoId)}`,
-});
+/** Venda cancelada: estorna o que ela GEROU e devolve o que ela USOU (os dois idempotentes). */
+const estornarVenda = async ({ user, tenantId, pedidoId, motivo = 'Cashback estornado: venda cancelada' }) => {
+  const gerado = await abaterDaVenda({ user, tenantId, pedidoId, parte: null, motivo, idMovimento: `estornado_${texto(pedidoId)}` });
+  const uso = await devolverUso({ user, tenantId, pedidoId });
+  return { ...gerado, uso };
+};
 
 /** Baixa estornada: se a venda deixou de estar paga, o lote inteiro volta. */
 const revisarAposEstorno = async ({ user, tenantId, pedidoId }) => {
@@ -303,6 +325,142 @@ const estornarDevolucao = async ({ user, tenantId, devolucaoId }) => {
 };
 
 // ---------------------------------------------------------------------------
+// Usar como forma de pagamento (fase 2, 20/10/2026) -- na transacao da venda
+// ---------------------------------------------------------------------------
+
+/**
+ * Fase de LEITURAS da transacao da venda: confere o pagamento "Cashback"
+ * contra o saldo do cliente (lido aqui dentro) e monta o plano de consumo.
+ * Erros sobem como ErroCashback, com status e texto para a tela.
+ */
+const prepararUso = async ({ tx, tenantId, clienteId, config, totalCentavos, valorCentavos, hoje }) => {
+  const id = texto(clienteId);
+  const semCliente = 'Cashback só pode ser usado com o cliente cadastrado escolhido.';
+  if (!id) throw new ErroCashback(400, semCliente);
+  const clienteRef = db.collection('clientes').doc(id);
+  const clienteSnap = await tx.get(clienteRef);
+  if (!clienteSnap.exists || clienteSnap.data().tenantId !== tenantId) throw new ErroCashback(400, semCliente);
+  const cliente = clienteSnap.data();
+  if (cliente.isPadrao === true) throw new ErroCashback(400, 'Consumidor final não tem cashback. Escolha o cliente cadastrado ou troque a forma de pagamento.');
+  const lotes = await lotesDoCliente(tx, tenantId, id);
+  const divida = dividaDoCliente(cliente);
+  const paraUso = lotesParaUso(lotes);
+  const resumo = { modelo: config.modelo, ...cb.resumoDosLotes(paraUso, hoje, divida) };
+  const conferido = cb.conferirPagamentoComCashback(config, resumo, totalCentavos, valorCentavos);
+  if (!conferido.ok) throw new ErroCashback(409, conferido.erro);
+  const plano = cb.planoDeUso(paraUso, divida, conferido, hoje);
+  if (!plano.ok) throw new ErroCashback(409, plano.erro);
+  return {
+    clienteRef, clienteId: id, cliente, lotes, divida, consumos: plano.consumos, centavos: conferido.centavos, pontos: conferido.pontos, modelo: config.modelo,
+  };
+};
+
+/**
+ * Fase de ESCRITAS da mesma transacao: baixa os lotes, grava o movimento
+ * `usado_{venda}` e o resumo do cliente. `maisCamposDoCliente` entra na mesma
+ * escrita do cliente (ex.: a versao do credito), para o documento dele receber
+ * uma escrita so' na transacao.
+ */
+const gravarUso = ({ tx, user, tenantId, pedidoId, numeroPedido, clienteNome, preparado, hoje, maisCamposDoCliente = {} }) => {
+  const porLote = new Map(preparado.consumos.map((c) => [c.id, c]));
+  const lotesAtualizados = preparado.lotes.map((l) => {
+    const c = porLote.get(l.id);
+    if (!c) return l.dados;
+    const campos = {
+      restanteCentavos: inteiro(l.dados.restanteCentavos) - c.centavos,
+      restantePontos: inteiro(l.dados.restantePontos) - c.pontos,
+      usadoCentavos: inteiro(l.dados.usadoCentavos) + c.centavos,
+      usadoPontos: inteiro(l.dados.usadoPontos) + c.pontos,
+    };
+    tx.update(l.ref, { ...campos, updatedAt: agora() });
+    return { ...l.dados, ...campos };
+  });
+  tx.set(refUso(pedidoId), {
+    tenantId,
+    clienteId: preparado.clienteId,
+    clienteNome: String(clienteNome || preparado.cliente.nome || ''),
+    tipo: 'usado',
+    modelo: preparado.modelo,
+    centavos: preparado.centavos,
+    pontos: preparado.pontos,
+    porLote: preparado.consumos,
+    pedidoId,
+    numeroPedido: String(numeroPedido || ''),
+    descricao: `Cashback usado na venda #${numeroPedido || ''}`,
+    createdAt: agora(),
+    criadoPor: user ? user.uid : 'servidor',
+  });
+  return gravarResumo(tx, preparado.clienteRef, preparado.modelo, lotesAtualizados, preparado.divida, hoje, maisCamposDoCliente);
+};
+
+/**
+ * A venda que usou cashback foi cancelada: o que saiu de cada lote volta
+ * (lote ja' estornado: a divida diminui). Idempotente (`devolvido_{venda}`).
+ */
+const devolverUso = async ({ user, tenantId, pedidoId }) => {
+  const id = texto(pedidoId);
+  if (!id) throw new ErroCashback(400, 'Venda não informada.');
+  const hoje = getDateInputInTimeZone();
+
+  const resultado = await db.runTransaction(async (tx) => {
+    const usoSnap = await tx.get(refUso(id));
+    if (!usoSnap.exists || usoSnap.data().tenantId !== tenantId) return { devolvido: false, motivo: 'a venda não usou cashback' };
+    const uso = usoSnap.data();
+    const devolvidoRef = db.collection('cashback_movimentos').doc(`devolvido_${id}`);
+    if ((await tx.get(devolvidoRef)).exists) return { devolvido: false, motivo: 'o cashback desta venda já foi devolvido' };
+    const clienteId = String(uso.clienteId || '');
+    const clienteRef = db.collection('clientes').doc(clienteId);
+    const clienteSnap = await tx.get(clienteRef);
+    const cliente = clienteSnap.exists ? clienteSnap.data() : {};
+    const lotes = await lotesDoCliente(tx, tenantId, clienteId);
+    const modelo = uso.modelo === 'pontos' ? 'pontos' : 'reais';
+
+    const porLote = new Map((Array.isArray(uso.porLote) ? uso.porLote : []).map((c) => [String(c.id), c]));
+    let divida = dividaDoCliente(cliente);
+    const lotesAtualizados = lotes.map((l) => {
+      const c = porLote.get(l.id);
+      if (!c) return l.dados;
+      const r = cb.devolucaoDoUso({
+        restanteCentavos: inteiro(l.dados.restanteCentavos),
+        restantePontos: inteiro(l.dados.restantePontos),
+        usadoCentavos: inteiro(l.dados.usadoCentavos),
+        usadoPontos: inteiro(l.dados.usadoPontos),
+        estornado: l.dados.estornado === true,
+      }, { id: l.id, centavos: inteiro(c.centavos), pontos: inteiro(c.pontos) }, divida);
+      divida = r.divida;
+      tx.update(l.ref, { ...r.lote, updatedAt: agora() });
+      return { ...l.dados, ...r.lote };
+    });
+    tx.set(devolvidoRef, {
+      tenantId,
+      clienteId,
+      clienteNome: uso.clienteNome || '',
+      tipo: 'ajuste',
+      modelo,
+      centavos: inteiro(uso.centavos),
+      pontos: inteiro(uso.pontos),
+      pedidoId: id,
+      numeroPedido: uso.numeroPedido || '',
+      descricao: `Cashback devolvido: venda #${uso.numeroPedido || ''} cancelada`,
+      createdAt: agora(),
+      criadoPor: user ? user.uid : 'servidor',
+    });
+    const resumo = gravarResumo(tx, clienteRef, modelo, lotesAtualizados, divida, hoje);
+    return { devolvido: true, modelo, centavos: inteiro(uso.centavos), pontos: inteiro(uso.pontos), resumo, clienteNome: uso.clienteNome || '', numeroPedido: uso.numeroPedido || '' };
+  });
+
+  if (resultado.devolvido) {
+    registrarLog({ ...(user || { uid: 'servidor' }), tenantId }, {
+      modulo: 'cashback',
+      acao: 'estorno',
+      descricao: `Cashback devolvido para ${resultado.clienteNome}: ${cb.formatarCashback(resultado.modelo, resultado.centavos, resultado.pontos)} (venda #${resultado.numeroPedido} cancelada).`,
+      registroId: id,
+    });
+  }
+  return resultado;
+};
+
+// ---------------------------------------------------------------------------
 // Versoes "sem falhar": chamadas depois da transacao da venda/baixa
 // ---------------------------------------------------------------------------
 
@@ -318,6 +476,9 @@ module.exports = {
   estornarVenda,
   revisarAposEstorno,
   estornarDevolucao,
+  prepararUso,
+  gravarUso,
+  devolverUso,
   gerarSeDevidoSemFalhar: semFalhar('gerar', gerarSeDevido),
   estornarVendaSemFalhar: semFalhar('estornar venda', estornarVenda),
   revisarAposEstornoSemFalhar: semFalhar('revisar após estorno', revisarAposEstorno),

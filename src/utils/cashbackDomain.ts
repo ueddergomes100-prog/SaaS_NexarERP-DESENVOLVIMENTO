@@ -330,3 +330,202 @@ export const formatarCashback = (modelo: ModeloCashback, centavos: number, ponto
     ? `${pontos.toLocaleString('pt-BR')} ponto(s)`
     : (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 );
+
+// ---------------------------------------------------------------------------
+// Uso como forma de pagamento (fase 2, 20/10/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Forma de pagamento que gasta o saldo. So' a venda PELO SERVIDOR consome os
+ * lotes (server/services/vendaFechamento.js): a tela nunca mexe no saldo, por
+ * isso a forma so' aparece com a chave "Venda pelo servidor" ligada.
+ */
+export const FORMA_PAGAMENTO_CASHBACK = 'Cashback';
+
+/** Resumo gravado pelo servidor em clientes/{id}.cashback. */
+export interface ResumoCashbackDoCliente extends ResumoCashback {
+  modelo: ModeloCashback;
+}
+
+export const lerResumoCashback = (valor: unknown): ResumoCashbackDoCliente | null => {
+  if (!valor || typeof valor !== 'object') return null;
+  const r = valor as Record<string, unknown>;
+  return {
+    modelo: r.modelo === 'pontos' ? 'pontos' : 'reais',
+    saldoCentavos: Math.round(numero(r.saldoCentavos)),
+    saldoPontos: Math.round(numero(r.saldoPontos)),
+    dividaCentavos: naoNegativo(numero(r.dividaCentavos)),
+    dividaPontos: naoNegativo(numero(r.dividaPontos)),
+    proximoVencimento: typeof r.proximoVencimento === 'string' && r.proximoVencimento ? r.proximoVencimento : null,
+  };
+};
+
+interface PagamentoLido {
+  formaPagamento?: unknown;
+  valorCentavos?: unknown;
+  valor?: unknown;
+}
+
+const pagamentosLidos = (pagamentos: unknown): PagamentoLido[] => (
+  (Array.isArray(pagamentos) ? pagamentos : []).filter((p): p is PagamentoLido => Boolean(p) && typeof p === 'object')
+);
+
+/** Quanto da venda foi pago com cashback (centavos), pelos pagamentos gravados ou normalizados. */
+export const cashbackUsadoNaVenda = (pagamentos: unknown): number => (
+  pagamentosLidos(pagamentos)
+    .filter((p) => p.formaPagamento === FORMA_PAGAMENTO_CASHBACK)
+    .reduce((soma, p) => soma + naoNegativo(p.valorCentavos !== undefined && p.valorCentavos !== null ? numero(p.valorCentavos) : numero(p.valor) * 100), 0)
+);
+
+/** Modelo em pontos: usar a faixa abate Y% do total da venda. */
+export const valorDaFaixa = (faixa: FaixaDePontos, totalCentavos: number): number => (
+  Math.round(Math.max(0, totalCentavos) * (faixa.descontoPercentual / 100))
+);
+
+export interface FaixaDisponivel {
+  faixa: FaixaDePontos;
+  /** Quanto a faixa abate desta venda. */
+  valorCentavos: number;
+}
+
+/** Faixas que cabem no saldo do cliente, da menor para a maior, com o valor que cada uma abate. */
+export const faixasDisponiveis = (faixas: readonly FaixaDePontos[], saldoPontos: number, totalCentavos: number): FaixaDisponivel[] => (
+  [...faixas]
+    .filter((f) => f.pontos <= saldoPontos)
+    .sort((a, b) => a.pontos - b.pontos)
+    .map((faixa) => ({ faixa, valorCentavos: valorDaFaixa(faixa, totalCentavos) }))
+    .filter((f) => f.valorCentavos > 0)
+);
+
+/** O que a tela oferece na forma "Cashback": saldo em R$ ou as faixas que o cliente alcanca. */
+export interface CashbackDisponivel {
+  modelo: ModeloCashback;
+  saldoCentavos: number;
+  saldoPontos: number;
+  faixas: FaixaDePontos[];
+  proximoVencimento: string | null;
+}
+
+/** null = nada a oferecer (cashback desligado, cliente sem saldo, saldo de outro modelo). */
+export const cashbackDisponivelParaVenda = (config: ConfigCashback, resumo: ResumoCashbackDoCliente | null): CashbackDisponivel | null => {
+  if (!config.ativo || !resumo || resumo.modelo !== config.modelo) return null;
+  if (config.modelo === 'reais' ? resumo.saldoCentavos <= 0 : resumo.saldoPontos <= 0) return null;
+  return {
+    modelo: config.modelo,
+    saldoCentavos: Math.max(0, resumo.saldoCentavos),
+    saldoPontos: Math.max(0, resumo.saldoPontos),
+    faixas: config.faixas,
+    proximoVencimento: resumo.proximoVencimento,
+  };
+};
+
+/** Valor que a linha "Cashback" sugere ao ser escolhida: o saldo (ate' o que falta pagar) ou a maior faixa. */
+export const valorSugeridoDoCashback = (disponivel: CashbackDisponivel, totalCentavos: number, faltaPagarCentavos: number): number => {
+  if (disponivel.modelo === 'reais') return Math.max(0, Math.min(disponivel.saldoCentavos, faltaPagarCentavos));
+  const faixas = faixasDisponiveis(disponivel.faixas, disponivel.saldoPontos, totalCentavos);
+  return faixas.length ? faixas[faixas.length - 1].valorCentavos : 0;
+};
+
+/**
+ * Confere o pagamento "Cashback" contra o saldo: em R$ nao passa do saldo nem
+ * do total; em pontos o valor tem de ser exatamente o de uma faixa que o
+ * cliente alcanca. Devolve o que consumir (centavos ou pontos) ou o erro.
+ */
+export const conferirPagamentoComCashback = (
+  config: ConfigCashback,
+  resumo: ResumoCashbackDoCliente | null,
+  totalCentavos: number,
+  valorCentavos: number,
+): { ok: true; centavos: number; pontos: number } | { ok: false; erro: string } => {
+  if (!(valorCentavos > 0)) return { ok: false, erro: 'O valor pago com cashback precisa ser maior que zero.' };
+  if (!config.ativo) return { ok: false, erro: 'O cashback está desligado nas Configurações. Troque a forma de pagamento.' };
+  if (!resumo || resumo.modelo !== config.modelo) return { ok: false, erro: 'Este cliente não tem saldo de cashback para usar. Troque a forma de pagamento.' };
+  if (valorCentavos > totalCentavos) return { ok: false, erro: 'O cashback não pode passar do total da venda. Diminua o valor.' };
+  if (config.modelo === 'reais') {
+    if (valorCentavos > resumo.saldoCentavos) {
+      return { ok: false, erro: `O cliente tem ${formatarCashback('reais', Math.max(0, resumo.saldoCentavos), 0)} de cashback, menos que o informado. Ajuste o valor.` };
+    }
+    return { ok: true, centavos: valorCentavos, pontos: 0 };
+  }
+  const faixa = faixasDisponiveis(config.faixas, resumo.saldoPontos, totalCentavos).find((f) => f.valorCentavos === valorCentavos);
+  if (!faixa) return { ok: false, erro: 'O valor do cashback não corresponde a nenhuma faixa de pontos que o cliente alcança. Escolha a faixa de novo.' };
+  return { ok: true, centavos: 0, pontos: faixa.faixa.pontos };
+};
+
+/** Lote gravado, com a ordem de criacao para o desempate. */
+export interface LoteParaUso extends LoteCashback {
+  id: string;
+  ordem: number;
+}
+
+/** Vence antes, sai antes; sem validade sai por ultimo; empate pela ordem de criacao. */
+export const ordenarLotesParaUso = (lotes: readonly LoteParaUso[], hoje: string): LoteParaUso[] => (
+  lotes.filter((l) => loteVigente(l, hoje)).sort((a, b) => {
+    if (a.validade && b.validade && a.validade !== b.validade) return a.validade < b.validade ? -1 : 1;
+    if (Boolean(a.validade) !== Boolean(b.validade)) return a.validade ? -1 : 1;
+    return a.ordem - b.ordem;
+  })
+);
+
+export interface ConsumoDeLote {
+  id: string;
+  centavos: number;
+  pontos: number;
+}
+
+const MENSAGEM_SALDO_MUDOU = 'O saldo de cashback deste cliente mudou desde que a venda foi montada. Refaça o pagamento com cashback.';
+
+/**
+ * Distribui o uso pelos lotes vigentes (vence antes, sai antes). A divida do
+ * cliente ja' esta' descontada do saldo: nao se gasta o que ela cobre.
+ */
+export const planoDeUso = (
+  lotes: readonly LoteParaUso[],
+  divida: DividaCashback,
+  uso: { centavos: number; pontos: number },
+  hoje: string,
+): { ok: true; consumos: ConsumoDeLote[] } | { ok: false; erro: string } => {
+  const ordenados = ordenarLotesParaUso(lotes, hoje);
+  const saldo = resumoDosLotes(ordenados, hoje, divida);
+  let faltaCentavos = naoNegativo(uso.centavos);
+  let faltaPontos = naoNegativo(uso.pontos);
+  if (faltaCentavos > saldo.saldoCentavos || faltaPontos > saldo.saldoPontos) return { ok: false, erro: MENSAGEM_SALDO_MUDOU };
+  const consumos: ConsumoDeLote[] = [];
+  for (const lote of ordenados) {
+    if (faltaCentavos <= 0 && faltaPontos <= 0) break;
+    const centavos = Math.min(faltaCentavos, lote.restanteCentavos);
+    const pontos = Math.min(faltaPontos, lote.restantePontos);
+    if (centavos <= 0 && pontos <= 0) continue;
+    consumos.push({ id: lote.id, centavos, pontos });
+    faltaCentavos -= centavos;
+    faltaPontos -= pontos;
+  }
+  if (faltaCentavos > 0 || faltaPontos > 0) return { ok: false, erro: MENSAGEM_SALDO_MUDOU };
+  return { ok: true, consumos };
+};
+
+/**
+ * A venda que usou cashback foi cancelada: o que saiu de cada lote volta.
+ * Lote ja' estornado (a venda que o gerou foi cancelada antes) nao recebe de
+ * volta -- o uso dele tinha virado divida, e e' a divida que diminui. Lote
+ * vencido recebe de volta, mas nao conta mais no saldo.
+ */
+export const devolucaoDoUso = (
+  lote: { restanteCentavos: number; restantePontos: number; usadoCentavos: number; usadoPontos: number; estornado?: boolean },
+  consumo: ConsumoDeLote,
+  divida: DividaCashback,
+): { lote: { restanteCentavos: number; restantePontos: number; usadoCentavos: number; usadoPontos: number }; divida: DividaCashback } => {
+  const centavos = naoNegativo(consumo.centavos);
+  const pontos = naoNegativo(consumo.pontos);
+  const usado = { usadoCentavos: naoNegativo(lote.usadoCentavos - centavos), usadoPontos: naoNegativo(lote.usadoPontos - pontos) };
+  if (lote.estornado === true) {
+    return {
+      lote: { restanteCentavos: naoNegativo(lote.restanteCentavos), restantePontos: naoNegativo(lote.restantePontos), ...usado },
+      divida: { centavos: naoNegativo(naoNegativo(divida.centavos) - centavos), pontos: naoNegativo(naoNegativo(divida.pontos) - pontos) },
+    };
+  }
+  return {
+    lote: { restanteCentavos: naoNegativo(lote.restanteCentavos) + centavos, restantePontos: naoNegativo(lote.restantePontos) + pontos, ...usado },
+    divida: { centavos: naoNegativo(divida.centavos), pontos: naoNegativo(divida.pontos) },
+  };
+};

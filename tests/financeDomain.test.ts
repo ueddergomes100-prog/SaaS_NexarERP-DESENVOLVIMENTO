@@ -39,6 +39,12 @@ import {
   type PaymentDraft,
   type PaymentRecord,
 } from '../src/utils/financeDomain';
+import {
+  asPaymentMethod,
+  financialNatureForPayment,
+  paymentIsImmediatelyConfirmed,
+  settledFinancialNatureForPayment,
+} from '../src/utils/financeDomain';
 import { addBusinessDaysToDateInput, getDashboardPeriodRange } from '../src/utils/dateTime';
 
 const payment = (updates: Partial<PaymentDraft> = {}): PaymentDraft => ({
@@ -1096,4 +1102,12 @@ test('receita nunca negativa: cancelada some, crédito não conta, só devoluç�
   assert.equal(receitaDoConjuntoCentavos([{ ...venda, valorCentavos: 100 }, devolucao]), 0);
   // Caso normal.
   assert.equal(receitaDoConjuntoCentavos([venda, cancelada, estornoCancelamento, devolucao]), 1400);
+});
+
+test('Cashback (20/10/2026): natureza de credito do cliente, confirmado na hora, fora da receita', () => {
+  assert.equal(financialNatureForPayment('Cashback'), 'credito_cliente');
+  assert.equal(settledFinancialNatureForPayment('Cashback'), 'credito_cliente');
+  assert.equal(paymentIsImmediatelyConfirmed('Cashback'), true);
+  assert.equal(asPaymentMethod('Cashback'), 'Cashback');
+  assert.equal(contaComoReceita({ tipo: 'entrada', status: 'Paga', formaPagamento: 'Cashback' } as Parameters<typeof contaComoReceita>[0]), false);
 });

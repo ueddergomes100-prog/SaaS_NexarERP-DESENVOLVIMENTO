@@ -5,6 +5,7 @@ import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, 
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, lerResumoCashback } from '../../utils/cashbackDomain';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
 import { estornarCashbackDaVendaSemFalhar, gerarCashbackSemFalhar } from '../../services/cashbackService';
@@ -206,6 +207,9 @@ interface ClienteBasico {
   id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null;
   /** So' para o cartao do cliente escolhido (design de 14/10/2026). */
   documento?: string; cidade?: string; estado?: string; celular?: string;
+  isPadrao?: boolean;
+  /** Resumo gravado pelo servidor (clientes.cashback) -- a tela so' le. */
+  cashback?: unknown;
 }
 interface VendedorBasico { id: string; nome: string; email?: string; }
 interface Banco { id: string; nome: string; ativo: boolean; }
@@ -584,7 +588,7 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback } = useAuth();
 
   // PRECO A VISTA x PRECO DE VENDA E PROMOCOES (2026-10-01). A condicao do
   // pagamento (a vista / a prazo) decide o preco de cada item; promocao vigente
@@ -1475,6 +1479,14 @@ const PedidoVendaForm: React.FC = () => {
   };
 
   const creditoDisponivelCentavos = somarCreditosCentavos(creditosCliente);
+
+  // Cashback como forma de pagamento (20/10/2026): so' pelo servidor (a tela
+  // nunca mexe no saldo) e so' para cliente cadastrado com saldo no modelo da empresa.
+  const cashbackDisponivel = useMemo(() => (
+    vendaPeloServidor && !isViewing && clienteEscolhido && clienteEscolhido.isPadrao !== true
+      ? cashbackDisponivelParaVenda(configCashback, lerResumoCashback(clienteEscolhido.cashback))
+      : null
+  ), [vendaPeloServidor, isViewing, clienteEscolhido, configCashback]);
 
   // Carrega o credito de devolucao do cliente escolhido e oferece o
   // abatimento uma unica vez por cliente. So em venda nova: reabrir um
@@ -3139,6 +3151,13 @@ const PedidoVendaForm: React.FC = () => {
     }
     paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
     const paymentSummary = summarizePayments(paymentRecords);
+
+    // Cashback so' e' consumido pelo servidor: gravada pela tela, a venda nao
+    // pode levar essa forma (o saldo do cliente ficaria sem baixa).
+    if (!vendaPeloServidor && paymentRecords.some((p) => p.formaPagamento === FORMA_PAGAMENTO_CASHBACK)) {
+      showError('Cashback indisponível', 'Pagar com cashback só funciona com a venda pelo servidor ligada para a empresa. Troque a forma de pagamento.');
+      return false;
+    }
 
     let finalClienteNome = clienteNome.trim().toUpperCase();
     const nomeClienteDigitadoOriginal = clienteNome.trim();
@@ -5706,6 +5725,7 @@ const PedidoVendaForm: React.FC = () => {
               onUpdatePayment={updatePaymentDraft}
               pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
               creditoDisponivelCentavos={creditoDisponivelCentavos}
+              cashbackDisponivel={cashbackDisponivel}
               formasConfiguradas={formasConfiguradas}
               permitirDividirPagamento={permitirDividirPagamento}
               sourceLabel="venda"

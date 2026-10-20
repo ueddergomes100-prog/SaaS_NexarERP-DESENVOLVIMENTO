@@ -193,6 +193,7 @@ test('finalizar: a prazo parcelado gera um lancamento por parcela, todos pendent
 
 test('finalizar: recusa credito de devolucao, soma errada, OS ja finalizada ou cancelada', () => {
   assert.match(String((planoDaFinalizacaoDaOs(entrada({ pagamentos: [pix({ formaPagamento: 'Crédito de Devolução' })] })) as { erro: string }).erro), /Crédito de devolução não pode ser usado em OS/);
+  assert.match(String((planoDaFinalizacaoDaOs(entrada({ pagamentos: [pix({ formaPagamento: 'Cashback' })] })) as { erro: string }).erro), /Cashback não pode ser usado em OS/);
   assert.match(String((planoDaFinalizacaoDaOs(entrada({ pagamentos: [pix({ valorCentavos: 9000, valor: 90 })] })) as { erro: string }).erro), /somam R\$ 90,00, mas a OS é de R\$ 100,00/);
   assert.match(String((planoDaFinalizacaoDaOs(entrada({ os: { ...OS, status: 'Finalizada' } })) as { erro: string }).erro), /já está finalizada/);
   assert.match(String((planoDaFinalizacaoDaOs(entrada({ os: { ...OS, status: 'Cancelada' } })) as { erro: string }).erro), /não volta a ser aberta/);

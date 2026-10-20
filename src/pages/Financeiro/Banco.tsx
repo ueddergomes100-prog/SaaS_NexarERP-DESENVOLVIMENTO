@@ -172,6 +172,7 @@ const Banco: React.FC = () => {
     t.status === 'Paga' &&
     !transactionMovesPhysicalCash(t) &&
     t.formaPagamento !== 'Crédito de Devolução' &&
+    t.formaPagamento !== 'Cashback' &&
     isWithinSelectedDays(t)
   ));
 

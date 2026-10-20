@@ -209,7 +209,7 @@ const financialNatureForPayment = (method) => {
         return 'caixa_fisico';
     if (method === 'Pix' || method === 'Transferência')
         return 'bancario_digital';
-    if (method === 'Crédito de Devolução')
+    if (method === 'Crédito de Devolução' || method === 'Cashback')
         return 'credito_cliente';
     return 'contas_receber';
 };
@@ -217,16 +217,17 @@ exports.financialNatureForPayment = financialNatureForPayment;
 const settledFinancialNatureForPayment = (method) => {
     if (method === 'Dinheiro')
         return 'caixa_fisico';
-    if (method === 'Crédito de Devolução')
+    if (method === 'Crédito de Devolução' || method === 'Cashback')
         return 'credito_cliente';
     return 'bancario_digital';
 };
 exports.settledFinancialNatureForPayment = settledFinancialNatureForPayment;
 /** Credito de devolucao entra aqui junto com Dinheiro/Pix/Transferencia: o
  * dinheiro ja esta com a loja desde a devolucao que gerou o credito, entao
- * a parte da venda paga com ele nasce quitada -- nunca vira conta a receber. */
+ * a parte da venda paga com ele nasce quitada -- nunca vira conta a receber.
+ * Cashback (20/10/2026) idem: e' saldo que a loja deu ao cliente. */
 const paymentIsImmediatelyConfirmed = (method) => (method === 'Dinheiro' || method === 'Pix' || method === 'Transferência'
-    || method === 'Crédito de Devolução');
+    || method === 'Crédito de Devolução' || method === 'Cashback');
 exports.paymentIsImmediatelyConfirmed = paymentIsImmediatelyConfirmed;
 const buildCardDetails = (args) => {
     const installments = args.method === 'Cartão de Débito' ? 1 : args.installments;
@@ -826,6 +827,7 @@ const KNOWN_PAYMENT_METHODS = [
     'Boleto',
     'Pagamento a Prazo',
     'Crédito de Devolução',
+    'Cashback',
     'Outros',
 ];
 const asPaymentMethod = (value) => {
@@ -1285,6 +1287,7 @@ const contaComoReceita = (t) => (t.tipo === 'entrada'
     && t.status === 'Paga'
     && !(0, exports.lancamentoDesfeito)(t)
     && t.formaPagamento !== 'Crédito de Devolução'
+    && t.formaPagamento !== 'Cashback'
     && !exports.REVENUE_REVERSAL_CATEGORIES.includes(String(t.categoria || '').trim()));
 exports.contaComoReceita = contaComoReceita;
 /** Saida paga que abate receita: so' a devolucao de venda que ainda vale (estorno de cancelamento nao abate). */

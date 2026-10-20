@@ -74,6 +74,7 @@ import {
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, type CamposDePrecoDoItem } from '../../utils/precoComPromocaoDomain';
 import { FORMAS_A_VISTA_PADRAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico } from '../../utils/precoVendaDomain';
+import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, lerResumoCashback, type CashbackDisponivel } from '../../utils/cashbackDomain';
 import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
@@ -129,6 +130,7 @@ const PDV: React.FC = () => {
     needsTenantSelection,
     loteModoSaida,
     loteAvisarVencido,
+    configCashback,
   } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
@@ -172,6 +174,24 @@ const PDV: React.FC = () => {
   const [clientModalOpen, setClientModalOpen] = useState(false);
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  // Cashback (20/10/2026): saldo do cliente lido na hora de pagar (o cadastro
+  // carregado na abertura do caixa pode estar velho). So' pelo servidor.
+  const [cashbackDoCliente, setCashbackDoCliente] = useState<CashbackDisponivel | null>(null);
+  useEffect(() => {
+    if (!paymentModalOpen || !vendaPeloServidor || !configCashback.ativo || !selectedClient || selectedClient.isPadrao) {
+      setCashbackDoCliente(null);
+      return undefined;
+    }
+    let ativo = true;
+    getDoc(doc(db, 'clientes', selectedClient.id)).then((snap) => {
+      if (!ativo) return;
+      setCashbackDoCliente(snap.exists() ? cashbackDisponivelParaVenda(configCashback, lerResumoCashback(snap.data().cashback)) : null);
+    }).catch((error) => {
+      console.error('Erro ao ler o cashback do cliente:', error);
+      if (ativo) setCashbackDoCliente(null);
+    });
+    return () => { ativo = false; };
+  }, [paymentModalOpen, vendaPeloServidor, configCashback, selectedClient]);
 
   // Quem usa o caixa: PDV ou "So' a Frente de Caixa", dono e administrador (frenteDeCaixaDomain).
   const hasPdvAccess = podeUsarFrenteDeCaixa({ role: userRole, isOwner, permissoes: userPermissions });
@@ -861,6 +881,12 @@ const PDV: React.FC = () => {
   }, [selectedItem, updateItemQuantity]);
 
   const finalizeSale = async (drafts: PaymentDraft[], observation: string) => {
+    // Cashback so' e' consumido pelo servidor: gravado pela tela, o cupom nao
+    // pode levar essa forma (o saldo do cliente ficaria sem baixa).
+    if (!vendaPeloServidor && drafts.some((d) => d.forma === FORMA_PAGAMENTO_CASHBACK)) {
+      showError('Cashback indisponível', 'Pagar com cashback só funciona com a venda pelo servidor ligada para a empresa. Troque a forma de pagamento.');
+      return;
+    }
     if (saleLockRef.current) return;
     if (!currentUser || !tenantId || !session) return;
     if (cartItems.length === 0) {
@@ -1448,6 +1474,7 @@ const PDV: React.FC = () => {
         financeConfig={financeConfig}
         tenantId={tenantId}
         saving={saving}
+        cashbackDisponivel={cashbackDoCliente}
         onClose={() => setPaymentModalOpen(false)}
         onFinalize={finalizeSale}
       />

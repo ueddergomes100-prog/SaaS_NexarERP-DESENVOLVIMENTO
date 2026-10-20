@@ -4,6 +4,7 @@ import {
   CalendarClock,
   Check,
   ChevronDown,
+  Coins,
   CreditCard,
   FileCheck2,
   Landmark,
@@ -27,6 +28,7 @@ import {
   gerarParcelasAPrazo,
 } from '../../utils/financeDomain';
 import { erroDasParcelasAPrazo, resumoDasParcelas } from '../../utils/formasPagamentoDomain';
+import { faixasDisponiveis, valorSugeridoDoCashback, type CashbackDisponivel } from '../../utils/cashbackDomain';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import ChequeCaptureModal from './ChequeCaptureModal';
 import './PaymentsEditor.css';
@@ -90,6 +92,10 @@ interface PaymentsEditorProps {
    * saldo é que "Crédito de Devolução" entra na lista de formas -- ninguém
    * escolhe pagar com crédito que o cliente não tem. */
   creditoDisponivelCentavos?: number;
+  /** Cashback do cliente (20/10/2026). So' quando a empresa usa cashback, a
+   * venda e' pelo servidor e o cliente tem saldo que de' para usar nesta venda
+   * e' que "Cashback" entra na lista. Em pontos, a faixa escolhida vira o valor. */
+  cashbackDisponivel?: CashbackDisponivel | null;
   /** Formas na ordem da empresa, ja sem as que ela escondeu (Configuracoes).
    *  Ausente = lista padrao do codigo, como sempre foi. */
   formasConfiguradas?: PaymentMethod[];
@@ -140,6 +146,10 @@ const PAYMENT_METHOD_PRESENTATION: Record<PaymentMethod, {
     description: 'Usa o saldo de uma devolução',
     icon: RefreshCw,
   },
+  Cashback: {
+    description: 'Usa o saldo de cashback do cliente',
+    icon: Coins,
+  },
   Boleto: {
     description: 'Cobrança bancária',
     icon: Receipt,
@@ -153,6 +163,10 @@ const PAYMENT_METHOD_PRESENTATION: Record<PaymentMethod, {
     icon: Landmark,
   },
 };
+
+const formatarReais = (centavos: number): string => (
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(centavos))
+);
 
 interface PaymentMethodSelectProps {
   disabled?: boolean;
@@ -345,6 +359,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   formasConfiguradas,
   permitirDividirPagamento = true,
   creditoDisponivelCentavos = 0,
+  cashbackDisponivel = null,
   sourceLabel = 'operação',
   tenantId,
   totalCents,
@@ -371,6 +386,14 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
   const temCreditoDisponivel = creditoDisponivelCentavos > 0
     || drafts.some((d) => d.forma === 'Crédito de Devolução');
+  // Cashback: so' com saldo que de' para usar nesta venda (R$ > 0 ou alguma
+  // faixa alcancada) -- e nunca para consumidor final.
+  const faixasDoCashback = cashbackDisponivel && cashbackDisponivel.modelo === 'pontos'
+    ? faixasDisponiveis(cashbackDisponivel.faixas, cashbackDisponivel.saldoPontos, totalCents)
+    : [];
+  const temCashbackDisponivel = !isFinalConsumer && cashbackDisponivel !== null
+    && (cashbackDisponivel.modelo === 'reais' ? cashbackDisponivel.saldoCentavos > 0 : faixasDoCashback.length > 0);
+  const ofereceCashback = temCashbackDisponivel || drafts.some((d) => d.forma === 'Cashback');
   // Consumidor final continua so' com dinheiro/Pix (regra fiscal, nao e'
   // preferencia da loja) -- a ordem configurada so' vale pro resto.
   const metodosBase: PaymentMethod[] = isFinalConsumer
@@ -381,6 +404,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const availableMethods: PaymentMethod[] = [
     ...metodosBase,
     ...(temCreditoDisponivel ? (['Crédito de Devolução'] as PaymentMethod[]) : []),
+    ...(ofereceCashback ? (['Cashback'] as PaymentMethod[]) : []),
   ];
 
   return (
@@ -478,6 +502,10 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                         dataPrevistaRecebimento: addDaysToDateInput(transactionDate, prazoPadraoBoleto),
                         parcelasPersonalizadas: [],
                       } : {}),
+                      // Cashback ja' entra com o saldo (ate' o que falta pagar) ou a maior faixa.
+                      ...(method === 'Cashback' && payment.forma !== 'Cashback' && cashbackDisponivel ? {
+                        valor: fromCents(valorSugeridoDoCashback(cashbackDisponivel, totalCents, Math.max(0, totalCents - (informedCents - paymentCents)))).toFixed(2),
+                      } : {}),
                     });
                   }}
                   options={availableMethods}
@@ -489,6 +517,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                 <input
                   disabled={disabled}
                   id={`${idPrefix}-amount-${payment.id}`}
+                  readOnly={payment.forma === 'Cashback' && cashbackDisponivel?.modelo === 'pontos'}
                   min="0.01"
                   onChange={(event) => onUpdatePayment(payment.id, { valor: event.target.value })}
                   step="0.01"
@@ -497,6 +526,37 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                 />
               </div>
             </div>
+
+            {payment.forma === 'Cashback' && cashbackDisponivel && (
+              <div className="payments-editor__card-fields">
+                {cashbackDisponivel.modelo === 'pontos' && (
+                  <div className="input-group">
+                    <label htmlFor={`${idPrefix}-faixa-${payment.id}`}>Faixa de pontos *</label>
+                    <select
+                      disabled={disabled}
+                      id={`${idPrefix}-faixa-${payment.id}`}
+                      onChange={(event) => {
+                        const escolhida = faixasDoCashback.find((f) => String(f.faixa.pontos) === event.target.value);
+                        onUpdatePayment(payment.id, { valor: escolhida ? fromCents(escolhida.valorCentavos).toFixed(2) : '' });
+                      }}
+                      value={String(faixasDoCashback.find((f) => f.valorCentavos === paymentCents)?.faixa.pontos ?? '')}
+                    >
+                      <option value="">Selecione...</option>
+                      {faixasDoCashback.map((f) => (
+                        <option key={f.faixa.pontos} value={f.faixa.pontos}>
+                          {f.faixa.pontos} pontos = {f.faixa.descontoPercentual}% de desconto ({formatarReais(f.valorCentavos)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <span className="payments-editor__pending-notice">
+                  {cashbackDisponivel.modelo === 'pontos'
+                    ? `Saldo do cliente: ${cashbackDisponivel.saldoPontos.toLocaleString('pt-BR')} ponto(s). A faixa escolhida abate o percentual do total da venda e os pontos saem do saldo.`
+                    : `Saldo de cashback: ${formatarReais(cashbackDisponivel.saldoCentavos)}${cashbackDisponivel.proximoVencimento ? ` (parte vence em ${formatDateInputPtBr(cashbackDisponivel.proximoVencimento)})` : ''}. Pode abater até ${formatarReais(Math.min(cashbackDisponivel.saldoCentavos, totalCents))} nesta venda.`}
+                </span>
+              </div>
+            )}
 
             {pedeBancoDeDestino(payment.forma, pagamentoCartaoSimplificadoAtivo) && (
               <div className="input-group">

@@ -104,3 +104,9 @@ test('o que a tela manda: pedido valido, motivo e pagamentos', () => {
   assert.equal((lerPedidoDeAlteracaoDePagamento({ pedidoId: 'p1', pagamentos: [{ forma: 'Pix' }] }) as { pagamentos: unknown[] }).pagamentos.length, 1);
 });
 
+
+test('bloqueioDoCreditoNaAlteracao: cashback (20/10/2026) tambem nao se troca por aqui', () => {
+  const antes = [{ formaPagamento: 'Cashback', valorCentavos: 1000 }, { formaPagamento: 'Pix', valorCentavos: 9000 }];
+  assert.equal(bloqueioDoCreditoNaAlteracao(antes, [{ formaPagamento: 'Cashback', valorCentavos: 1000 }, { formaPagamento: 'Dinheiro', valorCentavos: 9000 }]), null);
+  assert.match(String(bloqueioDoCreditoNaAlteracao(antes, [{ formaPagamento: 'Pix', valorCentavos: 10000 }])), /cashback/);
+});

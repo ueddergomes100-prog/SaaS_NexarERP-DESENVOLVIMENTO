@@ -216,6 +216,76 @@ test('credito de devolucao: trocar o nome na tela nao gasta o credito de outro c
   assert.equal(fake.ler('creditos_cliente/devolucao_d2').saldoDisponivel, 50);
 });
 
+// ------------------------------------------------------------------ Cashback como pagamento (fase 2, 20/10/2026)
+
+const loteDeCashback = (extra = {}) => ({
+  tenantId: 'loja', clienteId: 'cli1', tipo: 'gerado', modelo: 'reais', centavos: 400, pontos: 0, restanteCentavos: 400, restantePontos: 0,
+  usadoCentavos: 0, usadoPontos: 0, validade: null, estornado: false, ...extra,
+});
+const configComCashback = { tenantId: 'loja', cashback: { ativo: true, modelo: 'reais', tipoPadrao: 'percentual', valorPadrao: 5 } };
+
+test('cashback como pagamento: confere o saldo do cliente, consome os lotes (vence antes sai antes) e grava o uso', async () => {
+  const fake = criarBancoFalso(base({
+    'configuracoes/loja': configComCashback,
+    'cashback_movimentos/gerado_a': loteDeCashback(),
+    'cashback_movimentos/gerado_b': loteDeCashback({ centavos: 500, restanteCentavos: 500, validade: '2026-12-31' }),
+  }), { consultas: true });
+  const pagamentos = [pagamento({ forma: 'Cashback', valor: '7' }), pagamento({ id: 'pg2', valor: '13' })];
+  await carregar(fake.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ pagamentos }) });
+  // R$ 7,00: primeiro o lote que vence (b, 500), depois o sem validade (a, 200).
+  assert.equal(fake.ler('cashback_movimentos/gerado_b').restanteCentavos, 0);
+  assert.equal(fake.ler('cashback_movimentos/gerado_b').usadoCentavos, 500);
+  assert.equal(fake.ler('cashback_movimentos/gerado_a').restanteCentavos, 200);
+  const uso = fake.ler('cashback_movimentos/usado_venda1');
+  assert.equal(uso.tipo, 'usado');
+  assert.equal(uso.centavos, 700);
+  assert.deepEqual(uso.porLote.map((c) => [c.id, c.centavos]), [['gerado_b', 500], ['gerado_a', 200]]);
+  assert.equal(fake.ler('clientes/cli1').cashback.saldoCentavos, 200);
+  const titulo = fake.ler('transacoes/venda1');
+  assert.equal(titulo.formaPagamento, 'Cashback');
+  assert.equal(titulo.status, 'Paga');
+  assert.equal(titulo.naturezaFinanceira, 'credito_cliente');
+  assert.equal(titulo.movimentaCaixaFisico, false);
+  assert.equal(fake.ler('pedidos_venda/venda1').totalRecebidoCentavos, 2000);
+});
+
+test('cashback como pagamento: acima do saldo, sem cliente ou desligado recusa sem gravar; pontos consomem a faixa', async () => {
+  const docs = { 'configuracoes/loja': configComCashback, 'cashback_movimentos/gerado_a': loteDeCashback() };
+  const comCashback = (valor) => [pagamento({ forma: 'Cashback', valor }), pagamento({ id: 'pg2', valor: String(20 - Number(valor)) })];
+  const acima = criarBancoFalso(base(docs), { consultas: true });
+  await assert.rejects(
+    () => carregar(acima.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ pagamentos: comCashback('5') }) }),
+    (erro) => erro.status === 409 && /4,00/.test(erro.message),
+  );
+  assert.equal(acima.ler('pedidos_venda/venda1'), undefined, 'nada gravado');
+  assert.equal(acima.ler('cashback_movimentos/gerado_a').restanteCentavos, 400);
+  const semCliente = criarBancoFalso(base(docs), { consultas: true });
+  await assert.rejects(
+    () => carregar(semCliente.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ clienteId: null, clienteNome: 'CONSUMIDOR FINAL', pagamentos: comCashback('4') }) }),
+    (erro) => erro.status === 400 && /cliente cadastrado/.test(erro.message),
+  );
+  const desligado = criarBancoFalso(base({ ...docs, 'configuracoes/loja': { tenantId: 'loja' } }), { consultas: true });
+  await assert.rejects(
+    () => carregar(desligado.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ pagamentos: comCashback('4') }) }),
+    (erro) => erro.status === 409 && /desligado/.test(erro.message),
+  );
+  // Pontos: 300 pontos = 15% de R$ 20,00 = R$ 3,00; o valor tem de ser exatamente esse.
+  const pontos = () => criarBancoFalso(base({
+    'configuracoes/loja': { tenantId: 'loja', cashback: { ativo: true, modelo: 'pontos', pontosPorReal: 1, faixas: [{ pontos: 100, descontoPercentual: 5 }, { pontos: 300, descontoPercentual: 15 }] } },
+    'cashback_movimentos/gerado_p': loteDeCashback({ modelo: 'pontos', centavos: 0, pontos: 350, restanteCentavos: 0, restantePontos: 350 }),
+  }), { consultas: true });
+  const errado = pontos();
+  await assert.rejects(
+    () => carregar(errado.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ pagamentos: comCashback('2.5') }) }),
+    (erro) => erro.status === 409 && /faixa/.test(erro.message),
+  );
+  const certo = pontos();
+  await carregar(certo.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ pagamentos: comCashback('3') }) });
+  assert.equal(certo.ler('cashback_movimentos/gerado_p').restantePontos, 50);
+  assert.equal(certo.ler('cashback_movimentos/usado_venda1').pontos, 300);
+  assert.equal(certo.ler('clientes/cli1').cashback.saldoPontos, 50);
+});
+
 // ------------------------------------------------------------------ PDV (fatia 3c, 19/10/2026)
 
 const OPERADOR = { uid: 'vend1', tenantId: 'loja', email: 'v@loja', permissoes: ['vendas.pdv'] };

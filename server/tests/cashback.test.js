@@ -116,3 +116,37 @@ test('devolucao estorna a parte proporcional; baixa estornada devolve o lote int
   assert.equal(fake.ler('clientes/c1').cashback.saldoCentavos, 0);
   assert.equal(fake.ler('clientes/c1').cashback.dividaCentavos, 0);
 });
+
+test('venda que usou cashback e\' cancelada: o que saiu dos lotes volta; de lote ja\' estornado, abate a divida', async () => {
+  const loteUsado = (extra = {}) => ({
+    tenantId: T, clienteId: 'c1', tipo: 'gerado', modelo: 'reais', centavos: 500, pontos: 0, restanteCentavos: 200, restantePontos: 0,
+    usadoCentavos: 300, usadoPontos: 0, validade: null, estornado: false, numeroPedido: 'V1', ...extra,
+  });
+  const uso = { tenantId: T, clienteId: 'c1', clienteNome: 'MARIA', tipo: 'usado', modelo: 'reais', centavos: 300, pontos: 0, porLote: [{ id: 'gerado_v1', centavos: 300, pontos: 0 }], pedidoId: 'v9', numeroPedido: 'V9' };
+
+  const { fake, servico } = carregar(base({
+    'cashback_movimentos/gerado_v1': loteUsado(),
+    'cashback_movimentos/usado_v9': uso,
+    'clientes/c1': { tenantId: T, nome: 'MARIA', cashback: { modelo: 'reais', saldoCentavos: 200, dividaCentavos: 0 } },
+  }));
+  const r = await servico.estornarVenda({ user: USER, tenantId: T, pedidoId: 'v9' });
+  assert.equal(r.estornado, false, 'a venda v9 nao gerou nada');
+  assert.equal(r.uso.devolvido, true);
+  assert.equal(fake.ler('cashback_movimentos/gerado_v1').restanteCentavos, 500);
+  assert.equal(fake.ler('cashback_movimentos/gerado_v1').usadoCentavos, 0);
+  assert.equal(fake.ler('cashback_movimentos/devolvido_v9').tipo, 'ajuste');
+  assert.equal(fake.ler('clientes/c1').cashback.saldoCentavos, 500);
+  assert.equal((await servico.estornarVenda({ user: USER, tenantId: T, pedidoId: 'v9' })).uso.devolvido, false, 'nao devolve em dobro');
+
+  // Lote ja' estornado (v1 cancelada antes): o uso tinha virado divida; devolver abate a divida.
+  const outro = carregar(base({
+    'cashback_movimentos/gerado_v1': loteUsado({ restanteCentavos: 0, estornado: true }),
+    'cashback_movimentos/usado_v9': uso,
+    'clientes/c1': { tenantId: T, nome: 'MARIA', cashback: { modelo: 'reais', saldoCentavos: -300, dividaCentavos: 300 } },
+  }));
+  const r2 = await outro.servico.estornarVenda({ user: USER, tenantId: T, pedidoId: 'v9' });
+  assert.equal(r2.uso.devolvido, true);
+  assert.equal(outro.fake.ler('cashback_movimentos/gerado_v1').restanteCentavos, 0, 'lote estornado nao volta a valer');
+  assert.equal(outro.fake.ler('clientes/c1').cashback.dividaCentavos, 0);
+  assert.equal(outro.fake.ler('clientes/c1').cashback.saldoCentavos, 0);
+});

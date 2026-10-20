@@ -2,15 +2,24 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   cashbackDaVenda,
+  cashbackDisponivelParaVenda,
+  cashbackUsadoNaVenda,
+  conferirPagamentoComCashback,
+  devolucaoDoUso,
   faixaAlcancada,
+  faixasDisponiveis,
   formatarCashback,
   lerConfigCashback,
   lerFaixas,
+  lerResumoCashback,
   parseConfigCashback,
+  planoDeUso,
   pontosParaProximaFaixa,
   saldoDosMovimentos,
   validadeDoCashback,
+  valorSugeridoDoCashback,
   type ConfigCashback,
+  type LoteParaUso,
 } from '../src/utils/cashbackDomain';
 
 const reais: ConfigCashback = { ativo: true, modelo: 'reais', tipoPadrao: 'percentual', valorPadrao: 5, validadeDias: 90, pontosPorReal: 1, faixas: [] };
@@ -107,4 +116,61 @@ test('validade, faixas e saldo', () => {
   ]), { centavos: -300, pontos: 0 });
   assert.equal(formatarCashback('reais', 1234, 0), 'R$ 12,34');
   assert.equal(formatarCashback('pontos', 0, 1500), '1.500 ponto(s)');
+});
+
+// ---------------------------------------------------------------- uso como forma de pagamento (fase 2)
+
+const lote = (id: string, extra: Partial<LoteParaUso> = {}): LoteParaUso => ({
+  id, centavos: 1000, pontos: 0, restanteCentavos: 1000, restantePontos: 0, validade: null, ordem: 0, ...extra,
+});
+
+test('uso: R$ nao passa do saldo nem do total; pontos exigem o valor exato de uma faixa alcancada', () => {
+  const resumoReais = { modelo: 'reais' as const, saldoCentavos: 800, saldoPontos: 0, dividaCentavos: 0, dividaPontos: 0, proximoVencimento: null };
+  assert.deepEqual(conferirPagamentoComCashback(reais, resumoReais, 10000, 800), { ok: true, centavos: 800, pontos: 0 });
+  assert.match((conferirPagamentoComCashback(reais, resumoReais, 10000, 801) as { erro: string }).erro, /8,00/);
+  assert.match((conferirPagamentoComCashback(reais, resumoReais, 500, 800) as { erro: string }).erro, /total da venda/);
+  assert.match((conferirPagamentoComCashback(reais, null, 10000, 100) as { erro: string }).erro, /não tem saldo/);
+  assert.match((conferirPagamentoComCashback({ ...reais, ativo: false }, resumoReais, 10000, 100) as { erro: string }).erro, /desligado/);
+  const resumoPontos = { ...resumoReais, modelo: 'pontos' as const, saldoCentavos: 0, saldoPontos: 150 };
+  // faixas: 100 pts = 5%, 300 pts = 15%; com 150 pontos so' a de 100 cabe: 5% de R$ 100,00 = R$ 5,00
+  assert.deepEqual(faixasDisponiveis(pontos.faixas, 150, 10000).map((f) => [f.faixa.pontos, f.valorCentavos]), [[100, 500]]);
+  assert.deepEqual(conferirPagamentoComCashback(pontos, resumoPontos, 10000, 500), { ok: true, centavos: 0, pontos: 100 });
+  assert.match((conferirPagamentoComCashback(pontos, resumoPontos, 10000, 1500) as { erro: string }).erro, /nenhuma faixa/);
+  assert.match((conferirPagamentoComCashback(pontos, resumoReais, 10000, 500) as { erro: string }).erro, /não tem saldo/);
+});
+
+test('planoDeUso: vence antes sai antes, sem validade por ultimo; divida reduz o que da\' para usar', () => {
+  const lotes = [
+    lote('a', { validade: null, ordem: 1 }),
+    lote('b', { validade: '2026-12-01', ordem: 2 }),
+    lote('c', { validade: '2026-11-01', ordem: 3 }),
+    lote('vencido', { validade: '2026-01-01', ordem: 0 }),
+  ];
+  const plano = planoDeUso(lotes, { centavos: 0, pontos: 0 }, { centavos: 2500, pontos: 0 }, '2026-10-20');
+  assert.deepEqual(plano, { ok: true, consumos: [{ id: 'c', centavos: 1000, pontos: 0 }, { id: 'b', centavos: 1000, pontos: 0 }, { id: 'a', centavos: 500, pontos: 0 }] });
+  // 3 lotes vigentes = 3000; divida 500 -> saldo 2500: pedir 2600 nao da'.
+  assert.equal(planoDeUso(lotes, { centavos: 500, pontos: 0 }, { centavos: 2600, pontos: 0 }, '2026-10-20').ok, false);
+  assert.equal(planoDeUso(lotes, { centavos: 500, pontos: 0 }, { centavos: 2500, pontos: 0 }, '2026-10-20').ok, true);
+});
+
+test('devolucaoDoUso: lote vivo recebe de volta; lote estornado abate a divida', () => {
+  const vivo = devolucaoDoUso({ restanteCentavos: 200, restantePontos: 0, usadoCentavos: 300, usadoPontos: 0 }, { id: 'x', centavos: 300, pontos: 0 }, { centavos: 0, pontos: 0 });
+  assert.deepEqual(vivo, { lote: { restanteCentavos: 500, restantePontos: 0, usadoCentavos: 0, usadoPontos: 0 }, divida: { centavos: 0, pontos: 0 } });
+  const estornado = devolucaoDoUso({ restanteCentavos: 0, restantePontos: 0, usadoCentavos: 300, usadoPontos: 0, estornado: true }, { id: 'x', centavos: 300, pontos: 0 }, { centavos: 300, pontos: 0 });
+  assert.deepEqual(estornado, { lote: { restanteCentavos: 0, restantePontos: 0, usadoCentavos: 0, usadoPontos: 0 }, divida: { centavos: 0, pontos: 0 } });
+});
+
+test('o que a tela oferece: saldo no modelo da empresa; valor sugerido = saldo ate\' o que falta, ou a maior faixa', () => {
+  assert.equal(cashbackDisponivelParaVenda(reais, lerResumoCashback({ modelo: 'pontos', saldoPontos: 500 })), null, 'saldo de outro modelo');
+  assert.equal(cashbackDisponivelParaVenda({ ...reais, ativo: false }, lerResumoCashback({ modelo: 'reais', saldoCentavos: 500 })), null);
+  assert.equal(lerResumoCashback('nada'), null);
+  const d = cashbackDisponivelParaVenda(reais, lerResumoCashback({ modelo: 'reais', saldoCentavos: 800, proximoVencimento: '2026-12-31' }));
+  assert.ok(d);
+  assert.equal(d.proximoVencimento, '2026-12-31');
+  assert.equal(valorSugeridoDoCashback(d, 10000, 600), 600);
+  assert.equal(valorSugeridoDoCashback(d, 10000, 10000), 800);
+  const p = cashbackDisponivelParaVenda(pontos, lerResumoCashback({ modelo: 'pontos', saldoPontos: 350 }));
+  assert.ok(p);
+  assert.equal(valorSugeridoDoCashback(p, 10000, 10000), 1500, '300 pontos = 15% de R$ 100,00');
+  assert.equal(cashbackUsadoNaVenda([{ formaPagamento: 'Cashback', valorCentavos: 500 }, { formaPagamento: 'Cashback', valor: 2.5 }, { formaPagamento: 'Pix', valorCentavos: 100 }]), 750);
 });

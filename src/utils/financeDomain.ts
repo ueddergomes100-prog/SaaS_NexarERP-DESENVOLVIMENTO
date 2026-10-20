@@ -17,6 +17,7 @@ export type PaymentMethod =
   | 'Cheque'
   | 'Pagamento a Prazo'
   | 'Crédito de Devolução'
+  | 'Cashback'
   | 'Outros';
 
 export type FinancialNature = 'caixa_fisico' | 'bancario_digital' | 'contas_receber' | 'credito_cliente';
@@ -515,22 +516,23 @@ export const computeBankCreditsMap = (
 export const financialNatureForPayment = (method: PaymentMethod): FinancialNature => {
   if (method === 'Dinheiro') return 'caixa_fisico';
   if (method === 'Pix' || method === 'Transferência') return 'bancario_digital';
-  if (method === 'Crédito de Devolução') return 'credito_cliente';
+  if (method === 'Crédito de Devolução' || method === 'Cashback') return 'credito_cliente';
   return 'contas_receber';
 };
 
 export const settledFinancialNatureForPayment = (method: PaymentMethod): FinancialNature => {
   if (method === 'Dinheiro') return 'caixa_fisico';
-  if (method === 'Crédito de Devolução') return 'credito_cliente';
+  if (method === 'Crédito de Devolução' || method === 'Cashback') return 'credito_cliente';
   return 'bancario_digital';
 };
 
 /** Credito de devolucao entra aqui junto com Dinheiro/Pix/Transferencia: o
  * dinheiro ja esta com a loja desde a devolucao que gerou o credito, entao
- * a parte da venda paga com ele nasce quitada -- nunca vira conta a receber. */
+ * a parte da venda paga com ele nasce quitada -- nunca vira conta a receber.
+ * Cashback (20/10/2026) idem: e' saldo que a loja deu ao cliente. */
 export const paymentIsImmediatelyConfirmed = (method: PaymentMethod) => (
   method === 'Dinheiro' || method === 'Pix' || method === 'Transferência'
-  || method === 'Crédito de Devolução'
+  || method === 'Crédito de Devolução' || method === 'Cashback'
 );
 
 export const buildCardDetails = (args: {
@@ -1237,6 +1239,7 @@ const KNOWN_PAYMENT_METHODS: PaymentMethod[] = [
   'Boleto',
   'Pagamento a Prazo',
   'Crédito de Devolução',
+  'Cashback',
   'Outros',
 ];
 
@@ -1834,6 +1837,7 @@ export const contaComoReceita = (t: TransacaoDeReceita): boolean => (
   && t.status === 'Paga'
   && !lancamentoDesfeito(t)
   && t.formaPagamento !== 'Crédito de Devolução'
+  && t.formaPagamento !== 'Cashback'
   && !(REVENUE_REVERSAL_CATEGORIES as readonly string[]).includes(String(t.categoria || '').trim())
 );
 

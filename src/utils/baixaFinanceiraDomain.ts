@@ -255,6 +255,7 @@ export const planejarEstornoReceber = (titulo: TituloParaEstorno): PlanoEstorno 
 
   if (
     forma === 'Crédito de Devolução'
+    || forma === 'Cashback'
     || titulo.naturezaFinanceira === 'credito_cliente'
     || titulo.sourcePaymentTransactionId
   ) {

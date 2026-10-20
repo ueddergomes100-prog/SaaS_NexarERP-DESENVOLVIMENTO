@@ -49,6 +49,7 @@ const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
 const grade = require('../domain/gradeProdutosDomain');
 const comprovantes = require('./comprovantes');
 const cashback = require('./cashback');
+const cb = require('../domain/cashbackDomain');
 
 class ErroVenda extends Error {
   constructor(status, message) {
@@ -252,6 +253,17 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     idsDosCreditos = snap.docs.map((d) => d.id);
   }
 
+  // Cashback como pagamento (fase 2, 20/10/2026): o saldo e' conferido e
+  // consumido DENTRO da transacao (services/cashback.js); aqui so' o que nao
+  // depende do banco. Nunca pela tela: ela nao escreve no saldo.
+  const cashbackUsadoCentavos = cb.cashbackUsadoNaVenda(pagamentos);
+  const configCashback = cb.parseConfigCashback(config.cashback);
+  if (cashbackUsadoCentavos > 0) {
+    if (!pedido.clienteId) throw new ErroVenda(400, 'Cashback só pode ser usado com o cliente cadastrado escolhido.');
+    if (!configCashback.ativo) throw new ErroVenda(409, 'O cashback está desligado nas Configurações. Troque a forma de pagamento.');
+  }
+  const hojeDaVenda = getDateInputInTimeZone();
+
   const pisoDaNumeracao = pedido.pedidoId ? 0 : await maiorNumeroGravado(tenantId);
 
   const resultado = await db.runTransaction(async (tx) => {
@@ -414,6 +426,20 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       }
     }
 
+    // Cashback: saldo relido aqui dentro; R$ nao passa do saldo, pontos = uma
+    // faixa alcancada; os lotes saem na ordem "vence antes, sai antes".
+    let usoCashback = null;
+    if (cashbackUsadoCentavos > 0) {
+      try {
+        usoCashback = await cashback.prepararUso({
+          tx, tenantId, clienteId: pedido.clienteId, config: configCashback, totalCentavos: totais.valorTotalCentavos, valorCentavos: cashbackUsadoCentavos, hoje: hojeDaVenda,
+        });
+      } catch (erro) {
+        if (erro instanceof cashback.ErroCashback) throw new ErroVenda(erro.status, erro.message);
+        throw erro;
+      }
+    }
+
     // ---------------- CONTAS ----------------
     const proximoNumero = pedido.pedidoId
       ? 0
@@ -554,8 +580,11 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     }
     escritasDeEstoque.forEach(([id, campos]) => tx.update(db.collection('estoque').doc(id), campos));
     escritasDeLote.forEach(([id, campos]) => tx.update(db.collection('estoque_lotes').doc(id), campos));
-    if (clienteCreditoRef) {
-      tx.update(clienteCreditoRef, { [credito.CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1, updatedAt: agora() });
+    // Versao do credito do cliente: uma escrita so' no documento dele -- com
+    // cashback usado, vai junto com o resumo do saldo (gravarUso).
+    const camposDeCreditoDoCliente = clienteCreditoRef ? { [credito.CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1 } : {};
+    if (clienteCreditoRef && !usoCashback) {
+      tx.update(clienteCreditoRef, { ...camposDeCreditoDoCliente, updatedAt: agora() });
     }
     creditoPorBanco.forEach((delta, bancoId) => {
       tx.update(db.collection('bancos').doc(bancoId), {
@@ -573,6 +602,11 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Crédito usado na venda #${numeroPedido}`),
       });
     });
+    if (usoCashback) {
+      cashback.gravarUso({
+        tx, user, tenantId, pedidoId: pedidoRef.id, numeroPedido, clienteNome: pedido.clienteNome, preparado: usoCashback, hoje: hojeDaVenda, maisCamposDoCliente: camposDeCreditoDoCliente,
+      });
+    }
     pagamentosGravados.forEach((p) => {
       const parcela = p.cartao && p.cartao.numero ? ` (Parcela ${p.cartao.numero}/${p.cartao.totalParcelas})` : '';
       tx.set(db.collection('transacoes').doc(p.transactionId), {

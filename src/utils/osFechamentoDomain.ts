@@ -510,6 +510,9 @@ export const planoDaFinalizacaoDaOs = (e: EntradaDaFinalizacao): { erro: string 
   if (e.pagamentos.some((p) => p.formaPagamento === 'Crédito de Devolução')) {
     return { erro: 'Crédito de devolução não pode ser usado em OS. Escolha outra forma de pagamento.' };
   }
+  if (e.pagamentos.some((p) => p.formaPagamento === 'Cashback')) {
+    return { erro: 'Cashback não pode ser usado em OS. Escolha outra forma de pagamento.' };
+  }
 
   const totais = totaisDaOs(e.os);
   const somaPagamentos = e.pagamentos.reduce((soma, p) => soma + p.valorCentavos, 0);

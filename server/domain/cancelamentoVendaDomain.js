@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.lerPedidoDeAlteracaoDePagamento = exports.lerPedidoDeCancelamentoDaPreVenda = exports.lerPedidoDeCancelamento = exports.bloqueioDoCreditoNaAlteracao = exports.bloqueioParaAlterarPagamento = exports.estornoDosTitulosDaVenda = exports.estornoDosTitulos = exports.camposDoCreditoDevolvido = exports.idDoCreditoDevolvido = exports.creditoUsadoNaVenda = exports.FORMA_CREDITO_DEVOLUCAO = exports.erroDaRotaParaCancelar = exports.erroDoMotivoDoCancelamento = exports.MOTIVO_CANCELAMENTO_MAXIMO = exports.MOTIVO_CANCELAMENTO_MINIMO = void 0;
 const financeDomain_1 = require("./financeDomain");
+const cashbackDomain_1 = require("./cashbackDomain");
 /*
  * CANCELAR VENDA E ALTERAR A FORMA DE PAGAMENTO (item 8, fatia 3b -- 19/10/2026).
  *
@@ -205,10 +206,16 @@ const bloqueioParaAlterarPagamento = (titulos, contexto = {}) => {
     return null;
 };
 exports.bloqueioParaAlterarPagamento = bloqueioParaAlterarPagamento;
-/** Crédito de devolução não se troca por aqui: o credito ja' foi consumido (ou nao) na venda. */
-const bloqueioDoCreditoNaAlteracao = (pagamentosAntigos, pagamentosNovos) => ((0, exports.creditoUsadoNaVenda)(pagamentosAntigos) !== (0, exports.creditoUsadoNaVenda)(pagamentosNovos)
-    ? 'Venda paga com crédito de devolução não muda a parte do crédito por aqui. Para trocar, cancele a venda (o crédito volta para o cliente) e faça a venda de novo.'
-    : null);
+/** Crédito de devolução e cashback não se trocam por aqui: o saldo ja' foi consumido (ou nao) na venda. */
+const bloqueioDoCreditoNaAlteracao = (pagamentosAntigos, pagamentosNovos) => {
+    if ((0, exports.creditoUsadoNaVenda)(pagamentosAntigos) !== (0, exports.creditoUsadoNaVenda)(pagamentosNovos)) {
+        return 'Venda paga com crédito de devolução não muda a parte do crédito por aqui. Para trocar, cancele a venda (o crédito volta para o cliente) e faça a venda de novo.';
+    }
+    if ((0, cashbackDomain_1.cashbackUsadoNaVenda)(pagamentosAntigos) !== (0, cashbackDomain_1.cashbackUsadoNaVenda)(pagamentosNovos)) {
+        return 'Venda paga com cashback não muda a parte do cashback por aqui. Para trocar, cancele a venda (o cashback volta para o cliente) e faça a venda de novo.';
+    }
+    return null;
+};
 exports.bloqueioDoCreditoNaAlteracao = bloqueioDoCreditoNaAlteracao;
 // ---------------------------------------------------------------------------
 // O QUE A TELA MANDA AO SERVIDOR (POST /api/vendas/...)

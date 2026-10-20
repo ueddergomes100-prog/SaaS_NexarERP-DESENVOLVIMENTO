@@ -32,11 +32,12 @@ export const FORMAS_A_VISTA_PADRAO: string[] = [
   'Cartão de Crédito',
   'Transferência',
   'Crédito de Devolução',
+  'Cashback',
 ];
 
 /** Todas as formas que a tela de Configuracoes oferece marcar como a vista. */
 export const FORMAS_CONFIGURAVEIS_A_VISTA: string[] = [
-  'Dinheiro', 'Pix', 'Cartão de Débito', 'Cartão de Crédito', 'Transferência', 'Crédito de Devolução',
+  'Dinheiro', 'Pix', 'Cartão de Débito', 'Cartão de Crédito', 'Transferência', 'Crédito de Devolução', 'Cashback',
   'Boleto', 'Cheque', 'Pagamento a Prazo', 'Outros',
 ];
 

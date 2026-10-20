@@ -14,6 +14,7 @@ import ChequeCaptureModal from '../../../components/finance/ChequeCaptureModal';
 import { getDateInputInTimeZone } from '../../../utils/dateTime';
 import type { PdvFinanceConfig } from '../pdvHelpers';
 import { currency } from '../pdvHelpers';
+import { faixasDisponiveis, valorSugeridoDoCashback, type CashbackDisponivel } from '../../../utils/cashbackDomain';
 
 interface Banco extends TenantCollectionItem {
   nome: string;
@@ -27,6 +28,8 @@ interface PaymentModalProps {
   financeConfig: PdvFinanceConfig;
   tenantId?: string | null;
   saving?: boolean;
+  /** Cashback do cliente (20/10/2026): so' com saldo que de' para usar neste cupom e venda pelo servidor. */
+  cashbackDisponivel?: CashbackDisponivel | null;
   onClose: () => void;
   onFinalize: (drafts: PaymentDraft[], observation: string) => void;
 }
@@ -51,6 +54,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   financeConfig,
   tenantId,
   saving,
+  cashbackDisponivel = null,
   onClose,
   onFinalize,
 }) => {
@@ -74,12 +78,25 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
 
   if (!open) return null;
 
+  // Cashback: entra na lista so' com saldo que de' para usar neste cupom.
+  const faixasDoCashback = cashbackDisponivel && cashbackDisponivel.modelo === 'pontos'
+    ? faixasDisponiveis(cashbackDisponivel.faixas, cashbackDisponivel.saldoPontos, totalCents)
+    : [];
+  const ofereceCashback = cashbackDisponivel !== null
+    && (cashbackDisponivel.modelo === 'reais' ? cashbackDisponivel.saldoCentavos > 0 : faixasDoCashback.length > 0);
+  const formas: PaymentMethod[] = ofereceCashback ? [...paymentMethods, 'Cashback'] : paymentMethods;
+
   const updateDraft = (id: string, changes: Partial<PaymentDraft>) => {
     setDrafts((current) => current.map((draft) => {
       if (draft.id !== id) return draft;
       const next = { ...draft, ...changes };
       if (changes.forma === 'Cartão de Débito') {
         next.parcelas = '1';
+      }
+      // Cashback ja' entra com o saldo (ate' o que falta pagar) ou a maior faixa.
+      if (changes.forma === 'Cashback' && draft.forma !== 'Cashback' && cashbackDisponivel) {
+        const faltaPagar = Math.max(0, totalCents - (paidCents - toCents(draft.valor)));
+        next.valor = fromCents(valorSugeridoDoCashback(cashbackDisponivel, totalCents, faltaPagar)).toFixed(2);
       }
       return next;
     }));
@@ -132,7 +149,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                   value={draft.forma}
                   onChange={(event) => updateDraft(draft.id, { forma: event.target.value as PaymentMethod })}
                 >
-                  {paymentMethods.map((method) => (
+                  {formas.map((method) => (
                     <option key={method} value={method}>{method}</option>
                   ))}
                 </select>
@@ -143,6 +160,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 <input
                   value={draft.valor}
                   inputMode="decimal"
+                  readOnly={draft.forma === 'Cashback' && cashbackDisponivel?.modelo === 'pontos'}
                   autoFocus={index === 0}
                   onChange={(event) => updateDraft(draft.id, { valor: event.target.value })}
                 />
@@ -180,6 +198,33 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </label>
               )}
 
+              {draft.forma === 'Cashback' && cashbackDisponivel?.modelo === 'pontos' && (
+                <label>
+                  <span>Faixa de pontos</span>
+                  <select
+                    value={String(faixasDoCashback.find((f) => f.valorCentavos === toCents(draft.valor))?.faixa.pontos ?? '')}
+                    onChange={(event) => {
+                      const escolhida = faixasDoCashback.find((f) => String(f.faixa.pontos) === event.target.value);
+                      updateDraft(draft.id, { valor: escolhida ? fromCents(escolhida.valorCentavos).toFixed(2) : '' });
+                    }}
+                    title={`Saldo do cliente: ${cashbackDisponivel.saldoPontos.toLocaleString('pt-BR')} ponto(s)`}
+                  >
+                    <option value="">Selecione...</option>
+                    {faixasDoCashback.map((f) => (
+                      <option key={f.faixa.pontos} value={f.faixa.pontos}>
+                        {f.faixa.pontos} pontos = {f.faixa.descontoPercentual}% ({currency.format(fromCents(f.valorCentavos))})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {draft.forma === 'Cashback' && cashbackDisponivel?.modelo === 'reais' && (
+                <div className="pdv-payment-placeholder" title="Saldo de cashback do cliente">
+                  <span>Saldo {currency.format(fromCents(cashbackDisponivel.saldoCentavos))}</span>
+                </div>
+              )}
+
               {draft.forma === 'Cheque' && (
                 <div className="pdv-payment-placeholder">
                   <button type="button" className="btn-secondary" onClick={() => setChequeModalDraftId(draft.id)}>
@@ -190,7 +235,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
               )}
 
-              {draft.forma !== 'Cheque' && (draft.forma !== 'Cartão de Crédito' || financeConfig.pagamentoCartaoSimplificadoAtivo) && (
+              {draft.forma !== 'Cheque' && draft.forma !== 'Cashback' && (draft.forma !== 'Cartão de Crédito' || financeConfig.pagamentoCartaoSimplificadoAtivo) && (
                 <div className="pdv-payment-placeholder">
                   <span>
                     {isCardPayment(draft.forma) && financeConfig.pagamentoCartaoSimplificadoAtivo

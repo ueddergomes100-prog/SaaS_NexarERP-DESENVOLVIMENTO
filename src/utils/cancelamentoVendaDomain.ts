@@ -1,4 +1,5 @@
 import { fromCents, toCents, transactionMovesPhysicalCash } from './financeDomain';
+import { cashbackUsadoNaVenda } from './cashbackDomain';
 
 /*
  * CANCELAR VENDA E ALTERAR A FORMA DE PAGAMENTO (item 8, fatia 3b -- 19/10/2026).
@@ -260,12 +261,16 @@ export const bloqueioParaAlterarPagamento = (
   return null;
 };
 
-/** Crédito de devolução não se troca por aqui: o credito ja' foi consumido (ou nao) na venda. */
-export const bloqueioDoCreditoNaAlteracao = (pagamentosAntigos: unknown, pagamentosNovos: unknown): string | null => (
-  creditoUsadoNaVenda(pagamentosAntigos) !== creditoUsadoNaVenda(pagamentosNovos)
-    ? 'Venda paga com crédito de devolução não muda a parte do crédito por aqui. Para trocar, cancele a venda (o crédito volta para o cliente) e faça a venda de novo.'
-    : null
-);
+/** Crédito de devolução e cashback não se trocam por aqui: o saldo ja' foi consumido (ou nao) na venda. */
+export const bloqueioDoCreditoNaAlteracao = (pagamentosAntigos: unknown, pagamentosNovos: unknown): string | null => {
+  if (creditoUsadoNaVenda(pagamentosAntigos) !== creditoUsadoNaVenda(pagamentosNovos)) {
+    return 'Venda paga com crédito de devolução não muda a parte do crédito por aqui. Para trocar, cancele a venda (o crédito volta para o cliente) e faça a venda de novo.';
+  }
+  if (cashbackUsadoNaVenda(pagamentosAntigos) !== cashbackUsadoNaVenda(pagamentosNovos)) {
+    return 'Venda paga com cashback não muda a parte do cashback por aqui. Para trocar, cancele a venda (o cashback volta para o cliente) e faça a venda de novo.';
+  }
+  return null;
+};
 
 // ---------------------------------------------------------------------------
 // O QUE A TELA MANDA AO SERVIDOR (POST /api/vendas/...)

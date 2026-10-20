@@ -16,6 +16,8 @@ interface ProductSearchProps {
   disabled?: boolean;
   onChange: (value: string) => void;
   onSelect: (product: PdvProduct) => void;
+  /** Produto em destaque na lista de busca (ou null): vira o quadro de consulta. */
+  onDestacado: (product: PdvProduct | null) => void;
 }
 
 // A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
@@ -32,6 +34,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
   disabled,
   onChange,
   onSelect,
+  onDestacado,
 }) => {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
@@ -56,6 +59,8 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
           ariaLabel="Pesquisar produto no PDV"
           onViewMore={() => setIsSearchModalOpen(true)}
           renderItem={renderProductRow}
+          travarAoSelecionar={false}
+          onDestacado={onDestacado}
         />
       </div>
 
@@ -77,6 +82,9 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
         </div>
       )}
 
+      {/* Consulta (decisao do dono, 20/10/2026): mostra o produto em destaque
+          na busca, antes de lancar; some quando o item entra no cupom, quando a
+          busca e' apagada e quando um item e' removido. */}
       {selectedProduct && (
         <div className="pdv-product-card">
           <div className="pdv-product-image">
@@ -87,7 +95,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
             )}
           </div>
           <div className="pdv-product-info">
-            <span>Produto selecionado</span>
+            <span>Produto pesquisado</span>
             <strong>{selectedProduct.nome}</strong>
             <div>
               <small>Preço</small>

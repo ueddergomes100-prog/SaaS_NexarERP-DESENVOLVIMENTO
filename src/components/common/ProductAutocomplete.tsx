@@ -46,6 +46,11 @@ export interface ProductAutocompleteProps<T extends SearchableProduct & { id: st
    */
   onEnterComProdutoSelecionado?: () => void;
   className?: string;
+  /** Trava o campo depois de escolher (so' o X destrava). Padrao: sim.
+   *  A Frente de Caixa desliga: ela lanca o item e limpa a busca na hora. */
+  travarAoSelecionar?: boolean;
+  /** Avisa o produto em destaque na lista (ou null), para a tela mostrar um resumo. */
+  onDestacado?: (produto: T | null) => void;
   /** 'overlay' (padrao) flutua sobre o conteudo; 'inline' empurra o layout, usado no PDV. */
   variant?: 'overlay' | 'inline';
 }
@@ -74,6 +79,8 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   onEnterComProdutoSelecionado,
   className,
   variant = 'overlay',
+  travarAoSelecionar = true,
+  onDestacado,
 }: ProductAutocompleteProps<T>) {
   const internalRef = useRef<HTMLInputElement | null>(null);
   const resolvedInputRef = inputRef || internalRef;
@@ -131,9 +138,26 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
 
   const confirmSelect = (product: T) => {
     onSelect(product);
-    setLocked(true);
+    // Frente de Caixa (20/10/2026): a tela lanca o item e limpa a busca na
+    // hora, entao o campo nunca trava. Travar com o campo ja' vazio (produto
+    // escolhido da lista sem digitar) deixava a busca presa ate clicar no X.
+    if (travarAoSelecionar) setLocked(true);
     setIsOpen(false);
+    // A seta vale para a escolha que acabou de ser feita, nao para a proxima.
+    setNavegouComSeta(false);
+    setHighlightedIndex(0);
   };
+
+  // Produto em destaque na lista (seta/mouse), para a tela mostrar um resumo
+  // dele antes de lancar. Sem lista aberta, ou sem nada digitado e sem seta, e' null.
+  const onDestacadoRef = useRef(onDestacado);
+  useEffect(() => { onDestacadoRef.current = onDestacado; }, [onDestacado]);
+  const destacado = isOpen && !locked && (value.trim() || navegouComSeta)
+    ? (result.items[highlightedIndex] ?? null)
+    : null;
+  useEffect(() => {
+    onDestacadoRef.current?.(destacado);
+  }, [destacado]);
 
   const clearSelection = () => {
     onChange('');
@@ -208,7 +232,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
           setIsOpen(true);
         }}
         onFocus={() => { if (!locked) setIsOpen(true); }}
-        onBlur={() => setIsOpen(false)}
+        onBlur={() => { setIsOpen(false); setNavegouComSeta(false); }}
         onKeyDown={handleKeyDown}
         className={`product-autocomplete__input${locked ? ' product-autocomplete__input--locked' : ''}`}
       />

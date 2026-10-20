@@ -203,18 +203,42 @@ const PDV: React.FC = () => {
   const isPdvModuleBlocked = !isPlatformAdmin && blockedModules?.includes(MODULO_DO_CAIXA);
 
   /** App separado: o X encerra o login do caixa (o sistema, se aberto, fica em outra aba). */
+  // X do topo (decisao do dono, 20/10/2026): com o caixa aberto, pergunta se
+  // fecha agora (vai para o fechamento, com a contagem do dinheiro) ou sai e
+  // deixa aberto para o proximo login.
   const sairDoCaixa = async () => {
-    const resposta = await NexusSwal.fire({
-      title: 'Sair da Frente de Caixa?',
-      text: session
-        ? 'O caixa continua aberto para o próximo login. Itens que ainda não foram finalizados são perdidos.'
-        : 'Itens que ainda não foram finalizados são perdidos.',
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'Sair',
-      cancelButtonText: 'Voltar',
-    });
-    if (!resposta.isConfirmed) return;
+    const vendaEmAndamento = cartItemsRef.current.length > 0
+      ? ' A venda em andamento, que ainda não foi finalizada, é perdida.'
+      : '';
+    if (!session) {
+      const resposta = await NexusSwal.fire({
+        title: 'Sair da Frente de Caixa?',
+        text: `O caixa está fechado.${vendaEmAndamento}`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sair',
+        cancelButtonText: 'Voltar',
+      });
+      if (!resposta.isConfirmed) return;
+    } else {
+      const resposta = await NexusSwal.fire({
+        title: 'O caixa está aberto',
+        text: `Feche o caixa agora (contagem do dinheiro e fechamento) ou saia e deixe o caixa aberto para o próximo login.${vendaEmAndamento}`,
+        icon: 'question',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: 'Fechar o caixa agora',
+        denyButtonText: 'Sair e manter aberto',
+        // Sair mantendo aberto e' normal (troca de turno), nao e' perigo: cor neutra.
+        denyButtonColor: '#475569',
+        cancelButtonText: 'Voltar',
+      });
+      if (resposta.isDismissed) return;
+      if (resposta.isConfirmed) {
+        const fechou = await closeSession();
+        if (!fechou) return;
+      }
+    }
     await logout();
     navigate(CAMINHO_LOGIN_CAIXA, { replace: true });
   };
@@ -507,8 +531,9 @@ const PDV: React.FC = () => {
     }
   }, [currentUser, operatorName, sessionStorageKey, tenantId]);
 
-  const closeSession = async () => {
-    if (!session || !currentUser || !tenantId) return;
+  /** Devolve true quando o caixa foi fechado (o X do topo so' sai depois disso). */
+  const closeSession = async (): Promise<boolean> => {
+    if (!session || !currentUser || !tenantId) return false;
 
     if (cartItems.length > 0) {
       const confirmation = await NexusSwal.fire({
@@ -519,7 +544,7 @@ const PDV: React.FC = () => {
         confirmButtonText: 'Fechar caixa',
         cancelButtonText: 'Voltar',
       });
-      if (!confirmation.isConfirmed) return;
+      if (!confirmation.isConfirmed) return false;
     }
 
     let saldoEsperadoCentavos = session.saldoInicialCentavos - session.totalSangriasCentavos;
@@ -552,7 +577,7 @@ const PDV: React.FC = () => {
       cancelButtonText: 'Cancelar',
     });
 
-    if (!result.isConfirmed) return;
+    if (!result.isConfirmed) return false;
 
     const saldoFinalInformadoCentavos = fromCurrencyInput(result.value || 0);
     const diferencaCentavos = saldoFinalInformadoCentavos - saldoEsperadoCentavos;
@@ -584,9 +609,11 @@ const PDV: React.FC = () => {
       setSession(null);
       localStorage.removeItem(sessionStorageKey);
       showSuccess('Caixa fechado');
+      return true;
     } catch (error) {
       console.error('Erro ao fechar caixa:', error);
       showError('Erro ao fechar caixa', 'Não foi possível fechar o caixa. Tente novamente.');
+      return false;
     }
   };
 
@@ -748,7 +775,8 @@ const PDV: React.FC = () => {
       return [...current, nextItem];
     });
 
-    setSelectedProduct(product);
+    // Item lancado: a consulta some e a busca fica pronta para o proximo.
+    setSelectedProduct(null);
     setSearch('');
   }, [openSession, session, validateQuantity, precificarLinha]);
 
@@ -848,6 +876,12 @@ const PDV: React.FC = () => {
   const removeItem = useCallback((itemId: string) => {
     setCartItems((current) => current.filter((item) => item.id !== itemId));
     if (selectedItemId === itemId) setSelectedItemId('');
+    // Lixeira (bug do dono, 20/10/2026): limpa consulta e busca juntas e volta
+    // o foco para a busca -- antes o produto continuava "selecionado" e a
+    // busca podia ficar presa esperando o X.
+    setSelectedProduct(null);
+    setSearch('');
+    productInputRef.current?.focus();
   }, [selectedItemId]);
 
   const clearSale = async () => {
@@ -1393,8 +1427,9 @@ const PDV: React.FC = () => {
               inputRef={productInputRef}
               mode={productSearchMode}
               disabled={!session}
-              onChange={setSearch}
+              onChange={(texto) => { setSearch(texto); if (!texto.trim()) setSelectedProduct(null); }}
               onSelect={(product) => addProductToCart(product, 1, resolveScannedUnit(product))}
+              onDestacado={setSelectedProduct}
             />
 
             {!session && (

@@ -203,3 +203,11 @@ test('tela: saldo, divida, vencimento e movimentos', async () => {
   // Lote vencido ontem nao conta mais no saldo de hoje.
   assert.equal(m.resumoPelosMovimentos([lote, uso, vivo], '2026-10-20', { centavos: 0, pontos: 0 }).saldoCentavos, 400);
 });
+
+test('troca de modelo com saldo em aberto e\' bloqueada (decisao do dono, 20/10)', async () => {
+  const m = await import('../src/utils/cashbackDomain');
+  assert.equal(m.bloqueioDaTrocaDeModelo(reais, reais, 5), null, 'mesmo modelo');
+  assert.equal(m.bloqueioDaTrocaDeModelo(reais, pontos, 0), null, 'ninguem com saldo');
+  assert.match(String(m.bloqueioDaTrocaDeModelo(reais, pontos, 2)), /2 cliente\(s\).*R\$/);
+  assert.match(String(m.bloqueioDaTrocaDeModelo(pontos, reais, 1)), /em pontos/);
+});

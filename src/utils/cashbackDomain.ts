@@ -549,6 +549,18 @@ export const resumoPelosMovimentos = (
   divida,
 );
 
+/**
+ * Troca do modelo (R$ <-> pontos) com saldo em aberto: decisao do dono
+ * (20/10/2026) -- bloqueia. O saldo do modelo antigo nao some nem e'
+ * convertido: a empresa troca quando nenhum cliente tiver saldo nele.
+ * `clientesComSaldo` = clientes com lote vigente do modelo antigo.
+ */
+export const bloqueioDaTrocaDeModelo = (antigo: ConfigCashback, novo: ConfigCashback, clientesComSaldo: number): string | null => {
+  if (antigo.modelo === novo.modelo || clientesComSaldo <= 0) return null;
+  const rotulo = antigo.modelo === 'pontos' ? 'pontos' : 'R$';
+  return `${clientesComSaldo} cliente(s) ainda têm saldo de cashback em ${rotulo}. O modelo só pode ser trocado quando nenhum cliente tiver saldo em aberto: o saldo acaba quando é usado nas vendas ou quando vence. Veja quem tem saldo em Comercial › Cashback.`;
+};
+
 /** Lote gravado, com a ordem de criacao para o desempate. */
 export interface LoteParaUso extends LoteCashback {
   id: string;

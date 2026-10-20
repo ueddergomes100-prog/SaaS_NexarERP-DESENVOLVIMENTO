@@ -12,6 +12,8 @@
 const { db, admin } = require('../config/firebase');
 const dominio = require('../domain/configuracoesGeraisDomain');
 const filialDominio = require('../domain/filialDomain');
+const cashbackDominio = require('../domain/cashbackDomain');
+const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 
 class ErroConfiguracoesGerais extends Error {
@@ -65,6 +67,35 @@ const salvarConfiguracoesGerais = async ({ user, corpo }) => {
     exigirPermissao(user, usuario, grupo);
 
     const alvos = grupo ? grupo.filiais.map((f) => f.tenantId) : [base];
+
+    // Cashback (decisao do dono, 20/10/2026): trocar o modelo (R$ <-> pontos)
+    // so' sem saldo em aberto no modelo antigo, em nenhuma filial.
+    if (leitura.valores.cashback) {
+      const novo = cashbackDominio.parseConfigCashback(leitura.valores.cashback);
+      const configs = await tx.getAll(...alvos.map((t) => db.collection('configuracoes').doc(t)));
+      const hoje = getDateInputInTimeZone();
+      for (let i = 0; i < alvos.length; i += 1) {
+        const antigo = cashbackDominio.parseConfigCashback(configs[i].exists ? configs[i].data().cashback : undefined);
+        if (antigo.modelo === novo.modelo) continue;
+        const lotes = await tx.get(db.collection('cashback_movimentos')
+          .where('tenantId', '==', alvos[i])
+          .where('tipo', '==', 'gerado')
+          .where('modelo', '==', antigo.modelo));
+        const clientes = new Set(lotes.docs
+          .filter((d) => cashbackDominio.loteVigente({
+            centavos: Number(d.data().centavos) || 0,
+            pontos: Number(d.data().pontos) || 0,
+            restanteCentavos: Number(d.data().restanteCentavos) || 0,
+            restantePontos: Number(d.data().restantePontos) || 0,
+            validade: d.data().validade || null,
+            estornado: d.data().estornado === true,
+          }, hoje))
+          .map((d) => d.data().clienteId));
+        const bloqueio = cashbackDominio.bloqueioDaTrocaDeModelo(antigo, novo, clientes.size);
+        if (bloqueio) throw new ErroConfiguracoesGerais(409, bloqueio);
+      }
+    }
+
     for (const tenantId of alvos) {
       tx.set(db.collection('configuracoes').doc(tenantId), {
         ...leitura.valores,

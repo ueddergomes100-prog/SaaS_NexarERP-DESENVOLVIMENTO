@@ -22,7 +22,7 @@
  * gerar para mostrar; o servidor calcula de novo na hora de gerar.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.devolucaoDoUso = exports.planoDeUso = exports.ordenarLotesParaUso = exports.resumoPelosMovimentos = exports.movimentoNaTela = exports.ROTULO_MOVIMENTO_CASHBACK = exports.venceEmAte = exports.parteDoSaldoVenceu = exports.temSaldo = exports.temDivida = exports.textoDoSaldo = exports.conferirPagamentoComCashback = exports.valorSugeridoDoCashback = exports.cashbackDisponivelParaVenda = exports.faixasDisponiveis = exports.valorDaFaixa = exports.cashbackUsadoNaVenda = exports.lerResumoCashback = exports.FORMA_PAGAMENTO_CASHBACK = exports.formatarCashback = exports.parteProporcional = exports.abaterDoLote = exports.novoLoteComDivida = exports.resumoDosLotes = exports.loteVigente = exports.saldoDosMovimentos = exports.pontosParaProximaFaixa = exports.faixaAlcancada = exports.validadeDoCashback = exports.cashbackDaVenda = exports.lerConfigCashback = exports.lerFaixas = exports.parseConfigCashback = exports.ROTULO_MODELO_CASHBACK = exports.LIMITE_DE_FAIXAS = exports.DEFAULT_CONFIG_CASHBACK = void 0;
+exports.devolucaoDoUso = exports.planoDeUso = exports.ordenarLotesParaUso = exports.bloqueioDaTrocaDeModelo = exports.resumoPelosMovimentos = exports.movimentoNaTela = exports.ROTULO_MOVIMENTO_CASHBACK = exports.venceEmAte = exports.parteDoSaldoVenceu = exports.temSaldo = exports.temDivida = exports.textoDoSaldo = exports.conferirPagamentoComCashback = exports.valorSugeridoDoCashback = exports.cashbackDisponivelParaVenda = exports.faixasDisponiveis = exports.valorDaFaixa = exports.cashbackUsadoNaVenda = exports.lerResumoCashback = exports.FORMA_PAGAMENTO_CASHBACK = exports.formatarCashback = exports.parteProporcional = exports.abaterDoLote = exports.novoLoteComDivida = exports.resumoDosLotes = exports.loteVigente = exports.saldoDosMovimentos = exports.pontosParaProximaFaixa = exports.faixaAlcancada = exports.validadeDoCashback = exports.cashbackDaVenda = exports.lerConfigCashback = exports.lerFaixas = exports.parseConfigCashback = exports.ROTULO_MODELO_CASHBACK = exports.LIMITE_DE_FAIXAS = exports.DEFAULT_CONFIG_CASHBACK = void 0;
 exports.DEFAULT_CONFIG_CASHBACK = {
     ativo: false,
     modelo: 'reais',
@@ -396,6 +396,19 @@ const resumoPelosMovimentos = (movimentos, hoje, divida) => (0, exports.resumoDo
     centavos: m.centavos, pontos: m.pontos, restanteCentavos: m.restanteCentavos, restantePontos: m.restantePontos, validade: m.validade, estornado: m.estornado,
 })), hoje, divida);
 exports.resumoPelosMovimentos = resumoPelosMovimentos;
+/**
+ * Troca do modelo (R$ <-> pontos) com saldo em aberto: decisao do dono
+ * (20/10/2026) -- bloqueia. O saldo do modelo antigo nao some nem e'
+ * convertido: a empresa troca quando nenhum cliente tiver saldo nele.
+ * `clientesComSaldo` = clientes com lote vigente do modelo antigo.
+ */
+const bloqueioDaTrocaDeModelo = (antigo, novo, clientesComSaldo) => {
+    if (antigo.modelo === novo.modelo || clientesComSaldo <= 0)
+        return null;
+    const rotulo = antigo.modelo === 'pontos' ? 'pontos' : 'R$';
+    return `${clientesComSaldo} cliente(s) ainda têm saldo de cashback em ${rotulo}. O modelo só pode ser trocado quando nenhum cliente tiver saldo em aberto: o saldo acaba quando é usado nas vendas ou quando vence. Veja quem tem saldo em Comercial › Cashback.`;
+};
+exports.bloqueioDaTrocaDeModelo = bloqueioDaTrocaDeModelo;
 /** Vence antes, sai antes; sem validade sai por ultimo; empate pela ordem de criacao. */
 const ordenarLotesParaUso = (lotes, hoje) => (lotes.filter((l) => (0, exports.loteVigente)(l, hoje)).sort((a, b) => {
     if (a.validade && b.validade && a.validade !== b.validade)

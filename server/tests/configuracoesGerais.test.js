@@ -143,3 +143,29 @@ test('Filiais sem grupo: a propria empresa aparece como Matriz (10)', async () =
   const r2 = await comGrupoServico.listarFiliais({ user: { uid: 'dono', tenantId: 'dono' } });
   assert.equal(r2.matrizSemFiliais, null);
 });
+
+test('cashback: trocar o modelo com saldo em aberto e\' recusado; sem saldo (ou vencido) passa', async () => {
+  const lote = (extra = {}) => ({ tenantId: 'f20', clienteId: 'c1', tipo: 'gerado', modelo: 'reais', centavos: 500, restanteCentavos: 500, validade: null, estornado: false, ...extra });
+  const configComCashback = { cashback: { ativo: true, modelo: 'reais', tipoPadrao: 'percentual', valorPadrao: 5 } };
+  const paraPontos = { ...GERAIS, cashback: { ativo: true, modelo: 'pontos', pontosPorReal: 1, faixas: [{ pontos: 100, descontoPercentual: 5 }] } };
+  const base = (extraLote) => criarBancoFalso(comGrupo({
+    'configuracoes/dono': { ...comGrupo()['configuracoes/dono'], ...configComCashback },
+    'configuracoes/f20': { ...comGrupo()['configuracoes/f20'], ...configComCashback },
+    'cashback_movimentos/gerado_v1': lote(extraLote),
+  }), { consultas: true });
+
+  const comSaldo = base();
+  await assert.rejects(
+    carregar(comSaldo.db).gerais.salvarConfiguracoesGerais({ user: DONO, corpo: paraPontos }),
+    (erro) => erro.status === 409 && /1 cliente\(s\)/.test(erro.message),
+  );
+  assert.equal(comSaldo.ler('configuracoes/dono').cashback.modelo, 'reais', 'nada gravado');
+
+  const usado = base({ restanteCentavos: 0 });
+  await carregar(usado.db).gerais.salvarConfiguracoesGerais({ user: DONO, corpo: paraPontos });
+  assert.equal(usado.ler('configuracoes/f20').cashback.modelo, 'pontos');
+
+  const vencido = base({ validade: '2020-01-01' });
+  await carregar(vencido.db).gerais.salvarConfiguracoesGerais({ user: DONO, corpo: paraPontos });
+  assert.equal(vencido.ler('configuracoes/dono').cashback.modelo, 'pontos');
+});

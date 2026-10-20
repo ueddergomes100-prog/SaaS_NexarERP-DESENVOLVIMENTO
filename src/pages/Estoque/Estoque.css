@@ -45,19 +45,23 @@
   flex-wrap: wrap;
 }
 
+/* O seletor vive dentro do cabecalho roxo da pagina, onde as variaveis de
+   tema (--text-*, --accent-purple) sao as do fundo escuro: usar cores fixas
+   aqui e' o que garante leitura nos dois temas (20/10/2026 -- antes o hover
+   ficava branco sobre claro e o selecionado, branco sobre roxo-claro). */
 .mode-switch {
   display: inline-flex;
   align-items: center;
   padding: 4px;
-  border: 1px solid var(--border-color);
+  border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: var(--radius-md);
-  background: var(--bg-secondary);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .mode-switch button {
   border: 0;
   background: transparent;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.85);
   padding: 8px 12px;
   border-radius: calc(var(--radius-md) - 4px);
   font-weight: 700;
@@ -65,18 +69,15 @@
   cursor: pointer;
 }
 
-/* Hover e selecionado explicitos (20/10/2026): o hover global de botao
-   deixava a letra branca sobre fundo claro, e o roxo do selecionado era
-   claro demais para ler. */
 .mode-switch button:hover:not(.active) {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .mode-switch button.active,
 .mode-switch button.active:hover {
-  color: #ffffff;
-  background: var(--accent-purple);
+  color: #5b21b6;
+  background: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 

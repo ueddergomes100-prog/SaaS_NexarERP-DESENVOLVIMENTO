@@ -18,6 +18,7 @@ const valido = {
   transferenciaSemNota: true,
   transferenciaNfeTributacao: 'nao_incide',
   usaGradeDeProdutos: false,
+  cashback: { ativo: false },
 };
 
 test('lerConfiguracoesGerais aceita o que a tela manda e limpa as categorias', () => {
@@ -28,6 +29,7 @@ test('lerConfiguracoesGerais aceita o que a tela manda e limpa as categorias', (
   assert.equal(r.valores.modoValidacaoCliente, 'perguntar');
   assert.equal(r.valores.transferenciaSemNota, true);
   assert.equal(r.valores.usaGradeDeProdutos, false);
+  assert.equal(r.valores.cashback.ativo, false);
 });
 
 test('lerConfiguracoesGerais recusa com mensagem em portugues', () => {
@@ -39,6 +41,7 @@ test('lerConfiguracoesGerais recusa com mensagem em portugues', () => {
     [{ ...valido, modoValidacaoCliente: 'talvez' }, /cliente não cadastrado/],
     [{ ...valido, transferenciaNfeTributacao: 'icms' }, /tributação da nota de transferência/],
     [{ ...valido, usaGradeDeProdutos: undefined }, /Loja utiliza grade de produtos/],
+    [{ ...valido, cashback: { ativo: true, modelo: 'reais', valorPadrao: 0 } }, /cashback padrão/],
   ];
   for (const [corpo, mensagem] of casos) {
     const r = lerConfiguracoesGerais(corpo);

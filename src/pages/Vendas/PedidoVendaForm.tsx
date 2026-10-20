@@ -7,6 +7,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
+import { estornarCashbackDaVendaSemFalhar, gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { brutoDaLinhaCentavos, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
@@ -3651,6 +3652,9 @@ const PedidoVendaForm: React.FC = () => {
       } catch (err) {
         console.error('Erro ao registrar log de criacao de venda:', err);
       }
+      // Cashback (20/10/2026): pelo servidor ele ja' gera; gravada pela tela, a
+      // venda avisa o servidor, que confere se ela esta' paga e gera (idempotente).
+      if (!vendaPeloServidor) void gerarCashbackSemFalhar(newPedidoId);
 
       setIsLoading(false);
       // Operacao concluida: a proxima venda pede identificacao de novo.
@@ -4485,6 +4489,8 @@ const PedidoVendaForm: React.FC = () => {
       } catch (err) {
         console.error('Erro ao registrar log de cancelamento de venda:', err);
       }
+      // Cashback (20/10/2026): o que a venda gerou volta (pelo servidor, idempotente).
+      if (id) void estornarCashbackDaVendaSemFalhar(id);
 
       // 4. Reabrir Orçamento se houver orcamentoId
       if (orcamentoId) {

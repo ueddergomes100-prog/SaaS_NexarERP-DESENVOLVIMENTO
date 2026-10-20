@@ -21,6 +21,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ROTULO_DO_CAMPO_GERAL = exports.camposDiferentes = exports.valoresUnificados = exports.semCamposGerais = exports.lerConfiguracoesGerais = exports.juntarCategorias = exports.mensagemPlanoCheio = exports.listaComNovaCategoria = exports.lerNovaCategoria = exports.CAMPO_DO_PLANO_DE_CONTAS = exports.CATEGORIAS_PADRAO_DOS_LANCAMENTOS = exports.LIMITE_DO_NOME_DA_CATEGORIA = exports.LIMITE_DE_CATEGORIAS = exports.CAMPOS_GERAIS = void 0;
 const clienteValidacaoDomain_1 = require("./clienteValidacaoDomain");
 const notaTransferenciaDomain_1 = require("./notaTransferenciaDomain");
+const cashbackDomain_1 = require("./cashbackDomain");
 exports.CAMPOS_GERAIS = [
     'planoContasReceitas',
     'planoContasDespesas',
@@ -32,6 +33,8 @@ exports.CAMPOS_GERAIS = [
     // Grade de produtos (19/10/2026): o cadastro de produto e' do grupo, entao a
     // chave que liga a grade tambem vale para todas as filiais.
     'usaGradeDeProdutos',
+    // Cashback (20/10/2026): politica comercial do grupo (cliente e' do grupo).
+    'cashback',
 ];
 exports.LIMITE_DE_CATEGORIAS = 200;
 exports.LIMITE_DO_NOME_DA_CATEGORIA = 60;
@@ -142,6 +145,9 @@ const lerConfiguracoesGerais = (corpo) => {
     const grade = lerSimNao(dados.usaGradeDeProdutos, 'Loja utiliza grade de produtos');
     if (!grade.ok)
         return { ok: false, erro: grade.erro };
+    const cashback = (0, cashbackDomain_1.lerConfigCashback)(dados.cashback);
+    if (!cashback.ok)
+        return { ok: false, erro: cashback.erro };
     if (!MODOS_VALIDACAO_CLIENTE.includes(dados.modoValidacaoCliente)) {
         return { ok: false, erro: 'Escolha o que fazer com cliente não cadastrado: permitir, bloquear ou perguntar.' };
     }
@@ -159,6 +165,7 @@ const lerConfiguracoesGerais = (corpo) => {
             transferenciaSemNota: semNota.valor,
             transferenciaNfeTributacao: dados.transferenciaNfeTributacao,
             usaGradeDeProdutos: grade.valor,
+            cashback: cashback.config,
         },
     };
 };
@@ -181,6 +188,8 @@ const lerCampoDoDocumento = (campo, valor) => {
             return (0, clienteValidacaoDomain_1.parseModoValidacaoCliente)(valor);
         case 'transferenciaNfeTributacao':
             return (0, notaTransferenciaDomain_1.parseTributacaoTransferencia)(valor);
+        case 'cashback':
+            return (0, cashbackDomain_1.parseConfigCashback)(valor);
         default:
             return valor === true;
     }
@@ -220,4 +229,5 @@ exports.ROTULO_DO_CAMPO_GERAL = {
     transferenciaSemNota: 'transferência sem nota',
     transferenciaNfeTributacao: 'tributação da transferência',
     usaGradeDeProdutos: 'grade de produtos',
+    cashback: 'cashback',
 };

@@ -529,6 +529,7 @@ service cloud.firestore {
         'produzidoInternamente', 'produtoServico', 'produtoRevenda', 'controlarEstoque',
         'exigirSerialLote', 'controlarLote', 'permiteCondicional', 'permitirCashback', 'produtoDestaque',
         'ativo', 'statusAtivo', 'temGrade', 'gradeNomes', 'ehVariacao', 'produtoPaiChave', 'variacao', 'variacaoRotulo',
+        'cashbackTipo', 'cashbackValor',
         'grupoChave', 'filialOrigem', 'cadastroHash'];
     }
 
@@ -536,6 +537,14 @@ service cloud.firestore {
     // e' excluida/alterada pela tela -- o estoque entrou pela transferencia.
     function entradaDeTransferenciaIntacta(collectionName) {
       return collectionName != 'notas_fiscais_entrada' || resource.data.get('transferenciaId', '') == '';
+    }
+
+    // Cashback (2026-10-20): o saldo do cliente (clientes.cashback) so' o servidor grava.
+    function cashbackSoPeloServidor(collectionName) {
+      return collectionName != 'clientes' || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['cashback']);
+    }
+    function cashbackNaoNasceNaTela(collectionName) {
+      return collectionName != 'clientes' || !('cashback' in request.resource.data);
     }
 
     function cadastroDoGrupoRespeitado(collectionName) {
@@ -951,7 +960,11 @@ service cloud.firestore {
         // Condicional (2026-10-05): SO' LEITURA, como trocas. Saida, devolucao, fechamento
         // (que gera a pre-venda) e cancelamento -- e a reserva de estoque -- sao gravados
         // pelo servidor (server/routes/condicionais.routes.js).
-        'condicionais'
+        'condicionais',
+        // Cashback (2026-10-20): SO' LEITURA. Gerar, usar e estornar e' o servidor
+        // (server/services/cashback.js); o resumo fica em clientes/{id}.cashback,
+        // que a tela tambem nao grava (cashbackSoPeloServidor).
+        'cashback_movimentos'
       ] && canReadTenantDocument();
 
       allow create: if collectionName in [
@@ -1002,7 +1015,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canCreateTenantDocument() && romaneioNasceEmMontagem(collectionName) && canWriteTenantCollection(collectionName);
+      ] && canCreateTenantDocument() && romaneioNasceEmMontagem(collectionName) && cashbackNaoNasceNaTela(collectionName) && canWriteTenantCollection(collectionName);
 
       allow update: if collectionName in [
         'clientes',
@@ -1051,7 +1064,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && romaneioAbertoNaTela(collectionName) && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && cashbackSoPeloServidor(collectionName) && romaneioAbertoNaTela(collectionName) && (
         // Os movimentos de SALDO vem PRIMEIRO de proposito (2026-09-29): sao
         // as escritas mais comuns (toda venda mexe em estoque e banco) e as
         // mais baratas de conferir. O Firestore para de avaliar a regra depois

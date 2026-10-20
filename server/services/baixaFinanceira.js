@@ -72,6 +72,7 @@ const {
   quitarOrigensSeRenegociacaoPaga,
   reabrirOrigensSeRenegociacaoEstavaPaga,
 } = require('./renegociacaoOrigem');
+const cashback = require('./cashback');
 
 const { ErroBaixa, camposDoResumoDePagamentos, temPermissao } = regras;
 
@@ -140,11 +141,14 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     throw new ErroBaixa(403, erroDosAjustes(1, ajustes, { podeDescontar: false }));
   }
   const resumo = { ajustes };
+  // Vendas que podem ter ficado pagas por inteiro com esta baixa (cashback, depois da transacao).
+  const vendasParaCashback = new Set();
 
   await db.runTransaction(async (tx) => {
     // --- leituras (todas antes de qualquer escrita) ---
     const titulo = await lerTitulo(tx, tenantId, pedido);
     const dados = titulo.dados;
+    if (tipo === 'entrada' && dados.pedidoId) vendasParaCashback.add(String(dados.pedidoId));
     if (dados.status === 'Paga') {
       throw new ErroBaixa(409, tipo === 'saida'
         ? 'Esta conta já está paga (talvez por outra pessoa). Atualize a tela.'
@@ -428,7 +432,13 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       });
     }
     resumo.quitouRenegociacao = quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, dataPagamento);
+    if (resumo.quitouRenegociacao && renegociacao) {
+      renegociacao.origens.forEach((o) => { if (o.ref.parent.id === 'pedidos_venda') vendasParaCashback.add(o.ref.id); });
+    }
   });
+
+  // Cashback (20/10/2026): a venda que ficou toda paga gera agora (idempotente).
+  for (const pedidoId of vendasParaCashback) await cashback.gerarSeDevidoSemFalhar({ user, tenantId, pedidoId });
 
   return resumo;
 };
@@ -441,11 +451,13 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
 const registrarEstorno = async ({ user, tenantId, pedido }) => {
   const { tipo, motivo } = pedido;
   const resumo = {};
+  let vendaDoEstorno = null;
 
   await db.runTransaction(async (tx) => {
     // --- leituras ---
     const titulo = await lerTitulo(tx, tenantId, pedido);
     const dados = titulo.dados;
+    if (tipo === 'entrada' && dados.pedidoId) vendaDoEstorno = String(dados.pedidoId);
     const plano = tipo === 'saida' ? planejarEstornoPagar(dados) : planejarEstornoReceber(dados);
     if (!plano.permitido) {
       throw new ErroBaixa(dados.status !== 'Paga' ? 409 : 400, dados.status !== 'Paga'
@@ -613,6 +625,9 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
     }
     reabrirOrigensSeRenegociacaoEstavaPaga(tx, user, renegociacao, motivo);
   });
+
+  // Cashback (20/10/2026): se a venda deixou de estar paga, o lote dela volta.
+  if (vendaDoEstorno) await cashback.revisarAposEstornoSemFalhar({ user, tenantId, pedidoId: vendaDoEstorno });
 
   return resumo;
 };

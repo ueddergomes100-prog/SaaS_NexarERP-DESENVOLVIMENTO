@@ -5,6 +5,7 @@ const { fromCents } = require('../domain/financeDomain');
 const { ErroVenda, finalizarVenda, temPermissao } = require('../services/vendaFechamento');
 const { PERMISSOES_QUE_OPERAM_O_CAIXA } = require('../domain/frenteDeCaixaDomain');
 const { alterarPagamento, cancelarPreVenda, cancelarVenda } = require('../services/vendaCancelamento');
+const cashback = require('../services/cashback');
 
 /**
  * VENDAS -- fechamento da venda pelo servidor (item 8 da auditoria, fatia 3).
@@ -76,6 +77,8 @@ router.post('/cancelar', async (req, res) => {
       return res.status(403).json({ error: 'Você não tem permissão para cancelar vendas. Peça a um responsável liberar "Vendas: Alterar" no seu usuário.' });
     }
     const r = await cancelarVenda({ user: req.user, tenantId, corpo: req.body || {} });
+    // Cashback (20/10/2026): o que a venda gerou volta (se ja' foi usado, vira saldo negativo).
+    await cashback.estornarVendaSemFalhar({ user: req.user, tenantId, pedidoId: r.pedidoId });
     registrarLog({ ...req.user, tenantId }, {
       modulo: 'vendas',
       acao: 'cancelamento',

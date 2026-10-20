@@ -3,6 +3,7 @@ import { AlertTriangle, Receipt, X } from 'lucide-react';
 import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { PARAMETROS_VENDA_PADRAO, checarPrazoDevolucao, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { db } from '../../services/firebase';
+import { estornarCashbackDaDevolucaoSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -369,6 +370,8 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       } catch (logError) {
         console.error('Erro ao registrar auditoria da devolução:', logError);
       }
+      // Cashback (20/10/2026): a parte proporcional ao valor devolvido volta (pelo servidor).
+      void estornarCashbackDaDevolucaoSemFalhar(novaDevolucaoRef.id);
 
       showSuccess('Devolução processada com sucesso!');
       onSuccess();

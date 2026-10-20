@@ -40,6 +40,7 @@ const romaneiosRoutes = require('./routes/romaneios.routes');
 const vendasRoutes = require('./routes/vendas.routes');
 const osRoutes = require('./routes/os.routes');
 const descontosRoutes = require('./routes/descontos.routes');
+const cashbackRoutes = require('./routes/cashback.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
@@ -212,6 +213,8 @@ app.use('/api/vendas', vendasRoutes);
 app.use('/api/os', osRoutes);
 // Liberacao de desconto (19/10/2026): senha/PIN do aprovador conferidos aqui, viram comprovante de curta duracao.
 app.use('/api/descontos', descontosRoutes);
+// Cashback (20/10/2026): gerar/estornar depois de a tela gravar venda, baixa ou devolucao.
+app.use('/api/cashback', cashbackRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'
 // que precisam do banco do proprio ambiente -- ver manutencao.routes.js.
 app.use('/api/manutencao', manutencaoRoutes);

@@ -5,6 +5,7 @@ import { collection, doc, getDoc, limit, onSnapshot, query, runTransaction, serv
 import Swal from 'sweetalert2';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
+import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../utils/cashbackDomain';
 import {
   buildActiveSessionWarningHtml,
   endSessionOnBackend,
@@ -109,6 +110,8 @@ interface AuthContextType {
   /** Configuracoes Gerais: "Loja utiliza grade de produtos" (gradeProdutosDomain.ts).
    *  Liga o menu Cadastros Auxiliares > Grades e a grade no cadastro do produto. */
   usaGradeDeProdutos: boolean;
+  /** Configuracoes Gerais: cashback (cashbackDomain.ts) -- modelo, padrao, validade e faixas. */
+  configCashback: ConfigCashback;
   /** Config da empresa: Conferência de mercadoria (Módulo 12) ligada.
    *  Governa se a pré-venda nasce com `statusConferencia: 'aguardando'` e
    *  entra na Fila de Expedição -- tanto na tela de Pedido de Venda quanto
@@ -226,6 +229,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [trabalhaComCondicional, setTrabalhaComCondicional] = useState(DEFAULT_TRABALHA_COM_CONDICIONAL);
   const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
   const [usaGradeDeProdutos, setUsaGradeDeProdutos] = useState(false);
+  const [configCashback, setConfigCashback] = useState<ConfigCashback>(DEFAULT_CONFIG_CASHBACK);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(DEFAULT_CONFERENCIA_MERCADORIA);
   const [loteModoSaida, setLoteModoSaida] = useState<ModoSaidaLote>(DEFAULT_LOTE_MODO_SAIDA);
   const [loteAvisarVencido, setLoteAvisarVencido] = useState(DEFAULT_LOTE_AVISAR_VENCIDO);
@@ -547,6 +551,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setTrabalhaComCondicional(DEFAULT_TRABALHA_COM_CONDICIONAL);
       setPermiteVendaSemEstoque(false);
       setUsaGradeDeProdutos(false);
+      setConfigCashback(DEFAULT_CONFIG_CASHBACK);
       setAgenteDigitalAtivo(DEFAULT_AGENTE_DIGITAL_ATIVO);
       setConferenciaMercadoriaAtiva(DEFAULT_CONFERENCIA_MERCADORIA);
       setLoteModoSaida(DEFAULT_LOTE_MODO_SAIDA);
@@ -583,6 +588,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPermiteVendaSemEstoque(snap.exists() && snap.data().venderSemEstoque === true);
       // Mesma leitura: a grade de produtos nasce desligada, como toda chave nova.
       setUsaGradeDeProdutos(snap.exists() && snap.data().usaGradeDeProdutos === true);
+      setConfigCashback(parseConfigCashback(snap.exists() ? snap.data().cashback : undefined));
       // Mesma leitura: governa se a pre-venda (computador OU app do
       // vendedor externo) nasce 'aguardando' conferencia -- ver
       // criarPreVendaExterna em vendedorExternoVendaService.ts.
@@ -793,7 +799,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

@@ -21,6 +21,7 @@ const GERAIS = {
   transferenciaSemNota: false,
   transferenciaNfeTributacao: 'nao_incide',
   usaGradeDeProdutos: false,
+  cashback: { ativo: false },
 };
 
 const filial = (tenantId, codigo, matriz) => ({

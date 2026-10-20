@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, query, where, doc, getDoc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
@@ -733,6 +734,9 @@ const ContasReceber: React.FC = () => {
           });
         }
       });
+
+      // Cashback (20/10/2026): titulo quitado pode ter deixado a venda toda paga -- o servidor confere e gera.
+      if (remainingCents === 0 && t.pedidoId) void gerarCashbackSemFalhar(String(t.pedidoId));
 
       showSuccess(remainingCents === 0
         ? 'Conta quitada com o crédito do cliente!'

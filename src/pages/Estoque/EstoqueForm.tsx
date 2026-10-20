@@ -20,6 +20,7 @@ import { ENQUADRAMENTO_IPI_PADRAO, IPI_CST_SAIDA_OPTIONS, PIS_COFINS_CST_SAIDA_O
 import { computeAvailableStock } from '../../utils/estoqueReservaDomain';
 import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { situacaoDoLote, ROTULO_SITUACAO_LOTE } from '../../utils/loteDomain';
+import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../../utils/cashbackDomain';
 import { opcoesDeCategoria, separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
@@ -242,6 +243,9 @@ interface ProdutoFormData {
   /** So' produto marcado baixa lote na saida (loteDomain.ts). Os lotes vivem em estoque_lotes. */
   controlarLote: boolean;
   permitirCashback: boolean;
+  /** Modelo em R$: '' = padrao da empresa; senao percentual ou valor proprio (cashbackDomain.ts). */
+  cashbackTipo: '' | 'percentual' | 'valor';
+  cashbackValor: string;
   impedirVendaAbaixoCusto: boolean;
 }
 
@@ -393,6 +397,8 @@ const emptyFormData: ProdutoFormData = {
   bloquearVendaSemEstoque: false,
   controlarLote: false,
   permitirCashback: false,
+  cashbackTipo: '',
+  cashbackValor: '',
   impedirVendaAbaixoCusto: false,
 };
 
@@ -490,6 +496,7 @@ const EstoqueForm: React.FC = () => {
   // Grade de produtos (19/10/2026): o principal escolhe ate' duas grades e cada
   // combinacao ligada no quadro vira um produto filho. Ver gradeProdutosDomain.ts.
   const [usaGradeDeProdutos, setUsaGradeDeProdutos] = useState(false);
+  const [configCashback, setConfigCashback] = useState<ConfigCashback>(DEFAULT_CONFIG_CASHBACK);
   const [gradesDB, setGradesDB] = useState<GradeDisponivel[]>([]);
   const [temGrade, setTemGrade] = useState(false);
   /** Nomes das grades escolhidas (ate' 2), na ordem do quadro -- e' o que o produto guarda. */
@@ -657,11 +664,13 @@ const EstoqueForm: React.FC = () => {
           setVenderPorEmbalagem(configData.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario((configData.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
           setUsaGradeDeProdutos(configData.usaGradeDeProdutos === true);
+          setConfigCashback(parseConfigCashback(configData.cashback));
         } else {
           setValidarCadastroProduto(false);
           setVenderPorEmbalagem(DEFAULT_VENDER_POR_EMBALAGEM);
           setRegimeTributario(DEFAULT_REGIME_TRIBUTARIO);
           setUsaGradeDeProdutos(false);
+          setConfigCashback(DEFAULT_CONFIG_CASHBACK);
         }
 
         // Grades (tamanho, cor...): so' sugestao do quadro -- lista vazia nao
@@ -861,6 +870,8 @@ const EstoqueForm: React.FC = () => {
               bloquearVendaSemEstoque: Boolean(data.bloquearVendaSemEstoque ?? data.avancado?.bloquearVendaSemEstoque ?? false),
               controlarLote: Boolean(data.controlarLote ?? data.avancado?.controlarLote ?? false),
               permitirCashback: Boolean(data.permitirCashback ?? data.avancado?.permitirCashback ?? false),
+              cashbackTipo: data.cashbackTipo === 'percentual' || data.cashbackTipo === 'valor' ? data.cashbackTipo : '',
+              cashbackValor: data.cashbackValor != null && data.cashbackValor !== '' ? String(data.cashbackValor) : '',
               impedirVendaAbaixoCusto: Boolean(data.impedirVendaAbaixoCusto ?? data.precos?.impedirVendaAbaixoCusto ?? false),
             });
           }
@@ -1634,6 +1645,15 @@ const EstoqueForm: React.FC = () => {
       if (comissaoPercentualValor === undefined) delete (produtoData as Record<string, unknown>).comissaoPercentual;
       if (precoAVistaValor === undefined) delete (produtoData as Record<string, unknown>).precoAVista;
       if (precoAPrazoValor === undefined) delete (produtoData as Record<string, unknown>).precoAPrazo;
+      // Cashback proprio do produto (so' no modelo em R$): sem tipo, vale o padrao da empresa e as chaves somem.
+      const cashbackProprio = formData.permitirCashback && formData.cashbackTipo !== '' && toNumber(formData.cashbackValor) > 0;
+      if (cashbackProprio) {
+        (produtoData as Record<string, unknown>).cashbackTipo = formData.cashbackTipo;
+        (produtoData as Record<string, unknown>).cashbackValor = toNumber(formData.cashbackValor);
+      } else {
+        delete (produtoData as Record<string, unknown>).cashbackTipo;
+        delete (produtoData as Record<string, unknown>).cashbackValor;
+      }
 
       // Grade de produtos: o principal guarda as grades e nao tem saldo; o que
       // vai ser gravado nas variacoes e' planejado AQUI, antes de qualquer
@@ -1698,6 +1718,7 @@ const EstoqueForm: React.FC = () => {
           ...(comissaoPercentualValor === undefined ? { comissaoPercentual: deleteField() } : {}),
           ...(precoAVistaValor === undefined ? { precoAVista: deleteField() } : {}),
           ...(precoAPrazoValor === undefined ? { precoAPrazo: deleteField() } : {}),
+          ...(!cashbackProprio ? { cashbackTipo: deleteField(), cashbackValor: deleteField() } : {}),
           // Grade desligada (so' sem variacoes): as marcas de principal saem de vez.
           ...(!temGrade && produtoOriginal?.temGrade === true ? { temGrade: deleteField(), gradeNomes: deleteField() } : {}),
           tenantId: tenantId || '',
@@ -3271,6 +3292,28 @@ const EstoqueForm: React.FC = () => {
                   </label>
                 ))}
               </div>
+
+              {formData.permitirCashback && configCashback.ativo && configCashback.modelo === 'reais' && (
+                <div className="form-grid-3">
+                  <div className="input-group">
+                    <label>Cashback deste produto</label>
+                    <select name="cashbackTipo" value={formData.cashbackTipo} onChange={handleChange} className="form-select">
+                      <option value="">Padrão da empresa ({configCashback.tipoPadrao === 'valor' ? `R$ ${configCashback.valorPadrao.toFixed(2)} por unidade` : `${configCashback.valorPadrao}%`})</option>
+                      <option value="percentual">Percentual próprio (%)</option>
+                      <option value="valor">Valor próprio por unidade (R$)</option>
+                    </select>
+                  </div>
+                  {formData.cashbackTipo !== '' && (
+                    <div className="input-group">
+                      <label>{formData.cashbackTipo === 'valor' ? 'R$ por unidade' : '% do item'}</label>
+                      <input type="number" name="cashbackValor" min="0" step="0.01" value={formData.cashbackValor} onChange={handleChange} />
+                    </div>
+                  )}
+                </div>
+              )}
+              {formData.permitirCashback && !configCashback.ativo && (
+                <span className="field-hint">O cashback está desligado em Configurações Gerais; este produto só gera cashback depois que a empresa ligar.</span>
+              )}
 
               {formData.controlarLote && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

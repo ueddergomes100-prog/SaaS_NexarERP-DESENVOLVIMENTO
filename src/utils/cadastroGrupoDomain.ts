@@ -51,6 +51,8 @@ export const CAMPOS_DO_PRODUTO_NO_GRUPO = [
   // Grade de produtos (19/10/2026): o vinculo pai x variacao e' do grupo -- a
   // chave do pai e' a mesma em toda filial. Ver gradeProdutosDomain.ts.
   'temGrade', 'gradeNomes', 'ehVariacao', 'produtoPaiChave', 'variacao', 'variacaoRotulo',
+  // Cashback por produto (20/10/2026): politica, nao preco -- e' do grupo.
+  'cashbackTipo', 'cashbackValor',
 ];
 
 /**

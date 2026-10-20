@@ -95,6 +95,8 @@ const MODULOS = [
   'src/utils/frenteDeCaixaDomain.ts',
   // Grade de produtos (19/10/2026): pai e variacoes (filhos) no estoque.
   'src/utils/gradeProdutosDomain.ts',
+  // Cashback (20/10/2026): o que a venda paga gera, faixas de pontos, saldo.
+  'src/utils/cashbackDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

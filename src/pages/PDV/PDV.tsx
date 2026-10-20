@@ -21,6 +21,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
+import { gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
 import {
   applyStockAdjustments,
@@ -1243,6 +1244,10 @@ const PDV: React.FC = () => {
         descricao: `Venda PDV #${finalNumeroPedido} finalizada no valor de ${toCurrencyInput(totals.totalCentavos)}.`,
         status: 'sucesso',
       });
+
+      // Cashback (20/10/2026): pelo servidor ele ja' gera; gravada pela tela, a
+      // venda avisa o servidor, que confere se esta' paga e gera (idempotente).
+      if (!vendaPeloServidor && newPedidoId) void gerarCashbackSemFalhar(newPedidoId);
 
       showSuccess(`Venda PDV #${finalNumeroPedido} finalizada`);
       espelharBaixaNaTela();

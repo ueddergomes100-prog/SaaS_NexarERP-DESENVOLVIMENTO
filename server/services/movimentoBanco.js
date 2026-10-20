@@ -32,6 +32,15 @@ const {
 const { montarBaixaManual, validarDataBaixa } = require('../domain/baixaFinanceiraDomain');
 const { centavosParaAOrigem } = require('../domain/alteracaoValorTituloDomain');
 const { recusarSeRenegociada, lerRenegociacaoDoTitulo, quitarOrigensSeRenegociacaoPaga } = require('./renegociacaoOrigem');
+const cashback = require('./cashback');
+
+/** Vendas que podem ter ficado pagas por inteiro: o cashback gera depois da transacao (idempotente). */
+const vendasParaCashback = (dados, renegociacao, quitou) => {
+  const ids = new Set();
+  if (dados && dados.pedidoId) ids.add(String(dados.pedidoId));
+  if (quitou && renegociacao) renegociacao.origens.forEach((o) => { if (o.ref.parent.id === 'pedidos_venda') ids.add(o.ref.id); });
+  return [...ids];
+};
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const {
   ErroBaixa,
@@ -162,8 +171,11 @@ const creditarRecebimento = async ({ user, tenantId, transacaoId, bancoIdEscolhi
       method: ehCheque ? 'Cheque' : forma,
       receivedAt: hoje,
     }, ehCheque ? 'Cheque compensado' : 'Recebimento de cartão conciliado no banco');
-    quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, hoje);
+    const quitou = quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, hoje);
+    resumo.vendasParaCashback = vendasParaCashback(dados, renegociacao, quitou);
   });
+
+  for (const pedidoId of resumo.vendasParaCashback || []) await cashback.gerarSeDevidoSemFalhar({ user, tenantId, pedidoId });
 
   return resumo;
 };
@@ -303,8 +315,11 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
         console.warn(`[Financeiro] retorno do boleto ${transacaoId}: venda/OS de origem nao atualizada:`, erroOrigem && erroOrigem.message);
       }
     }
-    quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, dataPagamento);
+    const quitou = quitarOrigensSeRenegociacaoPaga(tx, user, renegociacao, dataPagamento);
+    resumo.vendasParaCashback = vendasParaCashback(dados, renegociacao, quitou);
   });
+
+  for (const pedidoId of resumo.vendasParaCashback || []) await cashback.gerarSeDevidoSemFalhar({ user, tenantId, pedidoId });
 
   return resumo;
 };

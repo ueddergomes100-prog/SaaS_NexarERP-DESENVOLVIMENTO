@@ -1,4 +1,5 @@
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
+import { DEFAULT_CONFIG_CASHBACK, LIMITE_DE_FAIXAS, ROTULO_MODELO_CASHBACK, parseConfigCashback, type ConfigCashback, type FaixaDePontos, type ModeloCashback } from '../../utils/cashbackDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, TRIBUTACAO_TRANSFERENCIA_PADRAO, parseTributacaoTransferencia, type TributacaoTransferencia } from '../../utils/notaTransferenciaDomain';
 import { PARAMETROS_VENDA_PADRAO, parametrosVendaDoForm, parametrosVendaParaForm, parseParametrosVenda, type ParametrosVendaForm } from '../../utils/parametrosVendaDomain';
 import { DOCUMENTOS_COM_MENSAGEM, LIMITE_MENSAGEM_PADRAO, MENSAGENS_PADRAO_VAZIAS, parseMensagensPadrao, type MensagensPadrao } from '../../utils/mensagensPadraoDomain';
@@ -283,6 +284,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     modoValidacaoCliente: DEFAULT_MODO_VALIDACAO_CLIENTE,
     trabalhaComLimiteCredito: false,
     usaGradeDeProdutos: false,
+    cashback: DEFAULT_CONFIG_CASHBACK,
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
@@ -457,6 +459,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             modoValidacaoCliente: parseModoValidacaoCliente(data.modoValidacaoCliente),
             trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
             usaGradeDeProdutos: data.usaGradeDeProdutos === true,
+            cashback: parseConfigCashback(data.cashback),
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
@@ -1273,6 +1276,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     }
   };
 
+  /** Cashback (20/10/2026): edita um pedaco da configuracao de uma vez. */
+  const setCashback = (patch: Partial<ConfigCashback>) => setFormData((atual) => ({ ...atual, cashback: { ...atual.cashback, ...patch } }));
+  const setFaixa = (indice: number, patch: Partial<FaixaDePontos>) => setCashback({
+    faixas: formData.cashback.faixas.map((f, i) => (i === indice ? { ...f, ...patch } : f)),
+  });
+
   // Configuracoes Gerais (15/10/2026): valem para todas as filiais; o servidor grava em todas de uma vez.
   const handleSaveGerais = async () => {
     if (!tenantId || !currentUser) return;
@@ -1285,6 +1294,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         modoValidacaoCliente: formData.modoValidacaoCliente,
         trabalhaComLimiteCredito: formData.trabalhaComLimiteCredito === true,
         usaGradeDeProdutos: formData.usaGradeDeProdutos === true,
+        cashback: formData.cashback,
         transferenciaSemNota: formData.transferenciaSemNota === true,
         transferenciaNfeTributacao: formData.transferenciaNfeTributacao,
         ...(isPlatformAdmin ? { tenantId } : {}),
@@ -2199,6 +2209,121 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Cashback (20/10/2026): ver cashbackDomain.ts. */}
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '14px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Cashback</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    A venda <strong>paga</strong> gera cashback para o cliente: à vista, ao faturar; a prazo, na baixa da última parcela.
+                    Só produtos com "Permitir cashback" marcado no cadastro. O cliente usa como forma de pagamento "Cashback" na próxima compra
+                    (Pedido de Venda e PDV, com "Venda pelo servidor" ligado). Cancelamento e devolução estornam.
+                  </p>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.cashback.ativo}
+                    onChange={(e) => setCashback({ ativo: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalha com cashback
+                </label>
+                {formData.cashback.ativo && (
+                  <>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '520px' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Modelo</span>
+                      <select
+                        value={formData.cashback.modelo}
+                        onChange={(e) => setCashback({ modelo: e.target.value === 'pontos' ? 'pontos' : 'reais' })}
+                        disabled={!isEditingMode}
+                        style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                      >
+                        {(Object.keys(ROTULO_MODELO_CASHBACK) as ModeloCashback[]).map((m) => <option key={m} value={m}>{ROTULO_MODELO_CASHBACK[m]}</option>)}
+                      </select>
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                      {formData.cashback.modelo === 'reais' ? (
+                        <>
+                          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cashback padrão</span>
+                            <select
+                              value={formData.cashback.tipoPadrao}
+                              onChange={(e) => setCashback({ tipoPadrao: e.target.value === 'valor' ? 'valor' : 'percentual' })}
+                              disabled={!isEditingMode}
+                              style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                            >
+                              <option value="percentual">Percentual do item (%)</option>
+                              <option value="valor">Valor por unidade (R$)</option>
+                            </select>
+                          </label>
+                          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{formData.cashback.tipoPadrao === 'valor' ? 'R$ por unidade' : '% do item'}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={formData.cashback.valorPadrao || ''}
+                              onChange={(e) => setCashback({ valorPadrao: Number(e.target.value) || 0 })}
+                              disabled={!isEditingMode}
+                              style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                            />
+                          </label>
+                        </>
+                      ) : (
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Pontos por R$ 1,00</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={formData.cashback.pontosPorReal || ''}
+                            onChange={(e) => setCashback({ pontosPorReal: Number(e.target.value) || 0 })}
+                            disabled={!isEditingMode}
+                            style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                          />
+                        </label>
+                      )}
+                      <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Validade (dias)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          title="Em branco, o cashback não vence"
+                          value={formData.cashback.validadeDias ?? ''}
+                          onChange={(e) => setCashback({ validadeDias: e.target.value === '' ? null : Math.max(0, Math.round(Number(e.target.value) || 0)) || null })}
+                          disabled={!isEditingMode}
+                          style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                        />
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco: não vence.</span>
+                      </label>
+                    </div>
+                    {formData.cashback.modelo === 'pontos' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Faixas: X pontos = Y% de desconto na próxima compra (usar a faixa consome os pontos)</span>
+                        {formData.cashback.faixas.map((faixa, i) => (
+                          <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <input type="number" min="1" step="1" value={faixa.pontos || ''} onChange={(e) => setFaixa(i, { pontos: Math.max(0, Math.round(Number(e.target.value) || 0)) })} disabled={!isEditingMode} title="Pontos da faixa" style={{ width: '140px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }} />
+                            <span style={{ color: 'var(--text-muted)' }}>pontos =</span>
+                            <input type="number" min="0" max="100" step="0.5" value={faixa.descontoPercentual || ''} onChange={(e) => setFaixa(i, { descontoPercentual: Number(e.target.value) || 0 })} disabled={!isEditingMode} title="Desconto da faixa (%)" style={{ width: '110px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }} />
+                            <span style={{ color: 'var(--text-muted)' }}>% de desconto</span>
+                            {isEditingMode && (
+                              <button type="button" className="btn-secondary" onClick={() => setCashback({ faixas: formData.cashback.faixas.filter((_, j) => j !== i) })}>Tirar</button>
+                            )}
+                          </div>
+                        ))}
+                        {isEditingMode && formData.cashback.faixas.length < LIMITE_DE_FAIXAS && (
+                          <button type="button" className="btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => setCashback({ faixas: [...formData.cashback.faixas, { pontos: 0, descontoPercentual: 0 }] })}>
+                            Acrescentar faixa
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
               {grupo && (

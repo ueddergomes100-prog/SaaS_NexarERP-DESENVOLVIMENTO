@@ -85,6 +85,8 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
   const ref = (caminho, id) => ({
     chave: `${caminho}/${id}`,
     id,
+    // Como no Admin SDK: a colecao do documento (ref.parent.id = nome da colecao).
+    parent: { id: caminho.split('/').pop(), path: caminho },
     collection: (sub) => colecaoEm(`${caminho}/${id}/${sub}`),
     get: async () => ({ exists: dados.has(`${caminho}/${id}`), id, data: () => structuredClone(dados.get(`${caminho}/${id}`)) }),
     // Gravacao direta (fora de transacao).
@@ -114,7 +116,12 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
       // Como o Firestore real: ler depois de gravar na mesma transacao e' erro.
       const lerAntes = () => { if (escritas.length) throw new Error('Firestore transactions require all reads to be executed before all writes.'); };
       const tx = {
-        get: async (r) => { lerAntes(); return { exists: dados.has(r.chave), id: r.id, data: () => structuredClone(dados.get(r.chave)) }; },
+        // tx.get aceita documento OU consulta (where), como no Admin SDK.
+        get: async (r) => {
+          lerAntes();
+          if (!r.chave && typeof r.get === 'function') return r.get();
+          return { exists: dados.has(r.chave), id: r.id, data: () => structuredClone(dados.get(r.chave)) };
+        },
         getAll: async (...refs) => Promise.all(refs.map((r) => tx.get(r))),
         update: (r, campos) => escritas.push([r, campos, false]),
         set: (r, campos, opcoes) => escritas.push([r, campos, !opcoes?.merge]),

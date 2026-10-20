@@ -48,6 +48,7 @@ const cd = require('../domain/conferenciaDescontoDomain');
 const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
 const grade = require('../domain/gradeProdutosDomain');
 const comprovantes = require('./comprovantes');
+const cashback = require('./cashback');
 
 class ErroVenda extends Error {
   constructor(status, message) {
@@ -616,6 +617,10 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
 
     return { jaEnviado: false, pedidoId: pedidoRef.id, numeroPedido, vendedorId, vendedorNome, pdv };
   });
+
+  // Cashback (20/10/2026): venda a vista ja' nasce paga -- gera agora, em
+  // transacao propria (idempotente). A prazo, gera na baixa da ultima parcela.
+  if (!resultado.jaEnviado) await cashback.gerarSeDevidoSemFalhar({ user, tenantId, pedidoId: resultado.pedidoId });
 
   return {
     ...resultado,

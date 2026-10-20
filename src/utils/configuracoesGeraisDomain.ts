@@ -19,6 +19,7 @@
 
 import { parseModoValidacaoCliente, type ModoValidacaoCliente } from './clienteValidacaoDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, parseTributacaoTransferencia, type TributacaoTransferencia } from './notaTransferenciaDomain';
+import { lerConfigCashback, parseConfigCashback, type ConfigCashback } from './cashbackDomain';
 
 export const CAMPOS_GERAIS = [
   'planoContasReceitas',
@@ -31,6 +32,8 @@ export const CAMPOS_GERAIS = [
   // Grade de produtos (19/10/2026): o cadastro de produto e' do grupo, entao a
   // chave que liga a grade tambem vale para todas as filiais.
   'usaGradeDeProdutos',
+  // Cashback (20/10/2026): politica comercial do grupo (cliente e' do grupo).
+  'cashback',
 ] as const;
 
 export type CampoGeral = typeof CAMPOS_GERAIS[number];
@@ -44,6 +47,7 @@ export interface ConfiguracoesGerais {
   transferenciaSemNota: boolean;
   transferenciaNfeTributacao: TributacaoTransferencia;
   usaGradeDeProdutos: boolean;
+  cashback: ConfigCashback;
 }
 
 export const LIMITE_DE_CATEGORIAS = 200;
@@ -157,6 +161,8 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
   if (!semNota.ok) return { ok: false, erro: semNota.erro };
   const grade = lerSimNao(dados.usaGradeDeProdutos, 'Loja utiliza grade de produtos');
   if (!grade.ok) return { ok: false, erro: grade.erro };
+  const cashback = lerConfigCashback(dados.cashback);
+  if (!cashback.ok) return { ok: false, erro: cashback.erro };
   if (!MODOS_VALIDACAO_CLIENTE.includes(dados.modoValidacaoCliente as ModoValidacaoCliente)) {
     return { ok: false, erro: 'Escolha o que fazer com cliente não cadastrado: permitir, bloquear ou perguntar.' };
   }
@@ -174,6 +180,7 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
       transferenciaSemNota: semNota.valor,
       transferenciaNfeTributacao: dados.transferenciaNfeTributacao as TributacaoTransferencia,
       usaGradeDeProdutos: grade.valor,
+      cashback: cashback.config,
     },
   };
 };
@@ -195,6 +202,8 @@ const lerCampoDoDocumento = (campo: CampoGeral, valor: unknown): unknown => {
       return parseModoValidacaoCliente(valor);
     case 'transferenciaNfeTributacao':
       return parseTributacaoTransferencia(valor);
+    case 'cashback':
+      return parseConfigCashback(valor);
     default:
       return valor === true;
   }
@@ -243,4 +252,5 @@ export const ROTULO_DO_CAMPO_GERAL: Record<CampoGeral, string> = {
   transferenciaSemNota: 'transferência sem nota',
   transferenciaNfeTributacao: 'tributação da transferência',
   usaGradeDeProdutos: 'grade de produtos',
+  cashback: 'cashback',
 };

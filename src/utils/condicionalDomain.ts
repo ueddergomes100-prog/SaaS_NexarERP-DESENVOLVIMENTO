@@ -22,6 +22,7 @@
  */
 import { resolveUnidadeMedidaProduto, type UnidadeMedidaProduto } from './unidadeMedidaDomain';
 import { STATUS_PRE_VENDA } from './preVendaDomain';
+import { mensagemPrincipalDeGrade } from './gradeProdutosDomain';
 
 export const PERMISSAO_CONDICIONAL = 'vendas.condicional';
 
@@ -146,6 +147,8 @@ export interface ProdutoParaCondicional {
   precoVenda?: number;
   ativo?: boolean;
   statusAtivo?: boolean;
+  /** Principal de uma grade: nao sai em condicional, so' a variacao (gradeProdutosDomain.ts). */
+  temGrade?: boolean;
   permiteCondicional?: boolean;
   quantidade?: number;
   quantidadeReservada?: number;
@@ -174,6 +177,7 @@ export const montarItensDoCondicional = (args: {
     if (!produto) { erros.push('Um dos produtos não foi encontrado no cadastro. Atualize a tela.'); continue; }
     const nome = String(produto.nome || 'Produto sem nome');
     if (!produtoAtivo(produto)) { erros.push(`"${nome}" está inativo e não pode sair em condicional.`); continue; }
+    if (produto.temGrade === true) { erros.push(mensagemPrincipalDeGrade(nome)); continue; }
     if (!produtoPermiteCondicional(produto)) {
       erros.push(`"${nome}" não está liberado para condicional. Marque "Permite condicional" no cadastro do produto em Estoque.`);
       continue;

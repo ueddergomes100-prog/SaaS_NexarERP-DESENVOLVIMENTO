@@ -1255,9 +1255,8 @@ const EstoqueForm: React.FC = () => {
     let atualizadas = 0;
     for (const existente of plano.atualizar) {
       const atual = dadosDosFilhos.get(existente.id) ?? {};
-      const campos = camposDaVariacao(dadosDoPai, identidade(existente, String(atual.codigo || ''), String(atual.skuSistema || '')));
-      // O saldo atual continua no espelho legado; so' o principal muda o resto.
-      campos.estoqueConfig = { ...(campos.estoqueConfig as Record<string, unknown>), quantidadeAtual: Number(atual.quantidade ?? 0) };
+      // Custo, compras, minimo/maximo e localizacao sao da variacao: nao descem na atualizacao.
+      const campos = camposDaVariacao(dadosDoPai, identidade(existente, String(atual.codigo || ''), String(atual.skuSistema || '')), atual);
       if (!variacaoPrecisaAtualizar(atual, campos)) continue;
       await updateDoc(doc(db, 'estoque', existente.id), {
         ...campos,

@@ -96,6 +96,9 @@ const Etiquetas: React.FC = () => {
         const mapa = new Map<string, ProdutoEtiquetaEstoque>();
         snap.docs.forEach((d) => {
           const data = d.data();
+          // Etiqueta e' da variacao (EAN proprio); o principal de uma grade
+          // nao e' vendido nem bipado (gradeProdutosDomain.ts).
+          if (data.temGrade === true) return;
           const unidade = resolveUnidadeMedidaProduto(data);
           mapa.set(d.id, {
             id: d.id,

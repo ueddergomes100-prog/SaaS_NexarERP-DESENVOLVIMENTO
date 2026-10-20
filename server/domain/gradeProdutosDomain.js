@@ -29,7 +29,7 @@
  * planejar o que gravar; o servidor usa para reconhecer pai e filho.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.gradeEmUso = exports.opcoesEmUso = exports.somaDasVariacoes = exports.agruparVariacoes = exports.bloqueioParaDesligarGrade = exports.bloqueioParaLigarGrade = exports.variacaoPrecisaAtualizar = exports.camposDaVariacao = exports.planejarVariacoes = exports.totalLigadas = exports.montarLinhasDaGrade = exports.lerFilho = exports.ehVariacao = exports.ehProdutoComGrade = exports.codigoDeBarrasGerado = exports.digitoVerificadorEan13 = exports.proximoNumeroDaVariacao = exports.numeroDaVariacao = exports.skuDaVariacao = exports.codigoDaVariacao = exports.nomeDaVariacao = exports.rotuloDaVariacao = exports.mesmaVariacao = exports.combinacoes = exports.lerGrade = exports.lerOpcoesDigitadas = exports.normalizarOpcao = exports.LIMITE_DA_OPCAO = exports.LIMITE_DO_NOME_DA_GRADE = exports.LIMITE_DE_OPCOES_POR_GRADE = exports.LIMITE_DE_GRADES_POR_PRODUTO = void 0;
+exports.gradeEmUso = exports.opcoesEmUso = exports.somaDasVariacoes = exports.agruparVariacoes = exports.bloqueioParaDesligarGrade = exports.bloqueioParaLigarGrade = exports.variacaoPrecisaAtualizar = exports.camposDaVariacao = exports.planejarVariacoes = exports.totalLigadas = exports.montarLinhasDaGrade = exports.lerFilho = exports.mensagemPrincipalDeGrade = exports.ehVariacao = exports.ehProdutoComGrade = exports.codigoDeBarrasGerado = exports.digitoVerificadorEan13 = exports.proximoNumeroDaVariacao = exports.numeroDaVariacao = exports.skuDaVariacao = exports.codigoDaVariacao = exports.nomeDaVariacao = exports.rotuloDaVariacao = exports.mesmaVariacao = exports.combinacoes = exports.lerGrade = exports.lerOpcoesDigitadas = exports.normalizarOpcao = exports.LIMITE_DA_OPCAO = exports.LIMITE_DO_NOME_DA_GRADE = exports.LIMITE_DE_OPCOES_POR_GRADE = exports.LIMITE_DE_GRADES_POR_PRODUTO = void 0;
 exports.LIMITE_DE_GRADES_POR_PRODUTO = 2;
 exports.LIMITE_DE_OPCOES_POR_GRADE = 60;
 exports.LIMITE_DO_NOME_DA_GRADE = 30;
@@ -158,6 +158,13 @@ const ehProdutoComGrade = (dados) => dados?.temGrade === true;
 exports.ehProdutoComGrade = ehProdutoComGrade;
 const ehVariacao = (dados) => dados?.ehVariacao === true;
 exports.ehVariacao = ehVariacao;
+/**
+ * Mensagem unica de toda tela e servico que movimenta saldo (venda, OS,
+ * condicional, troca, transferencia, ajuste, nota): o principal nao tem
+ * estoque -- quem entra e sai e' a variacao.
+ */
+const mensagemPrincipalDeGrade = (nome) => (`"${String(nome || 'Este produto').trim()}" é o produto principal de uma grade e não tem estoque. Escolha a variação (tamanho, cor...) para lançar.`);
+exports.mensagemPrincipalDeGrade = mensagemPrincipalDeGrade;
 /** Le um documento de estoque que e' variacao (ehVariacao) no formato que o quadro usa. */
 const lerFilho = (id, dados) => {
     const precos = dados.precos && typeof dados.precos === 'object' ? dados.precos : {};
@@ -314,41 +321,63 @@ const CAMPOS_SO_DO_PAI = new Set([
     'nome', 'codigo', 'skuSistema', 'slugUrl', 'codigoBarras',
     'quantidade', 'quantidadeReservada', 'ativo', 'statusAtivo',
     'historicoPrecos', 'ultimaAlteracaoPreco', 'custoNaUltimaPrecificacao',
+    // Codigo e fator do fornecedor sao aprendidos na entrada de NF-e de CADA
+    // variacao: copiados do pai, a nota casaria com qualquer uma.
+    'codigosFornecedor', 'fatoresFornecedor',
     'createdAt', 'updatedAt', 'criadoEm', 'criadoPor', 'alteradoEm', 'alteradoPor', 'ultimaAlteracao',
     'createdBy', 'updatedBy', 'createdByName', 'updatedByName',
     'grupoChave', 'filialOrigem', 'cadastroHash',
 ]);
+/**
+ * O que desce do pai SO' NA CRIACAO da variacao. Depois, cada variacao tem o
+ * seu: o custo vem da entrada de nota de cada uma, minimo/maximo/localizacao,
+ * lote/validade e os dados de compra sao do item fisico. O preco de venda
+ * continua descendo a cada salvamento (menos com preco proprio) -- regra
+ * combinada com o dono.
+ */
+const CAMPOS_SO_NA_CRIACAO = new Set([
+    'precoCusto', 'ultimoCusto', 'dataUltimaCompra', 'fornecedor', 'fornecedorId', 'codigoProdutoFornecedor', 'compras',
+    'estoqueMinimo', 'estoqueMaximo', 'localizacaoEstoque', 'estoqueConfig', 'lote', 'validade',
+]);
 const slug = (valor) => valor.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 const objeto = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 /**
- * Documento do filho: o cadastro do pai (categoria, unidade, fiscal, custo,
+ * Documento do filho: o cadastro do pai (categoria, unidade, fiscal,
  * embalagens...) mais a identidade da variacao. Preco: igual ao do pai, ou o
  * proprio -- nesse caso os precos a vista/a prazo do pai NAO descem (a venda
  * cai no preco de venda proprio) e o promocional zera. Sem `quantidade`,
  * `ativo` e `historicoPrecos`: quem cria o filho acrescenta o saldo inicial e
  * a situacao; quem atualiza nunca mexe neles.
+ *
+ * Com `filhoAtual` (atualizacao), os campos de CAMPOS_SO_NA_CRIACAO ficam de
+ * fora e a margem e' calculada com o custo da propria variacao.
  */
-const camposDaVariacao = (pai, variacao) => {
+const camposDaVariacao = (pai, variacao, filhoAtual) => {
     const campos = {};
     for (const [campo, valor] of Object.entries(pai)) {
         if (CAMPOS_SO_DO_PAI.has(campo) || valor === undefined)
             continue;
+        if (filhoAtual && CAMPOS_SO_NA_CRIACAO.has(campo))
+            continue;
         campos[campo] = valor;
     }
-    const precoCusto = Number(pai.precoCusto ?? objeto(pai.precos).custo ?? 0) || 0;
+    const fonteDoCusto = filhoAtual ?? pai;
+    const precoCusto = Number(fonteDoCusto.precoCusto ?? objeto(fonteDoCusto.precos).custo ?? 0) || 0;
     const precoVenda = variacao.precoProprio ? variacao.precoVenda : Number(pai.precoVenda ?? objeto(pai.precos).venda ?? 0) || 0;
     const precosDoPai = objeto(pai.precos);
     const margemLucro = precoCusto > 0 ? ((precoVenda - precoCusto) / precoCusto) * 100 : 0;
     const lucroEstimado = precoVenda - precoCusto;
+    // Espelho legado `precos`: na atualizacao o custo e' o da variacao.
+    const precosBase = filhoAtual ? { ...precosDoPai, custo: precoCusto } : precosDoPai;
     if (variacao.precoProprio) {
         delete campos.precoAVista;
         delete campos.precoAPrazo;
-        const { aVista: _aVista, aPrazo: _aPrazo, ...precosProprios } = precosDoPai;
+        const { aVista: _aVista, aPrazo: _aPrazo, ...precosProprios } = precosBase;
         campos.precoPromocional = 0;
         campos.precos = { ...precosProprios, venda: precoVenda, promocional: 0, margemLucro, lucroEstimado };
     }
     else if (pai.precos !== undefined) {
-        campos.precos = { ...precosDoPai };
+        campos.precos = { ...precosBase, margemLucro, lucroEstimado };
     }
     campos.precoVenda = precoVenda;
     campos.margemLucro = margemLucro;

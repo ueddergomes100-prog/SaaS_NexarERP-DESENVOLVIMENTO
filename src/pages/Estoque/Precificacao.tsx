@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { chaveDoProdutoPeloId } from '../../utils/cadastroGrupoDomain';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import {
   compararMargem,
@@ -30,6 +31,14 @@ interface ProdutoPrecificacao {
   precoAVista?: number | null;
   precoAPrazo?: number | null;
   custoNaUltimaPrecificacao?: number | null;
+  /** Grade de produtos (gradeProdutosDomain.ts): o principal manda o preco nas
+   * variacoes sem preco proprio; a variacao com preco proprio se precifica sozinha. */
+  temGrade: boolean;
+  ehVariacao: boolean;
+  precoProprio: boolean;
+  produtoPaiChave: string;
+  /** Chave do cadastro no grupo (a mesma em toda filial). */
+  chave: string;
 }
 
 /** A linha da grade e' a linha do dominio mais a margem, que so existe na
@@ -102,6 +111,11 @@ const Precificacao: React.FC = () => {
             precoAVista: data.precoAVista ?? data.precos?.aVista ?? null,
             precoAPrazo: data.precoAPrazo ?? data.precos?.aPrazo ?? null,
             custoNaUltimaPrecificacao: data.custoNaUltimaPrecificacao ?? null,
+            temGrade: data.temGrade === true,
+            ehVariacao: data.ehVariacao === true,
+            precoProprio: data.precoProprio === true,
+            produtoPaiChave: String(data.produtoPaiChave || ''),
+            chave: String(data.grupoChave || '') || chaveDoProdutoPeloId(d.id, tenantId),
           });
         });
         setProdutos(mapa);
@@ -113,7 +127,18 @@ const Precificacao: React.FC = () => {
       .finally(() => setCarregando(false));
   }, [tenantId]);
 
-  const produtosLista = useMemo(() => Array.from(produtos.values()), [produtos]);
+  // Variacao sem preco proprio segue o preco do principal: precifica-se pelo
+  // principal (que desce para todas ao salvar). Ela fica fora da busca.
+  const produtosLista = useMemo(
+    () => Array.from(produtos.values()).filter((p) => !(p.ehVariacao && !p.precoProprio)),
+    [produtos],
+  );
+  /** Variacoes que seguem o preco deste principal. */
+  const variacoesQueSeguem = (principal: ProdutoPrecificacao): ProdutoPrecificacao[] => (
+    principal.temGrade
+      ? Array.from(produtos.values()).filter((p) => p.ehVariacao && !p.precoProprio && p.produtoPaiChave === principal.chave)
+      : []
+  );
 
   const linhaDoProduto = (produto: ProdutoPrecificacao): LinhaGrade => ({
     produtoId: produto.id,
@@ -318,20 +343,47 @@ const Precificacao: React.FC = () => {
       return;
     }
 
+    // Grade: o preco novo do principal desce para as variacoes sem preco
+    // proprio, com a margem calculada pelo custo de cada uma (mesma regra do
+    // salvamento do cadastro, ver gradeProdutosDomain.ts).
+    const propagacoes = alteracoes.flatMap(({ linha }) => {
+      const principal = produtos.get(linha.produtoId);
+      if (!principal) return [];
+      return variacoesQueSeguem(principal).flatMap((variacao) => {
+        const linhaDaVariacao: LinhaGrade = {
+          ...linha,
+          produtoId: variacao.id,
+          produtoNome: variacao.nome,
+          custoAtual: variacao.precoCusto,
+          custoNaUltimaPrecificacao: variacao.custoNaUltimaPrecificacao,
+        };
+        const resultado = montarAtualizacaoPreco(linhaDaVariacao, {
+          precoVenda: variacao.precoVenda,
+          precoPromocional: variacao.precoPromocional,
+          precoAVista: variacao.precoAVista,
+          precoAPrazo: variacao.precoAPrazo,
+        }, agoraIso);
+        return resultado.semMudanca ? [] : [{ linha: linhaDaVariacao, resultado, pelaGrade: true }];
+      });
+    });
+    const gravacoes = [...alteracoes.map((a) => ({ ...a, pelaGrade: false })), ...propagacoes];
+
     setIsSaving(true);
     try {
       // Lotes de 400 (o limite do Firestore e' 500) -- mesmo padrao da
       // importacao de produtos. Lote ja gravado permanece se o seguinte
       // falhar; a mensagem de erro avisa quantos entraram.
       let gravados = 0;
-      for (let inicio = 0; inicio < alteracoes.length; inicio += LOTE_MAXIMO) {
-        const lote = alteracoes.slice(inicio, inicio + LOTE_MAXIMO);
+      for (let inicio = 0; inicio < gravacoes.length; inicio += LOTE_MAXIMO) {
+        const lote = gravacoes.slice(inicio, inicio + LOTE_MAXIMO);
         const batch = writeBatch(db);
-        lote.forEach(({ linha, resultado }) => {
+        lote.forEach(({ linha, resultado, pelaGrade }) => {
           batch.update(doc(db, 'estoque', linha.produtoId), {
             ...resultado.campos,
             updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Preço alterado na tela de Precificação'),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), pelaGrade
+              ? 'Preço alterado na tela de Precificação (pelo produto principal da grade)'
+              : 'Preço alterado na tela de Precificação'),
           });
         });
         await batch.commit();
@@ -343,7 +395,7 @@ const Precificacao: React.FC = () => {
       // sem precisar recarregar a tela.
       setProdutos((atual) => {
         const novo = new Map(atual);
-        alteracoes.forEach(({ linha, resultado }) => {
+        gravacoes.forEach(({ linha, resultado }) => {
           const anterior = novo.get(linha.produtoId);
           if (!anterior) return;
           novo.set(linha.produtoId, {
@@ -366,7 +418,8 @@ const Precificacao: React.FC = () => {
           : linha;
       }));
 
-      showSuccess(`${gravados} ${gravados === 1 ? 'produto atualizado' : 'produtos atualizados'} com sucesso!`);
+      const principais = gravados - propagacoes.length;
+      showSuccess(`${principais} ${principais === 1 ? 'produto atualizado' : 'produtos atualizados'} com sucesso!${propagacoes.length ? ` ${propagacoes.length} variação(ões) de grade acompanharam o principal.` : ''}`);
     } catch (error) {
       console.error('Erro ao salvar preços:', error);
       showError('Erro ao salvar preços', 'Não foi possível gravar todos os preços. Confira a lista e tente novamente — os produtos já gravados permanecem.');

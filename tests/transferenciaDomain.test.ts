@@ -36,6 +36,12 @@ test('produto no destino: original na filial do cadastro, copia nas outras', () 
   assert.equal(idDoProdutoNaFilial('p2', B, B), 'p2');
 });
 
+test('envio: principal de grade nao transfere (o saldo e das variacoes)', () => {
+  const plano = planejarEnvio({ origem: A, destino: B, pedidos: [{ produtoId: 'p1', quantidade: 1 }], produtos: { p1: { ...racao, temGrade: true } }, lotesPorProduto: {}, hoje: HOJE });
+  assert.equal(plano.ok, false);
+  if (!plano.ok) assert.match(plano.erros[0], /principal de uma grade/);
+});
+
 test('envio: baixa na origem, respeita reservado e unidade inteira, custo vai junto', () => {
   const plano = planejarEnvio({ origem: A, destino: B, pedidos: [{ produtoId: 'p1', quantidade: 5 }, { produtoId: 'p1', quantidade: 3 }], produtos: { p1: racao }, lotesPorProduto: {}, hoje: HOJE });
   assert.equal(plano.ok, true);

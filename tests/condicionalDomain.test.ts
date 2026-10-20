@@ -89,6 +89,10 @@ test('montar itens: dados do cadastro, bloqueia produto sem "Permite condicional
   const semLiberar = montarItensDoCondicional({ itens: [{ id: 'p1', quantidade: 1 }], produtosPorId: { p1: produto({ permiteCondicional: false }) } });
   assert.match(semLiberar.erros[0], /Permite condicional/);
 
+  // Principal de grade nao tem saldo: quem sai em condicional e' a variacao.
+  const principal = montarItensDoCondicional({ itens: [{ id: 'p1', quantidade: 1 }], produtosPorId: { p1: produto({ temGrade: true }) } });
+  assert.match(principal.erros[0], /principal de uma grade/);
+
   const inativo = montarItensDoCondicional({ itens: [{ id: 'p1', quantidade: 1 }], produtosPorId: { p1: produto({ ativo: false }) } });
   assert.match(inativo.erros[0], /inativo/);
 

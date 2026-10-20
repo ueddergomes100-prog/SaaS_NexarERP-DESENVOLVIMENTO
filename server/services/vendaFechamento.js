@@ -46,6 +46,7 @@ const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domai
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const cd = require('../domain/conferenciaDescontoDomain');
 const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
+const grade = require('../domain/gradeProdutosDomain');
 const comprovantes = require('./comprovantes');
 
 class ErroVenda extends Error {
@@ -331,6 +332,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     produtoSnaps.forEach((s) => {
       if (!s.exists) return;
       if (s.data().tenantId !== tenantId) throw new ErroVenda(400, 'Um dos produtos da venda não é desta empresa. Remova o item e lance de novo.');
+      // Principal de grade nao tem saldo: a venda e' da variacao (domain/gradeProdutosDomain).
+      if (grade.ehProdutoComGrade(s.data())) throw new ErroVenda(400, grade.mensagemPrincipalDeGrade(s.data().nome));
       produtos[s.id] = s.data();
     });
 

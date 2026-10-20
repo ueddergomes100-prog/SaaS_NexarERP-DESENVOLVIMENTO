@@ -16,6 +16,7 @@ import type { StockFieldDelta } from './estoqueReservaDomain';
 // coberta pelo harness de testes, que so compila dominio puro.
 export { describeTransactionError } from './transacaoErroDomain';
 import { buildAjusteEstoqueDoc, computeQuantidadeDepoisAjuste, type TipoAjusteEstoque } from './ajusteEstoqueDomain';
+import { mensagemPrincipalDeGrade } from './gradeProdutosDomain';
 
 /**
  * Chave do contador por tenant. Qualquer string e aceita -- por convencao
@@ -334,6 +335,11 @@ export const applyAjusteEstoqueManual = async (
 
   if (!produtoSnap.exists()) {
     throw new Error(`Produto "${params.produtoNome}" não foi encontrado. Atualize a página e tente novamente.`);
+  }
+  // Principal de grade nao tem saldo (gradeProdutosDomain.ts): a tela ja' nao
+  // o oferece, isto cobre o endereco com ?produtoId= e qualquer outro caminho.
+  if (produtoSnap.data().temGrade === true) {
+    throw new Error(mensagemPrincipalDeGrade(params.produtoNome));
   }
 
   const quantidadeAntes = Number(produtoSnap.data().quantidade || 0);

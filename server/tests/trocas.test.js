@@ -135,6 +135,9 @@ test('cadastro: produto inexistente ou inativo e recusado', () => {
   assert.match(montarItensDaTroca({ itens: [{ id: 'x', quantidade: 1, motivo: 'vencido' }], produtosPorId: {} }).erros[0], /não foi encontrado/);
   assert.match(montarItensDaTroca({ itens: [item()], produtosPorId: { p1: produto({ ativo: false }) } }).erros[0], /inativo/);
   assert.match(montarItensDaTroca({ itens: [item()], produtosPorId: { p1: produto({ statusAtivo: false }) } }).erros[0], /inativo/);
+  // Principal de grade nao tem saldo: a troca e' da variacao.
+  assert.match(montarItensDaTroca({ itens: [item()], produtosPorId: { p1: produto({ temGrade: true }) } }).erros[0], /principal de uma grade/);
+  assert.match(planoDeReserva({ itens: [{ id: 'p1', nome: 'GRANOLA 1KG', quantidade: 1 }], produtosPorId: { p1: produto({ temGrade: true }) } }).erros[0], /principal de uma grade/);
 });
 
 test('cadastro: unidade inteira nao aceita fracao; fracionada respeita as casas', () => {

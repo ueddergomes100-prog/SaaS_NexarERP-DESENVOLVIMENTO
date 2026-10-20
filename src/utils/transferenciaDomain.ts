@@ -18,6 +18,8 @@
  * deles, para o servidor nao carregar o resto do front.
  */
 
+import { mensagemPrincipalDeGrade } from './gradeProdutosDomain';
+
 export type StatusTransferencia = 'em_transito' | 'recebida' | 'recusada' | 'cancelada';
 
 export const ROTULO_STATUS_TRANSFERENCIA: Record<StatusTransferencia, string> = {
@@ -79,6 +81,8 @@ export interface ProdutoNaFilial {
   unidadeMedidaCasasDecimais?: number;
   ativo?: boolean;
   statusAtivo?: boolean;
+  /** Principal de uma grade: nao tem saldo, transfere-se a variacao (gradeProdutosDomain.ts). */
+  temGrade?: boolean;
 }
 
 export interface LoteNaFilial {
@@ -186,6 +190,7 @@ export const planejarEnvio = (params: {
     if (!produto || produto.tenantId !== params.origem) { erros.push('Um dos produtos não foi encontrado nesta filial. Atualize a tela e tente de novo.'); continue; }
     const nome = texto(produto.nome) || 'produto';
     if (produto.ativo === false || produto.statusAtivo === false) { erros.push(`${nome} está inativo e não pode ser transferido.`); continue; }
+    if (produto.temGrade === true) { erros.push(mensagemPrincipalDeGrade(nome)); continue; }
     if (!quantidadeValida(quantidade, produto)) {
       erros.push(produto.unidadeMedidaFracionado
         ? `Quantidade inválida para ${nome}.`

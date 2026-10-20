@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import {
+  produtoVendavel,
   searchProducts,
   type ProductSearchMode,
   type ProductSearchResult,
@@ -103,10 +104,14 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
 
   const result = useMemo(() => {
     if (!value.trim()) {
+      // Campo vazio lista o catalogo com o MESMO corte da busca: produto
+      // inativo e o principal de uma grade (gradeProdutosDomain.ts) nunca
+      // sao oferecidos -- antes (20/10/2026) so' a busca digitada cortava.
+      const oferecidos = produtosVisiveis.filter(produtoVendavel);
       return {
-        items: produtosVisiveis.slice(0, limit),
-        total: produtosVisiveis.length,
-        truncated: produtosVisiveis.length > limit,
+        items: oferecidos.slice(0, limit),
+        total: oferecidos.length,
+        truncated: oferecidos.length > limit,
       };
     }
     return searchProducts(produtosVisiveis, value, { mode, limit });

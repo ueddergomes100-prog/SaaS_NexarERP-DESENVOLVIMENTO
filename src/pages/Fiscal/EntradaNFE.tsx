@@ -288,6 +288,10 @@ const EntradaNFE: React.FC = () => {
         const list: EstoqueItem[] = [];
         snap.forEach(d => {
           const data = d.data();
+          // O principal de uma grade nao recebe mercadoria: a nota entra na
+          // variacao (que tem EAN e codigo do fornecedor proprios). Fora do
+          // casamento automatico, das sugestoes e da busca manual.
+          if (data.temGrade === true) return;
           list.push({
             id: d.id,
             codigo: data.codigo || '',

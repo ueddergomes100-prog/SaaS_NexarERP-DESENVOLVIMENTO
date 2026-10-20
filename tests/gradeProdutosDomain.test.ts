@@ -220,8 +220,8 @@ test('camposDaVariacao: herda o cadastro do pai, nunca saldo/situacao/historico,
   assert.equal(igual.margemLucro, 150);
   assert.deepEqual(igual.embalagens, [{ id: 'e1', codigoBarras: '', fatorConversao: 12 }]);
   assert.deepEqual(igual.ecommerce, { skuSistema: 'NX-123-01', slugUrl: 'camiseta-p-azul', seoTitulo: 'Camiseta' });
-  for (const campo of ['quantidade', 'quantidadeReservada', 'ativo', 'statusAtivo', 'historicoPrecos', 'temGrade', 'gradeNomes', 'grupoChave', 'filialOrigem', 'cadastroHash', 'createdAt']) {
-    assert.equal(campo in igual, false, campo);
+  for (const campo of ['quantidade', 'quantidadeReservada', 'ativo', 'statusAtivo', 'historicoPrecos', 'temGrade', 'gradeNomes', 'grupoChave', 'filialOrigem', 'cadastroHash', 'createdAt', 'codigosFornecedor', 'fatoresFornecedor']) {
+    assert.equal(campo in camposDaVariacao({ ...pai, codigosFornecedor: { f1: 'X' }, fatoresFornecedor: { f1: 2 } }, identidade), false, campo);
   }
 
   const proprio = camposDaVariacao(pai, { ...identidade, precoProprio: true, precoVenda: 60 });
@@ -231,12 +231,36 @@ test('camposDaVariacao: herda o cadastro do pai, nunca saldo/situacao/historico,
   assert.equal(proprio.precoPromocional, 0);
   assert.deepEqual(proprio.precos, { venda: 60, custo: 20, promocional: 0, margemLucro: 200, lucroEstimado: 40 });
   assert.equal(proprio.precoProprio, true);
+
+  // Atualizacao: custo, compras, minimo/maximo e localizacao sao da variacao; a margem usa o custo dela.
+  const paiComCompras = { ...pai, estoqueMinimo: 2, localizacaoEstoque: 'A1', fornecedor: 'FORN', compras: { ultimoFornecedor: 'FORN' }, ultimoCusto: 20 };
+  const filhoAtual = { precoCusto: 25, precos: { venda: 50, custo: 25 }, estoqueMinimo: 7, localizacaoEstoque: 'B2', fornecedor: 'OUTRO' };
+  const atualizado = camposDaVariacao(paiComCompras, identidade, filhoAtual);
+  for (const campo of ['precoCusto', 'ultimoCusto', 'fornecedor', 'compras', 'estoqueMinimo', 'localizacaoEstoque', 'estoqueConfig']) {
+    assert.equal(campo in atualizado, false, campo);
+  }
+  assert.equal(atualizado.precoVenda, 50);
+  assert.equal(atualizado.margemLucro, 100);
+  assert.equal(atualizado.lucroEstimado, 25);
+  assert.equal((atualizado.precos as Record<string, unknown>).custo, 25);
+  assert.equal((atualizado.precos as Record<string, unknown>).margemLucro, 100);
+  assert.equal(atualizado.categoria, 'ROUPAS');
+  // Na criacao tudo desce.
+  const criado = camposDaVariacao(paiComCompras, identidade);
+  assert.equal(criado.estoqueMinimo, 2);
+  assert.equal(criado.precoCusto, 20);
 });
 
 test('variacaoPrecisaAtualizar acusa apenas quando algum campo mudou', () => {
   assert.equal(variacaoPrecisaAtualizar({ nome: 'A', variacao: ['P'], extra: 1 }, { nome: 'A', variacao: ['P'] }), false);
   assert.equal(variacaoPrecisaAtualizar({ nome: 'A' }, { nome: 'B' }), true);
   assert.equal(variacaoPrecisaAtualizar({}, { precoAVista: undefined }), false);
+});
+
+test('mensagemPrincipalDeGrade cita o produto e manda escolher a variacao', async () => {
+  const { mensagemPrincipalDeGrade } = await import('../src/utils/gradeProdutosDomain');
+  assert.match(mensagemPrincipalDeGrade('CAMISETA'), /^"CAMISETA" é o produto principal de uma grade/);
+  assert.match(mensagemPrincipalDeGrade(''), /^"Este produto"/);
 });
 
 test('ligar a grade exige saldo e reserva zerados; desligar exige nao ter filhos', () => {

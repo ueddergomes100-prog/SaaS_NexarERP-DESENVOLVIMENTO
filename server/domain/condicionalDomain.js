@@ -25,6 +25,7 @@ exports.MENSAGEM_CONDICIONAL_DESLIGADO = exports.acoesDoCondicional = exports.re
  */
 const unidadeMedidaDomain_1 = require("./unidadeMedidaDomain");
 const preVendaDomain_1 = require("./preVendaDomain");
+const gradeProdutosDomain_1 = require("./gradeProdutosDomain");
 exports.PERMISSAO_CONDICIONAL = 'vendas.condicional';
 exports.DEFAULT_TRABALHA_COM_CONDICIONAL = false;
 const parseTrabalhaComCondicional = (valor) => valor === true;
@@ -136,6 +137,10 @@ const montarItensDoCondicional = (args) => {
         const nome = String(produto.nome || 'Produto sem nome');
         if (!produtoAtivo(produto)) {
             erros.push(`"${nome}" está inativo e não pode sair em condicional.`);
+            continue;
+        }
+        if (produto.temGrade === true) {
+            erros.push((0, gradeProdutosDomain_1.mensagemPrincipalDeGrade)(nome));
             continue;
         }
         if (!(0, exports.produtoPermiteCondicional)(produto)) {

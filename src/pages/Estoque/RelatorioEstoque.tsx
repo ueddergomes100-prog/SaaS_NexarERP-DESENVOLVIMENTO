@@ -135,7 +135,8 @@ const RelatorioEstoque: React.FC = () => {
         getDocs(query(collection(db, 'produtos_composicao'), where('tenantId', '==', tenantId))),
       ]);
 
-      setProdutos(snapProdutos.docs.map((d) => {
+      // O principal de uma grade nao tem saldo: as linhas sao as variacoes.
+      setProdutos(snapProdutos.docs.filter((d) => d.data().temGrade !== true).map((d) => {
         const data = d.data();
         return {
           id: d.id,

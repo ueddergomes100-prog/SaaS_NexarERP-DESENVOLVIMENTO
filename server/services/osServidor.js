@@ -29,6 +29,7 @@ const { configFinanceiraDaEmpresa } = require('../domain/vendaFechamentoDomain')
 const { parseParametrosVenda, bloqueioPorAtraso } = require('../domain/parametrosVendaDomain');
 const { bloqueioParaRefazerParcelas } = require('../domain/alteracaoValorTituloDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
+const grade = require('../domain/gradeProdutosDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda } = require('./vendaFechamento');
 const cd = require('../domain/conferenciaDescontoDomain');
@@ -72,6 +73,8 @@ const lerProdutos = async (tx, ids, tenantId) => {
   (refs.length ? await tx.getAll(...refs) : []).forEach((s) => {
     if (!s.exists) return;
     if (s.data().tenantId !== tenantId) throw new ErroVenda(400, 'Uma das peças da OS não é desta empresa. Remova a peça e lance de novo.');
+    // Principal de grade nao tem saldo: a peca e' a variacao (domain/gradeProdutosDomain).
+    if (grade.ehProdutoComGrade(s.data())) throw new ErroVenda(400, grade.mensagemPrincipalDeGrade(s.data().nome));
     produtos[s.id] = s.data();
   });
   return produtos;

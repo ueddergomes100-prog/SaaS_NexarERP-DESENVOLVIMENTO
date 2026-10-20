@@ -131,6 +131,8 @@ interface EstoqueData {
    * de topo -- ver montarProdutoImportado (importacaoEstoqueDomain.ts). */
   estoqueConfig?: { minimo?: number };
   unidadeMedidaSigla?: string;
+  /** Principal de uma grade: nao tem saldo, quem conta sao as variacoes (gradeProdutosDomain.ts). */
+  temGrade?: boolean;
 }
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -601,12 +603,14 @@ const Dashboard: React.FC = () => {
     // itensEsgotados, que e' o sinal que nao depende de configuracao.
     // Le os dois lugares onde o minimo e' gravado (EstoqueForm grava nos
     // dois; a importacao em massa so' no estoqueConfig).
-    const itensEstoqueBaixo = estoque.filter((item) => {
+    // O principal de uma grade nunca tem saldo: contaria como esgotado sem ser.
+    const itensComSaldoProprio = estoque.filter((item) => item.temGrade !== true);
+    const itensEstoqueBaixo = itensComSaldoProprio.filter((item) => {
       const qtd = Number(item.quantidade || 0);
       const minimo = Number(item.estoqueMinimo ?? item.estoqueConfig?.minimo ?? 0);
       return minimo > 0 && qtd <= minimo;
     });
-    const itensEsgotados = estoque.filter((item) => Number(item.quantidade || 0) <= 0);
+    const itensEsgotados = itensComSaldoProprio.filter((item) => Number(item.quantidade || 0) <= 0);
 
     return {
       clientesUnicosMes,

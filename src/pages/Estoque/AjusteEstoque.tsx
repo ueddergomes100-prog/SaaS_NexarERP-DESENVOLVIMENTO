@@ -95,6 +95,9 @@ const AjusteEstoque: React.FC = () => {
       const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
       const snap = await getDocs(q);
       const lista: ProdutoAjuste[] = snap.docs
+        // O principal de uma grade nao tem saldo: o ajuste e' em cada
+        // variacao (gradeProdutosDomain.ts). Fica fora da busca.
+        .filter((d) => d.data().temGrade !== true)
         .map((d) => {
           const data = d.data();
           return {

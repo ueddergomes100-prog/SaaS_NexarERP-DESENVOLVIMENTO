@@ -19,6 +19,9 @@
  * ser alterado pelo DevTools).
  */
 
+// Grade de produtos: o principal nao tem saldo, a troca e' da variacao.
+const grade = require('../domain/gradeProdutosDomain');
+
 const MOTIVOS_TROCA = [
   { value: 'embalagem_rasgada', label: 'Embalagem rasgada' },
   { value: 'com_bicho', label: 'Com bicho' },
@@ -167,6 +170,10 @@ const montarItensDaTroca = ({ itens, produtosPorId }) => {
       erros.push(`"${nome}" está inativo e não pode ser trocado.`);
       return;
     }
+    if (grade.ehProdutoComGrade(produto)) {
+      erros.push(grade.mensagemPrincipalDeGrade(nome));
+      return;
+    }
     const fracionado = produto.unidadeMedidaFracionado === true;
     const casas = Number.isInteger(produto.unidadeMedidaCasasDecimais) ? produto.unidadeMedidaCasasDecimais : 0;
     if (!quantidadeValidaParaUnidade(item.quantidade, fracionado, casas)) {
@@ -274,6 +281,7 @@ const planoDeReserva = ({ itens, produtosPorId, permiteSemEstoque = false }) => 
     const produto = produtosPorId[linha.id];
     if (!produto) { erros.push(`O produto "${linha.nome}" não foi encontrado no cadastro.`); continue; }
     if (!produtoAtivo(produto)) { erros.push(`"${linha.nome}" está inativo e não pode ser trocado.`); continue; }
+    if (grade.ehProdutoComGrade(produto)) { erros.push(grade.mensagemPrincipalDeGrade(linha.nome)); continue; }
     const quantidade = numero(produto.quantidade);
     const reservada = numero(produto.quantidadeReservada);
     const disponivel = arredondar(quantidade - reservada, PRECISAO_QUANTIDADE);

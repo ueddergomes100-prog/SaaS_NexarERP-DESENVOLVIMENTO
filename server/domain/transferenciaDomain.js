@@ -20,6 +20,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.proximoStatusPermitido = exports.retornoCompleto = exports.planejarRecebimento = exports.planejarEnvio = exports.escolherLotesParaEnvio = exports.custoMedioDepoisDaEntrada = exports.idDoProdutoNaFilial = exports.podeTransferirSemNota = exports.parseTransferenciaSemNota = exports.MOTIVO_TRANSFERENCIA_RETORNO = exports.MOTIVO_TRANSFERENCIA_ENTRADA = exports.MOTIVO_TRANSFERENCIA_SAIDA = exports.ROTULO_STATUS_TRANSFERENCIA = void 0;
+const gradeProdutosDomain_1 = require("./gradeProdutosDomain");
 exports.ROTULO_STATUS_TRANSFERENCIA = {
     em_transito: 'Em trânsito',
     recebida: 'Recebida',
@@ -120,6 +121,10 @@ const planejarEnvio = (params) => {
         const nome = texto(produto.nome) || 'produto';
         if (produto.ativo === false || produto.statusAtivo === false) {
             erros.push(`${nome} está inativo e não pode ser transferido.`);
+            continue;
+        }
+        if (produto.temGrade === true) {
+            erros.push((0, gradeProdutosDomain_1.mensagemPrincipalDeGrade)(nome));
             continue;
         }
         if (!quantidadeValida(quantidade, produto)) {

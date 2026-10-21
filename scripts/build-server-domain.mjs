@@ -89,6 +89,10 @@ const MODULOS = [
   'src/utils/visibilidadeVendasDomain.ts',
   'src/utils/vendedorPinDomain.ts',
   'src/utils/conferenciaDescontoDomain.ts',
+  // Preco de cada item conferido pelo servidor (21/10/2026): abaixo do sistema conta como desconto.
+  'src/utils/precoVendaDomain.ts',
+  'src/utils/promocaoDomain.ts',
+  'src/utils/conferenciaPrecoDomain.ts',
   // Conta a receber lancada a mao (19/10/2026).
   'src/utils/lancamentoReceberDomain.ts',
   // Frente de Caixa como app separado (19/10/2026).

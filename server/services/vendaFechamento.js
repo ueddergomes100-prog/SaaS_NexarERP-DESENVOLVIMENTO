@@ -31,8 +31,10 @@
  * Quem liberou vem do comprovante, nunca da tela. Regra em
  * src/utils/conferenciaDescontoDomain.ts.
  *
- * Limitacao conhecida: o PRECO de cada item ainda vem da tela -- o servidor
- * refaz a conta, mas nao reprecifica.
+ * Preco de cada item (21/10/2026): o servidor le o cadastro, as promocoes e as
+ * quotas e confere o preco cobrado contra o do sistema; abaixo dele, a
+ * diferenca conta como DESCONTO e passa pelos mesmos limites (decisao do dono).
+ * Acima e' livre. Regra em src/utils/conferenciaPrecoDomain.ts.
  */
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
@@ -45,6 +47,9 @@ const { STATUS_PRE_VENDA, isPedidoAberto, resolveOrigemPedido } = require('../do
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const cd = require('../domain/conferenciaDescontoDomain');
+const cp = require('../domain/conferenciaPrecoDomain');
+const { condicaoDoPagamento, parseFormasAVista } = require('../domain/precoVendaDomain');
+const { lerPromocao, promocaoValeNoDia } = require('../domain/promocaoDomain');
 const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
 const grade = require('../domain/gradeProdutosDomain');
 const comprovantes = require('./comprovantes');
@@ -141,6 +146,54 @@ const percentualDoClienteDaVenda = async (clienteId, tenantId) => {
   return snap.exists && snap.data().tenantId === tenantId ? descontoPadraoDoCliente(snap.data()) : 0;
 };
 
+/**
+ * Quanto ja' saiu da quota de uma promocao em OUTRAS vendas (a mesma conta de
+ * promocaoService.vendidoNaPromocao): pedidos nao cancelados que levaram a
+ * promocao, na unidade base. promocaoId -> { produtoId: quantidade }.
+ */
+const vendidoNaPromocao = async (tenantId, promocaoId, ignorarPedidoId) => {
+  const snap = await db.collection('pedidos_venda').where('tenantId', '==', tenantId).where('promocaoIds', 'array-contains', promocaoId).get();
+  const vendido = {};
+  snap.docs.forEach((d) => {
+    const pedido = d.data();
+    if (pedido.status === 'Cancelada' || d.id === ignorarPedidoId) return;
+    (Array.isArray(pedido.itens) ? pedido.itens : []).forEach((item) => {
+      if (!item || item.promocaoId !== promocaoId) return;
+      const id = String(item.id || '');
+      vendido[id] = (vendido[id] || 0) + (Number(item.quantidadeBase ?? item.quantidade) || 0);
+    });
+  });
+  return vendido;
+};
+
+/**
+ * Preco de cada item contra o do sistema (21/10/2026). Cadastro, promocoes e
+ * quotas lidos FORA da transacao (consultas): um preco que muda no meio da
+ * venda nao muda o que o vendedor combinou. `itens` no formato da conferencia
+ * (precoUnitario, quantidade, desconto, embalagemId, fatorConversao).
+ */
+const conferirPrecosNoServidor = async ({ tenantId, config, itens, pagamentos, ignorarPedidoId }) => {
+  const ids = [...new Set(itens.map((i) => i.id).filter((id) => id && id !== 'avulso'))];
+  const produtos = {};
+  if (ids.length) {
+    (await db.getAll(...ids.map((id) => db.collection('estoque').doc(id)))).forEach((s) => {
+      if (s.exists && s.data().tenantId === tenantId) produtos[s.id] = s.data();
+    });
+  }
+  const hoje = getDateInputInTimeZone();
+  const promocoes = ids.length
+    ? (await lerColecaoDaEmpresa('promocoes', tenantId)).map((p) => ({ ...lerPromocao(p), id: p.id })).filter((p) => !p.inativa)
+    : [];
+  const vendidoPorPromocao = {};
+  const comQuota = promocoes.filter((p) => promocaoValeNoDia(p, hoje) && p.itens.some((i) => i.quota !== null && ids.includes(i.produtoId)));
+  for (const p of comQuota) vendidoPorPromocao[p.id] = await vendidoNaPromocao(tenantId, p.id, ignorarPedidoId);
+  const condicao = condicaoDoPagamento(
+    (Array.isArray(pagamentos) ? pagamentos : []).map((p) => ({ forma: String((p && p.forma) || ''), parcelas: p && p.parcelas, parcelasAPrazo: p && p.parcelasAPrazo })),
+    parseFormasAVista(config.formasPrecoAVista),
+  );
+  return cp.conferirPrecos({ itens, produtos, promocoes, hoje, condicao, vendidoPorPromocao });
+};
+
 const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const lido = venda.lerPedidoDeFechamento(corpo);
   if ('erro' in lido) throw new ErroVenda(400, lido.erro);
@@ -183,11 +236,17 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const resumo = fin.summarizePayments(pagamentos);
   const aPrazo = resumo.paymentCondition === 'aprazo';
 
+  // Preco de cada item contra o do sistema (21/10/2026): abaixo dele, a
+  // diferenca entra no desconto -- do item e do total.
+  const precos = await conferirPrecosNoServidor({
+    tenantId, config, itens: pedido.itens, pagamentos: pedido.pagamentos, ignorarPedidoId: pedido.pedidoId || pedido.idDocumento,
+  });
+
   // Desconto total contra o limite da tela, no modo da empresa (19/10/2026).
   const tela = pedido.pdvSessionId ? 'pdv' : 'pedido';
   const configDesconto = cd.configDoDesconto(config, tela);
-  const baseDoDescontoCentavos = fin.toCents(totais.valorTotalItens);
-  const descontoTotalCentavos = fin.toCents(totais.valorTotalDescontos);
+  const baseDoDescontoCentavos = fin.toCents(totais.valorTotalItens) + precos.diferencaTotalCentavos;
+  const descontoTotalCentavos = fin.toCents(totais.valorTotalDescontos) + precos.diferencaTotalCentavos;
   const situacaoDesconto = cd.situacaoDoDescontoTotal({
     tela,
     config: configDesconto,
@@ -195,7 +254,10 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     descontoCentavos: descontoTotalCentavos,
     percentualDoCliente: await percentualDoClienteDaVenda(pedido.clienteId, tenantId),
   });
-  if (situacaoDesconto.erro) throw new ErroVenda(409, situacaoDesconto.erro);
+  // Preco abaixo do sistema: a mensagem diz de onde veio o desconto a mais.
+  const indiceComDiferenca = precos.itens.findIndex((p) => p.diferencaCentavos > 0);
+  const explicacaoDoPreco = indiceComDiferenca >= 0 ? cp.explicacaoDaDiferenca(pedido.itens[indiceComDiferenca], precos.itens[indiceComDiferenca]) : '';
+  if (situacaoDesconto.erro) throw new ErroVenda(409, `${explicacaoDoPreco}${situacaoDesconto.erro}`);
   // Identificacao do vendedor: so' o Pedido de Venda pede (o PDV nao).
   const exigeIdentificacao = tela === 'pedido' && cd.exigeIdentificacaoDoVendedor(config);
 
@@ -321,12 +383,12 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     let liberacao = null;
     if (situacaoDesconto.precisaLiberacao) {
       const idLiberacao = pedido.descontoGeral.aprovacao && pedido.descontoGeral.aprovacao.comprovanteId;
-      if (!idLiberacao) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, cd.MENSAGEM_FALTA_LIBERACAO);
+      if (!idLiberacao) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, `${explicacaoDoPreco}${cd.MENSAGEM_FALTA_LIBERACAO}`);
       liberacao = await comprovantes.lerNaTransacao(tx, String(idLiberacao));
       const problema = cd.problemaDaLiberacao(liberacao.dados, {
         tenantId, emitidoPara: user.uid, tela, baseCentavos: baseDoDescontoCentavos, descontoCentavos: descontoTotalCentavos, agoraMs,
       });
-      if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, problema);
+      if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, `${explicacaoDoPreco}${problema}`);
     }
     let identificacao = null;
     if (exigeIdentificacao) {
@@ -350,15 +412,17 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       produtos[s.id] = s.data();
     });
 
-    // Desconto de cada item: limite do produto (e o da tela, no Pedido com "bloquear").
-    pedido.itens.forEach((item) => {
+    // Desconto de cada item: limite do produto (e o da tela, no Pedido com
+    // "bloquear"), com a diferenca do preco abaixo do sistema somada.
+    pedido.itens.forEach((item, indice) => {
+      const conferido = precos.itens[indice];
       const problema = cd.problemaNoDescontoDoItem({
         nome: item.nome,
-        brutoCentavos: venda.brutoDaLinhaCentavos(item),
-        descontoCentavos: fin.toCents(item.desconto),
+        brutoCentavos: conferido.brutoCentavos,
+        descontoCentavos: conferido.descontoCentavos,
         produto: produtos[item.id] || null,
       }, tela, configDesconto);
-      if (problema) throw new ErroVenda(409, problema);
+      if (problema) throw new ErroVenda(409, `${cp.explicacaoDaDiferenca(item, conferido)}${problema}`);
     });
 
     // Lotes: so' produto que controla lote; a soma tem de bater com a quantidade da linha.
@@ -522,6 +586,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       valorTotalItensCentavos: fin.toCents(totais.valorTotalItens),
       valorTotalDescontos: totais.valorTotalDescontos,
       valorTotalDescontosCentavos: fin.toCents(totais.valorTotalDescontos),
+      // Itens abaixo do preco do sistema: quanto isso deu de desconto (21/10/2026).
+      ...(precos.diferencaTotalCentavos > 0 ? { descontoPorPrecoCentavos: precos.diferencaTotalCentavos } : {}),
       descontoGeral: {
         tipo: pedido.descontoGeral.tipo,
         valorInformado: pedido.descontoGeral.valorInformado,
@@ -664,4 +730,4 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   };
 };
 
-module.exports = { ErroVenda, finalizarVenda, temPermissao, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda };
+module.exports = { ErroVenda, finalizarVenda, temPermissao, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda, conferirPrecosNoServidor };

@@ -18,8 +18,9 @@
  * Desconto (19/10/2026): o servidor confere o limite da OS (Configuracoes) no
  * modo da empresa; no modo "senha" a OS gasta o comprovante de liberacao e
  * grava quem liberou a partir dele (src/utils/conferenciaDescontoDomain.ts).
- * O preco de cada item ainda vem da OS gravada pela tela -- o servidor refaz a
- * conta, mas nao reprecifica.
+ * Preco das pecas (21/10/2026): peca abaixo do preco do sistema conta como
+ * desconto da OS (limite do produto e da OS, liberacao por senha); servico
+ * (mao de obra) e' livre. Regra em src/utils/conferenciaPrecoDomain.ts.
  */
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
@@ -32,8 +33,9 @@ const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domai
 const grade = require('../domain/gradeProdutosDomain');
 const reserva = require('../domain/estoqueReservaDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
-const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda } = require('./vendaFechamento');
+const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda, conferirPrecosNoServidor } = require('./vendaFechamento');
 const cd = require('../domain/conferenciaDescontoDomain');
+const cp = require('../domain/conferenciaPrecoDomain');
 const comprovantes = require('./comprovantes');
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
@@ -149,16 +151,34 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
   const clienteId = antes.clienteId ? String(antes.clienteId) : '';
   const clienteNome = String(antes.clienteNome || '').trim().toUpperCase();
 
+  // Preco das pecas contra o do sistema (21/10/2026): abaixo dele, a diferenca
+  // entra no desconto da OS. Servico fica de fora (valor livre).
+  const pecasDaOs = (Array.isArray(antes.pecas) ? antes.pecas : []).filter((p) => p && typeof p === 'object');
+  const itensParaPreco = pecasDaOs.map((p) => ({
+    id: String(p.id || ''),
+    nome: String(p.nome || 'Peça'),
+    precoUnitario: Number(p.preco || 0),
+    quantidade: Number(p.quantidade || 0),
+    desconto: 0,
+    embalagemId: p.embalagemId,
+    fatorConversao: p.fatorConversao,
+  }));
+  const precos = await conferirPrecosNoServidor({ tenantId, config, itens: itensParaPreco, pagamentos: pedido.pagamentos, ignorarPedidoId: osRef.id });
+  const configDescontoOs = cd.configDoDesconto(config, 'os');
+
   // Desconto contra o limite da OS, no modo da empresa (19/10/2026).
-  const baseDoDescontoCentavos = fin.toCents(totais.subtotal);
+  const baseDoDescontoCentavos = fin.toCents(totais.subtotal) + precos.diferencaTotalCentavos;
+  const descontoDaOsCentavos = totais.descontoCentavos + precos.diferencaTotalCentavos;
   const situacaoDesconto = cd.situacaoDoDescontoTotal({
     tela: 'os',
-    config: cd.configDoDesconto(config, 'os'),
+    config: configDescontoOs,
     baseCentavos: baseDoDescontoCentavos,
-    descontoCentavos: totais.descontoCentavos,
+    descontoCentavos: descontoDaOsCentavos,
     percentualDoCliente: await percentualDoClienteDaVenda(clienteId, tenantId),
   });
-  if (situacaoDesconto.erro) throw new ErroVenda(409, situacaoDesconto.erro);
+  const indiceComDiferenca = precos.itens.findIndex((p) => p.diferencaCentavos > 0);
+  const explicacaoDoPreco = indiceComDiferenca >= 0 ? cp.explicacaoDaDiferenca(itensParaPreco[indiceComDiferenca], precos.itens[indiceComDiferenca]) : '';
+  if (situacaoDesconto.erro) throw new ErroVenda(409, `${explicacaoDoPreco}${situacaoDesconto.erro}`);
 
   const parametros = parseParametrosVenda(config.parametrosVenda);
   const comLimite = credito.parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito) && aPrazo;
@@ -213,12 +233,12 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
     // Liberacao do desconto (modo "senha"): comprovante do servidor, gasto nesta OS.
     let liberacao = null;
     if (situacaoDesconto.precisaLiberacao) {
-      if (!pedido.comprovanteAprovacaoId) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, cd.MENSAGEM_FALTA_LIBERACAO);
+      if (!pedido.comprovanteAprovacaoId) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, `${explicacaoDoPreco}${cd.MENSAGEM_FALTA_LIBERACAO}`);
       liberacao = await comprovantes.lerNaTransacao(tx, pedido.comprovanteAprovacaoId);
       const problema = cd.problemaDaLiberacao(liberacao.dados, {
-        tenantId, emitidoPara: user.uid, tela: 'os', baseCentavos: baseDoDescontoCentavos, descontoCentavos: totais.descontoCentavos, agoraMs: Date.now(),
+        tenantId, emitidoPara: user.uid, tela: 'os', baseCentavos: baseDoDescontoCentavos, descontoCentavos: descontoDaOsCentavos, agoraMs: Date.now(),
       });
-      if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, problema);
+      if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, `${explicacaoDoPreco}${problema}`);
     }
 
     const mecanicoId = String(os.mecanicoId || '');
@@ -234,6 +254,17 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
     const pecas = Array.isArray(os.pecas) ? os.pecas : [];
     const idsProdutos = [...new Set(pecas.map((p) => String((p && p.id) || '')).filter((id) => id && id !== 'avulso'))];
     const produtos = await lerProdutos(tx, idsProdutos, tenantId);
+
+    // Peca abaixo do preco do sistema: a diferenca e' desconto da peca e o
+    // limite do proprio produto vale (como no Pedido e no PDV).
+    precos.itens.forEach((conferido, indice) => {
+      if (!(conferido.diferencaCentavos > 0)) return;
+      const item = itensParaPreco[indice];
+      const problema = cd.problemaNoDescontoDoItem({
+        nome: item.nome, brutoCentavos: conferido.brutoCentavos, descontoCentavos: conferido.descontoCentavos, produto: produtos[item.id] || null,
+      }, 'os', configDescontoOs);
+      if (problema) throw new ErroVenda(409, `${cp.explicacaoDaDiferenca(item, conferido)}${problema}`);
+    });
 
     // Lotes: so' peca que controla lote; a soma tem de bater com a quantidade da linha.
     const lotesPorLinha = {};

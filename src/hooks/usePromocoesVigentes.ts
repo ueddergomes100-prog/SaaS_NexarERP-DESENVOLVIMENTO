@@ -76,5 +76,5 @@ export const usePromocoesVigentes = (tenantId: string | null | undefined, ignora
     return { promo, liberada: quantidadeLiberadaNaPromocao(promo, vendidoPorPromocao[promo.promocaoId]?.[produto.id] || 0, jaNestaVenda) };
   }, [promocaoDe, vendidoPorPromocao]);
 
-  return { promocoes, hoje, tabelaDe, promocaoDe, quantidadeLiberada, quotaConferida };
+  return { promocoes, hoje, tabelaDe, promocaoDe, quantidadeLiberada, quotaConferida, vendidoPorPromocao };
 };

@@ -100,6 +100,7 @@ import {
 } from '../../utils/financeDomain';
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
+import { conferirPrecos } from '../../utils/conferenciaPrecoDomain';
 import { FORMAS_A_VISTA_PADRAO, ROTULO_CONDICAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico, type OrigemPreco, type TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
@@ -882,7 +883,7 @@ const OSForm: React.FC = () => {
   // Venda: a condicao vem do pagamento escolhido (a prazo por padrao) e, quando
   // ela muda, as pecas com preco automatico sao recalculadas -- avisando.
   const condicaoPagamento = useMemo(() => condicaoDoPagamento(paymentDrafts, formasPrecoAVista), [paymentDrafts, formasPrecoAVista]);
-  const { tabelaDe } = usePromocoesVigentes(tenantId, id);
+  const { tabelaDe, promocoes, hoje: hojeParaPromocao, vendidoPorPromocao } = usePromocoesVigentes(tenantId, id);
   const pecasSelecionadasRef = useRef(pecasSelecionadas);
   useEffect(() => { pecasSelecionadasRef.current = pecasSelecionadas; }, [pecasSelecionadas]);
   useEffect(() => {
@@ -1068,7 +1069,21 @@ const OSForm: React.FC = () => {
     setDescontoDoCliente(descontoPadraoDoCliente(cliente));
   }, [formData.clienteNome, clientesDisponiveis]);
 
-  const checagemLimiteDesconto = checarLimiteComCliente(limiteDescontoOS, subtotalOSCentavos, descontoCents, descontoDoCliente);
+  // Peca abaixo do preco do sistema: a diferenca conta como desconto da OS --
+  // a mesma conta do servidor (conferenciaPrecoDomain.ts, decisao do dono de
+  // 21/10/2026). Servico (mao de obra) fica de fora: valor livre.
+  const pecasPorId = useMemo(() => Object.fromEntries(pecasEstoque.map((p) => [p.id, p])), [pecasEstoque]);
+  const diferencaDePrecoCents = useMemo(() => conferirPrecos({
+    itens: pecasSelecionadas.map((p) => ({ id: p.id, nome: p.nome, precoUnitario: p.preco, quantidade: p.quantidade })),
+    produtos: pecasPorId,
+    promocoes,
+    hoje: hojeParaPromocao,
+    condicao: condicaoPagamento,
+    vendidoPorPromocao,
+  }).diferencaTotalCentavos, [pecasSelecionadas, pecasPorId, promocoes, hojeParaPromocao, condicaoPagamento, vendidoPorPromocao]);
+  const baseDoDescontoCents = subtotalOSCentavos + diferencaDePrecoCents;
+  const descontoParaLimiteCents = descontoCents + diferencaDePrecoCents;
+  const checagemLimiteDesconto = checarLimiteComCliente(limiteDescontoOS, baseDoDescontoCents, descontoParaLimiteCents, descontoDoCliente);
   const paymentDate = formData.dataSaida || getDateInputInTimeZone();
 
   // Uma aprovacao de senha so vale pro estado do momento -- mudar servico,
@@ -2367,7 +2382,7 @@ const OSForm: React.FC = () => {
           onClose={() => setShowAprovacaoDesconto(false)}
           onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
           liberacaoNoServidor={vendaPeloServidor
-            ? { tela: 'os', baseCentavos: subtotalOSCentavos, descontoCentavos: descontoCents }
+            ? { tela: 'os', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents }
             : null}
         />
 

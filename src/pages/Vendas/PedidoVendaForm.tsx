@@ -192,6 +192,7 @@ import {
 } from '../../utils/precoVendaDomain';
 import { lerPromocao, promocaoDoProduto, quantidadeLiberadaNaPromocao, type PromocaoComId } from '../../utils/promocaoDomain';
 import { vendidoNaPromocao } from '../../services/promocaoService';
+import { conferirPrecos } from '../../utils/conferenciaPrecoDomain';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
@@ -2107,13 +2108,24 @@ const PedidoVendaForm: React.FC = () => {
     setDescontoGeralInput({ tipo: 'valor', valor: (resultado.descontoCents / 100).toFixed(2) });
     setEditandoTotal(false);
   };
+  // Item abaixo do preco do sistema (pre-venda feita antes de o preco subir,
+  // promocao que acabou): a diferenca conta como desconto -- a mesma conta do
+  // servidor (conferenciaPrecoDomain.ts, decisao do dono de 21/10/2026). So'
+  // enquanto a venda ainda pode ser finalizada; venda fechada fica como foi.
+  const produtosPorId = useMemo(() => Object.fromEntries(produtosCatalogo.map((p) => [p.id, p])), [produtosCatalogo]);
+  const conferirPrecoAgora = !isViewing || canEditPendingOrder || faturandoPreVenda;
+  const diferencaDePrecoCents = conferirPrecoAgora
+    ? conferirPrecos({ itens, produtos: produtosPorId, promocoes, hoje: hojeParaPromocao, condicao: condicaoPagamento, vendidoPorPromocao }).diferencaTotalCentavos
+    : 0;
+  const baseDoDescontoCents = toCents(valorTotalItens) + diferencaDePrecoCents;
+  const descontoParaLimiteCents = toCents(valorTotalDescontos) + diferencaDePrecoCents;
   // Ate o percentual do cadastro do cliente, o desconto passa direto: e'
   // autorizacao que o dono ja deu. Acima disso vale o limite da tela, com o
   // modo de sempre (avisar/bloquear/senha). Ver checarLimiteComCliente.
   const checagemLimiteDesconto = checarLimiteComCliente(
     limiteDescontoPedido,
-    toCents(valorTotalItens),
-    toCents(valorTotalDescontos),
+    baseDoDescontoCents,
+    descontoParaLimiteCents,
     descontoDoCliente,
   );
 
@@ -5179,7 +5191,7 @@ const PedidoVendaForm: React.FC = () => {
         onClose={() => setShowAprovacaoDesconto(false)}
         onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
         liberacaoNoServidor={vendaPeloServidor
-          ? { tela: 'pedido', baseCentavos: toCents(valorTotalItens), descontoCentavos: toCents(valorTotalDescontos) }
+          ? { tela: 'pedido', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents }
           : null}
       />
 
@@ -5535,6 +5547,15 @@ const PedidoVendaForm: React.FC = () => {
               <span>Descontos:</span>
               <span>- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalDescontos)}</span>
             </div>
+            {diferencaDePrecoCents > 0 && (
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '12px', color: '#ef4444', fontSize: '13px' }}
+                title="Itens com preço menor que o do cadastro hoje (preço que subiu depois da pré-venda, promoção que acabou). A diferença conta no limite de desconto."
+              >
+                <span>Abaixo do preço do cadastro:</span>
+                <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(diferencaDePrecoCents))}</span>
+              </div>
+            )}
 
             {(!isViewing || canEditPendingOrder) && (
               <div style={{ marginBottom: '16px' }}>

@@ -762,6 +762,38 @@ body.light-theme .profile-menu:hover {
   }
 }
 
+/* Alca para alargar/estreitar coluna de tabela (21/10/2026, todas as telas -- ver
+   components/layout/useColunasAjustaveis.ts). Clarinha; acende ao passar no cabecalho. */
+.alca-coluna {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  color: var(--text-muted);
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+th:hover > .alca-coluna,
+.alca-coluna:focus-visible,
+.alca-coluna.arrastando {
+  opacity: 1;
+}
+.alca-coluna.arrastando,
+.alca-coluna:hover {
+  color: var(--accent-purple);
+}
+@media print {
+  .alca-coluna { display: none !important; }
+}
+
 /* Global Search Box Styling */
 .search-box {
   position: relative;

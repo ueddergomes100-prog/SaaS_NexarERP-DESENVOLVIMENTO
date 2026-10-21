@@ -32,6 +32,7 @@ import {
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
+import AlcaLarguraColuna, { useLarguraColuna } from '../../components/common/AlcaLarguraColuna';
 import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { descreverTrava, mensagemDeBloqueio } from '../../utils/travaEdicaoDomain';
 import { FiltroColuna, itemOpcaoStyle, OpcoesFiltro } from '../../components/common/FiltroColuna';
@@ -161,6 +162,8 @@ const PedidoVendas: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [ordemNumero, inverterOrdemNumero] = useOrdemNumero('pedidos.ordemNumero');
+  // Coluna Cliente com largura ajustavel (pedido de cliente, 21/10/2026): arrastar a alca do cabecalho.
+  const larguraCliente = useLarguraColuna('pedidos.larguraCliente', 180, 140, 700);
   // Aba Pre-vendas: o que ainda nao saiu no papel fica no topo (pedido do dono,
   // 2026-10-13); o cabecalho "Imp." alterna. "Impresso" aqui e' o mesmo que
   // acende o check da coluna: recibo/pre-venda OU minuta.
@@ -735,7 +738,7 @@ const PedidoVendas: React.FC = () => {
 
       <div className="card" style={{ padding: '16px 14px 6px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table className="hd-tabela">
+          <table className="hd-tabela" style={{ ['--largura-cliente' as string]: `${larguraCliente.largura}px` } as React.CSSProperties}>
             <thead>
               <tr>
                 <th style={{ width: '1%' }}>
@@ -803,7 +806,10 @@ const PedidoVendas: React.FC = () => {
                     )}
                   </FiltroColuna>
                 </th>
-                <th>Cliente</th>
+                <th className="hd-tabela__cliente" style={{ position: 'relative' }}>
+                  Cliente
+                  <AlcaLarguraColuna coluna={larguraCliente} rotulo="Cliente" />
+                </th>
                 <th>
                   Vendedor
                   <FiltroColuna ativo={Boolean(filtroVendedor)}>

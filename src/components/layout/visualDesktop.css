@@ -611,7 +611,8 @@ body.light-theme .app-layout-wrapper .hd-avatar.cor-5 { background: #e0f2fe; col
 .app-layout-wrapper .hd-tabela tbody tr:hover td { background: var(--bg-tertiary); }
 .app-layout-wrapper .hd-tabela .hd-tabela__mudo { max-width: 140px; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
 /* o cliente fica com a sobra da largura e corta com "...": as outras colunas nunca saem da tela */
-.app-layout-wrapper .hd-tabela .hd-tabela__cliente { width: 100%; min-width: 180px; max-width: 0; }
+/* --largura-cliente: a largura que a pessoa escolheu arrastando a alca do cabecalho (21/10/2026) */
+.app-layout-wrapper .hd-tabela .hd-tabela__cliente { width: 100%; min-width: var(--largura-cliente, 180px); max-width: 0; }
 .app-layout-wrapper .hd-tabela .hd-tabela__cliente .hd-pessoa > :last-child { min-width: 0; }
 .app-layout-wrapper .hd-tabela input[type='checkbox'] { width: 16px; height: 16px; accent-color: #7c3aed; }
 .app-layout-wrapper .hd-tabela .icon-btn { width: 34px; height: 34px; }

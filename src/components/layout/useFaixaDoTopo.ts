@@ -18,6 +18,8 @@ import { useEffect } from 'react';
 const SOBREPOSICAO_PX = 64;
 /** Sem cartao logo abaixo do titulo, a faixa termina com esta folga (e nunca por cima do bloco seguinte). */
 const FOLGA_SEM_CARTAO_PX = 24;
+/** Espaco entre o fim da faixa e o bloco seguinte quando ele nao e' cartao (um aviso, por exemplo). */
+const RESPIRO_ATE_O_PROXIMO_PX = 16;
 /** Fileira de botoes (abas Em andamento/Finalizadas...) mais alta que isso nao e' fileira, e' conteudo. */
 const ALTURA_MAX_FILEIRA_PX = 72;
 const PROFUNDIDADE_MAX = 4;
@@ -112,7 +114,9 @@ const fimDaFaixa = (topo: HTMLElement, origem: number): number => {
     const caixa = cartao.getBoundingClientRect();
     return caixa.top + Math.min(SOBREPOSICAO_PX, caixa.height / 2) - origem;
   }
-  const limite = proximo ? proximo.getBoundingClientRect().top : Infinity;
+  // Sem cartao: termina com respiro ANTES do proximo bloco (aviso translucido nao
+  // pode ficar "grudado" na faixa -- print do dono, 21/10/2026), nunca acima do titulo.
+  const limite = proximo ? Math.max(base, proximo.getBoundingClientRect().top - RESPIRO_ATE_O_PROXIMO_PX) : Infinity;
   return Math.min(base + FOLGA_SEM_CARTAO_PX, limite) - origem;
 };
 

@@ -309,15 +309,15 @@ const ConferenciaDoBalanco: React.FC<{ balancoId: string; onVoltar: () => void; 
         </div>
       )}
 
-      <div style={{ ...estilos.card, padding: 0 }}>
-        <div style={{ padding: '14px 16px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <div style={{ paddingBottom: '14px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           {([['todos', `Todos (${dados.linhas.length})`], ['diferenca', `Com diferença (${comDiferenca})`], ['naoContados', `Não contados (${naoContados})`], ['negativos', `Negativos (${negativos})`]] as Array<[FiltroConferencia, string]>).map(([f, t]) => (
             <button key={f} type="button" className={filtro === f ? 'btn-primary' : 'btn-secondary'} onClick={() => setFiltro(f)} style={{ padding: '6px 12px', fontSize: '13px' }}>{t}</button>
           ))}
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar…" aria-label="Buscar item" style={{ ...estilos.campo, maxWidth: '260px' }} />
         </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table" style={{ width: '100%', fontSize: '13px' }}>
+        <div className="table-wrapper">
+          <table className="data-table">
             <thead>
               <tr><th>Grupo</th><th>Item</th><th>Contou</th><th style={{ textAlign: 'right' }}>Sistema na contagem</th><th style={{ textAlign: 'right' }}>Contado</th><th style={{ textAlign: 'right' }}>Sistema agora</th><th style={{ textAlign: 'right' }}>Vai ficar</th><th style={{ textAlign: 'right' }}>Diferença</th></tr>
             </thead>
@@ -459,8 +459,9 @@ const Balanco: React.FC = () => {
         </div>
       )}
 
-      <div style={{ ...estilos.card, padding: 0, overflowX: 'auto' }}>
-        <table className="table" style={{ width: '100%', fontSize: '13px' }}>
+      <div className="card list-container" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
+        <div className="table-wrapper">
+        <table className="data-table">
           <thead><tr><th>Balanço</th><th>Aberto</th><th>O que contou</th><th>Quem contou</th><th>Situação</th><th>Resultado</th><th>Ações</th></tr></thead>
           <tbody>
             {lista === null ? (
@@ -480,6 +481,7 @@ const Balanco: React.FC = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {novo && <NovoBalanco onFechar={() => setNovo(false)} onAberto={() => { setNovo(false); void carregar(); }} />}

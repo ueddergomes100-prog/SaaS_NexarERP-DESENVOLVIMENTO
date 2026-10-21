@@ -3,7 +3,8 @@
  *
  * Decisoes do dono (caixinhas):
  *  - o que contar: todos os produtos, grupos (categorias), materia-prima ou
- *    produtos acabados (produzidos internamente);
+ *    produtos acabados E revenda (tudo que se vende: produzido ou comprado para
+ *    revender; fica de fora o item de uso interno);
  *  - varias pessoas contando: o sistema DIVIDE sozinho em blocos, mantendo o
  *    mesmo grupo junto; cada um so' ve e so' conta a sua lista;
  *  - contagem CEGA: quem conta nao ve o saldo do sistema;
@@ -31,7 +32,8 @@ export const ROTULO_ESCOPO: Record<TipoEscopoBalanco, string> = {
   todos: 'Todos os produtos',
   grupos: 'Grupos escolhidos',
   materias_primas: 'Matéria-prima',
-  acabados: 'Produtos acabados (produção própria)',
+  // 21/10/2026 (dono): o que a loja VENDE -- produzido por ela ou comprado para revender.
+  acabados: 'Produtos acabados e revenda',
 };
 
 export const ROTULO_REGRA_NEGATIVO: Record<RegraNegativo, string> = {
@@ -100,8 +102,15 @@ export interface ProdutoParaEscopo {
   temGrade?: unknown;
   ativo?: unknown;
   statusAtivo?: unknown;
+  /** Produzido pela loja: entra em "acabados e revenda" como qualquer item de venda. */
   produzidoInternamente?: unknown;
+  /** false = uso interno (embalagem, consumo, semiacabado): nao se vende. Ausente = revenda. */
+  produtoRevenda?: unknown;
+  avancado?: { produtoRevenda?: unknown } | null;
 }
+
+/** O item e' vendido? (produtoRevenda desmarcado no cadastro = uso interno; cadastro antigo guardava em `avancado`.) */
+export const itemDeVenda = (p: ProdutoParaEscopo): boolean => (p.produtoRevenda ?? p.avancado?.produtoRevenda ?? true) !== false;
 
 /** Grupo (categoria) do item, normalizado; sem grupo = "SEM GRUPO". */
 export const grupoDoItem = (p: { categoria?: unknown }): string => texto(p.categoria, 120).toUpperCase() || SEM_GRUPO;
@@ -110,7 +119,8 @@ export const grupoDoItem = (p: { categoria?: unknown }): string => texto(p.categ
 export const produtoEntraNoEscopo = (p: ProdutoParaEscopo, escopo: EscopoBalanco): boolean => {
   if (p.temGrade === true || p.ativo === false || p.statusAtivo === false) return false;
   if (escopo.tipo === 'grupos') return escopo.categorias.includes(grupoDoItem(p));
-  if (escopo.tipo === 'acabados') return p.produzidoInternamente === true;
+  // Acabados e revenda (21/10/2026): produzido ou comprado para revender -- tudo que se vende.
+  if (escopo.tipo === 'acabados') return itemDeVenda(p);
   return escopo.tipo === 'todos';
 };
 

@@ -4,7 +4,8 @@
  *
  * Decisoes do dono (caixinhas):
  *  - o que contar: todos os produtos, grupos (categorias), materia-prima ou
- *    produtos acabados (produzidos internamente);
+ *    produtos acabados E revenda (tudo que se vende: produzido ou comprado para
+ *    revender; fica de fora o item de uso interno);
  *  - varias pessoas contando: o sistema DIVIDE sozinho em blocos, mantendo o
  *    mesmo grupo junto; cada um so' ve e so' conta a sua lista;
  *  - contagem CEGA: quem conta nao ve o saldo do sistema;
@@ -25,12 +26,13 @@
  * Regra pura (tela e servidor): sem Firestore, sem rede.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.bloqueioPorBalanco = exports.itensNegativos = exports.resumoDoFechamento = exports.ajusteDoItem = exports.totalContado = exports.novoTotalContado = exports.erroDaQuantidade = exports.dividirEmBlocos = exports.produtoEntraNoEscopo = exports.grupoDoItem = exports.lerPedidoDeAbertura = exports.PERMISSAO_BALANCO_CONTAR = exports.PERMISSAO_BALANCO_GERENCIAR = exports.MAXIMO_DE_CONTADORES = exports.SEM_GRUPO = exports.STATUS_BALANCO = exports.ROTULO_REGRA_NEGATIVO = exports.ROTULO_ESCOPO = void 0;
+exports.bloqueioPorBalanco = exports.itensNegativos = exports.resumoDoFechamento = exports.ajusteDoItem = exports.totalContado = exports.novoTotalContado = exports.erroDaQuantidade = exports.dividirEmBlocos = exports.produtoEntraNoEscopo = exports.grupoDoItem = exports.itemDeVenda = exports.lerPedidoDeAbertura = exports.PERMISSAO_BALANCO_CONTAR = exports.PERMISSAO_BALANCO_GERENCIAR = exports.MAXIMO_DE_CONTADORES = exports.SEM_GRUPO = exports.STATUS_BALANCO = exports.ROTULO_REGRA_NEGATIVO = exports.ROTULO_ESCOPO = void 0;
 exports.ROTULO_ESCOPO = {
     todos: 'Todos os produtos',
     grupos: 'Grupos escolhidos',
     materias_primas: 'Matéria-prima',
-    acabados: 'Produtos acabados (produção própria)',
+    // 21/10/2026 (dono): o que a loja VENDE -- produzido por ela ou comprado para revender.
+    acabados: 'Produtos acabados e revenda',
 };
 exports.ROTULO_REGRA_NEGATIVO = {
     contado: 'Fica o que contou',
@@ -76,6 +78,9 @@ const lerPedidoDeAbertura = (corpo) => {
     return { pedido: { nome: nome.toUpperCase(), escopo: { tipo, categorias: tipo === 'grupos' ? categorias : [] }, contadores, travaVendas: c.travaVendas === true } };
 };
 exports.lerPedidoDeAbertura = lerPedidoDeAbertura;
+/** O item e' vendido? (produtoRevenda desmarcado no cadastro = uso interno; cadastro antigo guardava em `avancado`.) */
+const itemDeVenda = (p) => (p.produtoRevenda ?? p.avancado?.produtoRevenda ?? true) !== false;
+exports.itemDeVenda = itemDeVenda;
 /** Grupo (categoria) do item, normalizado; sem grupo = "SEM GRUPO". */
 const grupoDoItem = (p) => texto(p.categoria, 120).toUpperCase() || exports.SEM_GRUPO;
 exports.grupoDoItem = grupoDoItem;
@@ -85,8 +90,9 @@ const produtoEntraNoEscopo = (p, escopo) => {
         return false;
     if (escopo.tipo === 'grupos')
         return escopo.categorias.includes((0, exports.grupoDoItem)(p));
+    // Acabados e revenda (21/10/2026): produzido ou comprado para revender -- tudo que se vende.
     if (escopo.tipo === 'acabados')
-        return p.produzidoInternamente === true;
+        return (0, exports.itemDeVenda)(p);
     return escopo.tipo === 'todos';
 };
 exports.produtoEntraNoEscopo = produtoEntraNoEscopo;

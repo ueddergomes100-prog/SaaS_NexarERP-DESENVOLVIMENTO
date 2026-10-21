@@ -176,8 +176,8 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
         </div>
 
         <div style={{ padding: '16px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="table" style={{ width: '100%', fontSize: '13px' }} data-sem-ajuste>
+          <div className="table-wrapper">
+            <table className="data-table" data-sem-ajuste>
               <thead>
                 <tr><th>Item</th><th style={{ textAlign: 'right' }}>Na nota</th><th style={{ textAlign: 'right' }}>Pode devolver</th><th style={{ width: '120px' }}>Devolver</th><th>CFOP</th></tr>
               </thead>

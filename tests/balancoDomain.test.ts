@@ -31,8 +31,13 @@ test('escopo: grade, inativo, grupo e produto acabado', () => {
   assert.equal(produtoEntraNoEscopo({ statusAtivo: false }, todos), false);
   assert.equal(produtoEntraNoEscopo({ categoria: 'ração' }, { tipo: 'grupos', categorias: ['RAÇÃO'] }), true);
   assert.equal(produtoEntraNoEscopo({ categoria: '' }, { tipo: 'grupos', categorias: ['SEM GRUPO'] }), true);
-  assert.equal(produtoEntraNoEscopo({ produzidoInternamente: true }, { tipo: 'acabados', categorias: [] }), true);
-  assert.equal(produtoEntraNoEscopo({}, { tipo: 'acabados', categorias: [] }), false);
+  // Acabados e revenda: produzido OU comprado para revender; uso interno fica de fora.
+  const acabados = { tipo: 'acabados' as const, categorias: [] };
+  assert.equal(produtoEntraNoEscopo({ produzidoInternamente: true }, acabados), true, 'produzido');
+  assert.equal(produtoEntraNoEscopo({}, acabados), true, 'revenda (cadastro sem o campo)');
+  assert.equal(produtoEntraNoEscopo({ produtoRevenda: true }, acabados), true);
+  assert.equal(produtoEntraNoEscopo({ produtoRevenda: false }, acabados), false, 'uso interno / semiacabado');
+  assert.equal(produtoEntraNoEscopo({ avancado: { produtoRevenda: false } }, acabados), false, 'cadastro antigo');
 });
 
 test('divisao: partes quase iguais, mesmo grupo junto, grupo grande cortado, sempre igual', () => {

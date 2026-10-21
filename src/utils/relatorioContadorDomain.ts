@@ -89,6 +89,24 @@ const ehCfopDeEntrada = (cfop: string): boolean => ['1', '2', '3'].includes(cfop
 /** x.201, x.202, x.410, x.411: devolucao de venda. */
 const ehCfopDeDevolucaoDeVenda = (cfop: string): boolean => ['201', '202', '410', '411'].includes(cfop.slice(1));
 
+/**
+ * Instante (ms) que vale como emissao da nota da empresa: o da ULTIMA
+ * transmissao a' SEFAZ (campo `data`, regravado a cada envio). A nota rejeitada
+ * corrigida e reenviada dias depois mantem o `createdAt` antigo, mas sai com a
+ * data do reenvio: e' nesse mes que o contador escritura. Sem `data`, o createdAt.
+ */
+export const instanteDaEmissao = (data: unknown, createdAtMs: number | null): number | null => {
+  const ms = typeof data === 'string' && data ? Date.parse(data) : NaN;
+  if (Number.isFinite(ms)) return ms;
+  return createdAtMs !== null && Number.isFinite(createdAtMs) ? createdAtMs : null;
+};
+
+/**
+ * Quantos dias antes do periodo a tela busca notas criadas (pelo createdAt),
+ * para achar a rejeitada que foi reenviada e autorizada dentro do periodo.
+ */
+export const DIAS_ANTES_PARA_REENVIO = 62;
+
 export const situacaoDaNotaEmitida = (status: unknown): SituacaoFiscal => {
   const s = texto(status).toLowerCase();
   if (s === 'authorized') return 'autorizada';
@@ -102,13 +120,27 @@ export const situacaoDaNotaEmitida = (status: unknown): SituacaoFiscal => {
 // ---------------------------------------------------------------------------
 
 export interface ValoresFiscais {
-  /** Tudo em centavos. */
+  /** Tudo em centavos. `valor` = valor contabil (o que soma no total da nota:
+   *  produto + frete + seguro + outras despesas + IPI + ICMS-ST - desconto). */
   valor: number;
   baseIcms: number;
   icms: number;
+  baseSt: number;
+  st: number;
+  ipi: number;
   pis: number;
   cofins: number;
 }
+
+const CAMPOS_VALORES: Array<keyof ValoresFiscais> = ['valor', 'baseIcms', 'icms', 'baseSt', 'st', 'ipi', 'pis', 'cofins'];
+
+export const valoresZerados = (): ValoresFiscais => ({ valor: 0, baseIcms: 0, icms: 0, baseSt: 0, st: 0, ipi: 0, pis: 0, cofins: 0 });
+
+/** Soma `v` em `alvo` (muta e devolve `alvo`). */
+const acumular = <T extends ValoresFiscais>(alvo: T, v: ValoresFiscais): T => {
+  for (const campo of CAMPOS_VALORES) alvo[campo] += v[campo];
+  return alvo;
+};
 
 export interface GrupoCfop extends ValoresFiscais {
   cfop: string;
@@ -145,22 +177,39 @@ export interface LinhaContador extends ValoresFiscais {
 }
 
 const somarGrupos = (grupos: Map<string, GrupoCfop>, cfop: string, v: ValoresFiscais): void => {
-  const atual = grupos.get(cfop) ?? { cfop, valor: 0, baseIcms: 0, icms: 0, pis: 0, cofins: 0 };
-  atual.valor += v.valor;
-  atual.baseIcms += v.baseIcms;
-  atual.icms += v.icms;
-  atual.pis += v.pis;
-  atual.cofins += v.cofins;
-  grupos.set(cfop, atual);
+  grupos.set(cfop, acumular(grupos.get(cfop) ?? { cfop, ...valoresZerados() }, v));
 };
 
-const totaisDosGrupos = (grupos: GrupoCfop[]): ValoresFiscais => grupos.reduce((t, g) => ({
-  valor: t.valor + g.valor,
-  baseIcms: t.baseIcms + g.baseIcms,
-  icms: t.icms + g.icms,
-  pis: t.pis + g.pis,
-  cofins: t.cofins + g.cofins,
-}), { valor: 0, baseIcms: 0, icms: 0, pis: 0, cofins: 0 });
+const totaisDosGrupos = (grupos: GrupoCfop[]): ValoresFiscais => grupos.reduce((t, g) => acumular(t, g), valoresZerados());
+
+/**
+ * Faz o valor contabil dos CFOPs fechar com o total da nota (vNF), em centavos
+ * exatos. A diferenca (frete/seguro/despesas/desconto que a nota antiga nao
+ * guardou por item, FCP-ST, imposto de importacao, arredondamento) e' dividida
+ * na proporcao do valor de cada CFOP; o resto de centavos vai para os maiores.
+ * Sem total da nota, ou sem valor nos CFOPs, fica como esta'.
+ */
+export const fecharValorComONota = (grupos: GrupoCfop[], totalDaNota: number): GrupoCfop[] => {
+  const soma = grupos.reduce((s, g) => s + g.valor, 0);
+  const diferenca = totalDaNota - soma;
+  if (!(totalDaNota > 0) || diferenca === 0 || grupos.length === 0) return grupos;
+  if (soma <= 0) {
+    // Sem base para dividir: tudo no primeiro CFOP (nota de um CFOP so', o caso comum).
+    return grupos.map((g, i) => (i === 0 ? { ...g, valor: g.valor + diferenca } : g));
+  }
+  const partes = grupos.map((g) => (diferenca * g.valor) / soma);
+  const inteiras = partes.map((p) => Math.trunc(p));
+  let resto = diferenca - inteiras.reduce((s, p) => s + p, 0);
+  const ordem = partes
+    .map((p, i) => ({ i, fracao: Math.abs(p - Math.trunc(p)) }))
+    .sort((a, b) => b.fracao - a.fracao || a.i - b.i);
+  const passo = Math.sign(resto);
+  for (let k = 0; resto !== 0 && k < ordem.length * 2; k += 1) {
+    inteiras[ordem[k % ordem.length].i] += passo;
+    resto -= passo;
+  }
+  return grupos.map((g, i) => ({ ...g, valor: g.valor + inteiras[i] }));
+};
 
 /** Nota emitida pela empresa (`notas_fiscais`), com os dados do cliente ja' lidos. */
 export interface NotaEmitidaParaContador {
@@ -200,10 +249,17 @@ export const linhaDaNotaEmitida = (nota: NotaEmitidaParaContador): LinhaContador
     if (!item || typeof item !== 'object') continue;
     const cfop = normalizarCfop(item.cfop);
     const taxes = (item.taxes && typeof item.taxes === 'object' ? item.taxes : {}) as Record<string, Record<string, unknown> | undefined>;
+    // O sistema emite sem frete/seguro/despesas, sem ICMS-ST destacado (so' o
+    // retido anteriormente, que nao soma no total) e com IPI de aliquota zero
+    // (notaFiscalItemDomain.ts). O total do item na nota e' vProd - vDesc + IPI.
+    const ipi = centavos(taxes.ipi?.amount);
     somarGrupos(grupos, cfop, {
-      valor: centavos(item.totalAmount) - centavos(item.discountAmount),
+      valor: centavos(item.totalAmount) - centavos(item.discountAmount) + ipi,
       baseIcms: centavos(taxes.icms?.baseTax),
       icms: centavos(taxes.icms?.amount),
+      baseSt: 0,
+      st: 0,
+      ipi,
       pis: centavos(taxes.pis?.amount),
       cofins: centavos(taxes.cofins?.amount),
     });
@@ -211,7 +267,8 @@ export const linhaDaNotaEmitida = (nota: NotaEmitidaParaContador): LinhaContador
   const porCfop = [...grupos.values()].sort((a, b) => a.cfop.localeCompare(b.cfop));
   const totais = totaisDosGrupos(porCfop);
   const cfops = porCfop.map((g) => g.cfop).filter(Boolean);
-  // Valor da nota: o gravado (total com frete/encargos); sem ele, a soma dos itens.
+  // Valor da nota: a soma dos itens transmitidos (a Spedy fecha o total da nota
+  // por eles, makeupTotal). Sem itens (NFS-e antiga), o valor gravado.
   const valorGravado = centavos(nota.valor);
   const finalidade = texto(nota.finalidade);
   const entrada = cfops.length > 0 && cfops.every(ehCfopDeEntrada);
@@ -241,7 +298,7 @@ export const linhaDaNotaEmitida = (nota: NotaEmitidaParaContador): LinhaContador
     cartas: cartasDaNota(nota.cartasCorrecao),
     naturezaOperacao: '',
     ...totais,
-    valor: valorGravado > 0 ? valorGravado : totais.valor,
+    valor: porCfop.length > 0 && totais.valor > 0 ? totais.valor : valorGravado,
   };
 };
 
@@ -261,28 +318,83 @@ export interface NotaRecebidaParaContador {
   itens?: unknown;
   transferenciaId?: unknown;
   ufDoFornecedor?: string;
+  /** Itens do XML guardado na entrada (`xmlGzipBase64`, lido por parseNfeXml):
+   *  trazem frete, seguro, despesas e desconto de cada item. Sem XML, valem os
+   *  itens gravados na entrada (sem esses quatro por item). */
+  itensDoXml?: readonly ItemDoXmlParaContador[];
 }
+
+/** O que o relatorio usa de cada item do XML (subconjunto de ItemDaNota do nfeXmlDomain). */
+export interface ItemDoXmlParaContador {
+  cfop: string;
+  valorProduto: number;
+  frete: number;
+  seguro: number;
+  desconto: number;
+  outrasDespesas: number;
+  icms: { base: number; valor: number; baseSt: number; valorSt: number };
+  ipi: { valor: number };
+  pis: { valor: number };
+  cofins: { valor: number };
+}
+
+const valoresDoItemDoXml = (item: ItemDoXmlParaContador): ValoresFiscais => {
+  const ipi = centavos(item.ipi?.valor);
+  const st = centavos(item.icms?.valorSt);
+  return {
+    valor: centavos(item.valorProduto) + centavos(item.frete) + centavos(item.seguro) + centavos(item.outrasDespesas)
+      - centavos(item.desconto) + ipi + st,
+    baseIcms: centavos(item.icms?.base),
+    icms: centavos(item.icms?.valor),
+    baseSt: centavos(item.icms?.baseSt),
+    st,
+    ipi,
+    pis: centavos(item.pis?.valor),
+    cofins: centavos(item.cofins?.valor),
+  };
+};
+
+const valoresDoItemGravado = (item: Record<string, unknown>): ValoresFiscais => {
+  const impostos = (item.impostos && typeof item.impostos === 'object' ? item.impostos : {}) as Record<string, Record<string, unknown> | undefined>;
+  const ipi = centavos(impostos.ipi?.valor);
+  const st = centavos(impostos.icms?.valorSt);
+  return {
+    // Frete/seguro/despesas/desconto do item nao foram gravados: entram depois,
+    // no fechamento com o total da nota (fecharValorComONota).
+    valor: Math.round(numero(item.quantidade) * numero(item.valorUnitario) * 100) + ipi + st,
+    baseIcms: centavos(impostos.icms?.base),
+    icms: centavos(impostos.icms?.valor),
+    baseSt: centavos(impostos.icms?.baseSt),
+    st,
+    ipi,
+    pis: centavos(impostos.pis?.valor),
+    cofins: centavos(impostos.cofins?.valor),
+  };
+};
 
 export const linhaDaNotaRecebida = (nota: NotaRecebidaParaContador): LinhaContador => {
   const grupos = new Map<string, GrupoCfop>();
   const doXml = new Set<string>();
-  const itens = Array.isArray(nota.itens) ? nota.itens as Array<Record<string, unknown>> : [];
-  for (const item of itens) {
-    if (!item || typeof item !== 'object') continue;
-    const original = normalizarCfop(item.cfop);
-    if (original) doXml.add(original);
-    const impostos = (item.impostos && typeof item.impostos === 'object' ? item.impostos : {}) as Record<string, Record<string, unknown> | undefined>;
-    somarGrupos(grupos, cfopDeEntradaDoFornecedor(original), {
-      valor: Math.round(numero(item.quantidade) * numero(item.valorUnitario) * 100),
-      baseIcms: centavos(impostos.icms?.base),
-      icms: centavos(impostos.icms?.valor),
-      pis: centavos(impostos.pis?.valor),
-      cofins: centavos(impostos.cofins?.valor),
-    });
+  const itensXml = Array.isArray(nota.itensDoXml) && nota.itensDoXml.length > 0 ? nota.itensDoXml : null;
+  if (itensXml) {
+    for (const item of itensXml) {
+      const original = normalizarCfop(item.cfop);
+      if (original) doXml.add(original);
+      somarGrupos(grupos, cfopDeEntradaDoFornecedor(original), valoresDoItemDoXml(item));
+    }
+  } else {
+    const itens = Array.isArray(nota.itens) ? nota.itens as Array<Record<string, unknown>> : [];
+    for (const item of itens) {
+      if (!item || typeof item !== 'object') continue;
+      const original = normalizarCfop(item.cfop);
+      if (original) doXml.add(original);
+      somarGrupos(grupos, cfopDeEntradaDoFornecedor(original), valoresDoItemGravado(item));
+    }
   }
-  const porCfop = [...grupos.values()].sort((a, b) => a.cfop.localeCompare(b.cfop));
-  const cfops = porCfop.map((g) => g.cfop).filter(Boolean);
   const totaisXml = (nota.totais && typeof nota.totais === 'object' ? nota.totais : null) as Record<string, unknown> | null;
+  const totalDaNota = totaisXml && numero(totaisXml.total) > 0 ? centavos(totaisXml.total) : centavos(nota.valorTotal);
+  const porCfop = fecharValorComONota([...grupos.values()].sort((a, b) => a.cfop.localeCompare(b.cfop)), totalDaNota);
+  const cfops = porCfop.map((g) => g.cfop).filter(Boolean);
   const somaItens = totaisDosGrupos(porCfop);
   const operacao: OperacaoFiscal = texto(nota.transferenciaId) ? 'transferencia_entrada'
     : cfops.length > 0 && cfops.every(ehCfopDeDevolucaoDeVenda) ? 'devolucao_venda_cliente'
@@ -308,9 +420,12 @@ export const linhaDaNotaRecebida = (nota: NotaRecebidaParaContador): LinhaContad
     cartas: [],
     naturezaOperacao: texto(nota.naturezaOperacao),
     // Totais da nota: os do XML quando vieram (valor oficial), senao a soma dos itens.
-    valor: totaisXml && numero(totaisXml.total) > 0 ? centavos(totaisXml.total) : (centavos(nota.valorTotal) || somaItens.valor),
+    valor: totalDaNota || somaItens.valor,
     baseIcms: totaisXml ? centavos(totaisXml.baseIcms) : somaItens.baseIcms,
     icms: totaisXml ? centavos(totaisXml.icms) : somaItens.icms,
+    baseSt: totaisXml ? centavos(totaisXml.baseSt) : somaItens.baseSt,
+    st: totaisXml ? centavos(totaisXml.st) : somaItens.st,
+    ipi: totaisXml ? centavos(totaisXml.ipi) : somaItens.ipi,
     pis: totaisXml ? centavos(totaisXml.pis) : somaItens.pis,
     cofins: totaisXml ? centavos(totaisXml.cofins) : somaItens.cofins,
   };
@@ -388,13 +503,9 @@ export const resumoPorCfop = (linhas: readonly LinhaContador[], cfopsDoFiltro: r
     for (const g of l.porCfop) {
       if (filtro.size > 0 && !filtro.has(g.cfop)) continue;
       const chave = `${l.movimento}|${g.cfop}`;
-      const atual = mapa.get(chave) ?? { movimento: l.movimento, cfop: g.cfop, notas: 0, valor: 0, baseIcms: 0, icms: 0, pis: 0, cofins: 0, ids: new Set<string>() };
+      const atual = mapa.get(chave) ?? { movimento: l.movimento, cfop: g.cfop, notas: 0, ...valoresZerados(), ids: new Set<string>() };
       atual.ids.add(l.id);
-      atual.valor += g.valor;
-      atual.baseIcms += g.baseIcms;
-      atual.icms += g.icms;
-      atual.pis += g.pis;
-      atual.cofins += g.cofins;
+      acumular(atual, g);
       mapa.set(chave, atual);
     }
   }
@@ -413,14 +524,10 @@ export interface ResumoOperacao extends ValoresFiscais {
 export const resumoPorOperacao = (linhas: readonly LinhaContador[]): ResumoOperacao[] => {
   const mapa = new Map<OperacaoFiscal, ResumoOperacao>();
   for (const l of linhas) {
-    const atual = mapa.get(l.operacao) ?? { operacao: l.operacao, autorizadas: 0, canceladas: 0, outras: 0, valor: 0, baseIcms: 0, icms: 0, pis: 0, cofins: 0 };
+    const atual = mapa.get(l.operacao) ?? { operacao: l.operacao, autorizadas: 0, canceladas: 0, outras: 0, ...valoresZerados() };
     if (l.situacao === 'autorizada') {
       atual.autorizadas += 1;
-      atual.valor += l.valor;
-      atual.baseIcms += l.baseIcms;
-      atual.icms += l.icms;
-      atual.pis += l.pis;
-      atual.cofins += l.cofins;
+      acumular(atual, l);
     } else if (l.situacao === 'cancelada') atual.canceladas += 1;
     else atual.outras += 1;
     mapa.set(l.operacao, atual);
@@ -489,9 +596,18 @@ export const montarDocumentoContador = (
     { id: 'valor', titulo: 'Valor contábil', tipo: 'moeda', largura: 26, valor: (r) => r.valor },
     { id: 'baseIcms', titulo: 'Base ICMS', tipo: 'moeda', largura: 24, valor: (r) => r.baseIcms },
     { id: 'icms', titulo: 'ICMS', tipo: 'moeda', largura: 22, valor: (r) => r.icms },
+    { id: 'baseSt', titulo: 'Base ICMS-ST', tipo: 'moeda', largura: 24, padrao: false, valor: (r) => r.baseSt },
+    { id: 'st', titulo: 'ICMS-ST', tipo: 'moeda', largura: 22, valor: (r) => r.st },
+    { id: 'ipi', titulo: 'IPI', tipo: 'moeda', largura: 20, valor: (r) => r.ipi },
     { id: 'pis', titulo: 'PIS', tipo: 'moeda', largura: 20, valor: (r) => r.pis },
     { id: 'cofins', titulo: 'COFINS', tipo: 'moeda', largura: 22, valor: (r) => r.cofins },
   ];
+  // Na lista de notas aparecem tambem canceladas/rejeitadas (com o valor que
+  // tinham), mas o total do rodape soma so' as autorizadas, como os resumos.
+  const soAutorizadas = (c: ColunaRelatorio<LinhaContador>): ColunaRelatorio<LinhaContador> => ({
+    ...c,
+    totalCalculado: (ls: LinhaContador[]) => ls.filter((l) => l.situacao === 'autorizada').reduce((s, l) => s + Number(c.valor(l) || 0), 0),
+  });
 
   const secoes: SecaoRelatorio[] = [
     {
@@ -540,7 +656,7 @@ export const montarDocumentoContador = (
         { id: 'uf', titulo: 'UF', tipo: 'texto', largura: 10, valor: (l: LinhaContador) => l.uf },
         { id: 'cfops', titulo: 'CFOP', tipo: 'texto', largura: 22, valor: (l: LinhaContador) => l.cfops.map(formatarCfop).join(', ') },
         { id: 'cfopsXml', titulo: 'CFOP do XML (fornecedor)', tipo: 'texto', largura: 24, padrao: false, valor: (l: LinhaContador) => l.cfopsDoXml.map(formatarCfop).join(', ') },
-        ...colunasValores<LinhaContador>().map((c) => (c.id === 'valor' ? { ...c, titulo: 'Valor da nota' } : c)),
+        ...colunasValores<LinhaContador>().map((c) => soAutorizadas(c.id === 'valor' ? { ...c, titulo: 'Valor da nota' } : c)),
         { id: 'cce', titulo: 'CC-e', tipo: 'inteiro', largura: 12, valor: (l: LinhaContador) => l.cartas.length, total: 'nenhum' },
       ],
       linhas: [...linhas],
@@ -576,7 +692,8 @@ export const montarDocumentoContador = (
     f.uf ? `UF: ${f.uf}` : '',
     f.soComCartaDeCorrecao ? 'Só notas com carta de correção' : '',
     f.busca.trim() ? `Busca: "${f.busca.trim()}"` : '',
-    'Valores somam só notas autorizadas. CFOP de nota recebida convertido para entrada (5→1, 6→2, 7→3).',
+    'Valores somam só notas autorizadas. Valor contábil = produtos + frete + seguro + outras despesas + IPI + ICMS-ST − desconto (fecha com o total da nota).',
+    'Notas da empresa pela data da transmissão à SEFAZ; notas recebidas pela data de emissão do XML. CFOP de nota recebida convertido para entrada (5→1, 6→2, 7→3).',
   ].filter(Boolean);
 
   return {

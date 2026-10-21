@@ -97,6 +97,9 @@ const MODULOS = [
   'src/utils/gradeProdutosDomain.ts',
   // Cashback (20/10/2026): o que a venda paga gera, faixas de pontos, saldo.
   'src/utils/cashbackDomain.ts',
+  // Tabelas fiscais (20/10/2026): CFOP do sistema com a funcao de cada um; base de NCM/CEST.
+  'src/utils/cfopDomain.ts',
+  'src/utils/tabelaFiscalDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

@@ -27,6 +27,10 @@ import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
+import { NATUREZAS_DO_PRODUTO, cfopsParaEscolha, type Cfop } from '../../utils/cfopDomain';
+import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
+import { buscarCest, buscarNcm, registrarUsoFiscal, type LinhaCest } from '../../services/tabelasFiscaisService';
+import { formatarCest, formatarNcm, normalizarNcm } from '../../utils/tabelaFiscalDomain';
 import { compararMargem, precoParaMargem } from '../../utils/precificacaoDomain';
 import { ROTULO_POR_ORIGEM, chaveComponente, colecaoDoComponente, normalizarComponente, type ComponenteComposicao, type OrigemComponente } from '../../utils/producaoDomain';
 import { calcularCustoDaReceita } from '../../utils/custoProducaoDomain';
@@ -291,18 +295,9 @@ const fiscalProfiles = {
   }
 };
 
-const cfopOptions = [
-  { value: '5101', label: '5101 - Venda de produção do estabelecimento' },
-  { value: '5102', label: '5102 - Venda de mercadoria adquirida ou recebida de terceiros' },
-  { value: '5401', label: '5401 - Venda de produção do estabelecimento com ST (substituto)' },
-  { value: '5405', label: '5405 - Venda de mercadoria sujeita a substituição tributária' },
-  { value: '6101', label: '6101 - Venda interestadual de produção do estabelecimento' },
-  { value: '6102', label: '6102 - Venda interestadual de mercadoria adquirida de terceiros' },
-  { value: '6404', label: '6404 - Venda interestadual com substituição tributária' },
-  { value: '5933', label: '5933 - Prestação de serviço tributado pelo ISSQN' },
-  { value: '7101', label: '7101 - Venda de produção do estabelecimento, destinada ao exterior' },
-  { value: '7102', label: '7102 - Venda de mercadoria adquirida ou recebida de terceiros, destinada ao exterior' }
-];
+// CFOP do produto (20/10/2026): sai da tabela do sistema (cfopDomain.ts), so'
+// venda e servico, sem os que a empresa desativou em Fiscal > Tabelas Fiscais.
+const rotuloCfop = (c: Cfop) => `${c.codigo} - ${c.descricao}`;
 
 const origemOptions = [
   { value: '0', label: '0 - Nacional' },
@@ -469,6 +464,36 @@ const EstoqueForm: React.FC = () => {
   const produtoInativo = isEditing && produtoOriginal !== null
     && (produtoOriginal.statusAtivo ?? produtoOriginal.ativo) === false;
   const [modoCadastro, setModoCadastro] = useState<'rapido' | 'avancado'>('avancado');
+
+  // Tabelas fiscais (20/10/2026): CFOPs da tabela do sistema e a base de NCM/CEST.
+  const { desativados: cfopsDesativados } = useCfopsDesativados();
+  const opcoesCfopSaida = useMemo(
+    () => cfopsParaEscolha({ tipo: 'saida', naturezas: NATUREZAS_DO_PRODUTO, desativados: cfopsDesativados, manter: formData.cfop }),
+    [cfopsDesativados, formData.cfop],
+  );
+  const opcoesCfopInterestadual = useMemo(
+    () => cfopsParaEscolha({ tipo: 'saida', ambitos: ['interestadual'], naturezas: ['venda'], desativados: cfopsDesativados, manter: formData.cfopInterestadual }),
+    [cfopsDesativados, formData.cfopInterestadual],
+  );
+  const [ncmNaBase, setNcmNaBase] = useState<{ codigo: string; descricao: string; existe: boolean } | null>(null);
+  const [cestsDoNcm, setCestsDoNcm] = useState<LinhaCest[]>([]);
+  const ncmDigitado = normalizarNcm(formData.ncm);
+  useEffect(() => {
+    if (!ncmDigitado) { setNcmNaBase(null); setCestsDoNcm([]); return undefined; }
+    let vivo = true;
+    const espera = window.setTimeout(() => {
+      Promise.all([buscarNcm(ncmDigitado), buscarCest('', ncmDigitado)])
+        .then(([ncms, cests]) => {
+          if (!vivo) return;
+          const achado = ncms.linhas.find((l) => l.codigo === ncmDigitado);
+          setNcmNaBase({ codigo: ncmDigitado, descricao: achado?.descricao ?? '', existe: Boolean(achado) });
+          setCestsDoNcm(cests.linhas);
+        })
+        // Sem servidor (ou fora do ar): o cadastro segue sem a ajuda.
+        .catch(() => { if (vivo) { setNcmNaBase(null); setCestsDoNcm([]); } });
+    }, 400);
+    return () => { vivo = false; window.clearTimeout(espera); };
+  }, [ncmDigitado]);
   /** Lotes do produto (estoque_lotes), mostrados na aba Avancado com "Controlar lote" marcado. */
   const [lotesDoProduto, setLotesDoProduto] = useState<Array<{ id: string; lote: string; validade: string | null; quantidade: number }>>([]);
 
@@ -1779,6 +1804,8 @@ const EstoqueForm: React.FC = () => {
         if (avisoUnidadePadrao) showWarning('Produto cadastrado sem unidade escolhida', avisoUnidadePadrao);
         else showSuccess('Produto cadastrado!');
       }
+      // Base unica de NCM/CEST (Tabelas Fiscais, 20/10/2026): so' os codigos, sem esperar.
+      registrarUsoFiscal([{ ncm: formData.ncm, cest: formData.cest }]);
 
       navigate('/estoque');
     } catch (error) {
@@ -2435,12 +2462,20 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>NCM *</label>
                   <input type="text" name="ncm" maxLength={8} title="8 dígitos" value={formData.ncm} onChange={handleChange} required={!validarCadastroProduto} />
-                  <span className="field-hint">Obrigatório para emissão fiscal. Use apenas números.</span>
+                  <span className="field-hint">
+                    {ncmNaBase && ncmNaBase.codigo === ncmDigitado
+                      ? (ncmNaBase.descricao
+                        ? `${formatarNcm(ncmNaBase.codigo)} · ${ncmNaBase.descricao}`
+                        : ncmNaBase.existe
+                          ? `${formatarNcm(ncmNaBase.codigo)} já está na base, ainda sem descrição (Fiscal › Tabelas Fiscais).`
+                          : 'Este NCM ainda não está na base: entra sozinho ao salvar o produto.')
+                      : 'Obrigatório para emissão fiscal. Use apenas números.'}
+                  </span>
                 </div>
                 <div className="input-group">
                   <label>CFOP padrão saída *</label>
                   <select name="cfop" value={formData.cfop} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
-                    {cfopOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    {opcoesCfopSaida.map(c => <option key={c.codigo} value={c.codigo}>{rotuloCfop(c)}</option>)}
                   </select>
                 </div>
                 <div className="input-group">
@@ -2471,7 +2506,10 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>CFOP interestadual</label>
-                  <input type="text" name="cfopInterestadual" maxLength={4} title="Automático" value={formData.cfopInterestadual} onChange={handleChange} />
+                  <select name="cfopInterestadual" value={formData.cfopInterestadual} onChange={handleChange} className="form-select">
+                    <option value="">Automático (troca 5 por 6)</option>
+                    {opcoesCfopInterestadual.map(c => <option key={c.codigo} value={c.codigo}>{rotuloCfop(c)}</option>)}
+                  </select>
                   <span className="field-hint">Venda para outro estado. Em branco, o sistema troca sozinho (5102 → 6102). Produto com ST precisa informar (ex.: 6102 ou 6404, conforme o destino).</span>
                 </div>
                 <div className="input-group">
@@ -2486,7 +2524,24 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>CEST</label>
-                  <input type="text" name="cest" value={formData.cest} onChange={handleChange} />
+                  <input type="text" name="cest" maxLength={7} title="7 dígitos" value={formData.cest} onChange={handleChange} />
+                  {cestsDoNcm.length > 0 && (
+                    <span className="field-hint" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                      Já usados com este NCM:
+                      {cestsDoNcm.slice(0, 6).map((c) => (
+                        <button
+                          key={c.codigo}
+                          type="button"
+                          className="btn-secondary"
+                          style={{ fontSize: '12px', padding: '2px 8px' }}
+                          title={c.descricao || 'Sem descrição na base'}
+                          onClick={() => setFormData((anterior) => ({ ...anterior, cest: c.codigo }))}
+                        >
+                          {formatarCest(c.codigo)}
+                        </button>
+                      ))}
+                    </span>
+                  )}
                 </div>
                 <div className="input-group">
                   <label>CST PIS</label>

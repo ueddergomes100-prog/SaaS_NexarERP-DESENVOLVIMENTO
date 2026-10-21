@@ -41,6 +41,7 @@ const vendasRoutes = require('./routes/vendas.routes');
 const osRoutes = require('./routes/os.routes');
 const descontosRoutes = require('./routes/descontos.routes');
 const cashbackRoutes = require('./routes/cashback.routes');
+const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
@@ -215,6 +216,8 @@ app.use('/api/os', osRoutes);
 app.use('/api/descontos', descontosRoutes);
 // Cashback (20/10/2026): gerar/estornar depois de a tela gravar venda, baixa ou devolucao.
 app.use('/api/cashback', cashbackRoutes);
+// Tabelas fiscais (20/10/2026): CFOP ativo na empresa e base unica de NCM/CEST.
+app.use('/api/tabelas-fiscais', tabelasFiscaisRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'
 // que precisam do banco do proprio ambiente -- ver manutencao.routes.js.
 app.use('/api/manutencao', manutencaoRoutes);

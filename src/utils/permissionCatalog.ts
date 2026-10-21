@@ -210,6 +210,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'fiscal.excluir', label: 'Fiscal: Excluir/Cancelar Nota Fiscal', color: '#ef4444' },
       // Relatorio do contador (20/10/2026): notas de saida e entrada por CFOP, operacao e situacao.
       { id: 'fiscal.relatorio_contador', label: 'Fiscal: Relatório do Contador', color: '#f59e0b' },
+      // Tabelas fiscais (20/10/2026): CFOP com a funcao de cada um, base de NCM e CEST.
+      { id: 'fiscal.tabelas', label: 'Fiscal: Tabelas Fiscais (CFOP, NCM, CEST)', color: '#f59e0b' },
       { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
     ],
   },

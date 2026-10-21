@@ -15,10 +15,22 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
   const dados = new Map(Object.entries(inicial).map(([k, v]) => [k, structuredClone(v)]));
   // Grava como o Firestore: "a.b" no update mexe no campo b dentro de a.
   // set com merge mescla mapas aninhados (e aceita delete() la' dentro), como o Firestore.
-  const mapaSimples = (v) => v && typeof v === 'object' && !Array.isArray(v) && v !== DEL && v !== TS && !('__incremento' in v);
+  const mapaSimples = (v) => v && typeof v === 'object' && !Array.isArray(v) && v !== DEL && v !== TS
+    && !('__incremento' in v) && !('__uniao' in v) && !('__remover' in v);
+  // arrayUnion/arrayRemove (tabelas fiscais, 20/10/2026), como o Firestore: sem repetir.
+  const transformarLista = (atual, valor) => {
+    const lista = Array.isArray(atual) ? [...atual] : [];
+    if ('__uniao' in valor) {
+      for (const item of valor.__uniao) if (!lista.includes(item)) lista.push(item);
+      return lista;
+    }
+    return lista.filter((item) => !valor.__remover.includes(item));
+  };
+  const ehListaTransformada = (v) => v && typeof v === 'object' && ('__uniao' in v || '__remover' in v);
   const mesclar = (alvo, valor) => {
     for (const [k, v] of Object.entries(valor)) {
       if (v === DEL) delete alvo[k];
+      else if (ehListaTransformada(v)) alvo[k] = transformarLista(alvo[k], v);
       else if (mapaSimples(v)) {
         if (!mapaSimples(alvo[k])) alvo[k] = {};
         mesclar(alvo[k], v);
@@ -37,6 +49,7 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
       const ultimo = partes[partes.length - 1];
       if (valor === DEL) delete alvo[ultimo];
       else if (valor && typeof valor === 'object' && '__incremento' in valor) alvo[ultimo] = Number(alvo[ultimo] || 0) + valor.__incremento;
+      else if (ehListaTransformada(valor)) alvo[ultimo] = transformarLista(alvo[ultimo], valor);
       else if (mesclaMapas && mapaSimples(valor)) {
         if (!mapaSimples(alvo[ultimo])) alvo[ultimo] = {};
         mesclar(alvo[ultimo], valor);
@@ -168,12 +181,19 @@ const carregarComBancoFalso = (db, ...servicos) => {
   };
   require.cache[firebase] = {
     id: firebase, filename: firebase, loaded: true,
-    exports: { db, admin: { auth: () => authFalso, firestore: { FieldValue: { serverTimestamp: () => TS, delete: () => DEL, increment: (n) => ({ __incremento: n }) } } } },
+    exports: { db, admin: { auth: () => authFalso, firestore: { FieldValue: {
+      serverTimestamp: () => TS,
+      delete: () => DEL,
+      increment: (n) => ({ __incremento: n }),
+      arrayUnion: (...itens) => ({ __uniao: itens }),
+      arrayRemove: (...itens) => ({ __remover: itens }),
+    } } } },
   };
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));
   // Servicos usados por dentro de outros (guardam o `db` ao carregar): sempre com o banco novo.
-  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/cashback'].map((s) => require.resolve(path.join(base, s)));
+  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/cashback', 'services/configuracoesGerais']
+    .map((s) => require.resolve(path.join(base, s)));
   [...sempreNovos, ...caminhos].forEach((c) => { delete require.cache[c]; });
   return caminhos.map((c) => require(c));
 };

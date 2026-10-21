@@ -68,6 +68,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'fiscal.emitir': ['fiscal.nfe'],
   'fiscal.excluir': ['fiscal.nfe'],
   'fiscal.relatorio_contador': ['fiscal.nfe'],
+  'fiscal.tabelas': ['fiscal.nfe'],
   'fiscal.entrada': ['fiscal.entrada_nfe'],
   'fiscal.entrada_historico': ['fiscal.entrada_nfe'],
 

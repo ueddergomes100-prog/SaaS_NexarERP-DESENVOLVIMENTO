@@ -734,10 +734,39 @@ body.light-theme .profile-menu:hover {
   font-weight: 500;
 }
 
+/* Lista com barra de busca + filtros (20/10/2026, print do dono: "um em cima do outro").
+   Estas regras moravam so' no OS.css, que so' carrega quando a tela de OS e' aberta:
+   nas outras 19 telas a busca e os filtros empilhavam ate' alguem abrir uma OS.
+   Agora valem sempre: lado a lado, quebrando so' quando nao cabe. */
+.list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .list-toolbar {
+    align-items: stretch;
+  }
+
+  .list-toolbar .search-box {
+    width: 100%;
+  }
+}
+
 /* Global Search Box Styling */
 .search-box {
   position: relative;
   width: 350px;
+  max-width: 100%;
 }
 
 .search-box input {

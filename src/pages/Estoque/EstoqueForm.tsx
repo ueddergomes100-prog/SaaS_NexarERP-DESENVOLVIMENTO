@@ -2475,6 +2475,9 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>CFOP padrão saída *</label>
                   <select name="cfop" value={formData.cfop} onChange={handleChange} className="form-select" required={!validarCadastroProduto}>
+                    {formData.cfop && !opcoesCfopSaida.some(c => c.codigo === formData.cfop) && (
+                      <option value={formData.cfop}>{formData.cfop} (fora da tabela do sistema)</option>
+                    )}
                     {opcoesCfopSaida.map(c => <option key={c.codigo} value={c.codigo}>{rotuloCfop(c)}</option>)}
                   </select>
                 </div>
@@ -2508,6 +2511,9 @@ const EstoqueForm: React.FC = () => {
                   <label>CFOP interestadual</label>
                   <select name="cfopInterestadual" value={formData.cfopInterestadual} onChange={handleChange} className="form-select">
                     <option value="">Automático (troca 5 por 6)</option>
+                    {formData.cfopInterestadual && !opcoesCfopInterestadual.some(c => c.codigo === formData.cfopInterestadual) && (
+                      <option value={formData.cfopInterestadual}>{formData.cfopInterestadual} (fora da tabela do sistema)</option>
+                    )}
                     {opcoesCfopInterestadual.map(c => <option key={c.codigo} value={c.codigo}>{rotuloCfop(c)}</option>)}
                   </select>
                   <span className="field-hint">Venda para outro estado. Em branco, o sistema troca sozinho (5102 → 6102). Produto com ST precisa informar (ex.: 6102 ou 6404, conforme o destino).</span>

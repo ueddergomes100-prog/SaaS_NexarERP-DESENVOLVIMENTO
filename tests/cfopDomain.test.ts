@@ -4,6 +4,7 @@ import {
   CFOPS,
   FUNCAO_DA_NATUREZA,
   acaoDaEntrada,
+  cfopEhDeSaida,
   cfopEntradaSugerido,
   cfopInterestadualEquivalente,
   cfopPorCodigo,
@@ -11,6 +12,7 @@ import {
   formatarCodigoCfop,
   lerCfopsDesativados,
   NATUREZAS_DO_PRODUTO,
+  naturezaDaOperacaoPelosCfops,
   problemaDoCfop,
   resumoDaFuncao,
 } from '../src/utils/cfopDomain';
@@ -146,6 +148,27 @@ test('entrada de NF-e: o CFOP decide estoque, conta a pagar e insumo', () => {
   assert.equal(acaoDaEntrada('1102')?.aviso, '');
   assert.match(acaoDaEntrada('1202')?.aviso ?? '', /Vendas › Devolução/);
   assert.match(acaoDaEntrada('1910')?.aviso ?? '', /sem conta a pagar/);
+});
+
+test('emissao: CFOP de saida pelo formato, mesmo fora da tabela', () => {
+  assert.equal(cfopEhDeSaida('5104'), true, 'saida valida que a tabela nao tem');
+  assert.equal(cfopEhDeSaida(6102), true);
+  assert.equal(cfopEhDeSaida('7.102'), true);
+  assert.equal(cfopEhDeSaida('1102'), false);
+  assert.equal(cfopEhDeSaida('51'), false);
+});
+
+test('emissao: natureza da operacao pelos CFOPs dos itens', () => {
+  assert.equal(naturezaDaOperacaoPelosCfops([5102, 5405]), 'Venda de Mercadoria');
+  assert.equal(naturezaDaOperacaoPelosCfops([5102, 5910]), 'Venda de Mercadoria', 'venda com bonificacao junto');
+  assert.equal(naturezaDaOperacaoPelosCfops([5910]), 'Remessa em Bonificação, Doação ou Brinde');
+  assert.equal(naturezaDaOperacaoPelosCfops(['6915']), 'Remessa para Conserto ou Reparo');
+  assert.equal(naturezaDaOperacaoPelosCfops([5927]), 'Baixa de Estoque por Perda, Roubo ou Deterioração');
+  assert.equal(naturezaDaOperacaoPelosCfops([5202]), 'Devolução de Compra');
+  assert.equal(naturezaDaOperacaoPelosCfops([5933]), 'Prestação de Serviço');
+  assert.equal(naturezaDaOperacaoPelosCfops([5102], { cupom: true }), 'Lançamento decorrente de Cupom Fiscal');
+  assert.equal(naturezaDaOperacaoPelosCfops([]), 'Venda de Mercadoria');
+  assert.equal(naturezaDaOperacaoPelosCfops([9999]), 'Venda de Mercadoria', 'CFOP desconhecido: venda');
 });
 
 test('problemas do CFOP: mensagens em portugues dizendo o que fazer', () => {

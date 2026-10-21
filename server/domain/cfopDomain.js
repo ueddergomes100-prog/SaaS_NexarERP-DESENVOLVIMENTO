@@ -22,7 +22,7 @@
  * Puro: usado pela tela, pela entrada/emissao e pelo servidor (server/domain).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDaFuncao = exports.acaoDaEntrada = exports.problemaDoCfop = exports.cfopInterestadualEquivalente = exports.cfopEntradaSugerido = exports.NATUREZAS_DO_PRODUTO = exports.cfopsParaEscolha = exports.lerCfopsDesativados = exports.ROTULO_AMBITO = exports.ROTULO_TIPO = exports.cfopPorCodigo = exports.CFOPS = exports.formatarCodigoCfop = exports.normalizarCodigoCfop = exports.ROTULO_DESTINO = exports.ROTULO_FINANCEIRO = exports.ROTULO_ESTOQUE = exports.ROTULO_NATUREZA = exports.FUNCAO_DA_NATUREZA = void 0;
+exports.resumoDaFuncao = exports.naturezaDaOperacaoPelosCfops = exports.acaoDaEntrada = exports.problemaDoCfop = exports.cfopInterestadualEquivalente = exports.cfopEhDeSaida = exports.cfopEntradaSugerido = exports.NATUREZAS_DO_PRODUTO = exports.cfopsParaEscolha = exports.lerCfopsDesativados = exports.ROTULO_AMBITO = exports.ROTULO_TIPO = exports.cfopPorCodigo = exports.CFOPS = exports.formatarCodigoCfop = exports.normalizarCodigoCfop = exports.ROTULO_DESTINO = exports.ROTULO_FINANCEIRO = exports.ROTULO_ESTOQUE = exports.ROTULO_NATUREZA = exports.FUNCAO_DA_NATUREZA = void 0;
 exports.FUNCAO_DA_NATUREZA = {
     venda: { estoque: 'sai', financeiro: 'receber', receita: true, destino: 'nenhum' },
     servico_prestado: { estoque: 'nenhum', financeiro: 'receber', receita: true, destino: 'nenhum' },
@@ -274,6 +274,9 @@ const cfopEntradaSugerido = (cfopFornecedor, destino) => {
     return POR_CODIGO.has(sugerido) ? sugerido : '';
 };
 exports.cfopEntradaSugerido = cfopEntradaSugerido;
+/** CFOP de saida valido no formato (5/6/7 + 3 numeros), esteja ou nao na tabela do sistema. */
+const cfopEhDeSaida = (cfop) => /^[567]\d{3}$/.test((0, exports.normalizarCodigoCfop)(cfop));
+exports.cfopEhDeSaida = cfopEhDeSaida;
 /** Saida do estado -> mesma operacao para outro estado (5102 -> 6102); vazio se nao existir. */
 const cfopInterestadualEquivalente = (cfop) => {
     const c = (0, exports.normalizarCodigoCfop)(cfop);
@@ -338,6 +341,38 @@ const acaoDaEntrada = (codigo) => {
     };
 };
 exports.acaoDaEntrada = acaoDaEntrada;
+/*
+ * EMISSAO (fase 3, 20/10/2026): a natureza da operacao da nota (natOp) sai do
+ * CFOP dos itens -- antes era sempre "Venda de Mercadoria", ate' em remessa
+ * para conserto ou bonificacao.
+ */
+const NATUREZA_DA_NOTA = {
+    venda: 'Venda de Mercadoria',
+    servico_prestado: 'Prestação de Serviço',
+    devolucao_de_compra: 'Devolução de Compra',
+    transferencia_saida: 'Transferência de Mercadoria',
+    remessa_bonificacao: 'Remessa em Bonificação, Doação ou Brinde',
+    remessa_conserto: 'Remessa para Conserto ou Reparo',
+    perda: 'Baixa de Estoque por Perda, Roubo ou Deterioração',
+    cupom_fiscal: 'Lançamento decorrente de Cupom Fiscal',
+    outras_saidas: 'Outra Saída de Mercadoria',
+    reclassificacao: 'Reclassificação de Mercadoria',
+};
+/**
+ * Natureza da operacao pelos CFOPs dos itens. Nota de cupom (chave
+ * referenciada) e' sempre "Lancamento decorrente de Cupom Fiscal". Com venda
+ * no meio (venda + bonificacao, por exemplo), fica "Venda de Mercadoria"; sem
+ * venda, a natureza do primeiro CFOP conhecido. Sem CFOP conhecido: venda.
+ */
+const naturezaDaOperacaoPelosCfops = (cfops, opcoes = {}) => {
+    if (opcoes.cupom)
+        return NATUREZA_DA_NOTA.cupom_fiscal;
+    const naturezas = cfops.map((c) => (0, exports.cfopPorCodigo)(c)?.natureza).filter((n) => Boolean(n));
+    if (naturezas.length === 0 || naturezas.includes('venda'))
+        return NATUREZA_DA_NOTA.venda;
+    return NATUREZA_DA_NOTA[naturezas[0]] ?? NATUREZA_DA_NOTA.venda;
+};
+exports.naturezaDaOperacaoPelosCfops = naturezaDaOperacaoPelosCfops;
 /** Texto curto da funcao, para a tela ("Baixa o estoque · Gera conta a receber · Faturamento"). */
 const resumoDaFuncao = (cfop) => [
     exports.ROTULO_ESTOQUE[cfop.estoque],

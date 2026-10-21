@@ -344,6 +344,9 @@ export const cfopEntradaSugerido = (cfopFornecedor: unknown, destino?: DestinoDa
   return POR_CODIGO.has(sugerido) ? sugerido : '';
 };
 
+/** CFOP de saida valido no formato (5/6/7 + 3 numeros), esteja ou nao na tabela do sistema. */
+export const cfopEhDeSaida = (cfop: unknown): boolean => /^[567]\d{3}$/.test(normalizarCodigoCfop(cfop));
+
 /** Saida do estado -> mesma operacao para outro estado (5102 -> 6102); vazio se nao existir. */
 export const cfopInterestadualEquivalente = (cfop: unknown): string => {
   const c = normalizarCodigoCfop(cfop);
@@ -427,6 +430,37 @@ export const acaoDaEntrada = (codigo: unknown): AcaoDaEntrada | null => {
     exigeInsumo: cfop.destino === 'insumo',
     aviso: AVISO_DA_ENTRADA[cfop.natureza] ?? '',
   };
+};
+
+/*
+ * EMISSAO (fase 3, 20/10/2026): a natureza da operacao da nota (natOp) sai do
+ * CFOP dos itens -- antes era sempre "Venda de Mercadoria", ate' em remessa
+ * para conserto ou bonificacao.
+ */
+const NATUREZA_DA_NOTA: Partial<Record<NaturezaCfop, string>> = {
+  venda: 'Venda de Mercadoria',
+  servico_prestado: 'Prestação de Serviço',
+  devolucao_de_compra: 'Devolução de Compra',
+  transferencia_saida: 'Transferência de Mercadoria',
+  remessa_bonificacao: 'Remessa em Bonificação, Doação ou Brinde',
+  remessa_conserto: 'Remessa para Conserto ou Reparo',
+  perda: 'Baixa de Estoque por Perda, Roubo ou Deterioração',
+  cupom_fiscal: 'Lançamento decorrente de Cupom Fiscal',
+  outras_saidas: 'Outra Saída de Mercadoria',
+  reclassificacao: 'Reclassificação de Mercadoria',
+};
+
+/**
+ * Natureza da operacao pelos CFOPs dos itens. Nota de cupom (chave
+ * referenciada) e' sempre "Lancamento decorrente de Cupom Fiscal". Com venda
+ * no meio (venda + bonificacao, por exemplo), fica "Venda de Mercadoria"; sem
+ * venda, a natureza do primeiro CFOP conhecido. Sem CFOP conhecido: venda.
+ */
+export const naturezaDaOperacaoPelosCfops = (cfops: readonly unknown[], opcoes: { cupom?: boolean } = {}): string => {
+  if (opcoes.cupom) return NATUREZA_DA_NOTA.cupom_fiscal as string;
+  const naturezas = cfops.map((c) => cfopPorCodigo(c)?.natureza).filter((n): n is NaturezaCfop => Boolean(n));
+  if (naturezas.length === 0 || naturezas.includes('venda')) return NATUREZA_DA_NOTA.venda as string;
+  return NATUREZA_DA_NOTA[naturezas[0]] ?? (NATUREZA_DA_NOTA.venda as string);
 };
 
 /** Texto curto da funcao, para a tela ("Baixa o estoque · Gera conta a receber · Faturamento"). */

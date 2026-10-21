@@ -49,6 +49,8 @@ import { duplicatasDaNota } from '../../utils/duplicatasNfeDomain';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
+import { cfopEhDeSaida, cfopsParaEscolha, formatarCodigoCfop, naturezaDaOperacaoPelosCfops, problemaDoCfop } from '../../utils/cfopDomain';
+import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -277,6 +279,8 @@ const inicioDosPedidosParaNota = () => dateInputToUtcStart(primeiroDiaDosPedidos
 
 const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
+  // CFOPs desativados pela empresa (Fiscal > Tabelas Fiscais): saem da lista do item.
+  const { desativados: cfopsDesativados } = useCfopsDesativados();
 
   const canEmitirNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.emitir'));
   const canCancelarNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
@@ -1834,6 +1838,12 @@ const NFE: React.FC = () => {
         codigoItem: item.codigoProduto || item.id || `PROD-${index}`,
       });
       if (!montado.ok) throw new ErroItemNota(montado.erro, index);
+      // CFOP de saida (Tabelas Fiscais, fase 3): 4 numeros comecando por 5, 6 ou 7. CFOP de saida
+      // que nao esta' na tabela do sistema passa (a tabela nao tem todos os da legislacao).
+      const problemaCfop = cfopEhDeSaida(montado.item.cfop)
+        ? null
+        : problemaDoCfop(montado.item.cfop, { tipo: 'saida', onde: `do item "${item.nome}"` }) || `O CFOP do item "${item.nome}" não é de saída.`;
+      if (problemaCfop) throw new ErroItemNota(`${problemaCfop} Corrija na aba Produtos da nota ou no cadastro do produto.`, index);
       avisosItens.push(...montado.avisos);
       tributosItens.push(montado.tributos);
       return montado.item;
@@ -1890,7 +1900,8 @@ const NFE: React.FC = () => {
       operationType: 'outgoing',
       destination: destination,
       presenceType: 'presence',
-      operationNature: a.referencedAccessKey ? 'Lançamento decorrente de Cupom Fiscal' : 'Venda de Mercadoria',
+      // Natureza da operacao pelo CFOP dos itens (Tabelas Fiscais, fase 3, 20/10/2026).
+      operationNature: naturezaDaOperacaoPelosCfops(itemsPayload.map((it) => it.cfop), { cupom: Boolean(a.referencedAccessKey) }),
       ...(informacoesComplementares ? { additionalInformation: informacoesComplementares } : {}),
       // Com o SMTP da empresa configurado, o e-mail ao cliente (PDF + XML) sai pelo sistema, do e-mail da empresa,
       // com pop-up de resultado (notaEmailService); ligar o envio da Spedy tambem mandaria a nota duas vezes.
@@ -3583,7 +3594,7 @@ const NFE: React.FC = () => {
                           <th style={{ padding: '10px 8px', width: '90px', textAlign: 'right' }}>Total</th>
                           <th style={{ padding: '10px 8px', width: '110px' }}>NCM</th>
                           <th style={{ padding: '10px 8px', width: '95px' }}>CEST</th>
-                          <th style={{ padding: '10px 8px', width: '80px' }}>CFOP</th>
+                          <th style={{ padding: '10px 8px', width: '120px' }}>CFOP</th>
                           <th style={{ padding: '10px 8px', width: '80px' }}>{usesCsosn(regimeTributario) ? 'CSOSN' : 'CST ICMS'}</th>
                           <th style={{ padding: '10px 8px', width: '140px' }}>Origem</th>
                         </tr>
@@ -3644,13 +3655,22 @@ const NFE: React.FC = () => {
                                 />
                               </td>
                               <td style={{ padding: '8px' }}>
-                                <input
-                                  type="text"
+                                {/* CFOP da tabela do sistema (Tabelas Fiscais): so' saida, sem os desativados; o atual continua. */}
+                                <select
                                   value={item.cfop || ''}
                                   onChange={(e) => handleItemTaxChange(idx, 'cfop', e.target.value)}
-                                  maxLength={4}
-                                  style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px' }}
-                                />
+                                  aria-label={`CFOP do item ${idx + 1}`}
+                                  title={cfopsParaEscolha({ manter: item.cfop }).find((c) => c.codigo === String(item.cfop || ''))?.descricao || 'Escolha o CFOP'}
+                                  style={{ width: '100%', maxWidth: '120px', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                >
+                                  {!item.cfop && <option value="">Escolha</option>}
+                                  {item.cfop && !cfopsParaEscolha({ manter: item.cfop }).some((c) => c.codigo === String(item.cfop).replace(/\D/g, '')) && (
+                                    <option value={item.cfop}>{formatarCodigoCfop(String(item.cfop))} (fora da tabela do sistema)</option>
+                                  )}
+                                  {cfopsParaEscolha({ tipo: 'saida', desativados: cfopsDesativados, manter: item.cfop }).map((c) => (
+                                    <option key={c.codigo} value={c.codigo}>{formatarCodigoCfop(c.codigo)} - {c.descricao}</option>
+                                  ))}
+                                </select>
                                 {isExportCfop(item.cfop) && (
                                   (() => {
                                     const preview = resolveInvoiceUnitFields({

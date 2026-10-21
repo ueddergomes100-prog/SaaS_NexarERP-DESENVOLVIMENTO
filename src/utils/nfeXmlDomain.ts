@@ -28,6 +28,8 @@ export interface EnderecoNota {
   complemento: string;
   bairro: string;
   municipio: string;
+  /** Codigo IBGE do municipio (cMun, 7 digitos) -- a NF-e de devolucao ao fornecedor precisa dele. */
+  codigoMunicipio: string;
   uf: string;
   cep: string;
   telefone: string;
@@ -192,6 +194,7 @@ const lerEndereco = (no: NoXml | undefined): EnderecoNota => ({
   complemento: textoDe(no, 'xCpl'),
   bairro: textoDe(no, 'xBairro'),
   municipio: textoDe(no, 'xMun'),
+  codigoMunicipio: digitos(textoDe(no, 'cMun')),
   uf: textoDe(no, 'UF'),
   cep: digitos(textoDe(no, 'CEP')),
   telefone: digitos(textoDe(no, 'fone')),

@@ -42,6 +42,9 @@ const FornecedorForm: React.FC = () => {
     numero: '',
     cidade: '',
     estado: '',
+    // Codigo IBGE da cidade (21/10/2026): a NF-e de devolucao ao fornecedor precisa dele
+    // quando o XML da nota nao traz. O CEP preenche sozinho.
+    codigoIbge: '',
     cep: '',
     tipo: 'Fornecedor',
     observacoes: '',
@@ -80,6 +83,7 @@ const FornecedorForm: React.FC = () => {
         bairro: data.bairro || prev.bairro,
         cidade: data.localidade || prev.cidade,
         estado: data.uf || prev.estado,
+        codigoIbge: data.ibge || prev.codigoIbge,
       }));
     } catch (error) {
       console.error('Erro ao buscar CEP:', error);
@@ -120,6 +124,10 @@ const FornecedorForm: React.FC = () => {
     // ver aplicarCaixaAltaCadastro.
     const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
 
+    if (name === 'codigoIbge') {
+      setFormData({ ...formData, codigoIbge: value.replace(/\D/g, '').slice(0, 7) });
+      return;
+    }
     // Validação específica para CNPJ/CPF (apenas números)
     if (name === 'cnpj') {
       const onlyNums = value.replace(/\D/g, '');
@@ -341,7 +349,7 @@ const FornecedorForm: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '20px' }}>
             <div className="input-group">
               <label>Cidade</label>
               <input type="text" name="cidade" value={formData.cidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
@@ -349,6 +357,12 @@ const FornecedorForm: React.FC = () => {
             <div className="input-group">
               <label>Estado (UF)</label>
               <input type="text" name="estado" maxLength={2} value={formData.estado} onChange={handleChange} style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Código IBGE da cidade</label>
+              <input type="text" name="codigoIbge" inputMode="numeric" maxLength={7} value={formData.codigoIbge} onChange={handleChange}
+                title="7 dígitos. O CEP preenche sozinho; a NF-e de devolução ao fornecedor usa quando o XML da nota não traz."
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 

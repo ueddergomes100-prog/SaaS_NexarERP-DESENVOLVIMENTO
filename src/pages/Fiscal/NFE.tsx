@@ -2765,6 +2765,19 @@ const NFE: React.FC = () => {
       setDevolucaoNfeId(note.devolucaoId);
       return;
     }
+    // Devolucao ao FORNECEDOR (21/10/2026): reemite pela propria devolucao, na nota de entrada.
+    if (note.finalidade === 'devolucao_compra') {
+      const escolha = await NexusSwal.fire({
+        icon: 'info',
+        title: 'NF-e de devolução ao fornecedor',
+        html: `Corrija o que a rejeição aponta e emita de novo pela devolução: Fiscal › Entrada de NF-e › Notas lançadas › nota nº ${escaparHtml(String((note as LocalInvoice & { notaOriginalNumero?: string }).notaOriginalNumero || ''))} › "Devolver ao fornecedor" › "Emitir de novo".`,
+        showCancelButton: true,
+        confirmButtonText: 'Abrir as notas de entrada',
+        cancelButtonText: 'Fechar',
+      });
+      if (escolha.isConfirmed) navigate('/fiscal/entrada-nfe/historico');
+      return;
+    }
     // NFC-e (cupom) rejeitada volta pelo envio de CUPOM (21/10/2026). O formulario
     // abaixo e' de NF-e: reimportar o pedido trocava o tipo e transmitia um cupom
     // como NF-e (achado da auditoria de 30/09).

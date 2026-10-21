@@ -106,6 +106,11 @@ const MODULOS = [
   'src/utils/tabelaFiscalDomain.ts',
   // Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
   'src/utils/inutilizacaoDomain.ts',
+  // Devolucao de compra ao fornecedor (21/10/2026): le o XML guardado da nota de entrada.
+  'src/utils/xmlSimplesDomain.ts',
+  'src/utils/nfeXmlDomain.ts',
+  'src/utils/xmlCompactoDomain.ts',
+  'src/utils/devolucaoCompraDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

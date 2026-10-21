@@ -44,6 +44,7 @@ const descontosRoutes = require('./routes/descontos.routes');
 const cashbackRoutes = require('./routes/cashback.routes');
 const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
 const inutilizacaoRoutes = require('./routes/inutilizacao.routes');
+const devolucaoCompraRoutes = require('./routes/devolucaoCompra.routes');
 const relatorioContadorRoutes = require('./routes/relatorioContador.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
@@ -226,6 +227,8 @@ app.use('/api/cashback', cashbackRoutes);
 app.use('/api/tabelas-fiscais', tabelasFiscaisRoutes);
 // Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
 app.use('/api/inutilizacoes', inutilizacaoRoutes);
+// Devolucao de compra ao fornecedor (21/10/2026): estoque, financeiro e a NF-e de devolucao.
+app.use('/api/devolucao-compra', devolucaoCompraRoutes);
 // Relatorio do contador, fase 2 (20/10/2026): envio do PDF e do .zip dos XMLs ao contador.
 app.use('/api/relatorio-contador', relatorioContadorRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'

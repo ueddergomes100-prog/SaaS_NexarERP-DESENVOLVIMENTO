@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Barcode, FileDown, FileText, History, Loader2, Package, Printer, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Barcode, FileDown, FileText, History, Loader2, Package, Printer, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import DevolucaoCompraModal from '../../components/fiscal/entrada/DevolucaoCompraModal';
+import { hasTenantFullAccess } from '../../utils/roles';
 import { useNavigate } from 'react-router-dom';
 import { collection, doc, documentId, query, where, getDocs, runTransaction, serverTimestamp, Timestamp, type DocumentData, type Query } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
@@ -49,6 +51,9 @@ interface NotaFiscalEntradaDoc {
   xmlGzipBase64?: string;
   /** Entrada lancada sozinha pela transferencia entre filiais (Filiais F4). */
   transferenciaId?: string;
+  /** Devolucao ao fornecedor (21/10/2026): quanto de cada item (indice) ja voltou, e as devolucoes. */
+  devolvidoPorItem?: Record<string, number>;
+  devolucoesCompraIds?: string[];
 }
 
 interface TituloPagar {
@@ -81,7 +86,12 @@ const TIPO_ITEM_LABEL: Record<NotaFiscalEntradaItemRecord['tipo'], string> = {
 const NotasFiscaisEntradaList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const navigate = useNavigate();
-  const { tenantId, currentUser } = useAuth();
+  const { tenantId, currentUser, userRole, isOwner, userPermissions } = useAuth();
+  // Devolucao de compra ao fornecedor (21/10/2026): quem lanca entrada devolve; quem emite nota emite a NF-e.
+  const acessoTotal = hasTenantFullAccess(userRole, isOwner);
+  const podeDevolver = acessoTotal || userPermissions.includes('fiscal.entrada');
+  const podeEmitirNota = acessoTotal || userPermissions.includes('fiscal.emitir');
+  const [devolucaoNotaId, setDevolucaoNotaId] = useState<string | null>(null);
   const { openTab } = useTabs();
   const [notas, setNotas] = useState<NotaFiscalEntradaDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -230,6 +240,11 @@ const NotasFiscaisEntradaList: React.FC = () => {
   // a transacao so le/escreve com base no resultado delas.
   const handleExcluirNota = async (nota: NotaFiscalEntradaDoc) => {
     if (!currentUser || !tenantId) return;
+    // Nota com devolucao ao fornecedor: excluir reverteria o estoque que ja saiu de novo.
+    if ((nota.devolucoesCompraIds || []).length > 0) {
+      showError('Nota com devolução ao fornecedor', `A NF-e ${nota.numeroNF} já tem devolução ao fornecedor registrada, então não pode ser excluída (o estoque e o financeiro já foram acertados pela devolução).`);
+      return;
+    }
 
     const result = await NexusSwal.fire({
       title: 'Excluir Nota de Entrada?',
@@ -507,6 +522,15 @@ const NotasFiscaisEntradaList: React.FC = () => {
                         >
                           <Barcode size={16} />
                         </button>
+                        {nota.status === 'ativa' && !nota.transferenciaId && podeDevolver && (
+                          <button
+                            className="icon-btn"
+                            title="Devolver ao fornecedor (NF-e de devolução)"
+                            onClick={() => setDevolucaoNotaId(nota.id)}
+                          >
+                            <RotateCcw size={16} />
+                          </button>
+                        )}
                         {nota.status === 'ativa' && !nota.transferenciaId && (
                           <button
                             className="icon-btn"
@@ -679,6 +703,15 @@ const NotasFiscaisEntradaList: React.FC = () => {
           </div>
         </div>
       )}
+
+      <DevolucaoCompraModal
+        aberto={Boolean(devolucaoNotaId)}
+        nota={notas.find((n) => n.id === devolucaoNotaId) || null}
+        podeEmitir={podeEmitirNota}
+        onFechar={() => setDevolucaoNotaId(null)}
+        // A lista e' ao vivo: a nota chega com o novo "devolvido" sozinha.
+        onRegistrada={() => undefined}
+      />
     </div>
   );
 };

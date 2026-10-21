@@ -10,6 +10,9 @@ import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
 import { estornarCashbackDaVendaSemFalhar, gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
+import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService';
+import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
+import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ResultadoDaRota, type RotaAberta } from '../../utils/rotaPreVendaDomain';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { brutoDaLinhaCentavos, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
@@ -590,7 +593,9 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback, modoRotaPreVenda } = useAuth();
+  // Rota na pre-venda (21/10/2026): pergunta "Rota 1 ou 2?" ao gravar a pre-venda (rotaPreVendaDomain.ts).
+  const { escolherRota, modalDeRota } = useEscolhaDeRota(modoRotaPreVenda);
 
   // PRECO A VISTA x PRECO DE VENDA E PROMOCOES (2026-10-01). A condicao do
   // pagamento (a vista / a prazo) decide o preco de cada item; promocao vigente
@@ -2384,6 +2389,16 @@ const PedidoVendaForm: React.FC = () => {
     const dataVendaParaGravar = await resolverDataVendaParaGravar();
     if (!dataVendaParaGravar) return false;
 
+    // Rota de entrega (21/10/2026): pergunta antes de gravar, so' na primeira
+    // gravacao -- editar a pre-venda nao mexe na rota em que ela ja' esta'.
+    let rotaEscolhida: RotaAberta | null = null;
+    const perguntaRota = !isPreVendaAberta && perguntaRotaNaPreVenda(modoRotaPreVenda);
+    if (perguntaRota) {
+      const escolha = await escolherRota();
+      if (escolha.cancelou) return false;
+      rotaEscolhida = escolha.rota;
+    }
+
     submitLockRef.current = true;
     setIsLoading(true);
     let gravouComSucesso = false;
@@ -2577,6 +2592,12 @@ const PedidoVendaForm: React.FC = () => {
       esquecerVendedorIdentificado();
       gravouComSucesso = true;
 
+      // A pre-venda ja' esta' gravada; a rota e' complemento (o servidor
+      // decide com a configuracao e as rotas em montagem). Falhou, so' avisa.
+      const avisoDaRota = perguntaRota
+        ? textoDoResultadoDaRota(await colocarPedidoNaRotaSemFalhar(preVendaId, rotaEscolhida?.id))
+        : '';
+
       // A PRE-VENDA GRAVADA JA' OFERECE O PAPEL.
       //
       // Dois papeis diferentes, pra duas pessoas diferentes: a MINUTA vai
@@ -2587,7 +2608,7 @@ const PedidoVendaForm: React.FC = () => {
       if (ofereceMinutaAoGravarPreVenda(conferenciaMercadoriaAtiva, imprimirMinutaAposVendaAtiva)) {
         const escolha = await NexusSwal.fire({
           title: `Pré-venda #${numeroGravado} gravada!`,
-          text: 'O estoque foi reservado. A minuta lista os itens sem valores, para a separação; a pré-venda traz valores e condição de pagamento, para o cliente.',
+          text: `O estoque foi reservado.${avisoDaRota ? ` ${avisoDaRota}` : ''} A minuta lista os itens sem valores, para a separação; a pré-venda traz valores e condição de pagamento, para o cliente.`,
           icon: 'success',
           showDenyButton: true,
           showCancelButton: true,
@@ -2606,7 +2627,7 @@ const PedidoVendaForm: React.FC = () => {
           return gravouComSucesso;
         }
       } else {
-        await showSuccess(`Pré-venda #${numeroGravado} gravada! O estoque foi reservado.`);
+        await showSuccess(`Pré-venda #${numeroGravado} gravada! O estoque foi reservado.${avisoDaRota ? ` ${avisoDaRota}` : ''}`);
       }
       if (!isPreVendaAberta) navigate(`/pedidos-venda/visualizar/${preVendaId}`);
     } catch (error) {
@@ -3314,6 +3335,10 @@ const PedidoVendaForm: React.FC = () => {
         }
       });
 
+      // Rota na pre-venda (21/10/2026): o que aconteceu com a rota ao faturar
+      // a pre-venda (entrou na anotada / retrato atualizado / sem rota).
+      let resultadoDaRota: ResultadoDaRota | null = null;
+
       if (vendaPeloServidor) {
         // O servidor refaz totais, pagamentos, comissao, estoque, lotes, banco
         // e credito com os dados do banco (server/services/vendaFechamento.js)
@@ -3345,6 +3370,7 @@ const PedidoVendaForm: React.FC = () => {
         finalNumeroPedido = resposta.numeroPedido;
         vendedorGravado = { id: resposta.vendedorId, nome: resposta.vendedorNome };
         idVendaServidorRef.current = '';
+        resultadoDaRota = resposta.rota ?? null;
       } else {
         await runTransaction(db, async (transaction) => {
           const nextPedido = finalizandoPedidoAberto
@@ -3788,6 +3814,13 @@ const PedidoVendaForm: React.FC = () => {
         navigate(destino);
       };
 
+      // Rota na pre-venda (21/10/2026), venda gravada pela tela: a pre-venda
+      // do balcao faturada entra na rota anotada (modo "ao faturar") ou tem o
+      // retrato atualizado na rota em que ja' estava. Nunca derruba a venda.
+      if (!vendaPeloServidor && finalizandoPedidoAberto && origemPedido === 'balcao' && perguntaRotaNaPreVenda(modoRotaPreVenda)) {
+        resultadoDaRota = await colocarPedidoNaRotaSemFalhar(newPedidoId);
+      }
+
       // 5. Perguntar o que fazer.
       //
       // Empresa que nao controla fiscal nao ve a opcao de cupom: pra ela,
@@ -3796,7 +3829,7 @@ const PedidoVendaForm: React.FC = () => {
       // so tinha como dar errado se alguem clicasse.
       const result = await NexusSwal.fire({
         title: 'Venda Finalizada com Sucesso!',
-        text: 'O estoque foi atualizado e o financeiro lançado. O que deseja fazer agora?',
+        text: `O estoque foi atualizado e o financeiro lançado.${textoDoResultadoDaRota(resultadoDaRota) ? ` ${textoDoResultadoDaRota(resultadoDaRota)}` : ''} O que deseja fazer agora?`,
         icon: 'success',
         showCancelButton: true,
         // O documento oferecido aqui e' o que a EMPRESA emite, nao mais
@@ -5201,6 +5234,8 @@ const PedidoVendaForm: React.FC = () => {
           ? { tela: 'pedido', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents }
           : null}
       />
+
+      {modalDeRota}
 
       <CadastroRapidoClienteModal
         open={cadastroRapidoAberto}

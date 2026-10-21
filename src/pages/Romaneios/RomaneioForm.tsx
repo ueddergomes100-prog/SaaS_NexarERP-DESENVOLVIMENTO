@@ -27,9 +27,11 @@ import {
   registrarEntrega,
   salvarDadosEmRota,
   salvarRomaneioEmMontagem,
+  statusDosPedidos,
   type PedidoDisponivel,
   type RegistroDeEntrega,
 } from '../../services/romaneioService';
+import { parseModoRotaPreVenda, preVendaEntraNaRota } from '../../utils/rotaPreVendaDomain';
 import {
   cancelamentoDesfazEntregas,
   erroDoMotivo,
@@ -136,11 +138,16 @@ const RomaneioForm: React.FC = () => {
   const [imprimindo, setImprimindo] = useState(false);
   const [motivos, setMotivos] = useState<string[]>(parseMotivosNaoEntrega(null));
   const [tiposAcerto, setTiposAcerto] = useState<TipoAcerto[]>(parseTiposAcerto(null));
+  // Rota na pre-venda (21/10/2026): com o modo "na pre-venda", a pre-venda
+  // entra na rota em montagem; a tela marca quais ainda nao foram faturadas.
+  const [aceitaPreVenda, setAceitaPreVenda] = useState(false);
+  const [preVendasNaRota, setPreVendasNaRota] = useState<Set<string>>(new Set());
   const [configAberta, setConfigAberta] = useState(false);
   const [adicionarAberto, setAdicionarAberto] = useState(false);
   const [registrando, setRegistrando] = useState<EntregaRomaneio | null>(null);
   const [lancarDespesas, setLancarDespesas] = useState(true);
   const carregouRef = useRef(false);
+  const vistosDoBancoRef = useRef<Set<string>>(new Set());
 
   // Configuracao da empresa: motivos de nao entrega e linhas do acerto.
   useEffect(() => {
@@ -150,15 +157,29 @@ const RomaneioForm: React.FC = () => {
         const dados = snap.exists() ? snap.data() : {};
         setMotivos(parseMotivosNaoEntrega(dados.motivosNaoEntrega));
         setTiposAcerto(parseTiposAcerto(dados.tiposAcertoRomaneio));
+        setAceitaPreVenda(preVendaEntraNaRota(parseModoRotaPreVenda(dados.rotaNaPreVenda)));
       })
       .catch((erro) => console.error('Erro ao carregar a configuração do romaneio:', erro));
   }, [tenantId]);
+
+  // Quais pedidos da rota em montagem ainda sao pre-venda (so' quando a
+  // configuracao deixa pre-venda entrar). Uma leitura por mudanca na lista.
+  const idsNaRota = romaneio.entregas.map((e) => e.pedidoId).join(',');
+  useEffect(() => {
+    if (!tenantId || !aceitaPreVenda || romaneio.status !== 'montagem' || !idsNaRota) { setPreVendasNaRota(new Set()); return; }
+    let vivo = true;
+    statusDosPedidos(tenantId, idsNaRota.split(','))
+      .then((status) => { if (vivo) setPreVendasNaRota(new Set(Object.keys(status).filter((id) => status[id] !== 'Finalizada'))); })
+      .catch((erro) => console.error('Erro ao conferir a situação dos pedidos da rota:', erro));
+    return () => { vivo = false; };
+  }, [tenantId, aceitaPreVenda, romaneio.status, idsNaRota]);
 
   // Documento: a primeira leitura traz tudo; depois, so' as entregas e a
   // situacao acompanham o banco (o resto e' o que a pessoa esta editando).
   useEffect(() => {
     if (!id || !tenantId) return undefined;
     carregouRef.current = false;
+    vistosDoBancoRef.current = new Set();
     const parar = onSnapshot(doc(db, 'romaneios', id), (snap) => {
       if (!snap.exists() || snap.data().tenantId !== tenantId) {
         showError('Romaneio não encontrado', 'Este romaneio não existe ou é de outra empresa.');
@@ -166,15 +187,27 @@ const RomaneioForm: React.FC = () => {
         return;
       }
       const lido = lerRomaneio(snap.data());
+      // Pedidos que esta tela ja' viu vindos do banco: o que a pessoa tirou da
+      // lista (e ainda nao salvou) nao volta a cada leitura.
+      const novosDoBanco = lido.entregas.filter((e) => !vistosDoBancoRef.current.has(e.pedidoId));
+      lido.entregas.forEach((e) => vistosDoBancoRef.current.add(e.pedidoId));
       if (!carregouRef.current) {
         carregouRef.current = true;
         setRomaneio(lido);
         setCarregando(false);
         return;
       }
-      setRomaneio((atual) => (atual.status === 'montagem' && lido.status === 'montagem'
-        ? atual
-        : { ...atual, status: lido.status, numero: lido.numero, entregas: lido.entregas, historico: lido.historico, despesasRotaId: lido.despesasRotaId }));
+      setRomaneio((atual) => {
+        if (atual.status === 'montagem' && lido.status === 'montagem') {
+          // Rota na pre-venda (21/10/2026): o servidor coloca a pre-venda na
+          // rota enquanto a tela esta' aberta. Ela entra na lista sem apagar o
+          // que a pessoa esta' editando -- e sem isso o proximo "Salvar" a
+          // tiraria da rota de novo (a tela gravaria a lista sem ela).
+          const faltam = novosDoBanco.filter((e) => !atual.entregas.some((a) => a.pedidoId === e.pedidoId));
+          return faltam.length ? { ...atual, entregas: [...atual.entregas, ...faltam] } : atual;
+        }
+        return { ...atual, status: lido.status, numero: lido.numero, entregas: lido.entregas, historico: lido.historico, despesasRotaId: lido.despesasRotaId };
+      });
     }, (erro) => {
       console.error('Erro ao abrir o romaneio:', erro);
       showError('Erro ao abrir', mensagemDoErro(erro, 'Não foi possível carregar este romaneio. Tente de novo.'));
@@ -564,7 +597,10 @@ const RomaneioForm: React.FC = () => {
                 <tr key={e.pedidoId} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{i + 1}</td>
                   <td style={{ padding: '8px' }}>{e.notaNumero || <span style={{ color: 'var(--text-muted)' }}>S/N</span>}</td>
-                  <td style={{ padding: '8px', fontWeight: 600 }}>{e.numeroPedido}</td>
+                  <td style={{ padding: '8px', fontWeight: 600 }}>
+                    {e.numeroPedido}
+                    {preVendasNaRota.has(e.pedidoId) && <div style={{ fontSize: '11px', fontWeight: 700, color: '#f59e0b' }}>Pré-venda (falta faturar)</div>}
+                  </td>
                   <td style={{ padding: '8px' }}>
                     <div style={{ fontWeight: 600 }}>{e.clienteCodigo ? `${e.clienteCodigo} · ` : ''}{e.clienteNome}</div>
                     {e.endereco && <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{e.endereco}</div>}
@@ -747,6 +783,7 @@ const RomaneioForm: React.FC = () => {
           tenantId={tenantId}
           romaneioId={id}
           jaNaRota={romaneio.entregas.map((e) => e.pedidoId)}
+          aceitaPreVenda={aceitaPreVenda}
           onFechar={() => setAdicionarAberto(false)}
           onAdicionar={(novos) => { mudar({ entregas: [...romaneio.entregas, ...novos] }); setAdicionarAberto(false); }}
         />
@@ -790,9 +827,11 @@ const AdicionarPedidosModal: React.FC<{
   tenantId: string;
   romaneioId?: string;
   jaNaRota: string[];
+  /** Rota na pre-venda, modo "na pre-venda": a pre-venda confirmada tambem aparece pra escolher. */
+  aceitaPreVenda: boolean;
   onFechar: () => void;
   onAdicionar: (entregas: EntregaRomaneio[]) => void;
-}> = ({ tenantId, romaneioId, jaNaRota, onFechar, onAdicionar }) => {
+}> = ({ tenantId, romaneioId, jaNaRota, aceitaPreVenda, onFechar, onAdicionar }) => {
   const hoje = getDateInputInTimeZone();
   const [de, setDe] = useState(addDaysToDateInput(hoje, -1));
   const [ate, setAte] = useState(hoje);
@@ -816,7 +855,7 @@ const AdicionarPedidosModal: React.FC<{
     if (!de || !ate || de > ate) { showError('Período inválido', 'Informe a data inicial e a final, com a inicial antes da final.'); return; }
     setBuscando(true);
     try {
-      const pedidos = await carregarPedidosParaRomaneio(tenantId, de, ate, romaneioId);
+      const pedidos = await carregarPedidosParaRomaneio(tenantId, de, ate, romaneioId, aceitaPreVenda);
       setLista(pedidos.filter((p) => !jaNaRota.includes(p.pedidoId)));
       setMarcados(new Set());
     } catch (erro) {
@@ -863,11 +902,13 @@ const AdicionarPedidosModal: React.FC<{
     <div style={estiloFundoModal} onClick={onFechar}>
       <div style={estiloModal(980)} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Adicionar pedidos à rota">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-          <h3 style={{ margin: 0, fontSize: '17px' }}>Adicionar pedidos faturados</h3>
+          <h3 style={{ margin: 0, fontSize: '17px' }}>{aceitaPreVenda ? 'Adicionar pedidos' : 'Adicionar pedidos faturados'}</h3>
           <button type="button" onClick={onFechar} aria-label="Fechar" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--text-muted)' }}>
-          Só aparecem vendas faturadas (com e sem nota), pela data da venda. Pré-venda e pedido cancelado não entram. Pedido que já está em outra rota aparece apagado.
+          {aceitaPreVenda
+            ? 'Aparecem as vendas faturadas (com e sem nota) e as pré-vendas, pela data da venda. A rota só é liberada depois que toda pré-venda for faturada. Pedido cancelado não entra. Pedido que já está em outra rota aparece apagado.'
+            : 'Só aparecem vendas faturadas (com e sem nota), pela data da venda. Pré-venda e pedido cancelado não entram. Pedido que já está em outra rota aparece apagado.'}
         </p>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '12px' }}>
@@ -956,7 +997,10 @@ const AdicionarPedidosModal: React.FC<{
                     <input type="checkbox" disabled={Boolean(p.emOutraRota)} checked={marcados.has(p.pedidoId)} onChange={() => alternar(p.pedidoId)} onClick={(e) => e.stopPropagation()} aria-label={`Marcar pedido ${p.numeroPedido}`} />
                   </td>
                   <td style={{ padding: '8px' }}>{dataBr(p.dataVenda)}</td>
-                  <td style={{ padding: '8px', fontWeight: 600 }}>{p.numeroPedido}</td>
+                  <td style={{ padding: '8px', fontWeight: 600 }}>
+                    {p.numeroPedido}
+                    {p.preVenda && <div style={{ fontSize: '11px', fontWeight: 700, color: '#f59e0b' }}>Pré-venda</div>}
+                  </td>
                   <td style={{ padding: '8px' }}>{p.notaNumero || 'S/N'}</td>
                   <td style={{ padding: '8px' }}>
                     {p.clienteNome}
@@ -986,7 +1030,7 @@ const AdicionarPedidosModal: React.FC<{
               type="button"
               className="btn-primary"
               disabled={marcados.size === 0}
-              onClick={() => onAdicionar((lista || []).filter((p) => marcados.has(p.pedidoId)).map(({ emOutraRota: _ignorado, ...entrega }) => entrega))}
+              onClick={() => onAdicionar((lista || []).filter((p) => marcados.has(p.pedidoId)).map(({ emOutraRota: _ignorado, preVenda: _preVenda, ...entrega }) => entrega))}
             >
               Adicionar {marcados.size > 0 ? marcados.size : ''} à rota
             </button>

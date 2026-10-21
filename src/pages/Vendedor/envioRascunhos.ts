@@ -1,6 +1,8 @@
 import { criarOrcamentoExterno, criarPreVendaExterna } from '../../services/vendedorExternoVendaService';
 import { trocaService } from '../../services/trocaService';
 import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
+import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ModoRotaPreVenda } from '../../utils/rotaPreVendaDomain';
+import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService';
 import { listarRascunhos, marcarErroRascunho, removerRascunho, type RascunhoVenda } from './vendedorRascunhosStore';
 
 /*
@@ -24,6 +26,8 @@ export interface ContextoDeEnvio {
   trabalhaComPreVenda: boolean;
   permiteVendaSemEstoque: boolean;
   conferenciaMercadoriaAtiva: boolean;
+  /** Rota na pre-venda (rotaPreVendaDomain.ts): 'nao' = nao mexe em rota. */
+  modoRotaPreVenda: ModoRotaPreVenda;
 }
 
 export interface ResultadoEnvio {
@@ -55,7 +59,7 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
     if (!ctx.trabalhaComPreVenda) {
       throw new Error('A opção "Pré-venda" está desligada nas Configurações da empresa. Peça pro administrador habilitar.');
     }
-    const { numeroPedido } = await criarPreVendaExterna({
+    const { id, numeroPedido } = await criarPreVendaExterna({
       tenantId: ctx.tenantId,
       usuarioId: ctx.usuarioId,
       vendedorId: ctx.usuarioId,
@@ -71,7 +75,14 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
       idDocumento: rascunho.localId,
       conferenciaMercadoriaAtiva: ctx.conferenciaMercadoriaAtiva,
     });
-    return `Pré-venda #${numeroPedido} enviada`;
+    // Rota na pre-venda (21/10/2026): a pre-venda ja' esta' na base; a rota
+    // e' complemento -- o servidor confere se a escolhida ainda esta' em
+    // montagem e, se nao, usa a que sobrou. Falhou, a loja coloca pelo Romaneio.
+    // Sem o ponto final: quem mostra a mensagem e' que fecha a frase.
+    const rota = perguntaRotaNaPreVenda(ctx.modoRotaPreVenda)
+      ? textoDoResultadoDaRota(await colocarPedidoNaRotaSemFalhar(id, rascunho.rota?.id)).replace(/\.$/, '')
+      : '';
+    return `Pré-venda #${numeroPedido} enviada${rota ? ` — ${rota}` : ''}`;
   }
   const { numeroOrcamento } = await criarOrcamentoExterno({
     tenantId: ctx.tenantId,

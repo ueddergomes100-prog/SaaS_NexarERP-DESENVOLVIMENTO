@@ -15,6 +15,8 @@ import { reserveTenantSequence } from '../utils/firestoreAtomic';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { addDaysToDateInput } from '../utils/dateTime';
 import { LOTE_IN_POR_CAMPO, LOTE_IN_POR_ID } from '../utils/firestoreLimites';
+import { STATUS_PRE_VENDA } from '../utils/preVendaDomain';
+import { erroDePreVendaParaLiberar, pedidosSemFaturar } from '../utils/rotaPreVendaDomain';
 import {
   acertoParaGravar,
   camposEditaveisDaRota,
@@ -73,6 +75,8 @@ const datasDoPeriodo = (de: string, ate: string): string[] => {
 export interface PedidoDisponivel extends EntregaRomaneio {
   /** Rota onde o pedido ja' esta (so' para avisar); vazio = livre. */
   emOutraRota: string;
+  /** Pre-venda ainda nao faturada (so' aparece com a configuracao "rota na pre-venda" ligada). */
+  preVenda: boolean;
 }
 
 /**
@@ -85,6 +89,7 @@ export const carregarPedidosParaRomaneio = async (
   de: string,
   ate: string,
   romaneioId?: string,
+  aceitaPreVenda = false,
 ): Promise<PedidoDisponivel[]> => {
   const datas = datasDoPeriodo(de, ate);
   if (datas.length === 0) return [];
@@ -94,7 +99,7 @@ export const carregarPedidosParaRomaneio = async (
     const snap = await getDocs(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('dataVenda', 'in', lote)));
     snap.forEach((d) => {
       const dados = { id: d.id, ...d.data() } as PedidoParaRomaneio;
-      if (!erroDoPedidoParaRomaneio(dados)) pedidos.push(dados);
+      if (!erroDoPedidoParaRomaneio(dados, aceitaPreVenda)) pedidos.push(dados);
     });
   }
   if (pedidos.length === 0) return [];
@@ -135,6 +140,7 @@ export const carregarPedidosParaRomaneio = async (
       return {
         ...montarEntregaDoPedido(p, clientes.get(String(p.clienteId || '')) || null, notas.get(p.id) || null),
         emOutraRota: ocupado ? (trava!.situacao === 'entregue' ? `Já entregue na ${trava!.titulo}` : `Já está na ${trava!.titulo}`) : '',
+        preVenda: String(p.status ?? '').trim() === STATUS_PRE_VENDA,
       };
     })
     .sort((a, b) => b.dataVenda.localeCompare(a.dataVenda) || b.numeroPedido.localeCompare(a.numeroPedido, 'pt-BR', { numeric: true }));
@@ -243,12 +249,32 @@ const lerNaTransacao = async (transaction: Parameters<Parameters<typeof runTrans
   return { ref, romaneio: lerRomaneio(snap.data()) };
 };
 
+/**
+ * Situacao atual de cada pedido (por id). Pra tela marcar o que ainda e'
+ * pre-venda na rota em montagem (rota na pre-venda, 21/10/2026).
+ */
+export const statusDosPedidos = async (tenantId: string, pedidoIds: string[]): Promise<Record<string, string>> => {
+  const saida: Record<string, string> = {};
+  for (const lote of pedacos([...new Set(pedidoIds)], LOTE_IN_POR_ID)) {
+    const snap = await getDocs(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where(documentId(), 'in', lote)));
+    snap.forEach((d) => { saida[d.id] = String(d.data().status ?? ''); });
+  }
+  return saida;
+};
+
 /** Libera a rota pro motorista: a lista de pedidos fica fechada. */
 export const liberarRomaneio = async (tenantId: string, uid: string, id: string): Promise<void> => {
   await runTransaction(db, async (transaction) => {
     const { ref, romaneio } = await lerNaTransacao(transaction, tenantId, id);
     const erro = erroParaLiberar(romaneio);
     if (erro) throw new Error(erro);
+    // Rota na pre-venda (21/10/2026): o motorista so' sai com tudo faturado.
+    // Le a situacao de cada pedido AGORA, dentro da transacao (a pre-venda
+    // pode ter sido faturada depois que a tela abriu).
+    const snaps = await Promise.all(romaneio.entregas.map((e) => transaction.get(doc(db, 'pedidos_venda', e.pedidoId))));
+    const statusPorPedido = Object.fromEntries(snaps.map((s, i) => [romaneio.entregas[i].pedidoId, s.exists() ? s.data().status : '']));
+    const erroPreVenda = erroDePreVendaParaLiberar(pedidosSemFaturar(romaneio.entregas, statusPorPedido));
+    if (erroPreVenda) throw new Error(erroPreVenda);
     transaction.update(ref, {
       status: 'em_rota',
       liberadoEm: serverTimestamp(),

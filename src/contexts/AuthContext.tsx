@@ -35,6 +35,7 @@ import {
   parseAgenteDigitalAtivo,
   parseTrabalhaComPreVenda,
 } from '../utils/preVendaDomain';
+import { DEFAULT_MODO_ROTA_PRE_VENDA, parseModoRotaPreVenda, type ModoRotaPreVenda } from '../utils/rotaPreVendaDomain';
 import { DEFAULT_CONFERENCIA_MERCADORIA } from '../utils/conferenciaDomain';
 import { ehGestorDoGrupo, filiaisDoUsuario, lerGrupo, podeUsarOutrasFiliais, type FilialDoGrupo, type GrupoEmpresarial, lerLimiteFiliais } from '../utils/filialDomain';
 import { entrarNaFilial } from '../services/filialService';
@@ -101,6 +102,9 @@ interface AuthContextType {
    *  em preVendaDomain.ts. Governa se a aba "Pré-vendas" aparece na
    *  listagem de Pedidos de Venda. */
   trabalhaComPreVenda: boolean;
+  /** Config da filial: pergunta a rota de entrega ao gravar a pre-venda e
+   *  quando o pedido entra nela (rotaPreVendaDomain.ts). 'nao' = como sempre. */
+  modoRotaPreVenda: ModoRotaPreVenda;
   /** Config da empresa: "Trabalha com condicional" -- ver condicionalDomain.ts. Sem ela o
    *  menu Condicional some e o servidor recusa criar condicional. */
   trabalhaComCondicional: boolean;
@@ -226,6 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
   const [habilitarTelaPrecificacao, setHabilitarTelaPrecificacao] = useState(DEFAULT_HABILITAR_TELA_PRECIFICACAO);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
+  const [modoRotaPreVenda, setModoRotaPreVenda] = useState<ModoRotaPreVenda>(DEFAULT_MODO_ROTA_PRE_VENDA);
   const [trabalhaComCondicional, setTrabalhaComCondicional] = useState(DEFAULT_TRABALHA_COM_CONDICIONAL);
   const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
   const [usaGradeDeProdutos, setUsaGradeDeProdutos] = useState(false);
@@ -548,6 +553,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setControlaFiscal(DEFAULT_CONTROLA_FISCAL);
       setDevolucaoBotaoSeparado(false);
       setTrabalhaComPreVenda(DEFAULT_TRABALHA_COM_PRE_VENDA);
+      setModoRotaPreVenda(DEFAULT_MODO_ROTA_PRE_VENDA);
       setTrabalhaComCondicional(DEFAULT_TRABALHA_COM_CONDICIONAL);
       setPermiteVendaSemEstoque(false);
       setUsaGradeDeProdutos(false);
@@ -583,6 +589,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Mesma leitura: governam as abas "Pré-vendas" e "Pendentes" na
       // listagem de Pedidos de Venda (PedidoVendas.tsx).
       setTrabalhaComPreVenda(parseTrabalhaComPreVenda(snap.exists() ? snap.data().trabalhaComPreVenda : undefined));
+      // Mesma leitura: rota de entrega na pre-venda (21/10/2026), por filial.
+      setModoRotaPreVenda(parseModoRotaPreVenda(snap.exists() ? snap.data().rotaNaPreVenda : undefined));
       setTrabalhaComCondicional(parseTrabalhaComCondicional(snap.exists() ? snap.data().trabalhaComCondicional : undefined));
       setAgenteDigitalAtivo(parseAgenteDigitalAtivo(snap.exists() ? snap.data().agenteDigitalAtivo : undefined));
       setPermiteVendaSemEstoque(snap.exists() && snap.data().venderSemEstoque === true);
@@ -799,7 +807,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, modoRotaPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

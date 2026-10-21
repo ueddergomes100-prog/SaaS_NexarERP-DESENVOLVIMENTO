@@ -26,6 +26,7 @@
  */
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
 import type { DespesaRota } from './rotaDomain';
+import { STATUS_PRE_VENDA } from './preVendaDomain';
 
 export type StatusRomaneio = 'montagem' | 'em_rota' | 'fechado' | 'cancelado';
 export type StatusEntrega = 'pendente' | 'entregue' | 'nao_entregue';
@@ -253,11 +254,17 @@ const centavosDe = (centavos: unknown, reais: unknown): number => {
 /**
  * So' pedido FATURADO entra na rota (decisao do dono): pre-venda nao tem
  * mercadoria separada pra sair, e cancelado nao sai. Erro em portugues ou null.
+ *
+ * `aceitaPreVenda` (21/10/2026, rotaPreVendaDomain.ts, modo "na_pre_venda"):
+ * a pre-venda confirmada tambem entra na rota em montagem -- o "Liberar"
+ * e' que exige tudo faturado. Pedido pendente do agente (WhatsApp) nao e'
+ * pre-venda confirmada e continua de fora.
  */
-export const erroDoPedidoParaRomaneio = (pedido: PedidoParaRomaneio): string | null => {
+export const erroDoPedidoParaRomaneio = (pedido: PedidoParaRomaneio, aceitaPreVenda = false): string | null => {
   const numero = limpar(pedido.numeroPedido) || '?';
   const status = limpar(pedido.status);
   if (status === 'Finalizada') return null;
+  if (aceitaPreVenda && status === STATUS_PRE_VENDA) return null;
   if (status === 'Cancelada') return `O pedido #${numero} está cancelado e não pode sair para entrega.`;
   return `O pedido #${numero} ainda não foi faturado (situação: ${status || 'sem situação'}). Fature o pedido antes de colocá-lo na rota.`;
 };

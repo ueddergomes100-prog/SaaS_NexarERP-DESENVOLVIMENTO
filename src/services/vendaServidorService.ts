@@ -12,6 +12,7 @@
  */
 import { auth } from './firebase';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
+import type { ResultadoDaRota } from '../utils/rotaPreVendaDomain';
 
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -37,6 +38,8 @@ export interface ResultadoDoFechamento {
   totalCentavos: number;
   formaPagamento: string;
   condicaoPagamento: 'avista' | 'aprazo';
+  /** Rota na pre-venda (21/10/2026): o que o servidor fez com a rota ao faturar a pre-venda. */
+  rota?: ResultadoDaRota;
 }
 
 export const finalizarVendaNoServidor = async (corpo: Record<string, unknown>): Promise<ResultadoDoFechamento> => {

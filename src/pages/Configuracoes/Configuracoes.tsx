@@ -66,6 +66,13 @@ import {
   parseAlterarPagamentoVendaFinalizada,
   parseTrabalhaComPreVenda,
 } from '../../utils/preVendaDomain';
+import {
+  DEFAULT_MODO_ROTA_PRE_VENDA,
+  MODOS_ROTA_PRE_VENDA,
+  ROTULO_MODO_ROTA_PRE_VENDA,
+  parseModoRotaPreVenda,
+  type ModoRotaPreVenda,
+} from '../../utils/rotaPreVendaDomain';
 import { DEFAULT_TRABALHA_COM_CONDICIONAL, parseTrabalhaComCondicional } from '../../utils/condicionalDomain';
 import {
   DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
@@ -288,6 +295,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
+    /** Rota de entrega na pre-venda (21/10/2026, rotaPreVendaDomain.ts). Por filial. */
+    rotaNaPreVenda: DEFAULT_MODO_ROTA_PRE_VENDA as ModoRotaPreVenda,
     trabalhaComCondicional: DEFAULT_TRABALHA_COM_CONDICIONAL,
     /** Filiais (2026-10-06): libera a transferencia sem nota (so' dono e gerente usam). */
     transferenciaSemNota: false,
@@ -463,6 +472,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
+            rotaNaPreVenda: parseModoRotaPreVenda(data.rotaNaPreVenda),
             trabalhaComCondicional: parseTrabalhaComCondicional(data.trabalhaComCondicional),
             transferenciaSemNota: data.transferenciaSemNota === true,
             transferenciaNfeTributacao: parseTributacaoTransferencia(data.transferenciaNfeTributacao),
@@ -2901,6 +2911,27 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Ligar aqui libera o recurso para a empresa. <strong>Quem pode gravar, editar, finalizar ou cancelar pré-venda é definido usuário a usuário</strong>, nas permissões de cada funcionário.
                 </p>
+
+                {/* Rota de entrega na pre-venda (21/10/2026): por filial, tres modos. */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '6px', borderTop: '1px dashed var(--border-color)' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Rota de entrega ao gravar a pré-venda</span>
+                  {MODOS_ROTA_PRE_VENDA.map((modo) => (
+                    <label key={modo} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                      <input
+                        type="radio"
+                        name="rotaNaPreVenda"
+                        checked={formData.rotaNaPreVenda === modo}
+                        onChange={() => setFormData({ ...formData, rotaNaPreVenda: modo })}
+                        disabled={!isEditingMode || !formData.trabalhaComPreVenda}
+                        style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                      />
+                      {ROTULO_MODO_ROTA_PRE_VENDA[modo]}
+                    </label>
+                  ))}
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    Para a loja que trabalha com mais de uma rota aberta ao mesmo tempo. Com mais de uma rota <strong>em montagem</strong>, o sistema pergunta "Rota 1 ou Rota 2?" ao gravar a pré-venda (no computador e no app Vendas). Com uma só, o pedido entra nela sem perguntar — liberou a Rota 1 para o motorista, as próximas pré-vendas vão sozinhas para a Rota 2. Sem nenhuma rota em montagem, o pedido fica sem rota e a loja coloca depois, pelo Romaneio. Quando a pré-venda entra na rota na hora, o <strong>Liberar</strong> só passa depois que tudo estiver faturado.
+                  </p>
+                </div>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>

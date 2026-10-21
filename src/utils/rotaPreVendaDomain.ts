@@ -1,0 +1,156 @@
+/**
+ * ROTA NA PRE-VENDA (pedido do dono, 21/10/2026).
+ *
+ * Cliente que trabalha com duas ou mais rotas de entrega abertas ao mesmo
+ * tempo quer que, ao gravar a pre-venda, o sistema pergunte "Rota 1 ou
+ * Rota 2?" -- e que, depois que a Rota 1 e' liberada pro motorista, as
+ * pre-vendas seguintes caiam sozinhas na Rota 2, sem perguntar.
+ *
+ * Configuracao POR FILIAL (`configuracoes/{empresa}.rotaNaPreVenda`), com
+ * tres modos (o dono pediu as duas opcoes de quando o pedido entra):
+ *
+ *   nao          -> como sempre foi: a loja monta a rota depois, so' com
+ *                   venda faturada (padrao).
+ *   na_pre_venda -> pergunta ao gravar e a pre-venda JA' ENTRA na rota em
+ *                   montagem. "Liberar" so' passa quando tudo estiver
+ *                   faturado (o motorista nao sai com pre-venda).
+ *   ao_faturar   -> pergunta ao gravar, anota a rota no pedido e ele entra
+ *                   na rota QUANDO FOR FATURADO.
+ *
+ * Decisao de rota (vale pro computador e pro app): mais de uma rota em
+ * montagem -> pergunta; so' uma -> entra nela sem perguntar; nenhuma ->
+ * fica sem rota e a loja coloca depois. No ENVIO do app e no FATURAMENTO
+ * ninguem pode perguntar (pode ser automatico, sem tela): vale a rota
+ * escolhida antes, se ainda estiver em montagem; senao a unica aberta;
+ * senao nenhuma.
+ *
+ * Regra pura: sem tela, sem Firestore. Compilada para o servidor.
+ */
+
+export const MODOS_ROTA_PRE_VENDA = ['nao', 'na_pre_venda', 'ao_faturar'] as const;
+export type ModoRotaPreVenda = (typeof MODOS_ROTA_PRE_VENDA)[number];
+export const DEFAULT_MODO_ROTA_PRE_VENDA: ModoRotaPreVenda = 'nao';
+
+export const ROTULO_MODO_ROTA_PRE_VENDA: Record<ModoRotaPreVenda, string> = {
+  nao: 'Não perguntar: a loja monta a rota depois, só com venda faturada (como hoje)',
+  na_pre_venda: 'Perguntar a rota ao gravar a pré-venda e colocá-la na rota na hora',
+  ao_faturar: 'Perguntar a rota ao gravar a pré-venda e colocá-la na rota quando o pedido for faturado',
+};
+
+export const parseModoRotaPreVenda = (raw: unknown): ModoRotaPreVenda => (
+  (MODOS_ROTA_PRE_VENDA as readonly string[]).includes(String(raw)) ? raw as ModoRotaPreVenda : DEFAULT_MODO_ROTA_PRE_VENDA
+);
+
+/** A tela pergunta a rota ao gravar/enviar a pre-venda? */
+export const perguntaRotaNaPreVenda = (modo: ModoRotaPreVenda): boolean => modo !== 'nao';
+
+/** A pre-venda entra na rota em montagem na hora (true) ou so' quando faturar (false)? */
+export const preVendaEntraNaRota = (modo: ModoRotaPreVenda): boolean => modo === 'na_pre_venda';
+
+export interface RotaAberta {
+  id: string;
+  /** "Rota 04 DANIELA" (tituloDoRomaneio). */
+  titulo: string;
+  quantidadePedidos: number;
+}
+
+export interface RotaEscolhida {
+  id: string;
+  titulo: string;
+}
+
+export type DecisaoDeRota =
+  | { acao: 'automatica'; rota: RotaAberta }
+  | { acao: 'perguntar'; rotas: RotaAberta[] }
+  | { acao: 'sem_rota' };
+
+/**
+ * Com as rotas em montagem e a rota escolhida antes (se houver), decide:
+ * entra sozinha, pergunta, ou fica sem rota.
+ */
+export const decidirRota = (abertas: RotaAberta[], escolhidaId?: string | null): DecisaoDeRota => {
+  const escolhida = escolhidaId ? abertas.find((r) => r.id === escolhidaId) : undefined;
+  if (escolhida) return { acao: 'automatica', rota: escolhida };
+  if (abertas.length === 1) return { acao: 'automatica', rota: abertas[0] };
+  if (abertas.length === 0) return { acao: 'sem_rota' };
+  return { acao: 'perguntar', rotas: abertas };
+};
+
+/**
+ * Onde ninguem pode perguntar (envio automatico do app, faturamento): a
+ * escolhida antes, senao a unica aberta, senao nenhuma.
+ */
+export const rotaSemPerguntar = (abertas: RotaAberta[], escolhidaId?: string | null): RotaAberta | null => {
+  const decisao = decidirRota(abertas, escolhidaId);
+  return decisao.acao === 'automatica' ? decisao.rota : null;
+};
+
+/** Ordem de apresentacao: pelo titulo ("Rota 01" antes de "Rota 02"). */
+export const ordenarRotas = <T extends { titulo: string }>(rotas: T[]): T[] => (
+  [...rotas].sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR', { numeric: true }))
+);
+
+// ---------------------------------------------------------------------------
+// LIBERAR A ROTA: so' com tudo faturado
+// ---------------------------------------------------------------------------
+
+/** Pedidos da rota que ainda nao estao faturados (numero de cada um), pela situacao lida AGORA. */
+export const pedidosSemFaturar = (
+  entregas: Array<{ pedidoId: string; numeroPedido: string }>,
+  statusPorPedido: Record<string, unknown>,
+): string[] => (
+  entregas.filter((e) => String(statusPorPedido[e.pedidoId] ?? '') !== 'Finalizada').map((e) => e.numeroPedido || '?')
+);
+
+export const erroDePreVendaParaLiberar = (numeros: string[]): string | null => {
+  if (numeros.length === 0) return null;
+  const lista = numeros.map((n) => `#${n}`).join(', ');
+  return numeros.length === 1
+    ? `A pré-venda ${lista} ainda não foi faturada. Fature o pedido (ou tire-o da rota) antes de liberar: o motorista só sai com venda faturada.`
+    : `Ainda tem ${numeros.length} pré-vendas sem faturar nesta rota: ${lista}. Fature os pedidos (ou tire-os da rota) antes de liberar: o motorista só sai com venda faturada.`;
+};
+
+// ---------------------------------------------------------------------------
+// RESULTADO DE "COLOCAR NA ROTA" (servidor) -> texto pra tela
+// ---------------------------------------------------------------------------
+
+export type AcaoDaRota =
+  /** Configuracao desligada: nada a fazer. */
+  | 'desligado'
+  /** Modo "ao faturar": a rota ficou anotada no pedido. */
+  | 'anotada'
+  /** Entrou na rota agora. */
+  | 'colocado'
+  /** Ja' estava nessa rota (reenvio, faturamento de pre-venda que ja' entrou). */
+  | 'ja_estava'
+  /** Nenhuma rota em montagem: a loja coloca depois. */
+  | 'sem_rota'
+  /** Nao deu pra colocar (erro); o pedido em si foi gravado. */
+  | 'falhou';
+
+export interface ResultadoDaRota {
+  acao: AcaoDaRota;
+  rota?: RotaEscolhida;
+  erro?: string;
+}
+
+/** Complemento da mensagem de sucesso da pre-venda/venda; vazio quando nao ha' o que dizer. */
+export const textoDoResultadoDaRota = (r: ResultadoDaRota | null | undefined): string => {
+  if (!r || r.acao === 'desligado') return '';
+  const titulo = r.rota?.titulo || '';
+  switch (r.acao) {
+    case 'colocado': return `Colocado na ${titulo}.`;
+    case 'anotada': return `Vai para a ${titulo} quando for faturado.`;
+    case 'ja_estava': return titulo ? `Já estava na ${titulo}.` : '';
+    case 'sem_rota': return 'Nenhuma rota em montagem no momento: coloque o pedido na rota pelo Romaneio de Entrega.';
+    case 'falhou': return `Não foi possível colocar na rota${r.erro ? `: ${r.erro}` : '.'} Coloque pelo Romaneio de Entrega.`;
+    default: return '';
+  }
+};
+
+/** Texto que o app/tela mostra ao marcar a rota escolhida antes de enviar. */
+export const textoDaRotaEscolhida = (rota: RotaEscolhida | null, modo: ModoRotaPreVenda): string => {
+  if (!perguntaRotaNaPreVenda(modo)) return '';
+  if (!rota) return 'Nenhuma rota em montagem agora: a loja coloca o pedido na rota depois.';
+  return preVendaEntraNaRota(modo) ? `Vai para a ${rota.titulo}.` : `Vai para a ${rota.titulo} quando for faturado.`;
+};

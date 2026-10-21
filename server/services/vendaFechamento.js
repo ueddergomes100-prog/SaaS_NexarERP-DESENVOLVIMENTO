@@ -44,6 +44,7 @@ const reserva = require('../domain/estoqueReservaDomain');
 const { toStockAdjustmentItems, toBaseQuantity } = require('../domain/embalagemDomain');
 const { parseParametrosVenda, bloqueioPorAtraso, maiorAtrasoEmDias } = require('../domain/parametrosVendaDomain');
 const { STATUS_PRE_VENDA, isPedidoAberto, resolveOrigemPedido } = require('../domain/preVendaDomain');
+const rotaPreVenda = require('./rotaPreVenda');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const cd = require('../domain/conferenciaDescontoDomain');
@@ -719,15 +720,23 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       });
     });
 
-    return { jaEnviado: false, pedidoId: pedidoRef.id, numeroPedido, vendedorId, vendedorNome, pdv };
+    return { jaEnviado: false, pedidoId: pedidoRef.id, numeroPedido, vendedorId, vendedorNome, pdv, dePreVenda: Boolean(aberto && aberto.status === STATUS_PRE_VENDA) };
   });
 
   // Cashback (20/10/2026): venda a vista ja' nasce paga -- gera agora, em
   // transacao propria (idempotente). A prazo, gera na baixa da ultima parcela.
   if (!resultado.jaEnviado) await cashback.gerarSeDevidoSemFalhar({ user, tenantId, pedidoId: resultado.pedidoId });
 
+  // Rota na pre-venda (21/10/2026): a pre-venda faturada entra na rota
+  // anotada (modo "ao faturar") ou tem o retrato atualizado na rota em que
+  // ja' esta'. So' pre-venda: venda direta de balcao nao vai pra rota sozinha.
+  const rota = !resultado.jaEnviado && resultado.dePreVenda
+    ? await rotaPreVenda.colocarAoFaturarSemFalhar({ user, tenantId, pedidoId: resultado.pedidoId })
+    : null;
+
   return {
     ...resultado,
+    ...(rota && rota.acao !== 'desligado' ? { rota } : {}),
     totalCentavos: totais.valorTotalCentavos,
     formaPagamento: resumo.paymentMethodLabel,
     condicaoPagamento: resumo.paymentCondition,

@@ -21,6 +21,8 @@ import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
+import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
+import { textoDaRotaEscolhida, type RotaEscolhida } from '../../utils/rotaPreVendaDomain';
 
 interface ClienteVendedor extends SearchableClient, ClienteConfirmavel {
   id: string;
@@ -38,7 +40,9 @@ const VendedorNovoPedido: React.FC = () => {
   const location = useLocation();
   const { localId } = useParams();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
-  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions, controlaFiscal } = useAuth();
+  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions, controlaFiscal, modoRotaPreVenda } = useAuth();
+  // Rota na pre-venda (21/10/2026): ao marcar "Pronto para enviar", pergunta a rota quando ha' mais de uma em montagem.
+  const { escolherRota, modalDeRota } = useEscolhaDeRota(modoRotaPreVenda);
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
   // Promocoes de hoje (19/10/2026): o pedido do app entra no preco da promocao e consome a quota.
@@ -73,7 +77,7 @@ const VendedorNovoPedido: React.FC = () => {
     return <Navigate to="/vendedor/rascunhos" replace />;
   }
 
-  const handleSalvar = (pronto: boolean) => {
+  const handleSalvar = async (pronto: boolean) => {
     if (!trabalhaComPreVenda) {
       showError(
         'Pré-venda não está habilitada',
@@ -97,6 +101,17 @@ const VendedorNovoPedido: React.FC = () => {
     }
     if (!tenantId || !currentUser) return;
 
+    // Rota de entrega: so' quando o pedido esta' pronto (e' quando ele vai pra
+    // loja). Sem sinal, a rota fica por conta do servidor na hora do envio.
+    let rota: RotaEscolhida | null = null;
+    let avisoDaRota = '';
+    if (pronto && navigator.onLine !== false) {
+      const escolha = await escolherRota();
+      if (escolha.cancelou) return;
+      rota = escolha.rota ? { id: escolha.rota.id, titulo: escolha.rota.titulo } : null;
+      avisoDaRota = escolha.semLista ? '' : textoDaRotaEscolhida(rota, modoRotaPreVenda);
+    }
+
     const agora = new Date().toISOString();
     try {
       salvarRascunho(tenantId, currentUser.uid, {
@@ -113,8 +128,9 @@ const VendedorNovoPedido: React.FC = () => {
         criadoEm: rascunhoAberto?.criadoEm || agora,
         atualizadoEm: agora,
         ...camposDePronto(pronto, agora),
+        ...(pronto && rota ? { rota } : {}),
       });
-      showSuccess(mensagemDeRascunhoSalvo(pronto, 'pedido'));
+      showSuccess(`${mensagemDeRascunhoSalvo(pronto, 'pedido')}${avisoDaRota ? ` ${avisoDaRota}` : ''}`);
       navigate('/vendedor/rascunhos', { replace: true });
     } catch (error) {
       showError('Não foi possível salvar', error instanceof RascunhoStorageError ? error.message : 'Tente novamente.');
@@ -124,6 +140,7 @@ const VendedorNovoPedido: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader titulo={localId ? 'Editar Rascunho' : 'Novo Pedido'} />
+      {modalDeRota}
 
       <div style={{ padding: '16px 20px 0' }}>
         {clienteSelecionado ? (

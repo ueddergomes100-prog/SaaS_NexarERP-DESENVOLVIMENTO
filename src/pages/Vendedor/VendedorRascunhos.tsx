@@ -5,6 +5,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
+import { textoDaRotaEscolhida, type RotaEscolhida } from '../../utils/rotaPreVendaDomain';
 import VendedorHeader from './VendedorHeader';
 import type { MinutaCliente } from '../Expedicao/MinutaPrintDocument';
 import { enviarMinutaPorWhatsApp, gerarMinutaRascunhoPdf, nomeArquivoMinutaRascunho } from './vendedorMinutaPdf';
@@ -45,7 +47,9 @@ const caminhoDeEdicao = (rascunho: RascunhoVenda) => `/vendedor/${rascunho.tipo 
  */
 const VendedorRascunhos: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva } = useAuth();
+  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, modoRotaPreVenda } = useAuth();
+  // Rota na pre-venda (21/10/2026): ao marcar "Pronto", pergunta a rota quando ha' mais de uma em montagem.
+  const { escolherRota, modalDeRota } = useEscolhaDeRota(modoRotaPreVenda);
   const [rascunhos, setRascunhos] = useState<RascunhoVenda[]>(() => (
     tenantId && currentUser ? listarRascunhos(tenantId, currentUser.uid) : []
   ));
@@ -65,15 +69,23 @@ const VendedorRascunhos: React.FC = () => {
     return () => window.removeEventListener(EVENTO_RASCUNHOS_ALTERADOS, aoMudar);
   }, [tenantId, currentUser?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleAlternarPronto = (rascunho: RascunhoVenda) => {
+  const handleAlternarPronto = async (rascunho: RascunhoVenda) => {
     if (!tenantId || !currentUser) return;
     try {
-      marcarProntoRascunho(tenantId, currentUser.uid, rascunho.localId, !rascunho.pronto);
+      let rota: RotaEscolhida | null = null;
+      let avisoDaRota = '';
+      if (!rascunho.pronto && rascunho.tipo === 'pedido' && navigator.onLine !== false) {
+        const escolha = await escolherRota();
+        if (escolha.cancelou) return;
+        rota = escolha.rota ? { id: escolha.rota.id, titulo: escolha.rota.titulo } : null;
+        avisoDaRota = escolha.semLista ? '' : textoDaRotaEscolhida(rota, modoRotaPreVenda);
+      }
+      marcarProntoRascunho(tenantId, currentUser.uid, rascunho.localId, !rascunho.pronto, rota);
       recarregar();
       if (!rascunho.pronto) {
-        showSuccess(navigator.onLine === false
+        showSuccess(`${navigator.onLine === false
           ? 'Pronto para enviar. Sem sinal agora: o app envia sozinho quando a internet voltar.'
-          : 'Pronto para enviar. O app envia para a loja em instantes.');
+          : 'Pronto para enviar. O app envia para a loja em instantes.'}${avisoDaRota ? ` ${avisoDaRota}` : ''}`);
       }
     } catch (error) {
       showError('Não foi possível marcar o rascunho', error instanceof Error ? error.message : 'Tente novamente.');
@@ -184,6 +196,7 @@ const VendedorRascunhos: React.FC = () => {
         trabalhaComPreVenda: Boolean(trabalhaComPreVenda),
         permiteVendaSemEstoque: Boolean(permiteVendaSemEstoque),
         conferenciaMercadoriaAtiva: Boolean(conferenciaMercadoriaAtiva),
+        modoRotaPreVenda,
       }, () => true, (parcial) => setResultados(parcial));
     } finally {
       recarregar();
@@ -194,6 +207,7 @@ const VendedorRascunhos: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader titulo="Rascunhos" aoVoltar={() => navigate('/vendedor')} />
+      {modalDeRota}
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {rascunhos.length > 0 && (

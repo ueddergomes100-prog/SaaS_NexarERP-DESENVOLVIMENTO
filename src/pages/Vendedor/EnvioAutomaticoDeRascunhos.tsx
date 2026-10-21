@@ -21,7 +21,7 @@ import { EVENTO_RASCUNHOS_ALTERADOS, listarRascunhos } from './vendedorRascunhos
 const ESPERA_APOS_MUDANCA_MS = 1500;
 
 const EnvioAutomaticoDeRascunhos: React.FC = () => {
-  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva } = useAuth();
+  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, modoRotaPreVenda } = useAuth();
   const contexto = useRef<ContextoDeEnvio | null>(null);
 
   // Declarado antes do efeito do envio: roda primeiro, entao a tentativa de
@@ -35,9 +35,10 @@ const EnvioAutomaticoDeRascunhos: React.FC = () => {
         trabalhaComPreVenda: Boolean(trabalhaComPreVenda),
         permiteVendaSemEstoque: Boolean(permiteVendaSemEstoque),
         conferenciaMercadoriaAtiva: Boolean(conferenciaMercadoriaAtiva),
+        modoRotaPreVenda,
       }
       : null;
-  }, [tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva]);
+  }, [tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, modoRotaPreVenda]);
 
   useEffect(() => {
     let vivo = true;

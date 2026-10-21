@@ -1,6 +1,7 @@
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { EscolhaNotaFiscal } from '../../utils/pedidoVendedorDomain';
 import type { ItemTrocaRascunho } from '../../utils/trocaDomain';
+import type { RotaEscolhida } from '../../utils/rotaPreVendaDomain';
 
 /**
  * Rascunhos de pedido/orcamento do vendedor externo, guardados NO APARELHO.
@@ -50,6 +51,13 @@ export interface RascunhoVenda {
    */
   pronto?: boolean;
   prontoEm?: string;
+  /**
+   * Rota de entrega escolhida ao marcar "Pronto" (21/10/2026,
+   * rotaPreVendaDomain.ts). So' pedido, e so' na empresa que pergunta a
+   * rota. No envio o servidor confere de novo: se a rota ja' saiu, cai na
+   * que sobrou.
+   */
+  rota?: RotaEscolhida;
 }
 
 /** Avisa a tela de Rascunhos (e quem mais escutar) que a lista mudou. */
@@ -110,16 +118,19 @@ export const marcarErroRascunho = (tenantId: string, usuarioId: string, localId:
 };
 
 /** Marca/desmarca "Pronto para enviar". Marcar limpa o erro antigo: a proxima tentativa e' nova. */
-export const marcarProntoRascunho = (tenantId: string, usuarioId: string, localId: string, pronto: boolean) => {
+export const marcarProntoRascunho = (tenantId: string, usuarioId: string, localId: string, pronto: boolean, rota?: RotaEscolhida | null) => {
   const agora = new Date().toISOString();
   const lista = listarRascunhos(tenantId, usuarioId).map((r) => {
     if (r.localId !== localId) return r;
     const copia: RascunhoVenda = { ...r };
     delete copia.pronto;
     delete copia.prontoEm;
+    // A rota acompanha o "Pronto": desmarcou, a escolha some; marcou de
+    // novo, pergunta de novo.
+    delete copia.rota;
     if (!pronto) return copia;
     delete copia.ultimoErro;
-    return { ...copia, pronto: true, prontoEm: agora };
+    return { ...copia, pronto: true, prontoEm: agora, ...(rota ? { rota } : {}) };
   });
   gravarLista(tenantId, usuarioId, lista);
 };

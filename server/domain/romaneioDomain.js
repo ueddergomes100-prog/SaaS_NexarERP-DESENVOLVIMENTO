@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
 exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = void 0;
+const preVendaDomain_1 = require("./preVendaDomain");
 exports.ROTULO_STATUS_ROMANEIO = {
     montagem: 'Em montagem',
     em_rota: 'Em rota',
@@ -107,11 +108,18 @@ const centavosDe = (centavos, reais) => {
 /**
  * So' pedido FATURADO entra na rota (decisao do dono): pre-venda nao tem
  * mercadoria separada pra sair, e cancelado nao sai. Erro em portugues ou null.
+ *
+ * `aceitaPreVenda` (21/10/2026, rotaPreVendaDomain.ts, modo "na_pre_venda"):
+ * a pre-venda confirmada tambem entra na rota em montagem -- o "Liberar"
+ * e' que exige tudo faturado. Pedido pendente do agente (WhatsApp) nao e'
+ * pre-venda confirmada e continua de fora.
  */
-const erroDoPedidoParaRomaneio = (pedido) => {
+const erroDoPedidoParaRomaneio = (pedido, aceitaPreVenda = false) => {
     const numero = limpar(pedido.numeroPedido) || '?';
     const status = limpar(pedido.status);
     if (status === 'Finalizada')
+        return null;
+    if (aceitaPreVenda && status === preVendaDomain_1.STATUS_PRE_VENDA)
         return null;
     if (status === 'Cancelada')
         return `O pedido #${numero} está cancelado e não pode sair para entrega.`;

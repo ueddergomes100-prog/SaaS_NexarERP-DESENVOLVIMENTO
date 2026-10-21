@@ -3,6 +3,7 @@ const { db } = require('../config/firebase');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { ErroRomaneio, fecharRomaneio, reabrirRomaneio, cancelarRomaneio } = require('../services/romaneios');
+const { rotasAbertas, colocarPedidoNaRota } = require('../services/rotaPreVenda');
 const { textoDoPlano } = require('../domain/romaneioDomain');
 
 /**
@@ -10,6 +11,9 @@ const { textoDoPlano } = require('../domain/romaneioDomain');
  *   POST /api/romaneios/fechar     fecha o acerto (as despesas lancadas acompanham)
  *   POST /api/romaneios/reabrir    rota fechada volta a "Em rota" (permissao propria + motivo)
  *   POST /api/romaneios/cancelar   cancela; fechada ou com entrega desfaz tudo (permissao propria + motivo)
+ * Rota na pre-venda (21/10/2026) -- ver services/rotaPreVenda.js:
+ *   GET  /api/romaneios/abertos         rotas em montagem (pra tela perguntar "Rota 1 ou 2?")
+ *   POST /api/romaneios/colocar-pedido  { pedidoId, romaneioId? } coloca/anota conforme a configuracao
  * Tudo vai para o log de auditoria (modulo "romaneios").
  */
 const router = express.Router();
@@ -37,6 +41,38 @@ const contexto = async (req) => ({
   id: req.body?.id,
   usuarioNome: await nomeDoUsuario(req.user),
   agoraIso: new Date().toISOString(),
+});
+
+router.get('/abertos', async (req, res) => {
+  try {
+    return res.json({ rotas: await rotasAbertas(req.user.tenantId) });
+  } catch (erro) {
+    return responderErro(res, erro, 'ler as rotas em montagem');
+  }
+});
+
+router.post('/colocar-pedido', async (req, res) => {
+  try {
+    const r = await colocarPedidoNaRota({
+      user: req.user,
+      tenantId: req.user.tenantId,
+      pedidoId: req.body?.pedidoId,
+      romaneioId: req.body?.romaneioId,
+    });
+    if (r.acao === 'colocado' || r.acao === 'anotada') {
+      registrarLog(req.user, {
+        modulo: 'romaneios',
+        acao: 'pedido_na_rota',
+        descricao: r.acao === 'colocado'
+          ? `Pedido colocado na ${r.rota.titulo} ao gravar a pré-venda.`
+          : `Pré-venda anotada para a ${r.rota.titulo} (entra na rota ao faturar).`,
+        registroId: String(req.body?.pedidoId || ''),
+      });
+    }
+    return res.json(r);
+  } catch (erro) {
+    return responderErro(res, erro, 'colocar o pedido na rota');
+  }
 });
 
 router.post('/fechar', async (req, res) => {

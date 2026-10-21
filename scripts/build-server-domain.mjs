@@ -113,6 +113,8 @@ const MODULOS = [
   'src/utils/devolucaoCompraDomain.ts',
   // Balanco / inventario (21/10/2026).
   'src/utils/balancoDomain.ts',
+  // Rota na pre-venda (21/10/2026).
+  'src/utils/rotaPreVendaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

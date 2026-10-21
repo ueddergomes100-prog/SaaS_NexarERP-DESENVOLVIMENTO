@@ -91,6 +91,9 @@ const MODULOS = [
   'src/utils/conferenciaDescontoDomain.ts',
   // Conta a receber lancada a mao (19/10/2026).
   'src/utils/lancamentoReceberDomain.ts',
+  // Tabelas fiscais (20/10/2026): CFOP do sistema com a funcao de cada um; base de NCM/CEST.
+  'src/utils/cfopDomain.ts',
+  'src/utils/tabelaFiscalDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

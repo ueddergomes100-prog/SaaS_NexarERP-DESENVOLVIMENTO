@@ -178,4 +178,4 @@ const adicionarCategoria = async ({ user, tenantId, corpo }) => {
   });
 };
 
-module.exports = { ErroConfiguracoesGerais, salvarConfiguracoesGerais, unificarConfiguracoesGerais, adicionarCategoria };
+module.exports = { ErroConfiguracoesGerais, salvarConfiguracoesGerais, unificarConfiguracoesGerais, adicionarCategoria, lerGrupo, exigirPermissao };

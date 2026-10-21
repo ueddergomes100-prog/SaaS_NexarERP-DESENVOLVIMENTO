@@ -62,7 +62,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/financeiro/contas-pagar')) routeModule = 'financeiro.pagar';
   else if (path.startsWith('/financeiro/faturamento')) routeModule = 'financeiro.faturamento';
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routeModule = 'financeiro.comissoes';
-  else if (path.startsWith('/fiscal/nfe') || path.startsWith('/fiscal/relatorio-contador')) routeModule = 'fiscal.nfe';
+  else if (path.startsWith('/fiscal/nfe') || path.startsWith('/fiscal/relatorio-contador') || path.startsWith('/fiscal/tabelas')) routeModule = 'fiscal.nfe';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routeModule = 'fiscal.entrada_nfe';
   else if (path.startsWith('/utilitarios/sintegra')) routeModule = 'utilitarios.sintegra';
   else if (path.startsWith('/relatorios-diversos')) routeModule = 'logs.relatorios_diversos';
@@ -143,6 +143,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/fiscal/nfe')) routePermission = 'fiscal.emitir';
   // Relatorio do contador (20/10/2026): permissao propria.
   else if (path.startsWith('/fiscal/relatorio-contador')) routePermission = 'fiscal.relatorio_contador';
+  // Tabelas fiscais (20/10/2026): permissao propria.
+  else if (path.startsWith('/fiscal/tabelas')) routePermission = 'fiscal.tabelas';
   // Precisa vir ANTES do branch generico de /fiscal/entrada-nfe logo
   // abaixo (senao esta subrota nunca seria alcancada) -- separada em
   // 2026-08-27 porque as duas telas dividiam o mesmo id, sem controle

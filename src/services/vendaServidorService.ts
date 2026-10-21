@@ -123,8 +123,13 @@ export interface ResultadoDoCancelamentoDaPreVenda {
   reservaLiberada: boolean;
 }
 
-export const cancelarPreVendaNoServidor = (pedidoId: string, nota?: string) =>
-  postarNoServidor<ResultadoDoCancelamentoDaPreVenda>('cancelar-pre-venda', nota ? { pedidoId, nota } : { pedidoId },
+/** `soDoVendedor` (app Vendas): o servidor so' cancela se o pedido for do proprio vendedor. */
+export const cancelarPreVendaNoServidor = (pedidoId: string, nota?: string, soDoVendedor = false) =>
+  postarNoServidor<ResultadoDoCancelamentoDaPreVenda>('cancelar-pre-venda', {
+    pedidoId,
+    ...(nota ? { nota } : {}),
+    ...(soDoVendedor ? { soDoVendedor: true } : {}),
+  },
     'Não foi possível cancelar a pré-venda. Nada foi gravado. Tente novamente.', CONFIRA_ANTES);
 
 export interface ResultadoDaAlteracaoDePagamento {

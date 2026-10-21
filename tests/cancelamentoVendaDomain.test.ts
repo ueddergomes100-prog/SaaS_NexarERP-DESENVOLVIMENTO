@@ -99,7 +99,10 @@ test('o que a tela manda: pedido valido, motivo e pagamentos', () => {
   assert.deepEqual(lerPedidoDeCancelamento({ pedidoId: 'abc_1', motivo: '  cliente desistiu ' }), { pedidoId: 'abc_1', motivo: 'cliente desistiu' });
   assert.match(String((lerPedidoDeCancelamento({ pedidoId: 'abc', motivo: '' }) as { erro: string }).erro), /motivo/);
   assert.match(String((lerPedidoDeCancelamento({ pedidoId: '../x', motivo: 'cliente desistiu' }) as { erro: string }).erro), /Venda inválida/);
-  assert.deepEqual(lerPedidoDeCancelamentoDaPreVenda({ pedidoId: 'p1' }), { pedidoId: 'p1', nota: 'Pré-venda cancelada' });
+  assert.deepEqual(lerPedidoDeCancelamentoDaPreVenda({ pedidoId: 'p1' }), { pedidoId: 'p1', nota: 'Pré-venda cancelada', soDoVendedor: false });
+  // App Vendas: so' o booleano true liga a conferencia do vendedor.
+  assert.equal((lerPedidoDeCancelamentoDaPreVenda({ pedidoId: 'p1', soDoVendedor: true }) as { soDoVendedor: boolean }).soDoVendedor, true);
+  assert.equal((lerPedidoDeCancelamentoDaPreVenda({ pedidoId: 'p1', soDoVendedor: 'sim' }) as { soDoVendedor: boolean }).soDoVendedor, false);
   assert.match(String((lerPedidoDeAlteracaoDePagamento({ pedidoId: 'p1', pagamentos: [] }) as { erro: string }).erro), /forma de pagamento/);
   assert.equal((lerPedidoDeAlteracaoDePagamento({ pedidoId: 'p1', pagamentos: [{ forma: 'Pix' }] }) as { pagamentos: unknown[] }).pagamentos.length, 1);
 });

@@ -173,6 +173,29 @@ test('cancelar pre-venda libera a reserva sem mexer no estoque', async () => {
   assert.equal(fake.ler('estoque/p1').quantidadeReservada, 0);
 });
 
+test('app Vendas (soDoVendedor): so cancela a pre-venda do proprio vendedor', async () => {
+  const VENDEDOR = { uid: 'vend1', tenantId: 'loja', email: 'v@loja', permissoes: ['vendas.pre_venda_cancelar'] };
+  const fake = criarBancoFalso(base({
+    'pedidos_venda/v1': venda({ status: 'Pré-venda', estoqueReservado: true, vendedorId: 'vend1' }),
+    'pedidos_venda/v2': venda({ status: 'Pré-venda', estoqueReservado: false, vendedorId: 'outro' }),
+    'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 10, quantidadeReservada: 2 },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(
+    () => s.cancelarPreVenda({ user: VENDEDOR, tenantId: 'loja', corpo: { pedidoId: 'v2', soDoVendedor: true } }),
+    (erro) => erro.status === 403 && /outro vendedor/.test(erro.message),
+  );
+  assert.equal(fake.ler('pedidos_venda/v2').status, 'Pré-venda');
+  const r = await s.cancelarPreVenda({ user: VENDEDOR, tenantId: 'loja', corpo: { pedidoId: 'v1', soDoVendedor: true } });
+  assert.equal(r.peloApp, true);
+  assert.equal(fake.ler('pedidos_venda/v1').status, 'Cancelada');
+  assert.equal(fake.ler('estoque/p1').quantidadeReservada, 0);
+  await assert.rejects(
+    () => s.cancelarPreVenda({ user: VENDEDOR, tenantId: 'loja', corpo: { pedidoId: 'v1', soDoVendedor: true } }),
+    (erro) => erro.status === 409 && /não pode mais ser cancelado pelo aplicativo/.test(erro.message),
+  );
+});
+
 // ------------------------------------------------------------- alterar pagamento
 
 test('alterar de dinheiro para Pix: o lancamento e refeito e o banco recebe', async () => {

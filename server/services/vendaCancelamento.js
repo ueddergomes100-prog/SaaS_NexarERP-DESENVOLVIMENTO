@@ -206,13 +206,21 @@ const cancelarVenda = async ({ user, tenantId, corpo }) => {
 const cancelarPreVenda = async ({ user, tenantId, corpo }) => {
   const lido = cv.lerPedidoDeCancelamentoDaPreVenda(corpo);
   if ('erro' in lido) throw new ErroVenda(400, lido.erro);
-  const { pedidoId, nota } = lido;
+  const { pedidoId, nota, soDoVendedor } = lido;
 
   return db.runTransaction(async (tx) => {
     const pedidoRef = db.collection('pedidos_venda').doc(pedidoId);
     const pedido = lerPedido(await tx.get(pedidoRef), tenantId, 'Esta pré-venda');
     const numeroPedido = String(pedido.numeroPedido || '');
-    if (!isPedidoAberto(pedido.status)) throw new ErroVenda(409, 'Esta pré-venda não está mais em aberto. Recarregue a tela.');
+    // App Vendas (21/10/2026): so' o pedido do proprio vendedor.
+    if (soDoVendedor && pedido.vendedorId !== user.uid) {
+      throw new ErroVenda(403, 'Este pedido é de outro vendedor e não pode ser cancelado por aqui.');
+    }
+    if (!isPedidoAberto(pedido.status)) {
+      throw new ErroVenda(409, soDoVendedor
+        ? `Este pedido está "${pedido.status}" e não pode mais ser cancelado pelo aplicativo. Fale com a loja.`
+        : 'Esta pré-venda não está mais em aberto. Recarregue a tela.');
+    }
 
     const travaSnap = await tx.get(db.collection('romaneio_pedidos').doc(pedidoId));
     const erroRota = cv.erroDaRotaParaCancelar(travaSnap.exists ? travaSnap.data() : null, numeroPedido);
@@ -247,7 +255,7 @@ const cancelarPreVenda = async ({ user, tenantId, corpo }) => {
     if (reabrirOrcamento) {
       tx.update(orcamentoRef, { status: 'Pendente', ...buildDocumentUpdateMetadata(user.uid, agora(), 'Reaberto pelo cancelamento da pré-venda') });
     }
-    return { pedidoId, numeroPedido, vendedorId: pedido.vendedorId || '', vendedorNome: pedido.vendedorNome || '', reservaLiberada: deltas.length > 0 };
+    return { pedidoId, numeroPedido, vendedorId: pedido.vendedorId || '', vendedorNome: pedido.vendedorNome || '', reservaLiberada: deltas.length > 0, peloApp: soDoVendedor };
   });
 };
 

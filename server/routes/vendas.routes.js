@@ -97,7 +97,10 @@ router.post('/cancelar', async (req, res) => {
   }
 });
 
-/** POST /api/vendas/cancelar-pre-venda -- { pedidoId, nota? }. Libera a reserva de estoque. */
+/**
+ * POST /api/vendas/cancelar-pre-venda -- { pedidoId, nota?, soDoVendedor? }. Libera a reserva
+ * de estoque. O app Vendas manda soDoVendedor: so' cancela pedido do proprio vendedor (21/10/2026).
+ */
 router.post('/cancelar-pre-venda', async (req, res) => {
   try {
     const tenantId = empresaDaOperacao(req.user, req.body);
@@ -108,7 +111,7 @@ router.post('/cancelar-pre-venda', async (req, res) => {
     registrarLog({ ...req.user, tenantId }, {
       modulo: 'vendas',
       acao: 'cancelamento',
-      descricao: `Pré-venda #${r.numeroPedido} cancelada.${r.reservaLiberada ? ' Estoque reservado liberado.' : ''}`,
+      descricao: `Pré-venda #${r.numeroPedido} cancelada${r.peloApp ? ' pelo aplicativo do vendedor externo' : ''}.${r.reservaLiberada ? ' Estoque reservado liberado.' : ''}`,
       registroId: r.pedidoId,
       vendedorId: r.vendedorId,
       vendedorNome: r.vendedorNome,

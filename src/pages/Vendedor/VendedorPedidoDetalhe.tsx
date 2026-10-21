@@ -6,7 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { isPedidoAberto } from '../../utils/preVendaDomain';
-import { cancelarPedidoExterno } from '../../services/vendedorExternoVendaService';
+import { cancelarPreVendaNoServidor } from '../../services/vendaServidorService';
 import VendedorHeader from './VendedorHeader';
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 
@@ -141,23 +141,9 @@ const VendedorPedidoDetalhe: React.FC = () => {
 
     setCancelando(true);
     try {
-      await cancelarPedidoExterno({ usuarioId: currentUser.uid, pedidoId: pedido.id, vendedorId: currentUser.uid });
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'vendas',
-          acao: 'cancelamento',
-          descricao: `Pré-venda #${pedido.numeroPedido} cancelada pelo aplicativo do vendedor externo. Estoque reservado liberado.`,
-          registroRelacionadoId: pedido.id,
-          vendedorId: currentUser.uid,
-          status: 'sucesso',
-        });
-      } catch (err) {
-        console.error('Erro ao registrar log de cancelamento da pré-venda:', err);
-      }
+      // Pelo servidor (21/10/2026): ele libera a reserva, confere que o pedido
+      // e' deste vendedor e grava o registro da operacao.
+      await cancelarPreVendaNoServidor(pedido.id, 'Pré-venda cancelada pelo aplicativo do vendedor', true);
       showSuccess('Pedido cancelado e estoque liberado.');
       setRecarga((n) => n + 1);
     } catch (error) {

@@ -7,11 +7,11 @@ import {
   getNextTenantSequenceValue,
   writeTenantSequenceValue,
 } from '../utils/firestoreAtomic';
-import { computeReservationDelta, computeReservationRelease } from '../utils/estoqueReservaDomain';
+import { computeReservationDelta } from '../utils/estoqueReservaDomain';
 import { toStockAdjustmentItems } from '../utils/embalagemDomain';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
+import { buildDocumentMetadata } from '../utils/documentMetadata';
 import { toCents } from '../utils/financeDomain';
-import { isPedidoAberto, STATUS_CANCELADA, STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
+import { STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 import { idsDasPromocoes } from '../utils/precoAppVendasDomain';
 import type { OrigemPreco, TabelaDePrecoDoItem } from '../utils/precoVendaDomain';
@@ -236,53 +236,5 @@ export const criarOrcamentoExterno = async (
   return { id: novoId, numeroOrcamento: numeroGravado };
 };
 
-export interface CancelarPedidoExternoParams {
-  usuarioId: string;
-  pedidoId: string;
-  /** O app so' cancela pedido do proprio vendedor. */
-  vendedorId: string;
-}
-
-/**
- * Cancela uma pre-venda do vendedor externo: libera a reserva de estoque e
- * marca Cancelada. Mesma transacao de `handleCancelarPreVenda`
- * (PedidoVendaForm.tsx), reescrita com as mesmas pecas atomicas em vez de
- * chamar o formulario do desktop. Nao mexe em financeiro -- pre-venda nunca
- * gerou nenhum.
- */
-export const cancelarPedidoExterno = async (params: CancelarPedidoExternoParams): Promise<{ numeroPedido: string }> => {
-  const { usuarioId, pedidoId, vendedorId } = params;
-  let numeroPedido = '';
-
-  await runTransaction(db, async (transaction) => {
-    const ref = doc(db, 'pedidos_venda', pedidoId);
-    const snap = await transaction.get(ref);
-    if (!snap.exists()) throw new Error('Este pedido não existe mais.');
-    const data = snap.data();
-    numeroPedido = data.numeroPedido || '';
-
-    if (data.vendedorId !== vendedorId) {
-      throw new Error('Este pedido é de outro vendedor e não pode ser cancelado por aqui.');
-    }
-    if (!isPedidoAberto(data.status)) {
-      throw new Error(`Este pedido está "${data.status}" e não pode mais ser cancelado pelo aplicativo. Fale com a loja.`);
-    }
-
-    if (data.estoqueReservado === true) {
-      await applyStockFieldDeltas(
-        transaction,
-        db,
-        computeReservationRelease(toStockAdjustmentItems(data.itens || [])),
-        true,
-      );
-    }
-
-    transaction.update(ref, {
-      status: STATUS_CANCELADA,
-      estoqueReservado: false,
-      ...buildDocumentUpdateMetadata(usuarioId, serverTimestamp(), 'Pré-venda cancelada pelo aplicativo do vendedor'),
-    });
-  });
-
-  return { numeroPedido };
-};
+// Cancelar a pre-venda pelo app: pelo servidor desde 21/10/2026
+// (vendaServidorService.cancelarPreVendaNoServidor com soDoVendedor).

@@ -294,11 +294,15 @@ export const lerPedidoDeCancelamento = (corpo: unknown): { erro: string } | { pe
 };
 
 /** POST /api/vendas/cancelar-pre-venda: { pedidoId, nota? }. */
-export const lerPedidoDeCancelamentoDaPreVenda = (corpo: unknown): { erro: string } | { pedidoId: string; nota: string } => {
+/**
+ * `soDoVendedor` (app Vendas, 21/10/2026): o app so' cancela pre-venda do
+ * proprio vendedor -- o servidor confere com o vendedor gravado no pedido.
+ */
+export const lerPedidoDeCancelamentoDaPreVenda = (corpo: unknown): { erro: string } | { pedidoId: string; nota: string; soDoVendedor: boolean } => {
   const c = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
   const pedidoId = lerPedidoId(c);
   if (!pedidoId) return { erro: 'Pré-venda inválida. Atualize a tela e tente de novo.' };
-  return { pedidoId, nota: String(c.nota ?? '').trim().slice(0, 200) || 'Pré-venda cancelada' };
+  return { pedidoId, nota: String(c.nota ?? '').trim().slice(0, 200) || 'Pré-venda cancelada', soDoVendedor: c.soDoVendedor === true };
 };
 
 /** POST /api/vendas/alterar-pagamento: { pedidoId, pagamentos } (rascunhos, como no Finalizar). */

@@ -469,9 +469,44 @@ const semFalhar = (nome, fn) => (args) => fn(args).catch((erro) => {
   return { erro: erro && erro.message };
 });
 
+// ---------------------------------------------------------------------------
+// Rotina diaria (20/10/2026): o resumo (`clientes/{id}.cashback`) so' mudava
+// na venda/baixa. Lote que vence sem venda nova deixava o saldo antigo na tela
+// (cadastro do cliente, app Vendas, Comercial > Cashback). Uma vez por dia o
+// servidor regrava o resumo de quem tem `proximoVencimento` ja' passado. Depois
+// de regravado, o proximo vencimento e' o seguinte (ou nenhum): rodar de novo
+// no mesmo dia nao faz nada.
+// ---------------------------------------------------------------------------
+const LIMITE_POR_RODADA = 400;
+
+const atualizarResumosVencidos = async ({ hoje = getDateInputInTimeZone(), limite = LIMITE_POR_RODADA } = {}) => {
+  const snap = await db.collection('clientes').where('cashback.proximoVencimento', '<', hoje).limit(limite).get();
+  let atualizados = 0;
+  for (const docCliente of snap.docs) {
+    const tenantId = docCliente.data().tenantId;
+    if (!tenantId) continue;
+    try {
+      await db.runTransaction(async (tx) => {
+        const clienteSnap = await tx.get(docCliente.ref);
+        const cliente = clienteSnap.exists ? clienteSnap.data() : {};
+        const venc = cliente.cashback && cliente.cashback.proximoVencimento;
+        if (!venc || venc >= hoje) return;
+        const lotes = await lotesDoCliente(tx, tenantId, docCliente.id);
+        const modelo = (cliente.cashback && cliente.cashback.modelo) || 'reais';
+        gravarResumo(tx, docCliente.ref, modelo, lotes.map((l) => l.dados), dividaDoCliente(cliente), hoje);
+      });
+      atualizados += 1;
+    } catch (erro) {
+      console.error(`[Cashback] resumo vencido do cliente ${docCliente.id}:`, erro.message);
+    }
+  }
+  return { encontrados: snap.size, atualizados };
+};
+
 module.exports = {
   ErroCashback,
   FORMA_CASHBACK,
+  atualizarResumosVencidos,
   gerarSeDevido,
   estornarVenda,
   revisarAposEstorno,

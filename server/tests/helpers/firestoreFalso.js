@@ -68,14 +68,19 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
     get: async () => {
       const docs = [...dados.entries()]
         .filter(([k]) => k.startsWith(`${caminho}/`) && !k.slice(caminho.length + 1).includes('/'))
-        .filter(([, v]) => filtros.every(([campo, op, valor]) => (
-          op === '==' ? v[campo] === valor
+        .filter(([, doc]) => filtros.every(([campo, op, valor]) => {
+          // Campo aninhado ("cashback.proximoVencimento"), como no Firestore.
+          const v = { [campo]: String(campo).split('.').reduce((o, parte) => (o && typeof o === 'object' ? o[parte] : undefined), doc) };
+          const definido = v[campo] !== undefined && v[campo] !== null;
+          return op === '==' ? v[campo] === valor
             : op === 'in' ? valor.includes(v[campo])
               : op === 'array-contains' ? Array.isArray(v[campo]) && v[campo].includes(valor)
-                : op === '>=' ? v[campo] !== undefined && v[campo] >= valor
-                  : op === '<=' ? v[campo] !== undefined && v[campo] <= valor
-                : false
-        )))
+                : op === '>=' ? definido && v[campo] >= valor
+                  : op === '<=' ? definido && v[campo] <= valor
+                    : op === '<' ? definido && v[campo] < valor
+                      : op === '>' ? definido && v[campo] > valor
+                        : false;
+        }))
         .map(([k, v]) => ({ id: k.slice(caminho.length + 1), exists: true, data: () => structuredClone(v), ref: ref(caminho, k.slice(caminho.length + 1)) }))
         .slice(0, limite > 0 ? limite : undefined);
       return { empty: docs.length === 0, size: docs.length, docs };

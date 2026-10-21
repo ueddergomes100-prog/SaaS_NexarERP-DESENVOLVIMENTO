@@ -150,3 +150,28 @@ test('venda que usou cashback e\' cancelada: o que saiu dos lotes volta; de lote
   assert.equal(outro.fake.ler('clientes/c1').cashback.dividaCentavos, 0);
   assert.equal(outro.fake.ler('clientes/c1').cashback.saldoCentavos, 0);
 });
+
+test('rotina diaria: lote vencido sem venda nova sai do saldo; quem nao venceu fica como esta', async () => {
+  const lote = (id, clienteId, validade, restante) => ({
+    [`cashback_movimentos/${id}`]: {
+      tenantId: 'loja', clienteId, tipo: 'gerado', modelo: 'reais', centavos: restante, restanteCentavos: restante,
+      pontos: 0, restantePontos: 0, validade, estornado: false,
+    },
+  });
+  const { fake, servico } = carregar({
+    'clientes/c1': { tenantId: 'loja', nome: 'MARIA', cashback: { modelo: 'reais', saldoCentavos: 1500, saldoPontos: 0, dividaCentavos: 0, dividaPontos: 0, proximoVencimento: '2026-10-01' } },
+    'clientes/c2': { tenantId: 'loja', nome: 'JOAO', cashback: { modelo: 'reais', saldoCentavos: 700, saldoPontos: 0, dividaCentavos: 0, dividaPontos: 0, proximoVencimento: '2026-12-01' } },
+    'clientes/c3': { tenantId: 'loja', nome: 'SEM CASHBACK' },
+    ...lote('gerado_p1', 'c1', '2026-10-01', 1000),
+    ...lote('gerado_p2', 'c1', '2026-11-30', 500),
+    ...lote('gerado_p3', 'c2', '2026-12-01', 700),
+  });
+  const r = await servico.atualizarResumosVencidos({ hoje: '2026-10-20' });
+  assert.deepEqual(r, { encontrados: 1, atualizados: 1 });
+  const c1 = fake.ler('clientes/c1').cashback;
+  assert.equal(c1.saldoCentavos, 500, 'so o lote que ainda vale');
+  assert.equal(c1.proximoVencimento, '2026-11-30');
+  assert.equal(fake.ler('clientes/c2').cashback.saldoCentavos, 700, 'nao venceu: nao mexe');
+  assert.equal(fake.ler('clientes/c3').cashback, undefined);
+  assert.deepEqual(await servico.atualizarResumosVencidos({ hoje: '2026-10-20' }), { encontrados: 0, atualizados: 0 }, 'rodar de novo nao faz nada');
+});

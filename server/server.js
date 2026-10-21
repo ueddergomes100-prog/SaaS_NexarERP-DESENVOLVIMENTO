@@ -10,6 +10,7 @@ const { version: VERSAO } = require('./package.json');
 const { db } = require('./config/firebase');
 const { initScheduler } = require('./services/scheduler');
 const { initQueueService } = require('./services/queue');
+const { iniciarRotinasDiarias } = require('./services/rotinasDiarias');
 const { diagnosticoConfiguracao, pendenciasDeProducao, trustProxyHops, emProducao } = require('./services/configuracaoAmbiente');
 const { estadoDoFirestore } = require('./services/saude');
 const { limitadorGlobalApi } = require('./middleware/rateLimit');
@@ -274,6 +275,9 @@ initScheduler();
 
 // 2. Inicia o verificador automático da fila de backups offline pendentes
 initQueueService();
+
+// 3. Rotinas diarias (20/10/2026): resumo de cashback com lote vencido sem venda nova.
+iniciarRotinasDiarias();
 
 // Inicialização do servidor HTTP Express
 const servidor = app.listen(PORT, () => {

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.reopenCommissionSnapshot = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.pedeBancoDeDestino = exports.isSimplifiedChequePayment = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
-exports.receitaDoConjuntoCentavos = exports.abateReceita = exports.contaComoReceita = exports.lancamentoDesfeito = exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = void 0;
+exports.idsDosParesDesfeitos = exports.originalDoEstorno = exports.receitaDoConjuntoCentavos = exports.abateReceita = exports.contaComoReceita = exports.lancamentoDesfeito = exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = void 0;
 const dateTime_1 = require("./dateTime");
 const toCents = (value) => {
     if (typeof value === 'string') {
@@ -1309,3 +1309,30 @@ const receitaDoConjuntoCentavos = (lista, valor = exports.transactionNetCents) =
     return Math.max(0, receita - abatido);
 };
 exports.receitaDoConjuntoCentavos = receitaDoConjuntoCentavos;
+/** Id do lancamento que este estorno desfaz, ou null. */
+const originalDoEstorno = (t) => {
+    const categoria = String(t.categoria || '').trim();
+    if (t.tipo === 'saida' && (categoria === 'Cancelamento de Venda' || categoria === 'Cancelamento de OS') && t.sourcePaymentTransactionId) {
+        return String(t.sourcePaymentTransactionId);
+    }
+    if (t.tipo === 'entrada' && String(t.idempotencyKey || '').startsWith('estorno_devolucao:') && t.devolucaoId) {
+        return `devolucao_${t.devolucaoId}`;
+    }
+    return null;
+};
+exports.originalDoEstorno = originalDoEstorno;
+/** Ids dos lancamentos que se anulam dentro da lista (original desfeito + o seu estorno). */
+const idsDosParesDesfeitos = (lista) => {
+    const porId = new Map(lista.map((t) => [t.id, t]));
+    const pares = new Set();
+    lista.forEach((t) => {
+        const idOriginal = (0, exports.originalDoEstorno)(t);
+        const original = idOriginal ? porId.get(idOriginal) : undefined;
+        if (original && (0, exports.lancamentoDesfeito)(original)) {
+            pares.add(t.id);
+            pares.add(original.id);
+        }
+    });
+    return pares;
+};
+exports.idsDosParesDesfeitos = idsDosParesDesfeitos;

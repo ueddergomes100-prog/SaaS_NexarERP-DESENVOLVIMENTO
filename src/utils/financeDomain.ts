@@ -1862,3 +1862,45 @@ export const receitaDoConjuntoCentavos = (
   });
   return Math.max(0, receita - abatido);
 };
+
+/**
+ * PARES DESFEITOS NO FLUXO DE CAIXA (decisao do dono, 21/10/2026). Venda/OS
+ * cancelada deixa a entrada original (estornada) e cria a saida do estorno; a
+ * devolucao estornada, o contrario. O saldo fica certo, mas Entradas e Saidas
+ * somavam os dois. Agora, quando o original E o estorno estao na mesma lista
+ * (o periodo filtrado), nenhum dos dois entra nos totais. Estorno sozinho (venda
+ * de antes do periodo cancelada agora) continua: o dinheiro saiu agora.
+ */
+export interface LancamentoComOrigem extends TransacaoDeReceita {
+  id: string;
+  sourcePaymentTransactionId?: string | null;
+  idempotencyKey?: string | null;
+  devolucaoId?: string | null;
+}
+
+/** Id do lancamento que este estorno desfaz, ou null. */
+export const originalDoEstorno = (t: LancamentoComOrigem): string | null => {
+  const categoria = String(t.categoria || '').trim();
+  if (t.tipo === 'saida' && (categoria === 'Cancelamento de Venda' || categoria === 'Cancelamento de OS') && t.sourcePaymentTransactionId) {
+    return String(t.sourcePaymentTransactionId);
+  }
+  if (t.tipo === 'entrada' && String(t.idempotencyKey || '').startsWith('estorno_devolucao:') && t.devolucaoId) {
+    return `devolucao_${t.devolucaoId}`;
+  }
+  return null;
+};
+
+/** Ids dos lancamentos que se anulam dentro da lista (original desfeito + o seu estorno). */
+export const idsDosParesDesfeitos = (lista: LancamentoComOrigem[]): Set<string> => {
+  const porId = new Map(lista.map((t) => [t.id, t]));
+  const pares = new Set<string>();
+  lista.forEach((t) => {
+    const idOriginal = originalDoEstorno(t);
+    const original = idOriginal ? porId.get(idOriginal) : undefined;
+    if (original && lancamentoDesfeito(original)) {
+      pares.add(t.id);
+      pares.add(original.id);
+    }
+  });
+  return pares;
+};

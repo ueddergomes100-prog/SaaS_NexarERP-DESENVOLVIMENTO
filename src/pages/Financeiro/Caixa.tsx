@@ -7,7 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { fromCents, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
+import { fromCents, idsDosParesDesfeitos, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
 import { addDaysToDateInput, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { estornarBaixaComConfirmacao, planejarEstornoPorTipo } from '../../services/baixaFinanceiraService';
@@ -134,8 +134,13 @@ const Caixa: React.FC = () => {
     return matchesVisibleFilters(t);
   });
 
-  const totalEntradas = filteredTransacoes.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
-  const totalSaidas = filteredTransacoes.filter(t => t.tipo === 'saida' && t.status === 'Paga').reduce((acc, curr) => acc + curr.valor, 0);
+  // Venda/OS cancelada e o seu estorno (ou devolucao estornada) no mesmo periodo
+  // se anulam: ficam na lista, mas fora de Entradas e Saidas (decisao do dono,
+  // 21/10/2026). O saldo nao muda. Ver idsDosParesDesfeitos em financeDomain.
+  const paresDesfeitos = idsDosParesDesfeitos(filteredTransacoes);
+  const nosTotais = filteredTransacoes.filter((t) => !paresDesfeitos.has(t.id));
+  const totalEntradas = nosTotais.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + Number(curr.valor || 0), 0);
+  const totalSaidas = nosTotais.filter(t => t.tipo === 'saida' && t.status === 'Paga').reduce((acc, curr) => acc + curr.valor, 0);
   const saldoAtual = totalEntradas - totalSaidas;
   // Vendas de PDV em meios digitais: so registro/visao geral do dia, nao
   // soma no saldo (o saldo digital de verdade vive na tela Banco).

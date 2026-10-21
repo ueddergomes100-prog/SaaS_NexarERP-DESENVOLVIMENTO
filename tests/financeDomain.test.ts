@@ -18,6 +18,7 @@ import {
   abateReceita,
   contaComoReceita,
   lancamentoDesfeito,
+  idsDosParesDesfeitos,
   receitaDoConjuntoCentavos,
   normalizeCreditCardFeeSchedule,
   normalizePayments,
@@ -1102,6 +1103,23 @@ test('receita nunca negativa: cancelada some, crédito não conta, só devoluç�
   assert.equal(receitaDoConjuntoCentavos([{ ...venda, valorCentavos: 100 }, devolucao]), 0);
   // Caso normal.
   assert.equal(receitaDoConjuntoCentavos([venda, cancelada, estornoCancelamento, devolucao]), 1400);
+});
+
+test('Fluxo de Caixa (21/10/2026): original desfeito e o seu estorno saem juntos dos totais', () => {
+  const venda = { id: 'v1', tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', valorCentavos: 1000, estornada: true, statusOperacional: 'Cancelada' };
+  const estorno = { id: 'estorno_cancelamento_v1', tipo: 'saida', status: 'Paga', categoria: 'Cancelamento de Venda', sourcePaymentTransactionId: 'v1', valorCentavos: 1000 };
+  const outra = { id: 'v2', tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', valorCentavos: 500 };
+  assert.deepEqual([...idsDosParesDesfeitos([venda, estorno, outra])].sort(), ['estorno_cancelamento_v1', 'v1']);
+  // Venda de antes do periodo, cancelada agora: o estorno fica (o dinheiro saiu agora).
+  assert.equal(idsDosParesDesfeitos([estorno, outra]).size, 0);
+  // Original que nao foi desfeito nao forma par.
+  assert.equal(idsDosParesDesfeitos([{ ...venda, estornada: false, statusOperacional: '' }, estorno]).size, 0);
+  // OS cancelada e devolucao estornada (a entrada do estorno aponta a devolucao).
+  const os = { ...venda, id: 'os1' };
+  const estornoOs = { ...estorno, id: 'e2', categoria: 'Cancelamento de OS', sourcePaymentTransactionId: 'os1' };
+  const devolucao = { id: 'devolucao_d1', tipo: 'saida', status: 'Paga', categoria: 'Devolução de Venda', valorCentavos: 300, estornada: true, statusOperacional: 'Estornada' };
+  const estornoDev = { id: 'estorno_devolucao_d1', tipo: 'entrada', status: 'Paga', categoria: 'Devolução de Venda', idempotencyKey: 'estorno_devolucao:d1', devolucaoId: 'd1', valorCentavos: 300 };
+  assert.equal(idsDosParesDesfeitos([os, estornoOs, devolucao, estornoDev]).size, 4);
 });
 
 test('Cashback (20/10/2026): natureza de credito do cliente, confirmado na hora, fora da receita', () => {

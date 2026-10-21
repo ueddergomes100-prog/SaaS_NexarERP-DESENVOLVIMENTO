@@ -83,7 +83,12 @@ const ehHoje = (value: unknown): boolean => {
  *  1 leitura. A versao anterior olhava os ultimos 50 documentos da EMPRESA e
  *  filtrava o vendedor aqui -- com mais de 50 lancamentos no dia, a conta
  *  saia errada. Sem os indices (tenantId, vendedorId|criadoPor, createdAt)
- *  publicados, cai na janela antiga (contarHojeNaJanela). */
+ *  publicados, cai na janela antiga (contarHojeNaJanela).
+ *
+ *  Pedido cancelado nao conta (21/10/2026): os pedidos de hoje do vendedor sao
+ *  lidos (poucos, so' dele e so' de hoje) e os cancelados ficam de fora. Contar
+ *  pelo status no servidor exigiria indice novo (tenantId, vendedorId, status,
+ *  createdAt). */
 export const buscarResumoHojeDoVendedor = async (
   tenantId: string,
   vendedorId: string,
@@ -92,8 +97,11 @@ export const buscarResumoHojeDoVendedor = async (
   if (inicioHoje) {
     const desde = Timestamp.fromDate(inicioHoje);
     const contar = (q: Query) => getCountFromServer(q).then((s) => s.data().count).catch(() => null);
+    const contarSemCancelados = (q: Query) => getDocs(q)
+      .then((s) => s.docs.filter((d) => !isPedidoCancelado(d.data().status)).length)
+      .catch(() => null);
     const [pedidos, orcamentos] = await Promise.all([
-      contar(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('vendedorId', '==', vendedorId), where('createdAt', '>=', desde))),
+      contarSemCancelados(query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('vendedorId', '==', vendedorId), where('createdAt', '>=', desde))),
       contar(query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId), where('criadoPor', '==', vendedorId), where('createdAt', '>=', desde))),
     ]);
     if (pedidos !== null && orcamentos !== null) return { pedidos, orcamentos };
@@ -123,7 +131,7 @@ const contarHojeNaJanela = async (
 
   const pedidos = (pedidosSnap?.docs || []).filter((docSnap) => {
     const data = docSnap.data();
-    return data.vendedorId === vendedorId && ehHoje(data.createdAt);
+    return data.vendedorId === vendedorId && ehHoje(data.createdAt) && !isPedidoCancelado(data.status);
   }).length;
 
   const orcamentos = (orcamentosSnap?.docs || []).filter((docSnap) => {

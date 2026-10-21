@@ -104,6 +104,8 @@ const MODULOS = [
   // Tabelas fiscais (20/10/2026): CFOP do sistema com a funcao de cada um; base de NCM/CEST.
   'src/utils/cfopDomain.ts',
   'src/utils/tabelaFiscalDomain.ts',
+  // Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
+  'src/utils/inutilizacaoDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

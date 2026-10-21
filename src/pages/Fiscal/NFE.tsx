@@ -39,6 +39,7 @@ import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import { nomeArquivoDocumento, numeroDaNota } from '../../utils/nomeArquivoDomain';
 import CartaCorrecaoModal from '../../components/common/CartaCorrecaoModal';
+import InutilizacaoModal from '../../components/common/InutilizacaoModal';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import { motivoQueImpedeCartaNaTela, notaAceitaCartaCorrecao, type CartaEnviada } from '../../utils/cartaCorrecaoDomain';
 import { desfechoDoStatus, type EtapaEmissao } from '../../utils/emissaoProgressoDomain';
@@ -379,6 +380,9 @@ const NFE: React.FC = () => {
   const [importedPedidoPagamentos, setImportedPedidoPagamentos] = useState<PaymentRecord[]>([]);
   /** Tela "Emitir NF-e em lote" aberta (ver EmissaoLoteModal). */
   const [loteAberto, setLoteAberto] = useState(false);
+  // Inutilizacao de numeracao (21/10/2026).
+  const [inutilizacaoAberta, setInutilizacaoAberta] = useState(false);
+  const [seriePadrao, setSeriePadrao] = useState<{ nfe: string; nfce: string }>({ nfe: '', nfce: '' });
   const [atualizandoCadastro, setAtualizandoCadastro] = useState(false);
 
   // Importação de Ordens de Serviço (NFS-e) -- so servicos, nunca pecas
@@ -497,6 +501,12 @@ const NFE: React.FC = () => {
         setEmailPeloSistema(configData?.emailNotasConfigurado === true);
         setRegimeTributario((configData?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
         setMensagemPadraoNota(mensagemDoDocumento(configData, 'notaFiscal'));
+        // Serie de cada modelo: sugerida na inutilizacao de numeracao.
+        const numeracao = (configData?.spedyNumeracao || {}) as Record<string, { series?: unknown } | undefined>;
+        setSeriePadrao({
+          nfe: numeracao.productInvoice?.series != null ? String(numeracao.productInvoice.series) : '',
+          nfce: numeracao.consumerInvoice?.series != null ? String(numeracao.consumerInvoice.series) : '',
+        });
 
         // 1c. Config de NFS-e do tenant (Configuracoes > Emissao Fiscal
         // Habilitada > Emite NFS-e) -- so preenche os defaults do modal
@@ -2938,6 +2948,11 @@ const NFE: React.FC = () => {
                 onClick: () => setLoteAberto(true),
               },
               {
+                texto: 'Inutilizar numeração', Icone: Ban, oculto: !canEmitirNota,
+                titulo: 'Avisar a SEFAZ que números de NF-e/NFC-e que pularam não serão usados',
+                onClick: () => setInutilizacaoAberta(true),
+              },
+              {
                 texto: 'Sincronizar notas', Icone: RefreshCw, desabilitado: syncing,
                 titulo: 'Busca na Spedy a situação atual das notas em processamento',
                 onClick: () => { void handleManualSyncAll(); },
@@ -3318,6 +3333,12 @@ const NFE: React.FC = () => {
       {devolucaoNfeId && (
         <DevolucaoNfeModal devolucaoId={devolucaoNfeId} onClose={() => setDevolucaoNfeId(null)} />
       )}
+
+      <InutilizacaoModal
+        aberto={inutilizacaoAberta}
+        seriePadrao={seriePadrao}
+        onFechar={() => setInutilizacaoAberta(false)}
+      />
 
       {(() => {
         const notaDaCarta = notaDaCartaId ? invoices.find((n) => n.id === notaDaCartaId) : null;

@@ -43,6 +43,7 @@ const osRoutes = require('./routes/os.routes');
 const descontosRoutes = require('./routes/descontos.routes');
 const cashbackRoutes = require('./routes/cashback.routes');
 const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
+const inutilizacaoRoutes = require('./routes/inutilizacao.routes');
 const relatorioContadorRoutes = require('./routes/relatorioContador.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
@@ -223,6 +224,8 @@ app.use('/api/descontos', descontosRoutes);
 app.use('/api/cashback', cashbackRoutes);
 // Tabelas fiscais (20/10/2026): CFOP ativo na empresa e base unica de NCM/CEST.
 app.use('/api/tabelas-fiscais', tabelasFiscaisRoutes);
+// Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
+app.use('/api/inutilizacoes', inutilizacaoRoutes);
 // Relatorio do contador, fase 2 (20/10/2026): envio do PDF e do .zip dos XMLs ao contador.
 app.use('/api/relatorio-contador', relatorioContadorRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'

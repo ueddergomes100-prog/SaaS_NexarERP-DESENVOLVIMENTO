@@ -295,10 +295,27 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
   flex-wrap: wrap !important;
   row-gap: 16px !important;
 }
-.app-layout-wrapper .page-content .page-header > :first-child,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > :first-child {
+.app-layout-wrapper .page-content .page-header > :first-child:not(button, a),
+.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > :first-child:not(button, a) {
   flex: 1 1 320px;
   min-width: 260px;
+}
+/* Botao de voltar na frente do titulo (21/10/2026): ele fica do tamanho do icone e o titulo
+   (o bloco seguinte) e' que ocupa o espaco -- antes o botao esticava a largura toda. */
+.app-layout-wrapper .page-content .page-header > :is(button, a):first-child {
+  flex: 0 0 auto;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+.app-layout-wrapper .page-content .page-header > :is(button, a):first-child + div {
+  flex: 1 1 320px;
+  min-width: 0;
 }
 /* textos do cabecalho */
 .app-layout-wrapper .page-content .page-header :is(h1, h2, .page-title),

@@ -10,7 +10,7 @@ import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingServic
 import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
-import { PERMISSAO_BALANCO, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
+import { podeContarBalancoNoApp, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { comOrigem } from './navegacaoApp';
@@ -243,9 +243,8 @@ const VendedorHome: React.FC = () => {
             {userPermissions.includes('financeiro.receber') && (
               <Atalho Icone={ArrowUpCircle} rotulo="Contas a Receber" aoTocar={() => navigate('/vendedor/contas-receber')} />
             )}
-            {/* Balanco mexe no saldo do estoque: so' quem tem a permissao de Ajuste
-                Manual de Estoque no cadastro do funcionario ve o atalho. */}
-            {userPermissions.includes(PERMISSAO_BALANCO) && (
+            {/* Balanco (21/10/2026): quem tem "Estoque: Balanco -- contar" (dono/gestor sempre). */}
+            {podeContarBalancoNoApp(userRole, isOwner, userPermissions) && (
               <Atalho Icone={ClipboardList} rotulo="Balanço" aoTocar={() => navigate('/vendedor/balanco')} />
             )}
           </div>

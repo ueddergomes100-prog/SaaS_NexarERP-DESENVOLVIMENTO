@@ -24,7 +24,8 @@ import VendedorFaixaOffline from './VendedorFaixaOffline';
 import VendedorOsImprimir from './VendedorOsImprimir';
 import './vendedorMobile.css';
 import './vendedorVisual.css';
-import { PERMISSAO_BALANCO } from './vendedorPermissoes';
+import { podeContarBalancoNoApp } from './vendedorPermissoes';
+import VendedorBalanco from './VendedorBalanco';
 import VendedorNovoCliente from './VendedorNovoCliente';
 import VendedorNovaTroca from './VendedorNovaTroca';
 import VendedorTrocas from './VendedorTrocas';
@@ -51,11 +52,11 @@ import VendedorConferencia from './VendedorConferencia';
 // rascunho reaberto) -- ja tem botao de acao fixo embaixo, sem espaco (nem
 // sentido) pra navegacao.
 // Conferencia (15/10/2026): a tela de conferir usa a barra de baixo para a quantidade e o "Fechar conferencia".
-const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/', '/vendedor/conferencia/'];
+const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/', '/vendedor/conferencia/', '/vendedor/balanco'];
 
 const VendedorShell: React.FC = () => {
   const location = useLocation();
-  const { currentUser, loading, acessoAppMobile, logout, userPermissions } = useAuth();
+  const { currentUser, loading, acessoAppMobile, logout, userPermissions, userRole, isOwner } = useAuth();
 
   if (loading) {
     return (
@@ -143,13 +144,7 @@ const VendedorShell: React.FC = () => {
           <Route path="conferencia/:pedidoId" element={<VendedorConferencia />} />
           <Route
             path="balanco"
-            element={userPermissions.includes(PERMISSAO_BALANCO) ? (
-              <VendedorEmBreve
-                titulo="Balanço"
-                descricao="A contagem de estoque direto pelo celular está a caminho. Em breve dá pra fazer o balanço sem precisar do computador."
-                Icon={ClipboardList}
-              />
-            ) : <Navigate to="/vendedor" replace />}
+            element={podeContarBalancoNoApp(userRole, isOwner, userPermissions) ? <VendedorBalanco /> : <Navigate to="/vendedor" replace />}
           />
           <Route path="*" element={<Navigate to="/vendedor" replace />} />
         </Routes>

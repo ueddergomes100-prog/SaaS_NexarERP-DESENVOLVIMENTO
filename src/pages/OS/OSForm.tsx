@@ -101,6 +101,7 @@ import {
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
 import { conferirPrecos } from '../../utils/conferenciaPrecoDomain';
+import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { FORMAS_A_VISTA_PADRAO, ROTULO_CONDICAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico, type OrigemPreco, type TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import './OS.css';
@@ -1185,6 +1186,14 @@ const OSForm: React.FC = () => {
       || (statusGravado === STATUS_OS_CANCELADA && alvo === STATUS_OS_CANCELADA);
     const cancelar = isEditing && alvo === STATUS_OS_CANCELADA && statusGravado !== STATUS_OS_CANCELADA;
     const finalizar = alvo === STATUS_OS_FINALIZADA && !soDescritivo;
+    // Balanco aberto com as vendas travadas (21/10/2026): OS nao fecha ate' ele acabar.
+    if (finalizar && tenantId) {
+      const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a OS');
+      if (travaDoBalanco) {
+        showError('Balanço em andamento', travaDoBalanco);
+        return false;
+      }
+    }
 
     // Nivel 2 (sistema): so faz sentido checar o desconto no momento em que
     // a OS vira receita de verdade -- mesmo gate que ja existe pra validar

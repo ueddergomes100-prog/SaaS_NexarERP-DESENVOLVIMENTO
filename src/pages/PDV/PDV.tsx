@@ -46,6 +46,7 @@ import {
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
+import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, findEmbalagemIdByExactCode, type ProductSearchMode } from '../../utils/productSearch';
@@ -943,6 +944,12 @@ const PDV: React.FC = () => {
     if (!currentUser || !tenantId || !session) return;
     if (cartItems.length === 0) {
       showError('Venda vazia', 'Adicione pelo menos um produto.');
+      return;
+    }
+    // Balanco aberto com as vendas travadas (21/10/2026).
+    const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda no PDV');
+    if (travaDoBalanco) {
+      showError('Balanço em andamento', travaDoBalanco);
       return;
     }
 

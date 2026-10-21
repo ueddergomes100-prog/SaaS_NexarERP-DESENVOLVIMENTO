@@ -39,6 +39,8 @@ const ImportarProdutos = lazy(() => import('../pages/Estoque/ImportarProdutos'))
 const ImportarDadosFiscais = lazy(() => import('../pages/Estoque/ImportarDadosFiscais'));
 const ImportarComposicao = lazy(() => import('../pages/Estoque/ImportarComposicao'));
 const AjusteEstoque = lazy(() => import('../pages/Estoque/AjusteEstoque'));
+const Balanco = lazy(() => import('../pages/Estoque/Balanco'));
+const BalancoContar = lazy(() => import('../pages/Estoque/BalancoContar'));
 const RelatorioEstoque = lazy(() => import('../pages/Estoque/RelatorioEstoque'));
 const LotesValidades = lazy(() => import('../pages/Estoque/LotesValidades'));
 const RelatorioAjustesEstoque = lazy(() => import('../pages/Estoque/RelatorioAjustesEstoque'));
@@ -165,6 +167,8 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque/importar-fiscal', element: <ImportarDadosFiscais /> },
   { path: 'estoque/importar-composicao', element: <ImportarComposicao /> },
   { path: 'estoque/ajuste', element: <AjusteEstoque /> },
+  { path: 'estoque/balanco', element: <Balanco /> },
+  { path: 'estoque/balanco/contar', element: <BalancoContar /> },
   { path: 'estoque/relatorio', element: <RelatorioEstoque /> },
   { path: 'estoque/lotes', element: <LotesValidades /> },
   { path: 'estoque/relatorio-ajustes', element: <RelatorioAjustesEstoque /> },

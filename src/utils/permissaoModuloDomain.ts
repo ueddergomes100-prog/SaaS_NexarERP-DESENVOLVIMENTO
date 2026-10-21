@@ -70,6 +70,9 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'fiscal.excluir': ['fiscal.nfe'],
   'fiscal.relatorio_contador': ['fiscal.nfe'],
   'fiscal.tabelas': ['fiscal.nfe'],
+  // Balanco (21/10/2026): faz parte do modulo de ajuste de estoque.
+  'estoque.balanco_gerenciar': ['estoque.ajusteManual'],
+  'estoque.balanco_contar': ['estoque.ajusteManual'],
   'fiscal.entrada': ['fiscal.entrada_nfe'],
   'fiscal.entrada_historico': ['fiscal.entrada_nfe'],
 

@@ -22,7 +22,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // generico '/estoque' logo abaixo (mais especifico primeiro, senao nunca
   // seriam alcancadas) -- e 'relatorio-ajustes' antes de 'relatorio' pelo
   // mesmo motivo (prefixo mais longo primeiro).
-  else if (path.startsWith('/estoque/ajuste')) routeModule = 'estoque.ajusteManual';
+  else if (path.startsWith('/estoque/ajuste') || path.startsWith('/estoque/balanco')) routeModule = 'estoque.ajusteManual';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routeModule = 'estoque.relatorioAjustes';
   else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes')) routeModule = 'estoque.relatorio';
   else if (path.startsWith('/estoque/notas-avulsas')) routeModule = 'estoque.nota_avulsa';
@@ -87,6 +87,9 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/veiculos')) routePermission = 'cadastros.veiculos';
   else if (path.startsWith('/usuarios')) routePermission = 'administrativo.equipe';
   else if (path.startsWith('/estoque/ajuste')) routePermission = 'estoque.ajusteManual';
+  // Balanco (21/10/2026): "contar" e' a tela de quem conta; o resto e' do gestor.
+  else if (path.startsWith('/estoque/balanco/contar')) routePermission = 'estoque.balanco_contar';
+  else if (path.startsWith('/estoque/balanco')) routePermission = 'estoque.balanco_gerenciar';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routePermission = 'estoque.relatorioAjustes';
   else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes')) routePermission = 'estoque.relatorio';
   else if (path.startsWith('/estoque/notas-avulsas')) routePermission = 'estoque.nota_avulsa';

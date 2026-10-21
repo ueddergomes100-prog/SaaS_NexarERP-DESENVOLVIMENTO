@@ -193,6 +193,7 @@ import {
 import { lerPromocao, promocaoDoProduto, quantidadeLiberadaNaPromocao, type PromocaoComId } from '../../utils/promocaoDomain';
 import { vendidoNaPromocao } from '../../services/promocaoService';
 import { conferirPrecos } from '../../utils/conferenciaPrecoDomain';
+import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
@@ -3073,6 +3074,12 @@ const PedidoVendaForm: React.FC = () => {
     if (!currentUser || !tenantId) return false;
     if (itens.length === 0) {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
+      return false;
+    }
+    // Balanco aberto com as vendas travadas (21/10/2026): pre-venda continua, finalizar nao.
+    const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda');
+    if (travaDoBalanco) {
+      showError('Balanço em andamento', travaDoBalanco);
       return false;
     }
 

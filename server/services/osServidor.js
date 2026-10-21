@@ -36,6 +36,7 @@ const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda, conferirPrecosNoServidor } = require('./vendaFechamento');
 const cd = require('../domain/conferenciaDescontoDomain');
 const cp = require('../domain/conferenciaPrecoDomain');
+const { bloqueioPorBalanco } = require('../domain/balancoDomain');
 const comprovantes = require('./comprovantes');
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
@@ -118,6 +119,9 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
   const configSnap = await db.collection('configuracoes').doc(tenantId).get();
   const config = configSnap.exists ? configSnap.data() : {};
   const permitirSemEstoque = config.venderSemEstoque === true;
+  // Balanco aberto com as vendas travadas (21/10/2026): OS nao fecha ate' ele acabar.
+  const travaDoBalanco = bloqueioPorBalanco(config.balancoEmAndamento, 'finalizar a OS');
+  if (travaDoBalanco) throw new ErroVenda(409, travaDoBalanco);
 
   // Pagamentos: a mesma conta da tela, sobre o total da OS GRAVADA.
   const totais = osf.totaisDaOs(antes);

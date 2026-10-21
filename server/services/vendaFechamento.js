@@ -51,6 +51,7 @@ const cp = require('../domain/conferenciaPrecoDomain');
 const { condicaoDoPagamento, parseFormasAVista } = require('../domain/precoVendaDomain');
 const { lerPromocao, promocaoValeNoDia } = require('../domain/promocaoDomain');
 const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
+const { bloqueioPorBalanco } = require('../domain/balancoDomain');
 const grade = require('../domain/gradeProdutosDomain');
 const comprovantes = require('./comprovantes');
 const cashback = require('./cashback');
@@ -202,6 +203,9 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const configSnap = await db.collection('configuracoes').doc(tenantId).get();
   const config = configSnap.exists ? configSnap.data() : {};
   const permitirSemEstoque = config.venderSemEstoque === true;
+  // Balanco aberto com as vendas travadas (21/10/2026): nada finaliza ate' ele fechar.
+  const travaDoBalanco = bloqueioPorBalanco(config.balancoEmAndamento, pedido.pdvSessionId ? 'finalizar a venda no PDV' : 'finalizar a venda');
+  if (travaDoBalanco) throw new ErroVenda(409, travaDoBalanco);
 
   // Pagamentos: a mesma conta da tela, com a configuracao lida daqui.
   const totais = venda.totaisDoFechamento({

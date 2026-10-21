@@ -45,6 +45,8 @@ const MOTIVOS_DO_SISTEMA: Record<string, string> = {
   transferencia_saida: 'Transferência para outra filial',
   transferencia_entrada: 'Transferência de outra filial',
   transferencia_retorno: 'Transferência devolvida',
+  // Balanco (21/10/2026, server/services/balanco.js).
+  balanco: 'Balanço (inventário)',
 };
 
 export const labelMotivoAjusteEstoque = (tipo: TipoAjusteEstoque, value: string): string =>

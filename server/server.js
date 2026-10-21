@@ -45,6 +45,7 @@ const cashbackRoutes = require('./routes/cashback.routes');
 const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
 const inutilizacaoRoutes = require('./routes/inutilizacao.routes');
 const devolucaoCompraRoutes = require('./routes/devolucaoCompra.routes');
+const balancoRoutes = require('./routes/balanco.routes');
 const relatorioContadorRoutes = require('./routes/relatorioContador.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
@@ -229,6 +230,8 @@ app.use('/api/tabelas-fiscais', tabelasFiscaisRoutes);
 app.use('/api/inutilizacoes', inutilizacaoRoutes);
 // Devolucao de compra ao fornecedor (21/10/2026): estoque, financeiro e a NF-e de devolucao.
 app.use('/api/devolucao-compra', devolucaoCompraRoutes);
+// Balanco / inventario (21/10/2026): abrir, dividir, contar (cego), conferir e fechar.
+app.use('/api/balancos', balancoRoutes);
 // Relatorio do contador, fase 2 (20/10/2026): envio do PDF e do .zip dos XMLs ao contador.
 app.use('/api/relatorio-contador', relatorioContadorRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'

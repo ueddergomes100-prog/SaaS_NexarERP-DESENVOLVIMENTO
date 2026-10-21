@@ -111,6 +111,8 @@ const MODULOS = [
   'src/utils/nfeXmlDomain.ts',
   'src/utils/xmlCompactoDomain.ts',
   'src/utils/devolucaoCompraDomain.ts',
+  // Balanco / inventario (21/10/2026).
+  'src/utils/balancoDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

@@ -1,11 +1,15 @@
 import { hasTenantFullAccess } from '../../utils/roles';
 /**
- * Permissao que libera o Balanco (contagem de estoque) no app do vendedor.
- * O balanco corrige o SALDO do estoque, e a permissao que o cadastro do
- * funcionario ja tem pra isso e' o Ajuste Manual de Estoque. Sem ela o atalho
- * some e a rota /vendedor/balanco volta pro inicio.
+ * Balanco (contagem de estoque) no app (21/10/2026): permissao propria de
+ * CONTAR ("Estoque: Balanco -- contar"); quem fecha e ajusta o estoque e' o
+ * gestor, no computador. Dono/gestor sempre. Sem ela o atalho some e a rota
+ * /vendedor/balanco volta pro inicio.
  */
-export const PERMISSAO_BALANCO = 'estoque.ajusteManual';
+export const PERMISSAO_BALANCO = 'estoque.balanco_contar';
+
+export const podeContarBalancoNoApp = (userRole: unknown, isOwner: boolean, permissoes: string[]): boolean => (
+  hasTenantFullAccess(userRole, isOwner) || permissoes.includes(PERMISSAO_BALANCO)
+);
 
 /**
  * Quem pode cadastrar cliente pelo app: as mesmas permissoes que as regras do

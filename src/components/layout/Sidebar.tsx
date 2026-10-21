@@ -14,6 +14,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ClipboardList,
+  ClipboardCheck,
   Coins,
   CreditCard,
   DollarSign,
@@ -235,6 +236,9 @@ const Sidebar: React.FC = () => {
         // funcionarios em producao). So mudou de grupo visual no menu.
         { label: 'Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
         { label: 'Ajuste Manual', to: '/estoque/ajuste', icon: SlidersHorizontal, module: 'estoque.ajusteManual', permission: 'estoque.ajusteManual' },
+        // Balanco (21/10/2026): o gestor abre/confere/fecha; quem conta tem a tela "Contar balanco".
+        { label: 'Balanço', to: '/estoque/balanco', icon: ClipboardList, module: 'estoque.ajusteManual', permission: 'estoque.balanco_gerenciar' },
+        { label: 'Contar balanço', to: '/estoque/balanco/contar', icon: ClipboardCheck, module: 'estoque.ajusteManual', permission: 'estoque.balanco_contar' },
         { label: 'Transferências', to: '/estoque/transferencias', icon: ArrowLeftRight, module: 'cadastros.estoque', permission: 'filiais.utilizar' },
         { label: 'Relatório de Estoque', to: '/estoque/relatorio', icon: PieChart, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
         // Lotes e Validades (2026-09-25): leitura, entao usa a permissao do Relatorio de Estoque.

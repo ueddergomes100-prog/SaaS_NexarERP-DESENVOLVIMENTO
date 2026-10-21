@@ -149,6 +149,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // margem, fornecedor) sem controle independente -- achado pelo usuario.
       { id: 'cadastros.estoque_alterar', label: 'Estoque: Abrir Cadastro de Produto', color: '#0ea5e9' },
       { id: 'estoque.ajusteManual', label: 'Estoque: Ajuste Manual', color: '#0ea5e9' },
+      // Balanco / inventario (21/10/2026): quem abre/confere/fecha e quem so' conta (app e computador).
+      { id: 'estoque.balanco_gerenciar', label: 'Estoque: Balanço — abrir, conferir e fechar', color: '#0ea5e9' },
+      { id: 'estoque.balanco_contar', label: 'Estoque: Balanço — contar', color: '#0ea5e9' },
       { id: 'estoque.relatorio', label: 'Estoque: Relatório de Estoque', color: '#0ea5e9' },
       { id: 'estoque.relatorioAjustes', label: 'Estoque: Relatório de Ajustes', color: '#0ea5e9' },
       { id: 'estoque.nota_avulsa', label: 'Estoque: Nota Avulsa (Compra Manual)', color: '#0ea5e9' },

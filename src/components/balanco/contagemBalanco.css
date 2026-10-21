@@ -1,0 +1,37 @@
+/* Tela de contar o balanco (21/10/2026): a mesma no app e no computador. Celular primeiro. */
+.cb { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 0; max-width: 760px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.cb-cartao { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 14px; padding: 14px 16px; }
+.cb-titulo { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.cb-sub { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+.cb-progresso { height: 8px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; margin-top: 10px; }
+.cb-progresso > span { display: block; height: 100%; background: var(--accent-purple, #7c3aed); border-radius: 999px; transition: width .25s ease; }
+.cb-busca { display: flex; gap: 8px; }
+.cb-busca input { flex: 1; min-width: 0; padding: 14px 14px; font-size: 16px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); }
+.cb-busca button { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); font-weight: 600; cursor: pointer; }
+.cb-filtros { display: flex; gap: 8px; overflow-x: auto; }
+.cb-filtros button { flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-secondary, var(--text-primary)); font-size: 13px; font-weight: 600; cursor: pointer; }
+.cb-filtros button[aria-pressed="true"] { background: var(--accent-purple, #7c3aed); border-color: transparent; color: #fff; }
+.cb-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cb-grupo { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin: 10px 2px 2px; }
+.cb-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; min-height: 56px; }
+.cb-item:focus-visible { outline: 2px solid var(--accent-purple, #7c3aed); outline-offset: 2px; }
+.cb-item-nome { flex: 1; min-width: 0; }
+.cb-item-nome strong { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-item-nome small { display: block; font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.cb-selo { flex: 0 0 auto; font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+.cb-selo--ok { background: rgba(16,185,129,.14); color: #059669; }
+.cb-selo--pendente { background: rgba(245,158,11,.14); color: #b45309; }
+.cb-aviso { padding: 10px 12px; border-radius: 10px; border: 1px solid #f59e0b; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
+.cb-erro { padding: 10px 12px; border-radius: 10px; border: 1px solid #ef4444; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
+/* Sticky (e nao fixed): no computador fica no fim da area da pagina, sem cobrir o menu lateral. */
+.cb-rodape { position: sticky; bottom: 0; margin: 4px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--bg-primary); border-top: 1px solid var(--border-color); display: flex; justify-content: center; z-index: 30; }
+.cb-rodape button { width: 100%; max-width: 728px; }
+.cb-fundo { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 1300; display: flex; align-items: flex-end; justify-content: center; }
+.cb-folha { width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto; background: var(--bg-secondary); border-radius: 18px 18px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; }
+@media (min-width: 768px) { .cb-fundo { align-items: center; } .cb-folha { border-radius: 18px; } }
+.cb-qtd { width: 100%; box-sizing: border-box; padding: 16px; font-size: 26px; font-weight: 700; text-align: center; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); }
+.cb-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cb-acoes button { padding: 14px; font-size: 15px; }
+.cb-lote { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-tertiary); cursor: pointer; color: var(--text-primary); width: 100%; text-align: left; }
+.cb-lote[aria-pressed="true"] { border-color: var(--accent-purple, #7c3aed); box-shadow: 0 0 0 1px var(--accent-purple, #7c3aed); }
+.cb-campo { width: 100%; box-sizing: border-box; padding: 12px; font-size: 15px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); }

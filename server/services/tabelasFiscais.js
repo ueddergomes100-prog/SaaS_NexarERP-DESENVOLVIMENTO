@@ -77,33 +77,28 @@ const registrarUso = async ({ itens }) => {
     refsNcm.length ? db.getAll(...refsNcm) : [],
     refsCest.length ? db.getAll(...refsCest) : [],
   ]);
-  const lote = db.batch();
+  // Gravacoes soltas (idempotentes): se uma falhar, a proxima chamada completa.
+  const escritas = [];
   let novosNcm = 0;
   let novosCest = 0;
-  let escritas = 0;
   snapsNcm.forEach((snap, i) => {
     if (snap.exists) return;
     novosNcm += 1;
-    escritas += 1;
-    lote.set(refsNcm[i], { codigo: uso.ncms[i], descricao: '', origem: 'uso', criadoEm: agora() });
+    escritas.push(refsNcm[i].set({ codigo: uso.ncms[i], descricao: '', origem: 'uso', criadoEm: agora() }));
   });
   snapsCest.forEach((snap, i) => {
     const { codigo, ncms } = uso.cests[i];
     if (!snap.exists) {
       novosCest += 1;
-      escritas += 1;
-      lote.set(refsCest[i], { codigo, descricao: '', ncms, origem: 'uso', criadoEm: agora() });
+      escritas.push(refsCest[i].set({ codigo, descricao: '', ncms, origem: 'uso', criadoEm: agora() }));
       return;
     }
     const conhecidos = Array.isArray(snap.data().ncms) ? snap.data().ncms : [];
     const faltam = ncms.filter((n) => !conhecidos.includes(n));
-    if (faltam.length) {
-      escritas += 1;
-      lote.update(refsCest[i], { ncms: admin.firestore.FieldValue.arrayUnion(...faltam) });
-    }
+    if (faltam.length) escritas.push(refsCest[i].update({ ncms: admin.firestore.FieldValue.arrayUnion(...faltam) }));
   });
-  if (escritas > 0) {
-    await lote.commit();
+  if (escritas.length > 0) {
+    await Promise.all(escritas);
     limparCache();
   }
   return { novosNcm, novosCest };

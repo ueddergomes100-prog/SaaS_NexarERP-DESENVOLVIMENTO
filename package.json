@@ -12,6 +12,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@zxing/browser": "0.1.5",
+    "@zxing/library": "0.21.3",
     "date-fns": "^4.1.0",
     "firebase": "^12.12.1",
     "html2canvas": "^1.4.1",

@@ -4,9 +4,9 @@ import { X } from 'lucide-react';
 /**
  * Leitura de codigo de barras pela CAMERA do celular (conferencia no app,
  * pedido do dono 15/10/2026). Usa o leitor embutido do navegador
- * (`BarcodeDetector`, presente no Chrome do Android -- onde o app Vendas
- * roda); sem biblioteca nova. Onde nao existe (ex.: Safari do iPhone), a tela
- * avisa e a pessoa digita o codigo ou usa um leitor bluetooth.
+ * (`BarcodeDetector`, presente no Chrome do Android) quando existe. Onde nao
+ * existe (Safari do iPhone -- o dono nao achou o icone da camera no balanco,
+ * 21/10), le pelo ZXing em JavaScript, carregado so' quando a camera abre.
  */
 
 interface BarcodeDetectorLike {
@@ -18,10 +18,55 @@ const FORMATOS = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'i
 
 export const cameraLeCodigo = (): boolean => (
   typeof window !== 'undefined'
-  && 'BarcodeDetector' in window
   && typeof navigator !== 'undefined'
   && Boolean(navigator.mediaDevices?.getUserMedia)
 );
+
+/** Le um quadro do video; devolve o codigo achado ou null. */
+type LerQuadro = (video: HTMLVideoElement) => Promise<string | null>;
+
+const leitorNativo = (): LerQuadro | null => {
+  if (!('BarcodeDetector' in window)) return null;
+  const Detector = (window as unknown as { BarcodeDetector: BarcodeDetectorCtor }).BarcodeDetector;
+  const detector = new Detector({ formats: FORMATOS });
+  return async (video) => (await detector.detect(video)).find((a) => a.rawValue)?.rawValue ?? null;
+};
+
+// O ZXing em JavaScript le so' o miolo do quadro (onde fica a moldura de
+// mirar), em resolucao cheia: e' mais rapido, e reduzir a imagem borra as
+// barras finas do EAN a ponto de nao ler.
+const RECORTE_LARGURA = 0.9;
+const RECORTE_ALTURA = 0.5;
+
+const leitorZxing = async (): Promise<LerQuadro> => {
+  const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
+    import('@zxing/browser'),
+    import('@zxing/library'),
+  ]);
+  const dicas = new Map<(typeof DecodeHintType)[keyof typeof DecodeHintType], unknown>([
+    [DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39,
+      BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.ITF, BarcodeFormat.QR_CODE,
+    ]],
+    [DecodeHintType.TRY_HARDER, true],
+  ]);
+  const leitor = new BrowserMultiFormatReader(dicas);
+  const tela = document.createElement('canvas');
+  const contexto = tela.getContext('2d', { willReadFrequently: true });
+  return async (video) => {
+    if (!contexto || !video.videoWidth) return null;
+    tela.width = Math.round(video.videoWidth * RECORTE_LARGURA);
+    tela.height = Math.round(video.videoHeight * RECORTE_ALTURA);
+    const x = Math.round((video.videoWidth - tela.width) / 2);
+    const y = Math.round((video.videoHeight - tela.height) / 2);
+    contexto.drawImage(video, x, y, tela.width, tela.height, 0, 0, tela.width, tela.height);
+    try {
+      return leitor.decodeFromCanvas(tela).getText() || null;
+    } catch {
+      return null; // Nenhum codigo neste quadro.
+    }
+  };
+};
 
 interface Props {
   aberto: boolean;
@@ -46,20 +91,23 @@ const LeitorCameraCodigo: React.FC<Props> = ({ aberto, onLido, onFechar }) => {
         return;
       }
       try {
-        fluxo = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        // 1280x720 "ideal": o Safari do iPhone abre em 640x480 se ninguem
+        // pedir, e nessa resolucao o EAN so' le muito perto da lente.
+        fluxo = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
         if (parado) { fluxo.getTracks().forEach((t) => t.stop()); return; }
         if (video.current) {
           video.current.srcObject = fluxo;
           await video.current.play().catch(() => undefined);
         }
-        const Detector = (window as unknown as { BarcodeDetector: BarcodeDetectorCtor }).BarcodeDetector;
-        const detector = new Detector({ formats: FORMATOS });
+        const lerQuadro = leitorNativo() ?? await leitorZxing();
         const procurar = async () => {
           if (parado || !video.current) return;
           try {
             if (video.current.readyState >= 2) {
-              const achados = await detector.detect(video.current);
-              const codigo = achados.find((a) => a.rawValue)?.rawValue;
+              const codigo = await lerQuadro(video.current);
               if (codigo && !parado) {
                 if (typeof navigator.vibrate === 'function') navigator.vibrate(60);
                 onLido(codigo.trim());

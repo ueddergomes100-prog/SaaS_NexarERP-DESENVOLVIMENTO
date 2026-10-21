@@ -38,6 +38,21 @@ const temFundo = (el: Element): boolean => {
   return !!cor && cor !== 'transparent' && !/^rgba\([^)]*,\s*0\)$/.test(cor);
 };
 
+/**
+ * Fundo que ESCONDE o violeta (cartao branco, imagem). Aviso com fundo
+ * translucido (azul/verde a 10%, como "Vendedores de balcao..." em Equipe &
+ * Acessos) deixa o violeta aparecer por tras do texto escuro -- a faixa nao pode
+ * entrar nele (print do dono, 21/10/2026: "linhas quebradas").
+ */
+const temFundoOpaco = (el: Element): boolean => {
+  const estilo = getComputedStyle(el);
+  if (estilo.backgroundImage && estilo.backgroundImage !== 'none') return true;
+  const cor = estilo.backgroundColor || '';
+  const rgba = cor.match(/^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)$/);
+  if (rgba) return Number(rgba[1]) >= 0.9;
+  return /^rgb\(/.test(cor);
+};
+
 const temTextoSolto = (el: Element): boolean => (
   Array.from(el.childNodes).some((no) => no.nodeType === Node.TEXT_NODE && !!no.textContent?.trim())
 );
@@ -65,7 +80,8 @@ const ehFileiraDeBotoes = (el: Element): boolean => (
 /** O primeiro cartao (bloco com fundo proprio) no comeco do bloco -- e' nele que a faixa "entra". */
 const primeiroCartao = (el: Element, profundidade = 0): HTMLElement | null => {
   if (profundidade > PROFUNDIDADE_MAX) return null;
-  if (temFundo(el)) return TAGS_DE_CONTROLE.test(el.tagName) ? null : el as HTMLElement;
+  // Aviso translucido nao e' cartao: a faixa para antes dele.
+  if (temFundo(el)) return TAGS_DE_CONTROLE.test(el.tagName) || !temFundoOpaco(el) ? null : el as HTMLElement;
   // Texto solto antes do cartao (um rotulo, um aviso) ficaria escuro no violeta.
   if (temTextoSolto(el)) return null;
   const primeiro = Array.from(el.children).find(visivel);

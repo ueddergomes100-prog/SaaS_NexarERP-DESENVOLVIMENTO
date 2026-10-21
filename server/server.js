@@ -42,6 +42,7 @@ const osRoutes = require('./routes/os.routes');
 const descontosRoutes = require('./routes/descontos.routes');
 const cashbackRoutes = require('./routes/cashback.routes');
 const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
+const relatorioContadorRoutes = require('./routes/relatorioContador.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
@@ -127,7 +128,10 @@ app.use((req, res, next) => {
 // Limite padrao do express.json() e' 100 KB: uma NF-e com ~130 itens (cada
 // item leva o bloco de impostos) ja passava disso e voltava "request entity
 // too large", em ingles, na tela.
-app.use(express.json({ limit: '2mb' }));
+// Envio ao contador (20/10/2026): PDF + .zip dos XMLs em base64 passam de 2 MB. Essa
+// rota tem o proprio leitor (26 MB, relatorioContador.routes.js); o json global pula ela.
+const jsonPadrao = express.json({ limit: '2mb' });
+app.use((req, res, next) => (req.path.startsWith('/api/relatorio-contador/') ? next() : jsonPadrao(req, res, next)));
 
 // Freio global por IP em todo /api (ver middleware/rateLimit.js). As rotas
 // publicas (onboarding, login do app) tem limites proprios, mais apertados.
@@ -218,6 +222,8 @@ app.use('/api/descontos', descontosRoutes);
 app.use('/api/cashback', cashbackRoutes);
 // Tabelas fiscais (20/10/2026): CFOP ativo na empresa e base unica de NCM/CEST.
 app.use('/api/tabelas-fiscais', tabelasFiscaisRoutes);
+// Relatorio do contador, fase 2 (20/10/2026): envio do PDF e do .zip dos XMLs ao contador.
+app.use('/api/relatorio-contador', relatorioContadorRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'
 // que precisam do banco do proprio ambiente -- ver manutencao.routes.js.
 app.use('/api/manutencao', manutencaoRoutes);

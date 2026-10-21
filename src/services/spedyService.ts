@@ -366,6 +366,11 @@ export const spedyService = {
     URL.revokeObjectURL(url);
   },
 
+  /** XML (ou PDF) de uma carta de correcao como arquivo -- pacote do contador (20/10/2026). */
+  async baixarArquivoCartaCorrecao(id: string, eventId: string, fileType: 'pdf' | 'xml'): Promise<Blob> {
+    return requestBlob(`/api/spedy/product/${id}/corrections/${eventId}/${fileType}`, 'Erro ao baixar a carta de correção.');
+  },
+
   /** PDF (DANFE) ou XML da nota como arquivo, pra mostrar dentro do sistema / salvar com nome. */
   async baixarArquivoFiscal(id: string, type: SpedyType, fileType: 'pdf' | 'xml'): Promise<Blob> {
     return requestBlob(`/api/spedy/${type}/${id}/${fileType}`, 'Erro ao baixar arquivo fiscal.');

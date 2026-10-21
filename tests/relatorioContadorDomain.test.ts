@@ -64,8 +64,10 @@ const todas = [venda, cancelada, devolucao, transferencia, servico, compra, devo
 test('CFOP: formato do contador e conversao do CFOP do fornecedor para entrada', () => {
   assert.equal(formatarCfop('5102'), '5.102');
   assert.equal(cfopDeEntradaDoFornecedor('5.102'), '1102');
-  assert.equal(cfopDeEntradaDoFornecedor('6108'), '2108');
-  assert.equal(cfopDeEntradaDoFornecedor('7101'), '3101');
+  assert.equal(cfopDeEntradaDoFornecedor('6108'), '2102', 'venda a nao contribuinte do fornecedor: compra para comercializacao');
+  assert.equal(cfopDeEntradaDoFornecedor('5405'), '1403', 'venda com ST: compra com ST (1.405 nao existe)');
+  assert.equal(cfopDeEntradaDoFornecedor('6404'), '2403');
+  assert.equal(cfopDeEntradaDoFornecedor('7101'), '3101', 'sem equivalente na tabela: so o primeiro digito');
   assert.equal(cfopDeEntradaDoFornecedor('1202'), '1202', 'ja de entrada fica igual');
   assert.equal(cfopDeEntradaDoFornecedor('51'), '', 'CFOP invalido');
 });
@@ -200,7 +202,7 @@ test('nota recebida com o XML (leitor real): valor contabil por CFOP soma frete,
   });
   assert.deepEqual(linha.porCfop.map((g) => [g.cfop, g.valor, g.st, g.ipi, g.baseSt]), [
     ['1102', 10900, 0, 400, 0],
-    ['1405', 5660, 360, 0, 7000],
+    ['1403', 5660, 360, 0, 7000],
   ]);
   assert.equal(linha.porCfop.reduce((s, g) => s + g.valor, 0), 16560, 'soma dos CFOPs = total da nota');
   assert.equal(linha.valor, 16560);
@@ -209,7 +211,7 @@ test('nota recebida com o XML (leitor real): valor contabil por CFOP soma frete,
   assert.equal(linha.baseSt, 7000);
   assert.equal(linha.icms, 2790);
   const resumo = resumoPorCfop([linha]);
-  assert.deepEqual(resumo.map((r) => [r.cfop, r.valor, r.st, r.ipi]), [['1102', 10900, 0, 400], ['1405', 5660, 360, 0]]);
+  assert.deepEqual(resumo.map((r) => [r.cfop, r.valor, r.st, r.ipi]), [['1102', 10900, 0, 400], ['1403', 5660, 360, 0]]);
 });
 
 test('nota recebida sem XML: itens gravados com IPI/ST e o resto (frete, desconto...) dividido ate fechar com a nota em centavos', () => {
@@ -222,7 +224,7 @@ test('nota recebida sem XML: itens gravados com IPI/ST e o resto (frete, descont
     ],
   });
   // base: 104,00 e 53,60 (157,60); faltam 8,00 divididos na proporcao: 5,28 e 2,72
-  assert.deepEqual(linha.porCfop.map((g) => [g.cfop, g.valor]), [['1102', 10928], ['1405', 5632]]);
+  assert.deepEqual(linha.porCfop.map((g) => [g.cfop, g.valor]), [['1102', 10928], ['1403', 5632]]);
   assert.equal(linha.porCfop.reduce((s, g) => s + g.valor, 0), 16560);
   assert.equal(linha.st, 360);
   assert.equal(linha.ipi, 400);

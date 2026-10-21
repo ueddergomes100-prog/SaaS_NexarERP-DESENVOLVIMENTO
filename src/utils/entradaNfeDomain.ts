@@ -4,7 +4,9 @@
 // (Fatia 3) vem depois. Nesta fatia todo item gravado e 'revenda', porque
 // a importacao ainda so escreve em `estoque` (ver EntradaNFE.tsx).
 
-export type NotaFiscalEntradaItemTipo = 'revenda' | 'materia_prima' | 'insumo';
+/** 'registro' (20/10/2026): o CFOP de entrada nao movimenta estoque (ativo, servico,
+ *  devolucao de venda, transferencia...). O item fica so' na nota, sem itemId. */
+export type NotaFiscalEntradaItemTipo = 'revenda' | 'materia_prima' | 'insumo' | 'registro';
 export type NotaFiscalEntradaStatus = 'ativa' | 'excluida';
 
 export interface ImpostosDoItemRecord {
@@ -27,6 +29,8 @@ export interface NotaFiscalEntradaItemRecord {
   cest?: string;
   ean?: string;
   cfop?: string;
+  /** CFOP de entrada escolhido para o item (Tabelas Fiscais, 20/10/2026). O Relatorio do Contador usa este. */
+  cfopEntrada?: string;
   unidadeNota?: string;
   /** Unidades de estoque por unidade da nota. */
   fator?: number;

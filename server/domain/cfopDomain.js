@@ -22,7 +22,7 @@
  * Puro: usado pela tela, pela entrada/emissao e pelo servidor (server/domain).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDaFuncao = exports.problemaDoCfop = exports.cfopInterestadualEquivalente = exports.cfopEntradaSugerido = exports.NATUREZAS_DO_PRODUTO = exports.cfopsParaEscolha = exports.lerCfopsDesativados = exports.ROTULO_AMBITO = exports.ROTULO_TIPO = exports.cfopPorCodigo = exports.CFOPS = exports.formatarCodigoCfop = exports.normalizarCodigoCfop = exports.ROTULO_DESTINO = exports.ROTULO_FINANCEIRO = exports.ROTULO_ESTOQUE = exports.ROTULO_NATUREZA = exports.FUNCAO_DA_NATUREZA = void 0;
+exports.resumoDaFuncao = exports.acaoDaEntrada = exports.problemaDoCfop = exports.cfopInterestadualEquivalente = exports.cfopEntradaSugerido = exports.NATUREZAS_DO_PRODUTO = exports.cfopsParaEscolha = exports.lerCfopsDesativados = exports.ROTULO_AMBITO = exports.ROTULO_TIPO = exports.cfopPorCodigo = exports.CFOPS = exports.formatarCodigoCfop = exports.normalizarCodigoCfop = exports.ROTULO_DESTINO = exports.ROTULO_FINANCEIRO = exports.ROTULO_ESTOQUE = exports.ROTULO_NATUREZA = exports.FUNCAO_DA_NATUREZA = void 0;
 exports.FUNCAO_DA_NATUREZA = {
     venda: { estoque: 'sai', financeiro: 'receber', receita: true, destino: 'nenhum' },
     servico_prestado: { estoque: 'nenhum', financeiro: 'receber', receita: true, destino: 'nenhum' },
@@ -310,6 +310,34 @@ const problemaDoCfop = (codigo, uso) => {
     return null;
 };
 exports.problemaDoCfop = problemaDoCfop;
+const AVISO_DA_ENTRADA = {
+    compra_ativo: 'Ativo imobilizado não entra no estoque: a nota fica registrada e gera só a conta a pagar.',
+    servico_tomado: 'Serviço não entra no estoque: a nota fica registrada e gera só a conta a pagar.',
+    faturamento_entrega_futura: 'Simples faturamento: gera a conta a pagar; a mercadoria entra depois, na nota de entrega (1.117/2.117).',
+    entrega_futura: 'Entrega de compra já faturada: entra no estoque sem nova conta a pagar.',
+    venda_a_ordem: 'Venda à ordem: entra no estoque sem conta a pagar (o pagamento é da nota do vendedor).',
+    entrada_bonificacao: 'Bonificação, brinde ou amostra: entra no estoque sem conta a pagar.',
+    retorno: 'Retorno: volta para o estoque sem conta a pagar.',
+    outras_entradas: 'Outras entradas: entra no estoque sem conta a pagar.',
+    devolucao_de_venda: 'Devolução de venda: o estoque e o crédito do cliente se lançam em Vendas › Devolução. Aqui a nota fica só registrada.',
+    transferencia_entrada: 'Transferência entre filiais: o estoque entra pela tela Transferências. Aqui a nota fica só registrada.',
+    reclassificacao: 'Reclassificação de kit: a nota fica só registrada (o kit/produção movimenta o estoque).',
+};
+/** O que a entrada faz com o item, pelo CFOP de entrada. Null quando o CFOP nao serve para entrada. */
+const acaoDaEntrada = (codigo) => {
+    const cfop = (0, exports.cfopPorCodigo)(codigo);
+    if (!cfop || cfop.tipo !== 'entrada')
+        return null;
+    const temTelaPropria = cfop.natureza === 'devolucao_de_venda' || cfop.natureza === 'transferencia_entrada';
+    return {
+        cfop,
+        movimentaEstoque: cfop.estoque === 'entra' && !temTelaPropria,
+        geraContaAPagar: cfop.financeiro === 'pagar',
+        exigeInsumo: cfop.destino === 'insumo',
+        aviso: AVISO_DA_ENTRADA[cfop.natureza] ?? '',
+    };
+};
+exports.acaoDaEntrada = acaoDaEntrada;
 /** Texto curto da funcao, para a tela ("Baixa o estoque · Gera conta a receber · Faturamento"). */
 const resumoDaFuncao = (cfop) => [
     exports.ROTULO_ESTOQUE[cfop.estoque],

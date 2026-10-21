@@ -75,6 +75,7 @@ const TIPO_ITEM_LABEL: Record<NotaFiscalEntradaItemRecord['tipo'], string> = {
   revenda: 'Revenda',
   materia_prima: 'Matéria-Prima',
   insumo: 'Insumo',
+  registro: 'Só registro (sem estoque)',
 };
 
 const NotasFiscaisEntradaList: React.FC = () => {
@@ -610,12 +611,19 @@ const NotasFiscaisEntradaList: React.FC = () => {
                   {notaSelecionada.itens.map((item, idx) => (
                     <tr key={idx}>
                       <td>{item.descricaoXml}</td>
-                      <td>{TIPO_ITEM_LABEL[item.tipo]}</td>
+                      <td>
+                        {TIPO_ITEM_LABEL[item.tipo] ?? item.tipo}
+                        {item.cfopEntrada && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>CFOP {item.cfopEntrada.replace(/^(\d)(\d{3})$/, '$1.$2')}</div>}
+                      </td>
                       <td style={{ textAlign: 'center' }}>{item.quantidade}{item.unidadeNota ? ` ${item.unidadeNota}` : ''}</td>
-                      <td style={{ textAlign: 'center' }}>{item.quantidadeEstoque ?? item.quantidade}</td>
+                      <td style={{ textAlign: 'center' }}>{item.tipo === 'registro' ? '—' : (item.quantidadeEstoque ?? item.quantidade)}</td>
                       <td style={{ textAlign: 'right' }}>{currency(item.valorUnitario)}</td>
                       <td style={{ textAlign: 'right' }}>{item.custoUnitarioEstoque !== undefined ? currency(item.custoUnitarioEstoque) : '—'}</td>
-                      <td style={{ textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }} title={item.novo ? 'Foi criado um cadastro novo para este item.' : 'A quantidade foi somada a um cadastro que já existia.'}>{item.novo ? 'Cadastro novo' : 'Somado a cadastro existente'}</td>
+                      {item.tipo === 'registro' ? (
+                        <td style={{ textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }} title="O CFOP de entrada deste item não movimenta estoque: ficou só registrado na nota.">Não entra no estoque</td>
+                      ) : (
+                        <td style={{ textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }} title={item.novo ? 'Foi criado um cadastro novo para este item.' : 'A quantidade foi somada a um cadastro que já existia.'}>{item.novo ? 'Cadastro novo' : 'Somado a cadastro existente'}</td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

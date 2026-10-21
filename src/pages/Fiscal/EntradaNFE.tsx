@@ -48,6 +48,17 @@ import {
   type NotaFiscalEntradaItemRecord,
   type ItemEntradaConfig,
 } from '../../utils/entradaNfeDomain';
+import {
+  ROTULO_NATUREZA,
+  acaoDaEntrada,
+  cfopEntradaSugerido,
+  cfopsParaEscolha,
+  formatarCodigoCfop,
+  problemaDoCfop,
+  resumoDaFuncao,
+} from '../../utils/cfopDomain';
+import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
+import { registrarUsoFiscal } from '../../services/tabelasFiscaisService';
 import { contextoDeReajuste, sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { mostrarImpactoDeCusto } from '../../utils/impactoCustoAlert';
 import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
@@ -193,6 +204,10 @@ const EntradaNFE: React.FC = () => {
   const [modoPagamento, setModoPagamento] = useState<ModoDePagamento>('prazo');
   const [parcelas, setParcelas] = useState<ParcelaComCheque[]>([]);
   const [parcelasAceitas, setParcelasAceitas] = useState(false);
+  // CFOP de entrada de cada item (Tabelas Fiscais, fase 2, 20/10/2026): sugerido
+  // pela equivalencia com o CFOP do fornecedor; decide estoque e conta a pagar.
+  const [cfopsEntrada, setCfopsEntrada] = useState<string[]>([]);
+  const { desativados: cfopsDesativados } = useCfopsDesativados();
   const [categoriaDespesa, setCategoriaDespesa] = useState<string>(CATEGORIAS_DE_COMPRA[0]);
   // Plano de contas de despesas da empresa (Configuracoes); vazio = lista padrao de compras.
   const [categoriasDaEmpresa, setCategoriasDaEmpresa] = useState<string[]>([]);
@@ -447,9 +462,12 @@ const EntradaNFE: React.FC = () => {
   // (nao reseta o que o usuario ja editou se o fornecedor for confirmado
   // de novo por algum motivo).
   const itemConfigsInitializedForRef = useRef<ParsedXML | null>(null);
+  /** Tipo (revenda/materia-prima/insumo) de cada item na ultima vez: para a sugestao do CFOP acompanhar. */
+  const tiposDosItensRef = useRef<Array<ItemEntradaConfig['tipo']>>([]);
   useEffect(() => {
     if (!parsedData) {
       setItemConfigs([]);
+      setCfopsEntrada([]);
       itemConfigsInitializedForRef.current = null;
       return;
     }
@@ -476,7 +494,27 @@ const EntradaNFE: React.FC = () => {
         : inicial;
     });
     setItemConfigs(configs);
+    setCfopsEntrada(parsedData.items.map((item, i) => cfopEntradaSugerido(item.cfop, configs[i].tipo === 'insumo' ? 'insumo' : undefined)));
+    tiposDosItensRef.current = configs.map((c) => c.tipo);
   }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, insumosAtuais, regimeTributario]);
+
+  // Item que vira Insumo (ou deixa de ser): a sugestao do CFOP de entrada
+  // acompanha (1.102 <-> 1.556), a menos que a pessoa ja' tenha trocado a mao.
+  useEffect(() => {
+    if (!parsedData || itemConfigs.length !== parsedData.items.length) return;
+    const anteriores = tiposDosItensRef.current;
+    tiposDosItensRef.current = itemConfigs.map((c) => c.tipo);
+    if (anteriores.length !== itemConfigs.length) return;
+    const sugestao = (idx: number, tipo: ItemEntradaConfig['tipo']) => cfopEntradaSugerido(parsedData.items[idx].cfop, tipo === 'insumo' ? 'insumo' : undefined);
+    setCfopsEntrada((atuais) => atuais.map((cfop, idx) => (
+      anteriores[idx] !== itemConfigs[idx].tipo && cfop === sugestao(idx, anteriores[idx]) ? sugestao(idx, itemConfigs[idx].tipo) : cfop
+    )));
+  }, [itemConfigs, parsedData]);
+
+  /** O que a entrada faz com cada item, pelo CFOP de entrada escolhido. */
+  const acoesDosItens = useMemo(() => cfopsEntrada.map((c) => acaoDaEntrada(c)), [cfopsEntrada]);
+  // Sem nenhum item que gera conta a pagar (bonificacao, retorno, so' registro): a nota entra sem titulo.
+  const notaGeraContaAPagar = acoesDosItens.length === 0 || acoesDosItens.some((a) => !a || a.geraContaAPagar);
 
   /**
    * LOTE E VALIDADE (2026-09-25): item de Revenda vinculado a produto que controla
@@ -535,6 +573,47 @@ const EntradaNFE: React.FC = () => {
     if (!parsedData) return;
     const config = configDoItemSemVinculo(parsedData.items[idx].valorUnitario, usesCsosn(regimeTributario));
     setItemConfigs((prev) => prev.map((atual, i) => (i === idx ? config : atual)));
+  };
+
+  /** CFOP de entrada do item (escolha da tabela) e o que ele faz -- Tabelas Fiscais, fase 2. */
+  const renderCfopEntrada = (idx: number, item: ParsedItem) => {
+    const atual = cfopsEntrada[idx] ?? '';
+    const acao = acoesDosItens[idx];
+    const opcoes = cfopsParaEscolha({ tipo: 'entrada', desativados: cfopsDesativados, manter: atual });
+    const sugerido = cfopEntradaSugerido(item.cfop, itemConfigs[idx]?.tipo === 'insumo' ? 'insumo' : undefined);
+    const exigeInsumoSemSer = Boolean(acao?.exigeInsumo && itemConfigs[idx]?.tipo !== 'insumo');
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '12px', padding: '10px 12px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)' }}>
+        <label htmlFor={`cfop-entrada-${idx}`} style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>CFOP de entrada</label>
+        <select
+          id={`cfop-entrada-${idx}`}
+          value={atual}
+          onChange={(e) => setCfopsEntrada((anteriores) => anteriores.map((c, i) => (i === idx ? e.target.value : c)))}
+          className="form-select"
+          style={{ padding: '6px 10px', fontSize: '13px', maxWidth: '420px' }}
+          title={`CFOP do fornecedor: ${formatarCodigoCfop(String(item.cfop || ''))}`}
+        >
+          {!atual && <option value="">Escolha o CFOP de entrada</option>}
+          {opcoes.map((c) => <option key={c.codigo} value={c.codigo}>{formatarCodigoCfop(c.codigo)} - {c.descricao}</option>)}
+        </select>
+        {acao && (
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            {ROTULO_NATUREZA[acao.cfop.natureza]} · {acao.movimentaEstoque ? resumoDaFuncao(acao.cfop) : `Só registrado · ${acao.geraContaAPagar ? 'Gera conta a pagar' : 'Sem financeiro'}`}
+          </span>
+        )}
+        {atual && sugerido && atual !== sugerido && (
+          <button type="button" className="btn-secondary" style={{ fontSize: '12px', padding: '3px 8px' }} onClick={() => setCfopsEntrada((anteriores) => anteriores.map((c, i) => (i === idx ? sugerido : c)))}>
+            Voltar ao sugerido ({formatarCodigoCfop(sugerido)})
+          </button>
+        )}
+        {acao?.aviso && <div style={{ flexBasis: '100%', fontSize: '12px', color: '#f59e0b' }}>{acao.aviso}</div>}
+        {exigeInsumoSemSer && (
+          <div style={{ flexBasis: '100%', fontSize: '12px', color: 'var(--status-red)' }}>
+            Este CFOP é de uso e consumo: classifique o item como Insumo, ou escolha um CFOP de compra.
+          </div>
+        )}
+      </div>
+    );
   };
 
   const renderPainelDeVinculo = (idx: number, item: ParsedItem) => {
@@ -906,9 +985,28 @@ const EntradaNFE: React.FC = () => {
     const nota = parsedData.nota;
 
     // ------------------------------------------------------------ validacoes
+    // CFOP de entrada de cada item (Tabelas Fiscais, fase 2, 20/10/2026): da
+    // tabela, de entrada e ativo na empresa; uso e consumo so' como Insumo.
+    if (cfopsEntrada.length !== parsedData.items.length) return;
+    for (let idx = 0; idx < parsedData.items.length; idx++) {
+      const item = parsedData.items[idx];
+      const problema = problemaDoCfop(cfopsEntrada[idx], { tipo: 'entrada', desativados: cfopsDesativados, onde: `do item "${item.descricao}"` });
+      if (problema) {
+        showError('Confira o CFOP de entrada', problema);
+        return;
+      }
+      const acao = acoesDosItens[idx];
+      if (acao?.exigeInsumo && itemConfigs[idx].tipo !== 'insumo') {
+        showError('Confira o CFOP de entrada', `O CFOP ${formatarCodigoCfop(acao.cfop.codigo)} é de uso e consumo: classifique "${item.descricao}" como Insumo, ou escolha um CFOP de compra (1.102 ou 1.403).`);
+        return;
+      }
+    }
+
     for (let idx = 0; idx < parsedData.items.length; idx++) {
       const item = parsedData.items[idx];
       const config = itemConfigs[idx];
+      // Item so' registrado (o CFOP nao movimenta estoque): sem cadastro, lote nem preco.
+      if (!acoesDosItens[idx]?.movimentaEstoque) continue;
       if (config.classificacao !== 'novo' && !(Number(config.fator) > 0)) {
         showError('Conversão de unidade', `Informe quantas unidades do estoque cabem em 1 ${item.unidade} de "${item.descricao}" (use 1 se a nota e o estoque usam a mesma unidade).`);
         return;
@@ -951,7 +1049,9 @@ const EntradaNFE: React.FC = () => {
     }
 
     const totalDevido = nota.totais.total;
-    if (modoPagamentoEfetivo === 'prazo') {
+    if (!notaGeraContaAPagar) {
+      // Nenhum CFOP da nota gera conta a pagar (bonificacao, retorno, so' registro): sem parcelas.
+    } else if (modoPagamentoEfetivo === 'prazo') {
       const conferenciaParcelas = conferirParcelas(parcelas, totalDevido);
       if (conferenciaParcelas.erro) {
         showError('Confira as parcelas', conferenciaParcelas.erro);
@@ -1011,7 +1111,9 @@ const EntradaNFE: React.FC = () => {
         const fator = config.classificacao === 'novo' ? 1 : fatorValido(config.fator);
         const ehMateriaPrima = config.tipo === 'materia_prima';
         const ehInsumo = config.tipo === 'insumo';
-        const vinculado = config.classificacao !== 'novo' && Boolean(config.matchId);
+        // CFOP que nao movimenta estoque (ativo, servico, devolucao de venda, transferencia...): so' registro.
+        const semEstoque = !acoesDosItens[idx]?.movimentaEstoque;
+        const vinculado = !semEstoque && config.classificacao !== 'novo' && Boolean(config.matchId);
         const colecao = ehInsumo ? 'insumos' : (ehMateriaPrima ? 'materias_primas' : 'estoque');
         return {
           item,
@@ -1021,8 +1123,10 @@ const EntradaNFE: React.FC = () => {
           fator,
           ehMateriaPrima,
           ehInsumo,
+          semEstoque,
+          cfopEntrada: cfopsEntrada[idx],
           vinculado,
-          lotesDoItem: exigeLoteNoItem(idx) ? lotesDoItem(idx).lotes : [] as LoteParaEntrada[],
+          lotesDoItem: !semEstoque && exigeLoteNoItem(idx) ? lotesDoItem(idx).lotes : [] as LoteParaEntrada[],
           quantidadeEstoque: quantidadeNoEstoque(item.quantidade, fator),
           custoUn: custoUnitarioNoEstoque(custo?.custoTotal ?? 0, item.quantidade, fator),
           ref: vinculado ? doc(db, colecao, config.matchId as string) : doc(collection(db, colecao)),
@@ -1052,11 +1156,13 @@ const EntradaNFE: React.FC = () => {
         });
       }));
 
-      const titulosRefs = modoPagamentoEfetivo === 'prazo' ? parcelas.map(() => doc(collection(db, 'transacoes'))) : [doc(collection(db, 'transacoes'))];
+      const titulosRefs = !notaGeraContaAPagar
+        ? []
+        : modoPagamentoEfetivo === 'prazo' ? parcelas.map(() => doc(collection(db, 'transacoes'))) : [doc(collection(db, 'transacoes'))];
       const tituloFreteRef = freteGeraTituloProprio(frete) ? doc(collection(db, 'transacoes')) : null;
       const notaRef = doc(collection(db, 'notas_fiscais_entrada'));
       const titulosPagarIds = [...titulosRefs.map((ref) => ref.id), ...(tituloFreteRef ? [tituloFreteRef.id] : [])];
-      const bancoRef = modoPagamentoEfetivo === 'avista' && destinoPagamento === 'banco' ? doc(db, 'bancos', bancoId) : null;
+      const bancoRef = notaGeraContaAPagar && modoPagamentoEfetivo === 'avista' && destinoPagamento === 'banco' ? doc(db, 'bancos', bancoId) : null;
       const bancoNome = bancos.find((b) => b.id === bancoId)?.nome || '';
       const xmlCompacto = await compactarXml(parsedData.xmlTexto);
 
@@ -1132,6 +1238,7 @@ const EntradaNFE: React.FC = () => {
             cest: item.cest,
             ean: item.ean,
             cfop: item.cfop,
+            cfopEntrada: plano.cfopEntrada,
             unidadeNota: item.unidade,
             fator,
             quantidadeEstoque,
@@ -1141,6 +1248,17 @@ const EntradaNFE: React.FC = () => {
             lote: config.lote.trim() || item.lotes[0]?.numero || '',
             validade: config.validade || item.lotes[0]?.validade || '',
           };
+
+          // CFOP que nao movimenta estoque: o item fica so' na nota (sem cadastro, sem saldo).
+          if (plano.semEstoque) {
+            notaItens.push({
+              itemId: '', tipo: 'registro', codigoXml: item.codigo, descricaoXml: item.descricao,
+              quantidade: item.quantidade, valorUnitario: item.valorUnitario, novo: false,
+              ncm: item.ncm, cest: item.cest, ean: item.ean, cfop: item.cfop, cfopEntrada: plano.cfopEntrada,
+              unidadeNota: item.unidade, custoTotal: custo?.custoTotal ?? 0, impostos: impostosDoItem,
+            });
+            continue;
+          }
           const lote = detalhesDoRegistro.lote;
           const validade = detalhesDoRegistro.validade;
           const camposDeLote = { ...(lote ? { lote } : {}), ...(validade ? { validade } : {}) };
@@ -1340,7 +1458,9 @@ const EntradaNFE: React.FC = () => {
 
         // ------------------------------------------------------------ contas a pagar
         const categoria = categoriaDespesa;
-        if (modoPagamentoEfetivo === 'prazo') {
+        if (!notaGeraContaAPagar) {
+          // Nenhum CFOP da nota gera conta a pagar (titulosRefs vazio): nada a lancar.
+        } else if (modoPagamentoEfetivo === 'prazo') {
           parcelas.forEach((parcela, indice) => {
             const descricaoParcela = parcelas.length > 1
               ? `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome} (Parcela ${indice + 1}/${parcelas.length})`
@@ -1491,6 +1611,8 @@ const EntradaNFE: React.FC = () => {
 
       Swal.close();
       setVersaoDosCadastros((versao) => versao + 1);
+      // Base unica de NCM/CEST (Tabelas Fiscais): so' os codigos, sem esperar.
+      registrarUsoFiscal(parsedData.items.map((i) => ({ ncm: i.ncm, cest: i.cest })));
 
       // FICA NA TELA DE ENTRADA (pedido do dono, 2026-09-21): quem da entrada
       // tem uma PILHA de notas pra lancar. O resumo aparece no pop-up, com
@@ -1502,7 +1624,10 @@ const EntradaNFE: React.FC = () => {
         ...(materiasPrimasCriadas > 0 ? [`${materiasPrimasCriadas} matéria(s)-prima(s) nova(s)`] : []),
         ...(insumosAtualizados > 0 ? [`${insumosAtualizados} insumo(s) atualizado(s)`] : []),
         ...(insumosCriados > 0 ? [`${insumosCriados} insumo(s) novo(s)`] : []),
-        `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamentoEfetivo === 'avista' ? ' — nota paga à vista' : ''}`,
+        ...(itensPlano.some((p) => p.semEstoque) ? [`${itensPlano.filter((p) => p.semEstoque).length} item(ns) só registrado(s), sem estoque (pelo CFOP de entrada)`] : []),
+        notaGeraContaAPagar
+          ? `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamentoEfetivo === 'avista' ? ' — nota paga à vista' : ''}`
+          : `Sem conta a pagar (o CFOP de entrada não gera)${freteGeraTituloProprio(frete) ? '; o título do frete foi lançado' : ''}`,
       ];
       const numeroImportado = parsedData.numeroNF;
 
@@ -1543,6 +1668,7 @@ const EntradaNFE: React.FC = () => {
     setFornecedorStatus('idle');
     setShowFornecedorModal(false);
     setItemConfigs([]);
+    setCfopsEntrada([]);
     itemConfigsInitializedForRef.current = null;
     setDataEntrada(getDateInputInTimeZone());
     setObservacao('');
@@ -1863,7 +1989,13 @@ const EntradaNFE: React.FC = () => {
                 )}
               </div>
 
-              <PagamentoCard
+              {!notaGeraContaAPagar && (
+                <div style={{ padding: '16px 20px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                  <strong style={{ color: 'var(--text-primary)' }}>Pagamento:</strong> nenhum CFOP de entrada desta nota gera conta a pagar
+                  {' '}(bonificação, retorno ou nota só registrada). A nota entra sem título em Contas a Pagar.
+                </div>
+              )}
+              {notaGeraContaAPagar && <PagamentoCard
                 modo={modoPagamento}
                 onModo={(modo) => { setModoPagamento(modo); setParcelasAceitas(false); }}
                 parcelas={parcelas}
@@ -1883,7 +2015,7 @@ const EntradaNFE: React.FC = () => {
                 parcelasAceitas={parcelasAceitas}
                 onAceitarParcelas={setParcelasAceitas}
                 formaNoXml={parsedData.nota.pagamentos.map((p) => `${rotuloDaFormaDePagamento(p.forma)} ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valor)}`).join(' + ')}
-              />
+              />}
 
               {/* Itens da nota: classificacao Revenda/Materia-Prima +
                   precificacao/tributacao (Fatia 2/N do F22) */}
@@ -1942,6 +2074,8 @@ const EntradaNFE: React.FC = () => {
                       onAbrirVinculo={() => handleAbrirVinculo(idx)}
                       onDesvincular={() => handleDesvincularItem(idx)}
                       painelDeVinculo={vinculoAberto === idx ? renderPainelDeVinculo(idx, item) : null}
+                      blocoCfop={renderCfopEntrada(idx, item)}
+                      soRegistro={acoesDosItens[idx] ? !acoesDosItens[idx]?.movimentaEstoque : false}
                     />
                   );
                 })}

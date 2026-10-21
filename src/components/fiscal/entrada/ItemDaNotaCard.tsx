@@ -58,6 +58,10 @@ interface ItemDaNotaCardProps {
   onDesvincular: () => void;
   /** Painel de sugestoes/busca de vinculo, quando aberto para este item. */
   painelDeVinculo: React.ReactNode;
+  /** CFOP de entrada do item e o que ele faz (Tabelas Fiscais, fase 2, 20/10/2026). */
+  blocoCfop?: React.ReactNode;
+  /** O CFOP de entrada nao movimenta estoque: o item fica so' na nota (sem vinculo, custo nem preco). */
+  soRegistro?: boolean;
 }
 
 const Detalhe: React.FC<{ rotulo: string; valor: React.ReactNode }> = ({ rotulo, valor }) => (
@@ -71,7 +75,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
   indice, total, item, config, custo, custoUnitarioEstoque, cadastro, exigeLote = false, usaCsosn,
   markupVarejoDigitado, markupAtacadoDigitado,
   onAlterarTipo, onAlterarConfig, onAlterarCampo, onPrecoVarejo, onMarkupVarejo, onPrecoAtacado, onMarkupAtacado,
-  onAbrirVinculo, onDesvincular, painelDeVinculo,
+  onAbrirVinculo, onDesvincular, painelDeVinculo, blocoCfop, soRegistro = false,
 }) => {
   const fator = fatorValido(config.fator);
   const quantidadeEntrando = quantidadeNoEstoque(item.quantidade, config.fator);
@@ -102,12 +106,12 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
           </div>
         </div>
 
-        {vinculado && cadastro && (
+        {!soRegistro && vinculado && cadastro && (
           <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', backgroundColor: config.classificacao === 'estoque' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', color: config.classificacao === 'estoque' ? '#10b981' : '#f59e0b' }}>
             {config.classificacao === 'estoque' ? 'Soma no cadastro (Revenda)' : (config.classificacao === 'insumo' ? 'Soma no cadastro (Insumo)' : 'Soma no cadastro (Matéria-Prima)')} — hoje {cadastro.quantidade}
           </span>
         )}
-        {!vinculado && (
+        {!soRegistro && !vinculado && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Item novo — classificar como:</span>
             <select value={config.tipo} onChange={(e) => onAlterarTipo(e.target.value as ItemEntradaConfig['tipo'])} className="form-select" style={{ padding: '6px 10px', fontSize: '13px' }}>
@@ -119,6 +123,9 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
         )}
       </div>
 
+      {blocoCfop}
+
+      {!soRegistro && (<>
       {/* Vinculo com o cadastro */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
         {vinculado ? (
@@ -309,6 +316,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
             : `Matéria-prima: sem preço de venda nem tributação — entra no estoque de produção pelo custo de ${moeda4(custoUnitarioEstoque)} por unidade.`}
         </p>
       )}
+      </>)}
     </div>
   );
 };

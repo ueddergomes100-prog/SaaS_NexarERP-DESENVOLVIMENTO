@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   CFOPS,
   FUNCAO_DA_NATUREZA,
+  acaoDaEntrada,
   cfopEntradaSugerido,
   cfopInterestadualEquivalente,
   cfopPorCodigo,
@@ -124,6 +125,27 @@ test('escolha: desativados somem, mas o ja gravado continua; filtros por tipo, a
   assert.ok(mantido.includes('5101'));
   assert.deepEqual(lerCfopsDesativados(['5.101', '5101', '9999', 'x', 1102]), ['1102', '5101']);
   assert.deepEqual(lerCfopsDesativados(undefined), []);
+});
+
+test('entrada de NF-e: o CFOP decide estoque, conta a pagar e insumo', () => {
+  const a = (c: string) => { const x = acaoDaEntrada(c); assert.ok(x, c); return [x.movimentaEstoque, x.geraContaAPagar, x.exigeInsumo]; };
+  assert.deepEqual(a('1102'), [true, true, false], 'compra');
+  assert.deepEqual(a('2403'), [true, true, false], 'compra com ST de outro estado');
+  assert.deepEqual(a('1556'), [true, true, true], 'uso e consumo vai para insumo');
+  assert.deepEqual(a('1407'), [true, true, true]);
+  assert.deepEqual(a('1551'), [false, true, false], 'ativo: so a pagar');
+  assert.deepEqual(a('1353'), [false, true, false], 'frete contratado: so a pagar');
+  assert.deepEqual(a('1922'), [false, true, false], 'simples faturamento: paga sem mercadoria');
+  assert.deepEqual(a('1117'), [true, false, false], 'entrega da compra faturada antes');
+  assert.deepEqual(a('1910'), [true, false, false], 'bonificacao');
+  assert.deepEqual(a('1916'), [true, false, false], 'retorno de conserto');
+  assert.deepEqual(a('1202'), [false, false, false], 'devolucao de venda: tela propria');
+  assert.deepEqual(a('1152'), [false, false, false], 'transferencia: tela propria');
+  assert.equal(acaoDaEntrada('5102'), null, 'CFOP de saida nao serve');
+  assert.equal(acaoDaEntrada('1999'), null);
+  assert.equal(acaoDaEntrada('1102')?.aviso, '');
+  assert.match(acaoDaEntrada('1202')?.aviso ?? '', /Vendas › Devolução/);
+  assert.match(acaoDaEntrada('1910')?.aviso ?? '', /sem conta a pagar/);
 });
 
 test('problemas do CFOP: mensagens em portugues dizendo o que fazer', () => {

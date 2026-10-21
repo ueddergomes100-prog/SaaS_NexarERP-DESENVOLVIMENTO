@@ -33,6 +33,7 @@ import {
 import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
 import { escolherIntegrationIdDoReenvio, rejeicaoPrendeConfiguracaoNaNota } from '../../utils/reenvioNotaDomain';
+import { emitirNfceDoPedido } from '../../services/nfceEmissaoService';
 import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioFiscalDomain';
 import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
@@ -2618,6 +2619,121 @@ const NFE: React.FC = () => {
     await handleSelectPedido(note.pedidoId);
   };
 
+  /**
+   * Cupom fiscal (NFC-e) rejeitado: o cupom e' montado de novo a partir do PEDIDO e do
+   * cadastro atual dos produtos e do cliente (nfceEmissaoService, a mesma montagem do fim
+   * da venda) e vai pelo envio de cupom, com o mesmo id na Spedy (mantem o numero).
+   * Nao ha' o que editar na nota: corrige-se o cadastro apontado na rejeicao.
+   */
+  const retransmitirCupomRejeitado = async (note: LocalInvoice) => {
+    if (!tenantId || !currentUser) return;
+    if (!note.pedidoId) {
+      showError('Cupom sem pedido', 'Este cupom fiscal não está ligado a um pedido, então não dá para montá-lo de novo por aqui. Emita o cupom de novo pela venda (Pedidos de Venda ou PDV).');
+      return;
+    }
+    const motivo = `${note.processingCode ? `Rejeição ${note.processingCode}: ` : ''}${note.processingMessage || 'Motivo não informado.'}`;
+    const escolha = await NexusSwal.fire({
+      icon: 'warning',
+      title: 'Transmitir o cupom fiscal de novo?',
+      html: `<p style="margin:0 0 10px;text-align:left">${escaparHtml(motivo)}</p>`
+        + '<p style="margin:0;text-align:left">O cupom é montado de novo com os dados <strong>atuais</strong> do cadastro dos produtos e do cliente. '
+        + 'Corrija antes o que a rejeição aponta (Estoque › produto, aba Fiscal, ou o cadastro do cliente).</p>',
+      showCancelButton: true,
+      confirmButtonText: 'Transmitir de novo',
+      cancelButtonText: 'Voltar',
+    });
+    if (!escolha.isConfirmed) return;
+
+    setRetransmittingInvoiceId(note.id);
+    let enviouParaSpedy = false;
+    try {
+      const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', note.pedidoId));
+      const pedido = pedidoSnap.exists() && pedidoSnap.data().tenantId === tenantId ? pedidoSnap.data() : null;
+      if (!pedido) {
+        showError('Pedido não encontrado', 'O pedido deste cupom não existe mais nesta empresa. Atualize a lista de notas.');
+        return;
+      }
+      if (pedido.status === 'Cancelada') {
+        showError('Pedido cancelado', `O pedido #${pedido.numeroPedido || ''} foi cancelado: não se emite cupom fiscal para ele.`);
+        return;
+      }
+      // O MESMO id com que o cupom esta na Spedy -- senao ela cria outro e pula o numero.
+      const idNaSpedy = await integrationIdDaNota(note);
+      if (note.spedyId && !idNaSpedy && !rejeicaoPrendeConfiguracaoNaNota(note.processingMessage)) {
+        showError('Não foi possível retransmitir agora', 'Não consegui confirmar com a Spedy qual é o cupom original, e transmitir sem isso criaria um cupom novo, pulando a numeração. Confira sua conexão e tente de novo em instantes.');
+        return;
+      }
+      const reenvio = escolherIntegrationIdDoReenvio({
+        docId: note.pedidoId,
+        tentativaAtual: note.tentativaEmissao,
+        mensagemRejeicao: note.processingMessage,
+        integrationIdAtual: idNaSpedy,
+      });
+
+      NexusSwal.fire({ title: 'Transmitindo o cupom fiscal...', text: 'Aguardando a SEFAZ.', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+      const itensDoPedido = Array.isArray(pedido.itens) ? pedido.itens as Array<Record<string, unknown>> : [];
+      const pagamentosDoPedido = Array.isArray(pedido.pagamentos) ? pedido.pagamentos as Array<Record<string, unknown>> : [];
+      const { nota, itensFiscais } = await emitirNfceDoPedido({
+        id: note.pedidoId,
+        tenantId,
+        clienteNome: String(pedido.clienteNome || note.clienteNome || ''),
+        clienteId: pedido.clienteId ? String(pedido.clienteId) : null,
+        itens: itensDoPedido.map((item) => ({
+          id: String(item.id || 'avulso'),
+          nome: String(item.nome || ''),
+          quantidade: Number(item.quantidade) || 0,
+          precoUnitario: Number(item.precoUnitario) || 0,
+          ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: String(item.unidadeMedidaSigla) } : {}),
+          ...(item.fatorConversao !== undefined ? { fatorConversao: Number(item.fatorConversao) } : {}),
+          ...(item.embalagemId ? { embalagemId: String(item.embalagemId) } : {}),
+        })),
+        pagamentos: pagamentosDoPedido.map((p) => ({ formaPagamento: String(p.formaPagamento || 'Outros'), valor: Number(p.valor) || 0 })),
+        valorTotal: Number(pedido.valorTotal) || 0,
+        valorTotalItens: Number(pedido.valorTotalItens) || 0,
+      }, reenvio.integrationId);
+      enviouParaSpedy = true;
+
+      await updateDoc(doc(db, 'notas_fiscais', note.id), {
+        spedyId: nota.id,
+        number: nota.number,
+        accessKey: nota.accessKey || null,
+        itensFiscais,
+        status: nota.status,
+        processingMessage: nota.processingDetail?.message || null,
+        processingCode: nota.processingDetail?.code || null,
+        tentativaEmissao: reenvio.tentativa,
+        integrationId: reenvio.integrationId,
+        updatedAt: serverTimestamp(),
+        data: new Date().toISOString(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cupom retransmitido na Spedy'),
+      });
+      Swal.close();
+      loadLocalInvoices(false);
+
+      if (nota.status === 'authorized') {
+        showSuccess('Cupom fiscal autorizado.');
+      } else if (nota.status === 'rejected' || nota.status === 'denied') {
+        showError(
+          'A SEFAZ recusou o cupom de novo',
+          `${nota.processingDetail?.code ? `Rejeição ${nota.processingDetail.code}: ` : ''}${nota.processingDetail?.message || 'Motivo não informado.'} Corrija o cadastro indicado e use "Corrigir e Transmitir Novamente" de novo.`,
+        );
+      } else {
+        showWarning('Cupom enviado. A SEFAZ ainda está processando; a situação aparece na lista em instantes.');
+      }
+    } catch (erro) {
+      Swal.close();
+      if (enviouParaSpedy) {
+        // O cupom JA' esta na Spedy: so' a lista nao foi atualizada. Nao pode parecer
+        // "nao emitido" -- transmitir de novo duplicaria.
+        showError('O cupom foi enviado, mas a lista não foi atualizada', 'A Spedy recebeu o cupom, mas o sistema não conseguiu atualizar a nota na lista. Não transmita de novo: atualize a página daqui a pouco; se continuar rejeitada, avise o suporte.');
+      } else {
+        showError('Não foi possível transmitir o cupom', (erro as Error)?.message || 'Houve um problema ao enviar o cupom. Confira a conexão e tente de novo.');
+      }
+    } finally {
+      setRetransmittingInvoiceId(null);
+    }
+  };
+
   const handleRetransmitRejected = async (note: LocalInvoice) => {
     // Nota de TRANSFERENCIA entre filiais: e' emitida de novo pela propria transferencia
     // (o servidor remonta a nota a partir do cadastro -- services/notaTransferencia.js).
@@ -2637,6 +2753,13 @@ const NFE: React.FC = () => {
     // o pedido como uma venda normal.
     if (note.finalidade === 'devolucao' && note.devolucaoId) {
       setDevolucaoNfeId(note.devolucaoId);
+      return;
+    }
+    // NFC-e (cupom) rejeitada volta pelo envio de CUPOM (21/10/2026). O formulario
+    // abaixo e' de NF-e: reimportar o pedido trocava o tipo e transmitia um cupom
+    // como NF-e (achado da auditoria de 30/09).
+    if (note.tipo === 'NFC-e') {
+      await retransmitirCupomRejeitado(note);
       return;
     }
     setRetransmittingInvoiceId(note.id);

@@ -178,7 +178,11 @@ export interface NfceEmitida {
   itensFiscais: Record<string, unknown>[];
 }
 
-export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<NfceEmitida> => {
+/**
+ * `integrationId` (reenvio de cupom rejeitado, 21/10/2026): o id com que o cupom
+ * esta' na Spedy -- reenviar com o MESMO mantem o numero. Ausente = o id do pedido.
+ */
+export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao, integrationId?: string): Promise<NfceEmitida> => {
   const runtimeConfig = await spedyService.getRuntimeConfig();
   if (!runtimeConfig.spedyEnabled || !runtimeConfig.spedyApiKeyConfigured) {
     throw new NfceEmissaoError('A integração com a Spedy não está ativa ou configurada. Fale com o administrador do sistema.');
@@ -187,7 +191,8 @@ export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<Nfc
   const apiKey = '__backend_proxy__';
   const env = runtimeConfig.spedyEnvironment;
 
-  const { payload: spedyPayload, itensFiscais: payloadItems } = await montarNfceDoPedido(pedido);
+  const { payload: montado, itensFiscais: payloadItems } = await montarNfceDoPedido(pedido);
+  const spedyPayload = integrationId ? { ...montado, integrationId } : montado;
 
   const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
 

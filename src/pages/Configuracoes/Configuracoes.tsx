@@ -1682,7 +1682,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>E-mail</label>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>E-mail da empresa (contato e remetente das notas)</label>
               <input
                 type="email"
                 name="email"
@@ -1691,6 +1691,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 disabled={!isEditingMode}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
+              {/* 21/10/2026 (pergunta do dono): o campo nasce igual ao e-mail do cadastro, mas
+                  nao e' o login -- trocar aqui nao muda o acesso de ninguem. */}
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Não é o e-mail de login. Trocar aqui não muda o acesso ao sistema. É o remetente das notas e do relatório ao contador
+                (use o mesmo e-mail do usuário do SMTP) e aparece nas impressões.
+              </span>
             </div>
           </div>
 

@@ -54,7 +54,7 @@ const carregarConfiguracao = async (tenantId) => {
   const empresaEmail = String(pub.email || '').trim();
   const empresaNome = String(pub.nomeOficina || pub.nomeFantasia || pub.razaoSocial || 'Empresa').trim();
   if (!emailValido(empresaEmail)) {
-    throw new ErroEmail(400, 'O e-mail da empresa não está preenchido (ele é o remetente). Preencha em Configurações › Dados da Empresa.');
+    throw new ErroEmail(400, 'O e-mail da empresa não está preenchido (ele é o remetente). Preencha em Configurações da Filial › Dados da Empresa › E-mail da empresa (use o mesmo e-mail do usuário do SMTP).');
   }
   const erroSmtp = erroDaConfiguracaoSmtp(priv);
   if (erroSmtp) throw new ErroEmail(400, erroSmtp);

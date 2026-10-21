@@ -332,7 +332,7 @@ const RelatorioContador: React.FC = () => {
           </label>
           <label style="font-size:13px"><input id="contador-pdf" type="checkbox" checked> Relatório em PDF (as notas da lista, com os filtros de agora)</label>
           <label style="font-size:13px"><input id="contador-zip" type="checkbox" checked> XMLs das notas (.zip)</label>
-          <span style="font-size:12px;color:var(--text-muted)">Sai do e-mail da empresa, pelo SMTP de Configurações › E-mail das notas.</span>
+          <span style="font-size:12px;color:var(--text-muted)">Sai do e-mail da empresa, pelo SMTP de Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais.</span>
         </div>`,
       showCancelButton: true,
       confirmButtonText: 'Enviar',

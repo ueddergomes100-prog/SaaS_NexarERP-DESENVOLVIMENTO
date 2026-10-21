@@ -14,11 +14,11 @@ const emailValido = (valor) => EMAIL_VALIDO.test(String(valor || '').trim());
 /** Configuracao SMTP guardada em configuracoes_privadas (a senha nunca vai para a tela). */
 const erroDaConfiguracaoSmtp = (cfg) => {
   const c = cfg || {};
-  if (!String(c.smtpHost || '').trim()) return 'Falta o servidor SMTP (host). Preencha em Configurações › E-mail das notas.';
+  if (!String(c.smtpHost || '').trim()) return 'Falta o servidor SMTP (host). Preencha em Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais.';
   const porta = Number(c.smtpPorta);
   if (!Number.isInteger(porta) || porta < 1 || porta > 65535) return 'A porta do SMTP é inválida (ex.: 465 ou 587).';
-  if (!String(c.smtpUsuario || '').trim()) return 'Falta o usuário do e-mail (normalmente o próprio endereço). Preencha em Configurações › E-mail das notas.';
-  if (!String(c.smtpSenha || '')) return 'Falta a senha do e-mail. Preencha em Configurações › E-mail das notas.';
+  if (!String(c.smtpUsuario || '').trim()) return 'Falta o usuário do e-mail (normalmente o próprio endereço). Preencha em Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais.';
+  if (!String(c.smtpSenha || '')) return 'Falta a senha do e-mail. Preencha em Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais.';
   return null;
 };
 
@@ -43,10 +43,10 @@ const traduzirErroSmtp = (erro) => {
   const resposta = Number(erro?.responseCode || 0);
   const texto = String(erro?.response || erro?.message || '');
   if (codigo === 'EAUTH' || resposta === 535 || resposta === 534 || /auth|password|credenciais|credentials/i.test(texto) && resposta >= 500) {
-    return 'O servidor de e-mail recusou o usuário ou a senha. Confira em Configurações › E-mail das notas (no Gmail e no Outlook é preciso uma "senha de aplicativo", não a senha normal).';
+    return 'O servidor de e-mail recusou o usuário ou a senha. Confira em Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais (no Gmail e no Outlook é preciso uma "senha de aplicativo", não a senha normal).';
   }
   if (['ECONNECTION', 'ESOCKET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EDNS'].includes(codigo)) {
-    return 'Não consegui conectar no servidor de e-mail. Confira o servidor (host), a porta e a opção de conexão segura em Configurações › E-mail das notas.';
+    return 'Não consegui conectar no servidor de e-mail. Confira o servidor (host), a porta e a opção de conexão segura em Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais.';
   }
   if (codigo === 'EENVELOPE' || resposta === 550 || resposta === 553 || resposta === 551) {
     return 'O e-mail do cliente foi recusado (endereço inexistente ou inválido). Corrija o e-mail no cadastro do cliente e reenvie.';
@@ -55,9 +55,9 @@ const traduzirErroSmtp = (erro) => {
     return 'O e-mail ficou grande demais para o servidor de envio (anexos). Baixe o PDF e o XML da nota e envie manualmente.';
   }
   if (resposta >= 400) {
-    return 'O servidor de e-mail não aceitou o envio agora. Tente de novo em alguns minutos; se continuar, confira a configuração em Configurações › E-mail das notas.';
+    return 'O servidor de e-mail não aceitou o envio agora. Tente de novo em alguns minutos; se continuar, confira a configuração em Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais.';
   }
-  return 'Não foi possível enviar o e-mail. Confira a configuração em Configurações › E-mail das notas e tente de novo.';
+  return 'Não foi possível enviar o e-mail. Confira a configuração em Configurações da Filial › Configuração de Nota Fiscal (Spedy) › E-mail das notas fiscais e tente de novo.';
 };
 
 const ROTULO_TIPO = { 'NF-e': 'NF-e', 'NFC-e': 'NFC-e', 'NFS-e': 'NFS-e' };

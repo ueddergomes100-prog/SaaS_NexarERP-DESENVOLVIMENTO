@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  DIAS_ANTES_PARA_REENVIO,
   FILTROS_PADRAO_CONTADOR,
   aplicarFiltrosContador,
   cfopDeEntradaDoFornecedor,
+  fecharValorComONota,
   formatarCfop,
+  instanteDaEmissao,
   linhaDaNotaEmitida,
   linhaDaNotaRecebida,
   montarDocumentoContador,
@@ -13,7 +16,10 @@ import {
   resumoPorOperacao,
   situacaoDaNotaEmitida,
   totaisContador,
+  valoresZerados,
 } from '../src/utils/relatorioContadorDomain';
+import { parseNfeXml } from '../src/utils/nfeXmlDomain';
+import { somarColuna } from '../src/utils/relatorioPdfDomain';
 import { montarItemNotaFiscal, totaisImpostosDosItens, type ProdutoFiscal } from '../src/utils/notaFiscalItemDomain';
 
 const CHAVE = '32261050672123000147550010000001231000001230';
@@ -168,4 +174,98 @@ test('nota emitida com itens do construtor REAL da emissao: valor e impostos bat
   assert.equal(linha.cofins, Math.round(esperado.cofinsAmount * 100));
   assert.deepEqual(linha.cfops, ['5101', '5102']);
   assert.deepEqual(linha.porCfop.map((g) => [g.cfop, g.valor]), [['5101', 10000], ['5102', 3166]]);
+});
+
+// --- Correcoes de 20/10 (valor contabil, ICMS-ST/IPI, data da transmissao) ---
+
+// Dois itens, dois CFOPs; frete/seguro/desconto/despesas POR ITEM, IPI no 1o, ST no 2o.
+// vNF = 150 - 5 + 3,60 (ST) + 10 + 2 + 1 + 4 (IPI) = 165,60.
+const XML_DOIS_CFOPS = `<nfeProc><NFe><infNFe Id="NFe35261012768352000170550010000042431123456781"><ide><mod>55</mod><serie>1</serie><nNF>4243</nNF><dhEmi>2026-10-02T10:00:00-03:00</dhEmi></ide>
+<emit><CNPJ>12768352000170</CNPJ><xNome>FORNECEDOR</xNome></emit>
+<det nItem="1"><prod><cProd>A</cProd><xProd>A</xProd><NCM>10063021</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>1</qCom><vUnCom>100</vUnCom><vProd>100.00</vProd><vFrete>10.00</vFrete><vDesc>5.00</vDesc></prod>
+<imposto><ICMS><ICMS00><orig>0</orig><CST>00</CST><vBC>105.00</vBC><pICMS>18</pICMS><vICMS>18.90</vICMS></ICMS00></ICMS><IPI><cEnq>999</cEnq><IPITrib><CST>50</CST><vBC>100.00</vBC><pIPI>4</pIPI><vIPI>4.00</vIPI></IPITrib></IPI>
+<PIS><PISAliq><CST>01</CST><vBC>105.00</vBC><pPIS>1.65</pPIS><vPIS>1.73</vPIS></PISAliq></PIS><COFINS><COFINSAliq><CST>01</CST><vBC>105.00</vBC><pCOFINS>7.6</pCOFINS><vCOFINS>7.98</vCOFINS></COFINSAliq></COFINS></imposto></det>
+<det nItem="2"><prod><cProd>B</cProd><xProd>B</xProd><NCM>22021000</NCM><CFOP>5405</CFOP><uCom>UN</uCom><qCom>1</qCom><vUnCom>50</vUnCom><vProd>50.00</vProd><vSeg>2.00</vSeg><vOutro>1.00</vOutro></prod>
+<imposto><ICMS><ICMS10><orig>0</orig><CST>10</CST><vBC>50.00</vBC><pICMS>18</pICMS><vICMS>9.00</vICMS><vBCST>70.00</vBCST><pICMSST>18</pICMSST><vICMSST>3.60</vICMSST></ICMS10></ICMS></imposto></det>
+<total><ICMSTot><vBC>155.00</vBC><vICMS>27.90</vICMS><vBCST>70.00</vBCST><vST>3.60</vST><vProd>150.00</vProd><vFrete>10.00</vFrete><vSeg>2.00</vSeg><vDesc>5.00</vDesc><vIPI>4.00</vIPI><vPIS>1.73</vPIS><vCOFINS>7.98</vCOFINS><vOutro>1.00</vOutro><vNF>165.60</vNF></ICMSTot></total></infNFe></NFe></nfeProc>`;
+
+test('nota recebida com o XML (leitor real): valor contabil por CFOP soma frete, seguro, despesas, IPI e ST, menos desconto, e fecha com a nota', () => {
+  const nota = parseNfeXml(XML_DOIS_CFOPS);
+  const linha = linhaDaNotaRecebida({
+    id: 'x1', numeroNF: '4243', dataEmissao: '2026-10-02', fornecedorNome: 'FORNECEDOR', valorTotal: 165.6,
+    totais: { ...nota.totais },
+    // itens gravados na entrada (sem frete/desconto por item): ignorados quando ha' XML
+    itens: [{ cfop: '5102', quantidade: 1, valorUnitario: 100 }, { cfop: '5405', quantidade: 1, valorUnitario: 50 }],
+    itensDoXml: nota.itens,
+  });
+  assert.deepEqual(linha.porCfop.map((g) => [g.cfop, g.valor, g.st, g.ipi, g.baseSt]), [
+    ['1102', 10900, 0, 400, 0],
+    ['1405', 5660, 360, 0, 7000],
+  ]);
+  assert.equal(linha.porCfop.reduce((s, g) => s + g.valor, 0), 16560, 'soma dos CFOPs = total da nota');
+  assert.equal(linha.valor, 16560);
+  assert.equal(linha.st, 360);
+  assert.equal(linha.ipi, 400);
+  assert.equal(linha.baseSt, 7000);
+  assert.equal(linha.icms, 2790);
+  const resumo = resumoPorCfop([linha]);
+  assert.deepEqual(resumo.map((r) => [r.cfop, r.valor, r.st, r.ipi]), [['1102', 10900, 0, 400], ['1405', 5660, 360, 0]]);
+});
+
+test('nota recebida sem XML: itens gravados com IPI/ST e o resto (frete, desconto...) dividido ate fechar com a nota em centavos', () => {
+  const linha = linhaDaNotaRecebida({
+    id: 'x2', numeroNF: '1', dataEmissao: '2026-10-02', fornecedorNome: 'F', valorTotal: 165.6,
+    totais: { total: 165.6, baseIcms: 155, icms: 27.9, baseSt: 70, st: 3.6, ipi: 4, pis: 1.73, cofins: 7.98 },
+    itens: [
+      { cfop: '5102', quantidade: 1, valorUnitario: 100, impostos: { ipi: { valor: 4 }, icms: { base: 105, valor: 18.9 } } },
+      { cfop: '5405', quantidade: 1, valorUnitario: 50, impostos: { icms: { base: 50, valor: 9, baseSt: 70, valorSt: 3.6 } } },
+    ],
+  });
+  // base: 104,00 e 53,60 (157,60); faltam 8,00 divididos na proporcao: 5,28 e 2,72
+  assert.deepEqual(linha.porCfop.map((g) => [g.cfop, g.valor]), [['1102', 10928], ['1405', 5632]]);
+  assert.equal(linha.porCfop.reduce((s, g) => s + g.valor, 0), 16560);
+  assert.equal(linha.st, 360);
+  assert.equal(linha.ipi, 400);
+});
+
+test('fechamento com a nota: desconto (diferenca negativa), resto de centavos e casos sem base', () => {
+  const g = (cfop: string, valor: number) => ({ cfop, ...valoresZerados(), valor });
+  assert.deepEqual(fecharValorComONota([g('1102', 1000), g('1403', 1000)], 1999).map((x) => x.valor), [999, 1000]);
+  assert.deepEqual(fecharValorComONota([g('1102', 1000), g('1403', 2000)], 3100).map((x) => x.valor), [1033, 2067]);
+  assert.deepEqual(fecharValorComONota([g('1102', 0), g('1403', 0)], 500).map((x) => x.valor), [500, 0], 'sem base: no primeiro');
+  assert.deepEqual(fecharValorComONota([g('1102', 700)], 0).map((x) => x.valor), [700], 'sem total da nota: fica como esta');
+  assert.deepEqual(fecharValorComONota([g('1102', 700)], 700).map((x) => x.valor), [700]);
+});
+
+test('nota emitida: valor = soma dos itens transmitidos; sem itens, o valor gravado', () => {
+  const comItens = linhaDaNotaEmitida({ id: 'v1', tipo: 'NF-e', status: 'authorized', number: 1, data: '2026-10-01', valor: 999, itensFiscais: [itemSaida(5102, 300)] });
+  assert.equal(comItens.valor, 30000);
+  assert.equal(servico.valor, 9000, 'NFS-e sem itens fiscais: valor gravado');
+  const comIpi = linhaDaNotaEmitida({ id: 'v2', tipo: 'NF-e', status: 'authorized', number: 2, data: '2026-10-01', itensFiscais: [itemSaida(5101, 100, { taxes: { ipi: { amount: 5 } } })] });
+  assert.equal(comIpi.valor, 10500, 'IPI soma no total do item');
+  assert.equal(comIpi.ipi, 500);
+});
+
+test('data da nota emitida: a da ultima transmissao (reenvio da rejeitada), senao a criacao', () => {
+  const criada = Date.parse('2026-09-28T15:00:00.000Z');
+  assert.equal(instanteDaEmissao('2026-10-02T13:00:00.000Z', criada), Date.parse('2026-10-02T13:00:00.000Z'));
+  assert.equal(instanteDaEmissao(undefined, criada), criada);
+  assert.equal(instanteDaEmissao('lixo', criada), criada);
+  assert.equal(instanteDaEmissao(null, null), null);
+  assert.ok(DIAS_ANTES_PARA_REENVIO >= 31);
+});
+
+test('lista de notas: o rodape soma so as autorizadas (a cancelada aparece mas nao soma)', () => {
+  const doc = montarDocumentoContador([venda, cancelada], { de: '2026-10-01', ate: '2026-10-31', filtros: FILTROS_PADRAO_CONTADOR });
+  const notas = doc.secoes.find((s) => s.id === 'notas');
+  assert.ok(notas);
+  const somar = (id: string) => {
+    const coluna = notas.colunas.find((c) => c.id === id);
+    assert.ok(coluna, id);
+    return somarColuna(coluna, notas.linhas);
+  };
+  assert.equal(somar('valor'), 30000);
+  assert.equal(somar('icms'), 5100);
+  assert.ok(notas.colunas.some((c) => c.id === 'st') && notas.colunas.some((c) => c.id === 'ipi'), 'colunas de ICMS-ST e IPI');
+  assert.ok(doc.filtros.some((t) => t.includes('Valor contábil = produtos + frete')));
 });

@@ -8,8 +8,11 @@ import { hasTenantFullAccess } from '../../utils/roles';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { parseNfeXml } from '../../utils/nfeXmlDomain';
+import { descompactarXml } from '../../utils/xmlCompactoDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import {
+  DIAS_ANTES_PARA_REENVIO,
   FILTROS_PADRAO_CONTADOR,
   MODELOS_FISCAIS,
   OPERACOES_FISCAIS,
@@ -19,6 +22,7 @@ import {
   SITUACOES_FISCAIS,
   aplicarFiltrosContador,
   formatarCfop,
+  instanteDaEmissao,
   linhaDaNotaEmitida,
   linhaDaNotaRecebida,
   montarDocumentoContador,
@@ -114,9 +118,12 @@ const RelatorioContador: React.FC = () => {
     try {
       const baseSaidas = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
       const baseEntradas = query(collection(db, 'notas_fiscais_entrada'), where('tenantId', '==', tenantId));
+      // Notas criadas um pouco antes do periodo tambem: a rejeitada reenviada
+      // dentro do periodo conta pela data do reenvio (instanteDaEmissao).
+      const inicioCriacao = dateInputToUtcStart(addDaysToDateInput(de, -DIAS_ANTES_PARA_REENVIO)) ?? inicio;
       const [saidasSnap, entradasSnap] = await Promise.all([
         lerComReserva(
-          query(baseSaidas, where('createdAt', '>=', Timestamp.fromDate(inicio)), where('createdAt', '<=', Timestamp.fromDate(fim))),
+          query(baseSaidas, where('createdAt', '>=', Timestamp.fromDate(inicioCriacao)), where('createdAt', '<=', Timestamp.fromDate(fim))),
           baseSaidas,
           'Relatório do contador (notas emitidas)',
         ),
@@ -127,15 +134,28 @@ const RelatorioContador: React.FC = () => {
         ),
       ]);
 
-      // Dia da emissao no fuso da loja; a consulta de reserva traz tudo, entao o filtro do periodo vale aqui tambem.
+      // Dia da emissao (ultima transmissao) no fuso da loja; a consulta de reserva
+      // traz tudo, entao o filtro do periodo vale aqui tambem.
       const saidas = saidasSnap.docs.map((d) => {
         const dados = d.data();
-        const ms = millisDe(dados.createdAt) ?? (typeof dados.data === 'string' ? Date.parse(dados.data) : NaN);
-        return { id: d.id, dados, dia: Number.isFinite(ms) ? getDateInputInTimeZone(new Date(ms)) : '' };
+        const ms = instanteDaEmissao(dados.data, millisDe(dados.createdAt));
+        return { id: d.id, dados, dia: ms !== null ? getDateInputInTimeZone(new Date(ms)) : '' };
       }).filter((n) => n.dia && n.dia >= de && n.dia <= ate);
-      const entradas = entradasSnap.docs
+      const entradasDoPeriodo = entradasSnap.docs
         .map((d) => ({ id: d.id, dados: d.data() }))
         .filter((n) => n.dados.status !== 'excluida' && typeof n.dados.dataEmissao === 'string' && n.dados.dataEmissao >= de && n.dados.dataEmissao <= ate);
+      // Itens do XML guardado na entrada: trazem frete, seguro, despesas e
+      // desconto de cada item (os itens gravados nao). Sem XML ou XML ilegivel,
+      // o relatorio usa os itens gravados e fecha pelo total da nota.
+      const entradas = await Promise.all(entradasDoPeriodo.map(async (n) => {
+        const xml = typeof n.dados.xmlGzipBase64 === 'string' ? n.dados.xmlGzipBase64 : '';
+        if (!xml) return { ...n, itensDoXml: undefined };
+        try {
+          return { ...n, itensDoXml: parseNfeXml(await descompactarXml(xml)).itens };
+        } catch {
+          return { ...n, itensDoXml: undefined };
+        }
+      }));
 
       // CPF/CNPJ e UF nao ficam na nota: vem do cadastro do cliente e do fornecedor.
       const idsClientes = [...new Set(saidas.map((n) => n.dados.clienteId).filter((x): x is string => typeof x === 'string' && x !== ''))];
@@ -158,7 +178,7 @@ const RelatorioContador: React.FC = () => {
         }),
         ...entradas.map((n) => {
           const fornecedor = typeof n.dados.fornecedorId === 'string' ? fornecedores.get(n.dados.fornecedorId) : undefined;
-          return linhaDaNotaRecebida({ id: n.id, ...n.dados, ufDoFornecedor: String(fornecedor?.estado ?? fornecedor?.uf ?? '') });
+          return linhaDaNotaRecebida({ id: n.id, ...n.dados, itensDoXml: n.itensDoXml, ufDoFornecedor: String(fornecedor?.estado ?? fornecedor?.uf ?? '') });
         }),
       ];
       setLinhas(novas);

@@ -1,5 +1,6 @@
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
 import { serieDaChaveDeAcesso } from './sintegraDomain';
+import { cfopEntradaSugerido } from './cfopDomain';
 
 /*
  * RELATORIO DO CONTADOR (pedido do dono, 20/10/2026).
@@ -77,13 +78,25 @@ export const normalizarCfop = (v: unknown): string => {
 /** "5102" -> "5.102" (como o contador escreve). */
 export const formatarCfop = (cfop: string): string => (cfop.length === 4 ? `${cfop[0]}.${cfop.slice(1)}` : cfop || 'Sem CFOP');
 
-/** CFOP de saida do fornecedor -> CFOP de entrada da empresa (5->1, 6->2, 7->3). Ja' de entrada: igual. */
+/**
+ * CFOP de saida do fornecedor -> CFOP de entrada da empresa, pela tabela de
+ * CFOP do sistema (cfopDomain: venda com ST 5.405 -> 1.403, nao 1.405). Sem
+ * equivalente na tabela, troca so' o primeiro digito (5->1, 6->2, 7->3), como
+ * referencia. Ja' de entrada: igual.
+ */
 export const cfopDeEntradaDoFornecedor = (cfopFornecedor: unknown): string => {
   const c = normalizarCfop(cfopFornecedor);
   if (!c) return '';
+  const pelaTabela = cfopEntradaSugerido(c);
+  if (pelaTabela) return pelaTabela;
   const mapa: Record<string, string> = { 5: '1', 6: '2', 7: '3' };
   return mapa[c[0]] ? `${mapa[c[0]]}${c.slice(1)}` : c;
 };
+
+/** CFOP de entrada do item: o escolhido na entrada (cfopEntrada), senao o equivalente ao do fornecedor. */
+const cfopEntradaDoItem = (cfopGravado: unknown, cfopFornecedor: unknown): string => (
+  normalizarCfop(cfopGravado) || cfopDeEntradaDoFornecedor(cfopFornecedor)
+);
 
 const ehCfopDeEntrada = (cfop: string): boolean => ['1', '2', '3'].includes(cfop[0] ?? '');
 /** x.201, x.202, x.410, x.411: devolucao de venda. */
@@ -376,19 +389,21 @@ export const linhaDaNotaRecebida = (nota: NotaRecebidaParaContador): LinhaContad
   const grupos = new Map<string, GrupoCfop>();
   const doXml = new Set<string>();
   const itensXml = Array.isArray(nota.itensDoXml) && nota.itensDoXml.length > 0 ? nota.itensDoXml : null;
+  const itensGravados = (Array.isArray(nota.itens) ? nota.itens as Array<Record<string, unknown>> : [])
+    .filter((item) => item && typeof item === 'object');
   if (itensXml) {
-    for (const item of itensXml) {
+    // O CFOP de entrada escolhido fica no item gravado (mesma ordem do XML).
+    const mesmaOrdem = itensGravados.length === itensXml.length;
+    itensXml.forEach((item, i) => {
       const original = normalizarCfop(item.cfop);
       if (original) doXml.add(original);
-      somarGrupos(grupos, cfopDeEntradaDoFornecedor(original), valoresDoItemDoXml(item));
-    }
+      somarGrupos(grupos, cfopEntradaDoItem(mesmaOrdem ? itensGravados[i].cfopEntrada : '', original), valoresDoItemDoXml(item));
+    });
   } else {
-    const itens = Array.isArray(nota.itens) ? nota.itens as Array<Record<string, unknown>> : [];
-    for (const item of itens) {
-      if (!item || typeof item !== 'object') continue;
+    for (const item of itensGravados) {
       const original = normalizarCfop(item.cfop);
       if (original) doXml.add(original);
-      somarGrupos(grupos, cfopDeEntradaDoFornecedor(original), valoresDoItemGravado(item));
+      somarGrupos(grupos, cfopEntradaDoItem(item.cfopEntrada, original), valoresDoItemGravado(item));
     }
   }
   const totaisXml = (nota.totais && typeof nota.totais === 'object' ? nota.totais : null) as Record<string, unknown> | null;
@@ -693,7 +708,7 @@ export const montarDocumentoContador = (
     f.soComCartaDeCorrecao ? 'Só notas com carta de correção' : '',
     f.busca.trim() ? `Busca: "${f.busca.trim()}"` : '',
     'Valores somam só notas autorizadas. Valor contábil = produtos + frete + seguro + outras despesas + IPI + ICMS-ST − desconto (fecha com o total da nota).',
-    'Notas da empresa pela data da transmissão à SEFAZ; notas recebidas pela data de emissão do XML. CFOP de nota recebida convertido para entrada (5→1, 6→2, 7→3).',
+    'Notas da empresa pela data da transmissão à SEFAZ; notas recebidas pela data de emissão do XML. CFOP de nota recebida convertido para o de entrada pela tabela de CFOP (ex.: 5.102 → 1.102; 5.405 → 1.403).',
   ].filter(Boolean);
 
   return {

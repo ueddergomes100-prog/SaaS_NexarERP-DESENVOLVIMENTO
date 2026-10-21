@@ -132,7 +132,7 @@ class ErroPin extends Error {
  * travado pra sempre, porque nao existe reset e recriar o usuario esbarra na
  * conta orfa que sobra no Firebase Auth.
  */
-async function definirPin({ tenantId, usuarioId, pin, autorId }) {
+async function definirPin({ tenantId, usuarioId, pin, autorId, restrito = false }) {
   if (!db) throw new ErroPin(503, 'Backend sem acesso ao banco de dados.');
   if (!isPinValido(pin)) {
     throw new ErroPin(400, `A senha do vendedor deve ter de ${PIN_MIN_DIGITOS} a ${PIN_MAX_DIGITOS} dígitos numéricos.`);
@@ -148,6 +148,16 @@ async function definirPin({ tenantId, usuarioId, pin, autorId }) {
   // Trava de tenant: um admin so mexe em usuario da propria empresa.
   if (usuario.tenantId !== tenantId) {
     throw new ErroPin(403, 'Este usuário não pertence à sua empresa.');
+  }
+  // Sem ser dono/administrador (permissao "incluir e alterar vendedor"): so' vendedor de
+  // balcao comum. Quem soubesse a senha de quem libera desconto ou entra no app
+  // aprovaria o proprio desconto / entraria no app como ele.
+  if (restrito && (
+    usuario.tipoRegistro !== 'vendedor'
+    || (Array.isArray(usuario.permissoes) && usuario.permissoes.length > 0)
+    || usuario.acessoAppMobile === true
+  )) {
+    throw new ErroPin(403, 'Este cadastro libera desconto, usa o aplicativo ou é um login do sistema: só o dono ou o administrador da empresa define a senha.');
   }
 
   const codigo = normalizarCodigo(usuario.codigoVendedor);

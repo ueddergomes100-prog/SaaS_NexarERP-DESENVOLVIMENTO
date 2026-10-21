@@ -135,6 +135,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'cadastros.fornecedores', label: 'Cadastros: Fornecedores', color: '#8b5cf6' },
       { id: 'cadastros.materia_prima', label: 'Cadastros: Matéria-Prima', color: '#8b5cf6' },
       { id: 'cadastros.vendedores', label: 'Cadastros: Vendedores (balcão)', color: '#8b5cf6' },
+      // 21/10/2026 (pedido do dono): incluir e alterar vendedor sem ser o dono. Liberar
+      // desconto e o app continuam so' com o dono/administrador (ver VendedoresList.tsx).
+      { id: 'cadastros.vendedores_incluir', label: 'Cadastros: Vendedores — incluir e alterar', color: '#8b5cf6' },
     ],
   },
   {
@@ -275,6 +278,9 @@ export const permissionLabelMap = PERMISSION_CATALOG.reduce<Record<string, strin
  * pode fazer.
  */
 export const PERMISSAO_LIBERAR_DESCONTO = 'vendas.liberar_desconto';
+
+/** Incluir e alterar vendedor de balcao comum sem ser o dono (21/10/2026). Ver VendedoresList.tsx. */
+export const PERMISSAO_INCLUIR_VENDEDOR = 'cadastros.vendedores_incluir';
 
 /**
  * MARCAR/DESMARCAR TODAS AS PERMISSOES DE UMA VEZ.

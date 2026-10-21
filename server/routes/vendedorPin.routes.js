@@ -62,13 +62,24 @@ router.post('/validar', async (req, res) => {
  * O reset e' o caminho pra quem esqueceu a senha -- antes disto, o sistema
  * nao tinha nenhum.
  */
-router.post('/definir', requireAdmin, async (req, res) => {
+// 21/10/2026: alem do dono/administrador, quem tem "Cadastros: Vendedores — incluir e
+// alterar" define a senha -- so' de vendedor de balcao COMUM (ver definirPin, `restrito`).
+const PERMISSAO_INCLUIR_VENDEDOR = 'cadastros.vendedores_incluir';
+const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.isTenantManager));
+const podeDefinirPin = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Usuario nao autenticado.' });
+  if (ehGestor(req.user) || (req.user.permissoes || []).includes(PERMISSAO_INCLUIR_VENDEDOR)) return next();
+  return res.status(403).json({ error: 'Só o dono ou quem tem a permissão "Cadastros: Vendedores — incluir e alterar" define a senha do vendedor.' });
+};
+
+router.post('/definir', podeDefinirPin, async (req, res) => {
   try {
     const resultado = await definirPin({
       tenantId: req.user.tenantId,
       usuarioId: req.body?.usuarioId,
       pin: req.body?.pin,
       autorId: req.user.uid,
+      restrito: !ehGestor(req.user),
     });
     return res.json({ ...resultado, ok: true });
   } catch (erro) {

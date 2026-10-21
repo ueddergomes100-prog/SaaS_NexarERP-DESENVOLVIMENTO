@@ -23,7 +23,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
 import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
-import { PERMISSAO_LIBERAR_DESCONTO } from '../../utils/permissionCatalog';
+import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO } from '../../utils/permissionCatalog';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { checarLimiteAcessoMobile, montarChaveVendedorMobileLogin } from '../../utils/acessoMobileDomain';
 import { MODULOS_MOBILE_EXTRAS } from '../../utils/vendedorModulosMobileDomain';
@@ -141,7 +141,7 @@ const inputStyle: React.CSSProperties = {
 
 const VendedoresList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
-  const { tenantId, currentUser, userRole, exigirIdentificacaoVendedor, grupo } = useAuth();
+  const { tenantId, currentUser, userRole, userPermissions, exigirIdentificacaoVendedor, grupo } = useAuth();
   const [vendedores, setVendedores] = useState<VendedorData[]>([]);
   const [previewAberto, setPreviewAberto] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -152,7 +152,15 @@ const VendedoresList: React.FC = () => {
   const [salvando, setSalvando] = useState(false);
   const buscaRef = useRef<HTMLInputElement>(null);
 
-  const podeGerenciar = isTenantManagerRole(userRole);
+  // Dono/administrador mexe em tudo. Quem tem "Cadastros: Vendedores — incluir e
+  // alterar" (21/10/2026) inclui e altera vendedor COMUM: sem liberar desconto e
+  // sem o app -- quem soubesse a senha de um vendedor que libera desconto (ou entra
+  // no app) aprovaria o proprio desconto. Mesma trava nas rules e no servidor do PIN.
+  const ehGestor = isTenantManagerRole(userRole);
+  const podeGerenciar = ehGestor || userPermissions.includes(PERMISSAO_INCLUIR_VENDEDOR);
+  const vendedorEspecial = (v: VendedorData) => (v.permissoes || []).length > 0 || v.acessoAppMobile === true;
+  const podeMexerNo = (v: VendedorData) => ehGestor || (podeGerenciar && !vendedorEspecial(v));
+  const MENSAGEM_SO_GESTOR = 'Este vendedor libera desconto ou usa o aplicativo: só o dono ou o administrador da empresa altera.';
   /** CNPJ da empresa, precisado so' quando o admin liga "Usa o aplicativo
    *  mobile" -- e' a chave do indice de login (ver montarChaveVendedorMobileLogin
    *  em acessoMobileDomain.ts). Mesma fonte que UsuarioForm.tsx usa pro login
@@ -208,6 +216,10 @@ const VendedoresList: React.FC = () => {
   };
 
   const abrirEdicao = (vendedor: VendedorData) => {
+    if (!podeMexerNo(vendedor)) {
+      showWarning(podeGerenciar ? MENSAGEM_SO_GESTOR : 'Só quem tem a permissão "Cadastros: Vendedores — incluir e alterar" (ou o dono) altera vendedores.');
+      return;
+    }
     setEditando(vendedor);
     setForm({
       nome: vendedor.nome || '',
@@ -326,8 +338,8 @@ const VendedoresList: React.FC = () => {
       // modulos extras marcados no checklist (Nota Fiscal, Contas a Pagar,
       // Contas a Receber) -- uniao com o que ja existia, nunca remove nada
       // que nao seja gerenciado por este formulario.
-      const permissoesBase = form.liberaDesconto ? [PERMISSAO_LIBERAR_DESCONTO] : [];
-      const permissoes = form.acessoAppMobile
+      const permissoesBase = ehGestor && form.liberaDesconto ? [PERMISSAO_LIBERAR_DESCONTO] : [];
+      const permissoes = ehGestor && form.acessoAppMobile
         ? Array.from(new Set([...permissoesBase, ...PERMISSOES_MINIMAS_APP_MOBILE, ...form.modulosExtras]))
         : permissoesBase;
 
@@ -338,7 +350,8 @@ const VendedoresList: React.FC = () => {
           nome,
           codigoVendedor: codigo,
           status: form.status,
-          permissoes,
+          // Sem ser dono/administrador, as permissoes do vendedor nao mudam (nem vao no save).
+          ...(ehGestor ? { permissoes } : {}),
           // acessoAppMobile: so' o servidor liga (confere a vaga) -- logo abaixo.
           ...comissao,
           comissaoPercentualServicos: percentualServicos === undefined ? deleteField() : percentualServicos,
@@ -417,8 +430,8 @@ const VendedoresList: React.FC = () => {
   };
 
   const handleToggleStatus = async (vendedor: VendedorData) => {
-    if (!podeGerenciar) {
-      showError('Sem permissão', 'Apenas o administrador da empresa pode alterar o status de vendedores.');
+    if (!podeMexerNo(vendedor)) {
+      showError('Sem permissão', podeGerenciar ? MENSAGEM_SO_GESTOR : 'Só o dono ou quem tem a permissão "Cadastros: Vendedores — incluir e alterar" altera o status de vendedores.');
       return;
     }
     if (!currentUser) return;
@@ -593,16 +606,16 @@ const VendedoresList: React.FC = () => {
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                           <button
                             className="icon-btn"
-                            style={{ color: '#3b82f6' }}
-                            title="Editar vendedor / trocar senha"
+                            style={{ color: '#3b82f6', opacity: podeMexerNo(vendedor) ? 1 : 0.4 }}
+                            title={podeMexerNo(vendedor) ? 'Editar vendedor / trocar senha' : MENSAGEM_SO_GESTOR}
                             onClick={() => abrirEdicao(vendedor)}
                           >
                             <Edit size={18} />
                           </button>
                           <button
                             className="icon-btn"
-                            style={{ color: (vendedor.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}
-                            title={(vendedor.status || 'Ativo') === 'Ativo' ? 'Inativar vendedor' : 'Ativar vendedor'}
+                            style={{ color: (vendedor.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981', opacity: podeMexerNo(vendedor) ? 1 : 0.4 }}
+                            title={!podeMexerNo(vendedor) ? MENSAGEM_SO_GESTOR : (vendedor.status || 'Ativo') === 'Ativo' ? 'Inativar vendedor' : 'Ativar vendedor'}
                             onClick={() => void handleToggleStatus(vendedor)}
                           >
                             <Power size={18} />
@@ -706,6 +719,12 @@ const VendedoresList: React.FC = () => {
                 </select>
               </div>
 
+              {!ehGestor && (
+                <p style={{ gridColumn: 'span 2', margin: 0, fontSize: '12px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '14px' }}>
+                  Liberar desconto e o aplicativo mobile: só o dono ou o administrador da empresa define.
+                </p>
+              )}
+              {ehGestor && (<>
               <div style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border-color)', paddingTop: '18px' }}>
                 <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }}></span>
@@ -770,6 +789,7 @@ const VendedoresList: React.FC = () => {
                   </div>
                 )}
               </div>
+              </>)}
 
               <div style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border-color)', paddingTop: '18px' }}>
                 <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>

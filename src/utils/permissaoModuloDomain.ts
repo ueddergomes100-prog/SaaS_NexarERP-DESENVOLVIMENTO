@@ -44,6 +44,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.troca_gerenciar': ['comercial.trocas'],
   'vendas.condicional': ['comercial.condicional'],
   'vendas.gerenciar_pin_vendedor': ['cadastros.vendedores'],
+  'cadastros.vendedores_incluir': ['cadastros.vendedores'],
   'vendas.orcamentos': ['comercial.orcamentos'],
   'vendas.orcamentos_alterar': ['comercial.orcamentos'],
   'vendas.orcamentos_excluir': ['comercial.orcamentos'],

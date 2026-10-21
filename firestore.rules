@@ -586,6 +586,20 @@ service cloud.firestore {
           request.resource.data.get('tipoRegistro', '') == 'vendedor' &&
           request.resource.data.get('acessoAppMobile', false) != true &&
           !request.resource.data.keys().hasAny(platformManagedFields())
+        ) ||
+        (
+          // 21/10/2026: quem tem "Cadastros: Vendedores — incluir e alterar" cria
+          // vendedor de balcao COMUM: sem permissao nenhuma (liberar desconto, app) e
+          // no nivel padrao. O resto continua so' com o dono/administrador.
+          hasPermission('cadastros.vendedores_incluir') &&
+          perfilAtivo() &&
+          request.resource.data.tenantId == currentTenantId() &&
+          request.resource.data.role == 'Funcionario' &&
+          request.resource.data.get('tipoRegistro', '') == 'vendedor' &&
+          request.resource.data.get('acessoAppMobile', false) != true &&
+          request.resource.data.get('permissoes', []).size() == 0 &&
+          request.resource.data.get('nivelAcesso', 'funcionario') == 'funcionario' &&
+          !request.resource.data.keys().hasAny(platformManagedFields())
         );
 
       allow update: if isSuperAdmin() ||
@@ -618,6 +632,24 @@ service cloud.firestore {
           request.resource.data.nivelAcesso == resource.data.nivelAcesso &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['permissoes'].concat(documentAuditFields())) &&
           permissoesMexidasSoAsDoGerente()
+        ) ||
+        (
+          // 21/10/2026: "Cadastros: Vendedores — incluir e alterar" altera vendedor de
+          // balcao COMUM (sem permissao nenhuma e sem o app): nome, codigo, status e
+          // comissao. Permissoes, nivel e app continuam so' com o dono/administrador.
+          hasPermission('cadastros.vendedores_incluir') &&
+          perfilAtivo() &&
+          resource.data.tenantId == currentTenantId() &&
+          resource.data.role == 'Funcionario' &&
+          resource.data.get('tipoRegistro', '') == 'vendedor' &&
+          resource.data.get('permissoes', []).size() == 0 &&
+          resource.data.get('acessoAppMobile', false) != true &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'nome', 'codigoVendedor', 'status',
+            'recebeComissaoServicos', 'recebeComissaoPecas',
+            'comissaoPercentualServicos', 'comissaoPercentualPecas',
+            'updatedAt'
+          ].concat(documentAuditFields()))
         ) ||
         (
           signedIn() &&

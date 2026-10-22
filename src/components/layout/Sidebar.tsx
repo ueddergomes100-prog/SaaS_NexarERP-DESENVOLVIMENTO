@@ -369,13 +369,13 @@ const Sidebar: React.FC = () => {
       ]
     },
     {
+      // Compras (22/10/2026): saiu do "em breve". Cotacao com link por fornecedor e pedido de compra.
       id: 'comprasDev',
       label: 'Compras',
       icon: ClipboardList,
-      roadmap: true,
       items: [
-        { label: 'Pedidos de Compra', to: '/compras/pedidos-compra', icon: ClipboardList, module: 'compras.pedidos', permission: 'compras.pedidos' },
-        { label: 'Cotação de Compra', to: '/compras/cotacoes', icon: Inbox, module: 'compras.cotacoes', permission: 'compras.cotacoes' }
+        { label: 'Cotações de Compra', to: '/compras/cotacoes', icon: Inbox, module: 'compras.cotacoes', permission: 'compras.cotacoes' },
+        { label: 'Pedidos de Compra', to: '/compras/pedidos-compra', icon: ClipboardList, module: 'compras.pedidos', permission: 'compras.pedidos' }
       ]
     },
     {

@@ -254,10 +254,16 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     // routeAccess.ts -- ou seja, todo funcionario via esses itens no menu e
     // ninguem conseguia esconde-los. Agora a permissao existe e o gate e'
     // real: desmarcada, o item some do menu e a rota redireciona.
+    // Compras (22/10/2026): cotacao com link por fornecedor e pedido de compra.
+    grupo: 'Compras',
+    itens: [
+      { id: 'compras.cotacoes', label: 'Compras: Cotações de Compra (link para o fornecedor e comparativo)', color: '#0ea5e9' },
+      { id: 'compras.pedidos', label: 'Compras: Pedidos de Compra', color: '#0ea5e9' },
+    ],
+  },
+  {
     grupo: 'Módulos em Breve',
     itens: [
-      { id: 'compras.pedidos', label: 'Compras: Pedidos de Compra (em breve)', color: '#64748b' },
-      { id: 'compras.cotacoes', label: 'Compras: Cotação de Compra (em breve)', color: '#64748b' },
       { id: 'integracoes.nuvemshop', label: 'E-commerce: Nuvemshop (em breve)', color: '#64748b' },
       { id: 'integracoes.marketplaces', label: 'E-commerce: Marketplaces (em breve)', color: '#64748b' },
       { id: 'integracoes.sincronizacoes', label: 'E-commerce: Sincronizações (em breve)', color: '#64748b' },

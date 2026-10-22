@@ -119,6 +119,8 @@ const MODULOS = [
   'src/utils/liberacaoRemotaDomain.ts',
   // Caixas e transferencias entre contas (21/10/2026).
   'src/utils/contasDinheiroDomain.ts',
+  // Compras: cotacao e pedido de compra (22/10/2026).
+  'src/utils/comprasDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

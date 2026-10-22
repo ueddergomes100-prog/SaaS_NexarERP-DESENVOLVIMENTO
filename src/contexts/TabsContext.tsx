@@ -139,6 +139,9 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/vendas/promocoes', 'Promoções'],
   ['/vendas/cashback', 'Cashback'],
   ['/operacoes/conferencia', 'Conferência'],
+  // Compras (22/10/2026).
+  ['/compras/cotacoes', 'Cotações de Compra'],
+  ['/compras/pedidos-compra', 'Pedidos de Compra'],
 ];
 
 /**
@@ -221,6 +224,8 @@ const SINGULAR_DA_SECAO: Record<string, [string, 'm' | 'f']> = {
   'Romaneios': ['Romaneio', 'm'],
   'Promoções': ['Promoção', 'f'],
   'Matéria-Prima': ['Matéria-Prima', 'f'],
+  'Cotações de Compra': ['Cotação de Compra', 'f'],
+  'Pedidos de Compra': ['Pedido de Compra', 'm'],
 };
 
 /**

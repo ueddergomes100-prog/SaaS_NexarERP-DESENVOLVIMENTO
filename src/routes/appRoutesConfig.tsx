@@ -57,6 +57,11 @@ const Banco = lazy(() => import('../pages/Financeiro/Banco'));
 const Cheques = lazy(() => import('../pages/Financeiro/Cheques'));
 // Caixas e transferencias entre contas (21/10/2026).
 const CaixasTransferencias = lazy(() => import('../pages/Financeiro/CaixasTransferencias'));
+// Compras (22/10/2026): cotacao com link por fornecedor e pedido de compra.
+const Cotacoes = lazy(() => import('../pages/Compras/Cotacoes'));
+const CotacaoForm = lazy(() => import('../pages/Compras/CotacaoForm'));
+const PedidosCompra = lazy(() => import('../pages/Compras/PedidosCompra'));
+const PedidoCompraForm = lazy(() => import('../pages/Compras/PedidoCompraForm'));
 const Boletos = lazy(() => import('../pages/Financeiro/Boletos'));
 const Faturamento = lazy(() => import('../pages/Financeiro/Faturamento'));
 const ContasReceber = lazy(() => import('../pages/Financeiro/ContasReceber'));
@@ -276,6 +281,12 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'operacoes/conferencia/troca/:trocaId', element: <ConferenciaForm /> },
   { path: 'operacoes/conferencia/:pedidoId', element: <ConferenciaForm /> },
 
+  { path: 'compras/cotacoes', element: <Cotacoes /> },
+  { path: 'compras/cotacoes/nova', element: <CotacaoForm /> },
+  { path: 'compras/cotacoes/:id', element: <CotacaoForm /> },
+  { path: 'compras/pedidos-compra', element: <PedidosCompra /> },
+  { path: 'compras/pedidos-compra/novo', element: <PedidoCompraForm /> },
+  { path: 'compras/pedidos-compra/:id', element: <PedidoCompraForm /> },
   { path: 'compras/:moduleId', element: <RoadmapModule /> },
   { path: 'integracoes/:moduleId', element: <RoadmapModule /> },
   { path: 'operacoes/:moduleId', element: <RoadmapModule /> },

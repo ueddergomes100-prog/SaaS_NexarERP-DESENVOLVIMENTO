@@ -43,6 +43,8 @@ const osRoutes = require('./routes/os.routes');
 const descontosRoutes = require('./routes/descontos.routes');
 const notificacoesRoutes = require('./routes/notificacoes.routes');
 const caixasRoutes = require('./routes/caixas.routes');
+const comprasRoutes = require('./routes/compras.routes');
+const cotacaoPublicaRoutes = require('./routes/cotacaoPublica.routes');
 const cashbackRoutes = require('./routes/cashback.routes');
 const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
 const inutilizacaoRoutes = require('./routes/inutilizacao.routes');
@@ -228,6 +230,10 @@ app.use('/api/descontos', descontosRoutes);
 app.use('/api/notificacoes', notificacoesRoutes);
 // Caixas e transferencias entre contas (21/10/2026): caixa <-> banco, sangria para deposito.
 app.use('/api/caixas', caixasRoutes);
+// Compras (22/10/2026): cotacao com link por fornecedor e pedido de compra.
+app.use('/api/compras', comprasRoutes);
+// Link publico da cotacao (sem login; token + codigo de acesso, com limites por IP e por link).
+app.use('/api/cotacoes-publicas', cotacaoPublicaRoutes);
 // Cashback (20/10/2026): gerar/estornar depois de a tela gravar venda, baixa ou devolucao.
 app.use('/api/cashback', cashbackRoutes);
 // Tabelas fiscais (20/10/2026): CFOP ativo na empresa e base unica de NCM/CEST.

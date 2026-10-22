@@ -13,6 +13,7 @@ import PageLoader from './components/layout/PageLoader';
 // do "miolo" do app vive em src/routes/appRoutesConfig.tsx, montado uma vez
 // por aba. A Frente de Caixa (PDV) e' app separado, em /caixa (CaixaShell).
 const AuthPage = lazy(() => import('./pages/Auth/AuthPage'));
+const CotacaoPublica = lazy(() => import('./pages/Compras/CotacaoPublica'));
 const SuperAdmin = lazy(() => import('./pages/Admin/SuperAdmin'));
 const SuperAdminBackup = lazy(() => import('./pages/Admin/SuperAdminBackup'));
 const SuperAdminManutencao = lazy(() => import('./pages/Admin/SuperAdminManutencao'));
@@ -43,6 +44,9 @@ function App() {
                 {/* Rotas Públicas */}
                 <Route path="/login" element={<AuthPage />} />
                 <Route path="/cadastro" element={<AuthPage />} />
+                {/* Cotacao de compra para o FORNECEDOR (22/10/2026): sem login,
+                    token no link + codigo de acesso; tudo pelo servidor. */}
+                <Route path="/cotacao/:token" element={<CotacaoPublica />} />
                 <Route path="/vendedor/login" element={<VendedorLoginPage />} />
                 {/* Arquivo real servido pela hospedagem (unico caminho com o
                     <head> do app do vendedor) -- e' o start_url do manifest e

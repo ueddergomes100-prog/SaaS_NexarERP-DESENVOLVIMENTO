@@ -1547,7 +1547,10 @@ const PDV: React.FC = () => {
         liberacaoNoServidor={vendaPeloServidor
           ? { tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos }
           : null}
-        pedirAoGerente={{ tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos, documento: `Cupom no PDV — ${selectedClient?.nome || 'CONSUMIDOR FINAL'}` }}
+        pedirAoGerente={{
+          tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos, documento: `Cupom no PDV — ${selectedClient?.nome || 'CONSUMIDOR FINAL'}`,
+          itens: cartItems.map((i) => ({ nome: i.nome, quantidade: i.quantidade, totalCentavos: Math.round(i.precoUnitarioCentavos * i.quantidade) - (i.descontoCentavos || 0) })),
+        }}
       />
 
       <DiscountModal

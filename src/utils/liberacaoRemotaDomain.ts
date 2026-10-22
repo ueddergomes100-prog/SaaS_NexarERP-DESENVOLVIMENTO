@@ -36,6 +36,15 @@ export const MINUTOS_DE_VALIDADE_DO_PEDIDO = VALIDADE_DO_PEDIDO_MS / 60000;
 export const INTERVALO_CONSULTA_ESTACAO_MS = 3000;
 export const INTERVALO_CONSULTA_APP_MS = 4000;
 
+/**
+ * Config da empresa (Configuracoes › Identificacao do Vendedor, 22/10/2026):
+ * na liberacao pelo celular, quem pede e' o vendedor escolhido numa lista
+ * (estacao compartilhada: balcao01/02/03) ou o usuario logado (padrao).
+ */
+export const CHAVE_LIBERACAO_ESCOLHER_VENDEDOR = 'liberacaoEscolherVendedor';
+export const DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR = false;
+export const parseLiberacaoEscolherVendedor = (valor: unknown): boolean => valor === true;
+
 export const MOTIVO_MAXIMO = 300;
 export const DOCUMENTO_MAXIMO = 120;
 export const MOTIVO_RECUSA_MAXIMO = 200;
@@ -50,6 +59,16 @@ export const ROTULO_STATUS_LIBERACAO: Record<StatusLiberacaoRemota, string> = {
   cancelada: 'Cancelada pelo vendedor',
 };
 
+/** Um item da venda, so' para o gerente ver o que esta' sendo vendido ("Ver itens", 22/10/2026). */
+export interface ItemDoPedidoRemoto {
+  nome: string;
+  quantidade: number;
+  totalCentavos: number;
+}
+
+export const ITENS_MAXIMO = 150;
+export const NOME_DO_ITEM_MAXIMO = 80;
+
 export interface PedidoRemoto {
   tela: TelaDoPedidoRemoto;
   baseCentavos: number;
@@ -58,7 +77,38 @@ export interface PedidoRemoto {
   motivo: string;
   /** "Pedido #0231 — JOÃO" / "Cupom no PDV" / "OS #45". */
   documento: string;
+  /** Itens da venda (nome, quantidade, total), para o gerente ver no app. */
+  itens: ItemDoPedidoRemoto[];
+  /**
+   * Quem esta' pedindo, quando a estacao e' compartilhada (22/10/2026, caso
+   * Shopping Rural: usuarios "balcao01/02/03" abertos o dia todo e o vendedor
+   * so' se identifica no Finalizar). A tela pede para o vendedor se escolher
+   * na lista; o nome vai para o gerente no lugar do nome da estacao. Com login
+   * individual nao vem nada e o solicitante e' o proprio usuario.
+   */
+  vendedor: { id: string; nome: string } | null;
 }
+
+const lerItens = (v: unknown): ItemDoPedidoRemoto[] => (
+  (Array.isArray(v) ? v : []).slice(0, ITENS_MAXIMO).map((i) => {
+    const item = (i && typeof i === 'object' ? i : {}) as Record<string, unknown>;
+    const quantidade = numero(item.quantidade);
+    const totalCentavos = numero(item.totalCentavos);
+    return {
+      nome: texto(item.nome, NOME_DO_ITEM_MAXIMO),
+      quantidade: Number.isFinite(quantidade) ? Math.round(quantidade * 1000) / 1000 : 0,
+      totalCentavos: Number.isFinite(totalCentavos) ? Math.round(totalCentavos) : 0,
+    };
+  }).filter((i) => i.nome)
+);
+
+const lerVendedor = (v: unknown): PedidoRemoto['vendedor'] => {
+  const o = (v && typeof v === 'object' ? v : null) as Record<string, unknown> | null;
+  if (!o) return null;
+  const id = texto(o.id, 128);
+  const nome = texto(o.nome, 80);
+  return id && nome ? { id, nome } : null;
+};
 
 /** O que fica gravado e o que a tela/app leem. */
 export interface RegistroDaLiberacao extends PedidoRemoto {
@@ -68,6 +118,8 @@ export interface RegistroDaLiberacao extends PedidoRemoto {
   solicitanteNome: string;
   /** Sessao que pediu: e' para ela que o comprovante e' emitido. */
   estacaoUid: string;
+  /** Nome da estacao (usuario logado) quando quem pede e' um vendedor escolhido na lista. */
+  estacaoNome: string | null;
   criadoEmIso: string;
   expiraEmMs: number;
   aprovadorId?: string;
@@ -95,8 +147,22 @@ export const lerPedidoRemoto = (corpo: unknown): { erro: string } | { pedido: Pe
   if (!Number.isInteger(baseCentavos) || !Number.isInteger(descontoCentavos) || baseCentavos <= 0 || descontoCentavos <= 0 || descontoCentavos > baseCentavos) {
     return { erro: 'Valores do desconto inválidos. Confira o desconto e peça a liberação de novo.' };
   }
-  return { pedido: { tela, baseCentavos, descontoCentavos, motivo: texto(c.motivo, MOTIVO_MAXIMO), documento: texto(c.documento, DOCUMENTO_MAXIMO) } };
+  return {
+    pedido: {
+      tela, baseCentavos, descontoCentavos, motivo: texto(c.motivo, MOTIVO_MAXIMO), documento: texto(c.documento, DOCUMENTO_MAXIMO),
+      itens: lerItens(c.itens), vendedor: lerVendedor(c.vendedor),
+    },
+  };
 };
+
+/**
+ * Nome que o gerente ve' como "quem pede": o vendedor escolhido na estacao
+ * compartilhada ou, sem isso, o proprio usuario logado. A estacao (balcao03)
+ * aparece em separado, em letra menor, so' quando e' diferente.
+ */
+export const nomesDoPedido = (vendedor: PedidoRemoto['vendedor'], nomeDoUsuario: string): { solicitanteNome: string; estacaoNome: string | null } => (
+  vendedor ? { solicitanteNome: vendedor.nome, estacaoNome: nomeDoUsuario } : { solicitanteNome: nomeDoUsuario, estacaoNome: null }
+);
 
 export const percentualDoDesconto = (baseCentavos: number, descontoCentavos: number): number => (
   baseCentavos > 0 ? Math.round((descontoCentavos / baseCentavos) * 1000) / 10 : 0

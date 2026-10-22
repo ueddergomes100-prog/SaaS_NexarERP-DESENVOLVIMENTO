@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.podeLiberarDesconto = exports.podeLiberarDescontoNoApp = exports.lerResposta = exports.notificacaoDoPedido = exports.textoDoPedido = exports.erroParaResponder = exports.textoDoTempoRestante = exports.segundosRestantes = exports.situacaoAtual = exports.formatarReais = exports.percentualDoDesconto = exports.lerPedidoRemoto = exports.ROTULO_STATUS_LIBERACAO = exports.MOTIVO_RECUSA_MAXIMO = exports.DOCUMENTO_MAXIMO = exports.MOTIVO_MAXIMO = exports.INTERVALO_CONSULTA_APP_MS = exports.INTERVALO_CONSULTA_ESTACAO_MS = exports.MINUTOS_DE_VALIDADE_DO_PEDIDO = exports.VALIDADE_DO_PEDIDO_MS = exports.NOME_DA_TELA_REMOTA = void 0;
+exports.podeLiberarDesconto = exports.podeLiberarDescontoNoApp = exports.lerResposta = exports.notificacaoDoPedido = exports.textoDoPedido = exports.erroParaResponder = exports.textoDoTempoRestante = exports.segundosRestantes = exports.situacaoAtual = exports.formatarReais = exports.percentualDoDesconto = exports.nomesDoPedido = exports.lerPedidoRemoto = exports.NOME_DO_ITEM_MAXIMO = exports.ITENS_MAXIMO = exports.ROTULO_STATUS_LIBERACAO = exports.MOTIVO_RECUSA_MAXIMO = exports.DOCUMENTO_MAXIMO = exports.MOTIVO_MAXIMO = exports.parseLiberacaoEscolherVendedor = exports.DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR = exports.CHAVE_LIBERACAO_ESCOLHER_VENDEDOR = exports.INTERVALO_CONSULTA_APP_MS = exports.INTERVALO_CONSULTA_ESTACAO_MS = exports.MINUTOS_DE_VALIDADE_DO_PEDIDO = exports.VALIDADE_DO_PEDIDO_MS = exports.NOME_DA_TELA_REMOTA = void 0;
 const conferenciaDescontoDomain_1 = require("./conferenciaDescontoDomain");
 Object.defineProperty(exports, "podeLiberarDesconto", { enumerable: true, get: function () { return conferenciaDescontoDomain_1.podeLiberarDesconto; } });
 const roles_1 = require("./roles");
@@ -15,6 +15,15 @@ exports.MINUTOS_DE_VALIDADE_DO_PEDIDO = exports.VALIDADE_DO_PEDIDO_MS / 60000;
  */
 exports.INTERVALO_CONSULTA_ESTACAO_MS = 3000;
 exports.INTERVALO_CONSULTA_APP_MS = 4000;
+/**
+ * Config da empresa (Configuracoes › Identificacao do Vendedor, 22/10/2026):
+ * na liberacao pelo celular, quem pede e' o vendedor escolhido numa lista
+ * (estacao compartilhada: balcao01/02/03) ou o usuario logado (padrao).
+ */
+exports.CHAVE_LIBERACAO_ESCOLHER_VENDEDOR = 'liberacaoEscolherVendedor';
+exports.DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR = false;
+const parseLiberacaoEscolherVendedor = (valor) => valor === true;
+exports.parseLiberacaoEscolherVendedor = parseLiberacaoEscolherVendedor;
 exports.MOTIVO_MAXIMO = 300;
 exports.DOCUMENTO_MAXIMO = 120;
 exports.MOTIVO_RECUSA_MAXIMO = 200;
@@ -24,6 +33,26 @@ exports.ROTULO_STATUS_LIBERACAO = {
     recusada: 'Recusada',
     vencida: 'Venceu sem resposta',
     cancelada: 'Cancelada pelo vendedor',
+};
+exports.ITENS_MAXIMO = 150;
+exports.NOME_DO_ITEM_MAXIMO = 80;
+const lerItens = (v) => ((Array.isArray(v) ? v : []).slice(0, exports.ITENS_MAXIMO).map((i) => {
+    const item = (i && typeof i === 'object' ? i : {});
+    const quantidade = numero(item.quantidade);
+    const totalCentavos = numero(item.totalCentavos);
+    return {
+        nome: texto(item.nome, exports.NOME_DO_ITEM_MAXIMO),
+        quantidade: Number.isFinite(quantidade) ? Math.round(quantidade * 1000) / 1000 : 0,
+        totalCentavos: Number.isFinite(totalCentavos) ? Math.round(totalCentavos) : 0,
+    };
+}).filter((i) => i.nome));
+const lerVendedor = (v) => {
+    const o = (v && typeof v === 'object' ? v : null);
+    if (!o)
+        return null;
+    const id = texto(o.id, 128);
+    const nome = texto(o.nome, 80);
+    return id && nome ? { id, nome } : null;
 };
 const numero = (v) => {
     const n = Number(v);
@@ -41,9 +70,21 @@ const lerPedidoRemoto = (corpo) => {
     if (!Number.isInteger(baseCentavos) || !Number.isInteger(descontoCentavos) || baseCentavos <= 0 || descontoCentavos <= 0 || descontoCentavos > baseCentavos) {
         return { erro: 'Valores do desconto inválidos. Confira o desconto e peça a liberação de novo.' };
     }
-    return { pedido: { tela, baseCentavos, descontoCentavos, motivo: texto(c.motivo, exports.MOTIVO_MAXIMO), documento: texto(c.documento, exports.DOCUMENTO_MAXIMO) } };
+    return {
+        pedido: {
+            tela, baseCentavos, descontoCentavos, motivo: texto(c.motivo, exports.MOTIVO_MAXIMO), documento: texto(c.documento, exports.DOCUMENTO_MAXIMO),
+            itens: lerItens(c.itens), vendedor: lerVendedor(c.vendedor),
+        },
+    };
 };
 exports.lerPedidoRemoto = lerPedidoRemoto;
+/**
+ * Nome que o gerente ve' como "quem pede": o vendedor escolhido na estacao
+ * compartilhada ou, sem isso, o proprio usuario logado. A estacao (balcao03)
+ * aparece em separado, em letra menor, so' quando e' diferente.
+ */
+const nomesDoPedido = (vendedor, nomeDoUsuario) => (vendedor ? { solicitanteNome: vendedor.nome, estacaoNome: nomeDoUsuario } : { solicitanteNome: nomeDoUsuario, estacaoNome: null });
+exports.nomesDoPedido = nomesDoPedido;
 const percentualDoDesconto = (baseCentavos, descontoCentavos) => (baseCentavos > 0 ? Math.round((descontoCentavos / baseCentavos) * 1000) / 10 : 0);
 exports.percentualDoDesconto = percentualDoDesconto;
 const formatarReais = (centavos) => `R$ ${(Number(centavos || 0) / 100).toFixed(2).replace('.', ',')}`;

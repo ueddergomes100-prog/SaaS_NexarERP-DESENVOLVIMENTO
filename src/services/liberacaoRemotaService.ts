@@ -1,5 +1,5 @@
 import { chamarServidor } from './apiServidor';
-import type { CredencialDoGerente, StatusLiberacaoRemota, TelaDoPedidoRemoto } from '../utils/liberacaoRemotaDomain';
+import type { CredencialDoGerente, ItemDoPedidoRemoto, StatusLiberacaoRemota, TelaDoPedidoRemoto } from '../utils/liberacaoRemotaDomain';
 
 /**
  * LIBERACAO DE DESCONTO PELO CELULAR (21/10/2026) -- cliente HTTP de
@@ -12,6 +12,10 @@ export interface PedidoAoGerente {
   descontoCentavos: number;
   motivo: string;
   documento: string;
+  /** Itens da venda, para o gerente ver no app (22/10/2026). */
+  itens?: ItemDoPedidoRemoto[];
+  /** Estacao compartilhada: o vendedor escolhido na lista como quem pede. */
+  vendedor?: { id: string; nome: string } | null;
 }
 
 export interface LiberacaoRemota {
@@ -25,6 +29,9 @@ export interface LiberacaoRemota {
   documento: string;
   solicitanteId: string;
   solicitanteNome: string;
+  /** Estacao (usuario logado) quando quem pede e' um vendedor escolhido na lista. */
+  estacaoNome: string | null;
+  itens: ItemDoPedidoRemoto[];
   criadoEmIso: string;
   expiraEmMs: number;
   texto: string;

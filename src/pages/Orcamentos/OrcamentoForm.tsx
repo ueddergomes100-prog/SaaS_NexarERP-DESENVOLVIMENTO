@@ -1330,7 +1330,10 @@ const OrcamentoForm: React.FC = () => {
             onClose={() => setShowAprovacaoDesconto(false)}
             onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
             pedirAoGerente={subtotalOrcamentoCents > 0 && descontoCents > 0
-              ? { tela: 'orcamento', baseCentavos: subtotalOrcamentoCents, descontoCentavos: descontoCents, documento: formData.numeroOrcamento ? `Orçamento #${formData.numeroOrcamento}` : 'Orçamento novo' }
+              ? {
+                tela: 'orcamento', baseCentavos: subtotalOrcamentoCents, descontoCentavos: descontoCents, documento: formData.numeroOrcamento ? `Orçamento #${formData.numeroOrcamento}` : 'Orçamento novo',
+                itens: itens.map((i) => ({ nome: i.nome, quantidade: i.quantidade, totalCentavos: Math.round(i.preco * i.quantidade * 100) })),
+              }
               : null}
           />
 

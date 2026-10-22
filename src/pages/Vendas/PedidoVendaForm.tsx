@@ -5236,7 +5236,14 @@ const PedidoVendaForm: React.FC = () => {
         liberacaoNoServidor={vendaPeloServidor
           ? { tela: 'pedido', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents }
           : null}
-        pedirAoGerente={{ tela: 'pedido', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents, documento: `${numeroPedido ? `Pedido #${numeroPedido}` : 'Pedido novo'} — ${clienteNome.trim().toUpperCase() || 'CONSUMIDOR FINAL'}` }}
+        pedirAoGerente={{
+          tela: 'pedido', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents,
+          documento: `${numeroPedido ? `Pedido #${numeroPedido}` : 'Pedido novo'} — ${clienteNome.trim().toUpperCase() || 'CONSUMIDOR FINAL'}`,
+          // Para o gerente ver no celular (22/10/2026): itens e, na estacao
+          // compartilhada, o vendedor responsavel ja' escolhido na tela.
+          itens: itens.map((i) => ({ nome: i.nome, quantidade: i.quantidade, totalCentavos: Math.round(i.subtotal * 100) })),
+          vendedor: (() => { const v = vendedoresDisponiveis.find((x) => x.id === vendedorId); return v && v.id !== currentUser?.uid ? { id: v.id, nome: v.nome } : null; })(),
+        }}
       />
 
       {modalDeRota}

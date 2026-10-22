@@ -9,6 +9,7 @@ import {
   MINUTOS_DE_VALIDADE_DO_PEDIDO,
   segundosRestantes,
   textoDoTempoRestante,
+  type ItemDoPedidoRemoto,
   type TelaDoPedidoRemoto,
 } from '../../utils/liberacaoRemotaDomain';
 import { hasModuleAccess } from '../../utils/roles';
@@ -66,9 +67,17 @@ interface SolicitarAprovacaoDescontoModalProps {
    * janela ganha "Pedir ao gerente pelo celular". O pedido vai ao servidor,
    * quem pode liberar recebe o aviso no app e responde com PIN/senha; esta
    * tela acompanha e segue sozinha. `documento` = "Pedido #0231 — JOÃO".
+   * `itens` vai para o "Ver itens" do gerente; `vendedor` e' o vendedor
+   * responsavel ja' escolhido na tela (preenche "Quem está pedindo" quando a
+   * empresa liga essa opcao em Configuracoes, 22/10/2026).
    */
-  pedirAoGerente?: { tela: TelaDoPedidoRemoto; baseCentavos: number; descontoCentavos: number; documento: string } | null;
+  pedirAoGerente?: {
+    tela: TelaDoPedidoRemoto; baseCentavos: number; descontoCentavos: number; documento: string;
+    itens?: ItemDoPedidoRemoto[]; vendedor?: { id: string; nome: string } | null;
+  } | null;
 }
+
+interface QuemPede { id: string; nome: string; tipo: 'login' | 'vendedor' }
 
 /**
  * Modal reusado por Pedido de Venda, OS, Orcamento e PDV: pede a senha de
@@ -86,8 +95,11 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
   liberacaoNoServidor = null,
   pedirAoGerente = null,
 }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, liberacaoEscolherVendedor } = useAuth();
   const [aprovadores, setAprovadores] = useState<Aprovador[]>([]);
+  // Estacao compartilhada (22/10/2026): lista de quem pode estar pedindo.
+  const [quemPodePedir, setQuemPodePedir] = useState<QuemPede[]>([]);
+  const [quemPedeId, setQuemPedeId] = useState('');
   const [isLoadingAprovadores, setIsLoadingAprovadores] = useState(false);
   const [aprovadorId, setAprovadorId] = useState('');
   const [senha, setSenha] = useState('');
@@ -134,9 +146,20 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
 
   const handlePedirAoGerente = async () => {
     if (!pedirAoGerente) return;
+    const quemPede = quemPodePedir.find((q) => q.id === quemPedeId) || null;
+    if (liberacaoEscolherVendedor && !quemPede) {
+      showError('Quem está pedindo?', 'Escolha na lista o vendedor que está pedindo o desconto. É esse nome que o gerente vê no celular.');
+      return;
+    }
     setPedindoAoGerente(true);
     try {
-      const r = await pedirLiberacaoAoGerente({ ...pedirAoGerente, motivo });
+      const { vendedor: _vendedorDaTela, ...pedido } = pedirAoGerente;
+      const r = await pedirLiberacaoAoGerente({
+        ...pedido,
+        motivo,
+        itens: pedirAoGerente.itens || [],
+        vendedor: liberacaoEscolherVendedor && quemPede ? { id: quemPede.id, nome: quemPede.nome } : null,
+      });
       setSegundos(segundosRestantes({ expiraEmMs: r.expiraEmMs }, Date.now()));
       setAvisoDoPedido(r.avisosDesligados
         ? 'Pedido enviado. Os avisos no celular ainda não estão configurados: o gerente precisa abrir o app em Liberações.'
@@ -165,14 +188,25 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
     if (!open || !tenantId) return;
     setAprovadorId('');
     setSenha('');
+    setQuemPedeId(pedirAoGerente?.vendedor?.id || '');
     setIsLoadingAprovadores(true);
 
     const carregarAprovadores = async () => {
       try {
         const snap = await getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)));
         const lista: Aprovador[] = [];
+        const pedintes: QuemPede[] = [];
         snap.forEach((docSnap) => {
           const data = docSnap.data();
+          // "Quem está pedindo" (estacao compartilhada): todo mundo ativo da
+          // empresa, menos a propria estacao logada.
+          if (data.status !== 'Inativo' && docSnap.id !== currentUser?.uid) {
+            pedintes.push({
+              id: docSnap.id,
+              nome: data.nome || data.nomeResponsavel || data.email || `Vendedor ${normalizarCodigoVendedor(data.codigoVendedor) || ''}`.trim(),
+              tipo: isRegistroDeVendedor(data) ? 'vendedor' : 'login',
+            });
+          }
           const podeAprovar = hasModuleAccess({
             role: data.role,
             isOwner: docSnap.id === tenantId,
@@ -209,6 +243,8 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
         });
         lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
         setAprovadores(lista);
+        pedintes.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+        setQuemPodePedir(pedintes);
       } catch (error) {
         console.error('Erro ao carregar aprovadores de desconto:', error);
       } finally {
@@ -217,7 +253,7 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
     };
 
     void carregarAprovadores();
-  }, [open, tenantId]);
+  }, [open, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const aprovadorSelecionado = aprovadores.find((item) => item.id === aprovadorId);
 
@@ -413,6 +449,23 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
                 />
               </div>
             </>
+          )}
+
+          {!remoto && pedirAoGerente && liberacaoEscolherVendedor && (
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Quem está pedindo (vai para o celular do gerente)</label>
+              <select
+                value={quemPedeId}
+                onChange={(e) => setQuemPedeId(e.target.value)}
+                title="Estação compartilhada: escolha o vendedor que está pedindo o desconto"
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              >
+                <option value="">Selecione...</option>
+                {quemPodePedir.map((q) => (
+                  <option key={q.id} value={q.id}>{q.nome}</option>
+                ))}
+              </select>
+            </div>
           )}
 
           {!remoto && pedirAoGerente && (

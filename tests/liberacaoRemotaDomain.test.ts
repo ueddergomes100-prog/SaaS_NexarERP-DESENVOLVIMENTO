@@ -5,6 +5,7 @@ import {
   erroParaResponder,
   lerPedidoRemoto,
   lerResposta,
+  nomesDoPedido,
   notificacaoDoPedido,
   percentualDoDesconto,
   podeLiberarDescontoNoApp,
@@ -30,6 +31,24 @@ test('pedido: tela, valores e textos aparados; orcamento tambem pode pedir', () 
   assert.match(erroDe(lerPedidoRemoto({ tela: 'x' })), /Tela/);
   assert.match(erroDe(lerPedidoRemoto({ tela: 'pdv', baseCentavos: 100, descontoCentavos: 200 })), /Valores/);
   assert.equal(percentualDoDesconto(24000, 3000), 12.5);
+  // Sem itens nem vendedor (telas antigas): lista vazia e null.
+  assert.deepEqual(ok.pedido.itens, []);
+  assert.equal(ok.pedido.vendedor, null);
+});
+
+test('pedido: itens para "Ver itens" e vendedor da estacao compartilhada (22/10)', () => {
+  const r = lerPedidoRemoto({
+    tela: 'pedido', baseCentavos: 500, descontoCentavos: 25,
+    itens: [{ nome: '  RAÇÃO  15KG ', quantidade: '2', totalCentavos: 400.4 }, { nome: '', quantidade: 1, totalCentavos: 1 }, { quantidade: 'x' }],
+    vendedor: { id: 'v1', nome: ' JOÃO ' },
+  });
+  assert.ok('pedido' in r);
+  assert.deepEqual(r.pedido.itens, [{ nome: 'RAÇÃO 15KG', quantidade: 2, totalCentavos: 400 }]);
+  assert.deepEqual(r.pedido.vendedor, { id: 'v1', nome: 'JOÃO' });
+  assert.equal(('pedido' in lerPedidoRemoto({ tela: 'pedido', baseCentavos: 500, descontoCentavos: 25, vendedor: { id: 'v1' } }) ? null : 'x'), null);
+  assert.deepEqual(nomesDoPedido({ id: 'v1', nome: 'JOÃO' }, 'balcao03'), { solicitanteNome: 'JOÃO', estacaoNome: 'balcao03' });
+  assert.deepEqual(nomesDoPedido(null, 'ANA'), { solicitanteNome: 'ANA', estacaoNome: null });
+  assert.match(textoDoPedido({ solicitanteNome: 'JOÃO', baseCentavos: 500, descontoCentavos: 25, tela: 'pedido', documento: 'Pedido #0816' }), /^JOÃO pede 5% /);
 });
 
 test('situacao: pendente dentro do prazo; fora do prazo vira vencida; demais ficam como estao', () => {

@@ -78,6 +78,7 @@ import {
   DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
   parseExigirIdentificacaoVendedor,
 } from '../../utils/vendedorPinDomain';
+import { DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR, parseLiberacaoEscolherVendedor } from '../../utils/liberacaoRemotaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import {
   DEFAULT_MODO_LIMITE_DESCONTO,
@@ -305,6 +306,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     agenteDigitalAtivo: DEFAULT_AGENTE_DIGITAL_ATIVO,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
+    liberacaoEscolherVendedor: DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR,
     devolucaoBotaoSeparado: false,
     habilitarTelaPrecificacao: false,
     // Usado so quando o vendedor/mecanico tem "Recebe comissao?" marcado
@@ -479,6 +481,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             agenteDigitalAtivo: parseAgenteDigitalAtivo(data.agenteDigitalAtivo),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
+            liberacaoEscolherVendedor: parseLiberacaoEscolherVendedor(data.liberacaoEscolherVendedor),
             devolucaoBotaoSeparado: data.devolucaoBotaoSeparado === true,
             habilitarTelaPrecificacao: data.habilitarTelaPrecificacao === true,
             comissaoPadraoPecas: data.comissaoPadraoPecas != null ? String(data.comissaoPadraoPecas) : '',
@@ -3033,6 +3036,22 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                   Com esta opção ligada, a lista geral de <strong>Pedidos de Venda</strong> fica visível só para dono, Master ou Admin — o funcionário comum passa a usar a tela <strong>Minhas Vendas</strong>, que mostra e reimprime só as vendas dele.
+                </p>
+                {/* Liberacao pelo celular em estacao compartilhada (22/10/2026). */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px', marginTop: '4px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.liberacaoEscolherVendedor === true}
+                    onChange={(e) => setFormData({ ...formData, liberacaoEscolherVendedor: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Ao pedir desconto ao gerente pelo celular, escolher o vendedor que está pedindo
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Para estações compartilhadas (balcão 01, balcão 02...): antes de enviar o pedido de desconto, a tela pede para escolher na lista
+                  quem está pedindo, e é esse nome que chega ao gerente no celular (a estação aparece embaixo, em letra menor).
+                  Desligado (padrão): quem pede é o usuário logado.
                 </p>
               </div>
 

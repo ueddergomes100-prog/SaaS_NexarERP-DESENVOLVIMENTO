@@ -78,6 +78,8 @@ const publico = (id, d, agoraMs, { paraEstacao = false } = {}) => ({
   documento: String(d.documento || ''),
   solicitanteId: String(d.solicitanteId || ''),
   solicitanteNome: String(d.solicitanteNome || ''),
+  estacaoNome: d.estacaoNome ? String(d.estacaoNome) : null,
+  itens: Array.isArray(d.itens) ? d.itens : [],
   criadoEmIso: String(d.criadoEmIso || ''),
   expiraEmMs: Number(d.expiraEmMs) || 0,
   texto: lr.textoDoPedido(d),
@@ -95,14 +97,25 @@ const pedir = async ({ user, tenantId, corpo }) => {
   }
   const solicitante = await lerUsuario(user.uid, tenantId);
   const agoraMs = Date.now();
+  // Estacao compartilhada (22/10/2026): o vendedor escolhido na tela e' quem
+  // pede; o usuario logado (balcao03) fica como estacao. So' aceita vendedor
+  // desta empresa.
+  const { vendedor, ...pedido } = lido.pedido;
+  if (vendedor) {
+    const v = await lerUsuario(vendedor.id, tenantId);
+    if (!v) throw new ErroLiberacaoRemota(400, 'O vendedor escolhido não é desta empresa. Escolha de novo quem está pedindo.');
+    vendedor.nome = nomeDoUsuario(v, vendedor.nome);
+  }
+  const nomes = lr.nomesDoPedido(vendedor, nomeDoUsuario(solicitante, user.email || 'Vendedor'));
   const registro = {
     tenantId,
     status: 'pendente',
-    ...lido.pedido,
-    percentual: lr.percentualDoDesconto(lido.pedido.baseCentavos, lido.pedido.descontoCentavos),
-    solicitanteId: user.uid,
-    solicitanteNome: nomeDoUsuario(solicitante, user.email || 'Vendedor'),
+    ...pedido,
+    percentual: lr.percentualDoDesconto(pedido.baseCentavos, pedido.descontoCentavos),
+    solicitanteId: vendedor ? vendedor.id : user.uid,
+    solicitanteNome: nomes.solicitanteNome,
     estacaoUid: user.uid,
+    estacaoNome: nomes.estacaoNome,
     criadoEmIso: new Date(agoraMs).toISOString(),
     expiraEmMs: agoraMs + lr.VALIDADE_DO_PEDIDO_MS,
     criadoEm: TS(),

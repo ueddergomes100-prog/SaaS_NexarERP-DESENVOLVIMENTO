@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
 import { showError, showSuccess } from '../../utils/alerts';
@@ -31,6 +31,8 @@ const VendedorLiberacoes: React.FC = () => {
   const [senha, setSenha] = useState('');
   const [motivoRecusa, setMotivoRecusa] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // "Ver itens" aberto por pedido (22/10/2026).
+  const [itensAbertos, setItensAbertos] = useState<Record<string, boolean>>({});
   // Login por e-mail confirma com a senha; login por codigo (vendedor) confirma com o PIN.
   const usaSenha = Boolean(currentUser?.email);
 
@@ -133,8 +135,12 @@ const VendedorLiberacoes: React.FC = () => {
           return (
             <div key={item.id} style={{ borderRadius: '18px', padding: '16px', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' }}>
-                <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>{item.solicitanteNome || 'Vendedor'}</strong>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: restam <= 60 ? '#ef4444' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                  <strong style={{ fontSize: '16px', color: 'var(--text-primary)' }}>{item.solicitanteNome || 'Vendedor'}</strong>
+                  {/* Estacao compartilhada (22/10/2026): o vendedor escolhido pede; a estacao (balcao03) fica embaixo. */}
+                  {item.estacaoNome && <small style={{ fontSize: '12px', color: 'var(--text-muted)' }}>pela estação {item.estacaoNome}</small>}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: restam <= 60 ? '#ef4444' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                   {restam > 0 ? `vence em ${textoDoTempoRestante(restam)}` : 'venceu'}
                 </span>
               </div>
@@ -145,6 +151,28 @@ const VendedorLiberacoes: React.FC = () => {
                 {NOME_DA_TELA_REMOTA[item.tela]}{item.documento ? ` · ${item.documento}` : ''}
               </div>
               {item.motivo && <div style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>{item.motivo}</div>}
+              {(item.itens || []).length > 0 && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setItensAbertos((a) => ({ ...a, [item.id]: !a[item.id] }))}
+                    aria-expanded={Boolean(itensAbertos[item.id])}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', padding: 0, color: 'var(--brand-600)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
+                  >
+                    {itensAbertos[item.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />} {itensAbertos[item.id] ? 'Esconder itens' : `Ver itens (${item.itens.length})`}
+                  </button>
+                  {itensAbertos[item.id] && (
+                    <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: '8px 10px', borderRadius: '12px', backgroundColor: 'var(--bg-tertiary)', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
+                      {item.itens.map((i, k) => (
+                        <li key={`${i.nome}-${k}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', color: 'var(--text-primary)' }}>
+                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} × {i.nome}</span>
+                          <span style={{ whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{formatarReais(i.totalCentavos)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
                 {botao('Recusar', '#ef4444', 'rgba(239,68,68,0.10)', X, () => setRespondendo({ item, decisao: 'recusar' }))}
                 {botao('Aprovar', '#10b981', 'rgba(16,185,129,0.14)', Check, () => setRespondendo({ item, decisao: 'aprovar' }))}
@@ -161,21 +189,38 @@ const VendedorLiberacoes: React.FC = () => {
               {respondendo.decisao === 'aprovar' ? 'Aprovar o desconto?' : 'Recusar o desconto?'}
             </strong>
             <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{respondendo.item.texto}</div>
+            {/* O gerenciador de senhas do celular (22/10/2026, retorno do dono)
+                preenchia o MOTIVO com o nome do usuario e disparava a resposta.
+                Por isso: o motivo e' um textarea sem preenchimento automatico,
+                o usuario vai num campo proprio escondido (e' ele que o
+                gerenciador preenche), a senha e' "current-password" e so' o
+                botao envia -- Enter nao envia mais. */}
+            <input type="text" name="username" autoComplete="username" value={currentUser?.email || ''} readOnly tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
             {respondendo.decisao === 'recusar' && (
               <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
                 Motivo (opcional, o vendedor vê)
-                <input value={motivoRecusa} onChange={(e) => setMotivoRecusa(e.target.value)} maxLength={200} style={{ height: '44px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', padding: '0 12px', fontSize: '15px' }} />
+                <textarea
+                  name="motivo-da-recusa"
+                  autoComplete="off"
+                  autoCorrect="on"
+                  rows={2}
+                  value={motivoRecusa}
+                  onChange={(e) => setMotivoRecusa(e.target.value)}
+                  maxLength={200}
+                  style={{ minHeight: '56px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', padding: '10px 12px', fontSize: '15px', resize: 'vertical', fontFamily: 'inherit' }}
+                />
               </label>
             )}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
               {usaSenha ? 'Sua senha' : 'Seu PIN'}
               <input
                 type="password"
-                autoFocus
+                name="password"
+                autoComplete={usaSenha ? 'current-password' : 'off'}
+                autoFocus={respondendo.decisao === 'aprovar'}
                 inputMode={usaSenha ? undefined : 'numeric'}
                 value={senha}
                 onChange={(e) => setSenha(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void confirmar(); } }}
                 style={{ height: '48px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', padding: '0 12px', fontSize: '18px', letterSpacing: usaSenha ? undefined : '0.3em' }}
               />
             </label>

@@ -27,6 +27,7 @@ import {
   DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
   parseExigirIdentificacaoVendedor,
 } from '../utils/vendedorPinDomain';
+import { DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR, parseLiberacaoEscolherVendedor } from '../utils/liberacaoRemotaDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../utils/fiscalDomain';
 import { DEFAULT_HABILITAR_TELA_PRECIFICACAO } from '../utils/precificacaoDomain';
 import {
@@ -86,6 +87,9 @@ interface AuthContextType {
    *  a marca de que a empresa trabalha em balcao compartilhado -- ver
    *  src/utils/vendedorCadastroDomain.ts. */
   exigirIdentificacaoVendedor: boolean;
+  /** Config da empresa (22/10/2026): na liberacao de desconto pelo celular,
+   *  a estacao compartilhada escolhe na lista o vendedor que esta' pedindo. */
+  liberacaoEscolherVendedor: boolean;
   /** Config da empresa: false quando ela NAO emite documento fiscal por aqui.
    *  Esconde o menu Fiscal, o botao de NFC-e no fim da venda e o de imprimir
    *  cupom na lista. Ver DEFAULT_CONTROLA_FISCAL em fiscalDomain.ts. */
@@ -226,6 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [restringirVendasPorUsuario, setRestringirVendasPorUsuario] = useState(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
+  const [liberacaoEscolherVendedor, setLiberacaoEscolherVendedor] = useState(DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR);
   const [controlaFiscal, setControlaFiscal] = useState(DEFAULT_CONTROLA_FISCAL);
   const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
   const [habilitarTelaPrecificacao, setHabilitarTelaPrecificacao] = useState(DEFAULT_HABILITAR_TELA_PRECIFICACAO);
@@ -578,6 +583,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setExigirIdentificacaoVendedor(
         parseExigirIdentificacaoVendedor(snap.exists() ? snap.data().exigirIdentificacaoVendedor : undefined),
       );
+      setLiberacaoEscolherVendedor(
+        parseLiberacaoEscolherVendedor(snap.exists() ? snap.data().liberacaoEscolherVendedor : undefined),
+      );
       // Mesma leitura: a empresa que nao emite nota nao pode ver botao de
       // nota, e isso muda ao vivo quando o dono desmarca em Configuracoes.
       setControlaFiscal(parseControlaFiscal(snap.exists() ? snap.data().controlaFiscal : undefined));
@@ -807,7 +815,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, modoRotaPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, modoRotaPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

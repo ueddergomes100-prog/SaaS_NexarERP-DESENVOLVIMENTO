@@ -39,7 +39,24 @@ test('pedir: grava o pedido pendente por 10 minutos; sem ninguem para liberar, r
   assert.equal(d.status, 'pendente');
   assert.equal(d.solicitanteNome, 'ANA');
   assert.equal(d.estacaoUid, 'ana');
+  assert.equal(d.estacaoNome, null);
   assert.equal(d.expiraEmMs - Date.parse(d.criadoEmIso), 10 * 60 * 1000);
+
+  // Estacao compartilhada (22/10): "balcao" pede em nome de um vendedor da lista; itens vao junto.
+  const r2 = await s.pedir({ user: VENDEDOR, tenantId: 'loja', corpo: { ...PEDIDO, vendedor: { id: 'bia', nome: 'qualquer' }, itens: [{ nome: 'RAÇÃO', quantidade: 2, totalCentavos: 24000 }] } });
+  const d2 = fake.ler(`liberacoes_desconto/${r2.id}`);
+  assert.equal(d2.solicitanteNome, 'BIA', 'o nome vem do cadastro, nao do que a tela mandou');
+  assert.equal(d2.solicitanteId, 'bia');
+  assert.equal(d2.estacaoNome, 'ANA');
+  assert.equal(d2.estacaoUid, 'ana');
+  assert.deepEqual(d2.itens, [{ nome: 'RAÇÃO', quantidade: 2, totalCentavos: 24000 }]);
+  assert.equal(d2.vendedor, undefined, 'o campo cru nao e gravado');
+  const lista = await s.pendentes({ user: { uid: 'marcos', tenantId: 'loja', email: 'm@loja', permissoes: ['vendas.liberar_desconto'] }, tenantId: 'loja' });
+  const naLista = lista.find((l) => l.id === r2.id);
+  assert.equal(naLista.estacaoNome, 'ANA');
+  assert.equal(naLista.itens.length, 1);
+  assert.match(naLista.texto, /^BIA pede/);
+  await assert.rejects(() => s.pedir({ user: VENDEDOR, tenantId: 'loja', corpo: { ...PEDIDO, vendedor: { id: 'fora', nome: 'FORA' } } }), (e) => e.status === 400 && /não é desta empresa/.test(e.message));
 
   const semGerente = criarBancoFalso({ 'usuarios/ana': base()['usuarios/ana'] }, { consultas: true });
   await assert.rejects(() => carregar(semGerente.db).pedir({ user: VENDEDOR, tenantId: 'loja', corpo: PEDIDO }), (e) => e.status === 409 && /Ninguém/.test(e.message));

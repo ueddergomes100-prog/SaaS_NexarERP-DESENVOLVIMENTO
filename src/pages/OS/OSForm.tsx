@@ -2396,7 +2396,13 @@ const OSForm: React.FC = () => {
           liberacaoNoServidor={vendaPeloServidor
             ? { tela: 'os', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents }
             : null}
-          pedirAoGerente={{ tela: 'os', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents, documento: formData.numeroOS ? `OS #${formData.numeroOS}` : 'OS nova' }}
+          pedirAoGerente={{
+            tela: 'os', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents, documento: formData.numeroOS ? `OS #${formData.numeroOS}` : 'OS nova',
+            itens: [
+              ...servicosSelecionados.map((s) => ({ nome: s.nome, quantidade: s.quantidade, totalCentavos: Math.round(s.preco * s.quantidade * 100) })),
+              ...pecasSelecionadas.map((p) => ({ nome: p.nome, quantidade: p.quantidade, totalCentavos: Math.round(p.preco * p.quantidade * 100) })),
+            ],
+          }}
         />
 
         <CadastroRapidoClienteModal

@@ -1,4 +1,7 @@
 import { hasTenantFullAccess } from '../../utils/roles';
+
+/** Liberacao de desconto pelo celular (21/10/2026): quem ve a tela Liberacoes. Regra em liberacaoRemotaDomain.ts. */
+export { podeLiberarDescontoNoApp } from '../../utils/liberacaoRemotaDomain';
 /**
  * Balanco (contagem de estoque) no app (21/10/2026): permissao propria de
  * CONTAR ("Estoque: Balanco -- contar"); quem fecha e ajusta o estoque e' o

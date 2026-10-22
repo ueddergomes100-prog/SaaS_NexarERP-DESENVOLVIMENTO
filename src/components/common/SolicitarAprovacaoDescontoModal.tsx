@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { X, ShieldAlert, Loader2 } from 'lucide-react';
-import { db, firebaseConfig } from '../../services/firebase';
+import { X, ShieldAlert, Loader2, Smartphone } from 'lucide-react';
+import { db } from '../../services/firebase';
+import { confirmarSenhaDoUsuario as validarSenha } from '../../services/confirmacaoSenhaService';
+import { cancelarLiberacao, consultarLiberacao, pedirLiberacaoAoGerente } from '../../services/liberacaoRemotaService';
+import {
+  INTERVALO_CONSULTA_ESTACAO_MS,
+  MINUTOS_DE_VALIDADE_DO_PEDIDO,
+  segundosRestantes,
+  textoDoTempoRestante,
+  type TelaDoPedidoRemoto,
+} from '../../utils/liberacaoRemotaDomain';
 import { hasModuleAccess } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { normalizarCodigoVendedor } from '../../utils/vendedorPinDomain';
@@ -15,28 +22,9 @@ import { showError } from '../../utils/alerts';
 import { useAuth } from '../../contexts/AuthContext';
 import { createAuditLog } from '../../services/logService';
 
-const SECONDARY_APP_NAME = 'DescontoApprovalApp';
-
-/** Autentica um usuario do tenant num app Firebase SECUNDARIO, sem afetar a
- * sessao principal (mesmo padrao de UsuarioForm.tsx ao criar funcionario).
- * Reaproveita a mesma instancia nomeada entre chamadas -- initializeApp com
- * um nome ja usado lanca erro, e este modal pode abrir varias vezes na
- * mesma sessao de venda. */
-const validarSenha = async (email: string, senha: string): Promise<{ uid: string; idToken: string }> => {
-  const existente = getApps().find((app) => app.name === SECONDARY_APP_NAME);
-  const secondaryApp = existente || initializeApp(firebaseConfig, SECONDARY_APP_NAME);
-  const secondaryAuth = getAuth(secondaryApp);
-  try {
-    const credential = await signInWithEmailAndPassword(secondaryAuth, email, senha);
-    // O token desta sessao recem-aberta e' a prova da senha que o servidor
-    // confere na venda pelo servidor (a senha em si nao sai daqui).
-    return { uid: credential.user.uid, idToken: await credential.user.getIdToken() };
-  } finally {
-    // Sempre desloga o app secundario, mesmo em falha -- nunca deixa uma
-    // sessao paralela pendurada.
-    await signOut(secondaryAuth).catch(() => {});
-  }
-};
+// A senha do aprovador e' conferida num app Firebase secundario
+// (confirmacaoSenhaService.ts): o token da sessao recem-aberta e' a prova que
+// o servidor confere; a senha em si nao sai daqui.
 
 interface Aprovador {
   id: string;
@@ -73,6 +61,13 @@ interface SolicitarAprovacaoDescontoModalProps {
    * Sem isto (chave desligada, Orcamento), a tela confere como sempre.
    */
   liberacaoNoServidor?: { tela: TelaDoDesconto; baseCentavos: number; descontoCentavos: number } | null;
+  /**
+   * Liberacao pelo celular (21/10/2026, liberacaoRemotaDomain.ts): com isto a
+   * janela ganha "Pedir ao gerente pelo celular". O pedido vai ao servidor,
+   * quem pode liberar recebe o aviso no app e responde com PIN/senha; esta
+   * tela acompanha e segue sozinha. `documento` = "Pedido #0231 — JOÃO".
+   */
+  pedirAoGerente?: { tela: TelaDoPedidoRemoto; baseCentavos: number; descontoCentavos: number; documento: string } | null;
 }
 
 /**
@@ -89,6 +84,7 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
   onAprovado,
   moduloLog = 'vendas',
   liberacaoNoServidor = null,
+  pedirAoGerente = null,
 }) => {
   const { currentUser } = useAuth();
   const [aprovadores, setAprovadores] = useState<Aprovador[]>([]);
@@ -96,6 +92,74 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
   const [aprovadorId, setAprovadorId] = useState('');
   const [senha, setSenha] = useState('');
   const [isValidando, setIsValidando] = useState(false);
+  // Pedido ao gerente pelo celular: enquanto `remoto` existe, a janela espera
+  // (consulta o servidor a cada 3 s) e mostra o tempo que falta.
+  const [remoto, setRemoto] = useState<{ id: string; expiraEmMs: number } | null>(null);
+  const [segundos, setSegundos] = useState(0);
+  const [pedindoAoGerente, setPedindoAoGerente] = useState(false);
+  const [avisoDoPedido, setAvisoDoPedido] = useState('');
+
+  useEffect(() => {
+    if (!open) setRemoto(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (!remoto) return undefined;
+    let vivo = true;
+    const relogio = window.setInterval(() => setSegundos(segundosRestantes(remoto, Date.now())), 1000);
+    const consultar = async () => {
+      try {
+        const r = await consultarLiberacao(remoto.id);
+        if (!vivo) return;
+        if (r.status === 'aprovada') {
+          setRemoto(null);
+          onAprovado({ aprovadoPorId: r.aprovadorId || '', aprovadoPorNome: r.aprovadorNome || 'Gerente', ...(r.comprovanteId ? { comprovanteId: r.comprovanteId } : {}) });
+          onClose();
+        } else if (r.status === 'recusada') {
+          setRemoto(null);
+          showError('Desconto recusado', `${r.aprovadorNome || 'O gerente'} recusou o desconto${r.motivoRecusa ? `: ${r.motivoRecusa}` : '.'}`);
+        } else if (r.status === 'vencida') {
+          setRemoto(null);
+          showError('Sem resposta', `O gerente não respondeu em ${MINUTOS_DE_VALIDADE_DO_PEDIDO} minutos. Peça de novo ou digite a senha aqui.`);
+        } else if (r.status === 'cancelada') {
+          setRemoto(null);
+        }
+      } catch {
+        // Sem resposta agora: tenta no proximo ciclo.
+      }
+    };
+    const consulta = window.setInterval(() => { void consultar(); }, INTERVALO_CONSULTA_ESTACAO_MS);
+    return () => { vivo = false; window.clearInterval(relogio); window.clearInterval(consulta); };
+  }, [remoto]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePedirAoGerente = async () => {
+    if (!pedirAoGerente) return;
+    setPedindoAoGerente(true);
+    try {
+      const r = await pedirLiberacaoAoGerente({ ...pedirAoGerente, motivo });
+      setSegundos(segundosRestantes({ expiraEmMs: r.expiraEmMs }, Date.now()));
+      setAvisoDoPedido(r.avisosDesligados
+        ? 'Pedido enviado. Os avisos no celular ainda não estão configurados: o gerente precisa abrir o app em Liberações.'
+        : r.aparelhosAvisados === 0
+          ? 'Pedido enviado. Nenhum celular ativou os avisos: o gerente precisa abrir o app em Liberações.'
+          : `Pedido enviado para ${r.aparelhosAvisados === 1 ? '1 celular' : `${r.aparelhosAvisados} celulares`}.`);
+      setRemoto({ id: r.id, expiraEmMs: r.expiraEmMs });
+    } catch (erro) {
+      showError('Não foi possível pedir ao gerente', erro instanceof Error ? erro.message : 'Tente de novo.');
+    } finally {
+      setPedindoAoGerente(false);
+    }
+  };
+
+  const desistirDoPedido = () => {
+    if (remoto) void cancelarLiberacao(remoto.id).catch(() => undefined);
+    setRemoto(null);
+  };
+
+  const fechar = () => {
+    desistirDoPedido();
+    onClose();
+  };
 
   useEffect(() => {
     if (!open || !tenantId) return;
@@ -282,7 +346,7 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
             <ShieldAlert size={20} color="#f59e0b" />
             Liberar desconto
           </h2>
-          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+          <button type="button" onClick={fechar} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <X size={22} />
           </button>
         </div>
@@ -290,7 +354,19 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>{motivo}</p>
 
-          {isLoadingAprovadores ? (
+          {remoto ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '8px 0' }}>
+              <Smartphone size={36} color="var(--accent-purple)" />
+              <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>Aguardando o gerente no celular…</strong>
+              <span style={{ fontSize: '30px', fontWeight: 800, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{textoDoTempoRestante(segundos)}</span>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                {avisoDoPedido} Assim que ele responder, esta tela segue sozinha.
+              </p>
+              <button type="button" className="btn-secondary" onClick={desistirDoPedido} style={{ marginTop: '4px' }}>
+                Cancelar o pedido e digitar a senha aqui
+              </button>
+            </div>
+          ) : isLoadingAprovadores ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
               <Loader2 size={16} className="spin-animation" /> Carregando aprovadores...
             </div>
@@ -338,16 +414,29 @@ const SolicitarAprovacaoDescontoModal: React.FC<SolicitarAprovacaoDescontoModalP
               </div>
             </>
           )}
+
+          {!remoto && pedirAoGerente && (
+            <button
+              type="button"
+              onClick={() => void handlePedirAoGerente()}
+              disabled={pedindoAoGerente}
+              title={`O gerente recebe um aviso no celular e responde pelo app com o PIN/senha dele; esta tela segue sozinha. Ele tem ${MINUTOS_DE_VALIDADE_DO_PEDIDO} minutos.`}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%', padding: '11px 12px', borderRadius: 'var(--radius-md)', border: '1px dashed var(--accent-purple)', background: 'transparent', color: 'var(--accent-purple)', fontWeight: 600, fontSize: '14px', cursor: pedindoAoGerente ? 'default' : 'pointer', opacity: pedindoAoGerente ? 0.6 : 1 }}
+            >
+              {pedindoAoGerente ? <Loader2 size={18} className="spin-animation" /> : <Smartphone size={18} />}
+              {pedindoAoGerente ? 'Enviando o pedido...' : 'Pedir ao gerente pelo celular'}
+            </button>
+          )}
         </div>
 
         <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px', backgroundColor: 'var(--bg-primary)' }}>
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn-secondary" onClick={fechar}>Cancelar</button>
           <button
             type="button"
             className="btn-primary"
             onClick={() => void handleConfirmar()}
-            disabled={isValidando || aprovadores.length === 0}
-            style={{ opacity: (isValidando || aprovadores.length === 0) ? 0.6 : 1 }}
+            disabled={isValidando || aprovadores.length === 0 || Boolean(remoto)}
+            style={{ opacity: (isValidando || aprovadores.length === 0 || remoto) ? 0.6 : 1 }}
           >
             {isValidando ? 'Validando...' : 'Liberar desconto'}
           </button>

@@ -2393,6 +2393,7 @@ const OSForm: React.FC = () => {
           liberacaoNoServidor={vendaPeloServidor
             ? { tela: 'os', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents }
             : null}
+          pedirAoGerente={{ tela: 'os', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents, documento: formData.numeroOS ? `OS #${formData.numeroOS}` : 'OS nova' }}
         />
 
         <CadastroRapidoClienteModal

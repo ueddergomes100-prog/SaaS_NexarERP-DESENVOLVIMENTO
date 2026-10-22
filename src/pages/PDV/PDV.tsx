@@ -1532,6 +1532,7 @@ const PDV: React.FC = () => {
         liberacaoNoServidor={vendaPeloServidor
           ? { tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos }
           : null}
+        pedirAoGerente={{ tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos, documento: `Cupom no PDV — ${selectedClient?.nome || 'CONSUMIDOR FINAL'}` }}
       />
 
       <DiscountModal

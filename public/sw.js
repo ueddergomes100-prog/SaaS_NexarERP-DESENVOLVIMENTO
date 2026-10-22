@@ -65,6 +65,47 @@ const cachePrimeiro = async (request) => {
   return new Response('', { status: 504, statusText: 'Sem conexão' });
 };
 
+// AVISOS NO CELULAR (21/10/2026): o Firebase Cloud Messaging entrega o push
+// aqui; mostramos a notificacao e, no toque, abrimos a tela certa do app
+// (primeiro uso: "Liberar desconto?"). Sem a biblioteca do FCM no worker: o
+// payload chega como JSON { notification, data } e basta isto.
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { payload = {}; }
+  const n = payload.notification || {};
+  const d = payload.data || {};
+  const titulo = n.title || d.titulo || 'Hennder';
+  const corpo = n.body || d.corpo || '';
+  const link = d.link || (payload.fcmOptions && payload.fcmOptions.link) || '/vendedor';
+  event.waitUntil(self.registration.showNotification(titulo, {
+    body: corpo,
+    icon: '/icon-vendedor-192.png',
+    badge: '/icon-vendedor-192.png',
+    tag: d.tag || undefined,
+    renotify: Boolean(d.tag),
+    requireInteraction: true,
+    data: { link },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const link = (event.notification.data && event.notification.data.link) || '/vendedor';
+  event.waitUntil((async () => {
+    const janelas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const janela of janelas) {
+      if ('focus' in janela) {
+        await janela.focus();
+        if ('navigate' in janela) {
+          try { await janela.navigate(link); } catch { /* fica na tela que esta' */ }
+        }
+        return;
+      }
+    }
+    await self.clients.openWindow(link);
+  })());
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;

@@ -1326,6 +1326,9 @@ const OrcamentoForm: React.FC = () => {
             motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste orçamento, acima do limite configurado. Confirme com a senha de um aprovador para salvar.`}
             onClose={() => setShowAprovacaoDesconto(false)}
             onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
+            pedirAoGerente={subtotalOrcamentoCents > 0 && descontoCents > 0
+              ? { tela: 'orcamento', baseCentavos: subtotalOrcamentoCents, descontoCentavos: descontoCents, documento: formData.numeroOrcamento ? `Orçamento #${formData.numeroOrcamento}` : 'Orçamento novo' }
+              : null}
           />
 
           <CadastroRapidoClienteModal

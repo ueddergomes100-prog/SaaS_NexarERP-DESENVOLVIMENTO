@@ -41,6 +41,7 @@ const romaneiosRoutes = require('./routes/romaneios.routes');
 const vendasRoutes = require('./routes/vendas.routes');
 const osRoutes = require('./routes/os.routes');
 const descontosRoutes = require('./routes/descontos.routes');
+const notificacoesRoutes = require('./routes/notificacoes.routes');
 const cashbackRoutes = require('./routes/cashback.routes');
 const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
 const inutilizacaoRoutes = require('./routes/inutilizacao.routes');
@@ -222,6 +223,8 @@ app.use('/api/vendas', vendasRoutes);
 app.use('/api/os', osRoutes);
 // Liberacao de desconto (19/10/2026): senha/PIN do aprovador conferidos aqui, viram comprovante de curta duracao.
 app.use('/api/descontos', descontosRoutes);
+// Avisos no celular (21/10/2026): aparelhos do app Vendas e a chave publica do FCM.
+app.use('/api/notificacoes', notificacoesRoutes);
 // Cashback (20/10/2026): gerar/estornar depois de a tela gravar venda, baixa ou devolucao.
 app.use('/api/cashback', cashbackRoutes);
 // Tabelas fiscais (20/10/2026): CFOP ativo na empresa e base unica de NCM/CEST.

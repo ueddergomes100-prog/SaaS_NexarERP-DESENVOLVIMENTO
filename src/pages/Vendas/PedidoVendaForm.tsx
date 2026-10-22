@@ -5233,6 +5233,7 @@ const PedidoVendaForm: React.FC = () => {
         liberacaoNoServidor={vendaPeloServidor
           ? { tela: 'pedido', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents }
           : null}
+        pedirAoGerente={{ tela: 'pedido', baseCentavos: baseDoDescontoCents, descontoCentavos: descontoParaLimiteCents, documento: `${numeroPedido ? `Pedido #${numeroPedido}` : 'Pedido novo'} — ${clienteNome.trim().toUpperCase() || 'CONSUMIDOR FINAL'}` }}
       />
 
       {modalDeRota}

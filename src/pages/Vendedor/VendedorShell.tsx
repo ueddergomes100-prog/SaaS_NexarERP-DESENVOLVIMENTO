@@ -35,6 +35,9 @@ import VendedorEntregaRegistrar from './VendedorEntregaRegistrar';
 import EnvioAutomaticoDeRascunhos from './EnvioAutomaticoDeRascunhos';
 import VendedorConferenciaFila from './VendedorConferenciaFila';
 import VendedorConferencia from './VendedorConferencia';
+import VendedorLiberacoes from './VendedorLiberacoes';
+import { podeLiberarDescontoNoApp } from './vendedorPermissoes';
+import { renovarAvisosSeAtivos } from '../../services/notificacoesPushService';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -57,6 +60,12 @@ const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', 
 const VendedorShell: React.FC = () => {
   const location = useLocation();
   const { currentUser, loading, acessoAppMobile, logout, userPermissions, userRole, isOwner } = useAuth();
+
+  // Avisos no celular (21/10/2026): quem ja' ativou tem o token renovado em
+  // silencio a cada abertura (ele muda de tempos em tempos).
+  React.useEffect(() => {
+    if (currentUser && acessoAppMobile) void renovarAvisosSeAtivos();
+  }, [currentUser, acessoAppMobile]);
 
   if (loading) {
     return (
@@ -145,6 +154,11 @@ const VendedorShell: React.FC = () => {
           <Route
             path="balanco"
             element={podeContarBalancoNoApp(userRole, isOwner, userPermissions) ? <VendedorBalanco /> : <Navigate to="/vendedor" replace />}
+          />
+          {/* Liberacao de desconto pelo celular (21/10/2026): so' quem pode liberar. */}
+          <Route
+            path="liberacoes"
+            element={podeLiberarDescontoNoApp(userRole, isOwner, userPermissions) ? <VendedorLiberacoes /> : <Navigate to="/vendedor" replace />}
           />
           <Route path="*" element={<Navigate to="/vendedor" replace />} />
         </Routes>

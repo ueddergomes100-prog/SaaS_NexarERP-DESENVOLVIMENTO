@@ -17,6 +17,8 @@ export const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+/** O app principal, para quem precisa de outro servico do Firebase (ex.: avisos no celular, notificacoesPushService.ts). */
+export const firebaseApp = app;
 
 /**
  * APP CHECK (2026-10-14) -- pedido do dono: proteger o banco de quem dispara

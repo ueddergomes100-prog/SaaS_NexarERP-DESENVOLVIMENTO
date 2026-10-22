@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Package, PackageCheck, Receipt, Repeat, Send, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Package, PackageCheck, Receipt, Repeat, Send, ShieldCheck, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
@@ -10,7 +10,7 @@ import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingServic
 import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
-import { podeContarBalancoNoApp, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
+import { podeContarBalancoNoApp, podeLiberarDescontoNoApp, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { comOrigem } from './navegacaoApp';
@@ -246,6 +246,10 @@ const VendedorHome: React.FC = () => {
             {/* Balanco (21/10/2026): quem tem "Estoque: Balanco -- contar" (dono/gestor sempre). */}
             {podeContarBalancoNoApp(userRole, isOwner, userPermissions) && (
               <Atalho Icone={ClipboardList} rotulo="Balanço" aoTocar={() => navigate('/vendedor/balanco')} />
+            )}
+            {/* Liberacao de desconto pelo celular (21/10/2026): quem pode liberar responde por aqui. */}
+            {podeLiberarDescontoNoApp(userRole, isOwner, userPermissions) && (
+              <Atalho Icone={ShieldCheck} rotulo="Liberações" detalhe="Desconto pedido ao gerente" aoTocar={() => navigate('/vendedor/liberacoes')} />
             )}
           </div>
         </div>

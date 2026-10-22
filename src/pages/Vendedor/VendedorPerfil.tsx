@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Moon, RefreshCw, SquarePlus, Sun, SunMoon } from 'lucide-react';
+import { BellRing, LogOut, Moon, RefreshCw, SquarePlus, Sun, SunMoon } from 'lucide-react';
+import { showError, showSuccess } from '../../utils/alerts';
+import { ativarAvisosNoCelular, desativarAvisosNoCelular, estadoDosAvisos, type EstadoDosAvisos } from '../../services/notificacoesPushService';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
@@ -67,6 +69,40 @@ const VendedorPerfil: React.FC = () => {
   };
 
   const { preferencia: temaPreferido, escolher: escolherTema } = usePreferenciaTema();
+
+  // Avisos no celular (21/10/2026): primeiro uso e' "Liberar desconto?" para
+  // quem pode liberar; o cartao aparece para todos (outros avisos virao).
+  const [avisos, setAvisos] = useState<EstadoDosAvisos | null>(null);
+  const [mexendoAvisos, setMexendoAvisos] = useState(false);
+  useEffect(() => {
+    let ativo = true;
+    void estadoDosAvisos().then((estado) => { if (ativo) setAvisos(estado); });
+    return () => { ativo = false; };
+  }, []);
+  const alternarAvisos = async () => {
+    setMexendoAvisos(true);
+    try {
+      if (avisos === 'ativo') {
+        await desativarAvisosNoCelular();
+        showSuccess('Avisos desligados neste aparelho.');
+      } else {
+        const r = await ativarAvisosNoCelular();
+        if (r.ok) showSuccess('Avisos ligados. Este aparelho recebe os pedidos de liberação de desconto.');
+        else showError('Não foi possível ligar os avisos', r.motivo || 'Tente de novo.');
+      }
+    } catch (erro) {
+      showError('Não foi possível mudar os avisos', erro instanceof Error ? erro.message : 'Tente de novo.');
+    } finally {
+      setAvisos(await estadoDosAvisos());
+      setMexendoAvisos(false);
+    }
+  };
+  const TEXTO_AVISOS: Record<EstadoDosAvisos, string> = {
+    ativo: 'Ligados neste aparelho: você recebe o aviso quando um vendedor pede liberação de desconto.',
+    inativo: 'Desligados. Ligue para receber no celular os pedidos de liberação de desconto, mesmo com o app fechado.',
+    bloqueado: 'Bloqueados nas configurações do aparelho. Libere as notificações deste app no celular e tente de novo.',
+    sem_suporte: 'Este navegador não recebe avisos. No iPhone, instale o app na tela de início e ligue por lá.',
+  };
   const iconeDoTema: Record<PreferenciaTema, React.ReactNode> = { dark: <Moon size={18} />, light: <Sun size={18} />, auto: <SunMoon size={18} /> };
 
   return (
@@ -144,6 +180,33 @@ const VendedorPerfil: React.FC = () => {
                   </div>
                 ))}
               </dl>
+            )}
+          </div>
+        )}
+
+        {avisos && (
+          <div style={{ marginTop: '14px', borderRadius: '18px', padding: '18px', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Avisos no celular</div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+              <span style={{ width: '40px', height: '40px', borderRadius: '12px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: avisos === 'ativo' ? 'rgba(16,185,129,0.16)' : 'var(--bg-tertiary)', color: avisos === 'ativo' ? '#10b981' : 'var(--text-secondary)' }}>
+                <BellRing size={20} />
+              </span>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{TEXTO_AVISOS[avisos]}</div>
+            </div>
+            {(avisos === 'ativo' || avisos === 'inativo') && (
+              <button
+                type="button"
+                onClick={() => void alternarAvisos()}
+                disabled={mexendoAvisos}
+                style={{
+                  marginTop: '12px', width: '100%', height: '44px', borderRadius: '12px', border: '1px solid var(--border-color)',
+                  fontSize: '14px', fontWeight: 700, cursor: mexendoAvisos ? 'default' : 'pointer', opacity: mexendoAvisos ? 0.7 : 1,
+                  color: avisos === 'ativo' ? 'var(--text-primary)' : '#fff',
+                  background: avisos === 'ativo' ? 'var(--bg-tertiary)' : 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
+                }}
+              >
+                {mexendoAvisos ? 'Aguarde...' : avisos === 'ativo' ? 'Desligar os avisos' : 'Ligar os avisos'}
+              </button>
             )}
           </div>
         )}

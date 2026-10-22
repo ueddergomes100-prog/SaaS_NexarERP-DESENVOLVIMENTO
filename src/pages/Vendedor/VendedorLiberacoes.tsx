@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
 import { showError, showSuccess } from '../../utils/alerts';
 import { confirmarSenhaDoUsuario, ehSenhaErrada } from '../../services/confirmacaoSenhaService';
+import { aoChegarAviso } from '../../services/notificacoesPushService';
 import { listarLiberacoesPendentes, responderLiberacao, type LiberacaoRemota } from '../../services/liberacaoRemotaService';
 import {
   INTERVALO_CONSULTA_APP_MS,
@@ -48,10 +49,16 @@ const VendedorLiberacoes: React.FC = () => {
     const relogio = window.setInterval(() => setAgoraMs(Date.now()), 1000);
     const aoVoltar = () => { if (document.visibilityState === 'visible') void carregar(); };
     document.addEventListener('visibilitychange', aoVoltar);
+    window.addEventListener('focus', aoVoltar);
+    // Aviso chegando com esta tela aberta: atualiza na hora (22/10/2026).
+    let pararDeEscutar: (() => void) | null = null;
+    void aoChegarAviso(() => { void carregar(); }).then((parar) => { pararDeEscutar = parar; });
     return () => {
       window.clearInterval(consulta);
       window.clearInterval(relogio);
       document.removeEventListener('visibilitychange', aoVoltar);
+      window.removeEventListener('focus', aoVoltar);
+      if (pararDeEscutar) pararDeEscutar();
     };
   }, [carregar]);
 

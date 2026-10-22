@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BellRing, LogOut, Moon, RefreshCw, SquarePlus, Sun, SunMoon } from 'lucide-react';
 import { showError, showSuccess } from '../../utils/alerts';
-import { ativarAvisosNoCelular, desativarAvisosNoCelular, estadoDosAvisos, type EstadoDosAvisos } from '../../services/notificacoesPushService';
+import { TEXTO_DO_TESTE, ativarAvisosNoCelular, desativarAvisosNoCelular, estadoDosAvisos, testarAvisoNoCelular, type EstadoDosAvisos } from '../../services/notificacoesPushService';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
@@ -95,6 +95,19 @@ const VendedorPerfil: React.FC = () => {
     } finally {
       setAvisos(await estadoDosAvisos());
       setMexendoAvisos(false);
+    }
+  };
+  const [testandoAvisos, setTestandoAvisos] = useState(false);
+  const testarAvisos = async () => {
+    setTestandoAvisos(true);
+    try {
+      const r = await testarAvisoNoCelular();
+      if (r.situacao === 'enviado') showSuccess(TEXTO_DO_TESTE.enviado);
+      else showError('Aviso não enviado', TEXTO_DO_TESTE[r.situacao]);
+    } catch (erro) {
+      showError('Não foi possível testar', erro instanceof Error ? erro.message : 'Tente de novo.');
+    } finally {
+      setTestandoAvisos(false);
     }
   };
   const TEXTO_AVISOS: Record<EstadoDosAvisos, string> = {
@@ -206,6 +219,16 @@ const VendedorPerfil: React.FC = () => {
                 }}
               >
                 {mexendoAvisos ? 'Aguarde...' : avisos === 'ativo' ? 'Desligar os avisos' : 'Ligar os avisos'}
+              </button>
+            )}
+            {avisos === 'ativo' && (
+              <button
+                type="button"
+                onClick={() => void testarAvisos()}
+                disabled={testandoAvisos}
+                style={{ marginTop: '8px', width: '100%', height: '40px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 700, cursor: testandoAvisos ? 'default' : 'pointer', opacity: testandoAvisos ? 0.7 : 1 }}
+              >
+                {testandoAvisos ? 'Enviando...' : 'Testar aviso neste aparelho'}
               </button>
             )}
           </div>

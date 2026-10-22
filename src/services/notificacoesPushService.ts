@@ -84,6 +84,48 @@ export const renovarAvisosSeAtivos = async (): Promise<void> => {
   }
 };
 
+export type ResultadoDoTeste = { situacao: 'sem_chave' | 'sem_aparelho' | 'enviado' | 'recusado' | 'falhou'; enviados: number; aparelhos: number; removidos?: number };
+
+/** Perfil > "Testar aviso": o servidor manda um aviso so' para este usuario e diz o que aconteceu. */
+export const testarAvisoNoCelular = () => chamarServidor<ResultadoDoTeste>('POST', 'notificacoes/teste', {});
+
+export const TEXTO_DO_TESTE: Record<ResultadoDoTeste['situacao'], string> = {
+  sem_chave: 'O servidor ainda não tem a chave dos avisos (FCM_VAPID_PUBLIC_KEY). Avise o suporte.',
+  sem_aparelho: 'Nenhum aparelho seu está registrado. Toque em "Ligar os avisos" neste celular.',
+  enviado: 'Aviso enviado. Se não apareceu, confira se as notificações do app estão liberadas no celular.',
+  recusado: 'O serviço de avisos recusou o endereço deste aparelho. Desligue e ligue os avisos de novo.',
+  falhou: 'O servidor não conseguiu falar com o serviço de avisos. Tente de novo em instantes.',
+};
+
+/**
+ * Aviso chegando com o app ABERTO (22/10/2026): o navegador nao mostra a
+ * notificacao do service worker em primeiro plano, entao a tela que estiver
+ * aberta recebe o aviso por aqui e atualiza na hora. Devolve a funcao que
+ * para de escutar; sem suporte, nao faz nada.
+ */
+export const aoChegarAviso = async (receber: (dados: Record<string, string>) => void): Promise<() => void> => {
+  try {
+    if (!(await suporteAPush()) || Notification.permission !== 'granted') return () => undefined;
+    const { onMessage } = await import('firebase/messaging');
+    return onMessage(getMessaging(firebaseApp), (mensagem) => {
+      const dados = (mensagem.data || {}) as Record<string, string>;
+      const n = mensagem.notification;
+      // Em primeiro plano o navegador nao mostra nada sozinho: mostramos pelo service worker.
+      if (n && n.title) {
+        void navigator.serviceWorker.ready.then((registro) => registro.showNotification(n.title || 'Hennder', {
+          body: n.body || '',
+          icon: '/icon-vendedor-192.png',
+          tag: dados.tag || undefined,
+          data: { link: dados.link || '/vendedor' },
+        })).catch(() => undefined);
+      }
+      receber(dados);
+    });
+  } catch {
+    return () => undefined;
+  }
+};
+
 export const desativarAvisosNoCelular = async (): Promise<void> => {
   const token = tokenGuardado();
   esquecerToken();

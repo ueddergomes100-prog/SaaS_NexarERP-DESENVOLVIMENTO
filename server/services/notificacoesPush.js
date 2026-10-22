@@ -111,4 +111,24 @@ const enviarParaUsuarios = async ({ tenantId, uids, titulo, corpo, link, dados =
   }
 };
 
-module.exports = { COLECAO, configPublica, registrarDispositivo, removerDispositivo, enviarParaUsuarios, tokensDosUsuarios };
+/**
+ * "Testar aviso" (Perfil do app, 22/10/2026): manda um aviso so' para quem
+ * pediu e devolve o que aconteceu, para a tela dizer o que falta.
+ */
+const testarAviso = async ({ user, tenantId }) => {
+  const config = configPublica();
+  if (!config.ativo) return { situacao: 'sem_chave', enviados: 0, aparelhos: 0 };
+  const aparelhos = await tokensDosUsuarios(tenantId, [user.uid]);
+  if (aparelhos.length === 0) return { situacao: 'sem_aparelho', enviados: 0, aparelhos: 0 };
+  const r = await enviarParaUsuarios({
+    tenantId,
+    uids: [user.uid],
+    titulo: 'Aviso de teste',
+    corpo: 'Os avisos do Hennder estão chegando neste aparelho.',
+    link: '/vendedor/perfil',
+    dados: { tipo: 'teste', tag: `teste-${Date.now()}` },
+  });
+  return { situacao: r.falhou ? 'falhou' : r.enviados > 0 ? 'enviado' : 'recusado', enviados: r.enviados, aparelhos: r.aparelhos, removidos: r.removidos || 0 };
+};
+
+module.exports = { COLECAO, configPublica, registrarDispositivo, removerDispositivo, enviarParaUsuarios, tokensDosUsuarios, testarAviso };

@@ -8,9 +8,13 @@ exports.NOME_DA_TELA_REMOTA = { ...conferenciaDescontoDomain_1.NOME_DA_TELA, orc
 /** O gerente tem 10 minutos; depois o vendedor pede de novo (ou usa a senha). */
 exports.VALIDADE_DO_PEDIDO_MS = 10 * 60 * 1000;
 exports.MINUTOS_DE_VALIDADE_DO_PEDIDO = exports.VALIDADE_DO_PEDIDO_MS / 60000;
-/** A estacao pergunta ao servidor a cada 3 s enquanto espera; o app, a cada 10 s na tela. */
+/**
+ * A estacao pergunta ao servidor a cada 3 s enquanto espera; o app, a cada
+ * 4 s com a tela Liberacoes aberta (22/10: o dono viu o pedido novo demorar
+ * a aparecer com a tela aberta) -- e na hora, quando o aviso chega.
+ */
 exports.INTERVALO_CONSULTA_ESTACAO_MS = 3000;
-exports.INTERVALO_CONSULTA_APP_MS = 10000;
+exports.INTERVALO_CONSULTA_APP_MS = 4000;
 exports.MOTIVO_MAXIMO = 300;
 exports.DOCUMENTO_MAXIMO = 120;
 exports.MOTIVO_RECUSA_MAXIMO = 200;

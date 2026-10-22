@@ -28,9 +28,13 @@ export const NOME_DA_TELA_REMOTA: Record<TelaDoPedidoRemoto, string> = { ...NOME
 export const VALIDADE_DO_PEDIDO_MS = 10 * 60 * 1000;
 export const MINUTOS_DE_VALIDADE_DO_PEDIDO = VALIDADE_DO_PEDIDO_MS / 60000;
 
-/** A estacao pergunta ao servidor a cada 3 s enquanto espera; o app, a cada 10 s na tela. */
+/**
+ * A estacao pergunta ao servidor a cada 3 s enquanto espera; o app, a cada
+ * 4 s com a tela Liberacoes aberta (22/10: o dono viu o pedido novo demorar
+ * a aparecer com a tela aberta) -- e na hora, quando o aviso chega.
+ */
 export const INTERVALO_CONSULTA_ESTACAO_MS = 3000;
-export const INTERVALO_CONSULTA_APP_MS = 10000;
+export const INTERVALO_CONSULTA_APP_MS = 4000;
 
 export const MOTIVO_MAXIMO = 300;
 export const DOCUMENTO_MAXIMO = 120;

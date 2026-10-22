@@ -23,6 +23,7 @@
 .cb-selo--pendente { background: rgba(245,158,11,.14); color: #b45309; }
 .cb-aviso { padding: 10px 12px; border-radius: 10px; border: 1px solid #f59e0b; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
 .cb-erro { padding: 10px 12px; border-radius: 10px; border: 1px solid #ef4444; font-size: 13px; color: var(--text-primary); line-height: 1.45; }
+.cb-aviso { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--accent-purple, #7c3aed); background: rgba(124,58,237,.08); font-size: 13px; color: var(--text-primary); line-height: 1.45; }
 /* Sticky (e nao fixed): no computador fica no fim da area da pagina, sem cobrir o menu lateral. */
 .cb-rodape { position: sticky; bottom: 0; margin: 4px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--bg-primary); border-top: 1px solid var(--border-color); display: flex; justify-content: center; z-index: 30; }
 .cb-rodape button { width: 100%; max-width: 728px; }

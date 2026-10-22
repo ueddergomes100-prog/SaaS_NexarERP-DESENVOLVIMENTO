@@ -168,6 +168,30 @@ export const dividirEmBlocos = (itens: ItemParaDividir[], contadores: string[]):
   return { porItem, blocos: contadores.map((u) => blocos.get(u)!) };
 };
 
+/**
+ * Item bipado por quem NAO e' o dono dele (22/10/2026, pedido do dono no
+ * cliente): o item passa para quem bipou e some da lista do outro. Esta funcao
+ * so' ajusta as contagens dos blocos (o doc do balanco); o item em si e'
+ * regravado pelo servidor. Quem recebe e nao tinha bloco ganha um.
+ */
+export const moverItemEntreBlocos = (blocos: Bloco[], de: string, para: string, grupo: string): Bloco[] => {
+  if (de === para) return blocos;
+  const copia: Bloco[] = blocos.map((b) => ({ ...b, grupos: b.grupos.map((g) => ({ ...g })) }));
+  const origem = copia.find((b) => b.contadorUid === de);
+  if (origem) {
+    const g = origem.grupos.find((x) => x.nome === grupo);
+    if (g) { g.itens = Math.max(0, g.itens - 1); if (g.itens === 0) origem.grupos = origem.grupos.filter((x) => x !== g); }
+    origem.itens = Math.max(0, origem.itens - 1);
+  }
+  let destino = copia.find((b) => b.contadorUid === para);
+  if (!destino) { destino = { contadorUid: para, grupos: [], itens: 0 }; copia.push(destino); }
+  const gd = destino.grupos.find((x) => x.nome === grupo);
+  if (gd) gd.itens += 1; else destino.grupos.push({ nome: grupo, itens: 1 });
+  destino.grupos.sort((x, y) => x.nome.localeCompare(y.nome));
+  destino.itens += 1;
+  return copia;
+};
+
 // ---------------------------------------------------------------------------
 // Contagem
 // ---------------------------------------------------------------------------

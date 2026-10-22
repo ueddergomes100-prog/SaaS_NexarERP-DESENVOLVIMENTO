@@ -64,7 +64,7 @@ test('contagem cega e so o proprio item; fechar: regra do negativo, nao contado 
   assert.ok(linha);
   assert.equal('saldoNaContagem' in linha || 'quantidade' in linha, false, 'contagem cega: sem saldo do sistema');
 
-  await assert.rejects(() => contar(s, outro(quem.p1), r.id, { chave: 'estoque__p1', quantidade: 1 }), (e) => e.status === 403 && /lista de outra pessoa/.test(e.message));
+  await assert.rejects(() => contar(s, outro(quem.p1), r.id, { chave: 'estoque__p1', quantidade: 1 }), (e) => e.status === 403 && /está na lista de (ANA|BIA)/.test(e.message));
   await contar(s, usuario(quem.p1), r.id, { chave: 'estoque__p1', quantidade: 60 });
   await contar(s, usuario(quem.p1), r.id, { chave: 'estoque__p1', quantidade: 40, modo: 'somar' });
   assert.equal(fake.ler(`balancos/${r.id}/itens/estoque__p1`).contado, 100);
@@ -97,6 +97,51 @@ test('contagem cega e so o proprio item; fechar: regra do negativo, nao contado 
   assert.equal(fake.ler(`balancos/${r.id}`).status, 'fechado');
   assert.equal(fake.ler('configuracoes/loja').balancoEmAndamento, undefined, 'trava retirada');
   await assert.rejects(() => contar(s, usuario(quem.p1), r.id, { chave: 'estoque__p1', quantidade: 1 }), (e) => e.status === 409);
+});
+
+test('codigo bipado de outra pessoa (22/10): passa para quem bipou; ja contado so soma; procurar', async () => {
+  const fake = criarBancoFalso(base({ 'estoque/p4': { tenantId: 'loja', nome: 'COLEIRA', categoria: 'PET', quantidade: 5, codigo: '44', codigoBarras: '7890000000044' } }), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await abrir(s);
+  const dono = donoDe(fake, r.id, 'estoque__p4');
+  const eu = dono === 'ana' ? BIA : ANA;
+  const colega = dono === 'ana' ? ANA : BIA;
+
+  // Procurar pelo codigo de barras e pelo codigo; desconhecido = 404.
+  const ach = await s.balanco.procurarCodigo({ user: eu, tenantId: 'loja', balancoId: r.id, codigo: '7890000000044' });
+  assert.equal(ach.item.chave, 'estoque__p4');
+  assert.equal(ach.deOutraPessoa.nome, colega.nome);
+  assert.equal(ach.deOutraPessoa.contado, null);
+  assert.equal((await s.balanco.procurarCodigo({ user: eu, tenantId: 'loja', balancoId: r.id, codigo: '44' })).item.chave, 'estoque__p4');
+  assert.equal((await s.balanco.procurarCodigo({ user: colega, tenantId: 'loja', balancoId: r.id, codigo: '44' })).deOutraPessoa, null, 'e meu: sem aviso');
+  await assert.rejects(() => s.balanco.procurarCodigo({ user: eu, tenantId: 'loja', balancoId: r.id, codigo: '999' }), (e) => e.status === 404);
+
+  // Sem assumir continua bloqueado; com assumir passa para mim e some da lista do colega.
+  await assert.rejects(() => contar(s, eu, r.id, { chave: 'estoque__p4', quantidade: 3 }), (e) => e.status === 403);
+  const c1 = await contar(s, eu, r.id, { chave: 'estoque__p4', quantidade: 3, assumir: true });
+  assert.equal(c1.assumido, true);
+  assert.equal(c1.somadoAoDe, null);
+  assert.equal(c1.contado, 3);
+  assert.equal(donoDe(fake, r.id, 'estoque__p4'), eu.uid);
+  assert.equal(fake.ler(`balancos/${r.id}/itens/estoque__p4`).passouDe.uid, colega.uid);
+  const minha = await s.balanco.minhaLista({ user: eu, tenantId: 'loja', balancoId: r.id });
+  assert.ok(minha.itens.some((i) => i.chave === 'estoque__p4'));
+  const dele = await s.balanco.minhaLista({ user: colega, tenantId: 'loja', balancoId: r.id });
+  assert.ok(!dele.itens.some((i) => i.chave === 'estoque__p4'));
+  const blocos = fake.ler(`balancos/${r.id}`).blocos;
+  assert.equal(blocos.reduce((t, b) => t + b.itens, 0), 4, 'os blocos continuam somando todos os itens');
+  assert.equal(blocos.find((b) => b.contadorUid === eu.uid).itens, minha.itens.length);
+
+  // Agora o colega bipa o mesmo item (ja contado por mim): so soma, nunca troca.
+  const ach2 = await s.balanco.procurarCodigo({ user: colega, tenantId: 'loja', balancoId: r.id, codigo: '44' });
+  assert.equal(ach2.deOutraPessoa.contado, 3);
+  await assert.rejects(() => contar(s, colega, r.id, { chave: 'estoque__p4', quantidade: 9, modo: 'definir', assumir: true }), (e) => e.status === 409 && /já foi contado por/.test(e.message));
+  const c2 = await contar(s, colega, r.id, { chave: 'estoque__p4', quantidade: 2, modo: 'somar', assumir: true });
+  assert.equal(c2.somadoAoDe, eu.nome);
+  assert.equal(c2.assumido, false);
+  assert.equal(c2.contado, 5);
+  assert.equal(donoDe(fake, r.id, 'estoque__p4'), eu.uid, 'o item fica com quem contou primeiro');
+  assert.equal(fake.ler(`balancos/${r.id}/itens/estoque__p4`).contadoPorNome, `${eu.nome} + ${colega.nome}`);
 });
 
 test('sem trava: venda depois da contagem continua valendo; "fica o que contou"', async () => {

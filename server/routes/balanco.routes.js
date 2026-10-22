@@ -62,6 +62,8 @@ router.post('/:id/cancelar', rota(PERMISSAO_BALANCO_GERENCIAR, 'cancelar o balan
 router.get('/para-contar', rota(PERMISSAO_BALANCO_CONTAR, 'carregar os balanços', async (req) => ({ balancos: await b.paraContar(ctx(req)) })));
 router.get('/:id/minha-lista', rota(PERMISSAO_BALANCO_CONTAR, 'carregar a sua lista', async (req) => b.minhaLista(ctx(req))));
 router.post('/:id/contar', rota(PERMISSAO_BALANCO_CONTAR, 'gravar a contagem', async (req) => ({ item: await b.contar(ctx(req)) })));
+// Codigo bipado que nao esta' na lista de quem bipou (22/10/2026).
+router.get('/:id/procurar', rota(PERMISSAO_BALANCO_CONTAR, 'procurar o código', async (req) => b.procurarCodigo({ ...ctx(req), codigo: req.query.codigo })));
 router.post('/:id/concluir', rota(PERMISSAO_BALANCO_CONTAR, 'concluir a sua parte', async (req) => b.concluirMinhaParte(ctx(req))));
 
 module.exports = router;

@@ -7,6 +7,7 @@ import {
   erroDaQuantidade,
   itensNegativos,
   lerPedidoDeAbertura,
+  moverItemEntreBlocos,
   novoTotalContado,
   produtoEntraNoEscopo,
   resumoDoFechamento,
@@ -119,4 +120,20 @@ test('resumo, negativos e trava', () => {
   assert.equal(bloqueioPorBalanco(null, 'finalizar a venda'), null);
   assert.equal(bloqueioPorBalanco({ travaVendas: false, nome: 'X' }, 'finalizar a venda'), null);
   assert.match(bloqueioPorBalanco({ travaVendas: true, nome: 'BALANÇO OUTUBRO' }, 'finalizar a venda') || '', /BALANÇO OUTUBRO.*finalizar a venda.*Pré-venda continua liberada/);
+});
+
+test('item bipado por outra pessoa: passa de bloco (22/10)', () => {
+  const blocos = [
+    { contadorUid: 'ana', itens: 3, grupos: [{ nome: 'PET', itens: 2 }, { nome: 'RAÇÃO', itens: 1 }] },
+    { contadorUid: 'bia', itens: 1, grupos: [{ nome: 'PET', itens: 1 }] },
+  ];
+  const depois = moverItemEntreBlocos(blocos, 'ana', 'bia', 'RAÇÃO');
+  assert.deepEqual(depois, [
+    { contadorUid: 'ana', itens: 2, grupos: [{ nome: 'PET', itens: 2 }] },
+    { contadorUid: 'bia', itens: 2, grupos: [{ nome: 'PET', itens: 1 }, { nome: 'RAÇÃO', itens: 1 }] },
+  ]);
+  assert.equal(blocos[0].itens, 3, 'nao mexe no original');
+  assert.equal(moverItemEntreBlocos(blocos, 'ana', 'ana', 'PET'), blocos);
+  const novo = moverItemEntreBlocos(blocos, 'ana', 'caio', 'PET');
+  assert.deepEqual(novo[2], { contadorUid: 'caio', itens: 1, grupos: [{ nome: 'PET', itens: 1 }] });
 });

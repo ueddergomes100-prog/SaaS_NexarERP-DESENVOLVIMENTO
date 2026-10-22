@@ -180,13 +180,56 @@ const lerPedidoDeContagem = (corpo) => {
   const quantidade = Number(String(c.quantidade ?? '').replace(',', '.'));
   if (String(c.quantidade ?? '').trim() === '' || !Number.isFinite(quantidade)) return { erro: 'Informe a quantidade contada.' };
   const modo = c.modo === 'definir' ? 'definir' : 'somar';
+  // Item bipado que esta' na lista de outra pessoa (22/10/2026): a tela manda
+  // assumir=true depois de mostrar de quem e'.
+  const assumir = c.assumir === true;
   const loteIndice = c.loteIndice === undefined || c.loteIndice === null ? null : Number(c.loteIndice);
   const loteNovo = c.loteNovo && typeof c.loteNovo === 'object'
     ? { lote: String(c.loteNovo.lote || '').trim().toUpperCase().slice(0, 40), validade: String(c.loteNovo.validade || '').slice(0, 10) }
     : null;
   if (loteNovo && !loteNovo.lote) return { erro: 'Informe o número do lote novo.' };
   if (loteNovo && loteNovo.validade && !/^\d{4}-\d{2}-\d{2}$/.test(loteNovo.validade)) return { erro: 'Validade do lote inválida.' };
-  return { chave, quantidade, modo, loteIndice, loteNovo };
+  return { chave, quantidade, modo, assumir, loteIndice, loteNovo };
+};
+
+const itemParaTela = (chave, i) => ({
+  chave, nome: i.nome, codigo: i.codigo, codigoBarras: i.codigoBarras, grupo: i.grupo, unidade: i.unidade,
+  controlaLote: i.controlaLote === true,
+  contado: i.controlaLote ? bd.totalContado(i) : i.contado,
+  lotes: (i.lotes || []).map((l) => ({ lote: l.lote, validade: l.validade, contado: l.contado })),
+});
+
+/**
+ * Codigo bipado que NAO esta' na lista de quem bipou (22/10/2026): procura no
+ * balanco inteiro. Devolve o item e de quem e' a lista, para a tela avisar
+ * ("esta' na lista de Fulano; ao lancar, passa para voce" ou "ja' contado por
+ * Fulano: 12 UN"). Continua contagem cega: nada do saldo do sistema sai daqui.
+ */
+const procurarCodigo = async ({ user, tenantId, balancoId, codigo }) => {
+  const c = String(codigo || '').trim();
+  if (!c || c.length > 60) throw new ErroBalanco(400, 'Informe o código para procurar.');
+  const balanco = await lerBalanco(tenantId, balancoId);
+  exigirAberto(balanco);
+  if (!(balanco.contadores || []).some((x) => x.uid === user.uid)) throw new ErroBalanco(403, 'Você não está entre as pessoas que contam este balanço.');
+  const col = refItens(balancoId);
+  const variantes = [...new Set([c, c.toUpperCase()])];
+  let achado = null;
+  for (const campo of ['codigoBarras', 'codigo']) {
+    for (const v of variantes) {
+      // eslint-disable-next-line no-await-in-loop
+      const snap = await col.where(campo, '==', v).limit(1).get();
+      if (!snap.empty) { achado = snap.docs[0]; break; }
+    }
+    if (achado) break;
+  }
+  if (!achado) throw new ErroBalanco(404, `O código ${c} não faz parte deste balanço.`);
+  const i = achado.data();
+  const dono = (balanco.contadores || []).find((x) => x.uid === i.contadorUid);
+  const contado = i.controlaLote ? bd.totalContado(i) : i.contado;
+  return {
+    item: itemParaTela(achado.id, i),
+    deOutraPessoa: i.contadorUid === user.uid ? null : { nome: dono ? dono.nome : 'outra pessoa', contado, contadoPorNome: i.contadoPorNome || null },
+  };
 };
 
 const contar = async ({ user, tenantId, balancoId, corpo }) => {
@@ -199,7 +242,18 @@ const contar = async ({ user, tenantId, balancoId, corpo }) => {
     const itemSnap = await tx.get(itemRef);
     if (!itemSnap.exists) throw new ErroBalanco(404, 'Este item não faz parte do balanço. Atualize a lista.');
     const item = itemSnap.data();
-    if (item.contadorUid !== user.uid) throw new ErroBalanco(403, `${item.nome} está na lista de outra pessoa. Conte só os itens da sua lista.`);
+    const eu = (balanco.contadores || []).find((c) => c.uid === user.uid);
+    if (!eu) throw new ErroBalanco(403, 'Você não está entre as pessoas que contam este balanço.');
+    // Item de outra pessoa (22/10/2026): sem "assumir" continua bloqueado.
+    // Com "assumir": ainda nao contado -> passa para quem bipou (some da
+    // lista do outro); ja' contado pelo outro -> so' SOMA (nunca troca o
+    // total do colega), e o item fica com quem contou primeiro.
+    const deOutro = item.contadorUid !== user.uid;
+    const jaContadoPeloOutro = deOutro && bd.totalContado(item) !== null;
+    const donoAtual = deOutro ? (balanco.contadores || []).find((c) => c.uid === item.contadorUid) : null;
+    const nomeDoDono = donoAtual ? donoAtual.nome : 'outra pessoa';
+    if (deOutro && !p.assumir) throw new ErroBalanco(403, `${item.nome} está na lista de ${nomeDoDono}. Bipe o código de barras para lançar mesmo assim.`);
+    if (jaContadoPeloOutro && p.modo !== 'somar') throw new ErroBalanco(409, `${item.nome} já foi contado por ${nomeDoDono}. Só dá para somar ao total dele, não trocar.`);
     const erroQtd = bd.erroDaQuantidade(p.quantidade, item.unidade, item.nome);
     if (erroQtd) throw new ErroBalanco(400, erroQtd);
 
@@ -216,8 +270,19 @@ const contar = async ({ user, tenantId, balancoId, corpo }) => {
       item.saldoNaContagem === null ? tx.get(produtoRef) : Promise.resolve(null),
       loteRef ? tx.get(loteRef) : Promise.resolve(null),
     ]);
-    const eu = (balanco.contadores || []).find((c) => c.uid === user.uid);
-    const atualizacao = { contadoEm: agora(), contadoPorNome: eu ? eu.nome : nomeDe(user) };
+    const atualizacao = { contadoEm: agora(), contadoPorNome: eu.nome };
+    if (jaContadoPeloOutro) {
+      // Soma no item do colega: o nome dele fica, o meu entra junto (uma vez).
+      const nomes = String(item.contadoPorNome || nomeDoDono);
+      atualizacao.contadoPorNome = nomes.includes(eu.nome) ? nomes : `${nomes} + ${eu.nome}`;
+    }
+    let assumido = false;
+    if (deOutro && !jaContadoPeloOutro) {
+      assumido = true;
+      atualizacao.contadorUid = user.uid;
+      atualizacao.passouDe = { uid: item.contadorUid, nome: nomeDoDono };
+      tx.update(refBalanco(balancoId), { blocos: bd.moverItemEntreBlocos(balanco.blocos || [], item.contadorUid, user.uid, item.grupo), updatedAt: agora() });
+    }
     if (produtoSnap) atualizacao.saldoNaContagem = produtoSnap.exists ? Number(produtoSnap.data().quantidade || 0) : 0;
 
     if (!item.controlaLote) {
@@ -234,7 +299,14 @@ const contar = async ({ user, tenantId, balancoId, corpo }) => {
     }
     tx.update(itemRef, atualizacao);
     const depois = { ...item, ...atualizacao };
-    return { chave: p.chave, contado: item.controlaLote ? bd.totalContado(depois) : atualizacao.contado, lotes: (depois.lotes || []).map((l) => ({ lote: l.lote, validade: l.validade, contado: l.contado })) };
+    return {
+      ...itemParaTela(p.chave, depois),
+      contado: item.controlaLote ? bd.totalContado(depois) : atualizacao.contado,
+      // Para a tela: passou para a lista de quem bipou (entra na lista dele)
+      // ou foi somado ao total de outra pessoa (nao entra).
+      assumido,
+      somadoAoDe: jaContadoPeloOutro ? nomeDoDono : null,
+    };
   });
 };
 
@@ -246,15 +318,7 @@ const minhaLista = async ({ user, tenantId, balancoId }) => {
   if (!eu) throw new ErroBalanco(403, 'Você não está entre as pessoas que contam este balanço.');
   return {
     balanco: { id: balanco.id, nome: balanco.nome, status: balanco.status, concluido: eu.concluido === true },
-    itens: snap.docs.map((d) => {
-      const i = d.data();
-      return {
-        chave: d.id, nome: i.nome, codigo: i.codigo, codigoBarras: i.codigoBarras, grupo: i.grupo, unidade: i.unidade,
-        controlaLote: i.controlaLote === true,
-        contado: i.controlaLote ? bd.totalContado(i) : i.contado,
-        lotes: (i.lotes || []).map((l) => ({ lote: l.lote, validade: l.validade, contado: l.contado })),
-      };
-    }).sort((a, b) => a.grupo.localeCompare(b.grupo) || a.nome.localeCompare(b.nome)),
+    itens: snap.docs.map((d) => itemParaTela(d.id, d.data())).sort((a, b) => a.grupo.localeCompare(b.grupo) || a.nome.localeCompare(b.nome)),
   };
 };
 
@@ -482,5 +546,5 @@ const cancelar = async ({ user, tenantId, balancoId, corpo }) => {
 };
 
 module.exports = {
-  ErroBalanco, gruposDisponiveis, abrir, contar, minhaLista, paraContar, concluirMinhaParte, listar, conferencia, trocarContador, fechar, cancelar,
+  ErroBalanco, gruposDisponiveis, abrir, contar, procurarCodigo, minhaLista, paraContar, concluirMinhaParte, listar, conferencia, trocarContador, fechar, cancelar,
 };

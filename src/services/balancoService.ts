@@ -48,6 +48,8 @@ export interface ItemParaContar {
   controlaLote: boolean;
   contado: number | null;
   lotes: Array<{ lote: string; validade: string; contado: number | null }>;
+  /** So' na tela: item bipado que esta' na lista de outra pessoa (22/10/2026). */
+  deOutraPessoa?: { nome: string; contado: number | null; contadoPorNome: string | null } | null;
 }
 
 export interface LinhaConferencia {
@@ -117,7 +119,18 @@ export const balancosParaContar = () => chamar<{ balancos: Array<{ id: string; n
 export const minhaListaDoBalanco = (balancoId: string) => (
   chamar<{ balanco: { id: string; nome: string; status: StatusBalanco; concluido: boolean }; itens: ItemParaContar[] }>(`/${id(balancoId)}/minha-lista`)
 );
-export const contarItem = (balancoId: string, corpo: { chave: string; quantidade: number; modo: 'somar' | 'definir'; loteIndice?: number; loteNovo?: { lote: string; validade: string } }) => (
-  chamar<{ item: { chave: string; contado: number | null; lotes: ItemParaContar['lotes'] } }>(`/${id(balancoId)}/contar`, { metodo: 'POST', corpo }).then((r) => r.item)
+export interface ItemContado extends ItemParaContar {
+  /** Era de outra pessoa e passou para quem bipou (entra na lista dele). */
+  assumido: boolean;
+  /** Ja' estava contado por outra pessoa: a quantidade foi somada ao total dela (nao entra na lista de quem bipou). */
+  somadoAoDe: string | null;
+}
+
+export const contarItem = (balancoId: string, corpo: { chave: string; quantidade: number; modo: 'somar' | 'definir'; assumir?: boolean; loteIndice?: number; loteNovo?: { lote: string; validade: string } }) => (
+  chamar<{ item: ItemContado }>(`/${id(balancoId)}/contar`, { metodo: 'POST', corpo }).then((r) => r.item)
+);
+/** Codigo bipado que nao esta' na lista de quem bipou: procura no balanco inteiro (22/10/2026). */
+export const procurarCodigoNoBalanco = (balancoId: string, codigo: string) => (
+  chamar<{ item: ItemParaContar; deOutraPessoa: ItemParaContar['deOutraPessoa'] }>(`/${id(balancoId)}/procurar?codigo=${encodeURIComponent(codigo)}`)
 );
 export const concluirMinhaParte = (balancoId: string) => chamar<{ ok: true }>(`/${id(balancoId)}/concluir`, { metodo: 'POST', corpo: {} });

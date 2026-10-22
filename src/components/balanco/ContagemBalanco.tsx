@@ -8,6 +8,8 @@ import {
   concluirMinhaParte,
   contarItem,
   minhaListaDoBalanco,
+  procurarCodigoNoBalanco,
+  type ItemContado,
   type ItemParaContar,
 } from '../../services/balancoService';
 import './contagemBalanco.css';
@@ -23,6 +25,8 @@ import './contagemBalanco.css';
  */
 
 type Filtro = 'pendentes' | 'contados' | 'todos';
+/** De quanto em quanto tempo a lista e' recarregada do servidor (item que um colega bipou some daqui). */
+const INTERVALO_ATUALIZACAO_MS = 15000;
 
 const formatar = (n: number | null, sigla: string) => (n === null ? '—' : `${n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} ${sigla}`);
 const dataBr = (iso: string) => (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('/') : '');
@@ -39,6 +43,7 @@ const ContagemBalanco: React.FC<{ comCamera?: boolean }> = ({ comCamera = true }
   const [filtro, setFiltro] = useState<Filtro>('pendentes');
   const [aberto, setAberto] = useState<ItemParaContar | null>(null);
   const [camera, setCamera] = useState(false);
+  const [procurando, setProcurando] = useState(false);
   const buscaRef = useRef<HTMLInputElement>(null);
 
   const carregarLista = useCallback(async (id: string) => {
@@ -80,20 +85,72 @@ const ContagemBalanco: React.FC<{ comCamera?: boolean }> = ({ comCamera = true }
     });
   }, [itens, busca, filtro]);
 
-  /** Codigo bipado/digitado: abre direto o item da lista. */
-  const procurarCodigo = (codigo: string) => {
+  /**
+   * Codigo bipado/digitado: abre direto o item da lista. Se nao esta' na
+   * minha lista, pergunta ao servidor (22/10/2026, pedido do dono no cliente):
+   * item de outra pessoa abre a folha avisando de quem e' -- ao lancar, passa
+   * para quem bipou (ou soma ao total do colega, se ele ja' contou).
+   */
+  const procurarCodigo = async (codigo: string) => {
     const c = codigo.trim().toUpperCase();
-    if (!c) return;
+    if (!c || !balancoId) return;
     const achado = itens.find((i) => i.codigoBarras.toUpperCase() === c || i.codigo.toUpperCase() === c);
     if (achado) { setBusca(''); setAberto(achado); return; }
-    showWarning(`O código ${codigo} não está na sua lista. Pode ser de outra pessoa ou não fazer parte deste balanço.`);
+    setProcurando(true);
+    try {
+      const r = await procurarCodigoNoBalanco(balancoId, codigo.trim());
+      setBusca('');
+      setAberto({ ...r.item, deOutraPessoa: r.deOutraPessoa || null });
+    } catch (e) {
+      showWarning((e as Error).message);
+    } finally {
+      setProcurando(false);
+    }
   };
 
-  const aoContar = (atualizado: { chave: string; contado: number | null; lotes: ItemParaContar['lotes'] }) => {
-    setItens((lista) => lista.map((i) => (i.chave === atualizado.chave ? { ...i, contado: atualizado.contado, lotes: atualizado.lotes } : i)));
+  const ordenar = (lista: ItemParaContar[]) => [...lista].sort((a, b) => a.grupo.localeCompare(b.grupo) || a.nome.localeCompare(b.nome));
+
+  const aoContar = (r: ItemContado) => {
+    const { assumido, somadoAoDe, ...item } = r;
+    const limpo: ItemParaContar = { ...item, deOutraPessoa: null };
+    if (somadoAoDe) {
+      // Somou ao total do colega: o item continua na lista dele.
+      showSuccess(`${limpo.nome}: somado ao total de ${somadoAoDe}.`);
+    } else if (assumido) {
+      // Passou para a minha lista (e saiu da lista do outro).
+      setItens((lista) => ordenar([...lista.filter((i) => i.chave !== limpo.chave), limpo]));
+      showSuccess(`${limpo.nome} passou para a sua lista.`);
+    } else {
+      setItens((lista) => lista.map((i) => (i.chave === limpo.chave ? { ...i, contado: limpo.contado, lotes: limpo.lotes } : i)));
+    }
     setAberto(null);
     setTimeout(() => buscaRef.current?.focus(), 50);
   };
+
+  // A lista de cada pessoa muda por fora (um colega bipou um item meu, o
+  // gestor passou itens): recarrega ao voltar para a tela e de tempos em
+  // tempos, nunca com a folha de contagem aberta.
+  useEffect(() => {
+    if (!balancoId) return undefined;
+    let ativo = true;
+    const recarregar = () => {
+      if (!ativo || aberto || document.visibilityState === 'hidden') return;
+      minhaListaDoBalanco(balancoId).then((r) => {
+        if (!ativo) return;
+        setItens(r.itens);
+        setConcluido(r.balanco.concluido);
+      }).catch(() => { /* a proxima tentativa cobre; a tela continua com o que tem */ });
+    };
+    const timer = window.setInterval(recarregar, INTERVALO_ATUALIZACAO_MS);
+    window.addEventListener('focus', recarregar);
+    document.addEventListener('visibilitychange', recarregar);
+    return () => {
+      ativo = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', recarregar);
+      document.removeEventListener('visibilitychange', recarregar);
+    };
+  }, [balancoId, aberto]);
 
   const concluir = async () => {
     if (!balancoId) return;
@@ -152,16 +209,17 @@ const ContagemBalanco: React.FC<{ comCamera?: boolean }> = ({ comCamera = true }
 
       {erro && <div className="cb-erro" role="alert">{erro}</div>}
 
-      <form className="cb-busca" onSubmit={(e) => { e.preventDefault(); procurarCodigo(busca); }}>
+      <form className="cb-busca" onSubmit={(e) => { e.preventDefault(); void procurarCodigo(busca); }}>
         <input
           ref={buscaRef}
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar…"
           aria-label="Buscar por nome, código ou código de barras"
-          title="Digite o nome ou bipe o código de barras e aperte Enter"
+          title="Digite o nome ou bipe o código de barras e aperte Enter. Código que está na lista de outra pessoa também abre: ao lançar, o item passa para você."
           autoComplete="off"
           enterKeyHint="search"
+          disabled={procurando}
         />
         {comCamera && cameraLeCodigo() && (
           <button type="button" onClick={() => setCamera(true)} aria-label="Ler código pela câmera"><Camera size={18} /></button>
@@ -213,7 +271,7 @@ const ContagemBalanco: React.FC<{ comCamera?: boolean }> = ({ comCamera = true }
         <FolhaDeContagem balancoId={balancoId} item={aberto} onFechar={() => setAberto(null)} onContado={aoContar} />
       )}
       {camera && (
-        <LeitorCameraCodigo aberto onLido={(codigo) => { setCamera(false); procurarCodigo(codigo); }} onFechar={() => setCamera(false)} />
+        <LeitorCameraCodigo aberto onLido={(codigo) => { setCamera(false); void procurarCodigo(codigo); }} onFechar={() => setCamera(false)} />
       )}
     </div>
   );
@@ -224,7 +282,7 @@ const FolhaDeContagem: React.FC<{
   balancoId: string;
   item: ItemParaContar;
   onFechar: () => void;
-  onContado: (r: { chave: string; contado: number | null; lotes: ItemParaContar['lotes'] }) => void;
+  onContado: (r: ItemContado) => void;
 }> = ({ balancoId, item, onFechar, onContado }) => {
   const [qtd, setQtd] = useState('');
   const [loteIndice, setLoteIndice] = useState<number | 'novo' | null>(item.controlaLote ? (item.lotes.length ? 0 : 'novo') : null);
@@ -243,6 +301,10 @@ const FolhaDeContagem: React.FC<{
   const jaContado = item.controlaLote
     ? (typeof loteIndice === 'number' ? item.lotes[loteIndice]?.contado ?? null : null)
     : item.contado;
+  // Item da lista de outra pessoa (22/10/2026): ainda nao contado passa para
+  // mim ao lancar; ja' contado pelo colega so' soma (com confirmacao).
+  const deOutro = item.deOutraPessoa || null;
+  const colegaJaContou = Boolean(deOutro && deOutro.contado !== null);
 
   const salvar = async (modo: 'somar' | 'definir') => {
     const quantidade = Number(qtd.replace(',', '.'));
@@ -251,12 +313,24 @@ const FolhaDeContagem: React.FC<{
     if (problema) { setErro(problema); return; }
     if (item.controlaLote && loteIndice === 'novo' && !loteNovo.lote.trim()) { setErro('Informe o número do lote novo.'); return; }
     setErro(null);
+    if (colegaJaContou && deOutro) {
+      const r = await NexusSwal.fire({
+        icon: 'question',
+        title: `Somar ao total de ${deOutro.nome}?`,
+        html: `<p style="text-align:left;margin:0">${deOutro.nome} já contou <strong>${formatar(deOutro.contado, item.unidade.sigla)}</strong> de ${item.nome}. Se você achou mais em outro lugar, a sua quantidade é somada ao total dele. Se é a mesma prateleira, não some: combine com ${deOutro.nome}.</p>`,
+        showCancelButton: true,
+        confirmButtonText: 'Somar',
+        cancelButtonText: 'Voltar',
+      });
+      if (!r.isConfirmed) return;
+    }
     setSalvando(true);
     try {
       const r = await contarItem(balancoId, {
         chave: item.chave,
         quantidade,
         modo,
+        ...(deOutro ? { assumir: true } : {}),
         ...(item.controlaLote && typeof loteIndice === 'number' ? { loteIndice } : {}),
         ...(item.controlaLote && loteIndice === 'novo' ? { loteNovo: { lote: loteNovo.lote, validade: loteNovo.validade } } : {}),
       });
@@ -275,6 +349,13 @@ const FolhaDeContagem: React.FC<{
           <p id="cb-folha-titulo" className="cb-titulo">{item.nome}</p>
           <p className="cb-sub">{item.codigo}{item.codigoBarras ? ` · ${item.codigoBarras}` : ''} · contado em {item.unidade.sigla}{item.unidade.fracionado ? '' : ' (sem fração)'}</p>
         </div>
+        {deOutro && (
+          <div className="cb-aviso" role="status">
+            {colegaJaContou
+              ? <>Já contado por <strong>{deOutro.nome}</strong>: {formatar(deOutro.contado, item.unidade.sigla)}. Aqui só dá para <strong>somar</strong> ao total dele.</>
+              : <>Este item está na lista de <strong>{deOutro.nome}</strong>. Ao lançar, ele passa para a sua lista e sai da dele.</>}
+          </div>
+        )}
 
         {item.controlaLote && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -298,7 +379,7 @@ const FolhaDeContagem: React.FC<{
 
         <div>
           <label htmlFor="cb-qtd" className="cb-sub" style={{ display: 'block', marginBottom: '6px' }}>
-            Quantidade encontrada{jaContado !== null ? ` (já contou ${formatar(jaContado, item.unidade.sigla)})` : ''}
+            Quantidade encontrada{jaContado !== null && !deOutro ? ` (já contou ${formatar(jaContado, item.unidade.sigla)})` : ''}
           </label>
           <input
             id="cb-qtd"
@@ -315,7 +396,7 @@ const FolhaDeContagem: React.FC<{
         {erro && <div className="cb-erro" role="alert">{erro}</div>}
 
         <div className="cb-acoes">
-          <button type="button" className="btn-secondary" disabled={salvando} onClick={() => void salvar('definir')} title="Troca o total contado por este número">
+          <button type="button" className="btn-secondary" disabled={salvando || colegaJaContou} onClick={() => void salvar('definir')} title={colegaJaContou ? `O total é de ${deOutro?.nome}: só dá para somar` : 'Troca o total contado por este número'}>
             Corrigir total
           </button>
           <button type="button" className="btn-primary" disabled={salvando} onClick={() => void salvar('somar')} title="Soma ao que já foi contado (o mesmo item em outro lugar)" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>

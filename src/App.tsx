@@ -47,6 +47,7 @@ function App() {
                 {/* Cotacao de compra para o FORNECEDOR (22/10/2026): sem login,
                     token no link + codigo de acesso; tudo pelo servidor. */}
                 <Route path="/cotacao/:token" element={<CotacaoPublica />} />
+                <Route path="/c/:token" element={<CotacaoPublica />} />
                 <Route path="/vendedor/login" element={<VendedorLoginPage />} />
                 {/* Arquivo real servido pela hospedagem (unico caminho com o
                     <head> do app do vendedor) -- e' o start_url do manifest e

@@ -44,7 +44,7 @@ test('pedido de cotacao: titulo, itens sem repetir, fornecedores e data', () => 
   assert.equal(responderAtePadrao('2026-10-22'), '2026-10-29');
   assert.equal(cotacaoVencida('2026-10-29', '2026-10-29'), false);
   assert.equal(cotacaoVencida('2026-10-29', '2026-10-30'), true);
-  assert.match(textoDoConvite({ empresa: 'LOJA', titulo: 'Reposição', link: 'https://x/cotacao/abc', codigoAcesso: '123456', responderAte: '2026-10-29' }), /código 123456[\s\S]*29\/10\/2026/);
+  assert.equal(textoDoConvite({ empresa: 'LOJA', titulo: 'Reposição', link: 'https://x/c/ABC12345', codigoAcesso: '123456', responderAte: '2026-10-29' }), 'Cotação LOJA — Reposição\nLink: https://x/c/ABC12345\nCódigo: 123456\nResponder até 29/10/2026');
 });
 
 test('resposta do fornecedor: precos em centavos, prazo e condicao; so responde cotacao aberta e no prazo', () => {

@@ -1,4 +1,5 @@
 import { lazy } from 'react';
+import RegistroPorNumero from '../components/common/RegistroPorNumero';
 import { Navigate, type RouteObject } from 'react-router-dom';
 
 // Paginas do "miolo" do app (tudo que renderiza dentro de AppLayout, uma
@@ -136,12 +137,15 @@ export const appRoutesConfig: RouteObject[] = [
 
   { path: 'orcamentos', element: <Orcamentos /> },
   { path: 'orcamentos/novo', element: <OrcamentoForm /> },
-  { path: 'orcamentos/editar/:id', element: <OrcamentoForm /> },
+  // Rota pelo numero (22/10/2026): o mesmo elemento da rota por id, para trocar o endereco sem remontar (RegistroPorNumero.tsx).
+  { path: 'orcamentos/editar/:id', element: <RegistroPorNumero colecao="orcamentos" campo="numeroOrcamento" lista="/orcamentos" rotulo="Orçamento"><OrcamentoForm /></RegistroPorNumero> },
+  { path: 'orcamentos/:numero', element: <RegistroPorNumero colecao="orcamentos" campo="numeroOrcamento" lista="/orcamentos" rotulo="Orçamento"><OrcamentoForm /></RegistroPorNumero> },
   { path: 'orcamentos/print/:id', element: <OrcamentoPrint /> },
   { path: 'pedidos-venda', element: <PedidoVendas /> },
   { path: 'minhas-vendas', element: <MinhasVendas /> },
   { path: 'pedidos-venda/novo', element: <PedidoVendaForm /> },
-  { path: 'pedidos-venda/visualizar/:id', element: <PedidoVendaForm /> },
+  { path: 'pedidos-venda/visualizar/:id', element: <RegistroPorNumero colecao="pedidos_venda" campo="numeroPedido" lista="/pedidos-venda" rotulo="Pedido"><PedidoVendaForm /></RegistroPorNumero> },
+  { path: 'pedidos-venda/:numero', element: <RegistroPorNumero colecao="pedidos_venda" campo="numeroPedido" lista="/pedidos-venda" rotulo="Pedido"><PedidoVendaForm /></RegistroPorNumero> },
   { path: 'pedidos-venda/print/:id', element: <PedidoPrint /> },
   { path: 'pedidos-venda/print-lote', element: <PedidoPrintLote /> },
   { path: 'pedidos-venda/documentos/:id', element: <DocumentosCobranca /> },
@@ -163,7 +167,8 @@ export const appRoutesConfig: RouteObject[] = [
 
   { path: 'os', element: <OSList /> },
   { path: 'os/nova', element: <OSForm /> },
-  { path: 'os/editar/:id', element: <OSForm /> },
+  { path: 'os/editar/:id', element: <RegistroPorNumero colecao="ordens_de_servico" campo="numeroOS" lista="/os" rotulo="OS"><OSForm /></RegistroPorNumero> },
+  { path: 'os/:numero', element: <RegistroPorNumero colecao="ordens_de_servico" campo="numeroOS" lista="/os" rotulo="OS"><OSForm /></RegistroPorNumero> },
   { path: 'os/print/:id', element: <OsPrint /> },
   { path: 'relatorios-mecanica', element: <RelatoriosMecanica /> },
 
@@ -216,7 +221,8 @@ export const appRoutesConfig: RouteObject[] = [
 
   { path: 'clientes', element: <ClientesList /> },
   { path: 'clientes/novo', element: <ClienteForm /> },
-  { path: 'clientes/editar/:id', element: <ClienteForm /> },
+  { path: 'clientes/editar/:id', element: <RegistroPorNumero colecao="clientes" campo="codigo" lista="/clientes" rotulo="Cliente"><ClienteForm /></RegistroPorNumero> },
+  { path: 'clientes/:numero', element: <RegistroPorNumero colecao="clientes" campo="codigo" lista="/clientes" rotulo="Cliente"><ClienteForm /></RegistroPorNumero> },
   { path: 'clientes/importar', element: <ImportarClientes /> },
 
   { path: 'veiculos', element: <VeiculosList /> },

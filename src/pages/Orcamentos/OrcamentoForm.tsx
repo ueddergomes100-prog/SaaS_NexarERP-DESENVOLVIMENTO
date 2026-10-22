@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { useTabs } from '../../contexts/TabsContext';
@@ -128,7 +129,7 @@ interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string
 const OrcamentoForm: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const { id } = useParams();
+  const id = useIdDaRota(); // id ou número na rota (RegistroPorNumero.tsx)
   const isEditing = !!id;
   // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
   const trava = useTravaDeEdicao({ tipo: 'orcamento', registroId: id, ativa: isEditing });
@@ -149,6 +150,8 @@ const OrcamentoForm: React.FC = () => {
   });
 
   // Modelo do orcamento da filial (16/10/2026): o que a tela mostra (orcamentoModeloDomain.ts).
+  // Endereco e aba com o numero do orcamento (/orcamentos/0012, 22/10/2026).
+  useEnderecoComNumero({ ativo: isEditing, colecao: 'orcamentos', base: '/orcamentos', numero: String(formData.numeroOrcamento || ''), id });
   const [configOrcamento, setConfigOrcamento] = useState<ConfigOrcamento>(CONFIG_ORCAMENTO_PADRAO);
   const [formasDaFilial, setFormasDaFilial] = useState<string[]>([]);
   const [vendedores, setVendedores] = useState<Array<{ id: string; nome: string }>>([]);

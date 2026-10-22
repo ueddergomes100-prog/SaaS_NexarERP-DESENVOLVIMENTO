@@ -194,11 +194,13 @@ export const resolveTabLabel = (pathname: string): string => {
   if (action === 'novo' || action === 'nova') return singular ? `${singular[1] === 'f' ? 'Nova' : 'Novo'} ${nome}` : `Novo(a) ${sectionLabel}`;
   if (action === 'editar') return `Editar ${nome}`;
   if (action === 'visualizar') return singular ? nome : `Ver ${sectionLabel}`;
+  // Rota pelo NUMERO do registro (/pedidos-venda/0035, 22/10/2026): "Pedido 0035".
+  if (singular && rest.length === 1 && /^\d{1,8}$/.test(action)) return `${singular[2] || nome} ${action}`;
   return sectionLabel;
 };
 
-/** Singular e genero de cada secao, para a aba do registro aberto. */
-const SINGULAR_DA_SECAO: Record<string, [string, 'm' | 'f']> = {
+/** Singular, genero e (opcional) nome curto de cada secao, para a aba do registro aberto. */
+const SINGULAR_DA_SECAO: Record<string, [string, 'm' | 'f', string?]> = {
   'Clientes': ['Cliente', 'm'],
   'Veículos': ['Veículo', 'm'],
   'Estoque / Produtos': ['Produto', 'm'],
@@ -212,10 +214,10 @@ const SINGULAR_DA_SECAO: Record<string, [string, 'm' | 'f']> = {
   'Insumos': ['Insumo', 'm'],
   'Ordens de Produção': ['Ordem de Produção', 'f'],
   'Usuários': ['Usuário', 'm'],
-  'Pedidos de Venda': ['Pedido de Venda', 'm'],
+  'Pedidos de Venda': ['Pedido de Venda', 'm', 'Pedido'],
   'Trocas': ['Troca', 'f'],
   'Orçamentos': ['Orçamento', 'm'],
-  'Ordens de Serviço': ['Ordem de Serviço', 'f'],
+  'Ordens de Serviço': ['Ordem de Serviço', 'f', 'OS'],
   'Agendamentos': ['Agendamento', 'm'],
   'Notas Fiscais': ['Nota Fiscal', 'f'],
   'Filiais': ['Filial', 'f'],
@@ -261,14 +263,29 @@ const loadStoredTabs = (): { tabs: Tab[]; activeTabId: string } | null => {
 
 const initialTabsState = (): { tabs: Tab[]; activeTabId: string } => {
   const stored = loadStoredTabs();
-  if (stored && stored.tabs.some((tab) => tab.id === stored.activeTabId)) return stored;
+  const initialPath = window.location.pathname && window.location.pathname !== '/'
+    ? window.location.pathname
+    : '/dashboard';
+
+  if (stored && stored.tabs.some((tab) => tab.id === stored.activeTabId)) {
+    // Link colado na barra de endereco (22/10/2026, "/pedidos-venda/0035"):
+    // antes a restauracao das abas ignorava a URL e voltava pra aba ativa
+    // salva. Agora a URL manda: aba com o mesmo caminho vira a ativa; senao
+    // abre uma aba nova (ou troca o caminho da ativa, se ja estiver no
+    // limite). A URL "/" continua sem efeito, so restaura.
+    if (window.location.pathname === '/' || !window.location.pathname) return stored;
+    const mesma = stored.tabs.find((tab) => tab.path === initialPath);
+    if (mesma) return { ...stored, activeTabId: mesma.id };
+    const nova: Tab = { id: makeTabId(), path: initialPath, label: resolveTabLabel(initialPath) };
+    if (stored.tabs.length >= MAX_TABS) {
+      return { ...stored, tabs: stored.tabs.map((tab) => (tab.id === stored.activeTabId ? { ...tab, path: initialPath, label: nova.label } : tab)) };
+    }
+    return { tabs: [...stored.tabs, nova], activeTabId: nova.id };
+  }
 
   // Primeiro acesso (ou storage invalido): honra a URL real que o
   // navegador tinha no momento do carregamento (ex: F5 numa tela
   // especifica), em vez de sempre resetar pro Dashboard.
-  const initialPath = window.location.pathname && window.location.pathname !== '/'
-    ? window.location.pathname
-    : '/dashboard';
   const tab: Tab = { id: makeTabId(), path: initialPath, label: resolveTabLabel(initialPath) };
   return { tabs: [tab], activeTabId: tab.id };
 };

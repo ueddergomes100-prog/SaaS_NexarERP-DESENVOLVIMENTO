@@ -45,7 +45,11 @@ const proximoNumero = async (tx, tenantId, chave) => {
 };
 const gravarSequencia = (tx, tenantId, chave, valor) => tx.set(refSequencia(tenantId, chave), { tenantId, chave, valor, updatedAt: TS() }, { merge: true });
 
-const novoToken = () => crypto.randomBytes(24).toString('base64url');
+// Token curto (8 letras/numeros, pedido do dono 22/10: link simples de mandar
+// pelo WhatsApp). 36^8 combinacoes + codigo de acesso + limite por IP e por
+// link; sem letras ambiguas (0/O, 1/I/L).
+const ALFABETO_DO_TOKEN = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const novoToken = () => Array.from({ length: 8 }, () => ALFABETO_DO_TOKEN[crypto.randomInt(0, ALFABETO_DO_TOKEN.length)]).join('');
 const novoCodigo = () => String(crypto.randomInt(0, 1000000)).padStart(cd.CODIGO_ACESSO_TAMANHO, '0');
 
 const fornecedorNovo = (f) => ({
@@ -196,7 +200,8 @@ const gerarPedidosDaCotacao = async ({ user, tenantId, id, corpo }) => {
 // LINK PUBLICO DO FORNECEDOR
 // ---------------------------------------------------------------------------
 
-const tokenValido = (token) => typeof token === 'string' && /^[A-Za-z0-9_-]{20,64}$/.test(token);
+// 8 (novo) ou mais (links antigos de 32).
+const tokenValido = (token) => typeof token === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(token);
 
 const acharPelaChave = async (token, codigo) => {
   if (!tokenValido(token)) throw new ErroCompras(404, 'Este link de cotação não é válido.');

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard, CheckCircle, TriangleAlert } from 'lucide-react';
@@ -28,7 +29,7 @@ const TEMPO_LIMITE_CEP_MS = 10_000;
 
 const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const id = useIdDaRota(); // id ou número (código) na rota (RegistroPorNumero.tsx)
   const isEditing = !!id;
   // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
   const trava = useTravaDeEdicao({ tipo: 'cliente', registroId: id, ativa: isEditing });
@@ -82,6 +83,8 @@ const ClienteForm: React.FC = () => {
   // Dado historico da importacao (data da ultima compra no sistema
   // anterior) -- so leitura, nunca editado aqui. Guardado fora do
   // formData porque nao faz parte do que o Salvar grava de volta.
+  // Endereco e aba com o codigo do cliente (/clientes/1, 22/10/2026).
+  useEnderecoComNumero({ ativo: isEditing, colecao: 'clientes', base: '/clientes', numero: String(formData.codigo || ''), id });
   const [dtUltimaCompraSistemaAntigo, setDtUltimaCompraSistemaAntigo] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);

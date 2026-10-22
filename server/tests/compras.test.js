@@ -35,7 +35,7 @@ test('criar cotacao: numero sequencial, um link e um codigo por fornecedor', asy
   const d = fake.ler(`cotacoes_compra/${r1.id}`);
   assert.equal(d.status, 'aberta');
   assert.equal(d.fornecedores.length, 2);
-  assert.match(d.fornecedores[0].token, /^[A-Za-z0-9_-]{20,}$/);
+  assert.match(d.fornecedores[0].token, /^[A-Z2-9]{8}$/);
   assert.match(d.fornecedores[0].codigoAcesso, /^\d{6}$/);
   assert.notEqual(d.fornecedores[0].token, d.fornecedores[1].token);
   assert.deepEqual(d.tokens, d.fornecedores.map((f) => f.token));
@@ -49,7 +49,7 @@ test('link publico: abre com token + codigo, responde, e o comparativo gera os p
   const [acme, beta] = fake.ler(`cotacoes_compra/${id}`).fornecedores;
 
   await assert.rejects(() => s.abrirPublica({ token: acme.token, codigo: '000000', hoje: HOJE }), (e) => e.status === 403 || acme.codigoAcesso === '000000');
-  await assert.rejects(() => s.abrirPublica({ token: 'nao-existe-token-xxxxxxxx', codigo: acme.codigoAcesso, hoje: HOJE }), (e) => e.status === 404);
+  await assert.rejects(() => s.abrirPublica({ token: 'NAOEXIST', codigo: acme.codigoAcesso, hoje: HOJE }), (e) => e.status === 404);
   const aberta = await s.abrirPublica({ token: acme.token, codigo: acme.codigoAcesso, hoje: HOJE });
   assert.equal(aberta.empresa, 'LOJA DEMO');
   assert.equal(aberta.fornecedorNome, 'ACME');

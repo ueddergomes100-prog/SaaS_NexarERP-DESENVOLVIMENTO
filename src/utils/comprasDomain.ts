@@ -159,13 +159,15 @@ export const responderAtePadrao = (hojeIso: string, dias = DIAS_PADRAO_PARA_RESP
 /** O link ainda aceita resposta? (ate' o fim do dia, no fuso da loja). */
 export const cotacaoVencida = (responderAte: string, hojeIso: string): boolean => Boolean(responderAte) && hojeIso > responderAte;
 
-export const linkDaCotacao = (origem: string, token: string): string => `${origem.replace(/\/$/, '')}/cotacao/${token}`;
+/** Link curto (/c/ + token de 8 letras, pedido do dono 22/10). O /cotacao/ antigo continua aceito. */
+export const linkDaCotacao = (origem: string, token: string): string => `${origem.replace(/\/$/, '')}/c/${token}`;
 
-/** Texto do convite (WhatsApp/e-mail) com o link e o codigo. */
+/** Texto do convite (WhatsApp/e-mail): curto e direto, uma informacao por linha. */
 export const textoDoConvite = (args: { empresa: string; titulo: string; link: string; codigoAcesso: string; responderAte: string }): string => (
-  `Olá! ${args.empresa} pede uma cotação: ${args.titulo}.\n`
-  + `Acesse ${args.link} e informe o código ${args.codigoAcesso} para ver os itens e enviar seus preços.\n`
-  + `Prazo para responder: ${args.responderAte.split('-').reverse().join('/')}.`
+  `Cotação ${args.empresa} — ${args.titulo}\n`
+  + `Link: ${args.link}\n`
+  + `Código: ${args.codigoAcesso}\n`
+  + `Responder até ${args.responderAte.split('-').reverse().join('/')}`
 );
 
 // ---------------------------------------------------------------------------

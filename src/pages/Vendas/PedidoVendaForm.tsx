@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { useTabs } from '../../contexts/TabsContext';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
@@ -380,7 +381,7 @@ interface LinhaDeOrcamento {
 
 const PedidoVendaForm: React.FC = () => {
   const navigate = useNavigate();
-  const { id } = useParams(); // Para modo Visualização
+  const id = useIdDaRota(); // Para modo Visualização (id ou número na rota -- RegistroPorNumero.tsx)
   const isViewing = !!id;
   const [searchParams] = useSearchParams();
   const { openTab } = useTabs();
@@ -462,6 +463,8 @@ const PedidoVendaForm: React.FC = () => {
    *  DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO em financeDomain.ts. */
   const [exigirEscolhaFormaPagamento, setExigirEscolhaFormaPagamento] = useState(DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO);
   const [numeroPedido, setNumeroPedido] = useState('');
+  // Endereco e aba com o numero do pedido (/pedidos-venda/0035, 22/10/2026).
+  useEnderecoComNumero({ ativo: isViewing, colecao: 'pedidos_venda', base: '/pedidos-venda', numero: numeroPedido, id });
   const [status, setStatus] = useState('Aberta');
   const [itens, setItens] = useState<ItemVenda[]>([]);
   const [orcamentoId, setOrcamentoId] = useState('');

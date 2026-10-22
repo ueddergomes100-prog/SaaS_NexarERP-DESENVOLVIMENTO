@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, Package, Gauge, Fuel, CalendarDays, ClipboardList, X, History, Truck, Camera } from 'lucide-react';
@@ -221,7 +222,7 @@ const mapaDaReservaDaOs = (pecas: unknown): Map<string, number> => {
 
 const OSForm: React.FC = () => {
   const navigate = useNavigate();
-  const { id } = useParams(); // Para modo Edição
+  const id = useIdDaRota(); // Para modo Edição (id ou número na rota -- RegistroPorNumero.tsx)
   const isEditing = !!id;
   // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
   const trava = useTravaDeEdicao({ tipo: 'ordem_servico', registroId: id, ativa: isEditing });
@@ -246,6 +247,8 @@ const OSForm: React.FC = () => {
     mecanicoNome: '',
     orcamentoId: '',
   });
+  // Endereco e aba com o numero da OS (/os/01, 22/10/2026).
+  useEnderecoComNumero({ ativo: isEditing, colecao: 'ordens_de_servico', base: '/os', numero: String(formData.numeroOS || ''), id });
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
   /** Como a OS abriu (fatia 3d): decide se salvar so' grava os dados, reabre ou refaz a cobranca. */

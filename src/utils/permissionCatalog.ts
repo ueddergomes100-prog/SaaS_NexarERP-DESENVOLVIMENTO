@@ -188,6 +188,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'financeiro.caixa_registros', label: 'Financeiro: Caixa (Sessões PDV)', color: '#10b981' },
       { id: 'financeiro.banco', label: 'Financeiro: Banco (Conciliação de Cartão)', color: '#10b981' },
       { id: 'financeiro.cheques', label: 'Financeiro: Cheques (Compensação)', color: '#10b981' },
+      // 21/10/2026: caixas da loja (CAIXA, COFRE...) e transferencias caixa <-> banco.
+      { id: 'financeiro.caixas', label: 'Financeiro: Caixas e Transferências (caixa, cofre e bancos)', color: '#10b981' },
       { id: 'financeiro.boletos', label: 'Financeiro: Boletos (Emissão, Remessa e Retorno)', color: '#10b981' },
       { id: 'financeiro.receber', label: 'Financeiro: Contas a Receber', color: '#10b981' },
       { id: 'financeiro.pagar', label: 'Financeiro: Contas a Pagar', color: '#10b981' },

@@ -3,25 +3,30 @@ import { Banknote, X } from 'lucide-react';
 import { currency, fromCurrencyInput } from '../pdvHelpers';
 import { fromCents } from '../../../utils/financeDomain';
 import { aplicarCaixaAltaCadastro } from '../../../utils/textoCadastroDomain';
+import { MOTIVO_SANGRIA_DEPOSITO } from '../../../utils/contasDinheiroDomain';
 
 interface SangriaModalProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (valorCentavos: number, motivo: string) => void | Promise<void>;
+  /** `bancoId` vem so' na sangria "para deposito" (21/10/2026): o banco e' creditado na hora pelo servidor. */
+  onConfirm: (valorCentavos: number, motivo: string, bancoId?: string) => void | Promise<void>;
+  /** Bancos ativos da empresa, para a sangria "para deposito". */
+  bancos?: Array<{ id: string; nome: string }>;
 }
 
 const MOTIVOS_PADRAO = [
-  'Sangria para depósito',
+  MOTIVO_SANGRIA_DEPOSITO,
   'Troco para outro caixa',
   'Pagamento a fornecedor',
   'Retirada do proprietário',
   'Outro',
 ];
 
-const SangriaModal: React.FC<SangriaModalProps> = ({ open, onClose, onConfirm }) => {
+const SangriaModal: React.FC<SangriaModalProps> = ({ open, onClose, onConfirm, bancos = [] }) => {
   const [value, setValue] = useState('');
   const [motivoSelecionado, setMotivoSelecionado] = useState(MOTIVOS_PADRAO[0]);
   const [motivoLivre, setMotivoLivre] = useState('');
+  const [bancoId, setBancoId] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -29,6 +34,7 @@ const SangriaModal: React.FC<SangriaModalProps> = ({ open, onClose, onConfirm })
       setValue('');
       setMotivoSelecionado(MOTIVOS_PADRAO[0]);
       setMotivoLivre('');
+      setBancoId('');
       setSaving(false);
     }
   }, [open]);
@@ -37,12 +43,15 @@ const SangriaModal: React.FC<SangriaModalProps> = ({ open, onClose, onConfirm })
 
   const valorCentavos = fromCurrencyInput(value);
   const motivoFinal = motivoSelecionado === 'Outro' ? motivoLivre.trim() : motivoSelecionado;
-  const podeConfirmar = valorCentavos > 0 && motivoFinal.length > 0 && !saving;
+  const paraDeposito = motivoSelecionado === MOTIVO_SANGRIA_DEPOSITO;
+  // Para deposito, o banco e' obrigatorio quando a empresa tem banco cadastrado.
+  const faltaBanco = paraDeposito && bancos.length > 0 && !bancoId;
+  const podeConfirmar = valorCentavos > 0 && motivoFinal.length > 0 && !faltaBanco && !saving;
 
   const confirmar = async () => {
     if (!podeConfirmar) return;
     setSaving(true);
-    await onConfirm(valorCentavos, motivoFinal);
+    await onConfirm(valorCentavos, motivoFinal, paraDeposito && bancoId ? bancoId : undefined);
     setSaving(false);
     onClose();
   };
@@ -77,6 +86,18 @@ const SangriaModal: React.FC<SangriaModalProps> = ({ open, onClose, onConfirm })
             ))}
           </select>
         </label>
+
+        {paraDeposito && bancos.length > 0 && (
+          <label className="pdv-modal-field">
+            <span>Banco do depósito</span>
+            <select value={bancoId} onChange={(event) => setBancoId(event.target.value)}>
+              <option value="">Selecione o banco...</option>
+              {bancos.map((banco) => (
+                <option key={banco.id} value={banco.id}>{banco.nome}</option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {motivoSelecionado === 'Outro' && (
           <label className="pdv-modal-field">

@@ -11,6 +11,8 @@ import {
 } from '../../utils/financeDomain';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { depositarCheque, devolverCheque, voltarChequeParaCarteira } from '../../services/caixasService';
+import { ROTULO_SITUACAO_CHEQUE_RECEBIDO, situacaoDoCheque } from '../../utils/contasDinheiroDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { montarDocumentoCheques } from '../../utils/relatorioChequesDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -192,6 +194,77 @@ const Cheques: React.FC = () => {
     } finally {
       setProcessingId(null);
     }
+  };
+
+  /**
+   * Antes de compensar (21/10/2026, decisao do dono): DEPOSITAR escolhe o banco
+   * e o cheque fica "aguardando compensacao"; DEVOLVIDO marca o que o banco
+   * devolveu (o cliente continua devendo); os dois voltam para a carteira.
+   * Nada disto mexe em saldo -- so' a compensacao credita o banco.
+   */
+  const mudarSituacao = async (t: TransacaoData, acao: () => Promise<unknown>, mensagem: string) => {
+    setProcessingId(t.id);
+    try {
+      await acao();
+      showSuccess(mensagem);
+    } catch (error) {
+      showError('Não foi possível concluir', error instanceof Error ? error.message : 'Tente de novo.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const depositar = async (t: TransacaoData) => {
+    if (processingId) return;
+    if (bancosAtivos.length === 0) {
+      showError('Nenhum banco cadastrado', 'Cadastre um banco em Cadastros > Bancos antes de depositar este cheque.');
+      return;
+    }
+    const escolha = await NexusSwal.fire({
+      title: 'Em qual banco foi depositado?',
+      text: `Cheque nº ${t.cheque?.numeroCheque || '-'} (R$ ${transactionNetAmount(t).toFixed(2)}). O valor só entra no saldo quando você confirmar a compensação.`,
+      input: 'select',
+      inputOptions: Object.fromEntries(bancosAtivos.map((b) => [b.id, escaparHtml(b.nome)])),
+      inputValue: t.bancoId || '',
+      inputPlaceholder: 'Selecione o banco',
+      showCancelButton: true,
+      confirmButtonText: 'Depositado',
+      cancelButtonText: 'Cancelar',
+      inputValidator: (value) => (value ? undefined : 'Selecione um banco.'),
+    });
+    if (!escolha.isConfirmed) return;
+    await mudarSituacao(t, () => depositarCheque(t.id, String(escolha.value)), 'Cheque marcado como depositado. Quando o banco confirmar, use "Confirmar compensação".');
+  };
+
+  const devolver = async (t: TransacaoData) => {
+    if (processingId) return;
+    const escolha = await NexusSwal.fire({
+      title: 'O banco devolveu este cheque?',
+      text: `Cheque nº ${t.cheque?.numeroCheque || '-'} (R$ ${transactionNetAmount(t).toFixed(2)}). O título continua em aberto: o cliente ainda deve esse valor.`,
+      input: 'text',
+      inputPlaceholder: 'Motivo (opcional): sem fundos, assinatura...',
+      inputAttributes: { maxlength: '200' },
+      showCancelButton: true,
+      confirmButtonText: 'Marcar como devolvido',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#ef4444',
+    });
+    if (!escolha.isConfirmed) return;
+    await mudarSituacao(t, () => devolverCheque(t.id, String(escolha.value || '')), 'Cheque marcado como devolvido.');
+  };
+
+  const voltarCarteira = async (t: TransacaoData) => {
+    if (processingId) return;
+    const confirma = await NexusSwal.fire({
+      title: 'Voltar o cheque para a carteira?',
+      text: 'Desfaz a marca de depositado/devolvido. O cheque volta a aparecer como "em carteira".',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, voltar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirma.isConfirmed) return;
+    await mudarSituacao(t, () => voltarChequeParaCarteira(t.id), 'Cheque de volta à carteira.');
   };
 
   const hojeStr = getDateInputInTimeZone();
@@ -403,13 +476,31 @@ const Cheques: React.FC = () => {
                             Compensado{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
                           </span>
                         ) : (
-                        <button
-                          onClick={() => (t.tipo === 'saida' ? confirmarCompensacaoEmitido(t) : confirmarCompensacao(t))}
-                          disabled={processingId === t.id}
-                          style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: processingId === t.id ? 0.6 : 1 }}
-                        >
-                          <CheckCircle size={14} /> {processingId === t.id ? 'Confirmando...' : 'Confirmar compensação'}
-                        </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                          {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'em_carteira' && (
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: situacaoDoCheque(t) === 'devolvido' ? '#ef4444' : '#f59e0b' }}>
+                              {ROTULO_SITUACAO_CHEQUE_RECEBIDO[situacaoDoCheque(t)]}{situacaoDoCheque(t) === 'depositado' && t.bancoNome ? ` · ${t.bancoNome}` : ''}
+                            </span>
+                          )}
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                            <button
+                              onClick={() => (t.tipo === 'saida' ? confirmarCompensacaoEmitido(t) : confirmarCompensacao(t))}
+                              disabled={processingId === t.id}
+                              style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: processingId === t.id ? 0.6 : 1 }}
+                            >
+                              <CheckCircle size={14} /> {processingId === t.id ? 'Confirmando...' : 'Confirmar compensação'}
+                            </button>
+                            {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'depositado' && (
+                              <button type="button" onClick={() => void depositar(t)} disabled={processingId === t.id} className="btn-secondary" title="Levou o cheque ao banco: fica aguardando a compensação" style={{ padding: '6px 10px', fontSize: '12px' }}>Depositar</button>
+                            )}
+                            {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'devolvido' && (
+                              <button type="button" onClick={() => void devolver(t)} disabled={processingId === t.id} className="btn-secondary" title="O banco devolveu o cheque; o cliente continua devendo" style={{ padding: '6px 10px', fontSize: '12px', color: '#ef4444' }}>Devolvido</button>
+                            )}
+                            {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'em_carteira' && (
+                              <button type="button" onClick={() => void voltarCarteira(t)} disabled={processingId === t.id} className="btn-secondary" title="Desfaz a marca de depositado/devolvido" style={{ padding: '6px 10px', fontSize: '12px' }}>Voltar à carteira</button>
+                            )}
+                          </div>
+                        </div>
                         )}
                       </td>
                     </tr>

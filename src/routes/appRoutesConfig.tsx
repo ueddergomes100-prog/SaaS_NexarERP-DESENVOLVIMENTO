@@ -55,6 +55,8 @@ const Caixa = lazy(() => import('../pages/Financeiro/Caixa'));
 const CaixaRegistros = lazy(() => import('../pages/Financeiro/CaixaRegistros'));
 const Banco = lazy(() => import('../pages/Financeiro/Banco'));
 const Cheques = lazy(() => import('../pages/Financeiro/Cheques'));
+// Caixas e transferencias entre contas (21/10/2026).
+const CaixasTransferencias = lazy(() => import('../pages/Financeiro/CaixasTransferencias'));
 const Boletos = lazy(() => import('../pages/Financeiro/Boletos'));
 const Faturamento = lazy(() => import('../pages/Financeiro/Faturamento'));
 const ContasReceber = lazy(() => import('../pages/Financeiro/ContasReceber'));
@@ -191,6 +193,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'financeiro/caixa-registros', element: <CaixaRegistros /> },
   { path: 'financeiro/banco', element: <Banco /> },
   { path: 'financeiro/cheques', element: <Cheques /> },
+  { path: 'financeiro/caixas', element: <CaixasTransferencias /> },
   { path: 'financeiro/boletos', element: <Boletos /> }, // Financeiro > Boletos
   { path: 'financeiro/contas-receber', element: <ContasReceber /> },
   { path: 'financeiro/contas-receber/importar', element: <ImportarContasReceber /> },

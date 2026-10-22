@@ -65,6 +65,8 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'financeiro.alterar_valor_documento': ['financeiro.receber'],
   'financeiro.renegociar': ['financeiro.receber'],
   'financeiro.desconto_baixa': ['financeiro.receber', 'financeiro.pagar'],
+  // Caixas e transferencias (21/10/2026): parte do modulo do Fluxo de Caixa.
+  'financeiro.caixas': ['financeiro.caixa'],
 
   'fiscal.emitir': ['fiscal.nfe'],
   'fiscal.excluir': ['fiscal.nfe'],

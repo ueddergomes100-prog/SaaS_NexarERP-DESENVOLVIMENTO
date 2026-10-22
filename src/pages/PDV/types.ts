@@ -112,6 +112,9 @@ export interface CaixaSangria {
   registradoEm: string;
   registradoPor: string;
   registradoPorNome: string;
+  /** Sangria "para deposito" (21/10/2026): o banco que recebeu o dinheiro (creditado pelo servidor). */
+  bancoId?: string;
+  bancoNome?: string;
 }
 
 export interface PdvSession {

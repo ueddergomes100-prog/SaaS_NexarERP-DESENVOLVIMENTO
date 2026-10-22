@@ -42,6 +42,7 @@ const vendasRoutes = require('./routes/vendas.routes');
 const osRoutes = require('./routes/os.routes');
 const descontosRoutes = require('./routes/descontos.routes');
 const notificacoesRoutes = require('./routes/notificacoes.routes');
+const caixasRoutes = require('./routes/caixas.routes');
 const cashbackRoutes = require('./routes/cashback.routes');
 const tabelasFiscaisRoutes = require('./routes/tabelasFiscais.routes');
 const inutilizacaoRoutes = require('./routes/inutilizacao.routes');
@@ -225,6 +226,8 @@ app.use('/api/os', osRoutes);
 app.use('/api/descontos', descontosRoutes);
 // Avisos no celular (21/10/2026): aparelhos do app Vendas e a chave publica do FCM.
 app.use('/api/notificacoes', notificacoesRoutes);
+// Caixas e transferencias entre contas (21/10/2026): caixa <-> banco, sangria para deposito.
+app.use('/api/caixas', caixasRoutes);
 // Cashback (20/10/2026): gerar/estornar depois de a tela gravar venda, baixa ou devolucao.
 app.use('/api/cashback', cashbackRoutes);
 // Tabelas fiscais (20/10/2026): CFOP ativo na empresa e base unica de NCM/CEST.

@@ -113,6 +113,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/crm/agenda', 'Agendamentos'],
   ['/crm/lembretes', 'Alertas de Retorno'],
   ['/relatorios-mecanica', 'Relatório de Serviços'],
+  ['/financeiro/caixas', 'Caixas e Transferências'],
   ['/financeiro/caixa', 'Fluxo de Caixa'],
   ['/financeiro/banco', 'Banco'],
   ['/financeiro/contas-receber', 'Contas a Receber'],

@@ -45,6 +45,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { sangriaParaDeposito } from '../../services/caixasService';
 import { finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
@@ -638,8 +639,20 @@ const PDV: React.FC = () => {
 
   const [sangriaModalOpen, setSangriaModalOpen] = useState(false);
 
-  const registrarSangria = useCallback(async (valorCentavos: number, motivo: string) => {
+  const registrarSangria = useCallback(async (valorCentavos: number, motivo: string, bancoId?: string) => {
     if (!session || !currentUser || !tenantId) return;
+
+    // Sangria "para deposito" (21/10/2026, decisao do dono): o banco escolhido
+    // e' creditado na hora pelo servidor; so' depois a sangria e' registrada.
+    let bancoNome = '';
+    if (bancoId) {
+      try {
+        bancoNome = (await sangriaParaDeposito({ bancoId, valorCentavos, sessaoId: session.id, data: getDateInputInTimeZone() })).bancoNome;
+      } catch (erro) {
+        showError('Não foi possível lançar o depósito', erro instanceof Error ? erro.message : 'Tente de novo.');
+        return;
+      }
+    }
 
     const novaSangria: CaixaSangria = {
       id: crypto.randomUUID(),
@@ -648,6 +661,7 @@ const PDV: React.FC = () => {
       registradoEm: new Date().toISOString(),
       registradoPor: currentUser.uid,
       registradoPorNome: operatorName,
+      ...(bancoId ? { bancoId, bancoNome } : {}),
     };
 
     try {
@@ -665,7 +679,7 @@ const PDV: React.FC = () => {
       };
       setSession(nextSession);
       localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
-      showSuccess('Sangria registrada');
+      showSuccess(bancoNome ? `Sangria registrada e depósito lançado no banco ${bancoNome}.` : 'Sangria registrada');
 
       const { createAuditLog } = await import('../../services/logService');
       createAuditLog({
@@ -1521,6 +1535,7 @@ const PDV: React.FC = () => {
         open={sangriaModalOpen}
         onClose={() => setSangriaModalOpen(false)}
         onConfirm={registrarSangria}
+        bancos={bancosDisponiveis.filter((b) => b.ativo !== false).map((b) => ({ id: b.id, nome: b.nome }))}
       />
 
       <SolicitarAprovacaoDescontoModal

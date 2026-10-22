@@ -34,6 +34,7 @@ const {
   lancarNoBanco,
   transferirEntreBancos,
 } = require('../services/movimentoBanco');
+const { depositarCheque, devolverCheque, voltarChequeParaCarteira } = require('../services/chequeSituacao');
 
 /**
  * FINANCEIRO -- baixa e estorno de titulos (item 8 da auditoria, fatia 1).
@@ -414,6 +415,14 @@ router.post('/cobrar-em-boleto', rotaDeMovimento('financeiro.boletos', 'preparar
 /** POST /api/financeiro/banco/lancamento  { bancoId, tipo, direcao, valorCentavos, descricao, data } */
 router.post('/banco/lancamento', rotaDeMovimento('cadastros.bancos', 'registrar o lançamento', lancarNoBanco,
   (r) => `Lançamento manual (${r.tipo}, ${r.direcao === 'credito' ? 'entrada' : 'saída'}) de ${reais(r.valorCentavos)} no banco ${r.bancoNome}: ${r.descricao}`));
+
+/** Cheque recebido, antes de compensar (21/10/2026) -- ver services/chequeSituacao.js. */
+router.post('/cheque/depositar', rotaDeMovimento('financeiro.cheques', 'depositar o cheque', depositarCheque,
+  (r) => `Cheque nº ${r.numeroCheque} ("${r.descricao}") depositado no banco ${r.bancoNome}, aguardando compensação.`));
+router.post('/cheque/devolver', rotaDeMovimento('financeiro.cheques', 'marcar o cheque como devolvido', devolverCheque,
+  (r, corpo) => `Cheque nº ${r.numeroCheque} ("${r.descricao}") marcado como devolvido${corpo?.motivo ? `: ${String(corpo.motivo).slice(0, 200)}` : ''}.`));
+router.post('/cheque/voltar-carteira', rotaDeMovimento('financeiro.cheques', 'voltar o cheque para a carteira', voltarChequeParaCarteira,
+  (r) => `Cheque nº ${r.numeroCheque} ("${r.descricao}") de volta à carteira.`));
 
 /** POST /api/financeiro/banco/transferencia  { origemId, destinoId, valorCentavos, descricao?, data } */
 router.post('/banco/transferencia', rotaDeMovimento('cadastros.bancos', 'fazer a transferência', transferirEntreBancos,

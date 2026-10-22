@@ -117,6 +117,8 @@ const MODULOS = [
   'src/utils/rotaPreVendaDomain.ts',
   // Liberacao de desconto pelo celular (21/10/2026).
   'src/utils/liberacaoRemotaDomain.ts',
+  // Caixas e transferencias entre contas (21/10/2026).
+  'src/utils/contasDinheiroDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

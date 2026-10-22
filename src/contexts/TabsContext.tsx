@@ -181,11 +181,46 @@ export const resolveTabLabel = (pathname: string): string => {
   const rest = pathname.slice(prefix.length).split('/').filter(Boolean);
   if (rest.length === 0) return sectionLabel;
 
+  // Aba de UM registro fala no singular (print do dono, 22/10/2026: a aba do
+  // pedido aberto dizia "Ver Pedidos de Venda"): "Pedido de Venda", "Nova
+  // Ordem de Serviço", "Editar Cliente". Secao sem singular conhecido fica
+  // como antes.
   const action = rest[0];
-  if (action === 'novo' || action === 'nova') return `Novo(a) ${sectionLabel}`;
-  if (action === 'editar') return `Editar ${sectionLabel}`;
-  if (action === 'visualizar') return `Ver ${sectionLabel}`;
+  const singular = SINGULAR_DA_SECAO[sectionLabel];
+  const nome = singular ? singular[0] : sectionLabel;
+  if (action === 'novo' || action === 'nova') return singular ? `${singular[1] === 'f' ? 'Nova' : 'Novo'} ${nome}` : `Novo(a) ${sectionLabel}`;
+  if (action === 'editar') return `Editar ${nome}`;
+  if (action === 'visualizar') return singular ? nome : `Ver ${sectionLabel}`;
   return sectionLabel;
+};
+
+/** Singular e genero de cada secao, para a aba do registro aberto. */
+const SINGULAR_DA_SECAO: Record<string, [string, 'm' | 'f']> = {
+  'Clientes': ['Cliente', 'm'],
+  'Veículos': ['Veículo', 'm'],
+  'Estoque / Produtos': ['Produto', 'm'],
+  'Serviços': ['Serviço', 'm'],
+  'Categorias': ['Categoria', 'f'],
+  'Unidades de Medida': ['Unidade de Medida', 'f'],
+  'Grades': ['Grade', 'f'],
+  'Bandeiras de Cartão': ['Bandeira de Cartão', 'f'],
+  'Bancos': ['Banco', 'm'],
+  'Fornecedores': ['Fornecedor', 'm'],
+  'Insumos': ['Insumo', 'm'],
+  'Ordens de Produção': ['Ordem de Produção', 'f'],
+  'Usuários': ['Usuário', 'm'],
+  'Pedidos de Venda': ['Pedido de Venda', 'm'],
+  'Trocas': ['Troca', 'f'],
+  'Orçamentos': ['Orçamento', 'm'],
+  'Ordens de Serviço': ['Ordem de Serviço', 'f'],
+  'Agendamentos': ['Agendamento', 'm'],
+  'Notas Fiscais': ['Nota Fiscal', 'f'],
+  'Filiais': ['Filial', 'f'],
+  'Transferências': ['Transferência', 'f'],
+  'Motoristas': ['Motorista', 'm'],
+  'Romaneios': ['Romaneio', 'm'],
+  'Promoções': ['Promoção', 'f'],
+  'Matéria-Prima': ['Matéria-Prima', 'f'],
 };
 
 /**

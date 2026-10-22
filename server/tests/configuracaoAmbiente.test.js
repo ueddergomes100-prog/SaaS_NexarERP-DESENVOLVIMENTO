@@ -11,6 +11,7 @@ test('diagnostico so diz presenca, nunca o valor', () => {
     RESEND_API_KEY: 're_123',
     EMAIL_FROM: 'Hennder <cadastro@exemplo.com>',
     SPEDY_WEBHOOK_SECRET: 'w',
+    FCM_VAPID_PUBLIC_KEY: 'BChavePublica',
     CORS_ORIGINS: 'https://accounts.nexarcompany.com.br',
     TRUST_PROXY_HOPS: '1',
   };
@@ -22,6 +23,7 @@ test('diagnostico so diz presenca, nunca o valor', () => {
     onboardingSecret: true,
     emailOnboarding: true,
     webhookSpedy: true,
+    avisosCelular: true,
     corsRestrito: true,
     proxyHops: 1,
   });
@@ -39,6 +41,7 @@ test('variavel em branco conta como ausente; pendencias saem em portugues, backu
   assert.ok(pendencias.some((p) => p.includes('E-mail do cadastro')));
   assert.ok(pendencias.some((p) => p.includes('SPEDY_WEBHOOK_SECRET')));
   assert.ok(pendencias.some((p) => p.includes('CORS_ORIGINS')));
+  assert.ok(pendencias.some((p) => p.includes('FCM_VAPID_PUBLIC_KEY')));
 });
 
 test('e-mail so conta como configurado com a chave E o remetente', () => {

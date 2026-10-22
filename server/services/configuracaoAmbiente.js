@@ -31,6 +31,8 @@ const diagnosticoConfiguracao = (env = process.env) => ({
   onboardingSecret: presente(env, 'ONBOARDING_CODE_SECRET'),
   emailOnboarding: (presente(env, 'RESEND_API_KEY') || presente(env, 'SENDGRID_API_KEY')) && presente(env, 'EMAIL_FROM'),
   webhookSpedy: presente(env, 'SPEDY_WEBHOOK_SECRET'),
+  // Avisos no celular (21/10/2026): chave publica VAPID do Firebase Cloud Messaging.
+  avisosCelular: presente(env, 'FCM_VAPID_PUBLIC_KEY'),
   corsRestrito: presente(env, 'CORS_ORIGINS'),
   proxyHops: trustProxyHops(env),
 });
@@ -44,6 +46,7 @@ const pendenciasDeProducao = (diagnostico) => {
   if (!diagnostico.emailOnboarding) pendencias.push('E-mail do cadastro não configurado (RESEND_API_KEY ou SENDGRID_API_KEY + EMAIL_FROM): o código de verificação não é enviado.');
   if (!diagnostico.webhookSpedy) pendencias.push('SPEDY_WEBHOOK_SECRET ausente: o webhook da Spedy responde 404 e o status das notas só atualiza por consulta.');
   if (!diagnostico.corsRestrito) pendencias.push('CORS_ORIGINS ausente: só as origens padrão (localhost e *.web.app) são aceitas.');
+  if (!diagnostico.avisosCelular) pendencias.push('FCM_VAPID_PUBLIC_KEY ausente: os avisos no celular (liberação de desconto) ficam desligados; a tela Liberações segue funcionando.');
   return pendencias;
 };
 

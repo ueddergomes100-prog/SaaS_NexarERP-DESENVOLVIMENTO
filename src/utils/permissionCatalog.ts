@@ -192,6 +192,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'financeiro.cheques', label: 'Financeiro: Cheques (Compensação)', color: '#10b981' },
       // 21/10/2026: caixas da loja (CAIXA, COFRE...) e transferencias caixa <-> banco.
       { id: 'financeiro.caixas', label: 'Financeiro: Caixas e Transferências (caixa, cofre e bancos)', color: '#10b981' },
+      // 23/10/2026: despesas fixas, bens, rateio e preco pelo Sebrae (so' consulta e simula; nao muda preco).
+      { id: 'financeiro.custos', label: 'Financeiro: Custos e Formação de Preço (despesas fixas, depreciação, preço pelo Sebrae)', color: '#10b981' },
       { id: 'financeiro.boletos', label: 'Financeiro: Boletos (Emissão, Remessa e Retorno)', color: '#10b981' },
       { id: 'financeiro.receber', label: 'Financeiro: Contas a Receber', color: '#10b981' },
       { id: 'financeiro.pagar', label: 'Financeiro: Contas a Pagar', color: '#10b981' },

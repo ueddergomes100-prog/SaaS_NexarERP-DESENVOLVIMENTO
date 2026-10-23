@@ -59,7 +59,8 @@ import {
   X,
   ArrowLeftRight,
   BookOpen,
-  PackageCheck
+  PackageCheck,
+  Calculator
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -319,6 +320,7 @@ const Sidebar: React.FC = () => {
         { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
         { label: 'Contas a Pagar', to: '/financeiro/contas-pagar', icon: Receipt, module: 'financeiro.pagar', permission: 'financeiro.pagar' },
         { label: 'Faturamento', to: '/financeiro/faturamento', icon: BarChart2, module: 'financeiro.faturamento', permission: 'financeiro.faturamento' },
+        { label: 'Custos e Formação de Preço', to: '/financeiro/custos', icon: Calculator, module: 'financeiro.faturamento', permission: 'financeiro.custos' },
         { label: 'Comissões a Pagar', to: '/financeiro/comissoes', icon: DollarSign, module: 'financeiro.comissoes', permission: 'financeiro.comissoes' }
       ]
     },

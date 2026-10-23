@@ -58,6 +58,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routeModule = 'crm.lembretes';
   else if (path.startsWith('/financeiro/caixa-registros')) routeModule = 'financeiro.caixa_registros';
   else if (path.startsWith('/financeiro/caixas')) routeModule = 'financeiro.caixa';
+  // Custos e formacao de preco (23/10/2026): junto do Faturamento no plano.
+  else if (path.startsWith('/financeiro/custos')) routeModule = 'financeiro.faturamento';
   else if (path.startsWith('/financeiro/caixa')) routeModule = 'financeiro.caixa';
   else if (path.startsWith('/financeiro/banco')) routeModule = 'financeiro.banco';
   else if (path.startsWith('/financeiro/cheques')) routeModule = 'financeiro.cheques';
@@ -144,6 +146,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routePermission = 'crm.alertas';
   else if (path.startsWith('/financeiro/caixa-registros')) routePermission = 'financeiro.caixa_registros';
   else if (path.startsWith('/financeiro/caixas')) routePermission = 'financeiro.caixas';
+  else if (path.startsWith('/financeiro/custos')) routePermission = 'financeiro.custos';
   else if (path.startsWith('/financeiro/caixa')) routePermission = 'financeiro.caixa';
   else if (path.startsWith('/financeiro/banco')) routePermission = 'financeiro.banco';
   else if (path.startsWith('/financeiro/cheques')) routePermission = 'financeiro.cheques';

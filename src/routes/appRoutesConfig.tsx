@@ -58,6 +58,7 @@ const Banco = lazy(() => import('../pages/Financeiro/Banco'));
 const Cheques = lazy(() => import('../pages/Financeiro/Cheques'));
 // Caixas e transferencias entre contas (21/10/2026).
 const CaixasTransferencias = lazy(() => import('../pages/Financeiro/CaixasTransferencias'));
+const CustosFormacaoPreco = lazy(() => import('../pages/Financeiro/CustosFormacaoPreco'));
 // Compras (22/10/2026): cotacao com link por fornecedor e pedido de compra.
 const Cotacoes = lazy(() => import('../pages/Compras/Cotacoes'));
 const CotacaoForm = lazy(() => import('../pages/Compras/CotacaoForm'));
@@ -205,6 +206,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'financeiro/banco', element: <Banco /> },
   { path: 'financeiro/cheques', element: <Cheques /> },
   { path: 'financeiro/caixas', element: <CaixasTransferencias /> },
+  { path: 'financeiro/custos', element: <CustosFormacaoPreco /> },
   { path: 'financeiro/boletos', element: <Boletos /> }, // Financeiro > Boletos
   { path: 'financeiro/contas-receber', element: <ContasReceber /> },
   { path: 'financeiro/contas-receber/importar', element: <ImportarContasReceber /> },

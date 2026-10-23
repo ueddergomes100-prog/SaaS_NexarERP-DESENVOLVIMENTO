@@ -51,6 +51,7 @@ const inutilizacaoRoutes = require('./routes/inutilizacao.routes');
 const devolucaoCompraRoutes = require('./routes/devolucaoCompra.routes');
 const balancoRoutes = require('./routes/balanco.routes');
 const entregasFuturasRoutes = require('./routes/entregasFuturas.routes');
+const custosRoutes = require('./routes/custos.routes');
 const relatorioContadorRoutes = require('./routes/relatorioContador.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
@@ -247,6 +248,8 @@ app.use('/api/devolucao-compra', devolucaoCompraRoutes);
 app.use('/api/balancos', balancoRoutes);
 // Venda com entrega futura (23/10/2026): entregas, remessa (5.116/5.117) e rota.
 app.use('/api/entregas-futuras', entregasFuturasRoutes);
+// Custos e formacao de preco (23/10/2026): despesas fixas, bens, Sebrae.
+app.use('/api/custos', custosRoutes);
 // Relatorio do contador, fase 2 (20/10/2026): envio do PDF e do .zip dos XMLs ao contador.
 app.use('/api/relatorio-contador', relatorioContadorRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'

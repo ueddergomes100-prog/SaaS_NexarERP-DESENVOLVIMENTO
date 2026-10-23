@@ -16,6 +16,8 @@ import {
 } from '../../utils/precificacaoDomain';
 import { formatDateInputPtBr } from '../../utils/dateTime';
 import { DIAS_NOTAS_PARA_IMPORTAR, lerNotasAtivasParaImportar } from '../../services/notasParaImportar';
+import { simularPrecos } from '../../services/custosService';
+import type { LinhaDaSimulacao } from '../../utils/custosDomain';
 
 /** O que a tela precisa saber de cada produto do estoque. Fica num mapa por
  * id: e' a fonte dos valores originais (pra saber o que mudou no save) e do
@@ -85,6 +87,16 @@ const Precificacao: React.FC = () => {
   const [notasDeTodasAsDatas, setNotasDeTodasAsDatas] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
+  // Preco sugerido pelo Sebrae (Financeiro > Custos e Formacao de Preco, 23/10/2026).
+  // So' mostra e oferece "usar" (a pessoa clica e salva); sem permissao de
+  // custos, a coluna fica com "—".
+  const [sebrae, setSebrae] = useState<Map<string, LinhaDaSimulacao>>(new Map());
+  useEffect(() => {
+    if (!tenantId) return;
+    simularPrecos()
+      .then((r) => setSebrae(new Map(r.linhas.map((l) => [l.id, l]))))
+      .catch(() => setSebrae(new Map()));
+  }, [tenantId]);
 
   // Leitura unica (nao onSnapshot) de proposito: se uma compra mudasse o
   // custo enquanto a pessoa digita, a grade se reescreveria embaixo dela.
@@ -534,6 +546,7 @@ const Precificacao: React.FC = () => {
                   <th style={{ padding: '10px', textAlign: 'right' }}>Custo</th>
                   <th style={{ padding: '10px', textAlign: 'right', width: '100px' }}>Margem %</th>
                   <th style={{ padding: '10px', textAlign: 'right', width: '120px' }}>Preço venda</th>
+                  <th style={{ padding: '10px', textAlign: 'right', width: '130px' }} title="Preço que cobre custo, despesas fixas (rateio), impostos, comissão, taxas e a margem desejada — Financeiro › Custos e Formação de Preço">Sebrae</th>
                   <th style={{ padding: '10px', textAlign: 'right', width: '110px' }}>À vista</th>
                   <th style={{ padding: '10px' }}>Situação</th>
                   <th style={{ padding: '10px', width: '44px' }} />
@@ -578,6 +591,20 @@ const Precificacao: React.FC = () => {
                           onChange={(e) => digitarPrecoVenda(linha, e.target.value)}
                           style={{ ...inputStyle, fontWeight: 600 }}
                         />
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'right', fontSize: '13px', whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const s = sebrae.get(linha.produtoId);
+                          if (!s || s.precoSugerido === null) return <span style={{ color: 'var(--text-muted)' }} title={s?.problema || 'Sem cálculo de custos para este produto.'}>—</span>;
+                          const atual = Number(linha.precoVenda.replace(',', '.')) || 0;
+                          const abaixo = atual > 0 && atual < s.precoSugerido - 0.004;
+                          return (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ color: abaixo ? '#ef4444' : 'var(--text-secondary)', fontWeight: 600 }} title={`Margem desejada ${s.margem}%`}>{formatBRL(s.precoSugerido)}</span>
+                              <button type="button" className="icon-btn" title="Usar este preço (você ainda confere e salva)" onClick={() => digitarPrecoVenda(linha, s.precoSugerido!.toFixed(2))} style={{ fontSize: '11px', padding: '2px 6px' }}>usar</button>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: '10px' }}>
                         <input

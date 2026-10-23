@@ -755,7 +755,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   // Rota na pre-venda (21/10/2026): a pre-venda faturada entra na rota
   // anotada (modo "ao faturar") ou tem o retrato atualizado na rota em que
   // ja' esta'. So' pre-venda: venda direta de balcao nao vai pra rota sozinha.
-  const rota = !resultado.jaEnviado && resultado.dePreVenda
+  // Entrega futura: quem vai para a rota e' cada ENTREGA (Expedicao > Entregas futuras), nunca o pedido.
+  const rota = !resultado.jaEnviado && resultado.dePreVenda && !entregaFutura
     ? await rotaPreVenda.colocarAoFaturarSemFalhar({ user, tenantId, pedidoId: resultado.pedidoId })
     : null;
 

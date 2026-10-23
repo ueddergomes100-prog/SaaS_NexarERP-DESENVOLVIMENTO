@@ -231,7 +231,9 @@ const EntregasFuturas: React.FC = () => {
                     <td style={p.atrasada ? { color: '#ef4444', fontWeight: 700 } : undefined}>
                       {p.previsaoEntrega ? dataBr(p.previsaoEntrega) : '—'}{p.atrasada ? ' · atrasada' : ''}
                     </td>
-                    <td style={{ fontSize: '13px' }}>{faltam.slice(0, 2).map((i) => `${qtd(i.saldo)} ${i.unidade} ${i.nome}`).join(' · ')}{faltam.length > 2 ? ` · +${faltam.length - 2}` : ''}</td>
+                    <td style={{ fontSize: '13px', whiteSpace: 'nowrap' }} title={faltam.map((i) => `${qtd(i.saldo)} ${i.unidade} ${i.nome}`).join('\n')}>
+                      {faltam.length} item(ns) · {qtd(faltam.reduce((t, i) => t + i.saldo, 0))} un.
+                    </td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{reais(p.valorTotalCentavos)}</td>
                     <td style={{ fontSize: '13px' }}>{p.notaFaturamento ? `NF-e ${p.notaFaturamento.numero ?? ''} · ${ROTULO_NOTA[String(p.notaFaturamento.status)] || p.notaFaturamento.status}` : 'Sem nota'}</td>
                     <td>

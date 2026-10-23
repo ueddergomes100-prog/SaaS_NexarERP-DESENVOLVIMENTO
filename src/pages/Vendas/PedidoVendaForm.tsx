@@ -2419,7 +2419,8 @@ const PedidoVendaForm: React.FC = () => {
     // Rota de entrega (21/10/2026): pergunta antes de gravar, so' na primeira
     // gravacao -- editar a pre-venda nao mexe na rota em que ela ja' esta'.
     let rotaEscolhida: RotaAberta | null = null;
-    const perguntaRota = !isPreVendaAberta && perguntaRotaNaPreVenda(modoRotaPreVenda);
+    // Entrega futura: quem vai para a rota e' cada ENTREGA, nunca o pedido.
+    const perguntaRota = !isPreVendaAberta && perguntaRotaNaPreVenda(modoRotaPreVenda) && !(trabalhaComEntregaFutura && entregaFutura);
     if (perguntaRota) {
       const escolha = await escolherRota();
       if (escolha.cancelou) return false;
@@ -3870,7 +3871,7 @@ const PedidoVendaForm: React.FC = () => {
       // Rota na pre-venda (21/10/2026), venda gravada pela tela: a pre-venda
       // do balcao faturada entra na rota anotada (modo "ao faturar") ou tem o
       // retrato atualizado na rota em que ja' estava. Nunca derruba a venda.
-      if (!vendaPeloServidor && finalizandoPedidoAberto && origemPedido === 'balcao' && perguntaRotaNaPreVenda(modoRotaPreVenda)) {
+      if (!vendaPeloServidor && finalizandoPedidoAberto && origemPedido === 'balcao' && perguntaRotaNaPreVenda(modoRotaPreVenda) && !entregaFuturaDaVenda) {
         resultadoDaRota = await colocarPedidoNaRotaSemFalhar(newPedidoId);
       }
 

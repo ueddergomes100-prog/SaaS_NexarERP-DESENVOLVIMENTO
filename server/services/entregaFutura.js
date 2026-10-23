@@ -50,7 +50,13 @@ const idValido = (id, oQue) => {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(s)) throw new ErroEntregaFutura(400, `${oQue} inválido. Atualize a tela e tente de novo.`);
   return s;
 };
-const nomeDe = (user) => String(user.nome || user.email || 'Usuário');
+const nomeDe = (user) => String(user.nome || user.nomeResponsavel || user.email || 'Usuário');
+/** Nome do cadastro de quem registrou (o token traz so' o e-mail). */
+const nomeDoCadastro = async (user) => {
+  if (user.nome) return String(user.nome);
+  const s = await db.collection('usuarios').doc(String(user.uid || '-')).get();
+  return s.exists ? nomeDe(s.data()) : nomeDe(user);
+};
 
 const lerConfig = async (tenantId) => {
   const snap = await db.collection('configuracoes').doc(tenantId).get();
@@ -197,7 +203,7 @@ const entregar = async ({ user, tenantId, pedidoId, corpo }) => {
     avisos.push('Esta entrega saiu SEM nota de remessa: o pedido não tem NF-e de faturamento autorizada. Se a venda leva nota, emita a NF-e do pedido em Notas Fiscais e registre as próximas entregas depois.');
   }
   const emiteRemessa = controlaFiscal && nota.situacao === 'autorizada';
-  const hoje = getDateInputInTimeZone();
+  const quemRegistra = await nomeDoCadastro(user);
 
   const pedidoRef = db.collection('pedidos_venda').doc(id);
   const entregaRef = db.collection(ef.COLECAO_ENTREGAS_FUTURAS).doc();
@@ -309,7 +315,7 @@ const entregar = async ({ user, tenantId, pedidoId, corpo }) => {
       notaFiscal: emiteRemessa ? { status: 'pendente', notaFaturamentoId: nota.nota.id, notaFaturamentoChave: nota.nota.accessKey || null } : null,
       romaneio: null,
       criadoEmIso: new Date().toISOString(),
-      criadoPorNome: nomeDe(user),
+      criadoPorNome: quemRegistra,
       createdAt: agora(),
       ...buildDocumentMetadata(user.uid, agora()),
     };

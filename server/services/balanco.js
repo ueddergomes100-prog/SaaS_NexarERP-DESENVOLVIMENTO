@@ -72,16 +72,29 @@ const gravarEmLotes = async (escritas) => {
 /** Itens do escopo, no formato do documento do balanco (sem o contador). */
 const lerItensDoEscopo = async (tenantId, escopo) => {
   if (escopo.tipo === 'materias_primas') {
-    const snap = await db.collection('materias_primas').where('tenantId', '==', tenantId).get();
-    return snap.docs.filter((d) => d.data().ativo !== false).map((d) => {
+    // Materia-prima E insumos (23/10/2026, dono): os dois cadastros da
+    // producao, sem lote, sempre fracionados. O insumo entra com o grupo
+    // "INSUMOS" (ou "INSUMOS · categoria") para nao se misturar na lista.
+    const [mpSnap, insumosSnap] = await Promise.all([
+      db.collection('materias_primas').where('tenantId', '==', tenantId).get(),
+      db.collection('insumos').where('tenantId', '==', tenantId).get(),
+    ]);
+    const item = (colecao, d, grupo) => {
       const p = d.data();
       const sigla = String(p.unidade || 'UN').toUpperCase();
       return {
-        chave: `materias_primas__${d.id}`, colecao: 'materias_primas', produtoId: d.id,
-        nome: String(p.nome || ''), codigo: String(p.codigo || ''), codigoBarras: '', grupo: bd.grupoDoItem(p),
+        chave: `${colecao}__${d.id}`, colecao, produtoId: d.id,
+        nome: String(p.nome || ''), codigo: String(p.codigo || ''), codigoBarras: '', grupo,
         unidade: { sigla, fracionado: sigla !== 'UN', casas: sigla !== 'UN' ? 3 : 0 }, controlaLote: false, lotes: [],
       };
-    });
+    };
+    return [
+      ...mpSnap.docs.filter((d) => d.data().ativo !== false).map((d) => item('materias_primas', d, bd.grupoDoItem(d.data()))),
+      ...insumosSnap.docs.filter((d) => d.data().ativo !== false).map((d) => {
+        const g = bd.grupoDoItem(d.data());
+        return item('insumos', d, g === bd.SEM_GRUPO ? 'INSUMOS' : `INSUMOS · ${g}`);
+      }),
+    ];
   }
   const [produtosSnap, lotesSnap] = await Promise.all([
     db.collection('estoque').where('tenantId', '==', tenantId).get(),
@@ -497,7 +510,9 @@ const fechar = async ({ user, tenantId, balancoId, corpo }) => {
         const base = {
           tenantId, produtoId: item.produtoId, produtoNome: item.nome, ...(item.codigo ? { produtoCodigo: item.codigo } : {}),
           motivo: 'balanco', observacao: `Balanço "${balanco.nome}"${ajuste.naoContado ? ' (não contado: zerado)' : ''}`,
-          usuarioId: user.uid, usuarioNome, balancoId, ...(item.colecao === 'materias_primas' ? { origem: 'materia_prima' } : {}),
+          usuarioId: user.uid, usuarioNome, balancoId,
+          // Relatorio de ajustes marca MATERIA-PRIMA / INSUMO por este campo (mesmo do Ajuste Manual).
+          ...(item.colecao === 'materias_primas' ? { origem: 'materia_prima' } : item.colecao === 'insumos' ? { origem: 'insumo' } : {}),
           createdAt: agora(),
         };
         if (Math.abs(ajuste.delta) > 1e-9) {

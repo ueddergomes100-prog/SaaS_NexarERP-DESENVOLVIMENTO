@@ -29,6 +29,9 @@ const base = (extra = {}) => ({
   'estoque/p4': { tenantId: 'loja', nome: 'COLEIRA', categoria: 'PET', quantidade: 5 },
   'estoque/grade': { tenantId: 'loja', nome: 'CAMISETA', categoria: 'PET', temGrade: true, quantidade: 0 },
   'estoque/inativo': { tenantId: 'loja', nome: 'VELHO', categoria: 'PET', quantidade: 3, statusAtivo: false },
+  'materias_primas/m1': { tenantId: 'loja', nome: 'FARINHA', categoria: 'GRÃOS', unidade: 'KG', quantidade: 12.5 },
+  'insumos/i1': { tenantId: 'loja', nome: 'ETIQUETA', categoria: 'EMBALAGEM', unidade: 'UN', quantidade: 50 },
+  'insumos/i2': { tenantId: 'loja', nome: 'INATIVO', unidade: 'UN', quantidade: 5, ativo: false },
   'estoque_lotes/l1': { tenantId: 'loja', produtoId: 'p3', lote: 'A1', validade: '2027-01-01', quantidade: 4 },
   'estoque_lotes/l2': { tenantId: 'loja', produtoId: 'p3', lote: 'B2', validade: '2027-06-01', quantidade: 3 },
   ...extra,
@@ -142,6 +145,27 @@ test('codigo bipado de outra pessoa (22/10): passa para quem bipou; ja contado s
   assert.equal(c2.contado, 5);
   assert.equal(donoDe(fake, r.id, 'estoque__p4'), eu.uid, 'o item fica com quem contou primeiro');
   assert.equal(fake.ler(`balancos/${r.id}/itens/estoque__p4`).contadoPorNome, `${eu.nome} + ${colega.nome}`);
+});
+
+test('materia-prima e insumos (23/10): os dois cadastros entram, insumo inativo fica fora, fechar ajusta os dois', async () => {
+  const fake = criarBancoFalso(base(), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.balanco.abrir({ user: GESTOR, tenantId: 'loja', corpo: { nome: 'Produção', escopo: { tipo: 'materias_primas' }, contadores: ['ana'] } });
+  assert.equal(r.totalItens, 2);
+  const itens = fake.listar(`balancos/${r.id}/itens/`);
+  assert.deepEqual(itens.map((i) => i.chave).sort(), ['insumos__i1', 'materias_primas__m1']);
+  assert.equal(itens.find((i) => i.chave === 'insumos__i1').grupo, 'INSUMOS · EMBALAGEM');
+  await contar(s, ANA, r.id, { chave: 'insumos__i1', quantidade: 47 });
+  await contar(s, ANA, r.id, { chave: 'materias_primas__m1', quantidade: 10.25 });
+  const conf = await s.balanco.conferencia({ tenantId: 'loja', balancoId: r.id });
+  assert.equal(conf.linhas.find((l) => l.chave === 'insumos__i1').saldoAgora, 50);
+  await s.balanco.fechar({ user: GESTOR, tenantId: 'loja', balancoId: r.id, corpo: { regraNegativo: 'contado' } });
+  assert.equal(fake.ler('insumos/i1').quantidade, 47);
+  assert.equal(fake.ler('materias_primas/m1').quantidade, 10.25);
+  assert.equal(fake.ler('insumos/i2').quantidade, 5, 'inativo nao entra e nao zera');
+  const ajustes = fake.listar('ajustes_estoque/').filter((a) => a.balancoId === r.id);
+  assert.equal(ajustes.find((a) => a.produtoId === 'i1').origem, 'insumo');
+  assert.equal(ajustes.find((a) => a.produtoId === 'm1').origem, 'materia_prima');
 });
 
 test('sem trava: venda depois da contagem continua valendo; "fica o que contou"', async () => {

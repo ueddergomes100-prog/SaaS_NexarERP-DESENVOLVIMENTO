@@ -31,7 +31,8 @@ export type RegraNegativo = 'contado' | 'descontar';
 export const ROTULO_ESCOPO: Record<TipoEscopoBalanco, string> = {
   todos: 'Todos os produtos',
   grupos: 'Grupos escolhidos',
-  materias_primas: 'Matéria-prima',
+  // 23/10/2026 (dono): os insumos (Producao > Insumos) contam junto com a materia-prima.
+  materias_primas: 'Matéria-prima e insumos',
   // 21/10/2026 (dono): o que a loja VENDE -- produzido por ela ou comprado para revender.
   acabados: 'Produtos acabados e revenda',
 };

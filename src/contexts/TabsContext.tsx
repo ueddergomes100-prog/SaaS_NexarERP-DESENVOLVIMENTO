@@ -132,6 +132,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   ['/configuracoes/filiais', 'Filiais'],
   ['/estoque/transferencias', 'Transferências'],
   ['/operacoes/expedicao', 'Expedição'],
+  ['/operacoes/entregas-futuras', 'Entregas futuras'],
   ['/operacoes/frota/custos', 'Custo por Veículo'],
   ['/operacoes/frota', 'Frota'],
   ['/operacoes/motoristas', 'Motoristas'],

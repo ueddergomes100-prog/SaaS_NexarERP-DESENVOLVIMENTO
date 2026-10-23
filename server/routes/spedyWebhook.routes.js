@@ -3,6 +3,7 @@ const router = express.Router();
 const { admin, db } = require('../config/firebase');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 const { espelharNaTransferencia } = require('../services/notaTransferencia');
+const { espelharNaEntrega } = require('../services/entregaFutura');
 
 const BASE_URLS = {
   sandbox: 'https://sandbox-api.spedy.com.br/v1',
@@ -94,6 +95,15 @@ router.post('/:secret', async (req, res) => {
         accessKey: freshNote.accessKey || noteData.accessKey || null,
         processingMessage: freshNote.processingDetail?.message || null,
       }).catch((erro) => console.error('[Spedy Webhook] espelho da transferencia:', erro.message));
+    }
+    // Remessa de entrega futura (23/10/2026): a entrega acompanha pelo espelho dela.
+    if (noteData.finalidade === 'remessa_entrega_futura' && noteData.entregaFuturaId) {
+      await espelharNaEntrega(noteData.entregaFuturaId, {
+        status: freshNote.status,
+        number: freshNote.number ?? noteData.number ?? null,
+        accessKey: freshNote.accessKey || noteData.accessKey || null,
+        processingMessage: freshNote.processingDetail?.message || null,
+      }).catch((erro) => console.error('[Spedy Webhook] espelho da entrega futura:', erro.message));
     }
   } catch (error) {
     console.error('[Spedy Webhook]', error);

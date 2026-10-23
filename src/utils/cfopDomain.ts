@@ -39,6 +39,10 @@ export type NaturezaCfop =
   | 'perda'
   | 'cupom_fiscal'
   | 'outras_saidas'
+  // Venda com entrega futura (23/10/2026): a 5.922 fatura (sem mexer no
+  // estoque), a 5.116/5.117 entrega depois (sem cobrar de novo).
+  | 'faturamento_venda_entrega_futura'
+  | 'remessa_entrega_futura'
   // entradas
   | 'compra'
   | 'compra_uso_consumo'
@@ -75,6 +79,10 @@ export const FUNCAO_DA_NATUREZA: Record<NaturezaCfop, FuncaoCfop> = {
   // O cupom (NFC-e/ECF) ja' baixou o estoque e gerou a receita: a nota so' acompanha.
   cupom_fiscal: { estoque: 'nenhum', financeiro: 'nenhum', receita: false, destino: 'nenhum' },
   outras_saidas: { estoque: 'sai', financeiro: 'nenhum', receita: false, destino: 'nenhum' },
+  // Venda para entrega futura: a 5.922 cobra e conta como faturamento (estoque fica reservado);
+  // a 5.116/5.117 e' a entrega: baixa o estoque sem financeiro nem receita de novo.
+  faturamento_venda_entrega_futura: { estoque: 'nenhum', financeiro: 'receber', receita: true, destino: 'nenhum' },
+  remessa_entrega_futura: { estoque: 'sai', financeiro: 'nenhum', receita: false, destino: 'nenhum' },
   compra: { estoque: 'entra', financeiro: 'pagar', receita: false, destino: 'estoque' },
   compra_uso_consumo: { estoque: 'entra', financeiro: 'pagar', receita: false, destino: 'insumo' },
   compra_ativo: { estoque: 'nenhum', financeiro: 'pagar', receita: false, destino: 'nenhum' },
@@ -102,6 +110,8 @@ export const ROTULO_NATUREZA: Record<NaturezaCfop, string> = {
   perda: 'Perda, roubo ou deterioração',
   cupom_fiscal: 'Nota de cupom fiscal já emitido',
   outras_saidas: 'Outras saídas',
+  faturamento_venda_entrega_futura: 'Venda para entrega futura (faturamento)',
+  remessa_entrega_futura: 'Entrega de venda faturada antes',
   compra: 'Compra para revenda/industrialização',
   compra_uso_consumo: 'Compra para uso e consumo',
   compra_ativo: 'Compra para o ativo imobilizado',
@@ -195,6 +205,8 @@ const CATALOGO: ReadonlyArray<readonly [string, NaturezaCfop, string]> = [
   // ---- Saidas do estado (5) ----
   ['5101', 'venda', 'Venda de produção do estabelecimento'],
   ['5102', 'venda', 'Venda de mercadoria adquirida ou recebida de terceiros'],
+  ['5116', 'remessa_entrega_futura', 'Venda de produção do estabelecimento originada de encomenda para entrega futura'],
+  ['5117', 'remessa_entrega_futura', 'Venda de mercadoria adquirida ou recebida de terceiros, originada de encomenda para entrega futura'],
   ['5151', 'transferencia_saida', 'Transferência de produção do estabelecimento'],
   ['5152', 'transferencia_saida', 'Transferência de mercadoria adquirida ou recebida de terceiros'],
   ['5201', 'devolucao_de_compra', 'Devolução de compra para industrialização ou produção rural'],
@@ -206,6 +218,7 @@ const CATALOGO: ReadonlyArray<readonly [string, NaturezaCfop, string]> = [
   ['5411', 'devolucao_de_compra', 'Devolução de compra para comercialização em operação com mercadoria sujeita ao regime de substituição tributária'],
   ['5910', 'remessa_bonificacao', 'Remessa em bonificação, doação ou brinde'],
   ['5915', 'remessa_conserto', 'Remessa de mercadoria ou bem para conserto ou reparo'],
+  ['5922', 'faturamento_venda_entrega_futura', 'Lançamento efetuado a título de simples faturamento decorrente de venda para entrega futura'],
   ['5926', 'reclassificacao', 'Lançamento efetuado a título de reclassificação de mercadoria decorrente de formação de kit ou de sua desagregação'],
   ['5927', 'perda', 'Lançamento efetuado a título de baixa de estoque decorrente de perda, roubo ou deterioração'],
   ['5929', 'cupom_fiscal', 'Lançamento efetuado em decorrência de emissão de documento fiscal relativo a operação ou prestação também registrada em equipamento Emissor de Cupom Fiscal - ECF'],
@@ -216,6 +229,8 @@ const CATALOGO: ReadonlyArray<readonly [string, NaturezaCfop, string]> = [
   ['6102', 'venda', 'Venda de mercadoria adquirida ou recebida de terceiros'],
   ['6107', 'venda', 'Venda de produção do estabelecimento, destinada a não contribuinte'],
   ['6108', 'venda', 'Venda de mercadoria adquirida ou recebida de terceiros, destinada a não contribuinte'],
+  ['6116', 'remessa_entrega_futura', 'Venda de produção do estabelecimento originada de encomenda para entrega futura'],
+  ['6117', 'remessa_entrega_futura', 'Venda de mercadoria adquirida ou recebida de terceiros, originada de encomenda para entrega futura'],
   ['6151', 'transferencia_saida', 'Transferência de produção do estabelecimento'],
   ['6152', 'transferencia_saida', 'Transferência de mercadoria adquirida ou recebida de terceiros'],
   ['6201', 'devolucao_de_compra', 'Devolução de compra para industrialização ou produção rural'],
@@ -227,6 +242,7 @@ const CATALOGO: ReadonlyArray<readonly [string, NaturezaCfop, string]> = [
   ['6411', 'devolucao_de_compra', 'Devolução de compra para comercialização em operação com mercadoria sujeita ao regime de substituição tributária'],
   ['6910', 'remessa_bonificacao', 'Remessa em bonificação, doação ou brinde'],
   ['6915', 'remessa_conserto', 'Remessa de mercadoria ou bem para conserto ou reparo'],
+  ['6922', 'faturamento_venda_entrega_futura', 'Lançamento efetuado a título de simples faturamento decorrente de venda para entrega futura'],
   ['6929', 'cupom_fiscal', 'Lançamento efetuado em decorrência de emissão de documento fiscal relativo a operação ou prestação também registrada em equipamento Emissor de Cupom Fiscal - ECF'],
   ['6933', 'servico_prestado', 'Prestação de serviço tributado pelo ISSQN'],
   ['6949', 'outras_saidas', 'Outra saída de mercadoria ou prestação de serviço não especificado'],
@@ -448,6 +464,8 @@ const NATUREZA_DA_NOTA: Partial<Record<NaturezaCfop, string>> = {
   cupom_fiscal: 'Lançamento decorrente de Cupom Fiscal',
   outras_saidas: 'Outra Saída de Mercadoria',
   reclassificacao: 'Reclassificação de Mercadoria',
+  faturamento_venda_entrega_futura: 'Simples Faturamento - Venda para Entrega Futura',
+  remessa_entrega_futura: 'Remessa - Venda para Entrega Futura',
 };
 
 /**

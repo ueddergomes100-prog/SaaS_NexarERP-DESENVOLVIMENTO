@@ -203,6 +203,20 @@ exports.temSubstituicaoTributaria = temSubstituicaoTributaria;
  * baseStRetentionAmount, stpRate, substituteAmount, stRetentionAmount.
  */
 const ST_RETIDO_ANTERIORMENTE_ZERADO = { baseStRetentionAmount: 0, stpRate: 0, substituteAmount: 0, stRetentionAmount: 0 };
+/** PIS/COFINS "08 - Sem incidencia": usado na remessa da entrega futura (ja' cobrados no faturamento). */
+const CST_PIS_COFINS_SEM_INCIDENCIA = '08';
+/**
+ * Nota de simples faturamento (5.922): o ICMS nao e' destacado -- ele vai na
+ * remessa. Regime normal: CST 90 (outras), que sai so' com origem e CST, sem
+ * base nem valor. Simples: o produto com credito (101) sai como 102 (sem
+ * credito); os demais CSOSN ja' nao levam valor. ST retido (500/60) fica.
+ */
+const produtoSemDestaqueDeIcms = (p, regime) => {
+    const codigo = String(p.csosn ?? '').trim();
+    if ((0, fiscalDomain_1.usesCsosn)(regime))
+        return codigo === '101' ? { ...p, csosn: '102' } : p;
+    return codigo === '60' ? p : { ...p, csosn: '90', aliquotaIcms: 0, reducaoBaseIcms: 0 };
+};
 const icmsDoItem = (p, regime, base) => {
     const origin = Number(p.origem || '0');
     const codigo = String(p.csosn ?? '').trim();
@@ -245,6 +259,9 @@ const icmsDoItem = (p, regime, base) => {
     if (codigo === '60')
         return { ok: true, icms: { origin, cst, ...ST_RETIDO_ANTERIORMENTE_ZERADO } };
     if (['40', '41', '50'].includes(codigo))
+        return { ok: true, icms: { origin, cst } };
+    // CST 90 "Outras" sem aliquota: so' o codigo (simples faturamento da entrega futura).
+    if (codigo === '90' && !(num(p.aliquotaIcms) > 0))
         return { ok: true, icms: { origin, cst } };
     const rate = num(p.aliquotaIcms);
     const reducao = codigo === '20' ? num(p.reducaoBaseIcms) : 0;
@@ -368,16 +385,20 @@ const montarItemNotaFiscal = (a) => {
     });
     if (!unitFields.ok)
         return { ok: false, erro: `${p.nome}: ${unitFields.error}` };
-    const icms = icmsDoItem(produtoFiscal, contexto.regime, base);
+    // Entrega futura: simples faturamento sem destaque de ICMS; remessa sem PIS/COFINS/IPI de novo.
+    const faturamentoEntregaFutura = contexto.entregaFutura === 'faturamento';
+    const remessaEntregaFutura = contexto.entregaFutura === 'remessa';
+    const produtoIcms = faturamentoEntregaFutura ? produtoSemDestaqueDeIcms(produtoFiscal, contexto.regime) : produtoFiscal;
+    const icms = icmsDoItem(produtoIcms, contexto.regime, base);
     if (!icms.ok)
         return icms;
-    const pis = pisCofinsDoItem('PIS', p.cstPis, p.aliquotaPis, p, contexto.regime, base);
+    const pis = pisCofinsDoItem('PIS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstPis, p.aliquotaPis, p, contexto.regime, base);
     if (!pis.ok)
         return pis;
-    const cofins = pisCofinsDoItem('COFINS', p.cstCofins, p.aliquotaCofins, p, contexto.regime, base);
+    const cofins = pisCofinsDoItem('COFINS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstCofins, p.aliquotaCofins, p, contexto.regime, base);
     if (!cofins.ok)
         return cofins;
-    const ipi = ipiDoItem(p, base);
+    const ipi = remessaEntregaFutura ? { ok: true, grupo: null } : ipiDoItem(p, base);
     if (!ipi.ok)
         return ipi;
     const ibsCbs = ibsCbsDoItem(p, base);

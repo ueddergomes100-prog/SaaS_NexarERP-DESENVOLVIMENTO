@@ -117,6 +117,18 @@ import {
 } from '../../utils/vendedorPinDomain';
 import IdentificarVendedorModal from '../../components/common/IdentificarVendedorModal';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
+import {
+  DEFAULT_ENTREGA_FUTURA_EXIGE_ESTOQUE,
+  DEFAULT_TRABALHA_COM_ENTREGA_FUTURA,
+  ROTULO_SITUACAO_ENTREGA,
+  entregaAtrasada,
+  erroParaCancelarComEntregaFutura,
+  parseEntregaFuturaExigeEstoque,
+  parsePrevisaoEntrega,
+  parseTrabalhaComEntregaFutura,
+  saldoAEntregar,
+  situacaoDaEntrega,
+} from '../../utils/entregaFuturaDomain';
 import { linhasDoOrcamentoGravado, textoPrazoEntrega } from '../../utils/orcamentoModeloDomain';
 import {
   isVendaDoUsuario,
@@ -558,6 +570,13 @@ const PedidoVendaForm: React.FC = () => {
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
   const [imprimirMinutaAposVendaAtiva, setImprimirMinutaAposVendaAtiva] = useState(false);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
+  // Venda com entrega futura (23/10/2026, entregaFuturaDomain.ts): fatura
+  // com o estoque reservado; a entrega vem depois (Expedicao > Entregas futuras).
+  const [trabalhaComEntregaFutura, setTrabalhaComEntregaFutura] = useState(DEFAULT_TRABALHA_COM_ENTREGA_FUTURA);
+  const [entregaFuturaExigeEstoque, setEntregaFuturaExigeEstoque] = useState(DEFAULT_ENTREGA_FUTURA_EXIGE_ESTOQUE);
+  const [entregaFutura, setEntregaFutura] = useState(false);
+  const [previsaoEntrega, setPrevisaoEntrega] = useState('');
+  const [entregaFuturaEntregue, setEntregaFuturaEntregue] = useState<number[]>([]);
   const [alterarPagamentoAtivo, setAlterarPagamentoAtivo] = useState(DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
   /** Ultimo nivel da hierarquia de comissao (produto > vendedor > sistema)
@@ -1016,6 +1035,8 @@ const PedidoVendaForm: React.FC = () => {
             emiteNFSe: config.emiteNFSe,
           });
           setTrabalhaComPreVenda(parseTrabalhaComPreVenda(config.trabalhaComPreVenda));
+          setTrabalhaComEntregaFutura(parseTrabalhaComEntregaFutura(config.trabalhaComEntregaFutura));
+          setEntregaFuturaExigeEstoque(parseEntregaFuturaExigeEstoque(config.entregaFuturaExigeEstoque));
           setAlterarPagamentoAtivo(parseAlterarPagamentoVendaFinalizada(config.alterarPagamentoVendaFinalizada));
           setExigirIdentificacaoVendedor(parseExigirIdentificacaoVendedor(config.exigirIdentificacaoVendedor));
           setComissaoPadraoPecas(typeof config.comissaoPadraoPecas === 'number' ? config.comissaoPadraoPecas : undefined);
@@ -1094,6 +1115,9 @@ const PedidoVendaForm: React.FC = () => {
             setClienteIdSelecionado(p.clienteId || null);
             setObservacaoPedido(String(p.observacao || ''));
             setComNotaFiscalPedido(typeof p.comNotaFiscal === 'boolean' ? p.comNotaFiscal : null);
+            setEntregaFutura(p.entregaFutura === true);
+            setPrevisaoEntrega(parsePrevisaoEntrega(p.previsaoEntrega));
+            setEntregaFuturaEntregue(Array.isArray(p.entregaFuturaEntregue) ? p.entregaFuturaEntregue.map((n: unknown) => Number(n) || 0) : []);
             setVendedorId(p.vendedorId || p.usuarioResponsavelId || currentUser.uid);
             setFormaPagamento(p.formaPagamento || 'Dinheiro');
             setDataVenda(p.dataVenda || getDateInputInTimeZone(p.createdAt?.toDate?.() || new Date()));
@@ -2520,6 +2544,9 @@ const PedidoVendaForm: React.FC = () => {
           // baixado. A baixa real acontece so na finalizacao, que consome
           // esta reserva.
           estoqueReservado: itens.length > 0,
+          // Entrega futura (23/10/2026): a marca e a previsao ficam na pre-venda e valem ao faturar.
+          entregaFutura: trabalhaComEntregaFutura && entregaFutura,
+          previsaoEntrega: trabalhaComEntregaFutura && entregaFutura ? previsaoEntrega : '',
           // A PRE-VENDA JA ENTRA NA FILA DA EXPEDICAO.
           //
           // Antes disto, a conferencia so' comecava quando a venda era
@@ -3261,6 +3288,10 @@ const PedidoVendaForm: React.FC = () => {
         return false;
       }
       const itensComLote = itens.map((item, indice) => ({ ...item, ...camposDeLoteDoItem(planoLotes, String(indice)) }));
+      // Entrega futura: nada sai do estoque agora, entao o lote e' escolhido na
+      // entrega -- a venda e' gravada sem lotes.
+      const entregaFuturaDaVenda = trabalhaComEntregaFutura && entregaFutura;
+      const itensParaGravar = entregaFuturaDaVenda ? itensComLote.map(({ lotes: _lotes, ...resto }) => resto) : itensComLote;
 
       // 1. Cadastrar Cliente (se não existir)
       let clienteIdParaSalvar: string | null = clienteEncontrado?.id || null;
@@ -3357,7 +3388,7 @@ const PedidoVendaForm: React.FC = () => {
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
           observacao: observacaoPedido.trim(),
-          itens: itensComLote,
+          itens: itensParaGravar,
           descontoGeral: {
             tipo: descontoGeralInput.tipo,
             valorInformado: Number(descontoGeralInput.valor.replace(',', '.')) || 0,
@@ -3368,6 +3399,7 @@ const PedidoVendaForm: React.FC = () => {
           encargos: Number(encargos || 0),
           pagamentos: pagamentosParaFechar,
           ...(orcamentoId ? { orcamentoId } : {}),
+          ...(entregaFuturaDaVenda ? { entregaFutura: true, previsaoEntrega } : {}),
         });
         newPedidoId = resposta.pedidoId;
         finalNumeroPedido = resposta.numeroPedido;
@@ -3469,7 +3501,18 @@ const PedidoVendaForm: React.FC = () => {
             finalNumeroPedido = formatSequenceValue(nextPedido, 4);
           }
 
-          if (reservaGravada.length > 0) {
+          if (entregaFuturaDaVenda) {
+            // Entrega futura: nada baixa; a reserva passa a ser a dos itens
+            // faturados (pre-venda que ja' reservava so' ajusta a diferenca).
+            // "Deixa faturar sem estoque" (padrao da filial) reserva alem do
+            // saldo; "exige estoque" barra como a venda comum.
+            await applyStockFieldDeltas(
+              transaction,
+              db,
+              computeReservationDelta(reservaGravada, toStockAdjustmentItems(itens)),
+              permitirVendaSemEstoque || !entregaFuturaExigeEstoque,
+            );
+          } else if (reservaGravada.length > 0) {
             // Pre-venda finalizando: libera 100% da reserva e debita de
             // verdade os itens atuais. Os dois lados podem divergir -- o
             // usuario pode ter mexido nos itens na mesma tela que finaliza --
@@ -3493,7 +3536,7 @@ const PedidoVendaForm: React.FC = () => {
               { respeitarReserva: true },
             );
           }
-          baixarLotesNaTransacao(transaction, db, planoLotes);
+          if (!entregaFuturaDaVenda) baixarLotesNaTransacao(transaction, db, planoLotes);
 
           if (!finalizandoPedidoAberto) {
             writeTenantSequenceValue(transaction, db, tenantId, 'pedidos_venda', nextPedido);
@@ -3530,7 +3573,7 @@ const PedidoVendaForm: React.FC = () => {
             clienteId: clienteIdParaSalvar,
             clienteNome: finalClienteNome,
             observacao: observacaoPedido.trim(),
-            itens: itensComLote,
+            itens: itensParaGravar,
             promocaoIds: promocaoIdsDosItens(itens),
             ...(orcamentoId ? { orcamentoId } : {}),
             valorTotalItens,
@@ -3598,7 +3641,14 @@ const PedidoVendaForm: React.FC = () => {
             // documento nao pode continuar dizendo que reserva estoque, senao
             // um cancelamento futuro tentaria liberar reserva que nao existe
             // mais e devolveria quantidade a maior pro estoque.
-            estoqueReservado: false,
+            // Entrega futura: a reserva FICA ate' a entrega baixar.
+            estoqueReservado: entregaFuturaDaVenda,
+            entregaFutura: entregaFuturaDaVenda,
+            ...(entregaFuturaDaVenda ? {
+              previsaoEntrega,
+              entregaFuturaSituacao: 'pendente',
+              entregaFuturaEntregue: itens.map(() => 0),
+            } : {}),
             // Pedido aberto (pre-venda do balcao ou pendente do agente)
             // preserva createdAt/criadoPor/criadoEm originais -- quando o
             // pedido foi criado de verdade -- e so grava quem finalizou.
@@ -3830,20 +3880,23 @@ const PedidoVendaForm: React.FC = () => {
       // "Imprimir Recibo" vira a acao principal (ver controlaFiscal em
       // fiscalDomain.ts). Sem isso, o botao mais destacado da tela era um que
       // so tinha como dar errado se alguem clicasse.
+      // Entrega futura: a nota de faturamento e' sempre NF-e (5.922) -- a
+      // remessa precisa referenciar uma NF-e, e cupom (NFC-e) nao serve.
+      const documentoFiscalDoFim = entregaFuturaDaVenda && documentoFiscalVenda !== 'nenhum' ? 'nfe' : documentoFiscalVenda;
       const result = await NexusSwal.fire({
         title: 'Venda Finalizada com Sucesso!',
-        text: `O estoque foi atualizado e o financeiro lançado.${textoDoResultadoDaRota(resultadoDaRota) ? ` ${textoDoResultadoDaRota(resultadoDaRota)}` : ''} O que deseja fazer agora?`,
+        text: `${entregaFuturaDaVenda ? 'O financeiro foi lançado e o estoque ficou reservado para a entrega (Expedição › Entregas futuras).' : 'O estoque foi atualizado e o financeiro lançado.'}${textoDoResultadoDaRota(resultadoDaRota) ? ` ${textoDoResultadoDaRota(resultadoDaRota)}` : ''} O que deseja fazer agora?`,
         icon: 'success',
         showCancelButton: true,
         // O documento oferecido aqui e' o que a EMPRESA emite, nao mais
         // NFC-e pra todo mundo. Quem so' emite NF-e ve "Emitir NF-e", e o
         // botao leva pra tela Fiscal em vez de transmitir daqui -- NF-e tem
         // campos demais pra caber num clique (ver documentoFiscalVendaDomain).
-        showDenyButton: documentoFiscalVenda !== 'nenhum',
-        confirmButtonText: rotuloAcaoFiscalVenda(documentoFiscalVenda),
+        showDenyButton: documentoFiscalDoFim !== 'nenhum',
+        confirmButtonText: rotuloAcaoFiscalVenda(documentoFiscalDoFim),
         denyButtonText: 'Imprimir Recibo',
         cancelButtonText: 'Apenas Concluir',
-        confirmButtonColor: documentoFiscalVenda === 'nenhum' ? '#3b82f6' : '#10b981',
+        confirmButtonColor: documentoFiscalDoFim === 'nenhum' ? '#3b82f6' : '#10b981',
         denyButtonColor: '#3b82f6'
       });
 
@@ -3875,9 +3928,9 @@ const PedidoVendaForm: React.FC = () => {
       }
 
       // Sem documento fiscal, o botao principal imprime o recibo.
-      if (result.isConfirmed && documentoFiscalVenda === 'nenhum') {
+      if (result.isConfirmed && documentoFiscalDoFim === 'nenhum') {
         await askMinutaAndNavigate(`/pedidos-venda/print/${newPedidoId}`);
-      } else if (result.isConfirmed && documentoFiscalVenda === 'nfe') {
+      } else if (result.isConfirmed && documentoFiscalDoFim === 'nfe') {
         // NF-e nao e' transmitida daqui: leva pra tela Fiscal com este
         // pedido ja' selecionado, e a emissao se conclui la.
         await askMinutaAndNavigate(rotaEmissaoNFe(newPedidoId));
@@ -4483,16 +4536,29 @@ const PedidoVendaForm: React.FC = () => {
         );
         if (bloqueioDeRenegociacao) throw new Error(bloqueioDeRenegociacao);
 
-        // Estoque: o que a venda GRAVADA tirou (mesma regra do servidor).
-        await applyStockAdjustments(
-          transaction,
-          db,
-          toStockAdjustmentItems(Array.isArray(saleData.itens) ? saleData.itens : itens),
-          'increment',
-          true
-        );
-        // Lote e Validade: o cancelamento devolve ao MESMO lote de onde a venda tirou (itens gravados na venda).
-        devolverAosLotesNaTransacao(transaction, db, devolucaoTotalDosLotes(saleData.itens));
+        // Entrega futura (23/10/2026): com mercadoria entregue, o caminho e' a devolucao.
+        const erroEntregaFutura = erroParaCancelarComEntregaFutura(saleData);
+        if (erroEntregaFutura) throw new Error(erroEntregaFutura);
+        if (saleData.entregaFutura === true && saleData.estoqueReservado === true) {
+          // Nada tinha saido do estoque: so' a reserva da venda volta.
+          await applyStockFieldDeltas(
+            transaction,
+            db,
+            computeReservationRelease(toStockAdjustmentItems(Array.isArray(saleData.itens) ? saleData.itens : itens)),
+            true,
+          );
+        } else {
+          // Estoque: o que a venda GRAVADA tirou (mesma regra do servidor).
+          await applyStockAdjustments(
+            transaction,
+            db,
+            toStockAdjustmentItems(Array.isArray(saleData.itens) ? saleData.itens : itens),
+            'increment',
+            true
+          );
+          // Lote e Validade: o cancelamento devolve ao MESMO lote de onde a venda tirou (itens gravados na venda).
+          devolverAosLotesNaTransacao(transaction, db, devolucaoTotalDosLotes(saleData.itens));
+        }
 
         transaction.update(saleRef, {
           status: 'Cancelada',
@@ -4887,6 +4953,30 @@ const PedidoVendaForm: React.FC = () => {
                 </button>
               </div>
             )}
+            {/* Venda com entrega futura (23/10/2026): situacao da entrega e atalho para a Expedicao. */}
+            {isViewing && entregaFutura && status === 'Finalizada' && (() => {
+              const saldos = saldoAEntregar(itens, entregaFuturaEntregue);
+              const situacao = situacaoDaEntrega(saldos);
+              const atrasada = situacao !== 'entregue' && entregaAtrasada(previsaoEntrega, getDateInputInTimeZone());
+              const cor = situacao === 'entregue' ? '#10b981' : atrasada ? '#ef4444' : '#f59e0b';
+              const faltam = saldos.filter((s) => s.saldo > 1e-9).length;
+              return (
+                <div style={{ marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/operacoes/entregas-futuras')}
+                    title="Abrir Expedição › Entregas futuras"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 700, border: `1px solid ${cor}55`, backgroundColor: 'transparent', color: cor, cursor: 'pointer' }}
+                  >
+                    <Truck size={14} /> Entrega futura · {ROTULO_SITUACAO_ENTREGA[situacao]}
+                    <span style={{ fontWeight: 500, opacity: 0.85 }}>
+                      {situacao !== 'entregue' ? ` · ${faltam} item(ns) a entregar` : ''}
+                      {previsaoEntrega ? ` · previsão ${formatDateInputPtBr(previsaoEntrega)}${atrasada ? ' (atrasada)' : ''}` : ''}
+                    </span>
+                  </button>
+                </div>
+              );
+            })()}
             {/* O vendedor externo marca no app se o pedido leva nota fiscal; a loja
                 precisa ver isso na hora, na pre-venda, antes de separar/faturar. */}
             {isViewing && rotuloNotaFiscalPedido(comNotaFiscalPedido) && (
@@ -5357,6 +5447,40 @@ const PedidoVendaForm: React.FC = () => {
                     ? 'O vendedor é definido pelo código e senha informados ao finalizar a venda. O usuário logado continua registrado como responsável pela operação.'
                     : 'O usuário logado continuará registrado como responsável pela operação.'}
                 </span>
+              </div>
+            )}
+            {/* Venda com entrega futura (23/10/2026): so' com a chave da filial
+                ligada. Antes de faturar, a caixa e a previsao; depois, so' leitura
+                (a situacao da entrega fica no cabecalho). */}
+            {trabalhaComEntregaFutura && (!isViewing || isPreVendaAberta || isPendingFromAgent || entregaFutura) && (
+              <div className="input-group" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={entregaFutura}
+                    onChange={(e) => setEntregaFutura(e.target.checked)}
+                    disabled={isViewing && !canEditPendingOrder}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Entrega futura
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }} title="Fatura agora (financeiro e nota de simples faturamento 5.922) com o estoque reservado; a mercadoria sai depois, pela Expedição, em uma ou mais entregas.">
+                    fatura agora, entrega depois
+                  </span>
+                </label>
+                {entregaFutura && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <label htmlFor="pedido-previsao-entrega" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Previsão de entrega</label>
+                    <input
+                      id="pedido-previsao-entrega"
+                      type="date"
+                      value={previsaoEntrega}
+                      onChange={(e) => setPrevisaoEntrega(e.target.value)}
+                      disabled={isViewing && !canEditPendingOrder}
+                      title="Opcional. Na tela Expedição › Entregas futuras, os atrasados aparecem primeiro."
+                      style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                )}
               </div>
             )}
             <div className="input-group" style={{ marginTop: '16px' }}>

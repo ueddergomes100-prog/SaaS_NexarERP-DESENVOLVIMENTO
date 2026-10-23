@@ -73,9 +73,9 @@ test('funcao: cada CFOP faz o que o nome diz', () => {
   assert.deepEqual(f('1202'), ['entra', 'abate_receber', false, 'estoque'], 'devolucao de venda');
   assert.deepEqual(f('1353'), ['nenhum', 'pagar', false, 'nenhum'], 'frete contratado');
   assert.equal(resumoDaFuncao(cfopPorCodigo('5102')!), 'Baixa o estoque · Gera conta a receber · Conta como faturamento');
-  // So' venda e servico contam como faturamento.
+  // So' venda, servico e o faturamento da entrega futura (5.922) contam como faturamento.
   const comReceita = Object.entries(FUNCAO_DA_NATUREZA).filter(([, x]) => x.receita).map(([n]) => n).sort();
-  assert.deepEqual(comReceita, ['servico_prestado', 'venda']);
+  assert.deepEqual(comReceita, ['faturamento_venda_entrega_futura', 'servico_prestado', 'venda']);
 });
 
 test('de-para: CFOP do fornecedor vira o CFOP de entrada certo', () => {
@@ -169,6 +169,23 @@ test('emissao: natureza da operacao pelos CFOPs dos itens', () => {
   assert.equal(naturezaDaOperacaoPelosCfops([5102], { cupom: true }), 'Lançamento decorrente de Cupom Fiscal');
   assert.equal(naturezaDaOperacaoPelosCfops([]), 'Venda de Mercadoria');
   assert.equal(naturezaDaOperacaoPelosCfops([9999]), 'Venda de Mercadoria', 'CFOP desconhecido: venda');
+});
+
+test('venda para entrega futura (23/10): 5.922/6.922 faturam sem estoque; 5.116/5.117 entregam sem cobrar', () => {
+  for (const c of ['5922', '6922']) {
+    const f = cfopPorCodigo(c)!;
+    assert.equal(f.natureza, 'faturamento_venda_entrega_futura', c);
+    assert.deepEqual([f.estoque, f.financeiro, f.receita], ['nenhum', 'receber', true], c);
+  }
+  for (const c of ['5116', '5117', '6116', '6117']) {
+    const r = cfopPorCodigo(c)!;
+    assert.equal(r.natureza, 'remessa_entrega_futura', c);
+    assert.deepEqual([r.estoque, r.financeiro, r.receita], ['sai', 'nenhum', false], c);
+    assert.equal(r.tipo, 'saida');
+  }
+  assert.equal(cfopPorCodigo('6116')!.ambito, 'interestadual');
+  assert.equal(naturezaDaOperacaoPelosCfops([5922]), 'Simples Faturamento - Venda para Entrega Futura');
+  assert.equal(naturezaDaOperacaoPelosCfops([5116, 5117]), 'Remessa - Venda para Entrega Futura');
 });
 
 test('problemas do CFOP: mensagens em portugues dizendo o que fazer', () => {

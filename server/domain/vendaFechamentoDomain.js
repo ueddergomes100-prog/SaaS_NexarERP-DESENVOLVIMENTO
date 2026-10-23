@@ -195,6 +195,8 @@ const lerPedidoDeFechamento = (corpo) => {
             orcamentoId,
             pdvSessionId,
             comprovanteVendedorId,
+            entregaFutura: c.entregaFutura === true,
+            previsaoEntrega: DATA_VALIDA.test(String(c.previsaoEntrega ?? '')) ? String(c.previsaoEntrega) : '',
         },
     };
 };

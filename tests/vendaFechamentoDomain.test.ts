@@ -65,6 +65,12 @@ test('corpo valido vira pedido normalizado, com subtotal refeito no servidor', (
   assert.equal(r.pedido.idDocumento, 'venda123');
   assert.equal(r.pedido.pedidoId, null);
   assert.equal('lotes' in r.pedido.itens[0], false);
+  assert.equal(r.pedido.entregaFutura, false);
+  assert.equal(r.pedido.previsaoEntrega, '');
+  const ef = lerPedidoDeFechamento(corpoBase({ entregaFutura: true, previsaoEntrega: '2026-11-05' }));
+  assert.ok('pedido' in ef && ef.pedido.entregaFutura === true && ef.pedido.previsaoEntrega === '2026-11-05');
+  const efRuim = lerPedidoDeFechamento(corpoBase({ entregaFutura: 'sim', previsaoEntrega: '05/11/2026' }));
+  assert.ok('pedido' in efRuim && efRuim.pedido.entregaFutura === false && efRuim.pedido.previsaoEntrega === '');
 });
 
 test('pre-venda: o id do pedido manda, o idDocumento e\' ignorado', () => {

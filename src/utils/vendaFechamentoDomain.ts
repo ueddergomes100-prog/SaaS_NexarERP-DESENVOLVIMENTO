@@ -152,6 +152,13 @@ export interface PedidoDeFechamento {
   pdvSessionId: string | null;
   /** Comprovante do PIN do vendedor (identificacao exigida, 19/10/2026). */
   comprovanteVendedorId: string | null;
+  /**
+   * Venda com entrega futura (23/10/2026, entregaFuturaDomain.ts): fatura
+   * sem baixar o estoque (fica reservado); a entrega vem depois.
+   */
+  entregaFutura: boolean;
+  /** "aaaa-mm-dd" ou vazio. */
+  previsaoEntrega: string;
 }
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
@@ -263,6 +270,8 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
       orcamentoId,
       pdvSessionId,
       comprovanteVendedorId,
+      entregaFutura: c.entregaFutura === true,
+      previsaoEntrega: DATA_VALIDA.test(String(c.previsaoEntrega ?? '')) ? String(c.previsaoEntrega) : '',
     },
   };
 };

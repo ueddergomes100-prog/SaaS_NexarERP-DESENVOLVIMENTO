@@ -79,6 +79,12 @@ import {
   parseExigirIdentificacaoVendedor,
 } from '../../utils/vendedorPinDomain';
 import { DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR, parseLiberacaoEscolherVendedor } from '../../utils/liberacaoRemotaDomain';
+import {
+  DEFAULT_ENTREGA_FUTURA_EXIGE_ESTOQUE,
+  DEFAULT_TRABALHA_COM_ENTREGA_FUTURA,
+  parseEntregaFuturaExigeEstoque,
+  parseTrabalhaComEntregaFutura,
+} from '../../utils/entregaFuturaDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import {
   DEFAULT_MODO_LIMITE_DESCONTO,
@@ -296,6 +302,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     buscaProdutoModo: DEFAULT_PRODUCT_SEARCH_MODE as ProductSearchMode,
     momentoBaixaEstoque: DEFAULT_MOMENTO_BAIXA_ESTOQUE as MomentoBaixaEstoque,
     trabalhaComPreVenda: DEFAULT_TRABALHA_COM_PRE_VENDA,
+    trabalhaComEntregaFutura: DEFAULT_TRABALHA_COM_ENTREGA_FUTURA,
+    entregaFuturaExigeEstoque: DEFAULT_ENTREGA_FUTURA_EXIGE_ESTOQUE,
     /** Rota de entrega na pre-venda (21/10/2026, rotaPreVendaDomain.ts). Por filial. */
     rotaNaPreVenda: DEFAULT_MODO_ROTA_PRE_VENDA as ModoRotaPreVenda,
     trabalhaComCondicional: DEFAULT_TRABALHA_COM_CONDICIONAL,
@@ -474,6 +482,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             buscaProdutoModo: data.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE,
             momentoBaixaEstoque: (data.momentoBaixaEstoque ?? DEFAULT_MOMENTO_BAIXA_ESTOQUE) as MomentoBaixaEstoque,
             trabalhaComPreVenda: parseTrabalhaComPreVenda(data.trabalhaComPreVenda),
+            trabalhaComEntregaFutura: parseTrabalhaComEntregaFutura(data.trabalhaComEntregaFutura),
+            entregaFuturaExigeEstoque: parseEntregaFuturaExigeEstoque(data.entregaFuturaExigeEstoque),
             rotaNaPreVenda: parseModoRotaPreVenda(data.rotaNaPreVenda),
             trabalhaComCondicional: parseTrabalhaComCondicional(data.trabalhaComCondicional),
             transferenciaSemNota: data.transferenciaSemNota === true,
@@ -2935,6 +2945,41 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     Para a loja que trabalha com mais de uma rota aberta ao mesmo tempo. Com mais de uma rota <strong>em montagem</strong>, o sistema pergunta "Rota 1 ou Rota 2?" ao gravar a pré-venda (no computador e no app Vendas). Com uma só, o pedido entra nela sem perguntar — liberou a Rota 1 para o motorista, as próximas pré-vendas vão sozinhas para a Rota 2. Sem nenhuma rota em montagem, o pedido fica sem rota e a loja coloca depois, pelo Romaneio. Quando a pré-venda entra na rota na hora, o <strong>Liberar</strong> só passa depois que tudo estiver faturado.
                   </p>
                 </div>
+              </div>
+
+              {/* Venda com entrega futura (23/10/2026, entregaFuturaDomain.ts). */}
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Venda para entrega futura</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.trabalhaComEntregaFutura === true}
+                    onChange={(e) => setFormData({ ...formData, trabalhaComEntregaFutura: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Trabalha com venda para entrega futura
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Ligado, o Pedido de Venda ganha a caixa <strong>"Entrega futura"</strong> e a data de previsão. Ao finalizar, a venda entra no financeiro e no faturamento,
+                  mas <strong>o estoque não baixa: fica reservado</strong>. A nota sai como <strong>simples faturamento (CFOP 5.922/6.922)</strong>, sem destaque de ICMS.
+                  A mercadoria sai depois, em uma ou mais entregas, pela tela <strong>Expedição → Entregas futuras</strong>: cada entrega baixa o estoque, emite a
+                  <strong> nota de remessa (5.116/5.117)</strong> referenciando a de faturamento e entra no romaneio. Empresa que não controla fiscal usa tudo sem nota.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.entregaFuturaExigeEstoque === true}
+                    onChange={(e) => setFormData({ ...formData, entregaFuturaExigeEstoque: e.target.checked })}
+                    disabled={!isEditingMode || !formData.trabalhaComEntregaFutura}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Exigir estoque para faturar a entrega futura
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Desligado (padrão): reserva o que tem e deixa faturar mesmo sem estoque — a venda pode ser de mercadoria que ainda vai chegar ou ser produzida;
+                  a falta só trava na hora de entregar. Ligado: só fatura se o estoque livre cobrir tudo, como na venda comum.
+                </p>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>

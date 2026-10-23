@@ -106,6 +106,17 @@ export interface ContextoNota {
    * item como veio: sem trocar 5->6 nem usar o CFOP interestadual do cadastro.
    */
   cfopDaOperacao?: string;
+  /**
+   * Venda com entrega futura (23/10/2026, entregaFuturaDomain.ts):
+   *  - 'faturamento' (5.922): a nota cobra, mas o ICMS nao e' destacado
+   *    (regime normal CST 90 sem valores; Simples com credito 101 vira 102).
+   *    PIS/COFINS e IPI seguem o cadastro: incidem no faturamento.
+   *  - 'remessa' (5.116/5.117): o ICMS e' destacado aqui, pelo cadastro;
+   *    PIS/COFINS saem com CST 08 (sem incidencia: ja' foram cobrados no
+   *    faturamento) e o IPI nao vai.
+   * A CONFIRMAR com o contador antes de produção (anotado no vault).
+   */
+  entregaFutura?: 'faturamento' | 'remessa';
 }
 
 export interface ValoresTributosItem {
@@ -295,6 +306,21 @@ type Impostos = Record<string, unknown>;
  */
 const ST_RETIDO_ANTERIORMENTE_ZERADO = { baseStRetentionAmount: 0, stpRate: 0, substituteAmount: 0, stRetentionAmount: 0 };
 
+/** PIS/COFINS "08 - Sem incidencia": usado na remessa da entrega futura (ja' cobrados no faturamento). */
+const CST_PIS_COFINS_SEM_INCIDENCIA = '08';
+
+/**
+ * Nota de simples faturamento (5.922): o ICMS nao e' destacado -- ele vai na
+ * remessa. Regime normal: CST 90 (outras), que sai so' com origem e CST, sem
+ * base nem valor. Simples: o produto com credito (101) sai como 102 (sem
+ * credito); os demais CSOSN ja' nao levam valor. ST retido (500/60) fica.
+ */
+const produtoSemDestaqueDeIcms = (p: ProdutoFiscal, regime: RegimeTributario): ProdutoFiscal => {
+  const codigo = String(p.csosn ?? '').trim();
+  if (usesCsosn(regime)) return codigo === '101' ? { ...p, csosn: '102' } : p;
+  return codigo === '60' ? p : { ...p, csosn: '90', aliquotaIcms: 0, reducaoBaseIcms: 0 };
+};
+
 const icmsDoItem = (p: ProdutoFiscal, regime: RegimeTributario, base: number): { ok: true; icms: Impostos } | { ok: false; erro: string } => {
   const origin = Number(p.origem || '0');
   const codigo = String(p.csosn ?? '').trim();
@@ -337,6 +363,8 @@ const icmsDoItem = (p: ProdutoFiscal, regime: RegimeTributario, base: number): {
   }
   if (codigo === '60') return { ok: true, icms: { origin, cst, ...ST_RETIDO_ANTERIORMENTE_ZERADO } };
   if (['40', '41', '50'].includes(codigo)) return { ok: true, icms: { origin, cst } };
+  // CST 90 "Outras" sem aliquota: so' o codigo (simples faturamento da entrega futura).
+  if (codigo === '90' && !(num(p.aliquotaIcms) > 0)) return { ok: true, icms: { origin, cst } };
 
   const rate = num(p.aliquotaIcms);
   const reducao = codigo === '20' ? num(p.reducaoBaseIcms) : 0;
@@ -473,13 +501,17 @@ export const montarItemNotaFiscal = (a: {
   });
   if (!unitFields.ok) return { ok: false, erro: `${p.nome}: ${unitFields.error}` };
 
-  const icms = icmsDoItem(produtoFiscal, contexto.regime, base);
+  // Entrega futura: simples faturamento sem destaque de ICMS; remessa sem PIS/COFINS/IPI de novo.
+  const faturamentoEntregaFutura = contexto.entregaFutura === 'faturamento';
+  const remessaEntregaFutura = contexto.entregaFutura === 'remessa';
+  const produtoIcms = faturamentoEntregaFutura ? produtoSemDestaqueDeIcms(produtoFiscal, contexto.regime) : produtoFiscal;
+  const icms = icmsDoItem(produtoIcms, contexto.regime, base);
   if (!icms.ok) return icms;
-  const pis = pisCofinsDoItem('PIS', p.cstPis, p.aliquotaPis, p, contexto.regime, base);
+  const pis = pisCofinsDoItem('PIS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstPis, p.aliquotaPis, p, contexto.regime, base);
   if (!pis.ok) return pis;
-  const cofins = pisCofinsDoItem('COFINS', p.cstCofins, p.aliquotaCofins, p, contexto.regime, base);
+  const cofins = pisCofinsDoItem('COFINS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstCofins, p.aliquotaCofins, p, contexto.regime, base);
   if (!cofins.ok) return cofins;
-  const ipi = ipiDoItem(p, base);
+  const ipi = remessaEntregaFutura ? { ok: true as const, grupo: null } : ipiDoItem(p, base);
   if (!ipi.ok) return ipi;
   const ibsCbs = ibsCbsDoItem(p, base);
 

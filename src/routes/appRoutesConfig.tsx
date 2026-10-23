@@ -122,6 +122,7 @@ const RelatorioProducao = lazy(() => import('../pages/Producao/RelatorioProducao
 const MinutaPrint = lazy(() => import('../pages/Expedicao/MinutaPrint'));
 const MinutaPrintLote = lazy(() => import('../pages/Expedicao/MinutaPrintLote'));
 const FilaExpedicao = lazy(() => import('../pages/Expedicao/FilaExpedicao'));
+const EntregasFuturas = lazy(() => import('../pages/Expedicao/EntregasFuturas'));
 const RotasList = lazy(() => import('../pages/Rotas/RotasList'));
 const RotaForm = lazy(() => import('../pages/Rotas/RotaForm'));
 const RomaneiosList = lazy(() => import('../pages/Romaneios/RomaneiosList'));
@@ -273,6 +274,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'logs-sistema', element: <LogsSistema /> },
 
   { path: 'operacoes/expedicao', element: <FilaExpedicao /> },
+  { path: 'operacoes/entregas-futuras', element: <EntregasFuturas /> },
   { path: 'operacoes/rotas', element: <RotasList /> },
   { path: 'operacoes/rotas/nova', element: <RotaForm /> },
   { path: 'operacoes/rotas/:id', element: <RotaForm /> },

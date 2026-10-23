@@ -58,7 +58,8 @@ import {
   Wrench,
   X,
   ArrowLeftRight,
-  BookOpen
+  BookOpen,
+  PackageCheck
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
@@ -104,6 +105,7 @@ const Sidebar: React.FC = () => {
     devolucaoBotaoSeparado,
     habilitarTelaPrecificacao,
     trabalhaComCondicional,
+    trabalhaComEntregaFutura,
     usaGradeDeProdutos,
     configCashback,
     temVendedorCadastrado,
@@ -161,6 +163,8 @@ const Sidebar: React.FC = () => {
     if (!habilitarTelaPrecificacao && item.module === 'estoque.precificacao') return false;
     // Condicional so' aparece com "Trabalha com condicional" ligado em Configuracoes.
     if (!trabalhaComCondicional && item.module === 'comercial.condicional') return false;
+    // Entregas futuras so' com "Trabalha com venda para entrega futura" (23/10/2026).
+    if (!trabalhaComEntregaFutura && item.to === '/operacoes/entregas-futuras') return false;
     // Grades so' com "Loja utiliza grade de produtos" (Configuracoes Gerais, 19/10/2026).
     if (!usaGradeDeProdutos && item.module === 'cadastros.grades') return false;
     // Cashback so' com o cashback ligado (Configuracoes Gerais, 20/10/2026).
@@ -176,7 +180,7 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, usaGradeDeProdutos, configCashback.ativo, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, trabalhaComEntregaFutura, usaGradeDeProdutos, configCashback.ativo, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -292,6 +296,7 @@ const Sidebar: React.FC = () => {
       icon: Truck,
       items: [
         { label: 'Conferência de Mercadoria', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao', permission: 'operacoes.expedicao' },
+        { label: 'Entregas futuras', to: '/operacoes/entregas-futuras', icon: PackageCheck, module: 'comercial.pedidos', permission: 'operacoes.entregas_futuras' },
         { label: 'Romaneio de Entrega', to: '/operacoes/romaneios', icon: ClipboardList, module: 'operacoes.rotas', permission: 'operacoes.romaneios' },
         { label: 'Rotas e Despesas', to: '/operacoes/rotas', icon: Route, module: 'operacoes.rotas', permission: 'operacoes.rotas' },
         { label: 'Motoristas', to: '/operacoes/motoristas', icon: IdCard, module: 'operacoes.rotas', permission: 'operacoes.rotas' },

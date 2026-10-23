@@ -121,6 +121,33 @@ test('CST 00 com aliquota zero barra (nota "tributada integralmente" sem ICMS de
   assert.match((r as { erro: string }).erro, /CST 00.*alíquota de ICMS zerada/);
 });
 
+test('entrega futura (23/10): faturamento 5.922 sem destaque de ICMS; remessa 5.116 com ICMS e sem PIS/COFINS/IPI', () => {
+  const venda = { quantidade: 10, precoUnitario: 10, desconto: 0, unidadeSigla: 'UN' };
+  // Simples: CSOSN 102 fica; 101 (com credito) vira 102 no faturamento.
+  const fatSimples = montar({ ...farinha, csosn: '101', aliquotaIcms: 1.25 }, venda, { ...simplesInterno, cfopDaOperacao: '5922', entregaFutura: 'faturamento' }).item as Record<string, any>;
+  assert.equal(fatSimples.cfop, 5922);
+  assert.deepEqual(fatSimples.taxes.icms, { origin: 0, csosn: 102 });
+  assert.equal(fatSimples.taxes.pis.cst, 99, 'PIS segue o cadastro no faturamento');
+  assert.ok(fatSimples.taxes.ipi, 'IPI segue o cadastro no faturamento');
+  // Regime normal: CST 00 vira 90 sem base nem valor no faturamento.
+  const lr: ContextoNota = { regime: 'lucro_presumido', interestadual: true, cfopDaOperacao: '6922', entregaFutura: 'faturamento' };
+  const fatNormal = montar({ ...farinha, csosn: '00', aliquotaIcms: 18, cstPis: '01', aliquotaPis: 0.65, cstCofins: '01', aliquotaCofins: 3, cstIpi: '' }, venda, lr).item as Record<string, any>;
+  assert.equal(fatNormal.cfop, 6922);
+  assert.deepEqual(fatNormal.taxes.icms, { origin: 0, cst: 90 });
+  assert.deepEqual(fatNormal.taxes.pis, { cst: 1, baseTax: 100, rate: 0.65, amount: 0.65 });
+  // Remessa: ICMS do cadastro destacado; PIS/COFINS 08; sem IPI.
+  const rem = montar({ ...farinha, csosn: '00', aliquotaIcms: 18, cstPis: '01', aliquotaPis: 0.65, cstCofins: '01', aliquotaCofins: 3, cstIpi: '99' }, venda, { regime: 'lucro_presumido', interestadual: false, cfopDaOperacao: '5117', entregaFutura: 'remessa' }).item as Record<string, any>;
+  assert.equal(rem.cfop, 5117);
+  assert.deepEqual(rem.taxes.icms, { origin: 0, cst: 0, baseTaxModality: 3, baseTax: 100, rate: 18, amount: 18 });
+  assert.deepEqual(rem.taxes.pis, { cst: 8 });
+  assert.deepEqual(rem.taxes.cofins, { cst: 8 });
+  assert.equal(rem.taxes.ipi, undefined);
+  const remSimples = montar(farinha, venda, { ...simplesInterno, cfopDaOperacao: '5116', entregaFutura: 'remessa' }).item as Record<string, any>;
+  assert.equal(remSimples.cfop, 5116);
+  assert.deepEqual(remSimples.taxes.icms, { origin: 0, csosn: 102 });
+  assert.deepEqual(remSimples.taxes.pis, { cst: 8 });
+});
+
 test('regime normal: ICMS destacado sobre (valor - desconto), com reducao no CST 20; CST 60 so o codigo', () => {
   const lr: ContextoNota = { regime: 'lucro_presumido', interestadual: false };
   const cst00 = montar({ ...farinha, csosn: '00', aliquotaIcms: 18, cstPis: '01', aliquotaPis: 0.65, cstCofins: '01', aliquotaCofins: 3, cstIpi: '' }, { quantidade: 10, precoUnitario: 10, desconto: 10, unidadeSigla: 'UN' }, lr).item as Record<string, any>;

@@ -28,6 +28,7 @@ import {
   parseExigirIdentificacaoVendedor,
 } from '../utils/vendedorPinDomain';
 import { DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR, parseLiberacaoEscolherVendedor } from '../utils/liberacaoRemotaDomain';
+import { DEFAULT_TRABALHA_COM_ENTREGA_FUTURA, parseTrabalhaComEntregaFutura } from '../utils/entregaFuturaDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../utils/fiscalDomain';
 import { DEFAULT_HABILITAR_TELA_PRECIFICACAO } from '../utils/precificacaoDomain';
 import {
@@ -106,6 +107,8 @@ interface AuthContextType {
    *  em preVendaDomain.ts. Governa se a aba "Pré-vendas" aparece na
    *  listagem de Pedidos de Venda. */
   trabalhaComPreVenda: boolean;
+  /** Config da filial (23/10/2026): venda para entrega futura (tela Expedição › Entregas futuras). */
+  trabalhaComEntregaFutura: boolean;
   /** Config da filial: pergunta a rota de entrega ao gravar a pre-venda e
    *  quando o pedido entra nela (rotaPreVendaDomain.ts). 'nao' = como sempre. */
   modoRotaPreVenda: ModoRotaPreVenda;
@@ -235,6 +238,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
   const [habilitarTelaPrecificacao, setHabilitarTelaPrecificacao] = useState(DEFAULT_HABILITAR_TELA_PRECIFICACAO);
   const [trabalhaComPreVenda, setTrabalhaComPreVenda] = useState(DEFAULT_TRABALHA_COM_PRE_VENDA);
+  const [trabalhaComEntregaFutura, setTrabalhaComEntregaFutura] = useState(DEFAULT_TRABALHA_COM_ENTREGA_FUTURA);
   const [modoRotaPreVenda, setModoRotaPreVenda] = useState<ModoRotaPreVenda>(DEFAULT_MODO_ROTA_PRE_VENDA);
   const [trabalhaComCondicional, setTrabalhaComCondicional] = useState(DEFAULT_TRABALHA_COM_CONDICIONAL);
   const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
@@ -597,6 +601,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Mesma leitura: governam as abas "Pré-vendas" e "Pendentes" na
       // listagem de Pedidos de Venda (PedidoVendas.tsx).
       setTrabalhaComPreVenda(parseTrabalhaComPreVenda(snap.exists() ? snap.data().trabalhaComPreVenda : undefined));
+      setTrabalhaComEntregaFutura(parseTrabalhaComEntregaFutura(snap.exists() ? snap.data().trabalhaComEntregaFutura : undefined));
       // Mesma leitura: rota de entrega na pre-venda (21/10/2026), por filial.
       setModoRotaPreVenda(parseModoRotaPreVenda(snap.exists() ? snap.data().rotaNaPreVenda : undefined));
       setTrabalhaComCondicional(parseTrabalhaComCondicional(snap.exists() ? snap.data().trabalhaComCondicional : undefined));
@@ -815,7 +820,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, modoRotaPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>
       {children}
     </AuthContext.Provider>
   );

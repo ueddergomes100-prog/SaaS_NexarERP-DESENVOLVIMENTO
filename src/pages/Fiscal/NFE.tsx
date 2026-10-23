@@ -52,6 +52,7 @@ import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInpu
 import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 import { cfopEhDeSaida, cfopsParaEscolha, formatarCodigoCfop, naturezaDaOperacaoPelosCfops, problemaDoCfop } from '../../utils/cfopDomain';
+import { FINALIDADE_NOTA_FATURAMENTO, FINALIDADE_NOTA_REMESSA, cfopDoFaturamento, infoComplementarDoFaturamento, parsePrevisaoEntrega } from '../../utils/entregaFuturaDomain';
 import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
 
 interface FiscalConfig {
@@ -207,6 +208,9 @@ interface PedidoVenda {
   /** Pagamentos da venda (mesmo formato salvo pelo Pedido) -- usado pra montar as duplicatas
    *  (parcelas) da nota quando a forma e' Boleto/a prazo. */
   pagamentos?: PaymentRecord[];
+  /** Venda com entrega futura (23/10/2026): a nota sai como simples faturamento (5.922/6.922). */
+  entregaFutura?: boolean;
+  previsaoEntrega?: string;
 }
 
 /** Ordem de Servico finalizada, so os campos usados pra importar como
@@ -265,6 +269,8 @@ const paraPedidoVenda = (id: string, dData: DocumentData): PedidoVenda => ({
   createdAt: dData.createdAt,
   descontoGeralCentavos: Number(dData.descontoGeral?.valorAplicadoCentavos || 0),
   pagamentos: Array.isArray(dData.pagamentos) ? dData.pagamentos : [],
+  entregaFutura: dData.entregaFutura === true,
+  previsaoEntrega: parsePrevisaoEntrega(dData.previsaoEntrega),
 });
 
 /**
@@ -375,6 +381,8 @@ const NFE: React.FC = () => {
   }, [allInvoices, pedidosVenda, vendasVisiveisDeUsuarioId, pedidosForaDaLista, pedidosCanceladosIds, mostrarCanceladas]);
   const [importedPedidoItens, setImportedPedidoItens] = useState<PedidoVendaItem[]>([]);
   const [importedPedidoId, setImportedPedidoId] = useState<string>('');
+  // Pedido importado e' venda com entrega futura: nota de simples faturamento (23/10/2026).
+  const [entregaFuturaDoPedido, setEntregaFuturaDoPedido] = useState<{ previsaoEntrega: string } | null>(null);
   /** Pagamentos do pedido importado -- usado so' pra montar as duplicatas (parcelas) da nota
    *  quando a forma e' Boleto/a prazo. Ver handleSelectPedido e o payload de emissao. */
   const [importedPedidoPagamentos, setImportedPedidoPagamentos] = useState<PaymentRecord[]>([]);
@@ -411,6 +419,7 @@ const NFE: React.FC = () => {
   // Limpa estados temporários ao fechar o modal
   const handleCloseModal = () => {
     setIsModalOpen(false);
+    setEntregaFuturaDoPedido(null);
     setRetransmittingInvoiceId(null);
     setCorrecaoRejeicao(null);
     setItemComProblema(null);
@@ -937,9 +946,14 @@ const NFE: React.FC = () => {
     }
 
     const clientState = foundClient?.estado || 'SP';
-    const cfopForced = clientState.toUpperCase() === companyState.toUpperCase() ? '5929' : '6929';
+    const interestadual = clientState.toUpperCase() !== companyState.toUpperCase();
+    const cfopForced = interestadual ? '6929' : '5929';
 
-    if (cupom) {
+    // Entrega futura: a venda nao tem cupom (so' NF-e) e todo item sai com o
+    // CFOP de simples faturamento; o ICMS fica para a remessa (notaFiscalItemDomain).
+    if (pedido.entregaFutura) {
+      itemsWithTaxes = itemsWithTaxes.map((item) => ({ ...item, cfop: cfopDoFaturamento(interestadual) }));
+    } else if (cupom) {
       itemsWithTaxes = itemsWithTaxes.map(item => ({
         ...item,
         cfop: cfopForced
@@ -949,7 +963,8 @@ const NFE: React.FC = () => {
     return {
       itens: itemsWithTaxes,
       pagamentos: pedido.pagamentos || [],
-      referencedAccessKey: cupom ? (cupom.accessKey || '') : '',
+      entregaFutura: pedido.entregaFutura ? { previsaoEntrega: pedido.previsaoEntrega || '' } : null,
+      referencedAccessKey: cupom && !pedido.entregaFutura ? (cupom.accessKey || '') : '',
       form: {
         tipo: 'NF-e' as const,
         clienteId: foundClient?.id || '',
@@ -1033,6 +1048,7 @@ const NFE: React.FC = () => {
     try {
       const montada = await montarNotaDoPedido(pedido);
       setReferencedAccessKey(montada.referencedAccessKey);
+      setEntregaFuturaDoPedido(montada.entregaFutura);
       setImportedPedidoItens(montada.itens);
       setFiscalDoCadastro(fotografiaFiscal(montada.itens));
       setImportedPedidoPagamentos(montada.pagamentos);
@@ -1800,6 +1816,8 @@ const NFE: React.FC = () => {
     numeroPedido?: string;
     referencedAccessKey: string;
     stateTaxNumber?: string;
+    /** Venda com entrega futura: simples faturamento (5.922/6.922), sem destaque de ICMS. */
+    entregaFutura?: { previsaoEntrega: string } | null;
   }) => {
     const valorNumerico = Number(a.form.valor);
 
@@ -1845,7 +1863,7 @@ const NFE: React.FC = () => {
           desconto: Number(item.desconto || 0),
           unidadeSigla: item.unidadeMedidaSigla,
         },
-        contexto: { regime: regimeTributario, interestadual },
+        contexto: { regime: regimeTributario, interestadual, ...(a.entregaFutura ? { entregaFutura: 'faturamento' as const } : {}) },
         codigoItem: item.codigoProduto || item.id || `PROD-${index}`,
       });
       if (!montado.ok) throw new ErroItemNota(montado.erro, index);
@@ -1898,7 +1916,7 @@ const NFE: React.FC = () => {
     // Nacional e o valor aproximado dos tributos (Lei 12.741).
     // A mensagem padrao da filial vem primeiro (Configuracoes > Mensagens padrao por documento).
     const informacoesComplementares = informacoesComplementaresComMensagem(mensagemPadraoNota, [
-      a.numeroPedido ? `Pedido de venda nº ${a.numeroPedido}.` : '',
+      a.entregaFutura ? infoComplementarDoFaturamento(a.numeroPedido, a.entregaFutura.previsaoEntrega) : (a.numeroPedido ? `Pedido de venda nº ${a.numeroPedido}.` : ''),
       a.referencedAccessKey ? `Referente ao cupom fiscal chave ${a.referencedAccessKey}.` : '',
       usesCsosn(regimeTributario) ? TEXTO_OPTANTE_SIMPLES_NACIONAL : '',
       textoTributosAproximados(tributosNota, valorNumerico),
@@ -2221,6 +2239,7 @@ const NFE: React.FC = () => {
           numeroPedido: pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido,
           referencedAccessKey,
           stateTaxNumber: stateTaxNumberDestinatario,
+          entregaFutura: importedPedidoId ? entregaFuturaDoPedido : null,
         });
         // Nao trava (a nota sai certa), mas o cadastro precisa de ajuste.
         if (avisosNota.length > 0) showWarning('Confira o cadastro destes produtos', avisosNota.join(' '));
@@ -2267,6 +2286,8 @@ const NFE: React.FC = () => {
           pedidoId: importedPedidoId || null,
           osId: importedOsId || null,
           tipo: formData.tipo,
+          // Entrega futura: a remessa (servidor) acha esta nota pela finalidade e referencia a chave dela.
+          ...(importedPedidoId && entregaFuturaDoPedido ? { finalidade: FINALIDADE_NOTA_FATURAMENTO } : {}),
           clienteNome: formData.clienteNome,
           clienteId: formData.clienteId || null,
           valor: valorNumerico,
@@ -3150,6 +3171,16 @@ const NFE: React.FC = () => {
                       {note.finalidade === 'transferencia' && (
                         <span title={`NF-e de transferência entre filiais${note.numeroTransferencia ? ` (transferência nº ${note.numeroTransferencia})` : ''}`} style={{ marginLeft: '6px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: 'rgba(14,165,233,0.15)', color: '#38bdf8', fontWeight: 600 }}>
                           Transferência
+                        </span>
+                      )}
+                      {note.finalidade === FINALIDADE_NOTA_FATURAMENTO && (
+                        <span title="Simples faturamento de venda para entrega futura (CFOP 5.922/6.922): a mercadoria sai na remessa" style={{ marginLeft: '6px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', fontWeight: 600 }}>
+                          Entrega futura
+                        </span>
+                      )}
+                      {note.finalidade === FINALIDADE_NOTA_REMESSA && (
+                        <span title="Remessa de mercadoria vendida para entrega futura (CFOP 5.116/5.117), referenciando a nota de faturamento" style={{ marginLeft: '6px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: 'rgba(16,185,129,0.15)', color: '#10b981', fontWeight: 600 }}>
+                          Remessa · entrega
                         </span>
                       )}
                     </td>

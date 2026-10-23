@@ -54,6 +54,7 @@ const { lerPromocao, promocaoValeNoDia } = require('../domain/promocaoDomain');
 const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
 const { bloqueioPorBalanco } = require('../domain/balancoDomain');
 const grade = require('../domain/gradeProdutosDomain');
+const ef = require('../domain/entregaFuturaDomain');
 const comprovantes = require('./comprovantes');
 const cashback = require('./cashback');
 const cb = require('../domain/cashbackDomain');
@@ -204,6 +205,15 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const configSnap = await db.collection('configuracoes').doc(tenantId).get();
   const config = configSnap.exists ? configSnap.data() : {};
   const permitirSemEstoque = config.venderSemEstoque === true;
+  // Venda com entrega futura (23/10/2026): so' com a chave da filial ligada; o
+  // estoque fica RESERVADO (nao baixa) e, pela regra da filial, pode faturar
+  // sem estoque (padrao) ou exigir estoque para reservar.
+  const entregaFutura = pedido.entregaFutura === true;
+  if (entregaFutura && !ef.parseTrabalhaComEntregaFutura(config[ef.CHAVE_TRABALHA_COM_ENTREGA_FUTURA])) {
+    throw new ErroVenda(409, 'Esta filial não trabalha com venda para entrega futura. Ligue a opção em Configurações › Vendas ou desmarque "Entrega futura" no pedido.');
+  }
+  if (entregaFutura && pedido.pdvSessionId) throw new ErroVenda(409, 'Venda para entrega futura só pelo Pedido de Venda, não pelo PDV.');
+  const entregaFuturaExigeEstoque = ef.parseEntregaFuturaExigeEstoque(config[ef.CHAVE_ENTREGA_FUTURA_EXIGE_ESTOQUE]);
   // Balanco aberto com as vendas travadas (21/10/2026): nada finaliza ate' ele fechar.
   const travaDoBalanco = bloqueioPorBalanco(config.balancoEmAndamento, pedido.pdvSessionId ? 'finalizar a venda no PDV' : 'finalizar a venda');
   if (travaDoBalanco) throw new ErroVenda(409, travaDoBalanco);
@@ -431,10 +441,11 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     });
 
     // Lotes: so' produto que controla lote; a soma tem de bater com a quantidade da linha.
+    // Entrega futura: nada sai agora, o lote e' escolhido na entrega.
     const usoPorLote = new Map();
     pedido.itens.forEach((item) => {
       const produto = produtos[item.id];
-      if (!produto || produto.controlarLote !== true) { delete item.lotes; return; }
+      if (!produto || produto.controlarLote !== true || entregaFutura) { delete item.lotes; return; }
       const base = toBaseQuantity(item.quantidade, item.fatorConversao);
       const soma = (item.lotes || []).reduce((t, l) => t + l.quantidade, 0);
       if (Math.abs(soma - base) > 1e-6) throw new ErroVenda(400, `${item.nome}: escolha de novo de qual lote sai (a quantidade dos lotes não bate com a da venda).`);
@@ -520,9 +531,13 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     const numeroPedido = pedido.pedidoId ? String(aberto.numeroPedido || '') : formatarNumero(proximoNumero);
 
     const itensBase = toStockAdjustmentItems(pedido.itens);
-    const deltas = somarDeltas(reservaGravada.length > 0
-      ? reserva.computeReservationCommit(reservaGravada, itensBase)
-      : itensBase.map((i) => ({ id: i.id, nome: i.nome, quantidadeDelta: -i.quantidade, quantidadeReservadaDelta: 0 })));
+    // Entrega futura: a venda nao baixa nada; a reserva passa a ser a dos
+    // itens faturados (pre-venda que ja' reservava so' ajusta a diferenca).
+    const deltas = somarDeltas(entregaFutura
+      ? reserva.computeReservationDelta(reservaGravada, itensBase)
+      : reservaGravada.length > 0
+        ? reserva.computeReservationCommit(reservaGravada, itensBase)
+        : itensBase.map((i) => ({ id: i.id, nome: i.nome, quantidadeDelta: -i.quantidade, quantidadeReservadaDelta: 0 })));
     const escritasDeEstoque = [];
     deltas.forEach((d) => {
       const produto = produtos[d.id];
@@ -534,6 +549,9 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       const nome = d.nome || produto.nome || 'item';
       // "Bloquear venda sem estoque" do produto vence a chave da filial.
       const permitirSemEstoqueDoProduto = reserva.podeVenderSemEstoque(permitirSemEstoque, produto);
+      if (entregaFutura && d.quantidadeReservadaDelta > 0 && entregaFuturaExigeEstoque && estoqueAtual - reservadaDepois < -1e-9) {
+        throw new ErroVenda(409, `${nome}: a filial exige estoque para faturar entrega futura. Em estoque ${estoqueAtual}, já reservado ${reservadaAtual}: só dá para reservar ${Math.max(0, estoqueAtual - reservadaAtual)}. Diminua a quantidade, dê entrada na mercadoria ou mude a regra em Configurações › Vendas.`);
+      }
       if (d.quantidadeDelta < 0 && !permitirSemEstoqueDoProduto) {
         if (proximo < -1e-9) throw new ErroVenda(409, `Estoque insuficiente para ${nome}. Disponível: ${estoqueAtual}.`);
         if (proximo < reservadaDepois - 1e-9) throw new ErroVenda(409, mensagemDeReserva(nome, estoqueAtual, reservadaDepois));
@@ -629,7 +647,14 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       comissao,
       origem: pdv ? 'pdv' : origemDoAberto,
       ...(pdv ? { sourceOrigin: 'pdv', pdvSessionId: pedido.pdvSessionId } : {}),
-      estoqueReservado: false,
+      // Entrega futura: a reserva FICA (a entrega baixa depois); venda comum nao reserva mais nada.
+      estoqueReservado: entregaFutura,
+      entregaFutura,
+      ...(entregaFutura ? {
+        previsaoEntrega: pedido.previsaoEntrega,
+        entregaFuturaSituacao: 'pendente',
+        entregaFuturaEntregue: pedido.itens.map(() => 0),
+      } : {}),
       fechadoPeloServidor: true,
       ...(aberto
         ? {

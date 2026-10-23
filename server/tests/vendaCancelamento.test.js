@@ -68,6 +68,26 @@ test('cancelar venda em dinheiro: estoque volta, titulo estornado, comissao canc
   assert.equal(estorno.naturezaFinanceira, 'caixa_fisico');
 });
 
+test('entrega futura (23/10): cancelar antes da entrega libera a reserva; depois da entrega, so devolucao', async () => {
+  const fake = criarBancoFalso(base({
+    'pedidos_venda/v1': venda({ entregaFutura: true, estoqueReservado: true, entregaFuturaSituacao: 'pendente', entregaFuturaEntregue: [0] }),
+    'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 8, quantidadeReservada: 5 },
+  }), { consultas: true });
+  await carregar(fake.db).cancelarVenda({ user: GERENTE, tenantId: 'loja', corpo: { pedidoId: 'v1', motivo: 'cliente desistiu' } });
+  assert.equal(fake.ler('pedidos_venda/v1').status, 'Cancelada');
+  assert.equal(fake.ler('estoque/p1').quantidade, 8, 'nada tinha saido: estoque igual');
+  assert.equal(fake.ler('estoque/p1').quantidadeReservada, 3, 'so a reserva da venda volta');
+
+  const entregue = criarBancoFalso(base({
+    'pedidos_venda/v1': venda({ entregaFutura: true, estoqueReservado: true, entregaFuturaSituacao: 'parcial', entregaFuturaEntregue: [1] }),
+  }), { consultas: true });
+  await assert.rejects(
+    () => carregar(entregue.db).cancelarVenda({ user: GERENTE, tenantId: 'loja', corpo: { pedidoId: 'v1', motivo: 'cliente desistiu' } }),
+    (e) => e.status === 409 && /Devolução de Venda/.test(e.message),
+  );
+  assert.equal(entregue.ler('pedidos_venda/v1').status, 'Finalizada');
+});
+
 test('cancelar duas vezes: a segunda e recusada e nada volta em dobro', async () => {
   const fake = criarBancoFalso(base(), { consultas: true });
   const s = carregar(fake.db);

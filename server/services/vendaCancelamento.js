@@ -21,6 +21,7 @@ const { classificarNotasDaVenda, listaDeNotas } = require('../domain/cancelament
 const { bloqueioPorParcelaRenegociada } = require('../domain/renegociacaoDomain');
 const { bloqueioParaRefazerParcelas } = require('../domain/alteracaoValorTituloDomain');
 const { computeReservationRelease } = require('../domain/estoqueReservaDomain');
+const { erroParaCancelarComEntregaFutura } = require('../domain/entregaFuturaDomain');
 const { toStockAdjustmentItems } = require('../domain/embalagemDomain');
 const { isPedidoAberto, parseAlterarPagamentoVendaFinalizada, STATUS_CANCELADA } = require('../domain/preVendaDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
@@ -91,6 +92,10 @@ const cancelarVenda = async ({ user, tenantId, corpo }) => {
       throw new ErroVenda(409, `O pedido #${numeroPedido} ainda não foi finalizado. Para cancelar uma pré-venda, use "Cancelar pré-venda".`);
     }
     if (temItemDevolvido(venda.itens)) throw new ErroVenda(409, MENSAGEM_DEVOLUCAO);
+    // Entrega futura (23/10/2026): com mercadoria ja' entregue, o caminho e' a devolucao.
+    const erroEntregaFutura = erroParaCancelarComEntregaFutura(venda);
+    if (erroEntregaFutura) throw new ErroVenda(409, erroEntregaFutura);
+    const vendaComReserva = venda.entregaFutura === true && venda.estoqueReservado === true;
 
     const travaSnap = await tx.get(db.collection('romaneio_pedidos').doc(pedidoId));
     const erroRota = cv.erroDaRotaParaCancelar(travaSnap.exists ? travaSnap.data() : null, numeroPedido);
@@ -112,9 +117,11 @@ const cancelarVenda = async ({ user, tenantId, corpo }) => {
     // Estoque e lotes: o que a venda GRAVADA tirou (nao o que a tela mostra).
     const devolver = quantidadePorProduto(venda.itens);
     const produtoRefs = [...devolver.keys()].map((id) => db.collection('estoque').doc(id));
-    const produtosExistentes = new Set((produtoRefs.length ? await tx.getAll(...produtoRefs) : [])
-      .filter((s) => s.exists && s.data().tenantId === tenantId).map((s) => s.id));
-    const voltasDeLote = lotesQueVoltamNoCancelamento(venda.itens);
+    const produtosSnaps = (produtoRefs.length ? await tx.getAll(...produtoRefs) : []).filter((s) => s.exists && s.data().tenantId === tenantId);
+    const produtosExistentes = new Set(produtosSnaps.map((s) => s.id));
+    const reservadaAtual = new Map(produtosSnaps.map((s) => [s.id, Number(s.data().quantidadeReservada || 0)]));
+    // Entrega futura sem entrega: nada saiu do estoque, so' a reserva volta.
+    const voltasDeLote = vendaComReserva ? [] : lotesQueVoltamNoCancelamento(venda.itens);
     const loteRefs = voltasDeLote.map((l) => db.collection('estoque_lotes').doc(l.loteId));
     const lotesExistentes = new Set((loteRefs.length ? await tx.getAll(...loteRefs) : [])
       .filter((s) => s.exists && s.data().tenantId === tenantId).map((s) => s.id));
@@ -167,6 +174,10 @@ const cancelarVenda = async ({ user, tenantId, corpo }) => {
 
     devolver.forEach((quantidade, produtoId) => {
       if (!produtosExistentes.has(produtoId) || !(quantidade > 0)) return;
+      if (vendaComReserva) {
+        tx.update(db.collection('estoque').doc(produtoId), { quantidadeReservada: Math.max(0, (reservadaAtual.get(produtoId) || 0) - quantidade), updatedAt: agora() });
+        return;
+      }
       tx.update(db.collection('estoque').doc(produtoId), { quantidade: incremento(quantidade), updatedAt: agora() });
     });
     voltasDeLote.forEach((l) => {

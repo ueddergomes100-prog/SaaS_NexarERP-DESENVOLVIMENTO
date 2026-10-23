@@ -41,6 +41,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/vendedores')) routeModule = 'cadastros.vendedores';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routeModule = 'operacoes.producao';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routeModule = 'operacoes.expedicao';
+  // Entregas futuras (23/10/2026): e' venda -- quem tem pedidos tem a tela.
+  else if (path.startsWith('/operacoes/entregas-futuras')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/operacoes/rotas') || path.startsWith('/operacoes/motoristas') || path.startsWith('/operacoes/frota') || path.startsWith('/operacoes/romaneios')) routeModule = 'operacoes.rotas';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
   else if (path.startsWith('/minhas-vendas') || path.startsWith('/vendas/promocoes') || path.startsWith('/vendas/cashback')) routeModule = 'comercial.pedidos';
@@ -117,6 +119,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // dividiam o mesmo id, sem controle independente.
   else if (path.startsWith('/producao/relatorios')) routePermission = 'operacoes.producao_relatorios';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routePermission = 'operacoes.expedicao';
+  else if (path.startsWith('/operacoes/entregas-futuras')) routePermission = 'operacoes.entregas_futuras';
   else if (path.startsWith('/operacoes/rotas') || path.startsWith('/operacoes/motoristas') || path.startsWith('/operacoes/frota')) routePermission = 'operacoes.rotas';
   // Romaneio de entrega (2026-10-01): permissao propria -- montar rota e fechar acerto nao e' o mesmo que lancar despesa.
   else if (path.startsWith('/operacoes/romaneios')) routePermission = 'operacoes.romaneios';

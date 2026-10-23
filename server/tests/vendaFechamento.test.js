@@ -146,6 +146,56 @@ test('pre-venda: consome a propria reserva, mantem o numero e exige a permissao 
   );
 });
 
+test('entrega futura (23/10): fatura sem baixar o estoque (reserva), regra da filial para estoque, pre-venda ajusta a reserva', async () => {
+  // Chave desligada: recusa.
+  const desligada = criarBancoFalso(base({ 'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 1, quantidadeReservada: 0 } }), { consultas: true });
+  await assert.rejects(
+    () => carregar(desligada.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ entregaFutura: true, previsaoEntrega: '2026-11-05' }) }),
+    (e) => e.status === 409 && /não trabalha com venda para entrega futura/.test(e.message),
+  );
+
+  // Padrao: reserva o que tem e deixa faturar sem estoque (1 em estoque, vende 2).
+  const fake = criarBancoFalso(base({
+    'configuracoes/loja': { tenantId: 'loja', trabalhaComEntregaFutura: true },
+    'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 1, quantidadeReservada: 0, controlarLote: true },
+  }), { consultas: true });
+  const r = await carregar(fake.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ entregaFutura: true, previsaoEntrega: '2026-11-05' }) });
+  assert.equal(r.numeroPedido, '0001');
+  const p1 = fake.ler('estoque/p1');
+  assert.equal(p1.quantidade, 1, 'nada saiu do estoque');
+  assert.equal(p1.quantidadeReservada, 2, 'os 2 ficam reservados');
+  const pedido = fake.ler('pedidos_venda/venda1');
+  assert.equal(pedido.status, 'Finalizada');
+  assert.equal(pedido.entregaFutura, true);
+  assert.equal(pedido.estoqueReservado, true);
+  assert.equal(pedido.previsaoEntrega, '2026-11-05');
+  assert.equal(pedido.entregaFuturaSituacao, 'pendente');
+  assert.deepEqual(pedido.entregaFuturaEntregue, [0]);
+  assert.equal(pedido.itens[0].lotes, undefined, 'lote so na entrega');
+  assert.equal(fake.ler('transacoes/venda1').status, 'Paga', 'financeiro entra na hora');
+
+  // Filial que exige estoque: 1 em estoque, vende 2 -> recusa dizendo o que fazer.
+  const exige = criarBancoFalso(base({
+    'configuracoes/loja': { tenantId: 'loja', trabalhaComEntregaFutura: true, entregaFuturaExigeEstoque: true },
+    'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 1, quantidadeReservada: 0 },
+  }), { consultas: true });
+  await assert.rejects(
+    () => carregar(exige.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ entregaFutura: true }) }),
+    (e) => e.status === 409 && /exige estoque para faturar entrega futura/.test(e.message) && /só dá para reservar 1/.test(e.message),
+  );
+
+  // Pre-venda que ja' reservava 2 e fatura 3 com entrega futura: a reserva vira 3, estoque intacto.
+  const pv = criarBancoFalso(base({
+    'configuracoes/loja': { tenantId: 'loja', trabalhaComEntregaFutura: true },
+    'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 10, quantidadeReservada: 2 },
+    'pedidos_venda/pv1': { tenantId: 'loja', status: 'Pré-venda', numeroPedido: '0042', origem: 'balcao', estoqueReservado: true, itens: [{ id: 'p1', nome: 'RAÇÃO', quantidade: 2 }], createdAt: 'antes', criadoPor: 'vend1' },
+  }), { consultas: true });
+  await carregar(pv.db).finalizarVenda({ user: FATURISTA, tenantId: 'loja', corpo: corpo({ idDocumento: undefined, pedidoId: 'pv1', entregaFutura: true, itens: [{ id: 'p1', nome: 'RAÇÃO', precoUnitario: 10, quantidade: 3, desconto: 0, subtotal: 30 }], pagamentos: [pagamento({ valor: '30' })] }) });
+  assert.equal(pv.ler('estoque/p1').quantidade, 10);
+  assert.equal(pv.ler('estoque/p1').quantidadeReservada, 3);
+  assert.equal(pv.ler('pedidos_venda/pv1').estoqueReservado, true);
+});
+
 test('lote: baixa do lote escolhido; quantidade que nao bate com a linha e\' recusada', async () => {
   const comLote = () => base({
     'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 10, quantidadeReservada: 0, controlarLote: true },

@@ -104,6 +104,8 @@ const MODULOS = [
   // Tabelas fiscais (20/10/2026): CFOP do sistema com a funcao de cada um; base de NCM/CEST.
   'src/utils/cfopDomain.ts',
   'src/utils/tabelaFiscalDomain.ts',
+  // Venda com entrega futura (23/10/2026): faturar com 5.922 e entregar com 5.116/5.117.
+  'src/utils/entregaFuturaDomain.ts',
   // Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
   'src/utils/inutilizacaoDomain.ts',
   // Devolucao de compra ao fornecedor (21/10/2026): le o XML guardado da nota de entrada.

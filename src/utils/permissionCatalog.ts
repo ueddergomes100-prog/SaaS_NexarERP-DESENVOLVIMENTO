@@ -167,6 +167,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // Producao liberava o Relatorio junto, sem controle independente.
       { id: 'operacoes.producao_relatorios', label: 'Produção: Relatório de Produção', color: '#f97316' },
       { id: 'operacoes.expedicao', label: 'Expedição: Conferência de Mercadoria', color: '#14b8a6' },
+      // Venda com entrega futura (23/10/2026): registrar entregas, nota de remessa e rota.
+      { id: 'operacoes.entregas_futuras', label: 'Expedição: Entregas futuras (registrar entrega, nota de remessa e rota)', color: '#14b8a6' },
       // Controle de rota: motoristas e as despesas da viagem. Uma permissao
       // so' para as duas telas -- quem lanca a despesa e' quem cadastra o
       // motorista (a loja), nao faz sentido separar.

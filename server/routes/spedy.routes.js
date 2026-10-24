@@ -12,6 +12,7 @@ const { separarCscDaNumeracao } = require('../services/protegerSegredos');
 // "Transmitindo..." quando a Spedy nao respondia.
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 const { baixarArquivoDaSpedy, MENSAGEM_LIMITE_SPEDY } = require('../services/spedyArquivo');
+const { travarEmissao } = require('../services/notaDoPedido');
 
 const TYPE_PATHS = {
   service: 'service-invoices',
@@ -468,7 +469,20 @@ router.get('/:type/:id', (req, res) => handleSpedyRequest(req, res, 'GET', ({ ap
   }, PERFIS.spedyLeitura);
 }));
 
-router.post('/:type', (req, res) => handleSpedyRequest(req, res, 'POST', ({ apiKey, baseUrl, typePath }) => {
+router.post('/:type', (req, res) => handleSpedyRequest(req, res, 'POST', async ({ tenantId, apiKey, baseUrl, typePath }) => {
+  // Nota de venda de um pedido (23/10/2026): uma nota por pedido, nunca de pedido
+  // marcado "Sem nota". A tela manda { invoiceData, pedidoId, integrationId };
+  // a regra e' a mesma da tela (domain/notaDoPedidoDomain). Ver services/notaDoPedido.js.
+  const tipoDaNota = req.params.type === 'product' ? 'NF-e' : req.params.type === 'consumer' ? 'NFC-e' : null;
+  if (tipoDaNota && req.body && req.body.pedidoId) {
+    await travarEmissao({
+      tenantId,
+      pedidoId: req.body.pedidoId,
+      tipo: tipoDaNota,
+      integrationId: req.body.integrationId,
+      uid: req.user.uid,
+    });
+  }
   return fetchComTimeout(`${baseUrl}/${typePath}`, {
     method: 'POST',
     headers: {

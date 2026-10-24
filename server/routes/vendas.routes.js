@@ -6,6 +6,8 @@ const { ErroVenda, finalizarVenda, temPermissao } = require('../services/vendaFe
 const { PERMISSOES_QUE_OPERAM_O_CAIXA } = require('../domain/frenteDeCaixaDomain');
 const { alterarPagamento, cancelarPreVenda, cancelarVenda } = require('../services/vendaCancelamento');
 const cashback = require('../services/cashback');
+const { ErroNotaDoPedido, definirComNotaFiscal } = require('../services/notaDoPedido');
+const { lerPedidoDeMarcaNota } = require('../domain/notaDoPedidoDomain');
 
 /**
  * VENDAS -- fechamento da venda pelo servidor (item 8 da auditoria, fatia 3).
@@ -143,6 +145,36 @@ router.post('/alterar-pagamento', async (req, res) => {
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'alterar a forma de pagamento');
+  }
+});
+
+/**
+ * POST /api/vendas/nota-fiscal -- { pedidoId, comNotaFiscal }. Troca "Com nota /
+ * Sem nota" de um pedido gravado (23/10/2026). Ver services/notaDoPedido.js.
+ */
+router.post('/nota-fiscal', async (req, res) => {
+  try {
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const lido = lerPedidoDeMarcaNota(req.body);
+    if ('erro' in lido) return res.status(400).json({ error: lido.erro });
+    const r = await definirComNotaFiscal({ user: req.user, tenantId, pedidoId: lido.pedidoId, comNotaFiscal: lido.comNotaFiscal });
+    if (r.mudou) {
+      const rotulo = (m) => (m === 'com' ? 'COM nota fiscal' : m === 'sem' ? 'SEM nota fiscal' : 'não informado');
+      const depois = lido.comNotaFiscal ? 'com' : 'sem';
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'vendas',
+        acao: 'edicao',
+        descricao: `Pedido #${r.numeroPedido} trocado de "${rotulo(r.antes)}" para "${rotulo(depois)}".`,
+        registroId: lido.pedidoId,
+        vendedorId: r.vendedorId,
+        vendedorNome: r.vendedorNome,
+        alteracoes: [{ campo: 'comNotaFiscal', valorAnterior: rotulo(r.antes), valorNovo: rotulo(depois) }],
+      });
+    }
+    return res.json({ ok: true, mudou: r.mudou, comNotaFiscal: lido.comNotaFiscal });
+  } catch (erro) {
+    if (erro instanceof ErroNotaDoPedido) return res.status(erro.status).json({ error: erro.message });
+    return responderErro(res, erro, 'trocar o pedido de com/sem nota fiscal');
   }
 });
 

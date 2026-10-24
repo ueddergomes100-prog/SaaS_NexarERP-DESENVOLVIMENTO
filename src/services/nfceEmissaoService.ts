@@ -194,7 +194,7 @@ export const emitirNfceDoPedido = async (pedido: PedidoParaEmissao, integrationI
   const { payload: montado, itensFiscais: payloadItems } = await montarNfceDoPedido(pedido);
   const spedyPayload = integrationId ? { ...montado, integrationId } : montado;
 
-  const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
+  const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload, { pedidoId: pedido.id, integrationId: String((spedyPayload as { integrationId?: unknown }).integrationId || '') || null });
 
   let currentStatus = spedyNote.status;
   let finalNote = spedyNote;

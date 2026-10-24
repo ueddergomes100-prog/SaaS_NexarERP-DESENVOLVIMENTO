@@ -10,7 +10,7 @@ import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, lerResumoCashbac
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
 import { estornarCashbackDaVendaSemFalhar, gerarCashbackSemFalhar } from '../../services/cashbackService';
-import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
+import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, definirComNotaFiscalNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService';
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ResultadoDaRota, type RotaAberta } from '../../utils/rotaPreVendaDomain';
@@ -65,7 +65,7 @@ import {
   rotuloAcaoFiscalVenda,
   type DocumentoFiscalVenda,
 } from '../../utils/documentoFiscalVendaDomain';
-import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
+import { erroDaEscolhaNotaFiscal, escolhaDaNotaFiscal, rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -768,6 +768,54 @@ const PedidoVendaForm: React.FC = () => {
 
   // Qual documento fiscal esta empresa emite no fim da venda.
   const documentoFiscalVenda: DocumentoFiscalVenda = resolveDocumentoFiscalVenda(controlaFiscal, documentosFiscais);
+
+  /**
+   * "Com nota / Sem nota" no computador (23/10/2026, igual ao app): obrigatorio em
+   * empresa que emite nota, ao gravar a pre-venda e ao finalizar. Regra em
+   * pedidoVendedorDomain (erroDaEscolhaNotaFiscal) e notaDoPedidoDomain.
+   */
+  const exigirEscolhaDaNotaFiscal = (): boolean => {
+    const erro = erroDaEscolhaNotaFiscal(comNotaFiscalPedido === null ? null : escolhaDaNotaFiscal(comNotaFiscalPedido), Boolean(controlaFiscal));
+    if (!erro) return true;
+    showError('Nota fiscal', `${erro} A escolha fica em "Nota fiscal", logo abaixo do vendedor.`);
+    document.getElementById('pedido-nota-fiscal')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return false;
+  };
+  /** Pedido ja' gravado e fechado (finalizado): a troca vai direto pelo servidor, com registro. */
+  const notaFiscalTrocaPeloServidor = Boolean(id) && isViewing && !isPreVendaAberta && !isPendingFromAgent;
+  const podeTrocarNotaFiscalGravada = isOwner || userPermissions.includes('vendas.alterar');
+  const [trocandoNotaFiscal, setTrocandoNotaFiscal] = useState(false);
+  const escolherNotaFiscal = async (comNota: boolean) => {
+    if (comNotaFiscalPedido === comNota) return;
+    if (!notaFiscalTrocaPeloServidor) {
+      setComNotaFiscalPedido(comNota);
+      setIsDirty(true);
+      return;
+    }
+    if (!id) return;
+    const ok = await NexusSwal.fire({
+      icon: 'question',
+      title: comNota ? 'Trocar para COM nota fiscal?' : 'Trocar para SEM nota fiscal?',
+      text: comNota
+        ? 'O pedido volta a aparecer para emitir a nota fiscal.'
+        : 'O pedido sai das listas de emissão de nota fiscal. Se já tiver nota, a troca é recusada.',
+      showCancelButton: true,
+      confirmButtonText: 'Trocar',
+      cancelButtonText: 'Voltar',
+      reverseButtons: true,
+    });
+    if (!ok.isConfirmed) return;
+    setTrocandoNotaFiscal(true);
+    try {
+      await definirComNotaFiscalNoServidor(id, comNota);
+      setComNotaFiscalPedido(comNota);
+      showSuccess(comNota ? 'Pedido marcado como COM nota fiscal.' : 'Pedido marcado como SEM nota fiscal.');
+    } catch (erro) {
+      showError('Não foi possível trocar', erro instanceof Error ? erro.message : 'Tente de novo.');
+    } finally {
+      setTrocandoNotaFiscal(false);
+    }
+  };
 
   /**
    * A TELA DE VENDA FICA ABERTA O DIA INTEIRO.
@@ -2370,6 +2418,7 @@ const PedidoVendaForm: React.FC = () => {
       showError('Atenção', 'Adicione pelo menos um item à pré-venda.');
       return false;
     }
+    if (!exigirEscolhaDaNotaFiscal()) return false;
 
     // A pre-venda ja carimba vendedorId, e a comissao nasce dali -- entao ela
     // pede identificacao igual a venda.
@@ -2548,6 +2597,8 @@ const PedidoVendaForm: React.FC = () => {
           // Entrega futura (23/10/2026): a marca e a previsao ficam na pre-venda e valem ao faturar.
           entregaFutura: trabalhaComEntregaFutura && entregaFutura,
           previsaoEntrega: trabalhaComEntregaFutura && entregaFutura ? previsaoEntrega : '',
+          // "Com nota / Sem nota" (23/10/2026): sem nota nunca vai para a emissao.
+          ...(comNotaFiscalPedido !== null ? { comNotaFiscal: comNotaFiscalPedido } : {}),
           // A PRE-VENDA JA ENTRA NA FILA DA EXPEDICAO.
           //
           // Antes disto, a conferencia so' comecava quando a venda era
@@ -3128,6 +3179,7 @@ const PedidoVendaForm: React.FC = () => {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
       return false;
     }
+    if (!exigirEscolhaDaNotaFiscal()) return false;
     // Balanco aberto com as vendas travadas (21/10/2026): pre-venda continua, finalizar nao.
     const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda');
     if (travaDoBalanco) {
@@ -3401,6 +3453,7 @@ const PedidoVendaForm: React.FC = () => {
           pagamentos: pagamentosParaFechar,
           ...(orcamentoId ? { orcamentoId } : {}),
           ...(entregaFuturaDaVenda ? { entregaFutura: true, previsaoEntrega } : {}),
+          ...(comNotaFiscalPedido !== null ? { comNotaFiscal: comNotaFiscalPedido } : {}),
         });
         newPedidoId = resposta.pedidoId;
         finalNumeroPedido = resposta.numeroPedido;
@@ -3650,6 +3703,11 @@ const PedidoVendaForm: React.FC = () => {
               entregaFuturaSituacao: 'pendente',
               entregaFuturaEntregue: itens.map(() => 0),
             } : {}),
+            // "Com nota / Sem nota" (23/10/2026): o documento e' regravado inteiro, entao
+            // a marca do app (pedido aberto) tem de vir junto, senao some ao faturar.
+            ...(comNotaFiscalPedido !== null
+              ? { comNotaFiscal: comNotaFiscalPedido }
+              : (typeof dadosPedidoAberto?.comNotaFiscal === 'boolean' ? { comNotaFiscal: dadosPedidoAberto.comNotaFiscal } : {})),
             // Pedido aberto (pre-venda do balcao ou pendente do agente)
             // preserva createdAt/criadoPor/criadoEm originais -- quando o
             // pedido foi criado de verdade -- e so grava quem finalizou.
@@ -3883,7 +3941,10 @@ const PedidoVendaForm: React.FC = () => {
       // so tinha como dar errado se alguem clicasse.
       // Entrega futura: a nota de faturamento e' sempre NF-e (5.922) -- a
       // remessa precisa referenciar uma NF-e, e cupom (NFC-e) nao serve.
-      const documentoFiscalDoFim = entregaFuturaDaVenda && documentoFiscalVenda !== 'nenhum' ? 'nfe' : documentoFiscalVenda;
+      // Pedido SEM nota fiscal (23/10/2026): o fim da venda oferece o recibo, nunca a nota.
+      const documentoFiscalDoFim = comNotaFiscalPedido === false
+        ? 'nenhum'
+        : (entregaFuturaDaVenda && documentoFiscalVenda !== 'nenhum' ? 'nfe' : documentoFiscalVenda);
       const result = await NexusSwal.fire({
         title: 'Venda Finalizada com Sucesso!',
         text: `${entregaFuturaDaVenda ? 'O financeiro foi lançado e o estoque ficou reservado para a entrega (Expedição › Entregas futuras).' : 'O estoque foi atualizado e o financeiro lançado.'}${textoDoResultadoDaRota(resultadoDaRota) ? ` ${textoDoResultadoDaRota(resultadoDaRota)}` : ''} O que deseja fazer agora?`,
@@ -3974,7 +4035,7 @@ const PedidoVendaForm: React.FC = () => {
           });
           if (avisosCupom.length > 0) console.warn('Cupom fiscal: cadastro a conferir --', avisosCupom.join(' '));
 
-          const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
+          const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload, { pedidoId: newPedidoId, integrationId: String((spedyPayload as { integrationId?: unknown }).integrationId || '') || null });
 
           // Polling para aguardar autorização (SEFAZ processa de forma assíncrona)
           NexusSwal.fire({
@@ -4148,7 +4209,8 @@ const PedidoVendaForm: React.FC = () => {
     // Nota so' sai de PEDIDO finalizado -- pre-venda espera virar pedido. O
     // botao ja' so' aparece na venda finalizada; esta trava cobre qualquer
     // outro caminho que chegue aqui.
-    const motivoSemNota = motivoPedidoNaoEmiteNota(status);
+    const motivoSemNota = motivoPedidoNaoEmiteNota(status)
+      || (comNotaFiscalPedido === false ? 'Este pedido está marcado como SEM nota fiscal. Para emitir, troque para "Com nota fiscal" no pedido.' : null);
     if (motivoSemNota) {
       showError('Nota fiscal não pode ser emitida', motivoSemNota);
       return;
@@ -4190,7 +4252,7 @@ const PedidoVendaForm: React.FC = () => {
       });
       if (avisosCupom.length > 0) console.warn('Cupom fiscal: cadastro a conferir --', avisosCupom.join(' '));
 
-      const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload);
+      const spedyNote = await spedyService.emitConsumerInvoice(apiKey, env, spedyPayload, { pedidoId: id, integrationId: String((spedyPayload as { integrationId?: unknown }).integrationId || '') || null });
 
       // Polling para aguardar autorização
       NexusSwal.fire({
@@ -5070,7 +5132,7 @@ const PedidoVendaForm: React.FC = () => {
                 >
                   <Eye size={18} /> Visualizar Nota Fiscal (NFC-e{nfeDoc.number ? ` nº ${numeroDaNota(nfeDoc.number)}` : ''})
                 </button>
-              ) : documentoFiscalVenda === 'nfce' ? (
+              ) : comNotaFiscalPedido === false ? null /* pedido SEM nota fiscal (23/10/2026): nao oferece emitir */ : documentoFiscalVenda === 'nfce' ? (
                 nfeDoc && nfeDoc.status !== 'canceled' ? (
                   <button
                     className="btn-primary"
@@ -5450,6 +5512,48 @@ const PedidoVendaForm: React.FC = () => {
                 </span>
               </div>
             )}
+            {/* "Com nota / Sem nota" (23/10/2026, igual ao app): so' em empresa que
+                emite nota. Obrigatorio ao gravar e ao finalizar; depois de finalizado,
+                a troca vai pelo servidor (quem altera pedidos) e fica registrada. */}
+            {controlaFiscal && status !== 'Cancelada' && (() => {
+              const travado = trocandoNotaFiscal || (notaFiscalTrocaPeloServidor && !podeTrocarNotaFiscalGravada) || (isViewing && !notaFiscalTrocaPeloServidor && !isPreVendaAberta && !isPendingFromAgent);
+              return (
+                <div id="pedido-nota-fiscal" className="input-group" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Nota fiscal {!notaFiscalTrocaPeloServidor && <span style={{ color: '#ef4444' }}>*</span>}
+                  </span>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }} role="radiogroup" aria-label="Nota fiscal do pedido">
+                    {([[true, 'Com nota fiscal'], [false, 'Sem nota fiscal']] as const).map(([valor, rotulo]) => {
+                      const marcado = comNotaFiscalPedido === valor;
+                      return (
+                        <button
+                          key={rotulo}
+                          type="button"
+                          role="radio"
+                          aria-checked={marcado}
+                          disabled={travado}
+                          onClick={() => { void escolherNotaFiscal(valor); }}
+                          title={notaFiscalTrocaPeloServidor && !podeTrocarNotaFiscalGravada ? 'Só quem pode alterar pedidos troca depois de finalizado.' : undefined}
+                          style={{
+                            flex: '1 1 180px', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px',
+                            borderRadius: 'var(--radius-md)', cursor: travado ? 'default' : 'pointer', fontSize: '14px', fontWeight: 600,
+                            border: `1.5px solid ${marcado ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                            backgroundColor: marcado ? 'rgba(139,92,246,0.12)' : 'var(--bg-tertiary)',
+                            color: 'var(--text-primary)', opacity: travado && !marcado ? 0.6 : 1,
+                          }}
+                        >
+                          <span style={{ width: '16px', height: '16px', borderRadius: '50%', flexShrink: 0, border: `2px solid ${marcado ? 'var(--accent-purple)' : 'var(--border-color)'}`, boxShadow: marcado ? 'inset 0 0 0 3px var(--bg-tertiary)' : 'none', backgroundColor: marcado ? 'var(--accent-purple)' : 'transparent' }} />
+                          {rotulo}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {comNotaFiscalPedido === false && (
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Pedido sem nota não aparece para emitir nota fiscal. Para emitir depois, troque para "Com nota fiscal".</span>
+                  )}
+                </div>
+              );
+            })()}
             {/* Venda com entrega futura (23/10/2026): so' com a chave da filial
                 ligada. Antes de faturar, a caixa e a previsao; depois, so' leitura
                 (a situacao da entrega fica no cabecalho). */}

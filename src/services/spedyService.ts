@@ -120,6 +120,18 @@ const legacyArgsNotice = (apiKey: string, env: SpedyEnv) => {
   // Assinatura mantida para compatibilidade com as telas antigas.
 };
 
+/** Nota de venda de um pedido: o servidor confere e trava o pedido antes de enviar. */
+export interface NotaDoPedidoEnvio {
+  pedidoId?: string | null;
+  integrationId?: string | null;
+}
+
+const vinculoDoPedido = (doPedido?: NotaDoPedidoEnvio): Record<string, string> => (
+  doPedido?.pedidoId
+    ? { pedidoId: doPedido.pedidoId, ...(doPedido.integrationId ? { integrationId: doPedido.integrationId } : {}) }
+    : {}
+);
+
 export interface SpedyInvoice {
   id: string;
   /** Id da nota no nosso sistema, enviado na criacao (idempotencia da Spedy). */
@@ -269,11 +281,16 @@ export const spedyService = {
     }, 'Erro ao emitir NFS-e.', TEMPO_LIMITE.emissaoNota);
   },
 
-  async emitProductInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>): Promise<SpedyInvoice> {
+  /**
+   * `doPedido` (23/10/2026): nota de venda de um pedido -- o servidor confere no banco
+   * que o pedido pode receber nota (uma por pedido, nunca "Sem nota") antes de enviar
+   * à Spedy. Ver server/services/notaDoPedido.js.
+   */
+  async emitProductInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>, doPedido?: NotaDoPedidoEnvio): Promise<SpedyInvoice> {
     legacyArgsNotice(apiKey, env);
     return requestJson<SpedyInvoice>('/api/spedy/product', {
       method: 'POST',
-      body: JSON.stringify({ invoiceData })
+      body: JSON.stringify({ invoiceData, ...vinculoDoPedido(doPedido) })
     }, 'Erro ao emitir NF-e.', TEMPO_LIMITE.emissaoNota);
   },
 
@@ -292,11 +309,11 @@ export const spedyService = {
     return requestJson<SpedyInvoice>(`/api/spedy/consumer/${id}`, { method: 'GET' }, 'Erro ao consultar cupom fiscal.');
   },
 
-  async emitConsumerInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>): Promise<SpedyInvoice> {
+  async emitConsumerInvoice(apiKey: string, env: SpedyEnv, invoiceData: Record<string, unknown>, doPedido?: NotaDoPedidoEnvio): Promise<SpedyInvoice> {
     legacyArgsNotice(apiKey, env);
     return requestJson<SpedyInvoice>('/api/spedy/consumer', {
       method: 'POST',
-      body: JSON.stringify({ invoiceData })
+      body: JSON.stringify({ invoiceData, ...vinculoDoPedido(doPedido) })
     }, 'Erro ao emitir NFC-e.', TEMPO_LIMITE.emissaoNota);
   },
 

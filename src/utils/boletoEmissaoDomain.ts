@@ -270,3 +270,106 @@ export const faturadoNoPeriodo = (
   const diferenca = differenceInCalendarDays(faturadoEm, hoje);
   return diferenca !== null && diferenca >= 0 && diferenca <= dias;
 };
+
+// ---------------------------------------------------------------------------
+// FILTROS DE VENCIMENTO, EMISSAO, BANCO E VALOR (2026-10-23, lista do dono)
+// ---------------------------------------------------------------------------
+//
+// "Filtro por data de emissao e vencimento e outros": junto do "Faturados".
+// Emissao = o dia em que o boleto foi gerado (boleto.dataEmissao); titulo ainda
+// sem boleto so' aparece com "Todos". Vencimento = o do boleto ou, sem boleto, o do titulo.
+
+export type PeriodoVencimento = 'todos' | 'hoje' | '7dias' | 'mes' | 'vencidos' | 'periodo';
+
+export const ROTULO_PERIODO_VENCIMENTO: Record<PeriodoVencimento, string> = {
+  todos: 'Todos',
+  hoje: 'Vencem hoje',
+  '7dias': 'Próximos 7 dias',
+  mes: 'Este mês',
+  vencidos: 'Já vencidos',
+  periodo: 'Período...',
+};
+
+/** O vencimento (AAAA-MM-DD) entra no filtro? Sem vencimento so' em "Todos". */
+export const vencimentoNoPeriodo = (
+  vencimento: string | undefined,
+  periodo: PeriodoVencimento,
+  intervalo: { de?: string; ate?: string } = {},
+  hoje = getDateInputInTimeZone(),
+): boolean => {
+  if (periodo === 'todos') return true;
+  if (!vencimento) return false;
+  if (periodo === 'periodo') {
+    if (intervalo.de && vencimento < intervalo.de) return false;
+    if (intervalo.ate && vencimento > intervalo.ate) return false;
+    return true;
+  }
+  if (periodo === 'hoje') return vencimento === hoje;
+  if (periodo === 'mes') return vencimento.slice(0, 7) === hoje.slice(0, 7);
+  if (periodo === 'vencidos') return vencimento < hoje;
+  const dias = differenceInCalendarDays(hoje, vencimento);
+  return dias !== null && dias >= 0 && dias <= 6;
+};
+
+/** "1.234,56" / "1234.56" / "" -> centavos (null = vazio ou invalido). */
+export const centavosDoFiltroDeValor = (texto: string): number | null => {
+  const limpo = String(texto || '').trim().replace(/\s|R\$/g, '');
+  if (!limpo) return null;
+  const normal = limpo.includes(',') ? limpo.replace(/\./g, '').replace(',', '.') : limpo;
+  const n = Number(normal);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+};
+
+/** Valor do titulo dentro da faixa "de/ate" (campo vazio nao limita). */
+export const valorNaFaixa = (valorCentavos: number, de: string, ate: string): boolean => {
+  const minimo = centavosDoFiltroDeValor(de);
+  const maximo = centavosDoFiltroDeValor(ate);
+  if (minimo !== null && valorCentavos < minimo) return false;
+  if (maximo !== null && valorCentavos > maximo) return false;
+  return true;
+};
+
+export interface FiltrosExtrasBoleto {
+  vencimento: PeriodoVencimento;
+  vencimentoDe: string;
+  vencimentoAte: string;
+  emissao: PeriodoFaturamento;
+  emissaoDe: string;
+  emissaoAte: string;
+  bancoId: string;
+  valorDe: string;
+  valorAte: string;
+}
+
+export const FILTROS_EXTRAS_VAZIOS: FiltrosExtrasBoleto = {
+  vencimento: 'todos', vencimentoDe: '', vencimentoAte: '',
+  emissao: 'todos', emissaoDe: '', emissaoAte: '',
+  bancoId: '', valorDe: '', valorAte: '',
+};
+
+/** Quantos dos filtros extras estao valendo (para o selo "Mais filtros (2)"). */
+export const contarFiltrosExtras = (f: FiltrosExtrasBoleto): number => [
+  f.vencimento !== 'todos',
+  f.emissao !== 'todos',
+  Boolean(f.bancoId),
+  centavosDoFiltroDeValor(f.valorDe) !== null || centavosDoFiltroDeValor(f.valorAte) !== null,
+].filter(Boolean).length;
+
+/** O titulo passa nos filtros extras? */
+export const tituloPassaNosFiltrosExtras = (
+  titulo: {
+    dataVencimento?: string;
+    dataPrevistaRecebimento?: string;
+    valorCentavos: number;
+    bancoId?: string;
+    boleto?: { dataEmissao?: string; vencimento?: string } | null;
+  },
+  f: FiltrosExtrasBoleto,
+  hoje = getDateInputInTimeZone(),
+): boolean => {
+  const vencimento = titulo.boleto?.vencimento || titulo.dataVencimento || titulo.dataPrevistaRecebimento || '';
+  if (!vencimentoNoPeriodo(vencimento, f.vencimento, { de: f.vencimentoDe, ate: f.vencimentoAte }, hoje)) return false;
+  if (!faturadoNoPeriodo(titulo.boleto?.dataEmissao || '', f.emissao, { de: f.emissaoDe, ate: f.emissaoAte }, hoje)) return false;
+  if (f.bancoId && titulo.bancoId !== f.bancoId) return false;
+  return valorNaFaixa(titulo.valorCentavos, f.valorDe, f.valorAte);
+};

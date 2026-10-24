@@ -13,8 +13,26 @@ export const PERMISSAO_MINHAS_VENDAS = 'vendas.minhas_vendas';
 
 export const DIAS_RECENTES_SEM_MINHAS_VENDAS = 30;
 
-/** Quantos cartoes aparecem por vez; "Ver mais" traz o resto. */
-export const PAGINA_MEUS_PEDIDOS = 30;
+/**
+ * Quantos cartoes aparecem por vez; "Ver mais" traz mais tantos (23/10/2026, pedido
+ * do dono: os 6 ultimos e "Ver mais" de 6 em 6). O app busca no banco so' o que
+ * mostra -- pedidos e orcamentos vem de duas colecoes, cada uma ordenada pela data.
+ */
+export const PAGINA_MEUS_PEDIDOS = 6;
+
+/**
+ * Quantos documentos buscar de uma das colecoes para mostrar `alvo` cartoes
+ * na lista misturada (pedidos + orcamentos, mais novos primeiro): cada colecao
+ * precisa ter ao menos `alvo` carregados (ou ter acabado) para a mistura sair certa.
+ */
+export const quantoBuscarDaFonte = (carregados: number, alvo: number, esgotada: boolean): number => (
+  esgotada ? 0 : Math.max(0, alvo - carregados)
+);
+
+/** Ainda ha o que mostrar no "Ver mais"? */
+export const temMaisMeusPedidos = (args: { totalNaLista: number; visiveis: number; fontesEsgotadas: boolean }): boolean => (
+  args.totalNaLista > args.visiveis || !args.fontesEsgotadas
+);
 
 export interface ItemMeusPedidos {
   id: string;

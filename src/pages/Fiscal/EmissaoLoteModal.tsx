@@ -33,6 +33,8 @@ export interface PedidoParaLote {
   data: string;
   /** Ja' teve NF-e rejeitada: a emissao em lote reenvia a mesma nota corrigida. */
   temRejeitada: boolean;
+  /** Pedido gravado antes do seletor "Com nota / Sem nota" (23/10/2026): pode sair da lista. */
+  semMarcacao?: boolean;
 }
 
 export type EstadoItemLote = 'aguardando' | 'emitindo' | 'processando' | 'autorizada' | 'rejeitada' | 'pulada' | 'erro';
@@ -52,6 +54,8 @@ interface Props {
   executar: (ids: string[], avisar: (id: string, resultado: ResultadoItemLote) => void, deveParar: () => boolean) => Promise<void>;
   /** PDF (DANFE) de uma nota autorizada, pelo id da Spedy. */
   baixarPdf: (spedyId: string) => Promise<Blob>;
+  /** Marca o pedido antigo como "Sem nota" (pergunta antes); true = saiu da lista. */
+  onTirarDaLista?: (pedido: PedidoParaLote) => Promise<boolean>;
 }
 
 const moeda = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
@@ -66,8 +70,18 @@ const ROTULO: Record<EstadoItemLote, { texto: string; cor: string; Icone: React.
   erro: { texto: 'Não emitida', cor: '#ef4444', Icone: XCircle },
 };
 
-const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixarPdf }) => {
+const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixarPdf, onTirarDaLista }) => {
   const [busca, setBusca] = useState('');
+  const [tirando, setTirando] = useState<string | null>(null);
+  const tirarDaLista = async (p: PedidoParaLote) => {
+    if (!onTirarDaLista) return;
+    setTirando(p.id);
+    try {
+      if (await onTirarDaLista(p)) setSelecionados((atual) => atual.filter((id) => id !== p.id));
+    } finally {
+      setTirando(null);
+    }
+  };
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [resultados, setResultados] = useState<Record<string, ResultadoItemLote> | null>(null);
   const [rodando, setRodando] = useState(false);
@@ -259,7 +273,8 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
                 type="text"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar por cliente, código do cliente ou nº do pedido..."
+                placeholder="Buscar…"
+                title="Cliente, código do cliente ou nº do pedido"
                 style={{ width: '100%', padding: '10px 12px 10px 36px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
               />
             </div>
@@ -284,6 +299,7 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
                   <th style={{ padding: '8px 6px' }}>Pagamento</th>
                   <th style={{ padding: '8px 6px', textAlign: 'right' }}>Valor</th>
                   {resultados && <th style={{ padding: '8px 6px' }}>Situação</th>}
+                  {!resultados && onTirarDaLista && <th style={{ padding: '8px 6px' }} />}
                 </tr>
               </thead>
               <tbody>
@@ -317,6 +333,22 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
                             <button type="button" className="btn-secondary" onClick={() => void verPdf(p, r)} disabled={carregandoPdf === p.id}
                               style={{ marginTop: '6px', padding: '4px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                               {carregandoPdf === p.id ? <Loader2 size={14} className="spin-icon" /> : <FileText size={14} />} Ver PDF
+                            </button>
+                          )}
+                        </td>
+                      )}
+                      {!resultados && onTirarDaLista && (
+                        <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                          {p.semMarcacao && (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={(e) => { e.stopPropagation(); void tirarDaLista(p); }}
+                              disabled={tirando === p.id}
+                              title="Pedido gravado antes do seletor Com/Sem nota: marca como sem nota fiscal e ele sai da emissão"
+                              style={{ padding: '4px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                            >
+                              {tirando === p.id ? 'Tirando...' : 'Não leva nota'}
                             </button>
                           )}
                         </td>

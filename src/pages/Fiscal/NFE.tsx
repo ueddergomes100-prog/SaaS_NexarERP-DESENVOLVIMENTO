@@ -53,6 +53,8 @@ import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain'
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 import { cfopEhDeSaida, cfopsParaEscolha, formatarCodigoCfop, naturezaDaOperacaoPelosCfops, problemaDoCfop } from '../../utils/cfopDomain';
 import { FINALIDADE_NOTA_FATURAMENTO, FINALIDADE_NOTA_REMESSA, cfopDoFaturamento, infoComplementarDoFaturamento, parsePrevisaoEntrega } from '../../utils/entregaFuturaDomain';
+import { pedidoEntraNaEmissao } from '../../utils/notaDoPedidoDomain';
+import { definirComNotaFiscalNoServidor } from '../../services/vendaServidorService';
 import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
 
 interface FiscalConfig {
@@ -211,6 +213,8 @@ interface PedidoVenda {
   /** Venda com entrega futura (23/10/2026): a nota sai como simples faturamento (5.922/6.922). */
   entregaFutura?: boolean;
   previsaoEntrega?: string;
+  /** "Com nota / Sem nota" (23/10/2026): false some da emissao; ausente = pedido antigo, sem marcacao. */
+  comNotaFiscal?: boolean;
 }
 
 /** Ordem de Servico finalizada, so os campos usados pra importar como
@@ -271,6 +275,7 @@ const paraPedidoVenda = (id: string, dData: DocumentData): PedidoVenda => ({
   pagamentos: Array.isArray(dData.pagamentos) ? dData.pagamentos : [],
   entregaFutura: dData.entregaFutura === true,
   previsaoEntrega: parsePrevisaoEntrega(dData.previsaoEntrega),
+  ...(typeof dData.comNotaFiscal === 'boolean' ? { comNotaFiscal: dData.comNotaFiscal } : {}),
 });
 
 /**
@@ -1023,6 +1028,11 @@ const NFE: React.FC = () => {
 
     const pedido = pedidoLidoPeloId || pedidosVenda.find(p => p.id === pedidoId);
     if (!pedido) return;
+    if (pedido.comNotaFiscal === false) {
+      setImportedPedidoId('');
+      showError('Pedido sem nota fiscal', `O pedido #${pedido.numeroPedido} está marcado como SEM nota fiscal. Para emitir, abra o pedido e troque para COM nota fiscal.`);
+      return;
+    }
 
     try {
       const jaEmitida = await notaNfeJaEmitidaDoPedido(pedidoId);
@@ -2245,7 +2255,7 @@ const NFE: React.FC = () => {
         if (avisosNota.length > 0) showWarning('Confira o cadastro destes produtos', avisosNota.join(' '));
 
         irParaEnvio();
-        spedyNote = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
+        spedyNote = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload, { pedidoId: importedPedidoId || null, integrationId });
         itensFiscaisParaSalvar = itemsPayload;
       }
       enviouParaSpedy = true; // dai' pra frente a nota EXISTE na Spedy, mesmo que algo falhe aqui
@@ -2383,8 +2393,12 @@ const NFE: React.FC = () => {
   // lidas ao abrir o lote (a lista da tela traz so' o periodo escolhido). A
   // emissao continua conferindo no banco se o pedido ja' tem NF-e.
   const [notasDoLote, setNotasDoLote] = useState<LocalInvoice[]>([]);
+  // Tambem com a janela de emissao aberta (23/10/2026): a lista "Importar do Pedido
+  // de Venda" esconde pedido que ja' tem nota, e as notas dele podem estar fora do
+  // periodo da tela.
+  const precisaDasNotasDosPedidos = loteAberto || isModalOpen;
   useEffect(() => {
-    if (!loteAberto || !tenantId) return undefined;
+    if (!precisaDasNotasDosPedidos || !tenantId) return undefined;
     let cancelado = false;
     const todas = query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId));
     const inicio = inicioDosPedidosParaNota();
@@ -2392,13 +2406,50 @@ const NFE: React.FC = () => {
       .then((snap) => { if (!cancelado) setNotasDoLote(snap.docs.map((d) => paraNotaLocal(d.id, d.data()))); })
       .catch((erro) => console.error('Erro ao ler as notas para o lote:', erro));
     return () => { cancelado = true; };
-  }, [loteAberto, tenantId]);
+  }, [precisaDasNotasDosPedidos, tenantId]);
+
+  /**
+   * Pedidos que aparecem para emitir (lote e "Importar do Pedido de Venda", 23/10/2026):
+   * sem nota valendo (NF-e ou cupom) e nao marcados "Sem nota". Regra em notaDoPedidoDomain;
+   * o servidor confere de novo antes de mandar a nota.
+   */
+  const pedidosParaEmitir = useMemo(() => {
+    const notasPorPedido = new Map<string, LocalInvoice[]>();
+    [...notasDoLote, ...allInvoices].forEach((n) => {
+      if (!n.pedidoId) return;
+      const lista = notasPorPedido.get(n.pedidoId) || [];
+      if (!lista.some((x) => x.id === n.id)) lista.push(n);
+      notasPorPedido.set(n.pedidoId, lista);
+    });
+    return pedidosVenda.filter((p) => pedidoEntraNaEmissao(p, notasPorPedido.get(p.id) || []));
+  }, [allInvoices, notasDoLote, pedidosVenda]);
+
+  /** Pedido antigo (sem a marcacao) que nao leva nota: sai das listas de emissao marcando "Sem nota". */
+  const tirarPedidoDaEmissao = async (pedido: { id: string; numeroPedido: string }): Promise<boolean> => {
+    const ok = await NexusSwal.fire({
+      icon: 'question',
+      title: `Tirar o pedido #${pedido.numeroPedido} da emissão?`,
+      text: 'O pedido fica marcado como SEM nota fiscal e não aparece mais para emitir. Se precisar da nota depois, abra o pedido e troque para COM nota fiscal.',
+      showCancelButton: true,
+      confirmButtonText: 'Tirar da lista',
+      cancelButtonText: 'Voltar',
+      reverseButtons: true,
+    });
+    if (!ok.isConfirmed) return false;
+    try {
+      await definirComNotaFiscalNoServidor(pedido.id, false);
+      setPedidosVenda((atuais) => atuais.map((p) => (p.id === pedido.id ? { ...p, comNotaFiscal: false } : p)));
+      if (importedPedidoId === pedido.id) void handleSelectPedido('');
+      showSuccess(`Pedido #${pedido.numeroPedido} marcado como sem nota fiscal.`);
+      return true;
+    } catch (erro) {
+      showError('Pedido não saiu da lista', erro instanceof Error ? erro.message : 'Tente de novo.');
+      return false;
+    }
+  };
 
   const pedidosParaLote = useMemo<PedidoParaLote[]>(() => {
     const notasConhecidas = [...notasDoLote, ...allInvoices];
-    const ativos = new Set(notasConhecidas
-      .filter((n) => n.pedidoId && n.finalidade !== 'devolucao' && ['authorized', 'enqueued', 'processing', 'created'].includes(n.status))
-      .map((n) => n.pedidoId as string));
     const rejeitadas = new Set(notasConhecidas
       .filter((n) => n.pedidoId && n.tipo === 'NF-e' && (n.status === 'rejected' || n.status === 'denied'))
       .map((n) => n.pedidoId as string));
@@ -2407,8 +2458,7 @@ const NFE: React.FC = () => {
       const d = t?.toDate ? t.toDate() : t?.seconds ? new Date(t.seconds * 1000) : null;
       return d ? d.toLocaleDateString('pt-BR') : '—';
     };
-    return pedidosVenda
-      .filter((p) => !ativos.has(p.id))
+    return pedidosParaEmitir
       .map((p) => ({
         id: p.id,
         numeroPedido: p.numeroPedido,
@@ -2418,8 +2468,9 @@ const NFE: React.FC = () => {
         formaPagamento: p.formaPagamento,
         data: dataDe(p.createdAt),
         temRejeitada: rejeitadas.has(p.id),
+        semMarcacao: p.comNotaFiscal === undefined,
       }));
-  }, [allInvoices, notasDoLote, pedidosVenda, codigoClientePorId]);
+  }, [allInvoices, notasDoLote, pedidosParaEmitir, codigoClientePorId]);
 
   /** Status da Spedy -> linha do lote; null = ainda sem resposta da SEFAZ. */
   const resultadoDoStatusLote = (nota: SpedyInvoice): ResultadoItemLote | null => {
@@ -2494,7 +2545,7 @@ const NFE: React.FC = () => {
       referencedAccessKey: montada.referencedAccessKey,
       stateTaxNumber: ie.valor,
     });
-    const nota = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload);
+    const nota = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload, { pedidoId: pedido.id, integrationId });
 
     // Dai' pra frente a nota EXISTE na Spedy: falha ao gravar nao pode virar "nao emitida".
     let docId: string;
@@ -3430,6 +3481,7 @@ const NFE: React.FC = () => {
           onFechar={() => { setLoteAberto(false); loadLocalInvoices(false); }}
           executar={executarLote}
           baixarPdf={(spedyId) => spedyService.baixarArquivoFiscal(spedyId, 'product', 'pdf')}
+          onTirarDaLista={(p) => tirarPedidoDaEmissao(p)}
         />
       )}
 
@@ -3503,12 +3555,28 @@ const NFE: React.FC = () => {
                       style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                     >
                       <option value="">-- Selecione um pedido finalizado para importar (opcional) --</option>
-                      {pedidosVenda.map(p => (
+                      {/* So' pedido sem nota valendo e nao marcado "Sem nota" (23/10/2026); o escolhido continua visivel. */}
+                      {[...pedidosParaEmitir, ...pedidosVenda.filter((p) => p.id === importedPedidoId && !pedidosParaEmitir.some((x) => x.id === p.id))].map(p => (
                         <option key={p.id} value={p.id}>
                           Pedido #{p.numeroPedido} - {p.clienteNome} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)})
                         </option>
                       ))}
                     </select>
+                    {(() => {
+                      const escolhido = pedidosVenda.find((p) => p.id === importedPedidoId);
+                      if (!escolhido || escolhido.comNotaFiscal !== undefined) return null;
+                      return (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => { void tirarPedidoDaEmissao(escolhido); }}
+                          title="Pedido gravado antes do seletor Com/Sem nota: marca como sem nota fiscal e ele sai das listas de emissão"
+                          style={{ alignSelf: 'flex-start', padding: '6px 12px', fontSize: '12px' }}
+                        >
+                          Este pedido não leva nota: tirar da lista
+                        </button>
+                      );
+                    })()}
                   </div>
 
                   {/* Importar Ordem de Servico (NFS-e) -- so os servicos, peca fica de fora */}

@@ -655,6 +655,10 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
         entregaFuturaSituacao: 'pendente',
         entregaFuturaEntregue: pedido.itens.map(() => 0),
       } : {}),
+      // "Com nota / Sem nota" (23/10/2026): o que veio da tela; senao, o do pedido aberto (app).
+      ...(typeof pedido.comNotaFiscal === 'boolean'
+        ? { comNotaFiscal: pedido.comNotaFiscal }
+        : (aberto && typeof aberto.comNotaFiscal === 'boolean' ? { comNotaFiscal: aberto.comNotaFiscal } : {})),
       fechadoPeloServidor: true,
       ...(aberto
         ? {

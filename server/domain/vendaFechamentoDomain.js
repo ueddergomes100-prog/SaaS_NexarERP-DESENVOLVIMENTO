@@ -197,6 +197,7 @@ const lerPedidoDeFechamento = (corpo) => {
             comprovanteVendedorId,
             entregaFutura: c.entregaFutura === true,
             previsaoEntrega: DATA_VALIDA.test(String(c.previsaoEntrega ?? '')) ? String(c.previsaoEntrega) : '',
+            comNotaFiscal: typeof c.comNotaFiscal === 'boolean' ? c.comNotaFiscal : null,
         },
     };
 };

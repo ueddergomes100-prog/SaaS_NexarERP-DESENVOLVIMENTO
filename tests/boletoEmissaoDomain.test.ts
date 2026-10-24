@@ -1,14 +1,62 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  centavosDoFiltroDeValor,
+  contarFiltrosExtras,
   erroDoConvenioBoleto,
   faturadoNoPeriodo,
+  FILTROS_EXTRAS_VAZIOS,
   lerArquivoRetornoSicoob,
   parseLinhaRetornoSicoob,
   ROTULO_STATUS_BOLETO,
   statusBoletoEfetivo,
+  tituloPassaNosFiltrosExtras,
+  valorNaFaixa,
+  vencimentoNoPeriodo,
 } from '../src/utils/boletoEmissaoDomain';
 import type { BoletoDetails } from '../src/utils/financeDomain';
+
+// --- filtros de vencimento, emissao, banco e valor (23/10/2026) ----------
+
+test('vencimento: hoje, proximos 7 dias, este mes, ja vencidos e periodo', () => {
+  const hoje = '2026-10-23';
+  assert.equal(vencimentoNoPeriodo('2026-10-23', 'hoje', {}, hoje), true);
+  assert.equal(vencimentoNoPeriodo('2026-10-24', 'hoje', {}, hoje), false);
+  assert.equal(vencimentoNoPeriodo('2026-10-29', '7dias', {}, hoje), true);
+  assert.equal(vencimentoNoPeriodo('2026-10-30', '7dias', {}, hoje), false);
+  assert.equal(vencimentoNoPeriodo('2026-10-22', '7dias', {}, hoje), false);
+  assert.equal(vencimentoNoPeriodo('2026-10-01', 'mes', {}, hoje), true);
+  assert.equal(vencimentoNoPeriodo('2026-11-01', 'mes', {}, hoje), false);
+  assert.equal(vencimentoNoPeriodo('2026-10-22', 'vencidos', {}, hoje), true);
+  assert.equal(vencimentoNoPeriodo('2026-10-23', 'vencidos', {}, hoje), false);
+  assert.equal(vencimentoNoPeriodo('2026-11-10', 'periodo', { de: '2026-11-01', ate: '2026-11-30' }, hoje), true);
+  assert.equal(vencimentoNoPeriodo('', 'hoje', {}, hoje), false);
+  assert.equal(vencimentoNoPeriodo('', 'todos', {}, hoje), true);
+});
+
+test('valor: aceita 1.234,56 e 1234.56; vazio nao limita', () => {
+  assert.equal(centavosDoFiltroDeValor('1.234,56'), 123456);
+  assert.equal(centavosDoFiltroDeValor('1234.56'), 123456);
+  assert.equal(centavosDoFiltroDeValor('R$ 50'), 5000);
+  assert.equal(centavosDoFiltroDeValor(''), null);
+  assert.equal(centavosDoFiltroDeValor('abc'), null);
+  assert.equal(valorNaFaixa(10000, '50', '150'), true);
+  assert.equal(valorNaFaixa(10000, '150', ''), false);
+  assert.equal(valorNaFaixa(10000, '', ''), true);
+});
+
+test('titulo nos filtros extras: emissao pelo boleto, banco e contagem de filtros', () => {
+  const hoje = '2026-10-23';
+  const titulo = { valorCentavos: 25000, bancoId: 'b1', dataVencimento: '2026-10-25', boleto: { dataEmissao: '2026-10-23', vencimento: '2026-10-25' } };
+  assert.equal(tituloPassaNosFiltrosExtras(titulo, FILTROS_EXTRAS_VAZIOS, hoje), true);
+  assert.equal(tituloPassaNosFiltrosExtras(titulo, { ...FILTROS_EXTRAS_VAZIOS, emissao: 'hoje' }, hoje), true);
+  assert.equal(tituloPassaNosFiltrosExtras({ ...titulo, boleto: null }, { ...FILTROS_EXTRAS_VAZIOS, emissao: 'hoje' }, hoje), false, 'sem boleto nao tem emissao');
+  assert.equal(tituloPassaNosFiltrosExtras(titulo, { ...FILTROS_EXTRAS_VAZIOS, bancoId: 'b2' }, hoje), false);
+  assert.equal(tituloPassaNosFiltrosExtras(titulo, { ...FILTROS_EXTRAS_VAZIOS, vencimento: '7dias' }, hoje), true);
+  assert.equal(tituloPassaNosFiltrosExtras(titulo, { ...FILTROS_EXTRAS_VAZIOS, valorAte: '200' }, hoje), false);
+  assert.equal(contarFiltrosExtras(FILTROS_EXTRAS_VAZIOS), 0);
+  assert.equal(contarFiltrosExtras({ ...FILTROS_EXTRAS_VAZIOS, bancoId: 'b1', valorDe: '10', vencimento: 'mes' }), 3);
+});
 
 // --- statusBoletoEfetivo -----------------------------------------------
 

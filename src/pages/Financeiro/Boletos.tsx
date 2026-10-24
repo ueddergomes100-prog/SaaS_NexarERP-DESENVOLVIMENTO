@@ -29,12 +29,18 @@ import {
 } from '../../services/boletoEmissaoService';
 import { faltandoNoPagador, pagadorDoCadastro } from '../../utils/cobrancaEmBoletoDomain';
 import {
+  contarFiltrosExtras,
   lerArquivoRetornoSicoob,
   faturadoNoPeriodo,
+  FILTROS_EXTRAS_VAZIOS,
   ROTULO_PERIODO_FATURAMENTO,
+  ROTULO_PERIODO_VENCIMENTO,
   ROTULO_STATUS_BOLETO,
   statusBoletoEfetivo,
+  tituloPassaNosFiltrosExtras,
+  type FiltrosExtrasBoleto,
   type PeriodoFaturamento,
+  type PeriodoVencimento,
   type StatusBoletoEfetivo,
 } from '../../utils/boletoEmissaoDomain';
 import { montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
@@ -83,6 +89,14 @@ const Boletos: React.FC = () => {
   const [periodoFaturamento, setPeriodoFaturamento] = useState<PeriodoFaturamento>('todos');
   const [faturadoDe, setFaturadoDe] = useState('');
   const [faturadoAte, setFaturadoAte] = useState('');
+  // Vencimento, emissao do boleto, banco e valor (23/10/2026): painel "Mais filtros".
+  const [filtrosExtras, setFiltrosExtras] = useState<FiltrosExtrasBoleto>(FILTROS_EXTRAS_VAZIOS);
+  const [maisFiltrosAberto, setMaisFiltrosAberto] = useState(false);
+  const mudarFiltro = (mudanca: Partial<FiltrosExtrasBoleto>) => {
+    setFiltrosExtras((atual) => ({ ...atual, ...mudanca }));
+    setSelecionados(new Set());
+  };
+  const filtrosExtrasAtivos = contarFiltrosExtras(filtrosExtras);
   const [processando, setProcessando] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const inputRetornoRef = useRef<HTMLInputElement>(null);
@@ -164,7 +178,8 @@ const Boletos: React.FC = () => {
     const visiveis = titulos
       .filter((t) => t.status !== 'Cancelada')
       .filter(filtraBusca)
-      .filter((t) => faturadoNoPeriodo(t.faturadoEm, periodoFaturamento, { de: faturadoDe, ate: faturadoAte }));
+      .filter((t) => faturadoNoPeriodo(t.faturadoEm, periodoFaturamento, { de: faturadoDe, ate: faturadoAte }))
+      .filter((t) => tituloPassaNosFiltrosExtras(t, filtrosExtras));
     const efetivo = (t: TituloBoleto): StatusBoletoEfetivo | 'aguardando' => (
       t.boleto ? statusBoletoEfetivo(t.boleto) : 'aguardando'
     );
@@ -176,7 +191,7 @@ const Boletos: React.FC = () => {
       pagos: visiveis.filter((t) => efetivo(t) === 'pago'),
       vencidos: visiveis.filter((t) => efetivo(t) === 'vencido'),
     } as Record<Aba, TituloBoleto[]>;
-  }, [titulos, busca, periodoFaturamento, faturadoDe, faturadoAte]);
+  }, [titulos, busca, periodoFaturamento, faturadoDe, faturadoAte, filtrosExtras]);
 
   // Ordem pelo NOSSO NUMERO (a numeracao do boleto), crescente por padrao -- pedido do
   // dono (2026-09-30). Titulo ainda sem boleto (aba Aguardando): pelo numero da venda
@@ -710,7 +725,8 @@ const Boletos: React.FC = () => {
             style={{ width: '100%', padding: '10px 12px 10px 32px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Cliente, descrição ou nosso número"
+            placeholder="Buscar…"
+            title="Cliente, descrição ou nosso número"
           />
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -735,6 +751,16 @@ const Boletos: React.FC = () => {
               style={{ padding: '8px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
           </div>
         )}
+        <button
+          type="button"
+          className={filtrosExtrasAtivos > 0 ? 'btn-primary' : 'btn-secondary'}
+          onClick={() => setMaisFiltrosAberto((aberto) => !aberto)}
+          aria-expanded={maisFiltrosAberto}
+          title="Vencimento, emissão do boleto, banco e valor"
+          style={{ padding: '8px 14px', fontSize: '13px' }}
+        >
+          Mais filtros{filtrosExtrasAtivos > 0 ? ` (${filtrosExtrasAtivos})` : ''}
+        </button>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {(Object.keys(ROTULO_ABA) as Aba[]).map((chave) => (
             <button
@@ -749,6 +775,61 @@ const Boletos: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {maisFiltrosAberto && (() => {
+        const campo: React.CSSProperties = { padding: '8px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' };
+        const rotulo: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' };
+        return (
+          <div className="card" style={{ padding: '16px 20px', marginBottom: '20px', display: 'flex', flexDirection: 'row', gap: '18px', alignItems: 'flex-end', flexWrap: 'wrap', textAlign: 'left' }}>
+            <label style={rotulo}>Vencimento
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <select value={filtrosExtras.vencimento} onChange={(e) => mudarFiltro({ vencimento: e.target.value as PeriodoVencimento })} style={campo} aria-label="Filtrar pelo vencimento">
+                  {(Object.keys(ROTULO_PERIODO_VENCIMENTO) as PeriodoVencimento[]).map((chave) => <option key={chave} value={chave}>{ROTULO_PERIODO_VENCIMENTO[chave]}</option>)}
+                </select>
+                {filtrosExtras.vencimento === 'periodo' && (
+                  <>
+                    <input type="date" value={filtrosExtras.vencimentoDe} onChange={(e) => mudarFiltro({ vencimentoDe: e.target.value })} aria-label="Vencimento a partir de" style={campo} />
+                    até
+                    <input type="date" value={filtrosExtras.vencimentoAte} onChange={(e) => mudarFiltro({ vencimentoAte: e.target.value })} aria-label="Vencimento até" style={campo} />
+                  </>
+                )}
+              </div>
+            </label>
+            <label style={rotulo}>Emissão do boleto
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <select value={filtrosExtras.emissao} onChange={(e) => mudarFiltro({ emissao: e.target.value as PeriodoFaturamento })} style={campo} aria-label="Filtrar pela data de emissão do boleto" title="Dia em que o boleto foi gerado. Título ainda sem boleto só aparece em Todos.">
+                  {(Object.keys(ROTULO_PERIODO_FATURAMENTO) as PeriodoFaturamento[]).map((chave) => <option key={chave} value={chave}>{ROTULO_PERIODO_FATURAMENTO[chave]}</option>)}
+                </select>
+                {filtrosExtras.emissao === 'periodo' && (
+                  <>
+                    <input type="date" value={filtrosExtras.emissaoDe} onChange={(e) => mudarFiltro({ emissaoDe: e.target.value })} aria-label="Emitidos a partir de" style={campo} />
+                    até
+                    <input type="date" value={filtrosExtras.emissaoAte} onChange={(e) => mudarFiltro({ emissaoAte: e.target.value })} aria-label="Emitidos até" style={campo} />
+                  </>
+                )}
+              </div>
+            </label>
+            <label style={rotulo}>Banco
+              <select value={filtrosExtras.bancoId} onChange={(e) => mudarFiltro({ bancoId: e.target.value })} style={campo} aria-label="Filtrar pelo banco">
+                <option value="">Todos</option>
+                {bancos.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
+              </select>
+            </label>
+            <label style={rotulo}>Valor (R$)
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <input inputMode="decimal" value={filtrosExtras.valorDe} onChange={(e) => mudarFiltro({ valorDe: e.target.value })} aria-label="Valor a partir de" title="Valor mínimo" style={{ ...campo, width: '110px' }} />
+                até
+                <input inputMode="decimal" value={filtrosExtras.valorAte} onChange={(e) => mudarFiltro({ valorAte: e.target.value })} aria-label="Valor até" title="Valor máximo" style={{ ...campo, width: '110px' }} />
+              </div>
+            </label>
+            {filtrosExtrasAtivos > 0 && (
+              <button type="button" className="btn-secondary" onClick={() => mudarFiltro(FILTROS_EXTRAS_VAZIOS)} style={{ padding: '8px 14px', fontSize: '13px' }}>
+                Limpar filtros
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {aba === 'pagos' && (
         <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -775,6 +856,12 @@ const Boletos: React.FC = () => {
               Nenhum boleto em "{ROTULO_ABA[aba]}"
               {periodoFaturamento !== 'todos' ? ` faturado em "${ROTULO_PERIODO_FATURAMENTO[periodoFaturamento]}". Troque o filtro "Faturados" para ver os outros.` : '.'}
             </p>
+            {filtrosExtrasAtivos > 0 && (
+              <p style={{ margin: '8px 0 0' }}>
+                Há {filtrosExtrasAtivos === 1 ? '1 filtro' : `${filtrosExtrasAtivos} filtros`} em "Mais filtros".{' '}
+                <button type="button" className="btn-secondary" onClick={() => mudarFiltro(FILTROS_EXTRAS_VAZIOS)} style={{ padding: '4px 10px', fontSize: '12px' }}>Limpar filtros</button>
+              </p>
+            )}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

@@ -159,6 +159,8 @@ export interface PedidoDeFechamento {
   entregaFutura: boolean;
   /** "aaaa-mm-dd" ou vazio. */
   previsaoEntrega: string;
+  /** "Com nota / Sem nota" (23/10/2026, notaDoPedidoDomain.ts); null = nao informado (mantem o do pedido aberto). */
+  comNotaFiscal: boolean | null;
 }
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
@@ -272,6 +274,7 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
       comprovanteVendedorId,
       entregaFutura: c.entregaFutura === true,
       previsaoEntrega: DATA_VALIDA.test(String(c.previsaoEntrega ?? '')) ? String(c.previsaoEntrega) : '',
+      comNotaFiscal: typeof c.comNotaFiscal === 'boolean' ? c.comNotaFiscal : null,
     },
   };
 };

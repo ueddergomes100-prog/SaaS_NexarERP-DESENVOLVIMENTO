@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, Receipt } from 'lucide-react';
-import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
+import {
+  addDoc, collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, startAfter, Timestamp, where,
+  type DocumentData, type QueryConstraint, type QueryDocumentSnapshot,
+} from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
@@ -14,9 +17,12 @@ import { STATUS_NOTA_EM_TRANSMISSAO } from '../../utils/cancelamentoNotaVendaDom
 import { compartilharOuBaixarPdf } from './folhaParaPdf';
 import VendedorHeader from './VendedorHeader';
 import {
+  DIAS_RECENTES_SEM_MINHAS_VENDAS,
   PAGINA_MEUS_PEDIDOS,
   PERMISSAO_MINHAS_VENDAS,
   filtrarMeusPedidos,
+  quantoBuscarDaFonte,
+  temMaisMeusPedidos,
 } from '../../utils/meusPedidosMobileDomain';
 
 interface ItemLista {
@@ -27,6 +33,8 @@ interface ItemLista {
   clienteNome: string;
   valorTotal: number;
   createdAtMillis: number;
+  /** "Sem nota" (false) nao mostra "Emitir Nota Fiscal" (23/10/2026). */
+  comNotaFiscal?: boolean;
 }
 
 const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -35,6 +43,25 @@ const toMillis = (value: unknown): number => {
   const withToMillis = value as { toMillis?: () => number } | undefined;
   return typeof withToMillis?.toMillis === 'function' ? withToMillis.toMillis() : 0;
 };
+
+type FonteMeusPedidos = 'pedidos' | 'orcamentos';
+interface EstadoDaFonte {
+  itens: ItemLista[];
+  ultimo: QueryDocumentSnapshot<DocumentData> | null;
+  esgotada: boolean;
+}
+const fonteVazia = (): EstadoDaFonte => ({ itens: [], ultimo: null, esgotada: false });
+
+const paraItemDaLista = (fonte: FonteMeusPedidos, id: string, data: DocumentData): ItemLista => ({
+  id,
+  tipo: fonte === 'pedidos' ? 'Pedido' : 'Orçamento',
+  numero: (fonte === 'pedidos' ? data.numeroPedido : data.numeroOrcamento) || '',
+  status: data.status || '',
+  clienteNome: data.clienteNome || '',
+  valorTotal: Number(data.valorTotal || 0),
+  createdAtMillis: toMillis(data.createdAt),
+  ...(typeof data.comNotaFiscal === 'boolean' ? { comNotaFiscal: data.comNotaFiscal } : {}),
+});
 
 /** Nota da venda mostrada na lista (15/10/2026): a que vale, autorizada > aguardando > as outras. */
 interface NotaDoPedido { spedyId: string; tipo: string; status: string; number: number | string | null }
@@ -72,69 +99,89 @@ const VendedorMeusPedidos: React.FC = () => {
 
   const podeEmitirNota = controlaFiscal && userPermissions.includes('fiscal.emitir');
 
+  // De 6 em 6 (23/10/2026): cada colecao (pedidos e orcamentos) e' lida em
+  // paginas, mais novos primeiro (indice tenantId + vendedor + createdAt).
+  // Sem o indice publicado, a consulta falha com failed-precondition e a
+  // colecao cai na leitura antiga (tudo de uma vez, ordenado aqui) -- a lista
+  // nunca fica vazia por falta de indice.
+  const fontesRef = useRef<Record<FonteMeusPedidos, EstadoDaFonte>>({ pedidos: fonteVazia(), orcamentos: fonteVazia() });
+  const geracaoRef = useRef(0);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [fontesEsgotadas, setFontesEsgotadas] = useState(false);
+
+  const garantirCarregados = async (alvo: number, geracao: number, desde: number | null) => {
+    if (!tenantId || !currentUser) return;
+    const ler = async (fonte: FonteMeusPedidos) => {
+      const estado = fontesRef.current[fonte];
+      const quantos = quantoBuscarDaFonte(estado.itens.length, alvo, estado.esgotada);
+      if (quantos <= 0) return;
+      const colecao = fonte === 'pedidos' ? 'pedidos_venda' : 'orcamentos';
+      const campoDoDono = fonte === 'pedidos' ? 'vendedorId' : 'criadoPor';
+      const filtros: QueryConstraint[] = [where('tenantId', '==', tenantId), where(campoDoDono, '==', currentUser.uid)];
+      try {
+        const ordenada = query(collection(db, colecao), ...filtros,
+          ...(desde !== null ? [where('createdAt', '>=', Timestamp.fromMillis(desde))] : []),
+          orderBy('createdAt', 'desc'),
+          ...(estado.ultimo ? [startAfter(estado.ultimo)] : []),
+          limit(quantos));
+        const snap = await getDocs(ordenada);
+        if (geracao !== geracaoRef.current) return;
+        estado.itens.push(...snap.docs.map((d) => paraItemDaLista(fonte, d.id, d.data())));
+        if (snap.docs.length > 0) estado.ultimo = snap.docs[snap.docs.length - 1];
+        if (snap.docs.length < quantos) estado.esgotada = true;
+      } catch (erro) {
+        if ((erro as { code?: string })?.code !== 'failed-precondition') throw erro;
+        console.warn(`Meus Pedidos: sem o indice de ${colecao} ordenado por data; lendo tudo de uma vez.`);
+        const tudo = await getDocs(query(collection(db, colecao), ...filtros));
+        if (geracao !== geracaoRef.current) return;
+        estado.itens = tudo.docs.map((d) => paraItemDaLista(fonte, d.id, d.data()));
+        estado.esgotada = true;
+      }
+    };
+    await Promise.all([ler('pedidos'), ler('orcamentos')]);
+    if (geracao !== geracaoRef.current) return;
+    setItens([...fontesRef.current.pedidos.itens, ...fontesRef.current.orcamentos.itens]);
+    setFontesEsgotadas(fontesRef.current.pedidos.esgotada && fontesRef.current.orcamentos.esgotada);
+  };
+
   useEffect(() => {
     if (!tenantId || !currentUser) return;
-    let cancelado = false;
+    const geracao = geracaoRef.current + 1;
+    geracaoRef.current = geracao;
+    fontesRef.current = { pedidos: fonteVazia(), orcamentos: fonteVazia() };
     setCarregando(true);
     setErroCarga('');
+    setVisiveis(PAGINA_MEUS_PEDIDOS);
+    const agora = Date.now();
+    setAgoraMillis(agora);
+    // Sem "Minhas Vendas": so' os ultimos 30 dias (o banco ja' filtra pela data).
+    const desde = temMinhasVendas ? null : agora - DIAS_RECENTES_SEM_MINHAS_VENDAS * 24 * 60 * 60 * 1000;
+    garantirCarregados(PAGINA_MEUS_PEDIDOS, geracao, desde)
+      .catch((erro) => {
+        console.error('Erro ao carregar meus pedidos:', erro);
+        if (geracao === geracaoRef.current) setErroCarga('Não foi possível carregar seus pedidos agora. Verifique a internet e tente de novo.');
+      })
+      .finally(() => { if (geracao === geracaoRef.current) setCarregando(false); });
+    return () => { geracaoRef.current += 1; };
+    // garantirCarregados le o estado pelas refs; recarrega so' quando muda quem esta logado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, currentUser, temMinhasVendas]);
 
-    (async () => {
-      // Sem orderBy nem limit de proposito: so' igualdade (nao pede indice
-      // composto no Firestore) e ordena aqui. A versao anterior pedia
-      // orderBy + limit, o indice nao existia, a consulta falhava e o erro era
-      // engolido -- a lista aparecia vazia mesmo com vendas gravadas.
-      const [pedidosSnap, orcamentosSnap] = await Promise.all([
-        getDocs(query(
-          collection(db, 'pedidos_venda'),
-          where('tenantId', '==', tenantId),
-          where('vendedorId', '==', currentUser.uid),
-        )).catch((erro) => { console.error('Erro ao carregar meus pedidos:', erro); return null; }),
-        getDocs(query(
-          collection(db, 'orcamentos'),
-          where('tenantId', '==', tenantId),
-          where('criadoPor', '==', currentUser.uid),
-        )).catch((erro) => { console.error('Erro ao carregar meus orcamentos:', erro); return null; }),
-      ]);
-
-      if (cancelado) return;
-      if (!pedidosSnap && !orcamentosSnap) {
-        setErroCarga('Não foi possível carregar seus pedidos agora. Verifique a internet e tente de novo.');
-        setCarregando(false);
-        return;
-      }
-
-      const doPedidos: ItemLista[] = (pedidosSnap?.docs || []).map((docSnap) => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          tipo: 'Pedido' as const,
-          numero: data.numeroPedido || '',
-          status: data.status || '',
-          clienteNome: data.clienteNome || '',
-          valorTotal: Number(data.valorTotal || 0),
-          createdAtMillis: toMillis(data.createdAt),
-        };
-      });
-      const doOrcamentos: ItemLista[] = (orcamentosSnap?.docs || []).map((docSnap) => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          tipo: 'Orçamento' as const,
-          numero: data.numeroOrcamento || '',
-          status: data.status || '',
-          clienteNome: data.clienteNome || '',
-          valorTotal: Number(data.valorTotal || 0),
-          createdAtMillis: toMillis(data.createdAt),
-        };
-      });
-
-      setItens([...doPedidos, ...doOrcamentos]);
-      setAgoraMillis(Date.now());
-      setCarregando(false);
-    })();
-
-    return () => { cancelado = true; };
-  }, [tenantId, currentUser]);
+  const verMais = async () => {
+    if (carregandoMais) return;
+    const alvo = visiveis + PAGINA_MEUS_PEDIDOS;
+    setCarregandoMais(true);
+    try {
+      const desde = temMinhasVendas ? null : agoraMillis - DIAS_RECENTES_SEM_MINHAS_VENDAS * 24 * 60 * 60 * 1000;
+      await garantirCarregados(alvo, geracaoRef.current, desde);
+      setVisiveis(alvo);
+    } catch (erro) {
+      console.error('Erro ao carregar mais pedidos:', erro);
+      showError('Não foi possível carregar mais', 'Verifique a internet e tente de novo.');
+    } finally {
+      setCarregandoMais(false);
+    }
+  };
 
   /**
    * Emite a NFC-e de um pedido que ja virou venda de verdade (status
@@ -298,7 +345,7 @@ const VendedorMeusPedidos: React.FC = () => {
           </div>
         ) : (
           listaVisivel.map((item) => {
-            const mostraEmitirNota = podeEmitirNota && item.tipo === 'Pedido' && item.status === STATUS_FINALIZADA;
+            const mostraEmitirNota = podeEmitirNota && item.tipo === 'Pedido' && item.status === STATUS_FINALIZADA && item.comNotaFiscal !== false;
             return (
               <div
                 key={`${item.tipo}-${item.id}`}
@@ -366,13 +413,14 @@ const VendedorMeusPedidos: React.FC = () => {
           })
         )}
 
-        {!carregando && !erroCarga && lista.length > listaVisivel.length && (
+        {!carregando && !erroCarga && lista.length > 0 && temMaisMeusPedidos({ totalNaLista: lista.length, visiveis, fontesEsgotadas }) && (
           <button
             type="button"
-            onClick={() => setVisiveis((atual) => atual + PAGINA_MEUS_PEDIDOS)}
-            style={{ height: '44px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
+            onClick={() => { void verMais(); }}
+            disabled={carregandoMais}
+            style={{ height: '44px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, cursor: carregandoMais ? 'default' : 'pointer', opacity: carregandoMais ? 0.7 : 1 }}
           >
-            Ver mais ({lista.length - listaVisivel.length})
+            {carregandoMais ? 'Carregando...' : 'Ver mais'}
           </button>
         )}
       </div>

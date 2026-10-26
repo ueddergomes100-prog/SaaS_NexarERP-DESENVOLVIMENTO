@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
-  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail
+  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail, Printer
 } from 'lucide-react';
+import { juntarPdfs } from '../../utils/juntarPdfs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { informacoesComplementaresComMensagem, mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -319,7 +320,10 @@ const NFE: React.FC = () => {
   // nova abrir).
   const [carregandoPdfId, setCarregandoPdfId] = useState<string | null>(null);
   /** PDF (DANFE) aberto dentro do sistema, ja' com o nome de arquivo "NFE 000040 - CLIENTE.pdf". */
-  const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob } | null>(null);
+  const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob; imprimir?: boolean } | null>(null);
+  // Imprimir varias notas de uma vez (26/10/2026, pedido do dono, igual ao Boletos).
+  const [notasMarcadas, setNotasMarcadas] = useState<Set<string>>(new Set());
+  const [progressoImpressao, setProgressoImpressao] = useState<{ feito: number; total: number } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'Todas' | 'NFC-e' | 'NF-e' | 'NFS-e'>('Todas');
   // Abre no mes atual (decisao do dono, 14/10); as em transmissao e as
@@ -1554,6 +1558,58 @@ const NFE: React.FC = () => {
       showError('Erro ao abrir PDF', (err as Error).message);
     } finally {
       setCarregandoPdfId(null);
+    }
+  };
+
+  /**
+   * IMPRIMIR AS MARCADAS (26/10/2026, pedido do dono, igual ao Boletos): baixa o
+   * DANFE de cada nota autorizada marcada, na ordem da lista, junta num PDF so' e
+   * ja' abre a impressao. Um respiro entre os downloads: a Spedy aceita 60
+   * consultas por minuto por empresa (o servidor ainda espera e repete no 429).
+   */
+  const LIMITE_IMPRESSAO = 50;
+  const imprimirMarcadas = async (notas: LocalInvoice[]) => {
+    if (notas.length === 0) return;
+    if (notas.length > LIMITE_IMPRESSAO) {
+      showWarning(`Até ${LIMITE_IMPRESSAO} notas por vez`, `Você marcou ${notas.length}. Desmarque algumas e imprima em partes: a Spedy limita os downloads por minuto.`);
+      return;
+    }
+    const arquivos: Blob[] = [];
+    const semPdf: string[] = [];
+    let motivo = '';
+    setProgressoImpressao({ feito: 0, total: notas.length });
+    try {
+      for (const [indice, note] of notas.entries()) {
+        if (indice > 0) await new Promise((r) => setTimeout(r, 1200));
+        try {
+          const tipoArquivo = note.tipo === 'NFS-e' ? 'service' : note.tipo === 'NFC-e' ? 'consumer' : 'product';
+          arquivos.push(await spedyService.baixarArquivoFiscal(note.spedyId, tipoArquivo, 'pdf'));
+        } catch (erro) {
+          semPdf.push(`${note.tipo} nº ${note.number ?? '?'} (${note.clienteNome})`);
+          if (!motivo) motivo = (erro as Error).message || '';
+        }
+        setProgressoImpressao({ feito: indice + 1, total: notas.length });
+      }
+      if (arquivos.length === 0) {
+        showError('Não foi possível montar a impressão', `Nenhum PDF das notas marcadas pôde ser baixado. ${motivo || 'Tente de novo em um minuto.'}`);
+        return;
+      }
+      const unico = await juntarPdfs(arquivos);
+      setPdfAberto({
+        titulo: `${arquivos.length} nota${arquivos.length === 1 ? '' : 's'} fiscal${arquivos.length === 1 ? '' : 'is'}`,
+        nome: `NOTAS ${getDateInputInTimeZone().split('-').reverse().join('-')} - ${arquivos.length} notas.pdf`,
+        blob: unico,
+        imprimir: true,
+      });
+      setNotasMarcadas(new Set());
+      if (semPdf.length > 0) {
+        showWarning('Algumas notas ficaram fora da impressão', `Não foi possível baixar o PDF de: ${semPdf.join(', ')}. ${motivo ? `${motivo} ` : ''}Abra pelo olho na linha da nota.`);
+      }
+    } catch (erro) {
+      console.error('Erro ao juntar os PDFs das notas:', erro);
+      showError('Não foi possível montar a impressão', 'Os PDFs foram baixados, mas não deu para juntá-los. Abra cada nota pelo olho na linha.');
+    } finally {
+      setProgressoImpressao(null);
     }
   };
 
@@ -2976,6 +3032,15 @@ const NFE: React.FC = () => {
 
   const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / pageSize));
   const pagedInvoices = filteredInvoices.slice((page - 1) * pageSize, page * pageSize);
+  // Marcadas para imprimir: so' autorizadas e so' as que a lista ainda mostra, na ordem da lista.
+  const marcadasParaImprimir = filteredInvoices.filter((n) => n.status === 'authorized' && notasMarcadas.has(n.id));
+  const autorizadasDaPagina = pagedInvoices.filter((n) => n.status === 'authorized');
+  const paginaToda = autorizadasDaPagina.length > 0 && autorizadasDaPagina.every((n) => notasMarcadas.has(n.id));
+  const marcarNota = (id: string, marcar: boolean) => setNotasMarcadas((atual) => {
+    const novo = new Set(atual);
+    if (marcar) novo.add(id); else novo.delete(id);
+    return novo;
+  });
 
   if (isConfigLoading) {
     return <div style={{ padding: '40px', color: 'var(--text-primary)', textAlign: 'center' }}>Carregando dados do módulo fiscal...</div>;
@@ -3045,6 +3110,20 @@ const NFE: React.FC = () => {
               },
             ]}
           />
+          {(marcadasParaImprimir.length > 0 || progressoImpressao) && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void imprimirMarcadas(marcadasParaImprimir)}
+              disabled={Boolean(progressoImpressao)}
+              title="Junta o PDF (DANFE) das notas marcadas num arquivo só, na ordem da lista, e abre a impressão"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              {progressoImpressao
+                ? <><Loader2 size={18} className="spin-animation" /> Baixando {progressoImpressao.feito} de {progressoImpressao.total}...</>
+                : <><Printer size={18} /> Imprimir ({marcadasParaImprimir.length})</>}
+            </button>
+          )}
           {canEmitirNota && (
             <button
               className="btn-primary"
@@ -3173,6 +3252,21 @@ const NFE: React.FC = () => {
           <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)', fontSize: '13px' }}>
+                <th style={{ padding: '16px 0 16px 16px', width: '32px' }}>
+                  <input
+                    type="checkbox"
+                    title="Marcar todas as notas autorizadas desta página para imprimir"
+                    aria-label="Marcar todas as notas autorizadas desta página"
+                    checked={paginaToda}
+                    disabled={autorizadasDaPagina.length === 0}
+                    onChange={(e) => setNotasMarcadas((atual) => {
+                      const novo = new Set(atual);
+                      autorizadasDaPagina.forEach((n) => (e.target.checked ? novo.add(n.id) : novo.delete(n.id)));
+                      return novo;
+                    })}
+                    style={{ accentColor: 'var(--accent-purple)' }}
+                  />
+                </th>
                 <th style={{ padding: '16px' }}>
                   <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem pelo número da nota"
                     style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
@@ -3191,13 +3285,13 @@ const NFE: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     Carregando notas fiscais...
                   </td>
                 </tr>
               ) : filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <Receipt size={40} style={{ opacity: 0.2, margin: '0 auto 12px' }} />
                     <p>Nenhuma nota fiscal encontrada.</p>
                   </td>
@@ -3205,6 +3299,17 @@ const NFE: React.FC = () => {
               ) : (
                 pagedInvoices.map((note) => (
                   <tr key={note.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '14px' }}>
+                    <td style={{ padding: '16px 0 16px 16px' }}>
+                      <input
+                        type="checkbox"
+                        title={note.status === 'authorized' ? 'Marcar para imprimir várias notas de uma vez' : 'Só nota autorizada tem PDF para imprimir'}
+                        aria-label={`Marcar a nota ${note.number ?? ''} de ${note.clienteNome} para imprimir`}
+                        checked={notasMarcadas.has(note.id)}
+                        disabled={note.status !== 'authorized'}
+                        onChange={(e) => marcarNota(note.id, e.target.checked)}
+                        style={{ accentColor: 'var(--accent-purple)' }}
+                      />
+                    </td>
                     <td style={{ padding: '16px', fontWeight: 600 }}>
                       {note.number ? numeroDaNota(note.number) : (
                         <span style={{ fontStyle: 'italic', opacity: 0.6, fontSize: '12px' }}>Aguardando...</span>
@@ -3452,7 +3557,7 @@ const NFE: React.FC = () => {
       })()}
 
       {pdfAberto && (
-        <PdfVisualizador titulo={pdfAberto.titulo} nomeArquivo={pdfAberto.nome} pdf={pdfAberto.blob} onFechar={() => setPdfAberto(null)} />
+        <PdfVisualizador titulo={pdfAberto.titulo} nomeArquivo={pdfAberto.nome} pdf={pdfAberto.blob} imprimirAoAbrir={pdfAberto.imprimir} onFechar={() => setPdfAberto(null)} />
       )}
 
       <EmissaoProgressoModal

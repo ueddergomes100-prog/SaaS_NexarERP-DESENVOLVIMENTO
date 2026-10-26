@@ -21,7 +21,7 @@
 // visibilidade de venda. Quem ja tem acesso total pela role (dono, Master,
 // Admin, SuperAdmin) segue vendo tudo -- ver `somenteVendasProprias`.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.filtrarLancamentosVisiveis = exports.lancamentoVeioDeVenda = exports.TITULO_VENDA_DE_OUTRO_USUARIO = exports.MENSAGEM_VENDA_DE_OUTRO_USUARIO = exports.filtrarVendasVisiveis = exports.isVendaDoUsuario = exports.vendedorDaVenda = exports.somenteVendasProprias = exports.parseRestringirVendasPorUsuario = exports.podeSerAlvoDePermissaoPorGerente = exports.podeGerenciarPermissoesDeEquipe = exports.podeVerVendasDeTodos = exports.parseNivelAcesso = exports.NIVEL_ACESSO_DESCRICOES = exports.NIVEL_ACESSO_LABELS = exports.DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO = exports.DEFAULT_NIVEL_ACESSO = exports.NIVEIS_ACESSO = void 0;
+exports.filtrarLancamentosVisiveis = exports.lancamentoVeioDeVenda = exports.TITULO_VENDA_DE_OUTRO_USUARIO = exports.MENSAGEM_VENDA_DE_OUTRO_USUARIO = exports.filtrarVendasVisiveis = exports.isVendaDoUsuario = exports.vendedorDaVenda = exports.somenteVendasProprias = exports.parseRestringirVendasPorUsuario = exports.podeSerAlvoDePermissaoPorGerente = exports.podeCriarLoginDeEquipe = exports.PERMISSAO_EQUIPE = exports.podeGerenciarPermissoesDeEquipe = exports.podeVerVendasDeTodos = exports.parseNivelAcesso = exports.NIVEL_ACESSO_DESCRICOES = exports.NIVEL_ACESSO_LABELS = exports.DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO = exports.DEFAULT_NIVEL_ACESSO = exports.NIVEIS_ACESSO = void 0;
 const roles_1 = require("./roles");
 exports.NIVEIS_ACESSO = ['funcionario', 'supervisor', 'gerente'];
 exports.DEFAULT_NIVEL_ACESSO = 'funcionario';
@@ -65,13 +65,28 @@ exports.podeVerVendasDeTodos = podeVerVendasDeTodos;
  * inclusive Financeiro/Fiscal, sem ninguem pedir -- mesmo raciocinio do
  * comentario no topo deste arquivo sobre nao reusar role='Admin').
  *
- * De proposito NAO cobre: criar/inativar usuario, trocar senha de acesso
- * (isso continua so' Admin/Master/Dono, ver isTenantManagerRole), e o
+ * De proposito NAO cobre: inativar usuario, trocar senha de acesso (isso
+ * continua so' Admin/Master/Dono, ver isTenantManagerRole; criar login o
+ * gerente pode desde 26/10/2026, ver podeCriarLoginDeEquipe), e o
  * proprio ALVO tem que ser um Funcionario comum -- ver
  * podeSerAlvoDePermissaoPorGerente, que fecha quem o gerente pode editar.
  */
 const podeGerenciarPermissoesDeEquipe = (args) => (0, roles_1.hasTenantFullAccess)(args.role, args.isOwner) || args.nivelAcesso === 'gerente';
 exports.podeGerenciarPermissoesDeEquipe = podeGerenciarPermissoesDeEquipe;
+/** Permissao da tela Equipe e Acessos (permissionCatalog.ts). */
+exports.PERMISSAO_EQUIPE = 'administrativo.equipe';
+/**
+ * ESTA PESSOA PODE CRIAR LOGIN DE FUNCIONARIO? (26/10/2026, pedido urgente do dono)
+ *
+ * Alem de Admin/Master/Dono, o nivel 'gerente' que tem a tela Equipe e Acessos
+ * liberada. Seguro porque o login nasce SEMPRE Funcionario comum, nivel
+ * funcionario e sem permissao nenhuma (server/services/limitesDoPlano.js), e o
+ * limite de usuarios do plano continua valendo. Inativar usuario, trocar senha
+ * de acesso e liberar o app continuam so' Admin/Master/Dono.
+ */
+const podeCriarLoginDeEquipe = (args) => ((0, roles_1.hasTenantFullAccess)(args.role, args.isOwner)
+    || (args.nivelAcesso === 'gerente' && Array.isArray(args.permissoes) && args.permissoes.includes(exports.PERMISSAO_EQUIPE)));
+exports.podeCriarLoginDeEquipe = podeCriarLoginDeEquipe;
 /**
  * O ALVO pode ter a permissao mexida por um Gerente (nao-Admin/Master)?
  *

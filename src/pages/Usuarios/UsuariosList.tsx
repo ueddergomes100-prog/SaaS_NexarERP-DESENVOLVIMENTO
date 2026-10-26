@@ -11,6 +11,7 @@ import {
   NIVEL_ACESSO_LABELS,
   type NivelAcesso,
   parseNivelAcesso,
+  podeCriarLoginDeEquipe,
   podeGerenciarPermissoesDeEquipe,
   podeSerAlvoDePermissaoPorGerente,
 } from '../../utils/visibilidadeVendasDomain';
@@ -52,6 +53,7 @@ const UsuariosList: React.FC = () => {
     userRole,
     isOwner,
     nivelAcesso,
+    userPermissions,
     restringirVendasPorUsuario,
     exigirIdentificacaoVendedor,
     temVendedorCadastrado,
@@ -63,8 +65,10 @@ const UsuariosList: React.FC = () => {
   // porque as duas telas exigem permissoes diferentes (administrativo.equipe
   // vs administrativo.config) -- ver comentario em PermissoesUsuarioModal.
   const [usuarioPermissoes, setUsuarioPermissoes] = useState<UsuarioData | null>(null);
-  // Criar/inativar usuario e trocar senha continuam so' Admin/Master/Dono.
+  // Inativar usuario e trocar senha continuam so' Admin/Master/Dono.
   const canManageUsers = isTenantManagerRole(userRole);
+  // Criar login: tambem o Gerente com esta tela liberada (26/10/2026).
+  const podeCriarUsuario = podeCriarLoginDeEquipe({ role: userRole, isOwner, nivelAcesso, permissoes: userPermissions });
   // Mexer na permissao (modulos liberados) de um Funcionario comum: alem de
   // quem gerencia usuarios, agora tambem quem e' nivel Gerente (2026-09-23,
   // pedido do dono) -- ver podeGerenciarPermissoesDeEquipe.
@@ -202,7 +206,7 @@ const UsuariosList: React.FC = () => {
               onClick: () => setPreviewAberto(true),
             }]}
           />
-          {canManageUsers && (
+          {podeCriarUsuario && (
             <button className="btn-primary" onClick={() => openTab('/usuarios/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Plus size={20} /> Adicionar Funcionário
             </button>

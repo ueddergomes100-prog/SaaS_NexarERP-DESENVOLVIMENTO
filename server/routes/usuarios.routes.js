@@ -3,6 +3,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
 const { ErroLimite, criarLogin, alterarAcessoApp } = require('../services/limitesDoPlano');
 const { registrarLog } = require('../services/auditoria');
+const { podeCriarLoginDeEquipe } = require('../domain/visibilidadeVendasDomain');
 
 const router = express.Router();
 
@@ -35,14 +36,22 @@ const soAdministrador = (req, res, next) => {
   return res.status(403).json({ error: 'Só o dono ou um administrador da empresa pode criar logins e liberar o aplicativo mobile.' });
 };
 
-const responderErroLimite = (res, erro, oQue) => {
+// Criar login (26/10/2026): tambem o Gerente com Equipe e Acessos liberada. O
+// login nasce Funcionario comum, sem permissao (services/limitesDoPlano.js).
+const podeCriarLogin = (req, res, next) => {
+  const u = req.user;
+  if (u && (u.isPlatformAdmin || podeCriarLoginDeEquipe({ role: u.role, isOwner: false, nivelAcesso: u.nivelAcesso, permissoes: u.permissoes }))) return next();
+  return res.status(403).json({ error: 'Só o dono, um administrador ou um gerente com "Admin: Equipe e Acessos" liberado pode criar logins.' });
+};
+
+const responderErroLimite =(res, erro, oQue) => {
   if (erro instanceof ErroLimite) return res.status(erro.status).json({ error: erro.message });
   console.error(`[Usuarios] ${oQue}:`, erro);
   return res.status(500).json({ error: `Não foi possível ${oQue}. Nada foi gravado. Tente de novo em instantes.` });
 };
 
 /** POST /api/usuarios/criar -- { nome, usuario, senha, codigoVendedor? }. */
-router.post('/criar', soAdministrador, async (req, res) => {
+router.post('/criar', podeCriarLogin, async (req, res) => {
   try {
     const r = await criarLogin({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
     registrarLog(req.user, {

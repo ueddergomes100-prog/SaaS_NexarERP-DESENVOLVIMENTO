@@ -5,6 +5,7 @@ import {
   NIVEIS_ACESSO,
   podeVerVendasDeTodos,
   podeGerenciarPermissoesDeEquipe,
+  podeCriarLoginDeEquipe,
   podeSerAlvoDePermissaoPorGerente,
   filtrarLancamentosVisiveis,
   filtrarVendasVisiveis,
@@ -237,4 +238,16 @@ test('supervisor e gerente escapam da restricao de "so as proprias vendas"', () 
   assert.equal(somenteVendasProprias({ ...base, nivelAcesso: 'funcionario' }), true);
   assert.equal(somenteVendasProprias({ ...base, nivelAcesso: 'supervisor' }), false);
   assert.equal(somenteVendasProprias({ ...base, nivelAcesso: 'gerente' }), false);
+});
+
+test('podeCriarLoginDeEquipe: dono, Admin/Master e Gerente com Equipe e Acessos (26/10/2026)', () => {
+  const equipe = ['administrativo.equipe'];
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: true, nivelAcesso: 'funcionario', permissoes: [] }), true);
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Master', isOwner: false, nivelAcesso: 'funcionario', permissoes: [] }), true);
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Admin', isOwner: false, nivelAcesso: 'funcionario', permissoes: [] }), true);
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'gerente', permissoes: equipe }), true);
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'gerente', permissoes: [] }), false, 'gerente sem a tela liberada nao cria');
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'supervisor', permissoes: equipe }), false);
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'funcionario', permissoes: equipe }), false);
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'gerente', permissoes: undefined }), false);
 });

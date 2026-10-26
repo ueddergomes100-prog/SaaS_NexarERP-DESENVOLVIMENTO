@@ -1,4 +1,5 @@
 const { auth, db } = require('../config/firebase');
+const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 
 const PLATFORM_ROLES = ['NexarAdmin', 'SuperAdmin'];
 const TENANT_MANAGER_ROLES = ['Master', 'Admin'];
@@ -47,6 +48,8 @@ async function authenticate(req, res, next) {
     let tenantId = uid;
     let homeTenantId = uid;
     let permissoes = [];
+    // Nivel de acesso (funcionario/supervisor/gerente): o gerente cria login (26/10/2026).
+    let nivelAcesso = 'funcionario';
 
     if (userDoc.exists) {
       const userData = userDoc.data();
@@ -59,6 +62,7 @@ async function authenticate(req, res, next) {
       tenantId = userData.filialAtiva || userData.tenantId || uid;
       homeTenantId = userData.tenantId || uid;
       permissoes = Array.isArray(userData.permissoes) ? userData.permissoes : [];
+      nivelAcesso = parseNivelAcesso(userData.nivelAcesso);
 
       // Funcionario inativado perde o acesso ao servidor tambem, nao so' a
       // tela (mesma regra de perfilAtivo() nas firestore.rules, 2026-09-29).
@@ -87,6 +91,7 @@ async function authenticate(req, res, next) {
       tenantId,
       homeTenantId,
       permissoes,
+      nivelAcesso,
       isPlatformAdmin: isPlatformAdminRole(role),
       isTenantManager: isTenantManagerRole(role)
     };

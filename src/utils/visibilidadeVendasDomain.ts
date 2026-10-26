@@ -93,8 +93,9 @@ export const podeVerVendasDeTodos = (args: {
  * inclusive Financeiro/Fiscal, sem ninguem pedir -- mesmo raciocinio do
  * comentario no topo deste arquivo sobre nao reusar role='Admin').
  *
- * De proposito NAO cobre: criar/inativar usuario, trocar senha de acesso
- * (isso continua so' Admin/Master/Dono, ver isTenantManagerRole), e o
+ * De proposito NAO cobre: inativar usuario, trocar senha de acesso (isso
+ * continua so' Admin/Master/Dono, ver isTenantManagerRole; criar login o
+ * gerente pode desde 26/10/2026, ver podeCriarLoginDeEquipe), e o
  * proprio ALVO tem que ser um Funcionario comum -- ver
  * podeSerAlvoDePermissaoPorGerente, que fecha quem o gerente pode editar.
  */
@@ -103,6 +104,28 @@ export const podeGerenciarPermissoesDeEquipe = (args: {
   isOwner: boolean;
   nivelAcesso: NivelAcesso;
 }): boolean => hasTenantFullAccess(args.role, args.isOwner) || args.nivelAcesso === 'gerente';
+
+/** Permissao da tela Equipe e Acessos (permissionCatalog.ts). */
+export const PERMISSAO_EQUIPE = 'administrativo.equipe';
+
+/**
+ * ESTA PESSOA PODE CRIAR LOGIN DE FUNCIONARIO? (26/10/2026, pedido urgente do dono)
+ *
+ * Alem de Admin/Master/Dono, o nivel 'gerente' que tem a tela Equipe e Acessos
+ * liberada. Seguro porque o login nasce SEMPRE Funcionario comum, nivel
+ * funcionario e sem permissao nenhuma (server/services/limitesDoPlano.js), e o
+ * limite de usuarios do plano continua valendo. Inativar usuario, trocar senha
+ * de acesso e liberar o app continuam so' Admin/Master/Dono.
+ */
+export const podeCriarLoginDeEquipe = (args: {
+  role: unknown;
+  isOwner: boolean;
+  nivelAcesso: NivelAcesso;
+  permissoes: unknown;
+}): boolean => (
+  hasTenantFullAccess(args.role, args.isOwner)
+  || (args.nivelAcesso === 'gerente' && Array.isArray(args.permissoes) && args.permissoes.includes(PERMISSAO_EQUIPE))
+);
 
 /**
  * O ALVO pode ter a permissao mexida por um Gerente (nao-Admin/Master)?

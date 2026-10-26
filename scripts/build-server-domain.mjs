@@ -114,6 +114,8 @@ const MODULOS = [
   'src/utils/movimentosEstoqueDomain.ts',
   // Permissoes do app mobile (26/10/2026): bloco proprio e chaves implicitas de quem ja' usava.
   'src/utils/permissoesAppDomain.ts',
+  // Pesagem da producao (26/10/2026): taras, pacotes fechados, residuo e ganho de peso.
+  'src/utils/producaoPesagemDomain.ts',
   // Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
   'src/utils/inutilizacaoDomain.ts',
   // Devolucao de compra ao fornecedor (21/10/2026): le o XML guardado da nota de entrada.

@@ -53,6 +53,7 @@ const balancoRoutes = require('./routes/balanco.routes');
 const entregasFuturasRoutes = require('./routes/entregasFuturas.routes');
 const custosRoutes = require('./routes/custos.routes');
 const movimentosEstoqueRoutes = require('./routes/movimentosEstoque.routes');
+const producaoRoutes = require('./routes/producao.routes');
 const relatorioContadorRoutes = require('./routes/relatorioContador.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
@@ -253,6 +254,7 @@ app.use('/api/entregas-futuras', entregasFuturasRoutes);
 app.use('/api/custos', custosRoutes);
 // Movimentacao de produtos (26/10/2026): entradas e saidas montadas dos documentos (so' leitura).
 app.use('/api/movimentos-estoque', movimentosEstoqueRoutes);
+app.use('/api/producao', producaoRoutes);
 // Relatorio do contador, fase 2 (20/10/2026): envio do PDF e do .zip dos XMLs ao contador.
 app.use('/api/relatorio-contador', relatorioContadorRoutes);
 // Manutencao do banco pelo Painel da Plataforma (2026-10-15): tarefas de uma vez so'

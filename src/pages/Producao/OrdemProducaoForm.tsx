@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, RotateCcw, Package, Undo2 } from 'lucide-react';
+import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, RotateCcw, Package, Undo2, X } from 'lucide-react';
 import { collection, doc, getDoc, getDocs, updateDoc, serverTimestamp, query, where, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -26,6 +26,8 @@ import {
 } from '../../services/loteBaixaService';
 import { somarLotesUsados, type PlanoDeLotes } from '../../utils/loteDomain';
 import { chaveComponente, colecaoDoComponente, normalizarComponente, type OrigemComponente } from '../../utils/producaoDomain';
+import { calcularPesagem, consumoDoComponente, ganhoDePeso, parseTaras, unidadeEmKg, type TaraProducao } from '../../utils/producaoPesagemDomain';
+import { salvarTarasNoServidor } from '../../services/producaoService';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -38,6 +40,8 @@ interface ItemConsumido {
   perdaExtra: number;
   sobra: number;
   quantidadeConsumida: number;
+  /** Consumo digitado ("usada de verdade") em vez da receita (26/10/2026). */
+  usadaReal?: boolean;
 }
 
 interface ItemComposicaoPreview {
@@ -48,6 +52,8 @@ interface ItemComposicaoPreview {
   quantidadePorUnidade: number;
   perdaExtra: string;
   sobra: string;
+  /** "Usada de verdade" (26/10/2026); vazio = receita + perda - sobra. */
+  usadaReal: string;
 }
 
 interface OrdemData {
@@ -64,6 +70,25 @@ interface OrdemData {
   dataInicio: any;
   dataFim: any;
   dataEstorno: any;
+  /** Pesagem da producao (26/10/2026), quando foi pesada. */
+  pesagem?: PesagemGravada | null;
+}
+
+/** O que fica gravado na ordem quando a producao foi pesada. */
+interface PesagemGravada {
+  pesoBrutoKg: number;
+  taras: Array<{ nome: string; quantidade: number; pesoKg: number; totalKg: number }>;
+  taraKg: number;
+  embalagemKg: number;
+  liquidoKg: number;
+  pesoUnidadeKg: number;
+  unidadesSugeridas: number;
+  residuoKg: number;
+  refugoUnidades: number;
+  refugoMotivo: string;
+  materiaPrimaKg: number;
+  ganhoKg: number;
+  ganhoPercentual: number;
 }
 
 /** Formata um Timestamp do Firestore (ou um Date "otimista" gravado
@@ -130,6 +155,54 @@ const OrdemProducaoForm: React.FC = () => {
   const [showRevisaoFinalizacao, setShowRevisaoFinalizacao] = useState(false);
   const [quantidadeProduzidaInput, setQuantidadeProduzidaInput] = useState('');
   const [composicaoPreview, setComposicaoPreview] = useState<ItemComposicaoPreview[]>([]);
+
+  // Pesagem da producao (26/10/2026, pedido do dono): peso da balanca - caixas
+  // (taras) - embalagens = pacotes fechados + residuo. Regra em producaoPesagemDomain.ts.
+  const [pesagemAtiva, setPesagemAtiva] = useState(false);
+  const [taras, setTaras] = useState<TaraProducao[]>([]);
+  const [pesoBruto, setPesoBruto] = useState('');
+  const [tarasUsadas, setTarasUsadas] = useState<Record<string, string>>({});
+  const [pesoUnidade, setPesoUnidade] = useState('');
+  const [pesoEmbalagemUn, setPesoEmbalagemUn] = useState(0);
+  const [embalagemManual, setEmbalagemManual] = useState('');
+  const [refugoUnidades, setRefugoUnidades] = useState('');
+  const [refugoMotivo, setRefugoMotivo] = useState('');
+  // A quantidade segue a sugestao da balanca ate' a pessoa digitar a dela (contagem).
+  const [quantidadeDigitada, setQuantidadeDigitada] = useState(false);
+  const [editandoTaras, setEditandoTaras] = useState(false);
+  const [tarasRascunho, setTarasRascunho] = useState<Array<{ id: string; nome: string; pesoKg: string }>>([]);
+  const [salvandoTaras, setSalvandoTaras] = useState(false);
+
+  const resultadoPesagem = useMemo(() => calcularPesagem({
+    pesoBrutoKg: pesoBruto, tarasUsadas, taras, pesoUnidadeKg: pesoUnidade, pesoEmbalagemKg: pesoEmbalagemUn, embalagemManualKg: embalagemManual,
+  }), [pesoBruto, tarasUsadas, taras, pesoUnidade, pesoEmbalagemUn, embalagemManual]);
+
+  useEffect(() => {
+    if (pesagemAtiva && !quantidadeDigitada && !resultadoPesagem.erro) setQuantidadeProduzidaInput(String(resultadoPesagem.unidadesSugeridas));
+  }, [pesagemAtiva, quantidadeDigitada, resultadoPesagem]);
+
+  /** Consumo de cada componente com o que esta' na tela (receita ou "usada de verdade"). */
+  const consumosDaTela = composicaoPreview.map((item) => {
+    const necessario = item.quantidadePorUnidade * (Number(quantidadeProduzidaInput) || 0);
+    return { item, necessario, ...consumoDoComponente({ necessario, perdaExtra: item.perdaExtra, sobra: item.sobra, usadaReal: item.usadaReal }) };
+  });
+  const materiaPrimaKgDaTela = consumosDaTela.filter((c) => unidadeEmKg(c.item.unidade)).reduce((s, c) => s + c.consumo, 0);
+  const ganhoDaTela = ganhoDePeso(resultadoPesagem.liquidoKg, materiaPrimaKgDaTela);
+
+  const salvarTaras = async () => {
+    const lista = tarasRascunho.filter((t) => t.nome.trim() || t.pesoKg.trim());
+    setSalvandoTaras(true);
+    try {
+      const r = await salvarTarasNoServidor(lista.map((t) => ({ id: t.id, nome: t.nome, pesoKg: t.pesoKg })));
+      setTaras(parseTaras(r.taras));
+      setEditandoTaras(false);
+      showSuccess('Caixas salvas!');
+    } catch (erro) {
+      showError('Não foi possível salvar as caixas', erro instanceof Error && erro.message ? erro.message : 'Tente de novo em instantes.');
+    } finally {
+      setSalvandoTaras(false);
+    }
+  };
 
   const [formData, setFormData] = useState({
     produtoId: '',
@@ -200,12 +273,14 @@ const OrdemProducaoForm: React.FC = () => {
                     perdaExtra: Number(item.perdaExtra || 0),
                     sobra: Number(item.sobra || 0),
                     quantidadeConsumida: Number(item.quantidadeConsumida || 0),
+                    ...(item.usadaReal === true ? { usadaReal: true } : {}),
                   };
                 })
                 : [],
               dataInicio: data.dataInicio || null,
               dataFim: data.dataFim || null,
               dataEstorno: data.dataEstorno || null,
+              pesagem: data.pesagem && typeof data.pesagem === 'object' ? data.pesagem as PesagemGravada : null,
             });
           }
         } else if (currentUser) {
@@ -528,9 +603,32 @@ const OrdemProducaoForm: React.FC = () => {
           quantidadePorUnidade: componente.quantidade,
           perdaExtra: '0',
           sobra: '0',
+          usadaReal: '',
         };
       }));
       setQuantidadeProduzidaInput(String(ordem.quantidadePlanejada));
+      // Pesagem: pesos do produto e caixas da filial. Liga sozinha quando o produto tem o peso da unidade.
+      try {
+        const [produtoSnap, configSnap] = await Promise.all([
+          getDoc(doc(db, 'estoque', ordem.produtoId)),
+          tenantId ? getDoc(doc(db, 'configuracoes', tenantId)) : Promise.resolve(null),
+        ]);
+        const produto = produtoSnap.exists() ? produtoSnap.data() : {};
+        const pesoUn = Number(produto.pesoLiquidoUnitarioKg) || 0;
+        setPesoUnidade(pesoUn > 0 ? String(pesoUn) : '');
+        setPesoEmbalagemUn(Number(produto.pesoEmbalagemKg) || 0);
+        setTaras(parseTaras(configSnap && configSnap.exists() ? configSnap.data().tarasProducao : []));
+        setPesagemAtiva(pesoUn > 0);
+      } catch (erroPesos) {
+        console.error('Erro ao ler os pesos da produção:', erroPesos);
+        setPesagemAtiva(false);
+      }
+      setPesoBruto('');
+      setTarasUsadas({});
+      setEmbalagemManual('');
+      setRefugoUnidades('');
+      setRefugoMotivo('');
+      setQuantidadeDigitada(false);
       setShowRevisaoFinalizacao(true);
     } catch (error) {
       console.error('Erro ao carregar composição:', error);
@@ -562,6 +660,31 @@ const OrdemProducaoForm: React.FC = () => {
       showError('Quantidade inválida', 'Informe a quantidade produzida (maior que zero).');
       return false;
     }
+    // Pesagem ligada e incompleta: a pessoa corrige (ou desliga a pesagem) antes de baixar estoque.
+    if (pesagemAtiva && resultadoPesagem.erro) {
+      showError('Confira a pesagem', resultadoPesagem.erro);
+      return false;
+    }
+    const refugo = Math.max(0, Math.floor(Number(refugoUnidades) || 0));
+    if (refugo > 0 && !refugoMotivo.trim()) {
+      showError('Motivo do refugo', `Informe por que ${refugo === 1 ? 'a unidade foi perdida' : `as ${refugo} unidades foram perdidas`} (ex.: pacote rasgado, peso errado).`);
+      return false;
+    }
+    const pesagemParaGravar: PesagemGravada | null = pesagemAtiva ? {
+      pesoBrutoKg: Number(String(pesoBruto).replace(',', '.')) || 0,
+      taras: resultadoPesagem.detalheTaras,
+      taraKg: resultadoPesagem.taraKg,
+      embalagemKg: resultadoPesagem.embalagemKg,
+      liquidoKg: resultadoPesagem.liquidoKg,
+      pesoUnidadeKg: Number(String(pesoUnidade).replace(',', '.')) || 0,
+      unidadesSugeridas: resultadoPesagem.unidadesSugeridas,
+      residuoKg: resultadoPesagem.residuoKg,
+      refugoUnidades: refugo,
+      refugoMotivo: refugoMotivo.trim().slice(0, 200),
+      materiaPrimaKg: Math.round(materiaPrimaKgDaTela * 1000) / 1000,
+      ganhoKg: ganhoDaTela.ganhoKg,
+      ganhoPercentual: ganhoDaTela.percentual,
+    } : null;
 
     setIsProcessing(true);
     try {
@@ -586,7 +709,7 @@ const OrdemProducaoForm: React.FC = () => {
           chave: String(indice),
           produtoId: item.origem === 'estoque' ? item.componenteId : '',
           nome: item.componenteNome,
-          quantidade: Math.max(0, item.quantidadePorUnidade * quantidadeProduzida + Math.max(0, Number(item.perdaExtra) || 0) - Math.max(0, Number(item.sobra) || 0)),
+          quantidade: Math.max(0, consumoDoComponente({ necessario: item.quantidadePorUnidade * quantidadeProduzida, perdaExtra: item.perdaExtra, sobra: item.sobra, usadaReal: item.usadaReal }).consumo),
         }))
         .filter((linha) => linha.produtoId && linha.quantidade > 0);
       const planoLotes: PlanoDeLotes | null = await prepararBaixaDeLotes({ db, tenantId, linhas: linhasDosComponentes, modo: loteModoSaida, avisarVencido: loteAvisarVencido });
@@ -612,7 +735,8 @@ const OrdemProducaoForm: React.FC = () => {
           const quantidadeNecessaria = itemPreview.quantidadePorUnidade * quantidadeProduzida;
           const perdaExtra = Math.max(0, Number(itemPreview.perdaExtra) || 0);
           const sobra = Math.max(0, Number(itemPreview.sobra) || 0);
-          const quantidadeConsumida = quantidadeNecessaria + perdaExtra - sobra;
+          // "Usada de verdade" (26/10/2026) manda quando digitada; senao receita + perda - sobra.
+          const { consumo: quantidadeConsumida, real: usadaReal } = consumoDoComponente({ necessario: quantidadeNecessaria, perdaExtra, sobra, usadaReal: itemPreview.usadaReal });
           if (quantidadeConsumida < 0) {
             throw new Error(`Sobra informada para "${itemPreview.componenteNome}" é maior do que o necessário + perda extra (não é possível devolver mais do que foi retirado do estoque).`);
           }
@@ -633,6 +757,7 @@ const OrdemProducaoForm: React.FC = () => {
             perdaExtra,
             sobra,
             quantidadeConsumida,
+            ...(usadaReal ? { usadaReal: true } : {}),
           });
         }
 
@@ -656,6 +781,9 @@ const OrdemProducaoForm: React.FC = () => {
           status: 'finalizada',
           quantidadeProduzida,
           itensConsumidos,
+          // Pesagem (26/10/2026): balanca, caixas, residuo, refugo e ganho de peso, para o historico.
+          ...(pesagemParaGravar ? { pesagem: pesagemParaGravar } : {}),
+          ...(!pesagemParaGravar && refugo > 0 ? { refugoUnidades: refugo, refugoMotivo: refugoMotivo.trim().slice(0, 200) } : {}),
           // Lotes para o estorno desfazer: o que a producao criou e de onde os componentes sairam.
           ...(entradasDeLote.length > 0 ? { lotesProduzidos: lotesDaEntradaParaGravar(entradasDeLote) } : {}),
           ...(planoLotes && Object.keys(planoLotes.porLinha).length > 0 ? { lotesConsumidos: somarLotesUsados(Object.values(planoLotes.porLinha)) } : {}),
@@ -672,6 +800,7 @@ const OrdemProducaoForm: React.FC = () => {
         quantidadeProduzida,
         itensConsumidos: itensConsumidosFinal,
         dataFim: new Date(),
+        pesagem: pesagemParaGravar,
       } : prev);
       setShowRevisaoFinalizacao(false);
       showSuccess('Produção finalizada! Componentes debitados e estoque do produto atualizado.');
@@ -836,12 +965,26 @@ const OrdemProducaoForm: React.FC = () => {
                           <td>{item.quantidadeNecessaria} {item.unidade}</td>
                           <td>{item.perdaExtra > 0 ? `${item.perdaExtra} ${item.unidade}` : '-'}</td>
                           <td>{item.sobra > 0 ? `${item.sobra} ${item.unidade}` : '-'}</td>
-                          <td><strong>{item.quantidadeConsumida} {item.unidade}</strong></td>
+                          <td><strong>{item.quantidadeConsumida} {item.unidade}</strong>{item.usadaReal && <span style={{ marginLeft: '6px', fontSize: '11px', color: 'var(--text-muted)' }} title="Digitado na finalização (usada de verdade)">real</span>}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                {/* Pesagem gravada (26/10/2026). */}
+                {ordem.pesagem && (() => {
+                  const p = ordem.pesagem;
+                  const kgTxt = (v: number) => `${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg`;
+                  return (
+                    <div style={{ marginTop: '14px', fontSize: '13px', lineHeight: 1.7, padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                      <strong>Pesagem</strong>
+                      <div>Peso bruto {kgTxt(p.pesoBrutoKg)}{p.taras.map((t) => ` − ${t.nome}${t.quantidade > 1 ? ` × ${t.quantidade}` : ''} ${kgTxt(t.totalKg)}`).join('')}{p.embalagemKg > 0 ? ` − embalagens ${kgTxt(p.embalagemKg)}` : ''} = <strong>{kgTxt(p.liquidoKg)}</strong> líquidos</div>
+                      <div>Pacotes pela balança: {p.unidadesSugeridas} de {kgTxt(p.pesoUnidadeKg)} · produzidas (boas): {ordem.quantidadeProduzida ?? '-'} · resíduo do processo: {kgTxt(p.residuoKg)}</div>
+                      {p.refugoUnidades > 0 && <div>Refugo: {p.refugoUnidades} unid. — {p.refugoMotivo}</div>}
+                      {p.materiaPrimaKg > 0 && <div>Matéria-prima usada: {kgTxt(p.materiaPrimaKg)} · {p.ganhoKg >= 0 ? 'ganho' : 'perda'} de peso: <strong>{p.ganhoKg >= 0 ? '+' : ''}{kgTxt(p.ganhoKg)} ({Number(p.ganhoPercentual || 0).toLocaleString('pt-BR')}%)</strong></div>}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -855,16 +998,131 @@ const OrdemProducaoForm: React.FC = () => {
                   Confira a quantidade produzida e os componentes que serão debitados. Se houve refugo/desperdício além do previsto na receita, informe a perda extra por item; se sobrou material que volta pro estoque, informe a sobra.
                 </p>
 
-                <div className="input-group" style={{ maxWidth: '260px' }}>
-                  <label>Quantidade Produzida (boas)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={quantidadeProduzidaInput}
-                    onChange={(e) => setQuantidadeProduzidaInput(e.target.value)}
-                    style={inputStyle}
-                  />
+                {/* PESAGEM (26/10/2026): balanca - caixas - embalagens = pacotes fechados + residuo. */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={pesagemAtiva} onChange={(e) => { setPesagemAtiva(e.target.checked); setQuantidadeDigitada(false); }} style={{ width: '17px', height: '17px', accentColor: 'var(--accent-purple)' }} />
+                  Pesar a produção (desconta caixas e embalagens e calcula os pacotes)
+                </label>
+                {pesagemAtiva && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '14px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-secondary)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                      <div className="input-group">
+                        <label>Peso bruto da balança (kg)</label>
+                        <input type="number" step="0.001" min="0" value={pesoBruto} onChange={(e) => setPesoBruto(e.target.value)} style={inputStyle} title="Tudo junto: produto, caixas e embalagens" />
+                      </div>
+                      <div className="input-group">
+                        <label>Peso de cada unidade (kg)</label>
+                        <input type="number" step="0.001" min="0" value={pesoUnidade} onChange={(e) => setPesoUnidade(e.target.value)} style={inputStyle} title="Vem do cadastro do produto (peso líquido unitário). Ex.: pacote de 250 g = 0,250" />
+                      </div>
+                      <div className="input-group">
+                        <label>Embalagens (kg)</label>
+                        <input type="number" step="0.001" min="0" value={embalagemManual} onChange={(e) => setEmbalagemManual(e.target.value)} style={inputStyle}
+                          title={pesoEmbalagemUn > 0 ? `Em branco = ${pesoEmbalagemUn} kg por unidade (cadastro do produto). Digite para usar o peso total das sacolinhas.` : 'Peso total das sacolinhas/embalagens. Em branco = não desconta.'} />
+                        {!embalagemManual.trim() && resultadoPesagem.embalagemKg > 0 && (
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Calculado: {resultadoPesagem.embalagemKg.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} kg</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Caixas usadas</span>
+                        <button type="button" className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12.5px' }}
+                          onClick={() => { setTarasRascunho(taras.map((t) => ({ id: t.id, nome: t.nome, pesoKg: String(t.pesoKg) }))); setEditandoTaras(true); }}>
+                          Cadastrar caixas (taras)
+                        </button>
+                      </div>
+                      {taras.filter((t) => t.ativa).length === 0 ? (
+                        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Nenhuma caixa cadastrada. Use "Cadastrar caixas (taras)" para informar o peso de cada uma.</span>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          {taras.filter((t) => t.ativa).map((t) => (
+                            <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+                              {t.nome} ({t.pesoKg.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} kg) ×
+                              <input type="number" min="0" step="1" value={tarasUsadas[t.id] ?? ''} onChange={(e) => setTarasUsadas((atual) => ({ ...atual, [t.id]: e.target.value }))}
+                                aria-label={`Quantidade de ${t.nome}`} style={{ ...inputStyle, width: '70px', padding: '6px 8px' }} />
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {editandoTaras && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', border: '1px dashed var(--accent-purple)', borderRadius: 'var(--radius-md)' }}>
+                        <strong style={{ fontSize: '13px' }}>Caixas (taras) da filial</strong>
+                        {tarasRascunho.map((t, i) => (
+                          <div key={t.id || `nova-${i}`} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <input value={t.nome} onChange={(e) => setTarasRascunho((l) => l.map((x, j) => (j === i ? { ...x, nome: e.target.value } : x)))} aria-label="Nome da caixa" title="Ex.: Caixa 1" style={{ ...inputStyle, padding: '8px 10px' }} />
+                            <input type="number" step="0.001" min="0" value={t.pesoKg} onChange={(e) => setTarasRascunho((l) => l.map((x, j) => (j === i ? { ...x, pesoKg: e.target.value } : x)))} aria-label="Peso da caixa (kg)" title="Peso da caixa vazia em kg (ex.: 1,900)" style={{ ...inputStyle, padding: '8px 10px', width: '140px' }} />
+                            <button type="button" className="icon-btn" title="Remover" onClick={() => setTarasRascunho((l) => l.filter((_, j) => j !== i))}><X size={16} /></button>
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                          <button type="button" className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12.5px' }} onClick={() => setTarasRascunho((l) => [...l, { id: '', nome: '', pesoKg: '' }])}>+ Caixa</button>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button type="button" className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12.5px' }} onClick={() => setEditandoTaras(false)} disabled={salvandoTaras}>Cancelar</button>
+                            <button type="button" className="btn-primary" style={{ padding: '6px 12px', fontSize: '12.5px' }} onClick={() => void salvarTaras()} disabled={salvandoTaras}>{salvandoTaras ? 'Salvando...' : 'Salvar caixas'}</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {resultadoPesagem.erro ? (
+                      <span style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 600 }}>{resultadoPesagem.erro}</span>
+                    ) : (
+                      <div style={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: '13px', lineHeight: 1.7, padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                        {(() => {
+                          const kgTxt = (v: number) => `${v.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg`;
+                          const linha = (rotulo: string, valor: string, forte = false) => (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontWeight: forte ? 700 : 400 }}><span>{rotulo}</span><span>{valor}</span></div>
+                          );
+                          return (
+                            <>
+                              {linha('Peso bruto', kgTxt(Number(String(pesoBruto).replace(',', '.')) || 0))}
+                              {resultadoPesagem.detalheTaras.map((t) => <React.Fragment key={t.nome}>{linha(`(−) ${t.nome}${t.quantidade > 1 ? ` × ${t.quantidade}` : ''}`, kgTxt(t.totalKg))}</React.Fragment>)}
+                              {resultadoPesagem.embalagemKg > 0 && linha('(−) Embalagens', kgTxt(resultadoPesagem.embalagemKg))}
+                              {linha('= Peso líquido', kgTxt(resultadoPesagem.liquidoKg), true)}
+                              {linha(`Pacotes de ${kgTxt(Number(String(pesoUnidade).replace(',', '.')) || 0)}`, `${resultadoPesagem.unidadesSugeridas} (${resultadoPesagem.unidadesExatas.toLocaleString('pt-BR')} → só fechados)`, true)}
+                              {linha('Resíduo do processo (perda)', kgTxt(resultadoPesagem.residuoKg))}
+                              {materiaPrimaKgDaTela > 0 && linha('Matéria-prima usada (kg)', kgTxt(materiaPrimaKgDaTela))}
+                              {materiaPrimaKgDaTela > 0 && linha(ganhoDaTela.ganhoKg >= 0 ? 'Ganho de peso' : 'Perda de peso', `${ganhoDaTela.ganhoKg >= 0 ? '+' : ''}${kgTxt(ganhoDaTela.ganhoKg)} (${ganhoDaTela.percentual.toLocaleString('pt-BR')}%)`, true)}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div className="input-group" style={{ maxWidth: '260px' }}>
+                    <label>Quantidade Produzida (boas)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={quantidadeProduzidaInput}
+                      onChange={(e) => { setQuantidadeProduzidaInput(e.target.value); setQuantidadeDigitada(true); }}
+                      style={inputStyle}
+                      title={pesagemAtiva ? 'Vem da pesagem (só pacotes fechados). Se a contagem na mesa deu outro número, digite aqui.' : undefined}
+                    />
+                    {pesagemAtiva && !resultadoPesagem.erro && quantidadeDigitada && Number(quantidadeProduzidaInput) !== resultadoPesagem.unidadesSugeridas && (
+                      <span style={{ fontSize: '12px', color: '#f59e0b' }}>
+                        A balança indica {resultadoPesagem.unidadesSugeridas}.{' '}
+                        <button type="button" onClick={() => setQuantidadeDigitada(false)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent-purple)', cursor: 'pointer', font: 'inherit', fontWeight: 600 }}>Usar {resultadoPesagem.unidadesSugeridas}</button>
+                      </span>
+                    )}
+                  </div>
+                  <div className="input-group" style={{ maxWidth: '180px' }}>
+                    <label>Perdidas / refugo (unid.)</label>
+                    <input type="number" step="1" min="0" value={refugoUnidades} onChange={(e) => setRefugoUnidades(e.target.value)} style={inputStyle} title="Unidades que não servem (pacote rasgado, peso errado). Fica registrado na ordem." />
+                  </div>
+                  {Number(refugoUnidades) > 0 && (
+                    <div className="input-group" style={{ flex: '1 1 220px' }}>
+                      <label>Motivo do refugo *</label>
+                      <input value={refugoMotivo} onChange={(e) => setRefugoMotivo(e.target.value)} style={inputStyle} title="Ex.: pacote rasgado, peso errado" />
+                    </div>
+                  )}
                 </div>
 
                 <div className="table-wrapper">
@@ -875,6 +1133,7 @@ const OrdemProducaoForm: React.FC = () => {
                         <th>Necessário (receita × produzido)</th>
                         <th>Perda extra</th>
                         <th>Sobra</th>
+                        <th title="O que realmente saiu do estoque. Em branco = receita + perda extra − sobra.">Usada de verdade</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -903,6 +1162,18 @@ const OrdemProducaoForm: React.FC = () => {
                                 min="0"
                                 value={item.sobra}
                                 onChange={(e) => handleAlterarSobra(chave, e.target.value)}
+                                style={{ ...inputStyle, padding: '8px 12px' }}
+                              />
+                            </td>
+                            <td style={{ maxWidth: '150px' }}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={item.usadaReal}
+                                onChange={(e) => setComposicaoPreview((prev) => prev.map((x) => (chaveComponente(x.origem, x.componenteId) === chave ? { ...x, usadaReal: e.target.value } : x)))}
+                                aria-label={`Quantidade de ${item.componenteNome} usada de verdade`}
+                                title={`Em branco = ${Math.round((necessario + (Number(item.perdaExtra) || 0) - (Number(item.sobra) || 0)) * 1000) / 1000} ${item.unidade}`}
                                 style={{ ...inputStyle, padding: '8px 12px' }}
                               />
                             </td>

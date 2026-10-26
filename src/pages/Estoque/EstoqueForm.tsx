@@ -202,6 +202,8 @@ interface ProdutoFormData {
   cfop: string;
   csosn: string;
   pesoLiquidoUnitarioKg: string;
+  /** Pesagem da producao (26/10/2026): sacolinha/embalagem de cada unidade, descontada na balanca. */
+  pesoEmbalagemKg: string;
   origem: string;
   perfilFiscal: string;
   cest: string;
@@ -354,6 +356,7 @@ const emptyFormData: ProdutoFormData = {
   cfop: '5102',
   csosn: '',
   pesoLiquidoUnitarioKg: '',
+  pesoEmbalagemKg: '',
   origem: '0',
   perfilFiscal: '',
   cest: '',
@@ -866,6 +869,7 @@ const EstoqueForm: React.FC = () => {
               // Sem CSOSN gravado fica vazio (antes mostrava 400 e gravava 400 no proximo salvar).
               csosn: data.csosn || data.fiscal?.csosnCst || '',
               pesoLiquidoUnitarioKg: String(data.pesoLiquidoUnitarioKg ?? ''),
+              pesoEmbalagemKg: String(data.pesoEmbalagemKg ?? ''),
               origem: data.origem || data.fiscal?.origem || '0',
               perfilFiscal: data.perfilFiscal || data.fiscal?.perfilFiscal || '',
               cest: data.cest || data.fiscal?.cest || '',
@@ -1542,6 +1546,7 @@ const EstoqueForm: React.FC = () => {
         // Distinto do campo "peso" (frete/e-commerce), nunca usado em
         // nota fiscal.
         pesoLiquidoUnitarioKg: toNumber(formData.pesoLiquidoUnitarioKg),
+        pesoEmbalagemKg: toNumber(formData.pesoEmbalagemKg),
         cstIpi: formData.cstIpi,
         enquadramentoIpi: formData.enquadramentoIpi.replace(/\D/g, ''),
         percentualTributosFederal: parseComissaoPercentualInput(formData.percentualTributosFederal) ?? null,
@@ -2508,7 +2513,7 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Peso líquido por unidade (kg)</label>
                   <input type="number" name="pesoLiquidoUnitarioKg" step="0.001" min="0" value={formData.pesoLiquidoUnitarioKg} onChange={handleChange} />
-                  <span className="field-hint">Obrigatório só para CFOP de exportação (7101/7102) — usado pra converter a quantidade vendida em unidade pra quilo na nota fiscal, exigência da SEFAZ para operações de exportação.</span>
+                  <span className="field-hint">Obrigatório só para CFOP de exportação (7101/7102) — usado pra converter a quantidade vendida em unidade pra quilo na nota fiscal, exigência da SEFAZ para operações de exportação. Também é o peso de cada pacote na pesagem da produção.</span>
                 </div>
                 <div className="input-group">
                   <label>{usesCsosn(regimeTributario) ? 'CSOSN *' : 'CST de ICMS *'}</label>
@@ -3006,6 +3011,19 @@ const EstoqueForm: React.FC = () => {
                         <button type="button" className="btn-secondary" onClick={handleAdicionarItemComposicao} style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
                           <Plus size={16} /> Adicionar
                         </button>
+                      </div>
+
+                      {/* Pesagem da producao (26/10/2026): pacote fechado e sacolinha descontada na balanca. */}
+                      <div className="form-grid-3" style={{ marginTop: '16px', alignItems: 'flex-end' }}>
+                        <div className="input-group">
+                          <label>Peso líquido de cada unidade (kg)</label>
+                          <input type="number" name="pesoLiquidoUnitarioKg" step="0.001" min="0" value={formData.pesoLiquidoUnitarioKg} onChange={handleChange} title="Ex.: pacote de 250 g = 0,250. Na finalização da produção, o peso da balança vira quantidade de pacotes." />
+                        </div>
+                        <div className="input-group">
+                          <label>Peso da embalagem de cada unidade (kg)</label>
+                          <input type="number" name="pesoEmbalagemKg" step="0.001" min="0" value={formData.pesoEmbalagemKg} onChange={handleChange} title="Sacolinha/pacote vazio. É descontado por unidade na pesagem da produção. Em branco = não desconta." />
+                        </div>
+                        <span className="field-hint" style={{ alignSelf: 'center' }}>Usados na pesagem ao finalizar a ordem de produção (peso da balança − caixas − embalagens = pacotes).</span>
                       </div>
 
                       <div className="table-wrapper" style={{ marginTop: '20px' }}>

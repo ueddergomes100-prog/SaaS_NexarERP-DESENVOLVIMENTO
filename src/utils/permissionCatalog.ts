@@ -36,6 +36,31 @@ export interface PermissionCatalogGroup {
  */
 export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
   {
+    // APLICATIVO MOBILE (26/10/2026, pedido do dono): tudo do app num bloco so', uma
+    // chave por tela. Tela nova do app entra AQUI. As chaves `app.*` sao novas
+    // (quem nunca teve o app gravado conta com todas -- permissoesAppDomain.ts);
+    // OS no app, Entregas e Pedir troca mantem o id de antes, so' mudaram de grupo.
+    // A chave do app nunca da' o que a pessoa nao tem no sistema: Contas a Pagar no
+    // app tambem precisa de "Financeiro: Contas a Pagar", e assim por diante.
+    grupo: 'Aplicativo mobile',
+    itens: [
+      { id: 'app.pedido', label: 'App: Novo Pedido e Meus Pedidos', color: '#8b5cf6' },
+      { id: 'app.orcamento', label: 'App: Novo Orçamento', color: '#8b5cf6' },
+      { id: 'app.preco', label: 'App: Consultar Preço', color: '#8b5cf6' },
+      { id: 'app.clientes', label: 'App: Consultar Cliente', color: '#8b5cf6' },
+      { id: 'vendas.troca_solicitar', label: 'App: Trocas — pedir troca e Minhas Trocas', color: '#8b5cf6' },
+      { id: 'mecanica.os_app', label: 'App: OS (técnico) — ver e atender pelo celular', color: '#8b5cf6' },
+      { id: 'mecanica.os_app_abrir', label: 'App: OS — abrir OS nova no campo', color: '#8b5cf6' },
+      { id: 'operacoes.entregas_app', label: 'App: Entregas (motorista) — registrar entrega, recebido e canhoto', color: '#8b5cf6' },
+      { id: 'app.conferencia', label: 'App: Conferência (precisa de Expedição)', color: '#8b5cf6' },
+      { id: 'app.balanco', label: 'App: Balanço — contar (precisa de Estoque: Balanço — contar)', color: '#8b5cf6' },
+      { id: 'app.liberacoes', label: 'App: Liberações de desconto (precisa de Aprovar Desconto)', color: '#8b5cf6' },
+      { id: 'app.emitir_nota', label: 'App: Emitir Nota Fiscal (precisa de Fiscal: emitir)', color: '#8b5cf6' },
+      { id: 'app.contas_pagar', label: 'App: Contas a Pagar (precisa de Financeiro: Contas a Pagar)', color: '#8b5cf6' },
+      { id: 'app.contas_receber', label: 'App: Contas a Receber (precisa de Financeiro: Contas a Receber)', color: '#8b5cf6' },
+    ],
+  },
+  {
     grupo: 'Visão Geral',
     itens: [
       // Acesso a TELA (bloqueia /dashboard inteiro sem ela -- ver
@@ -67,9 +92,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // Cashback (20/10/2026): so' consulta -- saldo, lotes e movimentos dos clientes.
       { id: 'vendas.cashback', label: 'Vendas: Cashback (ver o saldo dos clientes)', color: '#f59e0b' },
       // Trocas (reposicao sem cobranca de produto estragado). Duas permissoes de
-      // proposito: quem PEDE a troca (vendedor no aplicativo) nao e' quem APROVA e
-      // baixa o estoque (a loja). Ver docs/PLANO_TROCAS_VENDEDOR.md.
-      { id: 'vendas.troca_solicitar', label: 'Vendas: Trocas — Pedir troca (aplicativo)', color: '#f59e0b' },
+      // proposito: quem PEDE a troca (vendedor no aplicativo, grupo "Aplicativo
+      // mobile") nao e' quem APROVA e baixa o estoque (a loja). Ver docs/PLANO_TROCAS_VENDEDOR.md.
       { id: 'vendas.troca_gerenciar', label: 'Vendas: Trocas — Aprovar, entregar e ver relatório', color: '#ef4444' },
       // Condicional (cliente leva para provar). So' aparece no menu com "Trabalha com
       // condicional" ligado em Configuracoes. Ver src/utils/condicionalDomain.ts.
@@ -110,10 +134,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     itens: [
       { id: 'mecanica.os', label: 'Serviços: Ordens de Serviço', color: '#3b82f6' },
       { id: 'mecanica.os_alterar', label: 'Serviços: Alterar OS', color: '#3b82f6' },
-      // App do tecnico (2026-10-08): permissoes so' do app, separadas da tela de OS do sistema.
-      // Quem ja' tem 'mecanica.os' continua entrando no app (nao quebra ninguem).
-      { id: 'mecanica.os_app', label: 'Serviços: OS no app (técnico) — ver e atender pelo celular', color: '#3b82f6' },
-      { id: 'mecanica.os_app_abrir', label: 'Serviços: OS no app — abrir OS nova no campo', color: '#3b82f6' },
+      // OS no app (tecnico): no grupo "Aplicativo mobile".
       { id: 'mecanica.os_excluir', label: 'Serviços: Excluir OS', color: '#ef4444' },
       { id: 'mecanica.relatorios', label: 'Serviços: Relatórios', color: '#3b82f6' },
     ],
@@ -180,9 +201,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // (pedidos livres, despesas lancadas canceladas). Mesmo texto de
       // ROTULO_PERMISSAO_ROMANEIO_ENCERRADO (romaneioDomain.ts).
       { id: 'operacoes.romaneios_reabrir', label: 'Romaneio de Entrega: reabrir e cancelar depois de fechado', color: '#14b8a6' },
-      // App do motorista (2026-10-08): so' registra entregue/nao entregue, recebido e canhoto
-      // nas rotas em andamento. NAO da' acesso a tela de romaneio do sistema.
-      { id: 'operacoes.entregas_app', label: 'Entregas no app (motorista): registrar entregue/não entregue, recebido e foto do canhoto', color: '#14b8a6' },
+      // Entregas no app (motorista): no grupo "Aplicativo mobile".
     ],
   },
   {

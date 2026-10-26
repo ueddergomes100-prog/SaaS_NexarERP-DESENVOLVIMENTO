@@ -183,3 +183,26 @@ test('situacao: inativa e reativa; dono nao', async () => {
   assert.equal(fake.ler('usuarios/carlos').status, 'Ativo');
   await assert.rejects(() => s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'loja', ativo: false } }), (e) => e.status === 400);
 });
+
+test('permissoes pelo servidor: grava com o marcador do app; gerente so mexe no que tem (26/10/2026)', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', permissoes: ['vendas.pedidos'] },
+    'usuarios/adm': { tenantId: 'loja', role: 'Admin', nome: 'ADM' },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  // Administrador tira "Consultar preco" de quem nunca teve o app gravado.
+  await s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido'], nivelAcesso: 'supervisor' }, gerente: false });
+  const u = fake.ler('usuarios/carlos');
+  assert.deepEqual([...u.permissoes].sort(), ['app.definido', 'app.pedido', 'vendas.pedidos']);
+  assert.equal(u.nivelAcesso, 'supervisor');
+  // Gerente sem "financeiro.pagar" nao da' essa permissao; nem muda o nivel.
+  const gerente = { uid: 'g1', tenantId: 'loja', role: 'Funcionario', nivelAcesso: 'gerente', permissoes: ['vendas.pedidos', 'administrativo.equipe'] };
+  await assert.rejects(() => s.salvarPermissoes({ user: gerente, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido', 'financeiro.pagar'] }, gerente: true }), (e) => e.status === 403 && /financeiro\.pagar/.test(e.message));
+  // Gerente (que nunca teve o app gravado, entao "tem" as chaves do app) devolve o Consultar preco.
+  await s.salvarPermissoes({ user: gerente, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido', 'app.preco'], nivelAcesso: 'gerente' }, gerente: true });
+  const depois = fake.ler('usuarios/carlos');
+  assert.ok(depois.permissoes.includes('app.preco'));
+  assert.equal(depois.nivelAcesso, 'supervisor', 'gerente nao muda o nivel');
+  // Administrador/dono nao tem permissao por modulo.
+  await assert.rejects(() => s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'adm', permissoes: [] }, gerente: false }), (e) => e.status === 400);
+});

@@ -5,6 +5,7 @@ import { collection, doc, getDoc, limit, onSnapshot, query, runTransaction, serv
 import Swal from 'sweetalert2';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
+import { permissoesEfetivas } from '../utils/permissoesAppDomain';
 import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../utils/cashbackDomain';
 import {
   buildActiveSessionWarningHtml,
@@ -466,7 +467,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // firestore.rules usam a mesma regra em currentTenantId().
             const homeTenant = typeof data.tenantId === 'string' && data.tenantId ? data.tenantId : user.uid;
             const finalTenant = typeof data.filialAtiva === 'string' && data.filialAtiva ? data.filialAtiva : homeTenant;
-            const finalPermissions = toStringArray(data.permissoes);
+            // Permissoes do app (26/10/2026): quem nunca teve o app gravado conta com as
+            // chaves novas do app (ninguem perde acesso) -- permissoesAppDomain.ts.
+            const finalPermissions = permissoesEfetivas(toStringArray(data.permissoes));
             setAcessoAppMobile(data.acessoAppMobile === true);
             setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];

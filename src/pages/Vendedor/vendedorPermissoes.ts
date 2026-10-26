@@ -1,4 +1,15 @@
 import { hasTenantFullAccess } from '../../utils/roles';
+import { podeNoApp } from '../../utils/permissoesAppDomain';
+
+/**
+ * Bloco "Aplicativo mobile" das permissoes (26/10/2026): cada tela do app tem a
+ * sua chave (PERMISSAO_APP em permissoesAppDomain.ts). Dono/gestor sempre; quem
+ * nunca teve o app gravado conta com todas (o AuthContext ja' entrega assim).
+ */
+export { PERMISSAO_APP } from '../../utils/permissoesAppDomain';
+export const podeTelaDoApp = (chave: string, userRole: unknown, isOwner: boolean, permissoes: string[]): boolean => (
+  podeNoApp(chave, { role: userRole, isOwner, permissoes })
+);
 
 /** Liberacao de desconto pelo celular (21/10/2026): quem ve a tela Liberacoes. Regra em liberacaoRemotaDomain.ts. */
 export { podeLiberarDescontoNoApp } from '../../utils/liberacaoRemotaDomain';

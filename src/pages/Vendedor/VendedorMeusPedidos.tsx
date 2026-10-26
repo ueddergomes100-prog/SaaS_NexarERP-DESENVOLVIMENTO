@@ -16,6 +16,7 @@ import { nomeArquivoDocumento, numeroDaNota } from '../../utils/nomeArquivoDomai
 import { STATUS_NOTA_EM_TRANSMISSAO } from '../../utils/cancelamentoNotaVendaDomain';
 import { compartilharOuBaixarPdf } from './folhaParaPdf';
 import VendedorHeader from './VendedorHeader';
+import { PERMISSAO_APP, podeTelaDoApp } from './vendedorPermissoes';
 import {
   DIAS_RECENTES_SEM_MINHAS_VENDAS,
   PAGINA_MEUS_PEDIDOS,
@@ -78,7 +79,7 @@ const corStatus = (status: string): string => {
 
 const VendedorMeusPedidos: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, userPermissions, controlaFiscal } = useAuth();
+  const { tenantId, currentUser, userPermissions, controlaFiscal, userRole, isOwner } = useAuth();
   const [itens, setItens] = useState<ItemLista[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState('');
@@ -97,7 +98,8 @@ const VendedorMeusPedidos: React.FC = () => {
   // vendas dele aqui. Sem ela, so' as dos ultimos 30 dias.
   const temMinhasVendas = userPermissions.includes(PERMISSAO_MINHAS_VENDAS);
 
-  const podeEmitirNota = controlaFiscal && userPermissions.includes('fiscal.emitir');
+  // Bloco "Aplicativo mobile" (26/10/2026): emitir pelo app tambem pede a chave do app.
+  const podeEmitirNota = controlaFiscal && userPermissions.includes('fiscal.emitir') && podeTelaDoApp(PERMISSAO_APP.emitirNota, userRole, isOwner, userPermissions);
 
   // De 6 em 6 (23/10/2026): cada colecao (pedidos e orcamentos) e' lida em
   // paginas, mais novos primeiro (indice tenantId + vendedor + createdAt).

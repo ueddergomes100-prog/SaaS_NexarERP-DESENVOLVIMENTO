@@ -36,8 +36,10 @@ import EnvioAutomaticoDeRascunhos from './EnvioAutomaticoDeRascunhos';
 import VendedorConferenciaFila from './VendedorConferenciaFila';
 import VendedorConferencia from './VendedorConferencia';
 import VendedorLiberacoes from './VendedorLiberacoes';
-import { podeLiberarDescontoNoApp } from './vendedorPermissoes';
+import { podeLiberarDescontoNoApp, podeTelaDoApp, PERMISSAO_APP } from './vendedorPermissoes';
 import { renovarAvisosSeAtivos } from '../../services/notificacoesPushService';
+import { hasTenantFullAccess } from '../../utils/roles';
+import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -113,6 +115,10 @@ const VendedorShell: React.FC = () => {
   }
 
   const mostraNavbar = !SEM_NAVBAR_PREFIXOS.some((prefixo) => location.pathname.startsWith(prefixo));
+  // Bloco "Aplicativo mobile" (26/10/2026): tela sem a chave volta para o inicio (a URL direta nao passa).
+  const so = (chave: string, elemento: React.ReactElement) => (podeTelaDoApp(chave, userRole, isOwner, userPermissions) ? elemento : <Navigate to="/vendedor" replace />);
+  const podeRascunhos = [PERMISSAO_APP.pedido, PERMISSAO_APP.orcamento].some((chave) => podeTelaDoApp(chave, userRole, isOwner, userPermissions))
+    || hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_TROCA_SOLICITAR);
 
   return (
     <div
@@ -125,12 +131,12 @@ const VendedorShell: React.FC = () => {
         <VendedorFaixaOffline />
         <Routes>
           <Route index element={<VendedorHome />} />
-          <Route path="pedido/novo" element={<VendedorNovoPedido />} />
-          <Route path="pedido/rascunho/:localId" element={<VendedorNovoPedido />} />
-          <Route path="pedido/:id" element={<VendedorPedidoDetalhe />} />
-          <Route path="orcamento/novo" element={<VendedorNovoOrcamento />} />
-          <Route path="orcamento/rascunho/:localId" element={<VendedorNovoOrcamento />} />
-          <Route path="rascunhos" element={<VendedorRascunhos />} />
+          <Route path="pedido/novo" element={so(PERMISSAO_APP.pedido, <VendedorNovoPedido />)} />
+          <Route path="pedido/rascunho/:localId" element={so(PERMISSAO_APP.pedido, <VendedorNovoPedido />)} />
+          <Route path="pedido/:id" element={so(PERMISSAO_APP.pedido, <VendedorPedidoDetalhe />)} />
+          <Route path="orcamento/novo" element={so(PERMISSAO_APP.orcamento, <VendedorNovoOrcamento />)} />
+          <Route path="orcamento/rascunho/:localId" element={so(PERMISSAO_APP.orcamento, <VendedorNovoOrcamento />)} />
+          <Route path="rascunhos" element={podeRascunhos ? <VendedorRascunhos /> : <Navigate to="/vendedor" replace />} />
           <Route path="troca/nova" element={<VendedorNovaTroca />} />
           <Route path="troca/rascunho/:localId" element={<VendedorNovaTroca />} />
           <Route path="trocas" element={<VendedorTrocas />} />
@@ -141,24 +147,24 @@ const VendedorShell: React.FC = () => {
           <Route path="entregas" element={<VendedorEntregas />} />
           <Route path="entregas/:id" element={<VendedorEntregaRota />} />
           <Route path="entregas/:id/:pedidoId" element={<VendedorEntregaRegistrar />} />
-          <Route path="pedidos" element={<VendedorMeusPedidos />} />
-          <Route path="cliente" element={<VendedorConsultarCliente />} />
-          <Route path="cliente/novo" element={<VendedorNovoCliente />} />
-          <Route path="preco" element={<VendedorConsultarPreco />} />
+          <Route path="pedidos" element={so(PERMISSAO_APP.pedido, <VendedorMeusPedidos />)} />
+          <Route path="cliente" element={so(PERMISSAO_APP.clientes, <VendedorConsultarCliente />)} />
+          <Route path="cliente/novo" element={so(PERMISSAO_APP.clientes, <VendedorNovoCliente />)} />
+          <Route path="preco" element={so(PERMISSAO_APP.preco, <VendedorConsultarPreco />)} />
           <Route path="perfil" element={<VendedorPerfil />} />
-          <Route path="contas-pagar" element={<VendedorContasPagar />} />
-          <Route path="contas-receber" element={<VendedorContasReceber />} />
-          <Route path="conferencia" element={<VendedorConferenciaFila />} />
-          <Route path="conferencia/troca/:trocaId" element={<VendedorConferencia />} />
-          <Route path="conferencia/:pedidoId" element={<VendedorConferencia />} />
+          <Route path="contas-pagar" element={so(PERMISSAO_APP.contasPagar, <VendedorContasPagar />)} />
+          <Route path="contas-receber" element={so(PERMISSAO_APP.contasReceber, <VendedorContasReceber />)} />
+          <Route path="conferencia" element={so(PERMISSAO_APP.conferencia, <VendedorConferenciaFila />)} />
+          <Route path="conferencia/troca/:trocaId" element={so(PERMISSAO_APP.conferencia, <VendedorConferencia />)} />
+          <Route path="conferencia/:pedidoId" element={so(PERMISSAO_APP.conferencia, <VendedorConferencia />)} />
           <Route
             path="balanco"
-            element={podeContarBalancoNoApp(userRole, isOwner, userPermissions) ? <VendedorBalanco /> : <Navigate to="/vendedor" replace />}
+            element={podeContarBalancoNoApp(userRole, isOwner, userPermissions) ? so(PERMISSAO_APP.balanco, <VendedorBalanco />) : <Navigate to="/vendedor" replace />}
           />
           {/* Liberacao de desconto pelo celular (21/10/2026): so' quem pode liberar. */}
           <Route
             path="liberacoes"
-            element={podeLiberarDescontoNoApp(userRole, isOwner, userPermissions) ? <VendedorLiberacoes /> : <Navigate to="/vendedor" replace />}
+            element={podeLiberarDescontoNoApp(userRole, isOwner, userPermissions) ? so(PERMISSAO_APP.liberacoes, <VendedorLiberacoes />) : <Navigate to="/vendedor" replace />}
           />
           <Route path="*" element={<Navigate to="/vendedor" replace />} />
         </Routes>

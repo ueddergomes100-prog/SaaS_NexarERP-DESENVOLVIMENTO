@@ -1,7 +1,7 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
-const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao } = require('../services/limitesDoPlano');
+const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes } = require('../services/limitesDoPlano');
 const { podeGerirFuncionario } = require('../middleware/gestaoEquipe');
 const { registrarLog } = require('../services/auditoria');
 const { podeCriarLoginDeEquipe } = require('../domain/visibilidadeVendasDomain');
@@ -96,6 +96,22 @@ router.post('/ficha', podeGerirFuncionario, async (req, res) => {
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErroLimite(res, erro, 'salvar o funcionário');
+  }
+});
+
+/** POST /api/usuarios/permissoes -- { usuarioId, permissoes, nivelAcesso? } (26/10/2026). */
+router.post('/permissoes', podeGerirFuncionario, async (req, res) => {
+  try {
+    const r = await salvarPermissoes({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {}, gerente: req.gerenteDaEquipe === true });
+    registrarLog(req.user, {
+      modulo: 'administrativo',
+      acao: 'edicao',
+      descricao: `Permissões de ${r.nome} alteradas.`,
+      registroId: r.usuarioId,
+    });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErroLimite(res, erro, 'salvar as permissões');
   }
 });
 

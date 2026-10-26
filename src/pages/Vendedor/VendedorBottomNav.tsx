@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, Package, Users, UserCircle, Wrench } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { podeUsarOsNoApp } from './vendedorPermissoes';
+import { PERMISSAO_APP, podeTelaDoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 
 interface ItemDaBarra {
   path: string;
@@ -10,15 +10,15 @@ interface ItemDaBarra {
   Icon: typeof Home;
   match: (p: string) => boolean;
   /** Item so' para quem tem a permissao (a barra nao mostra o que a pessoa nao pode abrir). */
-  so?: 'os';
+  so?: 'os' | string;
 }
 
 const ITENS: ItemDaBarra[] = [
   { path: '/vendedor', label: 'Início', Icon: Home, match: (p: string) => p === '/vendedor' },
-  { path: '/vendedor/pedidos', label: 'Pedidos', Icon: Package, match: (p: string) => p.startsWith('/vendedor/pedidos') },
+  { path: '/vendedor/pedidos', label: 'Pedidos', Icon: Package, match: (p: string) => p.startsWith('/vendedor/pedidos'), so: PERMISSAO_APP.pedido },
   // Atalho da OS (pedido do dono, 13/10/2026): mesma regra do cartao da tela inicial.
   { path: '/vendedor/os', label: 'OS', Icon: Wrench, match: (p: string) => p.startsWith('/vendedor/os'), so: 'os' },
-  { path: '/vendedor/cliente', label: 'Clientes', Icon: Users, match: (p: string) => p.startsWith('/vendedor/cliente') },
+  { path: '/vendedor/cliente', label: 'Clientes', Icon: Users, match: (p: string) => p.startsWith('/vendedor/cliente'), so: PERMISSAO_APP.clientes },
   { path: '/vendedor/perfil', label: 'Perfil', Icon: UserCircle, match: (p: string) => p.startsWith('/vendedor/perfil') },
 ];
 
@@ -32,7 +32,8 @@ const VendedorBottomNav: React.FC = () => {
   const location = useLocation();
   const { userRole, isOwner, userPermissions } = useAuth();
   const podeOs = podeUsarOsNoApp(userRole, isOwner, userPermissions);
-  const itens = ITENS.filter((item) => item.so !== 'os' || podeOs);
+  // Bloco "Aplicativo mobile" (26/10/2026): Pedidos e Clientes tambem tem chave.
+  const itens = ITENS.filter((item) => (!item.so ? true : item.so === 'os' ? podeOs : podeTelaDoApp(item.so, userRole, isOwner, userPermissions)));
 
   return (
     <nav className="app-nav">

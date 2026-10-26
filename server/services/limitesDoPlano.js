@@ -14,6 +14,8 @@ const lim = require('../domain/limitesDoPlanoDomain');
 const ident = require('../domain/loginIdentidadeDomain');
 const { normalizarCodigo } = require('./vendedorPin');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
+const permApp = require('../domain/permissoesAppDomain');
+const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 
 class ErroLimite extends Error {
   constructor(status, message) {
@@ -346,4 +348,31 @@ const alterarSituacao = async ({ user, tenantId, corpo }) => {
   return { usuarioId: ref.id, nome: alvo.nome || '', ativo };
 };
 
-module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista, editarFicha, alterarSituacao };
+/**
+ * Permissoes do funcionario (26/10/2026: pelo servidor). Grava com o marcador do
+ * app (permissoesAppDomain): dai' em diante as chaves do app valem como marcadas.
+ * Gerente: so' da'/tira o que ELE MESMO tem (contando as chaves implicitas do
+ * app) e nunca muda o nivel de acesso.
+ */
+const salvarPermissoes = async ({ user, tenantId, corpo, gerente }) => {
+  const c = corpo || {};
+  const { ref, alvo } = await lerFuncionario(tenantId, c.usuarioId);
+  if (alvo.role !== 'Funcionario') throw new ErroLimite(400, 'Só funcionário tem permissões por módulo; administrador e dono já têm acesso a tudo.');
+  if (!Array.isArray(c.permissoes)) throw new ErroLimite(400, 'Lista de permissões inválida. Atualize a tela e tente de novo.');
+  const novas = c.permissoes.filter(permApp.permissaoValida);
+  if (gerente) {
+    const semTer = permApp.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes });
+    if (semTer.length > 0) {
+      throw new ErroLimite(403, `Você só pode liberar ou retirar as permissões que você mesmo tem. Fora do seu alcance: ${semTer.join(', ')}. Peça ao dono ou a um administrador.`);
+    }
+  }
+  const nivel = !gerente && c.nivelAcesso !== undefined ? parseNivelAcesso(c.nivelAcesso) : null;
+  await ref.update({
+    permissoes: permApp.permissoesParaGravar(novas),
+    ...(nivel ? { nivelAcesso: nivel } : {}),
+    ...buildDocumentUpdateMetadata(user.uid, agora(), 'Permissões atualizadas'),
+  });
+  return { usuarioId: ref.id, nome: alvo.nome || '' };
+};
+
+module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes };

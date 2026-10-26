@@ -73,6 +73,10 @@ export const criarLoginNoServidor = (dados: { nome: string; usuario: string; sen
 export const salvarFichaNoServidor = (dados: { usuarioId: string; nome: string; codigoVendedor?: string; motorista?: { telefone: string; cnh: string } }) =>
   postar<{ motorista?: { novo: boolean; appLiberado: boolean; limiteApp: number } }>('ficha', { ...dados }, 'Não foi possível salvar o funcionário. Tente novamente.');
 
+/** Permissoes (e o nivel, so' dono/administrador) pelo servidor (26/10/2026). */
+export const salvarPermissoesNoServidor = (usuarioId: string, permissoes: string[], nivelAcesso?: string) =>
+  postar<{ ok: boolean }>('permissoes', { usuarioId, permissoes, ...(nivelAcesso ? { nivelAcesso } : {}) }, 'Não foi possível salvar as permissões. Tente novamente.');
+
 /** Inativa ou reativa o usuario (26/10/2026: pelo servidor). */
 export const alterarSituacaoNoServidor = (usuarioId: string, ativo: boolean) =>
   postar<{ ativo: boolean }>('situacao', { usuarioId, ativo }, 'Não foi possível alterar a situação do usuário. Tente novamente.');

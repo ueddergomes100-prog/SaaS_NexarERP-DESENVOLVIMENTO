@@ -18,6 +18,7 @@ import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
+import { permissoesEfetivas, permissoesParaGravar } from '../../utils/permissoesAppDomain';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
@@ -1140,7 +1141,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     setCopiarPermissoesDeId('');
     if (uId) {
       const user = tenantUsers.find(u => u.id === uId);
-      setSelectedUserPermissions(user?.permissoes || []);
+      setSelectedUserPermissions(permissoesEfetivas(user?.permissoes || []));
       setSelectedUserNivelAcesso(parseNivelAcesso(user?.nivelAcesso));
       setRecebeComissaoServicos(user?.recebeComissaoServicos || false);
       setComissaoPercentualServicos(user?.comissaoPercentualServicos != null ? String(user.comissaoPercentualServicos) : '');
@@ -1164,7 +1165,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     if (!copiarPermissoesDeId) return;
     const origem = tenantUsers.find(u => u.id === copiarPermissoesDeId);
     if (!origem) return;
-    setSelectedUserPermissions([...(origem.permissoes || [])]);
+    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || []));
     setSelectedUserNivelAcesso(parseNivelAcesso(origem.nivelAcesso));
     showWarning('Permissões copiadas', `Permissões e nível de acesso de ${origem.nome} copiados para a tela. Revise e clique em "Salvar Acessos" para confirmar.`);
   };
@@ -1223,7 +1224,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const percentualServicosValor = parseComissaoPercentualInput(comissaoPercentualServicos);
       const percentualPecasValor = parseComissaoPercentualInput(comissaoPercentualPecas);
       const updatePayload: Record<string, unknown> = {
-        permissoes: selectedUserPermissions,
+        // Com o marcador do app (26/10/2026): dai' em diante vale o que esta' marcado.
+        permissoes: permissoesParaGravar(selectedUserPermissions),
         nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
         comissaoPercentualServicos: percentualServicosValor,

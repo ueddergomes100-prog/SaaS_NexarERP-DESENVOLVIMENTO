@@ -10,7 +10,7 @@ import { buscarResumoHojeDoVendedor } from '../../services/vendedorRankingServic
 import { CAMINHO_INSTALACAO, estaInstalado } from './pwa';
 import { listarRascunhos } from './vendedorRascunhosStore';
 import './vendedorMobile.css';
-import { podeContarBalancoNoApp, podeLiberarDescontoNoApp, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
+import { PERMISSAO_APP, podeContarBalancoNoApp, podeLiberarDescontoNoApp, podeTelaDoApp, podeUsarEntregasNoApp, podeUsarOsNoApp } from './vendedorPermissoes';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { comOrigem } from './navegacaoApp';
@@ -60,6 +60,8 @@ const VendedorHome: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal, userRole, isOwner, filialAtual, conferenciaMercadoriaAtiva } = useAuth();
   const podeSolicitarTroca = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_TROCA_SOLICITAR);
+  // Bloco "Aplicativo mobile" (26/10/2026): cada atalho com a sua chave.
+  const tela = (chave: string) => podeTelaDoApp(chave, userRole, isOwner, userPermissions);
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
   const [resumoHoje, setResumoHoje] = useState<{ pedidos: number; orcamentos: number } | null>(null);
   // A Home remonta a cada visita (key por rota no VendedorShell), entao ler
@@ -209,10 +211,10 @@ const VendedorHome: React.FC = () => {
         )}
 
         <div className="vendedor-atalhos-grid">
-          <Atalho Icone={Box} rotulo="Novo Pedido" variante="principal" aoTocar={() => navigate('/vendedor/pedido/novo')} />
-          <Atalho Icone={FileText} rotulo="Novo Orçamento" aoTocar={() => navigate('/vendedor/orcamento/novo')} />
-          <Atalho Icone={Tag} rotulo="Consultar Preço" aoTocar={() => navigate('/vendedor/preco')} />
-          <Atalho Icone={Users} rotulo="Consultar Cliente" aoTocar={() => navigate('/vendedor/cliente')} />
+          {tela(PERMISSAO_APP.pedido) && <Atalho Icone={Box} rotulo="Novo Pedido" variante="principal" aoTocar={() => navigate('/vendedor/pedido/novo')} />}
+          {tela(PERMISSAO_APP.orcamento) && <Atalho Icone={FileText} rotulo="Novo Orçamento" aoTocar={() => navigate('/vendedor/orcamento/novo')} />}
+          {tela(PERMISSAO_APP.preco) && <Atalho Icone={Tag} rotulo="Consultar Preço" aoTocar={() => navigate('/vendedor/preco')} />}
+          {tela(PERMISSAO_APP.clientes) && <Atalho Icone={Users} rotulo="Consultar Cliente" aoTocar={() => navigate('/vendedor/cliente')} />}
           {podeSolicitarTroca && (
             <>
               <Atalho Icone={Repeat} rotulo="Nova Troca" detalhe="Reposição sem cobrança" variante="ambar" aoTocar={() => navigate('/vendedor/troca/nova')} />
@@ -224,31 +226,31 @@ const VendedorHome: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div className="app-secao">Mais módulos</div>
           <div className="vendedor-atalhos-grid">
-            <Atalho Icone={Send} rotulo="Rascunhos e Envio" aoTocar={() => navigate('/vendedor/rascunhos')} />
+            {(tela(PERMISSAO_APP.pedido) || tela(PERMISSAO_APP.orcamento) || podeSolicitarTroca) && <Atalho Icone={Send} rotulo="Rascunhos e Envio" aoTocar={() => navigate('/vendedor/rascunhos')} />}
             {podeUsarOsNoApp(userRole, isOwner, userPermissions) && (
               <Atalho Icone={Wrench} rotulo="Ordens de Serviço" aoTocar={() => navigate('/vendedor/os', comOrigem('/vendedor'))} />
             )}
-            {podeConferirNoApp({ acessoTotal: hasTenantFullAccess(userRole, isOwner), permissoes: userPermissions, conferenciaAtiva: conferenciaMercadoriaAtiva }) && (
+            {podeConferirNoApp({ acessoTotal: hasTenantFullAccess(userRole, isOwner), permissoes: userPermissions, conferenciaAtiva: conferenciaMercadoriaAtiva }) && tela(PERMISSAO_APP.conferencia) && (
               <Atalho Icone={PackageCheck} rotulo="Conferência" detalhe="Separar pedidos" aoTocar={() => navigate('/vendedor/conferencia')} />
             )}
             {podeUsarEntregasNoApp(userRole, isOwner, userPermissions) && (
               <Atalho Icone={Truck} rotulo="Entregas" aoTocar={() => navigate('/vendedor/entregas', comOrigem('/vendedor'))} />
             )}
-            {controlaFiscal && userPermissions.includes('fiscal.emitir') && (
+            {controlaFiscal && userPermissions.includes('fiscal.emitir') && tela(PERMISSAO_APP.emitirNota) && (
               <Atalho Icone={Receipt} rotulo="Emitir Nota Fiscal" aoTocar={() => navigate('/vendedor/pedidos')} />
             )}
-            {userPermissions.includes('financeiro.pagar') && (
+            {userPermissions.includes('financeiro.pagar') && tela(PERMISSAO_APP.contasPagar) && (
               <Atalho Icone={ArrowDownCircle} rotulo="Contas a Pagar" aoTocar={() => navigate('/vendedor/contas-pagar')} />
             )}
-            {userPermissions.includes('financeiro.receber') && (
+            {userPermissions.includes('financeiro.receber') && tela(PERMISSAO_APP.contasReceber) && (
               <Atalho Icone={ArrowUpCircle} rotulo="Contas a Receber" aoTocar={() => navigate('/vendedor/contas-receber')} />
             )}
             {/* Balanco (21/10/2026): quem tem "Estoque: Balanco -- contar" (dono/gestor sempre). */}
-            {podeContarBalancoNoApp(userRole, isOwner, userPermissions) && (
+            {podeContarBalancoNoApp(userRole, isOwner, userPermissions) && tela(PERMISSAO_APP.balanco) && (
               <Atalho Icone={ClipboardList} rotulo="Balanço" aoTocar={() => navigate('/vendedor/balanco')} />
             )}
             {/* Liberacao de desconto pelo celular (21/10/2026): quem pode liberar responde por aqui. */}
-            {podeLiberarDescontoNoApp(userRole, isOwner, userPermissions) && (
+            {podeLiberarDescontoNoApp(userRole, isOwner, userPermissions) && tela(PERMISSAO_APP.liberacoes) && (
               <Atalho Icone={ShieldCheck} rotulo="Liberações" detalhe="Desconto pedido ao gerente" aoTocar={() => navigate('/vendedor/liberacoes')} />
             )}
           </div>

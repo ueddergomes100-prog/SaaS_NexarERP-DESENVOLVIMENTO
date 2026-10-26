@@ -3,6 +3,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { definirPin, removerPin, validarPin } = require('../services/vendedorPin');
 const { emitirComprovante } = require('../services/comprovantes');
 const { TIPO_IDENTIFICACAO } = require('../domain/conferenciaDescontoDomain');
+const { gerentePodeGerir } = require('../middleware/gestaoEquipe');
 
 const router = express.Router();
 
@@ -66,10 +67,20 @@ router.post('/validar', async (req, res) => {
 // alterar" define a senha -- so' de vendedor de balcao COMUM (ver definirPin, `restrito`).
 const PERMISSAO_INCLUIR_VENDEDOR = 'cadastros.vendedores_incluir';
 const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.isTenantManager));
-const podeDefinirPin = (req, res, next) => {
+const podeDefinirPin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Usuario nao autenticado.' });
-  if (ehGestor(req.user) || (req.user.permissoes || []).includes(PERMISSAO_INCLUIR_VENDEDOR)) return next();
-  return res.status(403).json({ error: 'Só o dono ou quem tem a permissão "Cadastros: Vendedores — incluir e alterar" define a senha do vendedor.' });
+  if (ehGestor(req.user)) return next();
+  // 26/10/2026: o gerente (Equipe e Acessos) define o PIN de funcionario comum, sem a restricao de "so' balcao".
+  try {
+    if (await gerentePodeGerir(req.user, req.body?.usuarioId)) {
+      req.gerenteDaEquipe = true;
+      return next();
+    }
+  } catch (erro) {
+    console.error('[PIN] conferir gerente:', erro);
+  }
+  if ((req.user.permissoes || []).includes(PERMISSAO_INCLUIR_VENDEDOR)) return next();
+  return res.status(403).json({ error: 'Só o dono, um gerente da equipe ou quem tem a permissão "Cadastros: Vendedores — incluir e alterar" define a senha do vendedor.' });
 };
 
 router.post('/definir', podeDefinirPin, async (req, res) => {
@@ -79,7 +90,7 @@ router.post('/definir', podeDefinirPin, async (req, res) => {
       usuarioId: req.body?.usuarioId,
       pin: req.body?.pin,
       autorId: req.user.uid,
-      restrito: !ehGestor(req.user),
+      restrito: !ehGestor(req.user) && !req.gerenteDaEquipe,
     });
     return res.json({ ...resultado, ok: true });
   } catch (erro) {

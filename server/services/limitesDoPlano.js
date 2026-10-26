@@ -259,4 +259,91 @@ const vincularMotorista = async ({ user, tenantId, corpo }) => {
   return { usuarioId, motoristaId, nome: alvo.nome || '', motoristaNome: motorista.nome || '', appLiberado, limiteApp };
 };
 
-module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista };
+// ===========================================================================
+// FICHA E SITUACAO DO FUNCIONARIO (26/10/2026, pedido do dono: o gerente tambem edita)
+// ===========================================================================
+// Antes a tela gravava direto (so' dono/administrador passavam nas rules). Agora
+// e' tudo pelo servidor, para todos: quem pode e' decidido na rota
+// (middleware/gestaoEquipe.js). Aqui so' a trava de empresa e os dados.
+
+const lerFuncionario = async (tenantId, usuarioId) => {
+  if (!ID_VALIDO.test(String(usuarioId ?? ''))) throw new ErroLimite(400, 'Cadastro inválido. Atualize a tela e tente de novo.');
+  const ref = db.collection('usuarios').doc(String(usuarioId));
+  const snap = await ref.get();
+  const alvo = snap.exists ? snap.data() : null;
+  if (!alvo || alvo.tenantId !== tenantId) throw new ErroLimite(404, 'Este usuário não existe mais. Atualize a tela.');
+  return { ref, alvo };
+};
+
+/** Nome, codigo de vendedor e "e' motorista" (cria o motorista vinculado, como no criar login). */
+const editarFicha = async ({ user, tenantId, corpo }) => {
+  const c = corpo || {};
+  const { ref, alvo } = await lerFuncionario(tenantId, c.usuarioId);
+  const nome = String(c.nome ?? '').trim().slice(0, 120);
+  if (!nome) throw new ErroLimite(400, 'Informe o nome do funcionário.');
+  const codigoBruto = String(c.codigoVendedor ?? '').trim();
+  const codigoVendedor = codigoBruto ? normalizarCodigo(codigoBruto) : '';
+  if (codigoBruto && !codigoVendedor) throw new ErroLimite(400, 'Código de vendedor inválido. Use 2 dígitos, de 01 a 99.');
+  if (codigoVendedor) {
+    const mesmos = await db.collection('usuarios').where('tenantId', '==', tenantId).where('codigoVendedor', '==', codigoVendedor).get();
+    if (mesmos.docs.some((d) => d.id !== ref.id)) throw new ErroLimite(409, `Outro funcionário desta empresa já usa o código ${codigoVendedor}. Escolha um código diferente.`);
+  }
+
+  const atualizacao = {
+    nome,
+    // Codigo em branco mantem o que ja' havia (como a tela fazia); nunca grava undefined.
+    ...(codigoVendedor ? { codigoVendedor } : {}),
+    updatedAt: agora(),
+    ...buildDocumentUpdateMetadata(user.uid, agora(), 'Ficha do funcionário alterada'),
+  };
+
+  const motorista = c.motorista && typeof c.motorista === 'object' ? {
+    telefone: String(c.motorista.telefone ?? '').trim().slice(0, 40),
+    cnh: String(c.motorista.cnh ?? '').trim().slice(0, 40),
+  } : null;
+  let resultadoMotorista = null;
+  if (motorista) {
+    // Ja' vinculado: motoristas/{uid} (criado aqui) ou o motorista vinculado depois.
+    const idMotorista = String(alvo.motoristaId || ref.id);
+    const refMotorista = db.collection('motoristas').doc(idMotorista);
+    const snapMotorista = await refMotorista.get();
+    if (snapMotorista.exists && snapMotorista.data().tenantId === tenantId) {
+      await refMotorista.update({ nome: nome.toUpperCase(), telefone: motorista.telefone, cnh: motorista.cnh, ...buildDocumentUpdateMetadata(user.uid, agora()) });
+      resultadoMotorista = { novo: false, appLiberado: alvo.acessoAppMobile === true, limiteApp: 0 };
+    } else {
+      let appLiberado = alvo.acessoAppMobile === true;
+      let limiteApp = 0;
+      if (!appLiberado) {
+        ({ app: limiteApp } = await limitesDaEmpresa(tenantId));
+        appLiberado = (await registrosDaEmpresa(tenantId)).filter((r) => r.acessoAppMobile === true).length < limiteApp;
+      }
+      const permissoes = Array.isArray(alvo.permissoes) ? alvo.permissoes : [];
+      if (!permissoes.includes(PERMISSAO_ENTREGAS_APP)) atualizacao.permissoes = [...permissoes, PERMISSAO_ENTREGAS_APP];
+      if (appLiberado && alvo.acessoAppMobile !== true) Object.assign(atualizacao, { acessoAppMobile: true, acessoAppMobileEm: new Date().toISOString() });
+      await db.collection('motoristas').doc(ref.id).set({
+        nome: nome.toUpperCase(), telefone: motorista.telefone, cnh: motorista.cnh, observacao: '',
+        usuarioId: ref.id, tenantId, ativo: true, createdAt: agora(),
+        ...buildDocumentMetadata(user.uid, agora()),
+      });
+      resultadoMotorista = { novo: true, appLiberado, limiteApp };
+    }
+  }
+
+  await ref.update(atualizacao);
+  return { usuarioId: ref.id, nome, ...(resultadoMotorista ? { motorista: resultadoMotorista } : {}) };
+};
+
+/** Inativar / reativar. Inativo e' desconectado (o servidor e as rules recusam perfil inativo). */
+const alterarSituacao = async ({ user, tenantId, corpo }) => {
+  const c = corpo || {};
+  const { ref, alvo } = await lerFuncionario(tenantId, c.usuarioId);
+  if (ref.id === tenantId) throw new ErroLimite(400, 'O dono da empresa não pode ser inativado.');
+  const ativo = c.ativo === true;
+  await ref.update({
+    status: ativo ? 'Ativo' : 'Inativo',
+    ...buildDocumentUpdateMetadata(user.uid, agora(), ativo ? 'Usuário reativado' : 'Usuário inativado'),
+  });
+  return { usuarioId: ref.id, nome: alvo.nome || '', ativo };
+};
+
+module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista, editarFicha, alterarSituacao };

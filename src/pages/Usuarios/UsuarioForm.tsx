@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Save, UserCog, AlertCircle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { collection, setDoc, doc, serverTimestamp, getDoc, updateDoc, query, where, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
@@ -23,8 +23,7 @@ import {
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
-import { criarLoginNoServidor, redefinirSenhaAcesso, UsuarioAcessoError, vincularMotoristaNoServidor } from '../../services/usuarioAcessoService';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { criarLoginNoServidor, redefinirSenhaAcesso, salvarFichaNoServidor, UsuarioAcessoError, vincularMotoristaNoServidor } from '../../services/usuarioAcessoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
 
@@ -54,9 +53,6 @@ const UsuarioForm: React.FC = () => {
   const [ehMotorista, setEhMotorista] = useState(false);
   const [motoristaJaVinculado, setMotoristaJaVinculado] = useState(false);
   const [dadosMotorista, setDadosMotorista] = useState({ telefone: '', cnh: '' });
-  // Id do motorista vinculado: o proprio uid (criado aqui) ou o de um motorista
-  // ja' cadastrado em Operacoes > Motoristas (vinculado pelo botao, 26/10/2026).
-  const [motoristaDocId, setMotoristaDocId] = useState('');
   const [motoristasSemLogin, setMotoristasSemLogin] = useState<Array<{ id: string; nome: string }>>([]);
   const [motoristaEscolhido, setMotoristaEscolhido] = useState('');
   const [vinculando, setVinculando] = useState(false);
@@ -79,7 +75,6 @@ const UsuarioForm: React.FC = () => {
       const r = await vincularMotoristaNoServidor(id, motoristaEscolhido);
       setMotoristaJaVinculado(true);
       setEhMotorista(true);
-      setMotoristaDocId(motoristaEscolhido);
       if (r.appLiberado) showSuccess(`Vinculado ao motorista ${r.motoristaNome}: as rotas dele já aparecem no aplicativo deste usuário.`);
       else showWarning(`Vinculado ao motorista ${r.motoristaNome}. O aplicativo não foi liberado: a empresa já usa as ${r.limiteApp} vagas do app contratadas.`);
     } catch (erro) {
@@ -111,7 +106,6 @@ const UsuarioForm: React.FC = () => {
             const m = motoristaSnap.data();
             setEhMotorista(true);
             setMotoristaJaVinculado(true);
-            setMotoristaDocId(motoristaSnap.id);
             setDadosMotorista({ telefone: m.telefone || '', cnh: m.cnh || '' });
           }
         } catch (erro) {
@@ -230,34 +224,6 @@ const UsuarioForm: React.FC = () => {
     }
   };
 
-  /** Cria/atualiza o motorista vinculado. Falha aqui NAO desfaz o usuario: avisa e segue. */
-  const salvarVinculoMotorista = async (uid: string, nome: string) => {
-    if (!ehMotorista || !tenantId || !currentUser) return;
-    try {
-      const dados = {
-        nome: nome.toUpperCase().trim(),
-        telefone: dadosMotorista.telefone.trim(),
-        cnh: dadosMotorista.cnh.trim(),
-        usuarioId: uid,
-        tenantId,
-      };
-      if (motoristaJaVinculado) {
-        await updateDoc(doc(db, 'motoristas', motoristaDocId || uid), { ...dados, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
-      } else {
-        await setDoc(doc(db, 'motoristas', uid), {
-          ...dados,
-          observacao: '',
-          ativo: true,
-          createdAt: serverTimestamp(),
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-        });
-      }
-    } catch (erro) {
-      console.error('Erro ao salvar o motorista vinculado:', erro);
-      showWarning('O usuário foi salvo, mas não foi possível cadastrar como motorista. Cadastre em Operações → Motoristas.');
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tenantId || !currentUser) return;
@@ -276,20 +242,23 @@ const UsuarioForm: React.FC = () => {
           return;
         }
 
-        await updateDoc(doc(db, 'usuarios', id), {
+        // 26/10/2026: pelo servidor (o gerente da equipe tambem edita); o motorista
+        // marcado aqui e' criado ou atualizado no mesmo passo, vinculado ao usuario.
+        const r = await salvarFichaNoServidor({
+          usuarioId: id,
           nome: formData.nome,
-          // Campo omitido quando vazio em vez de gravado como undefined --
-          // o Firestore recusa undefined e derrubaria o save inteiro.
           ...(codigo ? { codigoVendedor: codigo } : {}),
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+          ...(ehMotorista ? { motorista: { telefone: dadosMotorista.telefone.trim(), cnh: dadosMotorista.cnh.trim() } } : {}),
         });
-        await salvarVinculoMotorista(id, formData.nome);
-        showSuccess('Usuário atualizado com sucesso!');
+        if (r.motorista?.novo && !r.motorista.appLiberado) {
+          showWarning(`Usuário atualizado e cadastrado como motorista (já aparece nas rotas). O aplicativo não foi liberado: a empresa já usa as ${r.motorista.limiteApp} vagas do app contratadas.`);
+        } else {
+          showSuccess('Usuário atualizado com sucesso!');
+        }
         navigate('/usuarios');
       } catch (err) {
         console.error(err);
-        showError('Erro', 'Não foi possível atualizar o usuário.');
+        showError('Não foi possível atualizar', err instanceof Error && err.message ? err.message : 'Não foi possível atualizar o usuário.');
       } finally {
         setIsLoading(false);
       }

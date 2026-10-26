@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { UserCog, Plus, Search, Edit2, Power, Shield, FileText } from 'lucide-react';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isTenantManagerRole } from '../../utils/roles';
 import {
   NIVEL_ACESSO_LABELS,
@@ -16,6 +15,7 @@ import {
   podeSerAlvoDePermissaoPorGerente,
 } from '../../utils/visibilidadeVendasDomain';
 import PermissoesUsuarioModal from '../../components/common/PermissoesUsuarioModal';
+import { alterarSituacaoNoServidor } from '../../services/usuarioAcessoService';
 import {
   EXPLICACAO_VENDEDOR_SEM_LOGIN,
   isRegistroDeVendedor,
@@ -96,9 +96,22 @@ const UsuariosList: React.FC = () => {
     return () => unsubscribe();
   }, [tenantId]);
 
+  /**
+   * Editar ficha, senha, PIN e inativar (26/10/2026): dono/administrador em quem
+   * nao e' gestor; o gerente da equipe so' em funcionario comum (o servidor confere de novo).
+   */
+  const podeGerir = (user: UsuarioData) => (canManageUsers
+    ? !isTenantManagerRole(user.role)
+    : podeCriarUsuario && podeSerAlvoDePermissaoPorGerente({
+      targetUserId: user.id,
+      targetRole: user.role,
+      targetNivelAcesso: parseNivelAcesso(user.nivelAcesso),
+      actorUserId: currentUser?.uid,
+    }));
+
   const handleToggleStatus = async (user: UsuarioData) => {
-    if (!isTenantManagerRole(userRole)) {
-      showError('Negado', 'Apenas o administrador pode alterar o acesso de usuários.');
+    if (!podeGerir(user)) {
+      showError('Sem permissão', 'Você não pode alterar o acesso deste usuário.');
       return;
     }
     if (!currentUser) return;
@@ -120,13 +133,10 @@ const UsuariosList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      await updateDoc(doc(db, 'usuarios', user.id), {
-        status: novoStatus,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), novoStatus === 'Ativo' ? 'Usuário reativado' : 'Usuário inativado'),
-      });
+      await alterarSituacaoNoServidor(user.id, novoStatus === 'Ativo');
       showSuccess(novoStatus === 'Ativo' ? 'Usuário ativado!' : 'Usuário inativado!');
-    } catch {
-      showError('Erro', 'Não foi possível atualizar o status do usuário.');
+    } catch (erro) {
+      showError('Não foi possível alterar', erro instanceof Error && erro.message ? erro.message : 'Não foi possível atualizar o status do usuário.');
     }
   };
 
@@ -271,7 +281,7 @@ const UsuariosList: React.FC = () => {
                 </tr>
               ) : (
                 filteredUsuarios.map(user => (
-                  <tr key={user.id} {...linha(user.id, (canManageUsers && !isTenantManagerRole(user.role)) ? () => openTab(`/usuarios/editar/${user.id}`) : null)} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <tr key={user.id} {...linha(user.id, podeGerir(user) ? () => openTab(`/usuarios/editar/${user.id}`) : null)} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{user.nome || user.nomeResponsavel || 'S/N'}</td>
                     <td style={{ padding: '16px', color: 'var(--text-muted)' }}>
                       {user.username ? (user.username.includes('-') ? user.username.split('-').slice(1).join('-') : user.username) : user.email}
@@ -308,7 +318,7 @@ const UsuariosList: React.FC = () => {
                                 <Shield size={18} />
                               </button>
                             )}
-                            {canManageUsers && (
+                            {podeGerir(user) && (
                               <>
                                 <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
                                   <Edit2 size={18} />

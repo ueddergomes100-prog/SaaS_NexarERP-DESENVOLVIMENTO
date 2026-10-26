@@ -1,7 +1,8 @@
 const express = require('express');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
-const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista } = require('../services/limitesDoPlano');
+const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao } = require('../services/limitesDoPlano');
+const { podeGerirFuncionario } = require('../middleware/gestaoEquipe');
 const { registrarLog } = require('../services/auditoria');
 const { podeCriarLoginDeEquipe } = require('../domain/visibilidadeVendasDomain');
 
@@ -11,8 +12,8 @@ const router = express.Router();
 // o tenantId sai sempre do token de quem chamou, nunca do corpo.
 router.use(authenticate);
 
-/** Redefine a senha de ACESSO (login) de um funcionario. So administrador. */
-router.post('/redefinir-senha', requireAdmin, async (req, res) => {
+/** Redefine a senha de ACESSO (login) de um funcionario. Dono/administrador, ou gerente sobre funcionario comum (26/10/2026). */
+router.post('/redefinir-senha', podeGerirFuncionario, async (req, res) => {
   try {
     const resultado = await redefinirSenhaAcesso({
       tenantId: req.user.tenantId,
@@ -67,7 +68,7 @@ router.post('/criar', podeCriarLogin, async (req, res) => {
 });
 
 /** POST /api/usuarios/vincular-motorista -- { usuarioId, motoristaId } (26/10/2026). */
-router.post('/vincular-motorista', podeCriarLogin, async (req, res) => {
+router.post('/vincular-motorista', podeGerirFuncionario, async (req, res) => {
   try {
     const r = await vincularMotorista({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
     registrarLog(req.user, {
@@ -79,6 +80,38 @@ router.post('/vincular-motorista', podeCriarLogin, async (req, res) => {
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErroLimite(res, erro, 'vincular o motorista');
+  }
+});
+
+/** POST /api/usuarios/ficha -- { usuarioId, nome, codigoVendedor?, motorista? } (26/10/2026). */
+router.post('/ficha', podeGerirFuncionario, async (req, res) => {
+  try {
+    const r = await editarFicha({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    registrarLog(req.user, {
+      modulo: 'administrativo',
+      acao: 'edicao',
+      descricao: `Ficha do funcionário ${r.nome} alterada${r.motorista && r.motorista.novo ? ' (cadastrado como motorista)' : ''}.`,
+      registroId: r.usuarioId,
+    });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErroLimite(res, erro, 'salvar o funcionário');
+  }
+});
+
+/** POST /api/usuarios/situacao -- { usuarioId, ativo } (26/10/2026). */
+router.post('/situacao', podeGerirFuncionario, async (req, res) => {
+  try {
+    const r = await alterarSituacao({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    registrarLog(req.user, {
+      modulo: 'administrativo',
+      acao: 'edicao',
+      descricao: `Usuário ${r.nome} ${r.ativo ? 'reativado' : 'inativado'}.`,
+      registroId: r.usuarioId,
+    });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErroLimite(res, erro, 'alterar a situação do usuário');
   }
 });
 

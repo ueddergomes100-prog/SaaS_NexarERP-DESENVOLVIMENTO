@@ -156,3 +156,30 @@ test('vincular motorista: recusa motorista de outro usuario, usuario ja vinculad
   await assert.rejects(() => s.vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'ana', motoristaId: 'm3' } }), (e) => e.status === 409 && /outro motorista/.test(e.message));
   await assert.rejects(() => s.vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', motoristaId: 'fora' } }), (e) => e.status === 404);
 });
+
+test('ficha do funcionario: nome e codigo; codigo repetido recusa; marcar motorista cria o vinculado (26/10/2026)', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', codigoVendedor: '03', permissoes: [] },
+    'usuarios/ana': { tenantId: 'loja', role: 'Funcionario', nome: 'ANA', codigoVendedor: '05' },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(() => s.editarFicha({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', nome: 'CARLOS', codigoVendedor: '5' } }), (e) => e.status === 409 && /05/.test(e.message));
+  const r = await s.editarFicha({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', nome: 'Carlos Souza', codigoVendedor: '7', motorista: { telefone: '1', cnh: '2' } } });
+  assert.equal(r.motorista.novo, true);
+  const u = fake.ler('usuarios/carlos');
+  assert.equal(u.nome, 'Carlos Souza');
+  assert.equal(u.codigoVendedor, '07');
+  assert.deepEqual(u.permissoes, ['operacoes.entregas_app']);
+  assert.equal(fake.ler('motoristas/carlos').usuarioId, 'carlos');
+  await assert.rejects(() => s.editarFicha({ user: ADMIN, tenantId: 'outra', corpo: { usuarioId: 'carlos', nome: 'X' } }), (e) => e.status === 404);
+});
+
+test('situacao: inativa e reativa; dono nao', async () => {
+  const fake = criarBancoFalso(base({ 'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', status: 'Ativo' } }), { consultas: true });
+  const s = carregar(fake.db);
+  await s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', ativo: false } });
+  assert.equal(fake.ler('usuarios/carlos').status, 'Inativo');
+  await s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', ativo: true } });
+  assert.equal(fake.ler('usuarios/carlos').status, 'Ativo');
+  await assert.rejects(() => s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'loja', ativo: false } }), (e) => e.status === 400);
+});

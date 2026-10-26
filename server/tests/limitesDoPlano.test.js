@@ -95,3 +95,64 @@ test('login do app: quem passou do limite (o ultimo a ganhar o acesso) nao entra
   assert.equal(await s.vagaNoApp('loja', 'antigo'), null);
   assert.match(String(await s.vagaNoApp('loja', 'novo')), /mais pessoas com o aplicativo ligado do que o plano permite \(1\)/);
 });
+
+test('criar login de motorista: motorista vinculado, permissao de entregas e app se houver vaga (26/10/2026)', async () => {
+  const fake = criarBancoFalso(base(), { consultas: true });
+  const r = await carregar(fake.db).criarLogin({ user: { uid: 'gerente', tenantId: 'loja' }, tenantId: 'loja', corpo: novo({ nome: 'Carlos', motorista: { telefone: ' 33999 ', cnh: '123' } }) });
+  assert.equal(r.motorista, true);
+  assert.equal(r.appLiberado, true);
+  const cadastro = fake.ler(`usuarios/${r.uid}`);
+  assert.deepEqual(cadastro.permissoes, ['operacoes.entregas_app']);
+  assert.equal(cadastro.acessoAppMobile, true);
+  assert.equal(cadastro.nivelAcesso, 'funcionario');
+  const motorista = fake.ler(`motoristas/${r.uid}`);
+  assert.equal(motorista.nome, 'CARLOS');
+  assert.equal(motorista.telefone, '33999');
+  assert.equal(motorista.usuarioId, r.uid);
+  assert.equal(motorista.tenantId, 'loja');
+  assert.equal(motorista.ativo, true);
+});
+
+test('criar login de motorista sem vaga no app: cria o login e o motorista, app desligado', async () => {
+  const fake = criarBancoFalso(base({ 'usuarios/loja': { tenantId: 'loja', role: 'Master', limiteUsuarios: 5, limiteAcessoMobile: 1, acessoAppMobile: true } }), { consultas: true });
+  const r = await carregar(fake.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ motorista: {} }) });
+  assert.equal(r.appLiberado, false);
+  assert.equal(fake.ler(`usuarios/${r.uid}`).acessoAppMobile, undefined);
+  assert.equal(fake.ler(`motoristas/${r.uid}`).usuarioId, r.uid);
+});
+
+test('criar login sem motorista nao cria motorista', async () => {
+  const fake = criarBancoFalso(base(), { consultas: true });
+  const r = await carregar(fake.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo() });
+  assert.equal(r.motorista, undefined);
+  assert.equal(fake.ler(`motoristas/${r.uid}`), undefined);
+});
+
+test('vincular motorista ja cadastrado: id do motorista nao muda, permissao de entregas e app (26/10/2026)', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', permissoes: ['vendas.pedido'] },
+    'motoristas/m1': { tenantId: 'loja', nome: 'CARLOS SILVA', ativo: true },
+  }), { consultas: true });
+  const r = await carregar(fake.db).vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', motoristaId: 'm1' } });
+  assert.equal(r.appLiberado, true);
+  assert.equal(fake.ler('motoristas/m1').usuarioId, 'carlos');
+  const u = fake.ler('usuarios/carlos');
+  assert.equal(u.motoristaId, 'm1');
+  assert.deepEqual(u.permissoes, ['vendas.pedido', 'operacoes.entregas_app']);
+  assert.equal(u.acessoAppMobile, true);
+});
+
+test('vincular motorista: recusa motorista de outro usuario, usuario ja vinculado e outra empresa', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS' },
+    'usuarios/ana': { tenantId: 'loja', role: 'Funcionario', nome: 'ANA', motoristaId: 'm2' },
+    'motoristas/m1': { tenantId: 'loja', nome: 'M1', usuarioId: 'ana' },
+    'motoristas/m2': { tenantId: 'loja', nome: 'M2', usuarioId: 'ana' },
+    'motoristas/m3': { tenantId: 'loja', nome: 'M3' },
+    'motoristas/fora': { tenantId: 'outra', nome: 'FORA' },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(() => s.vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', motoristaId: 'm1' } }), (e) => e.status === 409 && /outro usuário/.test(e.message));
+  await assert.rejects(() => s.vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'ana', motoristaId: 'm3' } }), (e) => e.status === 409 && /outro motorista/.test(e.message));
+  await assert.rejects(() => s.vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', motoristaId: 'fora' } }), (e) => e.status === 404);
+});

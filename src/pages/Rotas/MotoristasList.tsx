@@ -36,6 +36,8 @@ interface Motorista {
   cnh?: string;
   observacao?: string;
   ativo?: boolean;
+  /** Motorista criado em Equipe e Acessos ("Este funcionario e' motorista"): o login dele. */
+  usuarioId?: string;
 }
 
 const MotoristasList: React.FC = () => {
@@ -212,16 +214,17 @@ const MotoristasList: React.FC = () => {
                 <th style={{ padding: '14px' }}>Nome</th>
                 <th style={{ padding: '14px' }}>Telefone</th>
                 <th style={{ padding: '14px' }}>CNH</th>
+                <th style={{ padding: '14px' }}>Aplicativo</th>
                 <th style={{ padding: '14px' }}>Situação</th>
                 <th style={{ padding: '14px', textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px' }}>Carregando motoristas...</td></tr>
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px' }}>Carregando motoristas...</td></tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: '8px' }}>
+                  <td colSpan={6} style={{ padding: '8px' }}>
                     <EstadoVazio titulo={motoristas.length === 0 ? 'Nenhum motorista cadastrado ainda.' : 'Nenhum motorista com esses filtros.'} compacto />
                   </td>
                 </tr>
@@ -230,6 +233,11 @@ const MotoristasList: React.FC = () => {
                   <td style={{ padding: '14px', fontWeight: 600 }}>{m.nome}</td>
                   <td style={{ padding: '14px' }}>{m.telefone || '-'}</td>
                   <td style={{ padding: '14px' }}>{m.cnh || '-'}</td>
+                  <td style={{ padding: '14px', fontSize: '13px' }}>
+                    {m.usuarioId
+                      ? <span style={{ color: '#10b981', fontWeight: 600 }} title="Criado em Equipe e Acessos: tem login e vê as entregas no aplicativo">Usuário do sistema</span>
+                      : <span style={{ color: 'var(--text-muted)' }} title="Cadastro só de rota, sem login. Para usar o aplicativo, crie o funcionário em Equipe e Acessos e marque &quot;Este funcionário é motorista&quot;.">Só nas rotas (sem login)</span>}
+                  </td>
                   <td style={{ padding: '14px' }}>
                     <span style={{ fontSize: '12px', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', backgroundColor: m.ativo === false ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)', color: m.ativo === false ? '#ef4444' : '#10b981' }}>
                       {m.ativo === false ? 'Inativo' : 'Ativo'}

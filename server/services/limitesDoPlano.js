@@ -50,6 +50,9 @@ const registrosDaEmpresa = async (tenantId) => {
 
 const ehVendedorSemLogin = (r) => r && r.tipoRegistro === 'vendedor';
 
+/** Entregas do romaneio no app do motorista (src/pages/Vendedor/vendedorPermissoes.ts). */
+const PERMISSAO_ENTREGAS_APP = 'operacoes.entregas_app';
+
 // ===========================================================================
 // CRIAR LOGIN (Equipe & Acessos › Adicionar Funcionario)
 // ===========================================================================
@@ -79,6 +82,22 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
     throw new ErroLimite(409, `Outro funcionário desta empresa já usa o código ${codigoVendedor}. Escolha um código diferente.`);
   }
 
+  // "Este funcionario e' motorista" (26/10/2026, pedido do dono): o servidor ja'
+  // cria o motorista vinculado (motoristas/{uid} -> aparece na rota), da' a
+  // permissao de entregas no app e liga o app se o plano tiver vaga. Antes a
+  // tela gravava o motorista depois, e quem nao tinha a permissao de Rotas
+  // (ex.: o gerente) ficava com o usuario sem o motorista.
+  const motorista = c.motorista && typeof c.motorista === 'object' ? {
+    telefone: String(c.motorista.telefone ?? '').trim().slice(0, 40),
+    cnh: String(c.motorista.cnh ?? '').trim().slice(0, 40),
+  } : null;
+  let appLiberado = false;
+  let limiteApp = 0;
+  if (motorista) {
+    ({ app: limiteApp } = await limitesDaEmpresa(tenantId));
+    appLiberado = registros.filter((r) => r.acessoAppMobile === true).length < limiteApp;
+  }
+
   const chave = ident.montarChaveUsername(checagemCnpj.cnpj, checagemUsuario.username);
   const email = ident.montarEmailSintetico(chave);
   let novo;
@@ -98,7 +117,8 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
     ...(codigoVendedor ? { codigoVendedor } : {}),
     role: 'Funcionario',
     nivelAcesso: 'funcionario',
-    permissoes: [],
+    permissoes: motorista ? [PERMISSAO_ENTREGAS_APP] : [],
+    ...(appLiberado ? { acessoAppMobile: true, acessoAppMobileEm: new Date().toISOString() } : {}),
     tenantId,
     createdAt: agora(),
     createdBy: user.uid,
@@ -106,7 +126,23 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
     ...buildDocumentMetadata(user.uid, agora()),
   });
   await db.collection('usernames').doc(chave).set({ email, tenantId });
-  return { uid: novo.uid, nome, usuario: checagemUsuario.username, limite, emUso: comLogin + 1 };
+  if (motorista) {
+    await db.collection('motoristas').doc(novo.uid).set({
+      nome: nome.toUpperCase(),
+      telefone: motorista.telefone,
+      cnh: motorista.cnh,
+      observacao: '',
+      usuarioId: novo.uid,
+      tenantId,
+      ativo: true,
+      createdAt: agora(),
+      ...buildDocumentMetadata(user.uid, agora()),
+    });
+  }
+  return {
+    uid: novo.uid, nome, usuario: checagemUsuario.username, limite, emUso: comLogin + 1,
+    ...(motorista ? { motorista: true, appLiberado, limiteApp } : {}),
+  };
 };
 
 // ===========================================================================
@@ -165,4 +201,62 @@ const vagaNoApp = async (tenantId, vendedorId) => {
   return dentro.has(vendedorId) ? null : lim.mensagemSemVagaNoApp(limite);
 };
 
-module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa };
+// ===========================================================================
+// VINCULAR MOTORISTA JA' CADASTRADO A UM USUARIO (26/10/2026, pedido do dono)
+// ===========================================================================
+// O motorista criado em Operacoes > Motoristas tem id proprio, e rotas,
+// despesas e contas a pagar ja' apontam para ele: o id NAO muda. O vinculo e'
+// motoristas/{id}.usuarioId + usuarios/{uid}.motoristaId; o app reconhece as
+// rotas pelos dois (VendedorEntregas). Junto: permissao de entregas no app e o
+// app ligado, se o plano tiver vaga -- igual a criar o login ja' como motorista.
+
+const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
+
+const vincularMotorista = async ({ user, tenantId, corpo }) => {
+  const c = corpo || {};
+  const usuarioId = String(c.usuarioId ?? '');
+  const motoristaId = String(c.motoristaId ?? '');
+  if (!ID_VALIDO.test(usuarioId) || !ID_VALIDO.test(motoristaId)) throw new ErroLimite(400, 'Cadastro inválido. Atualize a tela e tente de novo.');
+
+  const refUsuario = db.collection('usuarios').doc(usuarioId);
+  const refMotorista = db.collection('motoristas').doc(motoristaId);
+  const [snapUsuario, snapMotorista, snapProprio, jaVinculados] = await Promise.all([
+    refUsuario.get(),
+    refMotorista.get(),
+    db.collection('motoristas').doc(usuarioId).get(),
+    db.collection('motoristas').where('tenantId', '==', tenantId).where('usuarioId', '==', usuarioId).get(),
+  ]);
+  const alvo = snapUsuario.exists ? snapUsuario.data() : null;
+  const motorista = snapMotorista.exists ? snapMotorista.data() : null;
+  if (!alvo || alvo.tenantId !== tenantId) throw new ErroLimite(404, 'Este usuário não existe mais. Atualize a tela.');
+  if (!motorista || motorista.tenantId !== tenantId) throw new ErroLimite(404, 'Este motorista não existe mais. Atualize a lista de motoristas.');
+  if (alvo.role !== 'Funcionario' || ehVendedorSemLogin(alvo)) throw new ErroLimite(400, 'Só funcionário com login pode ser vinculado a um motorista.');
+  if (motorista.usuarioId && motorista.usuarioId !== usuarioId) throw new ErroLimite(409, `O motorista ${motorista.nome || ''} já está vinculado a outro usuário.`);
+  const outro = (snapProprio.exists && snapProprio.data().tenantId === tenantId && snapProprio.id !== motoristaId)
+    || jaVinculados.docs.some((d) => d.id !== motoristaId)
+    || (alvo.motoristaId && alvo.motoristaId !== motoristaId);
+  if (outro) throw new ErroLimite(409, `${alvo.nome || 'Este usuário'} já está vinculado a outro motorista. Confira em Operações → Motoristas.`);
+  if (motorista.ativo === false) throw new ErroLimite(400, `O motorista ${motorista.nome || ''} está inativo. Reative em Operações → Motoristas antes de vincular.`);
+
+  let appLiberado = alvo.acessoAppMobile === true;
+  let limiteApp = 0;
+  if (!appLiberado) {
+    ({ app: limiteApp } = await limitesDaEmpresa(tenantId));
+    appLiberado = (await registrosDaEmpresa(tenantId)).filter((r) => r.acessoAppMobile === true).length < limiteApp;
+  }
+  const permissoes = Array.isArray(alvo.permissoes) ? alvo.permissoes : [];
+
+  const lote = db.batch();
+  lote.update(refMotorista, { usuarioId, ...buildDocumentUpdateMetadata(user.uid, agora(), 'Vinculado ao usuário') });
+  lote.update(refUsuario, {
+    motoristaId,
+    ...(permissoes.includes(PERMISSAO_ENTREGAS_APP) ? {} : { permissoes: [...permissoes, PERMISSAO_ENTREGAS_APP] }),
+    ...(appLiberado && alvo.acessoAppMobile !== true ? { acessoAppMobile: true, acessoAppMobileEm: new Date().toISOString() } : {}),
+    updatedAt: agora(),
+    ...buildDocumentUpdateMetadata(user.uid, agora(), 'Vinculado ao motorista'),
+  });
+  await lote.commit();
+  return { usuarioId, motoristaId, nome: alvo.nome || '', motoristaNome: motorista.nome || '', appLiberado, limiteApp };
+};
+
+module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista };

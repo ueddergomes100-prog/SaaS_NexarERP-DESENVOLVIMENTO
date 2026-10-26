@@ -1,7 +1,7 @@
 const express = require('express');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
-const { ErroLimite, criarLogin, alterarAcessoApp } = require('../services/limitesDoPlano');
+const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista } = require('../services/limitesDoPlano');
 const { registrarLog } = require('../services/auditoria');
 const { podeCriarLoginDeEquipe } = require('../domain/visibilidadeVendasDomain');
 
@@ -63,6 +63,22 @@ router.post('/criar', podeCriarLogin, async (req, res) => {
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErroLimite(res, erro, 'criar o login');
+  }
+});
+
+/** POST /api/usuarios/vincular-motorista -- { usuarioId, motoristaId } (26/10/2026). */
+router.post('/vincular-motorista', podeCriarLogin, async (req, res) => {
+  try {
+    const r = await vincularMotorista({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    registrarLog(req.user, {
+      modulo: 'administrativo',
+      acao: 'edicao',
+      descricao: `Usuário ${r.nome} vinculado ao motorista ${r.motoristaNome}${r.appLiberado ? '' : ' (aplicativo sem vaga no plano)'}.`,
+      registroId: r.usuarioId,
+    });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErroLimite(res, erro, 'vincular o motorista');
   }
 });
 

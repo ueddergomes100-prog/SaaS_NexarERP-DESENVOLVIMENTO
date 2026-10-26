@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ChevronRight, Truck } from 'lucide-react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
@@ -63,7 +63,19 @@ const VendedorEntregas: React.FC = () => {
     return parar;
   }, [tenantId, pode]);
 
-  const minhas = useMemo(() => rotas.filter((r) => r.motoristaId === currentUser?.uid), [rotas, currentUser?.uid]);
+  // Motorista ja' cadastrado vinculado ao login (26/10/2026): as rotas dele usam o
+  // id do cadastro de motorista, gravado em usuarios/{uid}.motoristaId.
+  const [motoristaVinculado, setMotoristaVinculado] = useState('');
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    getDoc(doc(db, 'usuarios', currentUser.uid))
+      .then((s) => setMotoristaVinculado(s.exists() ? String(s.data().motoristaId || '') : ''))
+      .catch(() => setMotoristaVinculado(''));
+  }, [currentUser?.uid]);
+
+  const minhas = useMemo(() => rotas.filter((r) => (
+    r.motoristaId === currentUser?.uid || (Boolean(motoristaVinculado) && r.motoristaId === motoristaVinculado)
+  )), [rotas, currentUser?.uid, motoristaVinculado]);
   const lista = aba === 'minhas' ? minhas : rotas;
 
   if (!pode) return <Navigate to="/vendedor" replace />;

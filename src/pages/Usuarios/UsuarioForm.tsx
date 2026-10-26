@@ -23,7 +23,7 @@ import {
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
-import { criarLoginNoServidor, redefinirSenhaAcesso, UsuarioAcessoError } from '../../services/usuarioAcessoService';
+import { criarLoginNoServidor, redefinirSenhaAcesso, UsuarioAcessoError, vincularMotoristaNoServidor } from '../../services/usuarioAcessoService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
@@ -54,6 +54,40 @@ const UsuarioForm: React.FC = () => {
   const [ehMotorista, setEhMotorista] = useState(false);
   const [motoristaJaVinculado, setMotoristaJaVinculado] = useState(false);
   const [dadosMotorista, setDadosMotorista] = useState({ telefone: '', cnh: '' });
+  // Id do motorista vinculado: o proprio uid (criado aqui) ou o de um motorista
+  // ja' cadastrado em Operacoes > Motoristas (vinculado pelo botao, 26/10/2026).
+  const [motoristaDocId, setMotoristaDocId] = useState('');
+  const [motoristasSemLogin, setMotoristasSemLogin] = useState<Array<{ id: string; nome: string }>>([]);
+  const [motoristaEscolhido, setMotoristaEscolhido] = useState('');
+  const [vinculando, setVinculando] = useState(false);
+
+  // Motoristas sem login (cadastrados em Operacoes > Motoristas), para o botao "Vincular".
+  React.useEffect(() => {
+    if (!isEditing || !tenantId || motoristaJaVinculado) return;
+    getDocs(query(collection(db, 'motoristas'), where('tenantId', '==', tenantId)))
+      .then((snap) => setMotoristasSemLogin(snap.docs
+        .filter((d) => d.data().ativo !== false && !d.data().usuarioId && d.id !== id)
+        .map((d) => ({ id: d.id, nome: String(d.data().nome || '') }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))))
+      .catch((erro) => console.error('Erro ao ler os motoristas:', erro));
+  }, [isEditing, tenantId, motoristaJaVinculado, id]);
+
+  const vincularMotoristaExistente = async () => {
+    if (!id || !motoristaEscolhido) return;
+    setVinculando(true);
+    try {
+      const r = await vincularMotoristaNoServidor(id, motoristaEscolhido);
+      setMotoristaJaVinculado(true);
+      setEhMotorista(true);
+      setMotoristaDocId(motoristaEscolhido);
+      if (r.appLiberado) showSuccess(`Vinculado ao motorista ${r.motoristaNome}: as rotas dele já aparecem no aplicativo deste usuário.`);
+      else showWarning(`Vinculado ao motorista ${r.motoristaNome}. O aplicativo não foi liberado: a empresa já usa as ${r.limiteApp} vagas do app contratadas.`);
+    } catch (erro) {
+      showError('Não foi possível vincular', erro instanceof Error && erro.message ? erro.message : 'Tente de novo em instantes.');
+    } finally {
+      setVinculando(false);
+    }
+  };
 
   React.useEffect(() => {
     if (isEditing && id) {
@@ -68,13 +102,16 @@ const UsuarioForm: React.FC = () => {
             codigoVendedor: data.codigoVendedor || ''
           });
         }
-        // Ja e' motorista? O vinculo e' o documento motoristas/{uid}.
+        // Ja e' motorista? O vinculo e' motoristas/{uid} (criado aqui) ou o
+        // motorista ja' cadastrado vinculado depois (usuarios.motoristaId, 26/10/2026).
         try {
-          const motoristaSnap = await getDoc(doc(db, 'motoristas', id));
+          const motoristaIdVinculado = userSnap.exists() ? String(userSnap.data().motoristaId || '') : '';
+          const motoristaSnap = await getDoc(doc(db, 'motoristas', motoristaIdVinculado || id));
           if (motoristaSnap.exists() && motoristaSnap.data().tenantId === tenantId) {
             const m = motoristaSnap.data();
             setEhMotorista(true);
             setMotoristaJaVinculado(true);
+            setMotoristaDocId(motoristaSnap.id);
             setDadosMotorista({ telefone: m.telefone || '', cnh: m.cnh || '' });
           }
         } catch (erro) {
@@ -205,7 +242,7 @@ const UsuarioForm: React.FC = () => {
         tenantId,
       };
       if (motoristaJaVinculado) {
-        await updateDoc(doc(db, 'motoristas', uid), { ...dados, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
+        await updateDoc(doc(db, 'motoristas', motoristaDocId || uid), { ...dados, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
       } else {
         await setDoc(doc(db, 'motoristas', uid), {
           ...dados,
@@ -324,15 +361,21 @@ const UsuarioForm: React.FC = () => {
       // Limites do plano (19/10/2026): o servidor cria a conta, o cadastro e o
       // indice de login, conferindo o limite de usuarios contratado. Nivel de
       // acesso nasce no mais restrito e permissoes vazias, como sempre.
-      const { uid: novoUID } = await criarLoginNoServidor({
+      // Motorista (26/10/2026): o servidor ja' cria o motorista vinculado, a
+      // permissao de entregas no app e liga o app se o plano tiver vaga.
+      const criado = await criarLoginNoServidor({
         nome: formData.nome,
         usuario: checagemUsuario.username,
         senha: formData.senha,
         ...(codigoVendedor ? { codigoVendedor } : {}),
+        ...(ehMotorista ? { motorista: { telefone: dadosMotorista.telefone.trim(), cnh: dadosMotorista.cnh.trim() } } : {}),
       });
 
-      await salvarVinculoMotorista(novoUID, formData.nome);
-      showSuccess('Usuário criado com sucesso!');
+      if (criado.motorista && !criado.appLiberado) {
+        showWarning(`Usuário criado e cadastrado como motorista (já aparece nas rotas). O aplicativo não foi liberado: a empresa já usa as ${criado.limiteApp ?? ''} vagas do app contratadas. Libere uma vaga em Equipe e Acessos ou fale com o suporte para aumentar o plano.`);
+      } else {
+        showSuccess(criado.motorista ? 'Usuário criado como motorista: já aparece nas rotas e no aplicativo.' : 'Usuário criado com sucesso!');
+      }
       navigate('/usuarios');
     } catch (error) {
       console.error('Erro ao criar usuário:', error);
@@ -513,6 +556,30 @@ const UsuarioForm: React.FC = () => {
               Já vinculado. Para tirar da lista de motoristas, use Operações → Motoristas.
             </span>
           )}
+          {isEditing && !motoristaJaVinculado && !ehMotorista && motoristasSemLogin.length > 0 && (
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '10px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Ou vincular a um motorista já cadastrado:</span>
+              <select
+                value={motoristaEscolhido}
+                onChange={(e) => setMotoristaEscolhido(e.target.value)}
+                aria-label="Motorista já cadastrado"
+                title="Motoristas de Operações → Motoristas que ainda não têm login"
+                style={{ minWidth: '220px' }}
+              >
+                <option value="">Escolha o motorista...</option>
+                {motoristasSemLogin.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+              </select>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!motoristaEscolhido || vinculando}
+                onClick={() => void vincularMotoristaExistente()}
+                title="As rotas deste motorista passam a aparecer no aplicativo deste usuário. O histórico de rotas e despesas do motorista continua igual."
+              >
+                {vinculando ? 'Vinculando...' : 'Vincular'}
+              </button>
+            </div>
+          )}
         </div>
 
         {ehMotorista && (
@@ -537,7 +604,9 @@ const UsuarioForm: React.FC = () => {
                 style={{ width: '100%' }}
               />
               <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Ao salvar, esta pessoa já aparece na lista de motoristas das rotas.
+                {isEditing
+                  ? 'Ao salvar, esta pessoa já aparece na lista de motoristas das rotas.'
+                  : 'Ao salvar, esta pessoa vai para Operações → Motoristas (vinculada a este usuário), aparece nas rotas e ganha o aplicativo com as entregas, se o plano tiver vaga no app.'}
               </span>
             </div>
           </>

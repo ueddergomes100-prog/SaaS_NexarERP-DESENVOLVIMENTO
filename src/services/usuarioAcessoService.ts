@@ -65,8 +65,13 @@ const postar = async <T>(rota: string, corpo: Record<string, unknown>, falhou: s
  * Limites do plano (19/10/2026): o login novo e' criado pelo servidor, que
  * confere o limite de usuarios contratado (server/services/limitesDoPlano.js).
  */
-export const criarLoginNoServidor = (dados: { nome: string; usuario: string; senha: string; codigoVendedor?: string }) =>
-  postar<{ uid: string; limite: number; emUso: number }>('criar', { ...dados }, 'Não foi possível criar o usuário. Tente novamente.');
+/** `motorista`: ja' cria o motorista vinculado, a permissao de entregas e liga o app se houver vaga (26/10/2026). */
+export const criarLoginNoServidor = (dados: { nome: string; usuario: string; senha: string; codigoVendedor?: string; motorista?: { telefone: string; cnh: string } }) =>
+  postar<{ uid: string; limite: number; emUso: number; motorista?: boolean; appLiberado?: boolean; limiteApp?: number }>('criar', { ...dados }, 'Não foi possível criar o usuário. Tente novamente.');
+
+/** Vincula um motorista ja' cadastrado (Operacoes > Motoristas) ao login deste funcionario (26/10/2026). */
+export const vincularMotoristaNoServidor = (usuarioId: string, motoristaId: string) =>
+  postar<{ appLiberado: boolean; limiteApp: number; motoristaNome: string }>('vincular-motorista', { usuarioId, motoristaId }, 'Não foi possível vincular o motorista. Tente novamente.');
 
 /** Liga/desliga o app Vendas de um funcionario ou vendedor; ligar confere a vaga contratada. */
 export const alterarAcessoAppNoServidor = (usuarioId: string, ligar: boolean) =>

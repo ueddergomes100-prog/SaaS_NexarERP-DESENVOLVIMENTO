@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
@@ -14,6 +14,8 @@ import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { chaveDoProdutoPeloId, mudouCadastroDoGrupo } from '../../utils/cadastroGrupoDomain';
 import EstoqueNasFiliais from '../../components/common/EstoqueNasFiliais';
+import ProductAutocomplete from '../../components/common/ProductAutocomplete';
+import { destacarTrechosDaBusca } from '../../utils/buscaProdutoOpcaoDomain';
 import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/filialDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, ICMS_CST_OPTIONS, CSOSN_OPTIONS, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
 import { ENQUADRAMENTO_IPI_PADRAO, IPI_CST_SAIDA_OPTIONS, PIS_COFINS_CST_SAIDA_OPTIONS } from '../../utils/notaFiscalItemDomain';
@@ -103,9 +105,13 @@ interface ComponenteOption {
   id: string;
   origem: OrigemComponente;
   nome: string;
+  codigo: string;
   unidade: string;
   precoCusto: number;
 }
+
+/** Opcao da busca de componente: `id` = chaveComponente (materia-prima e produto podem ter o mesmo id). */
+type ComponenteNaBusca = Omit<ComponenteOption, 'id'> & { id: string; componenteId: string };
 
 interface AtacadoFaixa {
   id: string;
@@ -508,6 +514,9 @@ const EstoqueForm: React.FC = () => {
   /** Guarda a opcao escolhida como `chaveComponente(origem, id)`, nao so'
    * o id -- id de materia-prima e id de produto podem coincidir. */
   const [novoComponenteChave, setNovoComponenteChave] = useState('');
+  // Caixa de pesquisa do componente (26/10/2026, pedido do dono): a mesma busca do Pedido de Venda.
+  const [buscaComponente, setBuscaComponente] = useState('');
+  const quantidadeComponenteRef = useRef<HTMLInputElement>(null);
   const [novaQuantidade, setNovaQuantidade] = useState('1');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
@@ -599,6 +608,12 @@ const EstoqueForm: React.FC = () => {
   const custoComposicao = useMemo(() => calcularCustoDaReceita(composicaoItens, (origem, componenteId) => (
     componentesDisponiveis.find(c => c.id === componenteId && c.origem === origem)?.precoCusto || 0
   )), [composicaoItens, componentesDisponiveis]);
+  /** Materias-primas primeiro, depois produtos do estoque; sem o que ja' esta' na receita. */
+  const opcoesDeComponente = useMemo<ComponenteNaBusca[]>(() => (['materia_prima', 'estoque'] as OrigemComponente[]).flatMap((origem) => (
+    componentesDisponiveis
+      .filter((c) => c.origem === origem && !composicaoItens.some((item) => item.origem === c.origem && item.componenteId === c.id))
+      .map((c) => ({ ...c, id: chaveComponente(c.origem, c.id), componenteId: c.id }))
+  )), [componentesDisponiveis, composicaoItens]);
   const custoCalculadoPelaComposicao = formData.produzidoInternamente && composicaoItens.length > 0;
   const precoCusto = custoCalculadoPelaComposicao ? custoComposicao : toNumber(formData.precoCusto);
   const precoVenda = toNumber(formData.precoVenda);
@@ -971,6 +986,7 @@ const EstoqueForm: React.FC = () => {
             id: d.id,
             origem: 'materia_prima',
             nome: data.nome || '',
+            codigo: data.codigo !== undefined && data.codigo !== null ? String(data.codigo) : '',
             unidade: data.unidade || 'UN',
             precoCusto: Number(data.precoCusto || 0),
           });
@@ -985,6 +1001,7 @@ const EstoqueForm: React.FC = () => {
             id: d.id,
             origem: 'estoque',
             nome: data.nome || '',
+            codigo: data.codigo !== undefined && data.codigo !== null ? String(data.codigo) : '',
             unidade: data.unidadeMedidaSigla || data.unidade || 'UN',
             precoCusto: Number(data.precoCusto || 0),
           });
@@ -1034,6 +1051,7 @@ const EstoqueForm: React.FC = () => {
       quantidade: quantidadeNum,
     }]);
     setNovoComponenteChave('');
+    setBuscaComponente('');
     setNovaQuantidade('1');
   };
 
@@ -2945,27 +2963,45 @@ const EstoqueForm: React.FC = () => {
                       <div className="form-grid-3" style={{ alignItems: 'flex-end' }}>
                         <div className="input-group">
                           <label>Componente</label>
-                          <select value={novoComponenteChave} onChange={(e) => setNovoComponenteChave(e.target.value)}>
-                            <option value="">Selecione...</option>
-                            {(['materia_prima', 'estoque'] as OrigemComponente[]).map(origem => {
-                              const opcoes = componentesDisponiveis.filter(c => (
-                                c.origem === origem
-                                && !composicaoItens.some(item => item.origem === c.origem && item.componenteId === c.id)
-                              ));
-                              if (opcoes.length === 0) return null;
-                              return (
-                                <optgroup key={origem} label={origem === 'materia_prima' ? 'Matérias-primas' : 'Produtos do estoque (semiacabado / granel)'}>
-                                  {opcoes.map(c => (
-                                    <option key={chaveComponente(c.origem, c.id)} value={chaveComponente(c.origem, c.id)}>{c.nome}</option>
+                          <ProductAutocomplete<ComponenteNaBusca>
+                            value={buscaComponente}
+                            onChange={(texto) => { setBuscaComponente(texto); if (!texto.trim()) setNovoComponenteChave(''); }}
+                            products={opcoesDeComponente}
+                            onSelect={(c) => { setNovoComponenteChave(c.id); setBuscaComponente(c.nome); }}
+                            onEnterComProdutoSelecionado={() => quantidadeComponenteRef.current?.focus()}
+                            renderItem={(c, _destacado, termo) => (
+                              <>
+                                <span className="produto-opcao__nome">
+                                  {destacarTrechosDaBusca(c.nome, termo).map((trecho, indice) => (
+                                    trecho.destaque
+                                      ? <mark key={indice} className="produto-opcao__match">{trecho.texto}</mark>
+                                      : <React.Fragment key={indice}>{trecho.texto}</React.Fragment>
                                   ))}
-                                </optgroup>
-                              );
-                            })}
-                          </select>
+                                </span>
+                                <span className="produto-opcao__meta">
+                                  <span>{ROTULO_POR_ORIGEM[c.origem]} · {c.unidade}</span>
+                                  {c.codigo && <span className="produto-opcao__codigo">cód. {c.codigo}</span>}
+                                </span>
+                              </>
+                            )}
+                            mostrarEstoqueNasFiliais={false}
+                            placeholder="Buscar…"
+                            ariaLabel="Buscar matéria-prima ou produto da composição"
+                            emptyHint="Nenhuma matéria-prima ou produto com esse nome ou código."
+                            limit={8}
+                          />
                         </div>
                         <div className="input-group">
                           <label>Quantidade por unidade produzida</label>
-                          <input type="number" step="any" min="0" value={novaQuantidade} onChange={(e) => setNovaQuantidade(e.target.value)} />
+                          <input
+                            ref={quantidadeComponenteRef}
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={novaQuantidade}
+                            onChange={(e) => setNovaQuantidade(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdicionarItemComposicao(); } }}
+                          />
                         </div>
                         <button type="button" className="btn-secondary" onClick={handleAdicionarItemComposicao} style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
                           <Plus size={16} /> Adicionar

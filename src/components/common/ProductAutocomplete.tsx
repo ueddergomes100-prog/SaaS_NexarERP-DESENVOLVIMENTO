@@ -53,6 +53,9 @@ export interface ProductAutocompleteProps<T extends SearchableProduct & { id: st
   onDestacado?: (produto: T | null) => void;
   /** 'overlay' (padrao) flutua sobre o conteudo; 'inline' empurra o layout, usado no PDV. */
   variant?: 'overlay' | 'inline';
+  /** Estoque nas outras filiais do item em destaque (padrao: sim). A composicao
+   *  desliga: materia-prima nao esta' no estoque de produtos. */
+  mostrarEstoqueNasFiliais?: boolean;
 }
 
 /**
@@ -81,6 +84,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   variant = 'overlay',
   travarAoSelecionar = true,
   onDestacado,
+  mostrarEstoqueNasFiliais = true,
 }: ProductAutocompleteProps<T>) {
   const internalRef = useRef<HTMLInputElement | null>(null);
   const resolvedInputRef = inputRef || internalRef;
@@ -274,7 +278,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
             </button>
           ))}
 
-          {grupo && result.items[highlightedIndex] && (
+          {grupo && mostrarEstoqueNasFiliais && result.items[highlightedIndex] && (
             <EstoqueNasFiliais chave={chaveDoProdutoPeloId(result.items[highlightedIndex].id, tenantId)} compacto atrasoMs={250} />
           )}
 

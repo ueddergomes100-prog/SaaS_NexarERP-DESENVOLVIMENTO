@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2, ChevronDown, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown, Boxes } from 'lucide-react';
 import { chaveDoProdutoPeloId, itemDaFilial } from '../../utils/cadastroGrupoDomain';
 import { agruparVariacoes, somaDasVariacoes } from '../../utils/gradeProdutosDomain';
 import { collection, query, onSnapshot, doc, where, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -21,6 +21,7 @@ import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import OrigensDaReservaModal from '../../components/common/OrigensDaReservaModal';
 import { resumoDeReserva } from '../../utils/estoqueReservaDomain';
+import { ordenarPorSaldo, proximaOrdemSaldo, ROTULO_FILTRO_SALDO, ROTULO_ORDEM_SALDO, saldoPassaNoFiltro, type FiltroSaldo, type OrdemSaldo } from '../../utils/estoqueListaDomain';
 
 interface PecaData {
   id: string;
@@ -66,6 +67,9 @@ const EstoqueList: React.FC = () => {
   const [soComReserva, setSoComReserva] = useState(false);
   /** Grade de produtos: so' os principais com variacoes (pedido do dono, 20/10). */
   const [soComGrade, setSoComGrade] = useState(false);
+  // Ordem e filtro pelo saldo (26/10/2026): botao na coluna "Qtd." e filtro de zerados/negativos.
+  const [ordemSaldo, setOrdemSaldo] = useState<OrdemSaldo>('padrao');
+  const [filtroSaldo, setFiltroSaldo] = useState<FiltroSaldo>('todos');
   const [reservaAberta, setReservaAberta] = useState<PecaData | null>(null);
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
    * Enter), pra um clique de leitura nao abrir uma aba sem querer. */
@@ -254,7 +258,8 @@ const EstoqueList: React.FC = () => {
     const passaNoStatus = filtroStatus === 'todos' || (filtroStatus === 'ativos' ? ativo : !ativo);
     const passaNaFilial = !grupo || escopoFilial === 'grupo' || itemDaFilial(peca, tenantId);
     const passaNaReserva = !soComReserva || resumoDeReserva(comSaldoDasVariacoes(peca)).temReserva;
-    return passaNoStatus && passaNaFilial && passaNaReserva;
+    const passaNoSaldo = saldoPassaNoFiltro(comSaldoDasVariacoes(peca).quantidade, filtroSaldo);
+    return passaNoStatus && passaNaFilial && passaNaReserva && passaNoSaldo;
   };
   // Mesma busca das telas de venda: acento nao conta e "+" exige todas as
   // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms. A variacao
@@ -266,7 +271,7 @@ const EstoqueList: React.FC = () => {
   const buscando = searchTerm.trim() !== '';
   /** O principal aparece se ele ou alguma variacao passa; buscando, as variacoes
    * que bateram ja' vem abertas -- e o chevron abre/fecha em qualquer caso. */
-  const linhasVisiveis = principais.flatMap((peca) => {
+  const linhasFiltradas = principais.flatMap((peca) => {
     if (soComGrade && peca.temGrade !== true) return [];
     const todas = variacoesDe(peca);
     const variacoesQueBatem = todas.filter((v) => passaNosFiltros(v) && passaNaBusca(v));
@@ -275,6 +280,8 @@ const EstoqueList: React.FC = () => {
     const variacoes = !aberto ? [] : buscando ? variacoesQueBatem : todas.filter(passaNosFiltros);
     return [{ peca, variacoes, aberto, totalDeVariacoes: todas.length }];
   });
+  // Botao da coluna "Qtd.": maior/menor estoque primeiro; as variacoes seguem embaixo do principal.
+  const linhasVisiveis = ordenarPorSaldo(linhasFiltradas, ordemSaldo, ({ peca }) => comSaldoDasVariacoes(peca).quantidade);
 
   const alternarExpandido = (id: string, abertoAgora: boolean) => {
     setExpandidos((atual) => new Map(atual).set(id, !abertoAgora));
@@ -541,7 +548,7 @@ const EstoqueList: React.FC = () => {
             <Search size={18} className="search-icon" />
             <input
               type="text"
-              placeholder="Buscar por código, nome ou categoria"
+              placeholder="Buscar…"
               title={DICA_BUSCA_MULTIPLA}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -560,6 +567,23 @@ const EstoqueList: React.FC = () => {
               <option value="ativos">Ativos</option>
               <option value="inativos">Inativos</option>
               <option value="todos">Todos</option>
+            </select>
+          </label>
+          <label
+            className="btn-secondary filter-btn"
+            title="Filtrar pela quantidade em estoque (coluna Qtd.)"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', ...(filtroSaldo !== 'todos' ? { borderColor: '#a855f7', color: '#c084fc' } : {}) }}
+          >
+            <Boxes size={18} />
+            <select
+              value={filtroSaldo}
+              onChange={(e) => setFiltroSaldo(e.target.value as FiltroSaldo)}
+              aria-label="Filtrar pelo saldo em estoque"
+              style={{ background: 'transparent', border: 'none', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+            >
+              {(Object.keys(ROTULO_FILTRO_SALDO) as FiltroSaldo[]).map((chave) => (
+                <option key={chave} value={chave}>{ROTULO_FILTRO_SALDO[chave]}</option>
+              ))}
             </select>
           </label>
           <button
@@ -610,7 +634,18 @@ const EstoqueList: React.FC = () => {
                 <th>Código / SKU</th>
                 <th>Nome do Produto</th>
                 <th>Categoria</th>
-                <th>Qtd.</th>
+                <th aria-sort={ordemSaldo === 'maior' ? 'descending' : ordemSaldo === 'menor' ? 'ascending' : 'none'}>
+                  <button
+                    type="button"
+                    onClick={() => setOrdemSaldo((atual) => proximaOrdemSaldo(atual))}
+                    title={ROTULO_ORDEM_SALDO[ordemSaldo]}
+                    aria-label={ROTULO_ORDEM_SALDO[ordemSaldo]}
+                    style={{ background: 'none', border: 'none', padding: 0, color: ordemSaldo === 'padrao' ? 'inherit' : '#c084fc', font: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', textTransform: 'inherit', letterSpacing: 'inherit' }}
+                  >
+                    Qtd.
+                    {ordemSaldo === 'maior' ? <ArrowDown size={14} /> : ordemSaldo === 'menor' ? <ArrowUp size={14} /> : <ArrowUpDown size={14} style={{ opacity: 0.6 }} />}
+                  </button>
+                </th>
                 <th>Reservado</th>
                 <th>Disponível</th>
                 <th>Preço (Venda)</th>

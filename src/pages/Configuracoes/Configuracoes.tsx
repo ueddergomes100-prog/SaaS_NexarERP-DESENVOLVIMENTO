@@ -17,6 +17,7 @@ import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where,
 import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
@@ -30,6 +31,7 @@ import {
   parseFormasOcultas,
   parseOrdemFormasPagamento,
   parsePermitirDividirPagamento,
+  parseConfigBancoPadrao,
 } from '../../utils/formasPagamentoDomain';
 import type { PaymentMethod } from '../../utils/financeDomain';
 import SeletorTodas from '../../components/common/SeletorTodas';
@@ -168,6 +170,8 @@ const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
  */
 const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral' }) => {
   const { currentUser, tenantId, userRole, grupo, isOwner, ehGestorDasFiliais, filialAtual, blockedModules } = useAuth();
+  // Bancos da filial, para o "banco padrao do boleto" (26/10/2026).
+  const { items: bancosDaFilial } = useTenantCollection<TenantCollectionItem & { nome: string; ativo: boolean }>('bancos', tenantId, { sortField: 'ordem' });
   const { openTab } = useTabs();
   const mostrarGeral = modo === 'geral';
   const mostrarFilial = modo === 'filial';
@@ -292,6 +296,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     configOrcamento: { ...CONFIG_ORCAMENTO_PADRAO } as ConfigOrcamento,
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
+    // Banco que o pagamento ja' traz (26/10/2026): '' / false = desligado.
+    bancoPadraoBoletoId: '',
+    lembrarBancoDoDia: false,
     ordemFormasPagamento: [] as string[],
     formasPagamentoOcultas: [] as string[],
     tipoDescontoPadrao: DEFAULT_TIPO_DESCONTO_PADRAO as DescontoTipo,
@@ -472,6 +479,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             configOrcamento: parseConfigOrcamento(data.configOrcamento),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
+            bancoPadraoBoletoId: parseConfigBancoPadrao(data).bancoBoletoId,
+            lembrarBancoDoDia: parseConfigBancoPadrao(data).lembrarDoDia,
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
             formasPagamentoOcultas: parseFormasOcultas(data.formasPagamentoOcultas),
             tipoDescontoPadrao: parseTipoDescontoPadrao(data.tipoDescontoPadrao),
@@ -3525,6 +3534,41 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       parte no Pix e parte no cartão. Desmarque se a sua loja recebe sempre por uma forma só — a tela fica
                       mais limpa. <strong>Parcelar a prazo não depende disto</strong>: o número de parcelas é um campo próprio do
                       Pagamento a Prazo. Venda já gravada com duas formas continua abrindo normalmente.
+                    </span>
+                  </span>
+                </label>
+
+                {/* Banco que o pagamento ja' traz (26/10/2026, pedido do dono). */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '420px' }}>
+                  <label htmlFor="config-banco-padrao-boleto" style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Banco padrão do boleto</label>
+                  <select
+                    id="config-banco-padrao-boleto"
+                    value={formData.bancoPadraoBoletoId}
+                    onChange={(e) => setFormData({ ...formData, bancoPadraoBoletoId: e.target.value })}
+                    disabled={!isEditingMode}
+                    title="Escolheu Boleto na venda ou na OS, este banco já vem preenchido. Dá para trocar na hora."
+                    style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">Nenhum (escolher na venda)</option>
+                    {bancosDaFilial.filter((b) => b.ativo || b.id === formData.bancoPadraoBoletoId).map((b) => (
+                      <option key={b.id} value={b.id}>{b.nome}{b.ativo ? '' : ' (inativo)'}</option>
+                    ))}
+                  </select>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.lembrarBancoDoDia === true}
+                    onChange={(e) => setFormData({ ...formData, lembrarBancoDoDia: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                  />
+                  <span>
+                    Lembrar o banco escolhido na primeira venda do dia
+                    <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                      O banco que cada usuário escolher numa forma de pagamento (Boleto, Pix, Transferência...) já vem
+                      preenchido nas próximas vendas daquele dia, com a mesma forma. No dia seguinte volta ao banco padrão.
+                      Sempre dá para trocar na venda.
                     </span>
                   </span>
                 </label>

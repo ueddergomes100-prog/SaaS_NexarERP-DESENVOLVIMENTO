@@ -14,7 +14,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { addDaysToDateInput, differenceInCalendarDays, formatDateInputPtBr } from '../../utils/dateTime';
+import { addDaysToDateInput, differenceInCalendarDays, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   buildCardFeeSchedulesByBrand,
   fromCents,
@@ -27,7 +27,14 @@ import {
   MAX_PARCELAS_A_PRAZO,
   gerarParcelasAPrazo,
 } from '../../utils/financeDomain';
-import { erroDasParcelasAPrazo, resumoDasParcelas } from '../../utils/formasPagamentoDomain';
+import {
+  bancoSugerido,
+  chaveBancoDoDia,
+  erroDasParcelasAPrazo,
+  lerBancoDoDia,
+  resumoDasParcelas,
+  type ConfigBancoPadrao,
+} from '../../utils/formasPagamentoDomain';
 import { faixasDisponiveis, valorSugeridoDoCashback, type CashbackDisponivel } from '../../utils/cashbackDomain';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import ChequeCaptureModal from './ChequeCaptureModal';
@@ -112,6 +119,8 @@ interface PaymentsEditorProps {
   dueDateBase?: string;
   /** Aviso embaixo do campo de data. */
   transactionDateHint?: string;
+  /** Banco que o pagamento ja' traz (26/10/2026): padrao do boleto e/ou o do dia, da filial. */
+  bancoPadrao?: { config: ConfigBancoPadrao; usuarioId: string } | null;
 }
 
 const PAYMENT_METHOD_PRESENTATION: Record<PaymentMethod, {
@@ -367,6 +376,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   transactionDateLabel,
   dueDateBase,
   transactionDateHint,
+  bancoPadrao = null,
 }) => {
   // Base dos vencimentos: o dia do faturamento quando a tela informa (pre-venda), senao a data do campo.
   const transactionDate = dueDateBase || dataDoCampo;
@@ -377,6 +387,36 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
     sortField: 'ordem',
   });
   const bancosAtivos = bancos.filter((b) => b.ativo);
+
+  // Banco padrao / banco do dia (26/10/2026): pagamento que pede banco e esta' sem
+  // banco ja' recebe o sugerido (formasPagamentoDomain.bancoSugerido). O banco do
+  // dia mora no navegador (por empresa, usuario e forma); falha de leitura = sem sugestao.
+  const chaveDoDia = (forma: string) => (bancoPadrao && tenantId ? chaveBancoDoDia(tenantId, bancoPadrao.usuarioId, forma) : '');
+  const lerDoDia = (forma: string) => {
+    const chave = chaveDoDia(forma);
+    if (!chave) return null;
+    try { return lerBancoDoDia(JSON.parse(window.localStorage.getItem(chave) || 'null')); } catch { return null; }
+  };
+  const guardarDoDia = (forma: string, bancoId: string) => {
+    const chave = chaveDoDia(forma);
+    if (!chave || !bancoPadrao?.config.lembrarDoDia || !bancoId) return;
+    try { window.localStorage.setItem(chave, JSON.stringify({ data: getDateInputInTimeZone(), bancoId })); } catch { /* sem armazenamento: so' nao lembra */ }
+  };
+  const idsBancosAtivos = bancosAtivos.map((b) => b.id).join(',');
+  useEffect(() => {
+    if (disabled || !bancoPadrao || !idsBancosAtivos) return;
+    const ativos = idsBancosAtivos.split(',');
+    const hoje = getDateInputInTimeZone();
+    drafts.forEach((p) => {
+      if (p.bancoId || !pedeBancoDeDestino(p.forma, pagamentoCartaoSimplificadoAtivo)) return;
+      const id = bancoSugerido({ forma: p.forma, config: bancoPadrao.config, doDia: lerDoDia(p.forma), hoje, bancosAtivosIds: ativos });
+      const banco = id ? bancosAtivos.find((b) => b.id === id) : undefined;
+      if (banco) onUpdatePayment(p.id, { bancoId: banco.id, bancoNome: banco.nome });
+    });
+    // onUpdatePayment muda a cada render da tela-mae; o que importa e' a forma/banco de cada pagamento.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, bancoPadrao?.config.bancoBoletoId, bancoPadrao?.config.lembrarDoDia, idsBancosAtivos, drafts.map((p) => `${p.id}:${p.forma}:${p.bancoId || ''}`).join('|')]);
+
   // Prazo padrao do boleto = o configurado no banco que emite boleto (30 sem config).
   const prazoPadraoBoleto = bancosAtivos.find((b) => b.boleto?.ativo)?.boleto?.prazoPadraoDias || 30;
   const [chequeModalPaymentId, setChequeModalPaymentId] = useState<string | null>(null);
@@ -567,7 +607,10 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
                   onChange={(event) => {
                     const banco = bancosAtivos.find((b) => b.id === event.target.value);
                     onUpdatePayment(payment.id, { bancoId: event.target.value, bancoNome: banco?.nome || '' });
+                    // Escolha da pessoa vira o banco do dia desta forma (se a filial lembra).
+                    guardarDoDia(payment.forma, event.target.value);
                   }}
+                  title={bancoPadrao?.config.lembrarDoDia ? 'O banco escolhido aqui já vem nas próximas vendas de hoje com esta forma de pagamento' : undefined}
                   value={payment.bancoId}
                 >
                   <option value="">Selecione...</option>

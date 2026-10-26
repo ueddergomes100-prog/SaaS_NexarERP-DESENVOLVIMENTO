@@ -160,6 +160,63 @@ export const formaDoDocumentoSemPagamentos = (
 };
 
 // ---------------------------------------------------------------------------
+// BANCO QUE O PAGAMENTO JA' TRAZ (26/10/2026, pedido do dono)
+// ---------------------------------------------------------------------------
+//
+// Cliente que vende quase tudo no boleto escolhia o banco (Sicoob) em toda venda.
+// Duas opcoes da filial, ambas desligadas por padrao (quem nao usa nao ve diferenca):
+// - "Banco padrao do boleto": escolheu Boleto, o banco ja' vem;
+// - "Lembrar o banco do dia": o banco escolhido na 1a venda do dia (por forma de
+//   pagamento) vem preenchido nas outras vendas daquele dia, para aquele usuario.
+// O banco do dia vence o padrao. Sempre da' para trocar na venda.
+
+export interface ConfigBancoPadrao {
+  /** Banco que o Boleto ja' traz ('' = nenhum). */
+  bancoBoletoId: string;
+  lembrarDoDia: boolean;
+}
+
+export const parseConfigBancoPadrao = (config: { bancoPadraoBoletoId?: unknown; lembrarBancoDoDia?: unknown } | null | undefined): ConfigBancoPadrao => ({
+  bancoBoletoId: typeof config?.bancoPadraoBoletoId === 'string' ? config.bancoPadraoBoletoId.trim() : '',
+  lembrarDoDia: config?.lembrarBancoDoDia === true,
+});
+
+/** O que fica guardado no navegador: o banco escolhido e em que dia. */
+export interface BancoDoDia {
+  data: string;
+  bancoId: string;
+}
+
+/** Chave por empresa, usuario e forma (o Pix pode ir para um banco e o boleto para outro). */
+export const chaveBancoDoDia = (tenantId: string, usuarioId: string, forma: string): string => (
+  `hennder:bancoDoDia:${tenantId}:${usuarioId}:${forma}`
+);
+
+export const lerBancoDoDia = (raw: unknown): BancoDoDia | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const { data, bancoId } = raw as Record<string, unknown>;
+  return typeof data === 'string' && typeof bancoId === 'string' && data && bancoId ? { data, bancoId } : null;
+};
+
+/**
+ * Banco sugerido para um pagamento sem banco: o do dia (se a filial lembra e for
+ * de hoje), senao o padrao do boleto. So' banco ATIVO; nada valido = '' (a
+ * pessoa escolhe, como sempre).
+ */
+export const bancoSugerido = (args: {
+  forma: string;
+  config: ConfigBancoPadrao;
+  doDia: BancoDoDia | null;
+  hoje: string;
+  bancosAtivosIds: string[];
+}): string => {
+  const { forma, config, doDia, hoje, bancosAtivosIds } = args;
+  if (config.lembrarDoDia && doDia && doDia.data === hoje && bancosAtivosIds.includes(doDia.bancoId)) return doDia.bancoId;
+  if (forma === 'Boleto' && config.bancoBoletoId && bancosAtivosIds.includes(config.bancoBoletoId)) return config.bancoBoletoId;
+  return '';
+};
+
+// ---------------------------------------------------------------------------
 // PARCELAS A PRAZO: O QUE E' SO' DA TELA
 // ---------------------------------------------------------------------------
 //

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  bancoSugerido,
+  chaveBancoDoDia,
+  lerBancoDoDia,
+  parseConfigBancoPadrao,
   DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
   erroDasParcelasAPrazo,
   formaDoDocumentoSemPagamentos,
@@ -190,4 +194,33 @@ test('recebimento acompanha as formas "Usa" da filial, na ordem dela (16/10/2026
   assert.deepEqual(formasDeRecebimento(['Dinheiro', 'Pix'], ['Pix', 'Dinheiro'], []), ['Pix', 'Dinheiro']);
   // Filial sem configuracao: todas as aceitas.
   assert.equal(formasDeRecebimento(aceitas, [], []).length, aceitas.length);
+});
+
+// --- banco padrao (26/10/2026) ---------------------------------------------
+
+test('banco padrao: desligado por padrao; le a configuracao da filial', () => {
+  assert.deepEqual(parseConfigBancoPadrao(undefined), { bancoBoletoId: '', lembrarDoDia: false });
+  assert.deepEqual(parseConfigBancoPadrao({ bancoPadraoBoletoId: ' sicoob ', lembrarBancoDoDia: true }), { bancoBoletoId: 'sicoob', lembrarDoDia: true });
+  assert.equal(parseConfigBancoPadrao({ lembrarBancoDoDia: 'sim' }).lembrarDoDia, false);
+});
+
+test('banco sugerido: o do dia vence o padrao; so de hoje e so banco ativo', () => {
+  const config = { bancoBoletoId: 'sicoob', lembrarDoDia: true };
+  const ativos = ['sicoob', 'bb', 'caixa'];
+  const hoje = '2026-10-26';
+  assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: null, hoje, bancosAtivosIds: ativos }), 'sicoob', 'sem banco do dia: o padrao do boleto');
+  assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: { data: hoje, bancoId: 'bb' }, hoje, bancosAtivosIds: ativos }), 'bb', 'o do dia vence');
+  assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: { data: '2026-10-25', bancoId: 'bb' }, hoje, bancosAtivosIds: ativos }), 'sicoob', 'o de ontem nao vale');
+  assert.equal(bancoSugerido({ forma: 'Pix', config, doDia: null, hoje, bancosAtivosIds: ativos }), '', 'padrao fixo e so do boleto');
+  assert.equal(bancoSugerido({ forma: 'Pix', config, doDia: { data: hoje, bancoId: 'caixa' }, hoje, bancosAtivosIds: ativos }), 'caixa', 'o do dia vale para qualquer forma');
+  assert.equal(bancoSugerido({ forma: 'Boleto', config: { ...config, lembrarDoDia: false }, doDia: { data: hoje, bancoId: 'bb' }, hoje, bancosAtivosIds: ativos }), 'sicoob', 'sem lembrar, so o padrao');
+  assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: { data: hoje, bancoId: 'inativo' }, hoje, bancosAtivosIds: ['bb'] }), '', 'banco inativo nunca e sugerido');
+});
+
+test('banco do dia guardado: chave por empresa/usuario/forma e leitura tolerante', () => {
+  assert.equal(chaveBancoDoDia('loja', 'u1', 'Boleto'), 'hennder:bancoDoDia:loja:u1:Boleto');
+  assert.deepEqual(lerBancoDoDia({ data: '2026-10-26', bancoId: 'bb' }), { data: '2026-10-26', bancoId: 'bb' });
+  assert.equal(lerBancoDoDia(null), null);
+  assert.equal(lerBancoDoDia({ data: '', bancoId: 'bb' }), null);
+  assert.equal(lerBancoDoDia('lixo'), null);
 });

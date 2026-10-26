@@ -78,6 +78,8 @@ import {
   parseFormasOcultas,
   parseOrdemFormasPagamento,
   parsePermitirDividirPagamento,
+  parseConfigBancoPadrao,
+  type ConfigBancoPadrao,
 } from '../../utils/formasPagamentoDomain';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import {
@@ -327,6 +329,8 @@ const OSForm: React.FC = () => {
   const [ordemFormasPagamento, setOrdemFormasPagamento] = useState<string[]>([]);
   const [formasPagamentoOcultas, setFormasPagamentoOcultas] = useState<string[]>([]);
   const [permitirDividirPagamento, setPermitirDividirPagamento] = useState(DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO);
+  // Banco que o pagamento ja' traz (26/10/2026): padrao do boleto / banco do dia, da filial.
+  const [configBancoPadrao, setConfigBancoPadrao] = useState<ConfigBancoPadrao>(() => parseConfigBancoPadrao(null));
   const formasConfiguradas = formasDaEmpresa(ordemFormasPagamento, formasPagamentoOcultas);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>('avisar');
   const [tipoDescontoPadrao, setTipoDescontoPadrao] = useState<DescontoTipo>(DEFAULT_TIPO_DESCONTO_PADRAO);
@@ -512,6 +516,7 @@ const OSForm: React.FC = () => {
           setOrdemFormasPagamento(parseOrdemFormasPagamento(config.ordemFormasPagamento));
           setFormasPagamentoOcultas(parseFormasOcultas(config.formasPagamentoOcultas));
           setPermitirDividirPagamento(parsePermitirDividirPagamento(config.permitirDividirPagamento));
+          setConfigBancoPadrao(parseConfigBancoPadrao(config));
           setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
           setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
@@ -1818,6 +1823,7 @@ const OSForm: React.FC = () => {
                   pagamentoCartaoSimplificadoAtivo={pagamentoCartaoSimplificadoAtivo}
                   formasConfiguradas={formasConfiguradas}
                   permitirDividirPagamento={permitirDividirPagamento}
+                  bancoPadrao={currentUser ? { config: configBancoPadrao, usuarioId: currentUser.uid } : null}
                   sourceLabel="OS"
                   tenantId={tenantId}
                   totalCents={totalOSCentavos}

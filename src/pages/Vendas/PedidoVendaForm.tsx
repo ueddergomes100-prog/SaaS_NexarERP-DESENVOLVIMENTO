@@ -194,6 +194,8 @@ import {
   parseFormasOcultas,
   parseOrdemFormasPagamento,
   parsePermitirDividirPagamento,
+  parseConfigBancoPadrao,
+  type ConfigBancoPadrao,
 } from '../../utils/formasPagamentoDomain';
 import {
   condicaoDoPagamento,
@@ -556,6 +558,8 @@ const PedidoVendaForm: React.FC = () => {
   const [ordemFormasPagamento, setOrdemFormasPagamento] = useState<string[]>([]);
   const [formasPagamentoOcultas, setFormasPagamentoOcultas] = useState<string[]>([]);
   const [permitirDividirPagamento, setPermitirDividirPagamento] = useState(DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO);
+  // Banco que o pagamento ja' traz (26/10/2026): padrao do boleto / banco do dia, da filial.
+  const [configBancoPadrao, setConfigBancoPadrao] = useState<ConfigBancoPadrao>(() => parseConfigBancoPadrao(null));
   const formasConfiguradas = formasDaEmpresa(ordemFormasPagamento, formasPagamentoOcultas);
 
   const [permitirDescontoPorItem, setPermitirDescontoPorItem] = useState(DEFAULT_PERMITIR_DESCONTO_POR_ITEM);
@@ -1095,6 +1099,7 @@ const PedidoVendaForm: React.FC = () => {
           setOrdemFormasPagamento(parseOrdemFormasPagamento(config.ordemFormasPagamento));
           setFormasPagamentoOcultas(parseFormasOcultas(config.formasPagamentoOcultas));
           setPermitirDividirPagamento(parsePermitirDividirPagamento(config.permitirDividirPagamento));
+          setConfigBancoPadrao(parseConfigBancoPadrao(config));
           setPermitirDescontoPorItem(parsePermitirDescontoPorItem(config.permitirDescontoPorItem));
           setModoValidacaoCliente(parseModoValidacaoCliente(config.modoValidacaoCliente));
           setTrabalhaComLimiteCredito(parseTrabalhaComLimiteCredito(config.trabalhaComLimiteCredito));
@@ -6035,6 +6040,7 @@ const PedidoVendaForm: React.FC = () => {
               cashbackDisponivel={cashbackDisponivel}
               formasConfiguradas={formasConfiguradas}
               permitirDividirPagamento={permitirDividirPagamento}
+              bancoPadrao={currentUser ? { config: configBancoPadrao, usuarioId: currentUser.uid } : null}
               sourceLabel="venda"
               tenantId={tenantId}
               totalCents={valorTotalPedidoCentavos}

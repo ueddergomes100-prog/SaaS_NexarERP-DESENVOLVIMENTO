@@ -110,6 +110,8 @@ const MODULOS = [
   'src/utils/custosDomain.ts',
   // Nota do pedido (23/10/2026): uma nota por pedido, com/sem nota, trava de emissao.
   'src/utils/notaDoPedidoDomain.ts',
+  // Movimentacao de produtos (26/10/2026): entradas e saidas montadas dos documentos.
+  'src/utils/movimentosEstoqueDomain.ts',
   // Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
   'src/utils/inutilizacaoDomain.ts',
   // Devolucao de compra ao fornecedor (21/10/2026): le o XML guardado da nota de entrada.

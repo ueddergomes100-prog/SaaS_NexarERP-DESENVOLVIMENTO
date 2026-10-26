@@ -45,6 +45,7 @@ const BalancoContar = lazy(() => import('../pages/Estoque/BalancoContar'));
 const RelatorioEstoque = lazy(() => import('../pages/Estoque/RelatorioEstoque'));
 const LotesValidades = lazy(() => import('../pages/Estoque/LotesValidades'));
 const RelatorioAjustesEstoque = lazy(() => import('../pages/Estoque/RelatorioAjustesEstoque'));
+const MovimentacaoProdutos = lazy(() => import('../pages/Estoque/MovimentacaoProdutos'));
 const NotasAvulsasList = lazy(() => import('../pages/Estoque/NotasAvulsasList'));
 const NotaAvulsaForm = lazy(() => import('../pages/Estoque/NotaAvulsaForm'));
 const Precificacao = lazy(() => import('../pages/Estoque/Precificacao'));
@@ -186,6 +187,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'estoque/relatorio', element: <RelatorioEstoque /> },
   { path: 'estoque/lotes', element: <LotesValidades /> },
   { path: 'estoque/relatorio-ajustes', element: <RelatorioAjustesEstoque /> },
+  { path: 'estoque/movimentacao', element: <MovimentacaoProdutos /> },
   { path: 'estoque/notas-avulsas', element: <NotasAvulsasList /> },
   { path: 'estoque/notas-avulsas/nova', element: <NotaAvulsaForm /> },
   { path: 'estoque/precificacao', element: <Precificacao /> },

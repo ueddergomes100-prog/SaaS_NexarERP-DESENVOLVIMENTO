@@ -24,7 +24,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // mesmo motivo (prefixo mais longo primeiro).
   else if (path.startsWith('/estoque/ajuste') || path.startsWith('/estoque/balanco')) routeModule = 'estoque.ajusteManual';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routeModule = 'estoque.relatorioAjustes';
-  else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes')) routeModule = 'estoque.relatorio';
+  // Movimentacao de produtos (26/10/2026): mesmo modulo do plano do Relatorio de Estoque.
+  else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes') || path.startsWith('/estoque/movimentacao')) routeModule = 'estoque.relatorio';
   else if (path.startsWith('/estoque/notas-avulsas')) routeModule = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque/precificacao')) routeModule = 'estoque.precificacao';
   else if (path.startsWith('/estoque/etiquetas')) routeModule = 'estoque.etiquetas';
@@ -96,6 +97,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/estoque/balanco/contar')) routePermission = 'estoque.balanco_contar';
   else if (path.startsWith('/estoque/balanco')) routePermission = 'estoque.balanco_gerenciar';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routePermission = 'estoque.relatorioAjustes';
+  else if (path.startsWith('/estoque/movimentacao')) routePermission = 'estoque.movimentacao';
   else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes')) routePermission = 'estoque.relatorio';
   else if (path.startsWith('/estoque/notas-avulsas')) routePermission = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque/precificacao')) routePermission = 'estoque.precificacao';

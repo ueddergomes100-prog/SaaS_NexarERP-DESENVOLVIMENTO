@@ -249,6 +249,8 @@ const Sidebar: React.FC = () => {
         // Lotes e Validades (2026-09-25): leitura, entao usa a permissao do Relatorio de Estoque.
         { label: 'Lotes e Validades', to: '/estoque/lotes', icon: CalendarClock, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
         { label: 'Relatório de Ajustes', to: '/estoque/relatorio-ajustes', icon: History, module: 'estoque.relatorioAjustes', permission: 'estoque.relatorioAjustes' },
+        // Movimentacao de produtos (26/10/2026): toda entrada e saida (venda, compra, producao, ajuste, balanco...).
+        { label: 'Movimentação de Produtos', to: '/estoque/movimentacao', icon: ArrowLeftRight, module: 'estoque.relatorio', permission: 'estoque.movimentacao' },
         // De proposito FORA do prefixo 'fiscal.' -- Nota Avulsa e a
         // ferramenta pra quem NAO controla fiscal (compra sem XML). Ficar
         // atras do gate de controlaFiscal contradiria o proprio motivo

@@ -154,6 +154,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'estoque.balanco_contar', label: 'Estoque: Balanço — contar', color: '#0ea5e9' },
       { id: 'estoque.relatorio', label: 'Estoque: Relatório de Estoque', color: '#0ea5e9' },
       { id: 'estoque.relatorioAjustes', label: 'Estoque: Relatório de Ajustes', color: '#0ea5e9' },
+      // Movimentacao de produtos (26/10/2026): extrato de entradas e saidas de produtos, materias-primas e insumos.
+      { id: 'estoque.movimentacao', label: 'Estoque: Movimentação de Produtos', color: '#0ea5e9' },
       { id: 'estoque.nota_avulsa', label: 'Estoque: Nota Avulsa (Compra Manual)', color: '#0ea5e9' },
       { id: 'estoque.precificacao', label: 'Estoque: Precificação (preços em lote)', color: '#0ea5e9' },
       { id: 'estoque.etiquetas', label: 'Estoque: Etiquetas (gerar e imprimir)', color: '#0ea5e9' },

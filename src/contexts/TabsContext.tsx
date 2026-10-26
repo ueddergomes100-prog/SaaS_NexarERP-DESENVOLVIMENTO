@@ -91,6 +91,7 @@ const SECTION_LABELS: Array<[string, string]> = [
   // Balanco (21/10/2026): "contar" antes do generico (prefixo mais longo primeiro).
   ['/estoque/balanco/contar', 'Contar balanço'],
   ['/estoque/balanco', 'Balanço'],
+  ['/estoque/movimentacao', 'Movimentação de Produtos'],
   ['/estoque', 'Estoque / Produtos'],
   ['/servicos', 'Serviços'],
   ['/categorias', 'Categorias'],

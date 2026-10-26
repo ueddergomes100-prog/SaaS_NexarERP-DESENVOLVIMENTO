@@ -12,6 +12,7 @@ import type { UsuarioDoCampo } from '../../services/osCampoService';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import {
   FORMAS_RECEBIDAS_NA_ENTREGA,
+  formaRecebidaPadrao,
   MOTIVOS_NAO_ENTREGA_PADRAO,
   centavosDoTexto,
   diferencaDoRecebido,
@@ -124,7 +125,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
     setRecebedorDocumento(entrega.recebedorDocumento);
     setMotivo(entrega.motivo);
     setRecebido(textoDosCentavos(entrega.recebidoCentavos));
-    setRecebidoForma(entrega.recebidoForma || 'Dinheiro');
+    setRecebidoForma(entrega.recebidoForma || formaRecebidaPadrao(entrega.formaPagamento));
     setObservacao(entrega.observacao);
     setJustificativa(entrega.justificativaValor);
     setPreenchido(true);

@@ -5,7 +5,7 @@ import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle, ClipboardList, History, Loader2, Plus, Printer, RotateCcw, Save,
-  Send, Settings2, Trash2, Truck, X, XCircle,
+  Search, Send, Settings2, Trash2, Truck, X, XCircle,
 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -46,6 +46,8 @@ import {
   FORMAS_RECEBIDAS_NA_ENTREGA,
   centavosDoTexto,
   diferencaDoRecebido,
+  entregasDaBusca,
+  formaRecebidaPadrao,
   linhasDoAcerto,
   montarDocumentoRomaneio,
   moverEntrega,
@@ -145,6 +147,8 @@ const RomaneioForm: React.FC = () => {
   const [configAberta, setConfigAberta] = useState(false);
   const [adicionarAberto, setAdicionarAberto] = useState(false);
   const [registrando, setRegistrando] = useState<EntregaRomaneio | null>(null);
+  const [buscaEntrega, setBuscaEntrega] = useState('');
+  const buscaEntregaRef = useRef<HTMLInputElement>(null);
   const [lancarDespesas, setLancarDespesas] = useState(true);
   const carregouRef = useRef(false);
   const vistosDoBancoRef = useRef<Set<string>>(new Set());
@@ -223,6 +227,23 @@ const RomaneioForm: React.FC = () => {
   const emMontagem = romaneio.status === 'montagem';
   const emRota = romaneio.status === 'em_rota';
   const encerrado = romaneio.status === 'fechado' || romaneio.status === 'cancelado';
+  // Acerto (25/10/2026, pedido do dono): digita o numero do pedido, Enter abre o registro.
+  const entregasNaTela = useMemo(() => (emRota ? entregasDaBusca(romaneio.entregas, buscaEntrega) : romaneio.entregas), [emRota, romaneio.entregas, buscaEntrega]);
+  const abrirPelaBusca = () => {
+    if (!buscaEntrega.trim()) return;
+    const achadas = entregasDaBusca(romaneio.entregas, buscaEntrega);
+    const numero = buscaEntrega.replace(/\D/g, '').replace(/^0+/, '');
+    // Pedido com o numero exato vence a nota de mesmo numero.
+    const doPedido = achadas.filter((e) => e.numeroPedido.replace(/\D/g, '').replace(/^0+/, '') === numero);
+    const alvo = doPedido.length === 1 ? doPedido[0] : achadas.length === 1 ? achadas[0] : null;
+    if (alvo) { setRegistrando(alvo); return; }
+    if (achadas.length === 0) showWarning('Pedido não está nesta rota', `Nenhum pedido ou nota "${buscaEntrega.trim()}" nesta rota. Confira o número.`);
+    else showWarning('Mais de um pedido encontrado', 'Clique em "Registrar" na linha do pedido certo.');
+  };
+  const voltarParaBusca = () => {
+    setBuscaEntrega('');
+    window.setTimeout(() => buscaEntregaRef.current?.focus(), 50);
+  };
   // Fechado/cancelado so' se ve (reabrir e cancelar sao do servidor); o app do
   // motorista registra campo a campo e nao trava a rota.
   // Trava de edicao (fase 2, 16/10/2026): um documento aberto por vez.
@@ -567,6 +588,21 @@ const RomaneioForm: React.FC = () => {
               {botao('Adicionar pedidos', <Plus size={16} />, () => setAdicionarAberto(true), true)}
             </div>
           )}
+          {emRota && romaneio.entregas.length > 0 && (
+            <div style={{ position: 'relative', flex: '0 1 320px', minWidth: '240px' }}>
+              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                ref={buscaEntregaRef}
+                value={buscaEntrega}
+                onChange={(e) => setBuscaEntrega(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); abrirPelaBusca(); } }}
+                placeholder="Buscar…"
+                aria-label="Número do pedido para registrar"
+                title="Digite o número do pedido (ou da nota) e aperte Enter para registrar a entrega. Também busca pelo nome do cliente."
+                style={{ ...estiloCampo, width: '100%', paddingLeft: '36px' }}
+              />
+            </div>
+          )}
         </div>
 
         <div style={{ overflowX: 'auto' }}>
@@ -593,9 +629,15 @@ const RomaneioForm: React.FC = () => {
                     <div>Nenhum pedido nesta rota. Clique em "Adicionar pedidos" para escolher entre os faturados.</div>
                   </td>
                 </tr>
-              ) : romaneio.entregas.map((e, i) => (
+              ) : entregasNaTela.length === 0 ? (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    Nenhum pedido "{buscaEntrega.trim()}" nesta rota.
+                  </td>
+                </tr>
+              ) : entregasNaTela.map((e, i) => (
                 <tr key={e.pedidoId} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{i + 1}</td>
+                  <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{romaneio.entregas.indexOf(e) + 1}</td>
                   <td style={{ padding: '8px' }}>{e.notaNumero || <span style={{ color: 'var(--text-muted)' }}>S/N</span>}</td>
                   <td style={{ padding: '8px', fontWeight: 600 }}>
                     {e.numeroPedido}
@@ -793,11 +835,13 @@ const RomaneioForm: React.FC = () => {
         <RegistrarEntregaModal
           entrega={registrando}
           motivos={motivos}
-          onFechar={() => setRegistrando(null)}
+          onFechar={() => { setRegistrando(null); if (buscaEntrega) buscaEntregaRef.current?.focus(); }}
           onSalvar={async (registro) => {
             try {
               await registrarEntrega({ tenantId, uid: currentUser.uid, nomeUsuario: userNome || currentUser.email || '', id, pedidoId: registrando.pedidoId, registro });
               setRegistrando(null);
+              // Registrou pela busca: limpa e volta o cursor para o proximo numero.
+              if (buscaEntrega) voltarParaBusca();
             } catch (erro) {
               console.error('Erro ao registrar a entrega:', erro);
               showError('Não foi possível registrar', mensagemDoErro(erro, 'Não foi possível registrar esta entrega. Tente de novo.'));
@@ -1056,7 +1100,7 @@ const RegistrarEntregaModal: React.FC<{
   const [recebedorDocumento, setRecebedorDocumento] = useState(entrega.recebedorDocumento);
   const [motivo, setMotivo] = useState(entrega.motivo || '');
   const [recebido, setRecebido] = useState(textoDosCentavos(entrega.recebidoCentavos));
-  const [recebidoForma, setRecebidoForma] = useState(entrega.recebidoForma || 'Dinheiro');
+  const [recebidoForma, setRecebidoForma] = useState(entrega.recebidoForma || formaRecebidaPadrao(entrega.formaPagamento));
   const [observacao, setObservacao] = useState(entrega.observacao);
   const [justificativa, setJustificativa] = useState(entrega.justificativaValor);
   const [salvando, setSalvando] = useState(false);

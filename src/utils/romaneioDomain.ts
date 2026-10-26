@@ -128,6 +128,39 @@ export const MOTIVOS_NAO_ENTREGA_PADRAO: string[] = [
 
 export const FORMAS_RECEBIDAS_NA_ENTREGA = ['Dinheiro', 'Cheque', 'Pix', 'Cartão', 'Boleto'] as const;
 
+const minusculoSemAcento = (texto: unknown) => String(texto ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * "Como" do registro da entrega ja' vem com a forma do pedido (25/10/2026, pedido
+ * do dono): pedido no boleto vem Boleto, no Pix vem Pix, cartao (credito ou debito)
+ * vem Cartao. Forma que nao bate com nenhuma (crediario, varias formas) fica Dinheiro,
+ * como era antes. A pessoa sempre pode trocar.
+ */
+export const formaRecebidaPadrao = (formaDoPedido: unknown): string => {
+  const f = minusculoSemAcento(formaDoPedido);
+  if (f.includes('boleto')) return 'Boleto';
+  if (f.includes('pix')) return 'Pix';
+  if (f.includes('cartao') || f.includes('credito') || f.includes('debito')) return 'Cartão';
+  if (f.includes('cheque')) return 'Cheque';
+  return 'Dinheiro';
+};
+
+/**
+ * Busca do acerto (25/10/2026): "digita o numero e registra". Bate o numero do
+ * pedido (sem # e sem zeros a esquerda: "81" acha "0081") ou o numero da nota;
+ * com letras, procura no nome do cliente. Vazio = todas.
+ */
+export const entregasDaBusca = <T extends Pick<EntregaRomaneio, 'numeroPedido' | 'notaNumero' | 'clienteNome'>>(entregas: T[], termo: string): T[] => {
+  const t = minusculoSemAcento(termo).trim().replace(/^#/, '');
+  if (!t) return entregas;
+  if (/^\d+$/.test(t)) {
+    const numero = t.replace(/^0+/, '') || '0';
+    const igual = (v: unknown) => (String(v ?? '').replace(/\D/g, '').replace(/^0+/, '') || '') === numero;
+    return entregas.filter((e) => igual(e.numeroPedido) || igual(e.notaNumero));
+  }
+  return entregas.filter((e) => minusculoSemAcento(e.clienteNome).includes(t));
+};
+
 /** "1.234,56" -> 123456. Aceita ponto ou virgula; texto vazio ou invalido = 0. */
 export const centavosDoTexto = (texto: string): number => {
   const n = Number(String(texto ?? '').split('.').join('').replace(',', '.'));

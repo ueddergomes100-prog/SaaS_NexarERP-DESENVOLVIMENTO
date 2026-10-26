@@ -84,6 +84,9 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
   };
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [resultados, setResultados] = useState<Record<string, ResultadoItemLote> | null>(null);
+  // Os pedidos do lote, guardados ao emitir: a nota autorizada tira o pedido da lista
+  // `pedidos` (uma nota por pedido) e o resultado, o PDF e a impressao sumiam junto (25/10/2026).
+  const [pedidosDoLote, setPedidosDoLote] = useState<PedidoParaLote[]>([]);
   const [rodando, setRodando] = useState(false);
   const pararRef = useRef(false);
   const [pdfAberto, setPdfAberto] = useState<{ titulo: string; nome: string; blob: Blob; imprimir?: boolean } | null>(null);
@@ -114,7 +117,7 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
   };
   /** Baixa o PDF de cada autorizada, um arquivo por nota, ja' com o nome certo. */
   const salvarTodos = async () => {
-    const autorizadas = pedidos.filter((p) => resultados?.[p.id]?.estado === 'autorizada' && resultados[p.id].spedyId);
+    const autorizadas = pedidosDoLote.filter((p) => resultados?.[p.id]?.estado === 'autorizada' && resultados[p.id].spedyId);
     setSalvandoTodos(true);
     let falhas = 0;
     let motivo = '';
@@ -146,7 +149,7 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
    * janela de impressao so' em vez de salvar arquivo por arquivo.
    */
   const imprimirTodas = async () => {
-    const autorizadas = pedidos.filter((p) => resultados?.[p.id]?.estado === 'autorizada' && resultados[p.id].spedyId);
+    const autorizadas = pedidosDoLote.filter((p) => resultados?.[p.id]?.estado === 'autorizada' && resultados[p.id].spedyId);
     setImprimindoTodas(true);
     const arquivos: Blob[] = [];
     const semPdf: string[] = [];
@@ -216,9 +219,10 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
   };
 
   const iniciar = async () => {
-    const ordem = pedidos.filter((p) => selecionados.includes(p.id)).map((p) => p.id);
+    const doLote = pedidos.filter((p) => selecionados.includes(p.id));
+    const ordem = doLote.map((p) => p.id);
     if (ordem.length === 0) return;
-    const total = pedidos.filter((p) => selecionados.includes(p.id)).reduce((s, p) => s + p.valorTotal, 0);
+    const total = doLote.reduce((s, p) => s + p.valorTotal, 0);
     const confirma = await NexusSwal.fire({
       icon: 'question',
       title: `Emitir ${ordem.length} NF-e?`,
@@ -230,6 +234,7 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
     if (!confirma.isConfirmed) return;
 
     pararRef.current = false;
+    setPedidosDoLote(doLote);
     setRodando(true);
     setResultados(Object.fromEntries(ordem.map((id) => [id, { estado: 'aguardando' as const }])));
     try {
@@ -243,7 +248,7 @@ const EmissaoLoteModal: React.FC<Props> = ({ pedidos, onFechar, executar, baixar
     }
   };
 
-  const lista = resultados ? pedidos.filter((p) => resultados[p.id]) : visiveis;
+  const lista = resultados ? pedidosDoLote.filter((p) => resultados[p.id]) : visiveis;
   const contagem = resultados
     ? Object.values(resultados).reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.estado]: (acc[r.estado] || 0) + 1 }), {})
     : {};

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
-exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = void 0;
+exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
+exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = void 0;
 const preVendaDomain_1 = require("./preVendaDomain");
 exports.ROTULO_STATUS_ROMANEIO = {
     montagem: 'Em montagem',
@@ -42,6 +42,43 @@ exports.MOTIVOS_NAO_ENTREGA_PADRAO = [
     'OUTRO',
 ];
 exports.FORMAS_RECEBIDAS_NA_ENTREGA = ['Dinheiro', 'Cheque', 'Pix', 'Cartão', 'Boleto'];
+const minusculoSemAcento = (texto) => String(texto ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+/**
+ * "Como" do registro da entrega ja' vem com a forma do pedido (25/10/2026, pedido
+ * do dono): pedido no boleto vem Boleto, no Pix vem Pix, cartao (credito ou debito)
+ * vem Cartao. Forma que nao bate com nenhuma (crediario, varias formas) fica Dinheiro,
+ * como era antes. A pessoa sempre pode trocar.
+ */
+const formaRecebidaPadrao = (formaDoPedido) => {
+    const f = minusculoSemAcento(formaDoPedido);
+    if (f.includes('boleto'))
+        return 'Boleto';
+    if (f.includes('pix'))
+        return 'Pix';
+    if (f.includes('cartao') || f.includes('credito') || f.includes('debito'))
+        return 'Cartão';
+    if (f.includes('cheque'))
+        return 'Cheque';
+    return 'Dinheiro';
+};
+exports.formaRecebidaPadrao = formaRecebidaPadrao;
+/**
+ * Busca do acerto (25/10/2026): "digita o numero e registra". Bate o numero do
+ * pedido (sem # e sem zeros a esquerda: "81" acha "0081") ou o numero da nota;
+ * com letras, procura no nome do cliente. Vazio = todas.
+ */
+const entregasDaBusca = (entregas, termo) => {
+    const t = minusculoSemAcento(termo).trim().replace(/^#/, '');
+    if (!t)
+        return entregas;
+    if (/^\d+$/.test(t)) {
+        const numero = t.replace(/^0+/, '') || '0';
+        const igual = (v) => (String(v ?? '').replace(/\D/g, '').replace(/^0+/, '') || '') === numero;
+        return entregas.filter((e) => igual(e.numeroPedido) || igual(e.notaNumero));
+    }
+    return entregas.filter((e) => minusculoSemAcento(e.clienteNome).includes(t));
+};
+exports.entregasDaBusca = entregasDaBusca;
 /** "1.234,56" -> 123456. Aceita ponto ou virgula; texto vazio ou invalido = 0. */
 const centavosDoTexto = (texto) => {
     const n = Number(String(texto ?? '').split('.').join('').replace(',', '.'));

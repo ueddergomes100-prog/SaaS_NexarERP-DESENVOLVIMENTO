@@ -18,6 +18,8 @@ import {
   travaLivreOuDestaRota,
   centavosDoTexto,
   diferencaDoRecebido,
+  entregasDaBusca,
+  formaRecebidaPadrao,
   erroDoPedidoParaRomaneio,
   erroDoRegistroDeEntrega,
   linkDoMapa,
@@ -372,4 +374,31 @@ test('link do mapa e texto de dinheiro', () => {
   assert.equal(centavosDoTexto(''), 0);
   assert.equal(textoDosCentavos(123456), '1234,56');
   assert.equal(textoDosCentavos(0), '');
+});
+
+test('registro da entrega: "Como" vem com a forma do pedido (25/10/2026)', () => {
+  assert.equal(formaRecebidaPadrao('Boleto'), 'Boleto');
+  assert.equal(formaRecebidaPadrao('BOLETO BANCÁRIO'), 'Boleto');
+  assert.equal(formaRecebidaPadrao('PIX'), 'Pix');
+  assert.equal(formaRecebidaPadrao('Cartão de Crédito'), 'Cartão');
+  assert.equal(formaRecebidaPadrao('Débito'), 'Cartão');
+  assert.equal(formaRecebidaPadrao('Cheque'), 'Cheque');
+  assert.equal(formaRecebidaPadrao('Dinheiro'), 'Dinheiro');
+  assert.equal(formaRecebidaPadrao('Crediário'), 'Dinheiro', 'forma que nao bate fica Dinheiro, como antes');
+  assert.equal(formaRecebidaPadrao(''), 'Dinheiro');
+  assert.equal(formaRecebidaPadrao(undefined), 'Dinheiro');
+});
+
+test('busca do acerto: numero do pedido sem zeros, numero da nota ou nome do cliente', () => {
+  const entregas = [
+    { numeroPedido: '0081', notaNumero: '1520', clienteNome: 'MERCADO SÃO JOSÉ' },
+    { numeroPedido: '0810', notaNumero: '', clienteNome: 'PADARIA CENTRAL' },
+    { numeroPedido: '0094', notaNumero: '81', clienteNome: 'EMPORIO NATURAL' },
+  ];
+  assert.deepEqual(entregasDaBusca(entregas, '81').map((e) => e.numeroPedido), ['0081', '0094'], 'pedido 0081 e a nota 81; 0810 nao');
+  assert.deepEqual(entregasDaBusca(entregas, '#0081').map((e) => e.numeroPedido), ['0081', '0094']);
+  assert.deepEqual(entregasDaBusca(entregas, '1520').map((e) => e.numeroPedido), ['0081']);
+  assert.deepEqual(entregasDaBusca(entregas, 'sao jose').map((e) => e.numeroPedido), ['0081']);
+  assert.equal(entregasDaBusca(entregas, '  ').length, 3);
+  assert.equal(entregasDaBusca(entregas, '999').length, 0);
 });

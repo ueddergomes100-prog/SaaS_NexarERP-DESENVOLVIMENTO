@@ -34,7 +34,8 @@ export type OperacaoFiscal =
   | 'transferencia_saida'
   | 'compra'
   | 'devolucao_venda_cliente'
-  | 'transferencia_entrada';
+  | 'transferencia_entrada'
+  | 'servico_tomado';
 export type OrigemFiscal = 'emitida' | 'recebida';
 
 export const ROTULO_MOVIMENTO: Record<MovimentoFiscal, string> = { saida: 'Saída', entrada: 'Entrada' };
@@ -52,13 +53,14 @@ export const ROTULO_OPERACAO: Record<OperacaoFiscal, string> = {
   compra: 'Compra / entrada de mercadoria',
   devolucao_venda_cliente: 'Devolução de venda (nota do cliente)',
   transferencia_entrada: 'Transferência entre filiais (entrada)',
+  servico_tomado: 'Serviço tomado (NFS-e recebida)',
 };
 export const ROTULO_ORIGEM: Record<OrigemFiscal, string> = { emitida: 'Emitida pela empresa', recebida: 'Recebida (XML)' };
 
 export const MODELOS_FISCAIS: ModeloFiscal[] = ['NF-e', 'NFC-e', 'NFS-e'];
 export const SITUACOES_FISCAIS: SituacaoFiscal[] = ['autorizada', 'cancelada', 'rejeitada', 'processando'];
 export const OPERACOES_FISCAIS: OperacaoFiscal[] = [
-  'venda', 'servico', 'devolucao_venda_propria', 'transferencia_saida', 'compra', 'devolucao_venda_cliente', 'transferencia_entrada',
+  'venda', 'servico', 'devolucao_venda_propria', 'transferencia_saida', 'compra', 'devolucao_venda_cliente', 'transferencia_entrada', 'servico_tomado',
 ];
 
 const numero = (v: unknown): number => {
@@ -330,6 +332,8 @@ export interface NotaRecebidaParaContador {
   totais?: unknown;
   itens?: unknown;
   transferenciaId?: unknown;
+  /** 'nfse' = NFS-e de servico tomado (nfseEntradaDomain.ts): sem itens nem CFOP. */
+  tipoDocumento?: unknown;
   ufDoFornecedor?: string;
   /** Itens do XML guardado na entrada (`xmlGzipBase64`, lido por parseNfeXml):
    *  trazem frete, seguro, despesas e desconto de cada item. Sem XML, valem os
@@ -386,6 +390,31 @@ const valoresDoItemGravado = (item: Record<string, unknown>): ValoresFiscais => 
 };
 
 export const linhaDaNotaRecebida = (nota: NotaRecebidaParaContador): LinhaContador => {
+  if (nota.tipoDocumento === 'nfse') {
+    // Servico tomado: sem CFOP nem ICMS/IPI; o valor e' o dos servicos.
+    return {
+      id: nota.id,
+      movimento: 'entrada',
+      origem: 'recebida',
+      modelo: 'NFS-e',
+      data: texto(nota.dataEmissao).slice(0, 10),
+      numero: texto(nota.numeroNF),
+      serie: '',
+      chave: soDigitos(nota.chaveAcesso),
+      situacao: 'autorizada',
+      operacao: 'servico_tomado',
+      participante: texto(nota.fornecedorNome),
+      documento: soDigitos(nota.fornecedorCnpj),
+      uf: texto(nota.ufDoFornecedor).toUpperCase(),
+      cfops: [],
+      cfopsDoXml: [],
+      porCfop: [],
+      cartas: [],
+      naturezaOperacao: '',
+      ...valoresZerados(),
+      valor: centavos(nota.valorTotal),
+    };
+  }
   const grupos = new Map<string, GrupoCfop>();
   const doXml = new Set<string>();
   const itensXml = Array.isArray(nota.itensDoXml) && nota.itensDoXml.length > 0 ? nota.itensDoXml : null;

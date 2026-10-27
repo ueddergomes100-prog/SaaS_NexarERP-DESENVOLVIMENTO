@@ -54,7 +54,22 @@ interface NotaFiscalEntradaDoc {
   /** Devolucao ao fornecedor (21/10/2026): quanto de cada item (indice) ja voltou, e as devolucoes. */
   devolvidoPorItem?: Record<string, number>;
   devolucoesCompraIds?: string[];
+  /** 'nfse' = NFS-e de servico tomado (27/10/2026, EntradaNFSe.tsx): sem itens. */
+  tipoDocumento?: string;
+  servico?: {
+    descricao?: string;
+    codigoServico?: string;
+    competencia?: string;
+    codigoVerificacao?: string;
+    valorIss?: number;
+    issRetido?: boolean;
+    retencoes?: Record<string, number>;
+    valorLiquido?: number;
+  };
 }
+
+/** NFS-e (servico) ou NF-e, para os textos da tela. */
+const rotuloDoDocumento = (nota: Pick<NotaFiscalEntradaDoc, 'tipoDocumento'>) => (nota.tipoDocumento === 'nfse' ? 'NFS-e' : 'NF-e');
 
 interface TituloPagar {
   id: string;
@@ -216,7 +231,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
       const endereco = URL.createObjectURL(new Blob([xml], { type: 'text/xml' }));
       const link = document.createElement('a');
       link.href = endereco;
-      link.download = `NFe-${nota.chaveAcesso || nota.numeroNF}.xml`;
+      link.download = `${nota.tipoDocumento === 'nfse' ? 'NFSe' : 'NFe'}-${nota.chaveAcesso || nota.numeroNF}.xml`;
       link.click();
       URL.revokeObjectURL(endereco);
     } catch (erro) {
@@ -248,7 +263,9 @@ const NotasFiscaisEntradaList: React.FC = () => {
 
     const result = await NexusSwal.fire({
       title: 'Excluir Nota de Entrada?',
-      html: `Isso reverte a quantidade somada ao estoque, matéria-prima ou insumo e remove os títulos de Contas a Pagar gerados pela NF-e <strong>${escaparHtml(nota.numeroNF)}</strong> (${escaparHtml(nota.fornecedorNome)}). O cadastro dos itens não é apagado.<br/><br/>Digite o motivo (mínimo 12 caracteres):`,
+      html: nota.tipoDocumento === 'nfse'
+        ? `Isso remove os títulos de Contas a Pagar gerados pela NFS-e <strong>${escaparHtml(nota.numeroNF)}</strong> (${escaparHtml(nota.fornecedorNome)}). O fornecedor continua cadastrado.<br/><br/>Digite o motivo (mínimo 12 caracteres):`
+        : `Isso reverte a quantidade somada ao estoque, matéria-prima ou insumo e remove os títulos de Contas a Pagar gerados pela NF-e <strong>${escaparHtml(nota.numeroNF)}</strong> (${escaparHtml(nota.fornecedorNome)}). O cadastro dos itens não é apagado.<br/><br/>Digite o motivo (mínimo 12 caracteres):`,
       input: 'text',
       inputLabel: 'Motivo da exclusão',
       inputAttributes: { minlength: '12', required: 'true' },
@@ -428,10 +445,10 @@ const NotasFiscaisEntradaList: React.FC = () => {
         <div>
           <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '24px', margin: 0 }}>
             <History size={28} color="var(--accent-purple)" />
-            Histórico de Entradas de NF-e
+            Histórico de Entradas
           </h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>
-            Notas fiscais de entrada já importadas, com os itens e títulos de Contas a Pagar gerados por cada uma.
+            Notas fiscais de entrada já lançadas (NF-e de mercadoria e NFS-e de serviço), com os itens e títulos de Contas a Pagar gerados por cada uma.
           </p>
         </div>
       </div>
@@ -471,7 +488,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
             <thead>
               <tr>
                 <th>Data de Emissão</th>
-                <th>Nº NF-e</th>
+                <th>Nº da nota</th>
                 <th>Fornecedor</th>
                 <th style={{ textAlign: 'center' }}>Itens</th>
                 <th style={{ textAlign: 'right' }}>Valor Total</th>
@@ -494,7 +511,14 @@ const NotasFiscaisEntradaList: React.FC = () => {
                 notasFiltradas.map((nota) => (
                   <tr key={nota.id} {...linha(nota.id, () => handleVerDetalhes(nota))}>
                     <td>{formatDateInputPtBr(nota.dataEmissao)}</td>
-                    <td className="font-medium">{nota.numeroNF}</td>
+                    <td className="font-medium">
+                      {nota.numeroNF}
+                      {nota.tipoDocumento === 'nfse' && (
+                        <span title="Nota fiscal de serviço (serviço tomado)" style={{ marginLeft: '6px', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', backgroundColor: 'rgba(168,85,247,0.15)', color: 'var(--accent-purple)', fontWeight: 600 }}>
+                          NFS-e
+                        </span>
+                      )}
+                    </td>
                     <td>
                       {nota.fornecedorNome}
                       {nota.transferenciaId && (
@@ -503,7 +527,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td style={{ textAlign: 'center' }}>{nota.itens.length}</td>
+                    <td style={{ textAlign: 'center' }}>{nota.tipoDocumento === 'nfse' ? 'Serviço' : nota.itens.length}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{currency(nota.valorTotal)}</td>
                     <td style={{ textAlign: 'center' }}>
                       <span style={{ padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600, backgroundColor: `${STATUS_COLOR[nota.status]}1a`, color: STATUS_COLOR[nota.status] }}>
@@ -515,14 +539,16 @@ const NotasFiscaisEntradaList: React.FC = () => {
                         <button className="icon-btn" title="Ver detalhes" onClick={() => handleVerDetalhes(nota)}>
                           <FileText size={16} />
                         </button>
-                        <button
-                          className="icon-btn"
-                          title="Gerar etiquetas dos produtos desta nota"
-                          onClick={() => openTab(`/estoque/etiquetas?notaFiscalId=${nota.id}`, 'Etiquetas')}
-                        >
-                          <Barcode size={16} />
-                        </button>
-                        {nota.status === 'ativa' && !nota.transferenciaId && podeDevolver && (
+                        {nota.tipoDocumento !== 'nfse' && (
+                          <button
+                            className="icon-btn"
+                            title="Gerar etiquetas dos produtos desta nota"
+                            onClick={() => openTab(`/estoque/etiquetas?notaFiscalId=${nota.id}`, 'Etiquetas')}
+                          >
+                            <Barcode size={16} />
+                          </button>
+                        )}
+                        {nota.status === 'ativa' && !nota.transferenciaId && nota.tipoDocumento !== 'nfse' && podeDevolver && (
                           <button
                             className="icon-btn"
                             title="Devolver ao fornecedor (NF-e de devolução)"
@@ -561,7 +587,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <FileText size={22} color="var(--accent-purple)" />
                 <div>
-                  <h2 style={{ margin: 0, fontSize: '18px' }}>NF-e {notaSelecionada.numeroNF}</h2>
+                  <h2 style={{ margin: 0, fontSize: '18px' }}>{rotuloDoDocumento(notaSelecionada)} {notaSelecionada.numeroNF}</h2>
                   <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>{notaSelecionada.fornecedorNome}</p>
                 </div>
               </div>
@@ -589,7 +615,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px', fontSize: '12.5px' }}>
                 {notaSelecionada.serie && <div><span style={{ color: 'var(--text-muted)' }}>Série / Modelo:</span> <strong>{notaSelecionada.serie} / {notaSelecionada.modelo || '—'}</strong></div>}
                 {notaSelecionada.naturezaOperacao && <div><span style={{ color: 'var(--text-muted)' }}>Natureza:</span> <strong>{notaSelecionada.naturezaOperacao}</strong></div>}
-                {notaSelecionada.dataEntrada && <div><span style={{ color: 'var(--text-muted)' }}>Entrada da mercadoria:</span> <strong>{formatDateInputPtBr(notaSelecionada.dataEntrada)}</strong></div>}
+                {notaSelecionada.dataEntrada && <div><span style={{ color: 'var(--text-muted)' }}>{notaSelecionada.tipoDocumento === 'nfse' ? 'Lançada em:' : 'Entrada da mercadoria:'}</span> <strong>{formatDateInputPtBr(notaSelecionada.dataEntrada)}</strong></div>}
                 {notaSelecionada.pagamento?.modo && <div><span style={{ color: 'var(--text-muted)' }}>Pagamento:</span> <strong>{notaSelecionada.pagamento.modo === 'avista' ? 'À vista' : 'A prazo'}{notaSelecionada.pagamento.forma ? ` · ${notaSelecionada.pagamento.forma}` : ''}</strong></div>}
                 {notaSelecionada.observacao && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-muted)' }}>Observação:</span> {notaSelecionada.observacao}</div>}
                 {notaSelecionada.chaveAcesso && <div style={{ gridColumn: '1 / -1', fontFamily: 'monospace', wordBreak: 'break-all' }}><span style={{ color: 'var(--text-muted)', fontFamily: 'inherit' }}>Chave:</span> {formatarChave(notaSelecionada.chaveAcesso)}</div>}
@@ -597,14 +623,20 @@ const NotasFiscaisEntradaList: React.FC = () => {
             )}
 
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
-              <button type="button" className="btn-secondary" disabled={!notaSelecionada.xmlGzipBase64 || preparandoXml} onClick={() => void handleImprimirDanfe(notaSelecionada)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                {preparandoXml ? <Loader2 size={15} className="spin-icon" /> : <Printer size={15} />} Imprimir DANFE
-              </button>
+              {notaSelecionada.tipoDocumento !== 'nfse' && (
+                <button type="button" className="btn-secondary" disabled={!notaSelecionada.xmlGzipBase64 || preparandoXml} onClick={() => void handleImprimirDanfe(notaSelecionada)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                  {preparandoXml ? <Loader2 size={15} className="spin-icon" /> : <Printer size={15} />} Imprimir DANFE
+                </button>
+              )}
               <button type="button" className="btn-secondary" disabled={!notaSelecionada.xmlGzipBase64 || preparandoXml} onClick={() => void handleBaixarXml(notaSelecionada)} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
                 <FileDown size={15} /> Baixar XML
               </button>
               {!notaSelecionada.xmlGzipBase64 && (
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center' }}>Esta nota foi lançada antes de o sistema guardar o XML: DANFE e XML só estão nas notas novas.</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center' }}>
+                  {notaSelecionada.tipoDocumento === 'nfse'
+                    ? 'NFS-e digitada, sem o arquivo XML.'
+                    : 'Esta nota foi lançada antes de o sistema guardar o XML: DANFE e XML só estão nas notas novas.'}
+                </span>
               )}
             </div>
 
@@ -614,6 +646,29 @@ const NotasFiscaisEntradaList: React.FC = () => {
               </div>
             )}
 
+            {notaSelecionada.tipoDocumento === 'nfse' && notaSelecionada.servico && (() => {
+              const s = notaSelecionada.servico;
+              const r = s.retencoes || {};
+              const retencoes = [['IR', r.irrf], ['PIS', r.pis], ['COFINS', r.cofins], ['CSLL', r.csll], ['INSS', r.inss], ['Outras', r.outras]]
+                .filter(([, v]) => Number(v) > 0) as Array<[string, number]>;
+              return (
+                <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', fontSize: '13px', display: 'grid', gap: '8px' }}>
+                  {s.descricao && <div><span style={{ color: 'var(--text-muted)' }}>Serviço:</span> {s.descricao}</div>}
+                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    {s.codigoServico && <span><span style={{ color: 'var(--text-muted)' }}>Código:</span> <strong>{s.codigoServico}</strong></span>}
+                    {s.competencia && <span><span style={{ color: 'var(--text-muted)' }}>Competência:</span> <strong>{formatDateInputPtBr(s.competencia).slice(3)}</strong></span>}
+                    {s.codigoVerificacao && <span><span style={{ color: 'var(--text-muted)' }}>Verificação:</span> <strong>{s.codigoVerificacao}</strong></span>}
+                    <span><span style={{ color: 'var(--text-muted)' }}>ISS:</span> <strong>{currency(Number(s.valorIss || 0))}{s.issRetido ? ' (retido)' : ''}</strong></span>
+                  </div>
+                  {retencoes.length > 0 && (
+                    <div><span style={{ color: 'var(--text-muted)' }}>Retenções:</span> {retencoes.map(([nome, v]) => `${nome} ${currency(v)}`).join(' · ')}</div>
+                  )}
+                  <div><span style={{ color: 'var(--text-muted)' }}>Líquido pago ao prestador:</span> <strong>{currency(Number(s.valorLiquido || 0))}</strong></div>
+                </div>
+              );
+            })()}
+
+            {notaSelecionada.tipoDocumento !== 'nfse' && (<>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
               <Package size={16} color="var(--accent-purple)" />
               <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>Itens ({notaSelecionada.itens.length})</h3>
@@ -653,6 +708,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            </>)}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
               <FileText size={16} color="var(--accent-purple)" />

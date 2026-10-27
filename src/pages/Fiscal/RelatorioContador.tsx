@@ -171,6 +171,8 @@ const RelatorioContador: React.FC = () => {
         if (!xml) return { ...n, itensDoXml: undefined, xmlTexto: '' };
         try {
           const xmlTexto = await descompactarXml(xml);
+          // NFS-e recebida: o XML vai no pacote, mas nao tem itens de NF-e para ler.
+          if (n.dados.tipoDocumento === 'nfse') return { ...n, itensDoXml: undefined, xmlTexto };
           return { ...n, itensDoXml: parseNfeXml(xmlTexto).itens, xmlTexto };
         } catch {
           return { ...n, itensDoXml: undefined, xmlTexto: '' };

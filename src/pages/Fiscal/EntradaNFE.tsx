@@ -91,6 +91,7 @@ import {
 } from '../../utils/pagamentoEntradaDomain';
 import { camposDoTituloEmCheque, erroDosCheques, type ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
 import { compactarXml } from '../../utils/xmlCompactoDomain';
+import { lerNfseXml } from '../../utils/nfseEntradaDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
 import Swal from 'sweetalert2';
 
@@ -947,7 +948,12 @@ const EntradaNFE: React.FC = () => {
         setVinculoAberto(null);
       } catch (err) {
         console.error(err);
-        showError('Erro no Processamento', (err as Error).message || 'Não foi possível ler os nós fiscais do arquivo XML.');
+        // NFS-e (servico) jogada aqui: aponta a tela certa em vez do erro de leitura da NF-e.
+        if (lerNfseXml(String(e.target?.result ?? '')).ok) {
+          showError('Esta é uma NFS-e', 'Este XML é de uma nota fiscal de serviço (NFS-e). Lance pelo botão "Lançar NFS-e (serviço)", no topo desta tela.');
+        } else {
+          showError('Erro no Processamento', (err as Error).message || 'Não foi possível ler os nós fiscais do arquivo XML.');
+        }
         setSelectedFile(null);
         setParsedData(null);
       }
@@ -1700,14 +1706,25 @@ const EntradaNFE: React.FC = () => {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => openTab('/fiscal/entrada-nfe/historico')}
-          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-        >
-          <History size={16} /> Ver Histórico
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => openTab('/fiscal/entrada-nfse', 'Entrada de NFS-e')}
+            title="Nota fiscal de serviço recebida (serviço tomado)"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <FileText size={16} /> Lançar NFS-e (serviço)
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => openTab('/fiscal/entrada-nfe/historico')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <History size={16} /> Ver Histórico
+          </button>
+        </div>
       </div>
 
       {!selectedFile ? (

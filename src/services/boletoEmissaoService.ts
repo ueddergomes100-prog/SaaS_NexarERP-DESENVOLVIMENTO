@@ -13,7 +13,7 @@ import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 import { toCents, type BoletoDetails } from '../utils/financeDomain';
 import { reserveTenantSequence } from '../utils/firestoreAtomic';
-import { codigoBarrasSicoob, formatarNossoNumeroSicoobExibicao, nossoNumeroSicoobComDv } from '../utils/boletoCnabDomain';
+import { codigoBarrasSicoob, formatarNossoNumeroSicoobExibicao, nossoNumeroSicoobComDv, parcelaDoBoletoSicoob } from '../utils/boletoCnabDomain';
 import { linhaDigitavelDoCodigoBarras } from '../utils/boletoDomain';
 import { gerarPdfBoletos, type DadosPdfBoleto } from '../utils/boletoPdf';
 import { nomeArquivoDocumento } from '../utils/nomeArquivoDomain';
@@ -144,6 +144,7 @@ export const emitirUmTitulo = async (a: { tenantId: string; uid: string; titulo:
         ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
         modalidade: '01',
         nossoNumero,
+        parcela: parcelaDoBoletoSicoob(titulo),
       },
       vencimento: vencimento!,
       valorCentavos: titulo.valorCentavos,
@@ -192,6 +193,7 @@ export const recalcularBoleto = (titulo: TituloBoleto, bancosComBoleto: BancoBol
       ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
       modalidade: '01',
       nossoNumero: nossoNumeroBase,
+      parcela: parcelaDoBoletoSicoob(titulo),
     },
     vencimento,
     valorCentavos: titulo.valorCentavos,

@@ -11,7 +11,7 @@ import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents, type BoletoDetails } from '../../utils/financeDomain';
 import { reserveTenantSequence } from '../../utils/firestoreAtomic';
-import { formatarNossoNumeroSicoobExibicao } from '../../utils/boletoCnabDomain';
+import { formatarNossoNumeroSicoobExibicao, parcelaDoBoletoSicoob } from '../../utils/boletoCnabDomain';
 import { formatarLinhaDigitavel } from '../../utils/boletoDomain';
 import { gerarPdfBoletos, type DadosPdfBoleto } from '../../utils/boletoPdf';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
@@ -492,7 +492,7 @@ const Boletos: React.FC = () => {
         titulosRemessa.push({
           nossoNumero,
           numeroDocumento: numeroPedido || String(nossoNumero),
-          parcela: t.paymentIndex || 1,
+          parcela: parcelaDoBoletoSicoob(t),
           vencimento: t.boleto?.vencimento || t.dataVencimento || hoje,
           valorCentavos: t.valorCentavos,
           sacado: {

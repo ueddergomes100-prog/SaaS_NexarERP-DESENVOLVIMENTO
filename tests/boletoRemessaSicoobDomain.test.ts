@@ -6,6 +6,7 @@ import {
   type ConvenioBoletoSicoob,
   type TituloRemessaSicoob,
 } from '../src/utils/boletoRemessaSicoobDomain';
+import { codigoBarrasSicoob, parcelaDoBoletoSicoob } from '../src/utils/boletoCnabDomain';
 
 /**
  * Os testes principais aqui reproduzem o ARQUIVO REAL da Sol Life
@@ -205,4 +206,32 @@ test('multa e juros do convenio mudam o percentual e os valores em R$ do boleto'
   assert.equal(r.slice(74, 89), '000000000000500');
   assert.ok(s.includes('Multa de RS 50,00.'));
   assert.ok(s.includes('Mora Diaria de RS 1,00'));
+});
+
+/**
+ * Caso real de 27/10/2026: boleto registrado no Sicoob, mas o PDF dava "nao registrado" no caixa.
+ * A remessa mandava a parcela da venda (02) e o codigo de barras do PDF saia com 001 -- o banco
+ * monta o codigo de barras dele com a parcela da remessa. Os dois usam parcelaDoBoletoSicoob.
+ */
+test('parcela da remessa e a do codigo de barras sao a mesma', () => {
+  for (const paymentIndex of [undefined, 1, 2, 3]) {
+    const parcela = parcelaDoBoletoSicoob({ paymentIndex });
+    const remessa = montarRemessaSicoob({
+      convenio: CONVENIO_SOL_LIFE,
+      titulos: [{ nossoNumero: 1401, numeroDocumento: '512', parcela, vencimento: '2026-11-10', valorCentavos: 15000, sacado: SACADO_REAL }],
+      dataGeracao: '2026-10-27',
+      horaGeracao: '163300',
+    });
+    const segmentoP = remessa.split('\r\n')[2];
+    const codigoBarras = codigoBarrasSicoob({
+      dados: { cooperativa: '3049', conta: '51215', contaDv: '0', codigoCliente: '1318772', modalidade: '01', nossoNumero: 1401, parcela },
+      vencimento: '2026-11-10',
+      valorCentavos: 15000,
+    });
+    assert.equal(segmentoP[13], 'P');
+    assert.equal(Number(segmentoP.slice(47, 49)), Number(codigoBarras.slice(-3)), `paymentIndex ${paymentIndex}`);
+    assert.equal(codigoBarras.slice(-3), String(paymentIndex ?? 1).padStart(3, '0'));
+  }
+  assert.equal(parcelaDoBoletoSicoob({ paymentIndex: 0 }), 1);
+  assert.equal(parcelaDoBoletoSicoob({ paymentIndex: null }), 1);
 });

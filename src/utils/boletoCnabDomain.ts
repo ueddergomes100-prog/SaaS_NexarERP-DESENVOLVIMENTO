@@ -142,6 +142,18 @@ export const campoLivreSicoob = (dados: DadosBoletoSicoob): string => {
   return `${carteira}${agencia}${modalidade}${codigoCliente}${nossoNumero}${dv}${parcela}`;
 };
 
+/**
+ * Parcela do titulo no boleto Sicoob -- a MESMA no codigo de barras (ultimas 3 posicoes do campo livre)
+ * e na remessa (Segmento P 48-49). O banco registra o titulo com a parcela da remessa e monta o codigo
+ * de barras dele com ela; se o PDF usar outra, o boleto impresso nao bate com o registrado e o caixa
+ * responde "boleto nao registrado" (caso real de 27/10/2026: remessa com parcela 02, PDF com 001).
+ * Titulo sem parcela (lancado a mao, parcela unica) = 1.
+ */
+export const parcelaDoBoletoSicoob = (titulo: { paymentIndex?: number | null }): number => {
+  const parcela = Math.trunc(Number(titulo.paymentIndex));
+  return Number.isFinite(parcela) && parcela >= 1 && parcela <= 99 ? parcela : 1;
+};
+
 /** Codigo de barras completo de um boleto Sicoob. */
 export const codigoBarrasSicoob = (args: {
   dados: DadosBoletoSicoob;

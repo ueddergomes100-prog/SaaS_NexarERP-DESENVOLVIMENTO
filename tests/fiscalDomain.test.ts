@@ -250,9 +250,10 @@ test('resolveInvoiceUnitFields converte pra quilo em CFOP de exportacao com peso
     pesoLiquidoUnitarioKg: 0.5,
   });
   assert.equal(result.ok, true);
-  assert.equal(result.fields?.unit, 'UN');
-  assert.equal(result.fields?.quantity, 30);
-  assert.equal(result.fields?.unitAmount, 20);
+  // A linha do produto (comercial, a que o DANFE imprime) tambem sai em quilos.
+  assert.equal(result.fields?.unit, 'KG');
+  assert.equal(result.fields?.quantity, 15);
+  assert.equal(result.fields?.unitAmount, 40);
   assert.equal(result.fields?.unitTax, 'KG');
   assert.equal(result.fields?.quantityTax, 15); // 0.5kg * 30un
   assert.equal(result.fields?.unitTaxAmount, 40); // (20*30) / 15kg
@@ -272,12 +273,20 @@ test('resolveInvoiceUnitFields bloqueia CFOP de exportacao sem peso configurado'
 });
 
 test('fim especifico de exportacao (5501/6501/5502/6502) tambem converte para quilo; vendido em KG nao precisa de peso', () => {
+  // Caso real (NF-e 153 da Sol Natus, 27/10): 100 UN de GUARANA EM PO 100G x 8,30 saiu "UN 100" no DANFE; tem que ser "KG 10 x 83,00".
+  const guarana = resolveInvoiceUnitFields({ cfop: 6501, unidadeComercial: 'UN', quantidadeComercial: 100, valorUnitarioComercial: 8.3, pesoLiquidoUnitarioKg: 0.1 });
+  assert.deepEqual(guarana.fields, { unit: 'KG', quantity: 10, unitAmount: 83, unitTax: 'KG', quantityTax: 10, unitTaxAmount: 83 });
   const caixa = resolveInvoiceUnitFields({ cfop: 6501, unidadeComercial: 'UN', quantidadeComercial: 200, valorUnitarioComercial: 8.3, pesoLiquidoUnitarioKg: 0.1 });
   assert.equal(caixa.ok, true);
-  assert.equal(caixa.fields?.unit, 'UN');
+  assert.equal(caixa.fields?.unit, 'KG');
   assert.equal(caixa.fields?.unitTax, 'KG');
-  assert.equal(caixa.fields?.quantityTax, 20); // 200 un de 100 g
+  assert.equal(caixa.fields?.quantity, 20); // 200 un de 100 g
+  assert.equal(caixa.fields?.quantityTax, 20);
   assert.ok(Math.abs((caixa.fields?.unitTaxAmount || 0) - 83) < 1e-9); // 1660 / 20 kg
+  // Peso quebrado: qtd x unitario continua batendo com o total (tolerancia da SEFAZ e' 1 centavo).
+  const quebrado = resolveInvoiceUnitFields({ cfop: 7101, unidadeComercial: 'UN', quantidadeComercial: 7, valorUnitarioComercial: 12.99, pesoLiquidoUnitarioKg: 0.333 });
+  assert.equal(quebrado.fields?.quantity, 2.331);
+  assert.ok(Math.abs((quebrado.fields!.quantity * quebrado.fields!.unitAmount) - 90.93) < 0.01);
   assert.equal(resolveInvoiceUnitFields({ cfop: '5.502', unidadeComercial: 'UN', quantidadeComercial: 1, valorUnitarioComercial: 1 }).ok, false);
   const emKg = resolveInvoiceUnitFields({ cfop: 6501, unidadeComercial: 'kg', quantidadeComercial: 20, valorUnitarioComercial: 83 });
   assert.equal(emKg.ok, true);

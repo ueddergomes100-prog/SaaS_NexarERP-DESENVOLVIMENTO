@@ -4188,7 +4188,7 @@ const NFE: React.FC = () => {
                                     return (
                                       <span style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: preview.ok ? '#10b981' : '#ef4444' }}>
                                         {preview.ok
-                                          ? `Na nota também em quilos: ${preview.fields!.quantityTax.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} kg`
+                                          ? `Na nota sai em quilos: ${preview.fields!.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} KG × ${preview.fields!.unitAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 4 })}`
                                           : 'Peso líquido do produto não configurado (Estoque › Fiscal)'}
                                       </span>
                                     );

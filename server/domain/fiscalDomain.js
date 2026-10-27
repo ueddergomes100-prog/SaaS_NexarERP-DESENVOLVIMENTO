@@ -280,17 +280,26 @@ const resolveInvoiceUnitFields = (input) => {
             error: 'Configure o peso líquido por unidade (kg) do produto em Estoque > aba Fiscal antes de emitir nota de exportação (CFOP 7.101/7.102) ou de venda com fim específico de exportação (5.501/5.502/6.501/6.502): a quantidade vai na nota também em quilos.',
         };
     }
-    const quantityTax = peso * quantidadeComercial;
+    // 27/10/2026 (primeira nota real, Sol Natus 6.501): o DANFE imprime a unidade
+    // COMERCIAL -- com so' a tributavel em KG a nota saiu "UN 100" em vez de "KG 10".
+    // Agora a linha do produto tambem sai em quilos (como no ERP anterior do cliente):
+    // 100 UN de 100 g x R$ 8,30 = 10 KG x R$ 83,00. qCom/qTrib com 4 casas e
+    // vUnCom/vUnTrib com 10 (limites da NF-e), para qtd x unitario bater com o total.
+    const quantityTax = Math.round(peso * quantidadeComercial * 10000) / 10000;
+    if (!(quantityTax > 0)) {
+        return { ok: false, error: 'A quantidade em quilos deste item ficou zerada. Confira o peso líquido por unidade (kg) do produto em Estoque > aba Fiscal.' };
+    }
     const valorTotalComercial = valorUnitarioComercial * quantidadeComercial;
+    const valorPorKg = Math.round((valorTotalComercial / quantityTax) * 1e10) / 1e10;
     return {
         ok: true,
         fields: {
-            unit: unidadeComercial,
-            quantity: quantidadeComercial,
-            unitAmount: valorUnitarioComercial,
+            unit: 'KG',
+            quantity: quantityTax,
+            unitAmount: valorPorKg,
             unitTax: 'KG',
             quantityTax,
-            unitTaxAmount: valorTotalComercial / quantityTax,
+            unitTaxAmount: valorPorKg,
         },
     };
 };

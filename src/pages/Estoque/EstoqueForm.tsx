@@ -2513,7 +2513,7 @@ const EstoqueForm: React.FC = () => {
                 <div className="input-group">
                   <label>Peso líquido por unidade (kg)</label>
                   <input type="number" name="pesoLiquidoUnitarioKg" step="0.001" min="0" value={formData.pesoLiquidoUnitarioKg} onChange={handleChange} />
-                  <span className="field-hint">Obrigatório só para CFOP de exportação (7101/7102) — usado pra converter a quantidade vendida em unidade pra quilo na nota fiscal, exigência da SEFAZ para operações de exportação. Também é o peso de cada pacote na pesagem da produção.</span>
+                  <span className="field-hint">Obrigatório na exportação (CFOP 7101/7102) e na venda com fim específico de exportação (5501/5502/6501/6502) quando o produto não é vendido em KG — usado pra converter a quantidade vendida em unidade pra quilo na nota fiscal, exigência da SEFAZ para operações de exportação. Também é o peso de cada pacote na pesagem da produção.</span>
                 </div>
                 <div className="input-group">
                   <label>{usesCsosn(regimeTributario) ? 'CSOSN *' : 'CST de ICMS *'}</label>

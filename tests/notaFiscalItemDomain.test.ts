@@ -172,6 +172,22 @@ test('ST calculada na nota (CSOSN 201/202, CST 10/30/70) barra em vez de sair er
   assert.equal(r.ok, false);
 });
 
+test('frete e outras despesas do item (27/10/2026): vFrete/vOutro no item e na base do ICMS; PIS sobre a mercadoria', () => {
+  const lr: ContextoNota = { regime: 'lucro_presumido', interestadual: false };
+  const it = montar({ ...farinha, csosn: '00', aliquotaIcms: 18, cstPis: '01', aliquotaPis: 0.65, cstCofins: '01', aliquotaCofins: 3, cstIpi: '' },
+    { quantidade: 10, precoUnitario: 10, desconto: 10, unidadeSigla: 'UN', frete: 20, outrasDespesas: 5 } as never, lr).item as Record<string, any>;
+  assert.equal(it.freightAmount, 20);
+  assert.equal(it.othersAmount, 5);
+  assert.equal(it.taxes.icms.baseTax, 115, '90 + 20 + 5');
+  assert.equal(it.taxes.pis.baseTax, 90);
+  // Simples (CSOSN 102): frete vai no item, sem base de ICMS.
+  const s = montar(farinha, { quantidade: 5, precoUnitario: 6.6, desconto: 0, unidadeSigla: 'UN', frete: 3.5 } as never).item as Record<string, any>;
+  assert.equal(s.freightAmount, 3.5);
+  assert.equal(s.othersAmount, undefined);
+  // Sem frete: nada muda.
+  assert.equal((montar(farinha).item as Record<string, any>).freightAmount, undefined);
+});
+
 test('CSOSN 101 leva o credito do Simples (aliquota do cadastro)', () => {
   const it = montar({ ...farinha, csosn: '101', aliquotaIcms: 2.5 }, { quantidade: 1, precoUnitario: 100, desconto: 0, unidadeSigla: 'UN' }).item as Record<string, any>;
   assert.deepEqual(it.taxes.icms, { origin: 0, csosn: 101, snCreditRate: 2.5, snCreditAmount: 2.5 });
@@ -290,4 +306,29 @@ test('ST sem CEST barra antes de enviar (Rejeição 806); venda para fora como 6
   const fora = montarItemNotaFiscal({ produto: st, venda: { quantidade: 1, precoUnitario: 10, desconto: 0, unidadeSigla: 'UN' }, contexto: { regime: 'simples_nacional', interestadual: true }, codigoItem: '1' });
   assert.equal(fora.ok, true);
   assert.equal(montar({ ...st, cest: '1703100' }).ok, true);
+});
+
+test('venda a trading com fim especifico de exportacao (27/10/2026): 6.501 fica, ICMS nao incide (CST 41 / CSOSN 300)', () => {
+  // Caso do ERP anterior do cliente: guarana em po 20 kg x 83,00, frete 138, CST 041, para trading de SP.
+  const guarana: ProdutoFiscal = { ...farinha, nome: 'GUARANA EM PO 100G', ncm: '21069030', cfop: '6501', csosn: '00', aliquotaIcms: 7, cfopInterestadual: '6102', cstPis: '01', aliquotaPis: 0.65, cstCofins: '01', aliquotaCofins: 3, cstIpi: '55' };
+  const lr: ContextoNota = { regime: 'lucro_real', interestadual: true };
+  const it = montarItemNotaFiscal({ produto: guarana, venda: { quantidade: 20, precoUnitario: 83, desconto: 0, unidadeSigla: 'KG', frete: 138 }, contexto: lr, codigoItem: '47' });
+  assert.ok(it.ok);
+  const item = it.item as Record<string, any>;
+  assert.equal(item.cfop, 6501);
+  assert.deepEqual(item.taxes.icms, { origin: 0, cst: 41 });
+  assert.equal(item.freightAmount, 138);
+  assert.equal(item.taxes.ipi.cst, 55);
+  // Dentro do estado vira 5501; no Simples, CSOSN 300.
+  const simples = montar({ ...guarana, csosn: '102' }, { quantidade: 1, precoUnitario: 10, desconto: 0, unidadeSigla: 'KG' }).item as Record<string, any>;
+  assert.equal(simples.cfop, 5501);
+  assert.equal(simples.taxes.icms.csosn, 300);
+  // Exportacao direta (7.102) tambem nao leva ICMS.
+  const direta = montar({ ...farinha, cfop: '7102', csosn: '102', pesoLiquidoUnitarioKg: 0.5 }).item as Record<string, any>;
+  assert.equal(direta.taxes.icms.csosn, 300);
+  // Venda normal continua com o ICMS do cadastro.
+  const normal = montarItemNotaFiscal({ produto: { ...guarana, cfop: '5101' }, venda: { quantidade: 1, precoUnitario: 100, desconto: 0, unidadeSigla: 'KG' }, contexto: lr, codigoItem: '47' });
+  assert.ok(normal.ok);
+  assert.equal((normal.item as Record<string, any>).cfop, 6102);
+  assert.equal((normal.item as Record<string, any>).taxes.icms.cst, 0);
 });

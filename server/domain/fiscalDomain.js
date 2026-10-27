@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resolveInvoiceUnitFields = exports.resolveInvoiceDestination = exports.isExportCfop = exports.EXPORT_CFOPS = exports.buildServiceInvoicePayload = exports.sumServiceInvoiceAmount = exports.buildServiceInvoiceDescription = exports.matchMateriaPrimaFromXmlItem = exports.nomesTemPalavraEmComum = exports.matchProdutoFromXmlItem = exports.ICMS_CST_OPTIONS = exports.CSOSN_OPTIONS = exports.usesCsosn = exports.parseControlaFiscal = exports.DEFAULT_CONTROLA_FISCAL = exports.DEFAULT_REGIME_TRIBUTARIO = exports.REGIME_TRIBUTARIO_OPTIONS = exports.normalizarTextoDeItem = void 0;
+exports.resolveInvoiceUnitFields = exports.exigeUnidadeTributavelEmKg = exports.resolveInvoiceDestination = exports.isExportCfop = exports.EXPORT_CFOPS = exports.buildServiceInvoicePayload = exports.sumServiceInvoiceAmount = exports.buildServiceInvoiceDescription = exports.matchMateriaPrimaFromXmlItem = exports.nomesTemPalavraEmComum = exports.matchProdutoFromXmlItem = exports.ICMS_CST_OPTIONS = exports.CSOSN_OPTIONS = exports.usesCsosn = exports.parseControlaFiscal = exports.DEFAULT_CONTROLA_FISCAL = exports.DEFAULT_REGIME_TRIBUTARIO = exports.REGIME_TRIBUTARIO_OPTIONS = exports.normalizarTextoDeItem = void 0;
 const osServicePricing_1 = require("./osServicePricing");
 /** Maiusculas, sem acento, so' letras/numeros e espacos simples -- para comparar descricoes de item. */
 const normalizarTextoDeItem = (texto) => String(texto ?? '')
@@ -59,6 +59,7 @@ exports.CSOSN_OPTIONS = [
     { value: '103', label: '103 - Isenção por faixa de receita bruta' },
     { value: '201', label: '201 - Simples Nacional com ST e crédito' },
     { value: '202', label: '202 - Simples Nacional com ST sem crédito' },
+    { value: '300', label: '300 - Imune (exportação)' },
     { value: '400', label: '400 - Não tributada pelo Simples Nacional' },
     { value: '500', label: '500 - ICMS cobrado anteriormente por ST' },
     { value: '900', label: '900 - Outros' },
@@ -247,9 +248,17 @@ exports.resolveInvoiceDestination = resolveInvoiceDestination;
  * liquido configurado no produto, nao ha como converter -- devolve erro
  * em vez de mandar um qTrib inventado (subfaturamento/nota incorreta e
  * risco fiscal maior que bloquear a emissao). */
+/**
+ * CFOPs com a unidade tributavel em quilo (27/10/2026): exportacao direta
+ * (7101/7102) e venda com fim especifico de exportacao (5501/5502/6501/6502,
+ * venda a trading -- a mercadoria vai para o exterior pela compradora e a
+ * nota segue a mesma regra da unidade tributavel da exportacao).
+ */
+const exigeUnidadeTributavelEmKg = (cfop) => (0, exports.isExportCfop)(cfop) || /^[56]50[12]$/.test(String(cfop ?? '').replace(/\D/g, ''));
+exports.exigeUnidadeTributavelEmKg = exigeUnidadeTributavelEmKg;
 const resolveInvoiceUnitFields = (input) => {
     const { cfop, unidadeComercial, quantidadeComercial, valorUnitarioComercial, pesoLiquidoUnitarioKg } = input;
-    if (!(0, exports.isExportCfop)(cfop)) {
+    if (!(0, exports.exigeUnidadeTributavelEmKg)(cfop)) {
         return {
             ok: true,
             fields: {
@@ -262,11 +271,13 @@ const resolveInvoiceUnitFields = (input) => {
             },
         };
     }
-    const peso = Number(pesoLiquidoUnitarioKg || 0);
+    // Vendido em quilo: a unidade tributavel ja' e' a comercial (1 KG = 1 KG).
+    const vendidoEmKg = String(unidadeComercial || '').trim().toUpperCase() === 'KG';
+    const peso = vendidoEmKg ? 1 : Number(pesoLiquidoUnitarioKg || 0);
     if (peso <= 0) {
         return {
             ok: false,
-            error: 'Configure o peso líquido por unidade (kg) do produto antes de emitir nota com CFOP de exportação.',
+            error: 'Configure o peso líquido por unidade (kg) do produto em Estoque > aba Fiscal antes de emitir nota de exportação (CFOP 7.101/7.102) ou de venda com fim específico de exportação (5.501/5.502/6.501/6.502): a quantidade vai na nota também em quilos.',
         };
     }
     const quantityTax = peso * quantidadeComercial;

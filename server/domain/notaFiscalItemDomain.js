@@ -31,7 +31,7 @@
  * 2026-09-30.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.produtoFiscalDoCadastro = exports.totaisImpostosDosItens = exports.montarItemNotaFiscal = exports.temSubstituicaoTributaria = exports.somarTributos = exports.textoTributosAproximados = exports.percentuaisTributos = exports.montarPagamentosNota = exports.meioPagamentoNota = exports.destinatarioEConsumidorFinal = exports.cfopParaDestino = exports.resolverGtin = exports.TEXTO_OPTANTE_SIMPLES_NACIONAL = exports.PIS_COFINS_CST_PADRAO_SIMPLES = exports.ENQUADRAMENTO_IPI_PADRAO = exports.IPI_CST_SAIDA_OPTIONS = exports.PIS_COFINS_CST_SAIDA_OPTIONS = void 0;
+exports.produtoFiscalDoCadastro = exports.totaisImpostosDosItens = exports.montarItemNotaFiscal = exports.cfopSemIncidenciaDeIcms = exports.temSubstituicaoTributaria = exports.somarTributos = exports.textoTributosAproximados = exports.percentuaisTributos = exports.montarPagamentosNota = exports.meioPagamentoNota = exports.destinatarioEConsumidorFinal = exports.cfopParaDestino = exports.resolverGtin = exports.TEXTO_OPTANTE_SIMPLES_NACIONAL = exports.PIS_COFINS_CST_PADRAO_SIMPLES = exports.ENQUADRAMENTO_IPI_PADRAO = exports.IPI_CST_SAIDA_OPTIONS = exports.PIS_COFINS_CST_SAIDA_OPTIONS = void 0;
 const importacaoFiscalDomain_1 = require("./importacaoFiscalDomain");
 const fiscalDomain_1 = require("./fiscalDomain");
 const arred = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -217,6 +217,22 @@ const produtoSemDestaqueDeIcms = (p, regime) => {
         return codigo === '101' ? { ...p, csosn: '102' } : p;
     return codigo === '60' ? p : { ...p, csosn: '90', aliquotaIcms: 0, reducaoBaseIcms: 0 };
 };
+/**
+ * EXPORTACAO (27/10/2026): direta (7.xxx) ou venda a comercial exportadora /
+ * trading com fim especifico de exportacao (x.501/x.502). O ICMS nao incide
+ * (LC 87/1996, art. 3o, II e paragrafo unico) -- a nota sai sem ICMS mesmo com o
+ * produto cadastrado como tributado: CST 41 (nao tributada) ou, no Simples,
+ * CSOSN 300 (imune). 40/41/50 e 300/400 do cadastro ficam como estao.
+ */
+const cfopSemIncidenciaDeIcms = (cfop) => /^(7\d{3}|[56]50[12])$/.test(soDigitos(cfop));
+exports.cfopSemIncidenciaDeIcms = cfopSemIncidenciaDeIcms;
+const ehCfopFimEspecificoExportacao = (cfop) => /^[56]50[12]$/.test(cfop);
+const produtoSemIcmsNaExportacao = (p, regime) => {
+    const codigo = String(p.csosn ?? '').trim();
+    if ((0, fiscalDomain_1.usesCsosn)(regime))
+        return ['300', '400'].includes(codigo) ? p : { ...p, csosn: '300' };
+    return ['40', '41', '50'].includes(codigo) ? p : { ...p, csosn: '41', aliquotaIcms: 0, reducaoBaseIcms: 0 };
+};
 const icmsDoItem = (p, regime, base) => {
     const origin = Number(p.origem || '0');
     const codigo = String(p.csosn ?? '').trim();
@@ -347,7 +363,8 @@ const montarItemNotaFiscal = (a) => {
     }
     let cfop = cfopOperacao || ((0, fiscalDomain_1.isExportCfop)(cfopCadastro) ? cfopCadastro : (0, exports.cfopParaDestino)(cfopCadastro, contexto.interestadual));
     let produtoFiscal = p;
-    if (!cfopOperacao && contexto.interestadual && !(0, fiscalDomain_1.isExportCfop)(cfopCadastro)) {
+    // Fim especifico de exportacao (x.501/x.502) escolhido na nota: o "CFOP interestadual" do cadastro (6102) nao troca.
+    if (!cfopOperacao && contexto.interestadual && !(0, fiscalDomain_1.isExportCfop)(cfopCadastro) && !ehCfopFimEspecificoExportacao(cfopCadastro)) {
         const cfopInter = soDigitos(p.cfopInterestadual);
         const csosnInter = String(p.csosnInterestadual ?? '').trim();
         if (cfopInter) {
@@ -372,6 +389,12 @@ const montarItemNotaFiscal = (a) => {
     }
     // Base dos impostos = valor do item menos o desconto (vProd - vDesc).
     const base = arred(totalAmount - desconto);
+    // Frete e outras despesas do item (27/10/2026): entram na base do ICMS e do IPI
+    // (vBC = vProd - vDesc + vFrete + vSeg + vOutro, regra da SEFAZ). PIS/COFINS e o
+    // valor aproximado dos tributos seguem sobre a mercadoria.
+    const frete = arred(Math.max(0, num(venda.frete)));
+    const outrasDespesas = arred(Math.max(0, num(venda.outrasDespesas)));
+    const baseComAcessorios = arred(base + frete + outrasDespesas);
     const unidade = String(venda.unidadeSigla || '').trim().toUpperCase() || 'UN';
     if (!String(venda.unidadeSigla || '').trim()) {
         avisos.push(`"${p.nome}" está sem unidade de medida e foi como UN. Corrija o cadastro em Estoque.`);
@@ -388,8 +411,10 @@ const montarItemNotaFiscal = (a) => {
     // Entrega futura: simples faturamento sem destaque de ICMS; remessa sem PIS/COFINS/IPI de novo.
     const faturamentoEntregaFutura = contexto.entregaFutura === 'faturamento';
     const remessaEntregaFutura = contexto.entregaFutura === 'remessa';
-    const produtoIcms = faturamentoEntregaFutura ? produtoSemDestaqueDeIcms(produtoFiscal, contexto.regime) : produtoFiscal;
-    const icms = icmsDoItem(produtoIcms, contexto.regime, base);
+    const produtoIcms = (0, exports.cfopSemIncidenciaDeIcms)(cfop)
+        ? produtoSemIcmsNaExportacao(produtoFiscal, contexto.regime)
+        : faturamentoEntregaFutura ? produtoSemDestaqueDeIcms(produtoFiscal, contexto.regime) : produtoFiscal;
+    const icms = icmsDoItem(produtoIcms, contexto.regime, baseComAcessorios);
     if (!icms.ok)
         return icms;
     const pis = pisCofinsDoItem('PIS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstPis, p.aliquotaPis, p, contexto.regime, base);
@@ -398,7 +423,7 @@ const montarItemNotaFiscal = (a) => {
     const cofins = pisCofinsDoItem('COFINS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstCofins, p.aliquotaCofins, p, contexto.regime, base);
     if (!cofins.ok)
         return cofins;
-    const ipi = remessaEntregaFutura ? { ok: true, grupo: null } : ipiDoItem(p, base);
+    const ipi = remessaEntregaFutura ? { ok: true, grupo: null } : ipiDoItem(p, baseComAcessorios);
     if (!ipi.ok)
         return ipi;
     const ibsCbs = ibsCbsDoItem(p, base);
@@ -431,6 +456,8 @@ const montarItemNotaFiscal = (a) => {
         ...unitFields.fields,
         totalAmount,
         ...(desconto > 0 ? { discountAmount: desconto } : {}),
+        ...(frete > 0 ? { freightAmount: frete } : {}),
+        ...(outrasDespesas > 0 ? { othersAmount: outrasDespesas } : {}),
         makeupTotal: true,
         ...(beneficio ? { taxBenefitCode: beneficio } : {}),
         taxes: {

@@ -11,6 +11,7 @@
  */
 import { fromCents, normalizeCreditCardFeeSchedule, parseCreditTerms, toCents, type CreditCardFeeSchedule } from './financeDomain';
 import { calcularDescontoCents } from './descontoDomain';
+import { lerTransporte, transporteParaGravar } from './transporteNotaDomain';
 
 // ---------------------------------------------------------------------------
 // Configuracao financeira da empresa (prazos e taxas do cartao)
@@ -146,6 +147,8 @@ export interface PedidoDeFechamento {
   };
   frete: number;
   encargos: number;
+  /** Transporte para a nota (27/10/2026, transporteNotaDomain): null = nada informado. */
+  transporte: Record<string, unknown> | null;
   pagamentos: Array<Record<string, unknown>>;
   orcamentoId: string | null;
   /** Venda do PDV (fatia 3c, 19/10/2026): sessao de caixa aberta do operador. */
@@ -268,6 +271,7 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
       },
       frete,
       encargos,
+      transporte: transporteParaGravar(lerTransporte(c.transporte)),
       pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p as Record<string, unknown> : {})),
       orcamentoId,
       pdvSessionId,

@@ -62,6 +62,7 @@ export const CSOSN_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '103', label: '103 - Isenção por faixa de receita bruta' },
   { value: '201', label: '201 - Simples Nacional com ST e crédito' },
   { value: '202', label: '202 - Simples Nacional com ST sem crédito' },
+  { value: '300', label: '300 - Imune (exportação)' },
   { value: '400', label: '400 - Não tributada pelo Simples Nacional' },
   { value: '500', label: '500 - ICMS cobrado anteriormente por ST' },
   { value: '900', label: '900 - Outros' },
@@ -423,10 +424,19 @@ export interface InvoiceUnitFieldsResult {
  * liquido configurado no produto, nao ha como converter -- devolve erro
  * em vez de mandar um qTrib inventado (subfaturamento/nota incorreta e
  * risco fiscal maior que bloquear a emissao). */
+/**
+ * CFOPs com a unidade tributavel em quilo (27/10/2026): exportacao direta
+ * (7101/7102) e venda com fim especifico de exportacao (5501/5502/6501/6502,
+ * venda a trading -- a mercadoria vai para o exterior pela compradora e a
+ * nota segue a mesma regra da unidade tributavel da exportacao).
+ */
+export const exigeUnidadeTributavelEmKg = (cfop: string | number | undefined | null): boolean =>
+  isExportCfop(cfop) || /^[56]50[12]$/.test(String(cfop ?? '').replace(/\D/g, ''));
+
 export const resolveInvoiceUnitFields = (input: InvoiceUnitFieldsInput): InvoiceUnitFieldsResult => {
   const { cfop, unidadeComercial, quantidadeComercial, valorUnitarioComercial, pesoLiquidoUnitarioKg } = input;
 
-  if (!isExportCfop(cfop)) {
+  if (!exigeUnidadeTributavelEmKg(cfop)) {
     return {
       ok: true,
       fields: {
@@ -440,11 +450,13 @@ export const resolveInvoiceUnitFields = (input: InvoiceUnitFieldsInput): Invoice
     };
   }
 
-  const peso = Number(pesoLiquidoUnitarioKg || 0);
+  // Vendido em quilo: a unidade tributavel ja' e' a comercial (1 KG = 1 KG).
+  const vendidoEmKg = String(unidadeComercial || '').trim().toUpperCase() === 'KG';
+  const peso = vendidoEmKg ? 1 : Number(pesoLiquidoUnitarioKg || 0);
   if (peso <= 0) {
     return {
       ok: false,
-      error: 'Configure o peso líquido por unidade (kg) do produto antes de emitir nota com CFOP de exportação.',
+      error: 'Configure o peso líquido por unidade (kg) do produto em Estoque > aba Fiscal antes de emitir nota de exportação (CFOP 7.101/7.102) ou de venda com fim específico de exportação (5.501/5.502/6.501/6.502): a quantidade vai na nota também em quilos.',
     };
   }
 

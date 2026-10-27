@@ -116,6 +116,8 @@ const MODULOS = [
   'src/utils/permissoesAppDomain.ts',
   // Pesagem da producao (26/10/2026): taras, pacotes fechados, residuo e ganho de peso.
   'src/utils/producaoPesagemDomain.ts',
+  // Frete e transporte na nota de venda (27/10/2026).
+  'src/utils/transporteNotaDomain.ts',
   // Inutilizacao de numeracao de NF-e/NFC-e (21/10/2026).
   'src/utils/inutilizacaoDomain.ts',
   // Devolucao de compra ao fornecedor (21/10/2026): le o XML guardado da nota de entrada.

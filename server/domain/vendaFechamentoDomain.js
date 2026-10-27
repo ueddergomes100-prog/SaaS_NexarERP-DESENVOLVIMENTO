@@ -14,6 +14,7 @@ exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLote
  */
 const financeDomain_1 = require("./financeDomain");
 const descontoDomain_1 = require("./descontoDomain");
+const transporteNotaDomain_1 = require("./transporteNotaDomain");
 /** Mesma leitura que o Pedido de Venda faz de `configuracoes/{empresa}`. */
 const configFinanceiraDaEmpresa = (config) => {
     const c = config || {};
@@ -191,6 +192,7 @@ const lerPedidoDeFechamento = (corpo) => {
             },
             frete,
             encargos,
+            transporte: (0, transporteNotaDomain_1.transporteParaGravar)((0, transporteNotaDomain_1.lerTransporte)(c.transporte)),
             pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p : {})),
             orcamentoId,
             pdvSessionId,

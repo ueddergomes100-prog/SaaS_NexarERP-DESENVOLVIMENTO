@@ -166,6 +166,9 @@ const CATALOGO = [
     ['5401', 'venda', 'Venda de produção do estabelecimento em operação com produto sujeito ao regime de substituição tributária, na condição de contribuinte substituto'],
     ['5403', 'venda', 'Venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita ao regime de substituição tributária, na condição de contribuinte substituto'],
     ['5405', 'venda', 'Venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita ao regime de substituição tributária, na condição de contribuinte substituído'],
+    // Venda a comercial exportadora / trading (27/10/2026): a mercadoria vai para o exterior pela compradora.
+    ['5501', 'venda', 'Remessa de produção do estabelecimento, com fim específico de exportação'],
+    ['5502', 'venda', 'Remessa de mercadoria adquirida ou recebida de terceiros, com fim específico de exportação'],
     ['5410', 'devolucao_de_compra', 'Devolução de compra para industrialização ou produção rural em operação com mercadoria sujeita ao regime de substituição tributária'],
     ['5411', 'devolucao_de_compra', 'Devolução de compra para comercialização em operação com mercadoria sujeita ao regime de substituição tributária'],
     ['5910', 'remessa_bonificacao', 'Remessa em bonificação, doação ou brinde'],
@@ -190,6 +193,8 @@ const CATALOGO = [
     ['6401', 'venda', 'Venda de produção do estabelecimento em operação com produto sujeito ao regime de substituição tributária, na condição de contribuinte substituto'],
     ['6403', 'venda', 'Venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita ao regime de substituição tributária, na condição de contribuinte substituto'],
     ['6404', 'venda', 'Venda de mercadoria sujeita ao regime de substituição tributária, cujo imposto já tenha sido retido anteriormente'],
+    ['6501', 'venda', 'Remessa de produção do estabelecimento, com fim específico de exportação'],
+    ['6502', 'venda', 'Remessa de mercadoria adquirida ou recebida de terceiros, com fim específico de exportação'],
     ['6410', 'devolucao_de_compra', 'Devolução de compra para industrialização ou produção rural em operação com mercadoria sujeita ao regime de substituição tributária'],
     ['6411', 'devolucao_de_compra', 'Devolução de compra para comercialização em operação com mercadoria sujeita ao regime de substituição tributária'],
     ['6910', 'remessa_bonificacao', 'Remessa em bonificação, doação ou brinde'],
@@ -381,6 +386,12 @@ const NATUREZA_DA_NOTA = {
 const naturezaDaOperacaoPelosCfops = (cfops, opcoes = {}) => {
     if (opcoes.cupom)
         return NATUREZA_DA_NOTA.cupom_fiscal;
+    // Exportacao (27/10/2026): direta (7.xxx) ou pela trading (x.501/x.502), quando a nota e' toda dela.
+    const codigos = cfops.map(exports.normalizarCodigoCfop);
+    if (codigos.length > 0 && codigos.every((c) => /^[56]50[12]$/.test(c)))
+        return 'Venda com Fim Específico de Exportação';
+    if (codigos.length > 0 && codigos.every((c) => /^7/.test(c)))
+        return 'Venda para o Exterior - Exportação';
     const naturezas = cfops.map((c) => (0, exports.cfopPorCodigo)(c)?.natureza).filter((n) => Boolean(n));
     if (naturezas.length === 0 || naturezas.includes('venda'))
         return NATUREZA_DA_NOTA.venda;

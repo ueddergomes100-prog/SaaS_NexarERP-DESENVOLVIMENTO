@@ -23,6 +23,7 @@ import { ALERTA_TAMANHO_MAXIMO, camposDoAlertaParaGravar, erroDoAlertaDoCliente 
 import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/filialDomain';
 import { formatarCashback, lerResumoCashback, parteDoSaldoVenceu, temDivida, textoDoSaldo, type ResumoCashbackDoCliente } from '../../utils/cashbackDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { PAISES, erroDoCadastroExterior, normalizarDocumentoEstrangeiro } from '../../utils/exportacaoNotaDomain';
 
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
@@ -78,6 +79,10 @@ const ClienteForm: React.FC = () => {
     /** Alerta mostrado ao escolher o cliente na venda/OS/orcamento (clienteAlertaDomain, 2026-10-06). */
     alertaAtivo: false,
     alertaTexto: '',
+    /** Cliente do exterior (NF-e de exportacao, 27/10/2026). Ver exportacaoNotaDomain. */
+    estrangeiro: false,
+    pais: '',
+    documentoEstrangeiro: '',
   });
 
   // Dado historico da importacao (data da ultima compra no sistema
@@ -347,7 +352,13 @@ const ClienteForm: React.FC = () => {
       return;
     }
 
-    const erroDocumento = mensagemDocumentoInvalido(formData.documento);
+    // Cliente do exterior nao tem CPF/CNPJ: confere pais, documento estrangeiro e endereco.
+    const erroExterior = erroDoCadastroExterior(formData);
+    if (erroExterior) {
+      showError('Cliente do exterior', erroExterior);
+      return;
+    }
+    const erroDocumento = formData.estrangeiro ? null : mensagemDocumentoInvalido(formData.documento);
     if (erroDocumento) {
       showError('Documento Inválido', erroDocumento);
       return;
@@ -357,7 +368,7 @@ const ClienteForm: React.FC = () => {
     setIsLoading(true);
 
     try {
-      if (formData.documento) {
+      if (formData.documento && !formData.estrangeiro) {
         const duplicado = await buscarClienteDuplicadoPorDocumento(tenantId, formData.documento, isEditing ? id : undefined);
         if (duplicado) {
           showError('CPF/CNPJ já cadastrado', `Este documento já está cadastrado para o cliente "${duplicado.nome}". Edite o cadastro existente em vez de criar um novo, ou corrija o número digitado.`);
@@ -397,6 +408,15 @@ const ClienteForm: React.FC = () => {
         // (== sem desconto proprio), nunca undefined (regra 3 do CLAUDE.md).
         descontoPadraoPercentual: parseDescontoPadraoCliente(formData.descontoPadraoPercentual),
         ...camposDoAlertaParaGravar(formData.alertaAtivo, formData.alertaTexto),
+        // Exterior: sem CPF/CNPJ, CEP, UF e codigo IBGE (a nota usa o municipio "EXTERIOR").
+        ...(formData.estrangeiro
+          ? {
+              estrangeiro: true,
+              pais: formData.pais.toUpperCase(),
+              documentoEstrangeiro: normalizarDocumentoEstrangeiro(formData.documentoEstrangeiro),
+              documento: '', cep: '', estado: '', codigoIbge: '',
+            }
+          : { estrangeiro: false, pais: '', documentoEstrangeiro: '' }),
         tenantId
       };
 
@@ -512,6 +532,26 @@ const ClienteForm: React.FC = () => {
             <div />
           </div>
 
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }} title="Para nota fiscal de exportação: o cliente não tem CPF/CNPJ e o endereço é fora do Brasil">
+            <input type="checkbox" checked={formData.estrangeiro} onChange={(e) => setFormData((prev) => ({ ...prev, estrangeiro: e.target.checked }))} />
+            Cliente do exterior (exportação)
+          </label>
+
+          {formData.estrangeiro ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
+            <div className="input-group">
+              <label>País</label>
+              <select value={formData.pais} onChange={(e) => setFormData((prev) => ({ ...prev, pais: e.target.value }))} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}>
+                <option value="">Escolha o país</option>
+                {PAISES.map((p) => <option key={p.codigo} value={p.codigo}>{p.nome}</option>)}
+              </select>
+            </div>
+            <div className="input-group">
+              <label>Documento no exterior</label>
+              <input type="text" value={formData.documentoEstrangeiro} onChange={(e) => setFormData((prev) => ({ ...prev, documentoEstrangeiro: normalizarDocumentoEstrangeiro(e.target.value) }))} title="Passaporte ou número de registro da empresa no país dela (Tax ID). Vai na nota no lugar do CPF/CNPJ." style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+          ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '20px', alignItems: 'start' }}>
             <div className="input-group">
               <label>CPF / CNPJ (Apenas números)</label>
@@ -524,6 +564,7 @@ const ClienteForm: React.FC = () => {
             </div>
             <BuscarDocumentoButton documento={formData.documento} onEncontrarCnpj={preencherDeCnpj} onEncontrarCpf={preencherDeCpf} />
           </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div className="input-group">
@@ -547,7 +588,8 @@ const ClienteForm: React.FC = () => {
             <h3 style={{ fontSize: '16px', fontWeight: 600 }}>Endereço</h3>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: formData.estrangeiro ? '1fr' : '1fr 2fr', gap: '20px', alignItems: 'start' }}>
+            {!formData.estrangeiro && (
             <div className="input-group">
               <label>CEP</label>
               <input
@@ -562,6 +604,7 @@ const ClienteForm: React.FC = () => {
               {!isCepSearching && cepSearchError && <small style={{ color: '#ef4444' }}>{cepSearchError}</small>}
               {!isCepSearching && !cepSearchError && <small style={{ color: 'var(--text-muted)' }}>Digite o CEP e saia do campo pra preencher o endereço automaticamente.</small>}
             </div>
+            )}
             <div className="input-group">
               <label>Rua / Logradouro</label>
               <input type="text" name="endereco" value={formData.endereco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
@@ -579,6 +622,12 @@ const ClienteForm: React.FC = () => {
             </div>
           </div>
 
+          {formData.estrangeiro ? (
+          <div className="input-group">
+            <label>Cidade / região (exterior)</label>
+            <input type="text" name="cidade" value={formData.cidade} onChange={handleChange} title="Cidade, estado/província e código postal do país do cliente" style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+          </div>
+          ) : (
           <div className="input-group" style={{ position: 'relative' }}>
             <label>Cidade</label>
             {formData.cidade && formData.codigoIbge && (
@@ -613,6 +662,7 @@ const ClienteForm: React.FC = () => {
             )}
             <small style={{ color: 'var(--text-muted)' }}>Já vem preenchida ao buscar o CEP acima. Use esta busca só se não tiver o CEP em mãos -- necessária com código IBGE pra emitir NF-e de produto pra este cliente.</small>
           </div>
+          )}
 
           <div className="input-group">
             <label>Ponto de Referência</label>

@@ -24,13 +24,21 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import {
   DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, buildServiceInvoicePayload,
   buildServiceInvoiceDescription, sumServiceInvoiceAmount, usesCsosn,
-  isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
+  exigeUnidadeTributavelEmKg, isExportCfop, resolveInvoiceDestination, resolveInvoiceUnitFields,
   type RegimeTributario, type NfseConfig, type OsServicoParaFatura, type ClienteParaFatura,
 } from '../../utils/fiscalDomain';
 import {
-  TEXTO_OPTANTE_SIMPLES_NACIONAL, destinatarioEConsumidorFinal, montarItemNotaFiscal, montarPagamentosNota,
+  TEXTO_OPTANTE_SIMPLES_NACIONAL, cfopSemIncidenciaDeIcms, destinatarioEConsumidorFinal, montarItemNotaFiscal, montarPagamentosNota,
   percentuaisTributos, produtoFiscalDoCadastro, resolverGtin, somarTributos, textoTributosAproximados, totaisImpostosDosItens, type ValoresTributosItem,
 } from '../../utils/notaFiscalItemDomain';
+import { lerTransporte, montarTransporteDaNota, ratearPorPeso, resumoDoTransporte, type CadastroTransportadora, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
+import { UFS_EMBARQUE, camposFaltandoNoEndereco, cfopDeExportacaoSugerido, destinatarioDaNota, montarExportacaoDaNota, nomeDoPais, paisDoCliente, textoLegalDaExportacao } from '../../utils/exportacaoNotaDomain';
+
+/** Cliente do exterior: o documento da nota e' o estrangeiro e o pais vai junto (27/10/2026). */
+const documentoEPaisDoCliente = (d: Record<string, unknown>) => {
+  const pais = paisDoCliente(d as { estrangeiro?: boolean; pais?: string });
+  return { pais, documento: String((pais ? d.documentoEstrangeiro : d.documento) || '') };
+};
 import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
 import { escolherIntegrationIdDoReenvio, rejeicaoPrendeConfiguracaoNaNota } from '../../utils/reenvioNotaDomain';
@@ -112,6 +120,8 @@ interface ClienteOption {
   cidade?: string;
   estado?: string;
   codigoIbge?: string;
+  /** ISO-3 do pais do cliente do exterior; '' = Brasil (documento = estrangeiro). */
+  pais?: string;
   telefone?: string;
   /** Codigo do cliente (o numero que a empresa usa pra achar o cliente). */
   codigo?: string;
@@ -216,6 +226,18 @@ interface PedidoVenda {
   previsaoEntrega?: string;
   /** "Com nota / Sem nota" (23/10/2026): false some da emissao; ausente = pedido antigo, sem marcacao. */
   comNotaFiscal?: boolean;
+  /** Frete, encargos e transporte do pedido (27/10/2026): vao para a nota (vFrete, vOutro, [transp]). */
+  frete: number;
+  encargos: number;
+  transporte: TransporteDoPedido;
+}
+
+/** Frete, encargos e transporte do pedido, para a NF-e (27/10/2026, transporteNotaDomain). */
+interface AcessoriosDaNota {
+  frete: number;
+  encargos: number;
+  transporte: TransporteDoPedido;
+  transportadora: CadastroTransportadora | null;
 }
 
 /** Ordem de Servico finalizada, so os campos usados pra importar como
@@ -277,6 +299,9 @@ const paraPedidoVenda = (id: string, dData: DocumentData): PedidoVenda => ({
   entregaFutura: dData.entregaFutura === true,
   previsaoEntrega: parsePrevisaoEntrega(dData.previsaoEntrega),
   ...(typeof dData.comNotaFiscal === 'boolean' ? { comNotaFiscal: dData.comNotaFiscal } : {}),
+  frete: Math.max(0, Number(dData.frete) || 0),
+  encargos: Math.max(0, Number(dData.encargos) || 0),
+  transporte: lerTransporte(dData.transporte),
 });
 
 /**
@@ -395,6 +420,8 @@ const NFE: React.FC = () => {
   /** Pagamentos do pedido importado -- usado so' pra montar as duplicatas (parcelas) da nota
    *  quando a forma e' Boleto/a prazo. Ver handleSelectPedido e o payload de emissao. */
   const [importedPedidoPagamentos, setImportedPedidoPagamentos] = useState<PaymentRecord[]>([]);
+  // Frete, encargos e transporte do pedido importado (27/10/2026).
+  const [importedAcessorios, setImportedAcessorios] = useState<AcessoriosDaNota | null>(null);
   /** Tela "Emitir NF-e em lote" aberta (ver EmissaoLoteModal). */
   const [loteAberto, setLoteAberto] = useState(false);
   // Inutilizacao de numeracao (21/10/2026).
@@ -463,6 +490,10 @@ const NFE: React.FC = () => {
     cidade: '',
     estado: '',
     codigoIbge: '',
+    // Exportacao (27/10/2026): pais do cliente do exterior ('' = Brasil) e o embarque [exporta].
+    pais: '',
+    ufEmbarque: '',
+    localEmbarque: '',
     // Específico NFS-e
     federalServiceCode: '',
     cityServiceCode: '',
@@ -474,6 +505,23 @@ const NFE: React.FC = () => {
     cfop: '5102', // Venda
     csosn: ''
   });
+
+  // Embarque da exportacao: lembra o ultimo usado neste navegador (o porto quase nunca muda).
+  const chaveEmbarque = `nfe-embarque-${tenantId || ''}`;
+  const lembrarEmbarque = (m: { uf?: string; local?: string }) => {
+    try {
+      const atual = JSON.parse(localStorage.getItem(chaveEmbarque) || '{}') as { uf?: string; local?: string };
+      localStorage.setItem(chaveEmbarque, JSON.stringify({ ...atual, ...m }));
+    } catch { /* sem armazenamento local: so' nao lembra */ }
+  };
+  useEffect(() => {
+    if (!formData.pais || formData.ufEmbarque || formData.localEmbarque) return;
+    try {
+      const salvo = JSON.parse(localStorage.getItem(chaveEmbarque) || '{}') as { uf?: string; local?: string };
+      if (salvo.uf || salvo.local) setFormData((prev) => ({ ...prev, ufEmbarque: salvo.uf || '', localEmbarque: salvo.local || '' }));
+    } catch { /* idem */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.pais]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** Devolucao (id) cuja NF-e de devolucao esta aberta no pop-up. null = fechado. */
@@ -550,7 +598,7 @@ const NFE: React.FC = () => {
           clientList.push({
             id: d.id,
             nome: dData.nome || '',
-            documento: dData.documento || '',
+            ...documentoEPaisDoCliente(dData),
             identidade: dData.identidade || '',
             email: dData.email || '',
             endereco: dData.endereco || '',
@@ -777,7 +825,8 @@ const NFE: React.FC = () => {
           setFormData((prev) => ({
             ...prev,
             inscricaoEstadual: c.identidade || '',
-            documento: c.documento || prev.documento,
+            documento: documentoEPaisDoCliente(c).documento || prev.documento,
+            pais: documentoEPaisDoCliente(c).pais,
             email: c.email || prev.email,
             // Endereco tambem: e' o caso tipico de "corrigi o cadastro" (ex.:
             // cliente migrado sem codigo IBGE da cidade).
@@ -904,7 +953,7 @@ const NFE: React.FC = () => {
           foundClient = {
             ...clienteEmCache,
             nome: d.nome || clienteEmCache.nome,
-            documento: d.documento || '',
+            ...documentoEPaisDoCliente(d),
             identidade: d.identidade || '',
             email: d.email || '',
             endereco: d.endereco || '',
@@ -962,6 +1011,9 @@ const NFE: React.FC = () => {
     // CFOP de simples faturamento; o ICMS fica para a remessa (notaFiscalItemDomain).
     if (pedido.entregaFutura) {
       itemsWithTaxes = itemsWithTaxes.map((item) => ({ ...item, cfop: cfopDoFaturamento(interestadual) }));
+    } else if (foundClient?.pais) {
+      // Cliente do exterior (27/10/2026): x101/x102 do cadastro viram 7101/7102 (editavel na aba Produtos).
+      itemsWithTaxes = itemsWithTaxes.map((item) => ({ ...item, cfop: cfopDeExportacaoSugerido(item.cfop) }));
     } else if (cupom) {
       itemsWithTaxes = itemsWithTaxes.map(item => ({
         ...item,
@@ -969,9 +1021,30 @@ const NFE: React.FC = () => {
       }));
     }
 
+    // Frete, encargos e transporte (27/10/2026): a transportadora e' lida AGORA
+    // (cadastro corrigido depois da venda vale). Nao achou = a montagem da nota avisa.
+    let transportadora: CadastroTransportadora | null = null;
+    if (pedido.transporte.transportadoraId) {
+      try {
+        const tSnap = await getDoc(doc(db, 'fornecedores', pedido.transporte.transportadoraId));
+        if (tSnap.exists()) {
+          const d = tSnap.data();
+          transportadora = {
+            nome: d.nome || '', documento: d.cnpj || '', inscricaoEstadual: d.identidade || '',
+            endereco: d.endereco || '', numero: d.numero || '', bairro: d.bairro || '', cep: d.cep || '',
+            cidade: d.cidade || '', estado: d.estado || '', codigoIbge: d.codigoIbge || '',
+            email: d.email || '', telefone: d.telefone || d.celular || '',
+          };
+        }
+      } catch (erroTransportadora) {
+        console.error('Erro ao ler a transportadora do pedido:', erroTransportadora);
+      }
+    }
+
     return {
       itens: itemsWithTaxes,
       pagamentos: pedido.pagamentos || [],
+      acessorios: { frete: pedido.frete, encargos: pedido.encargos, transporte: pedido.transporte, transportadora } as AcessoriosDaNota,
       entregaFutura: pedido.entregaFutura ? { previsaoEntrega: pedido.previsaoEntrega || '' } : null,
       referencedAccessKey: cupom && !pedido.entregaFutura ? (cupom.accessKey || '') : '',
       form: {
@@ -995,6 +1068,7 @@ const NFE: React.FC = () => {
         cidade: foundClient?.cidade || '',
         estado: foundClient?.estado || '',
         codigoIbge: foundClient?.codigoIbge || '',
+        pais: foundClient?.pais || '',
       },
     };
   };
@@ -1008,6 +1082,7 @@ const NFE: React.FC = () => {
     if (!pedidoId) {
       setImportedPedidoItens([]);
       setImportedPedidoPagamentos([]);
+      setImportedAcessorios(null);
       setReferencedAccessKey('');
       setFormData(prev => ({
         ...prev,
@@ -1026,6 +1101,7 @@ const NFE: React.FC = () => {
         cidade: '',
         estado: '',
         codigoIbge: '',
+        pais: '',
       }));
       return;
     }
@@ -1066,6 +1142,7 @@ const NFE: React.FC = () => {
       setImportedPedidoItens(montada.itens);
       setFiscalDoCadastro(fotografiaFiscal(montada.itens));
       setImportedPedidoPagamentos(montada.pagamentos);
+      setImportedAcessorios(montada.acessorios);
       setFormData(prev => ({ ...prev, ...montada.form }));
 
       Swal.close();
@@ -1174,6 +1251,7 @@ const NFE: React.FC = () => {
         cidade: '',
         estado: '',
         codigoIbge: '',
+        pais: '',
       }));
       return;
     }
@@ -1209,6 +1287,7 @@ const NFE: React.FC = () => {
       cidade: foundClient?.cidade || '',
       estado: foundClient?.estado || '',
       codigoIbge: foundClient?.codigoIbge || '',
+      pais: '',
     }));
   };
 
@@ -1884,8 +1963,17 @@ const NFE: React.FC = () => {
     stateTaxNumber?: string;
     /** Venda com entrega futura: simples faturamento (5.922/6.922), sem destaque de ICMS. */
     entregaFutura?: { previsaoEntrega: string } | null;
+    /** Frete, encargos e transporte do pedido (27/10/2026); sem pedido = nada. */
+    acessorios?: AcessoriosDaNota | null;
   }) => {
     const valorNumerico = Number(a.form.valor);
+
+    // Transporte [transp] (27/10/2026): modalidade, transportadora, placa, volumes.
+    // Cadastro incompleto barra com a mensagem de onde corrigir.
+    const transporteDaNota = a.acessorios
+      ? montarTransporteDaNota({ transporte: a.acessorios.transporte, frete: a.acessorios.frete, transportadora: a.acessorios.transportadora })
+      : null;
+    if (transporteDaNota && !transporteDaNota.ok) throw new Error(transporteDaNota.erro);
 
     // UF da empresa vem da cidade resolvida em Configuracoes -> Nota
     // Fiscal (Spedy) (nfseCidadeEstado) -- ver mesmo comentario em
@@ -1903,7 +1991,8 @@ const NFE: React.FC = () => {
     } catch (err) {
       console.warn("Erro ao buscar estado da oficina:", err);
     }
-    const clientState = a.form.estado || 'SP';
+    // Cliente do exterior: UF "EX" (operacao com o exterior, nunca "dentro do estado").
+    const clientState = a.form.pais ? 'EX' : (a.form.estado || 'SP');
     const interestadual = clientState.toUpperCase() !== companyState.toUpperCase();
 
     // Itens: montagem UNICA (notaFiscalItemDomain) -- unidade vendida, GTIN,
@@ -1920,6 +2009,11 @@ const NFE: React.FC = () => {
         }];
     const avisosItens: string[] = [];
     const tributosItens: ValoresTributosItem[] = [];
+    if (transporteDaNota && transporteDaNota.ok) avisosItens.push(...transporteDaNota.avisos);
+    // Frete [vFrete] e encargos [vOutro] rateados pelo valor liquido de cada item (a SEFAZ soma o dos itens).
+    const pesosAcessorios = itensDaNota.map((item) => Math.max(0, Number(item.quantidade || 1) * Number(item.precoUnitario || 0) - Number(item.desconto || 0)));
+    const freteDosItens = ratearPorPeso(a.acessorios?.frete || 0, pesosAcessorios);
+    const outrasDosItens = ratearPorPeso(a.acessorios?.encargos || 0, pesosAcessorios);
     const itemsPayload = itensDaNota.map((item, index) => {
       const montado = montarItemNotaFiscal({
         produto: { ...item, nome: item.nome },
@@ -1928,6 +2022,8 @@ const NFE: React.FC = () => {
           precoUnitario: Number(item.precoUnitario || 0),
           desconto: Number(item.desconto || 0),
           unidadeSigla: item.unidadeMedidaSigla,
+          frete: freteDosItens[index] || 0,
+          outrasDespesas: outrasDosItens[index] || 0,
         },
         contexto: { regime: regimeTributario, interestadual, ...(a.entregaFutura ? { entregaFutura: 'faturamento' as const } : {}) },
         codigoItem: item.codigoProduto || item.id || `PROD-${index}`,
@@ -1947,6 +2043,15 @@ const NFE: React.FC = () => {
       (itemsPayload.find((pi) => isExportCfop(pi.cfop as number)) as { cfop?: number } | undefined)?.cfop,
       interestadual ? 'interstate' : 'internal',
     );
+    // Exportacao (27/10/2026): CFOP 7xxx so' com cliente do exterior (e vice-versa) + embarque [exporta].
+    const exportacao = montarExportacaoDaNota({
+      clienteNome: a.form.clienteNome,
+      pais: a.form.pais,
+      cfops: itemsPayload.map((it) => it.cfop),
+      ufEmbarque: a.form.ufEmbarque,
+      localEmbarque: a.form.localEmbarque,
+    });
+    if (!exportacao.ok) throw new Error(exportacao.erro);
 
     // vProd (bruto) e vDesc somados dos itens -- productAmount tem que ser o BRUTO (soma dos
     // itens antes do desconto), nunca igual ao invoiceAmount, senao o desconto nao aparece na
@@ -1984,6 +2089,7 @@ const NFE: React.FC = () => {
     const informacoesComplementares = informacoesComplementaresComMensagem(mensagemPadraoNota, [
       a.entregaFutura ? infoComplementarDoFaturamento(a.numeroPedido, a.entregaFutura.previsaoEntrega) : (a.numeroPedido ? `Pedido de venda nº ${a.numeroPedido}.` : ''),
       a.referencedAccessKey ? `Referente ao cupom fiscal chave ${a.referencedAccessKey}.` : '',
+      textoLegalDaExportacao(itemsPayload),
       usesCsosn(regimeTributario) ? TEXTO_OPTANTE_SIMPLES_NACIONAL : '',
       textoTributosAproximados(tributosNota, valorNumerico),
     ]);
@@ -1991,7 +2097,8 @@ const NFE: React.FC = () => {
     const payload = {
       integrationId: a.integrationId,
       // indFinal: contribuinte com IE comprando pra revender nao e' consumidor final.
-      isFinalCustomer: destinatarioEConsumidorFinal({ documento: a.form.documento, inscricaoEstadual: a.stateTaxNumber }),
+      // Exportacao: operacao com o exterior, nao venda a consumidor final no Brasil.
+      isFinalCustomer: exportacao.exportacao ? false : destinatarioEConsumidorFinal({ documento: a.form.documento, inscricaoEstadual: a.stateTaxNumber }),
       operationType: 'outgoing',
       destination: destination,
       presenceType: 'presence',
@@ -2001,24 +2108,11 @@ const NFE: React.FC = () => {
       // Com o SMTP da empresa configurado, o e-mail ao cliente (PDF + XML) sai pelo sistema, do e-mail da empresa,
       // com pop-up de resultado (notaEmailService); ligar o envio da Spedy tambem mandaria a nota duas vezes.
       sendEmailToCustomer: !!a.form.email && !emailPeloSistema,
-      receiver: {
-        name: a.form.clienteNome,
-        federalTaxNumber: a.form.documento.replace(/\D/g, ''),
-        ...(a.stateTaxNumber ? { stateTaxNumber: a.stateTaxNumber } : {}),
-        email: a.form.email || undefined,
-        address: {
-          street: a.form.rua,
-          number: a.form.numero,
-          district: a.form.bairro,
-          postalCode: a.form.cep.replace(/\D/g, ''),
-          city: {
-            code: a.form.codigoIbge,
-            name: a.form.cidade,
-            state: a.form.estado
-          }
-        }
-      },
+      // Destinatario: do Brasil (CPF/CNPJ, IE, CEP, IBGE) ou do exterior (documento estrangeiro, pais, "EXTERIOR").
+      receiver: destinatarioDaNota(a.form, a.stateTaxNumber),
       items: itemsPayload,
+      ...(exportacao.exportation ? { exportation: exportacao.exportation } : {}),
+      ...(transporteDaNota && transporteDaNota.ok ? { transport: transporteDaNota.transport } : {}),
       // Meio de pagamento de verdade (dinheiro, pix, boleto...), nao mais "outros" fixo.
       payments: montarPagamentosNota(a.pagamentos, valorNumerico),
       ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
@@ -2027,6 +2121,8 @@ const NFE: React.FC = () => {
         invoiceAmount: valorNumerico,
         productAmount: productAmountBruto,
         ...(discountAmountTotal > 0 ? { discountAmount: discountAmountTotal } : {}),
+        ...((a.acessorios?.frete || 0) > 0 ? { freightAmount: Math.round((a.acessorios?.frete || 0) * 100) / 100 } : {}),
+        ...((a.acessorios?.encargos || 0) > 0 ? { othersAmount: Math.round((a.acessorios?.encargos || 0) * 100) / 100 } : {}),
         ...(totaisImpostos.icmsBaseTax > 0 ? { icmsBaseTax: totaisImpostos.icmsBaseTax, icmsAmount: totaisImpostos.icmsAmount } : {}),
         ...(totaisImpostos.pisAmount > 0 ? { pisAmount: totaisImpostos.pisAmount } : {}),
         ...(totaisImpostos.cofinsAmount > 0 ? { cofinsAmount: totaisImpostos.cofinsAmount } : {}),
@@ -2059,19 +2155,15 @@ const NFE: React.FC = () => {
     // Sao Paulo...) ou com o endereco do ultimo cliente importado, e so
     // aparecia como erro generico da Spedy (SPD003) depois de enviado.
     if (formData.tipo !== 'NFS-e') {
-      const camposEnderecoFaltando: string[] = [];
-      if (!formData.rua) camposEnderecoFaltando.push('Endereço');
-      if (!formData.numero) camposEnderecoFaltando.push('Número');
-      if (!formData.bairro) camposEnderecoFaltando.push('Bairro');
-      if (!formData.cep) camposEnderecoFaltando.push('CEP');
-      if (!formData.cidade) camposEnderecoFaltando.push('Cidade');
-      if (!formData.estado) camposEnderecoFaltando.push('Estado');
-      if (!formData.codigoIbge) camposEnderecoFaltando.push('Código IBGE da cidade');
+      // Cliente do exterior nao tem CEP nem codigo IBGE (exportacaoNotaDomain).
+      const camposEnderecoFaltando = camposFaltandoNoEndereco(formData);
       if (camposEnderecoFaltando.length > 0) {
         showError(
           'Endereço do cliente incompleto',
           `Falta ${camposEnderecoFaltando.join(', ')} no endereço de "${formData.clienteNome}" para emitir a NF-e. `
-            + 'Abra o cadastro deste cliente em Clientes, digite o CEP e saia do campo (rua, bairro, cidade, UF e o código IBGE são preenchidos sozinhos), complete o número e salve. '
+            + (formData.pais
+              ? 'Abra o cadastro deste cliente em Clientes, complete o endereço e a cidade do exterior e salve. '
+              : 'Abra o cadastro deste cliente em Clientes, digite o CEP e saia do campo (rua, bairro, cidade, UF e o código IBGE são preenchidos sozinhos), complete o número e salve. ')
             + (formData.clienteId ? 'Depois, aqui na nota, clique em "Atualizar dados do cadastro" (aba de produtos) e transmita de novo.' : 'Depois, escolha o cliente de novo aqui na nota.')
         );
         return;
@@ -2101,7 +2193,8 @@ const NFE: React.FC = () => {
         if (!antes || !item.id || item.id === 'avulso') return [];
         return CAMPOS_FISCAIS_EDITAVEIS
           // Nota cuponada troca o CFOP pra 5929/6929 de proposito: nao e' correcao do produto.
-          .filter((campo) => !(campo === 'cfop' && referencedAccessKey))
+          // Exportacao idem (7101/7102 so' para o cliente do exterior).
+          .filter((campo) => !(campo === 'cfop' && (referencedAccessKey || formData.pais || cfopSemIncidenciaDeIcms(item.cfop))))
           .map((campo) => ({ produtoId: item.id, nome: item.nome, campo, antes: antes[campo], depois: normalizarCampoFiscal(campo, item[campo]) }))
           .filter((m) => m.depois && m.depois !== m.antes);
       });
@@ -2235,7 +2328,8 @@ const NFE: React.FC = () => {
       // em branco ou IE invalida bloqueia (19/10/2026). Ver
       // destinatarioFiscalDomain.ts.
       let stateTaxNumberDestinatario: string | undefined;
-      if (formData.tipo === 'NF-e') {
+      // Cliente do exterior nao tem Inscricao Estadual.
+      if (formData.tipo === 'NF-e' && !formData.pais) {
         const ie = resolverInscricaoEstadualDestinatario({
           documento: cleanDoc,
           identidade: formData.inscricaoEstadual,
@@ -2306,6 +2400,7 @@ const NFE: React.FC = () => {
           referencedAccessKey,
           stateTaxNumber: stateTaxNumberDestinatario,
           entregaFutura: importedPedidoId ? entregaFuturaDoPedido : null,
+          acessorios: importedPedidoId ? importedAcessorios : null,
         });
         // Nao trava (a nota sai certa), mas o cadastro precisa de ajuste.
         if (avisosNota.length > 0) showWarning('Confira o cadastro destes produtos', avisosNota.join(' '));
@@ -2404,7 +2499,8 @@ const NFE: React.FC = () => {
         inscricaoEstadual: '',
         email: '',
         valor: '',
-        descricao: ''
+        descricao: '',
+        pais: '',
       }));
       setImportedPedidoId('');
       setImportedPedidoItens([]);
@@ -2568,6 +2664,10 @@ const NFE: React.FC = () => {
     const montada = await montarNotaDoPedido(pedido);
     const form = { ...formData, ...montada.form };
     if (montada.itens.length === 0) return { resultado: { estado: 'erro', mensagem: 'O pedido não tem itens.' } };
+    // Exportacao pede o local de embarque, que o lote nao tem como perguntar.
+    if (form.pais) {
+      return { resultado: { estado: 'erro', mensagem: 'Cliente do exterior: nota de exportação sai pela emissão individual (Nova nota → importe o pedido), onde se informa o local de embarque.' } };
+    }
     if (!form.documento.replace(/\D/g, '')) {
       return { resultado: { estado: 'erro', mensagem: 'O cliente está sem CPF/CNPJ no cadastro. Corrija em Clientes.' } };
     }
@@ -2600,6 +2700,7 @@ const NFE: React.FC = () => {
       numeroPedido: pedido.numeroPedido,
       referencedAccessKey: montada.referencedAccessKey,
       stateTaxNumber: ie.valor,
+      acessorios: montada.acessorios,
     });
     const nota = await spedyService.emitProductInvoice(config.spedyApiKey, config.spedyEnvironment, payload, { pedidoId: pedido.id, integrationId });
 
@@ -3682,6 +3783,46 @@ const NFE: React.FC = () => {
                         </button>
                       );
                     })()}
+                    {/* Frete e transporte do pedido (27/10/2026): o que vai para a nota. */}
+                    {importedPedidoId && importedAcessorios && (
+                      <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }} title="Vem do Pedido de Venda (Frete e Encargos › Transporte). Para mudar, ajuste no pedido.">
+                        <strong>Transporte na nota:</strong> {resumoDoTransporte(importedAcessorios.transporte, importedAcessorios.frete)}
+                        {importedAcessorios.encargos > 0 ? ` · Outras despesas ${importedAcessorios.encargos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}
+                      </p>
+                    )}
+                    {/* Exportacao (27/10/2026): embarque [exporta] da nota para o exterior. */}
+                    {formData.tipo === 'NF-e' && (formData.pais || importedPedidoItens.some((it) => isExportCfop(it.cfop))) && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)' }}>
+                        <strong style={{ fontSize: '13px' }}>Exportação{formData.pais ? ` — ${nomeDoPais(formData.pais)}` : ''}</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '8px' }}>
+                          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            UF de embarque
+                            <select
+                              value={formData.ufEmbarque}
+                              onChange={(e) => { const uf = e.target.value; setFormData((prev) => ({ ...prev, ufEmbarque: uf })); lembrarEmbarque({ uf }); }}
+                              style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                            >
+                              <option value="">—</option>
+                              {UFS_EMBARQUE.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+                            </select>
+                          </label>
+                          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            Local de embarque
+                            <input
+                              type="text"
+                              maxLength={60}
+                              value={formData.localEmbarque}
+                              title="Porto, aeroporto ou fronteira por onde a mercadoria sai do Brasil (ex.: PORTO DE SANTOS)"
+                              onChange={(e) => { const local = e.target.value.toUpperCase(); setFormData((prev) => ({ ...prev, localEmbarque: local })); lembrarEmbarque({ local }); }}
+                              style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                            />
+                          </label>
+                        </div>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                          Itens com CFOP 7.101/7.102 e quantidade convertida para KG (peso líquido do produto). Confirme com o contador o CST/CSOSN de ICMS, PIS e COFINS da exportação na aba Produtos.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Importar Ordem de Servico (NFS-e) -- so os servicos, peca fica de fora */}
@@ -3809,7 +3950,8 @@ const NFE: React.FC = () => {
                                   cep: c.cep || '',
                                   cidade: c.cidade || '',
                                   estado: c.estado || '',
-                                  codigoIbge: c.codigoIbge || ''
+                                  codigoIbge: c.codigoIbge || '',
+                                  pais: c.pais || '',
                                 });
                                 setIsClientDropdownOpen(false);
                               }}
@@ -3827,16 +3969,18 @@ const NFE: React.FC = () => {
 
                   {/* CPF/CNPJ e Email */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>CPF / CNPJ (Apenas números) *</label>
+                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      {formData.pais ? `Documento no exterior — cliente de ${nomeDoPais(formData.pais)} *` : 'CPF / CNPJ (Apenas números) *'}
+                    </label>
                     <input
                       type="text"
                       value={formData.documento}
-                      onChange={(e) => setFormData({...formData, documento: e.target.value.replace(/\D/g, '')})}
+                      onChange={(e) => setFormData({ ...formData, documento: formData.pais ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, '') })}
                       required
                       style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
                     />
                   </div>
-                  {formData.tipo === 'NF-e' && formData.documento.replace(/\D/g, '').length === 14 && (
+                  {formData.tipo === 'NF-e' && !formData.pais && formData.documento.replace(/\D/g, '').length === 14 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inscrição Estadual do destinatário *</label>
                       <input
@@ -4032,7 +4176,7 @@ const NFE: React.FC = () => {
                                     <option key={c.codigo} value={c.codigo}>{formatarCodigoCfop(c.codigo)} - {c.descricao}</option>
                                   ))}
                                 </select>
-                                {isExportCfop(item.cfop) && (
+                                {exigeUnidadeTributavelEmKg(item.cfop) && (
                                   (() => {
                                     const preview = resolveInvoiceUnitFields({
                                       cfop: item.cfop,
@@ -4044,11 +4188,16 @@ const NFE: React.FC = () => {
                                     return (
                                       <span style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: preview.ok ? '#10b981' : '#ef4444' }}>
                                         {preview.ok
-                                          ? `Exportação: ${preview.fields!.quantityTax.toFixed(3)} kg`
-                                          : 'Peso do produto não configurado'}
+                                          ? `Na nota também em quilos: ${preview.fields!.quantityTax.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} kg`
+                                          : 'Peso líquido do produto não configurado (Estoque › Fiscal)'}
                                       </span>
                                     );
                                   })()
+                                )}
+                                {cfopSemIncidenciaDeIcms(item.cfop) && (
+                                  <span style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }} title="Exportação: o ICMS não incide (LC 87/1996, art. 3º, II)">
+                                    ICMS não incide: vai {usesCsosn(regimeTributario) ? 'CSOSN 300' : 'CST 41'}
+                                  </span>
                                 )}
                               </td>
                               <td style={{ padding: '8px' }}>

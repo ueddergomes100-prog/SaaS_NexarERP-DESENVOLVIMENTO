@@ -94,6 +94,10 @@ export interface VendaDoItem {
   desconto: number;
   /** Unidade em que foi vendido (sigla). Vazio = a do cadastro / UN. */
   unidadeSigla?: string;
+  /** Fatia do frete do pedido neste item [vFrete] (27/10/2026, transporteNotaDomain.ratearPorPeso). */
+  frete?: number;
+  /** Fatia dos encargos do pedido neste item, como outras despesas [vOutro]. */
+  outrasDespesas?: number;
 }
 
 export interface ContextoNota {
@@ -321,6 +325,22 @@ const produtoSemDestaqueDeIcms = (p: ProdutoFiscal, regime: RegimeTributario): P
   return codigo === '60' ? p : { ...p, csosn: '90', aliquotaIcms: 0, reducaoBaseIcms: 0 };
 };
 
+/**
+ * EXPORTACAO (27/10/2026): direta (7.xxx) ou venda a comercial exportadora /
+ * trading com fim especifico de exportacao (x.501/x.502). O ICMS nao incide
+ * (LC 87/1996, art. 3o, II e paragrafo unico) -- a nota sai sem ICMS mesmo com o
+ * produto cadastrado como tributado: CST 41 (nao tributada) ou, no Simples,
+ * CSOSN 300 (imune). 40/41/50 e 300/400 do cadastro ficam como estao.
+ */
+export const cfopSemIncidenciaDeIcms = (cfop: unknown): boolean => /^(7\d{3}|[56]50[12])$/.test(soDigitos(cfop));
+const ehCfopFimEspecificoExportacao = (cfop: string): boolean => /^[56]50[12]$/.test(cfop);
+
+const produtoSemIcmsNaExportacao = (p: ProdutoFiscal, regime: RegimeTributario): ProdutoFiscal => {
+  const codigo = String(p.csosn ?? '').trim();
+  if (usesCsosn(regime)) return ['300', '400'].includes(codigo) ? p : { ...p, csosn: '300' };
+  return ['40', '41', '50'].includes(codigo) ? p : { ...p, csosn: '41', aliquotaIcms: 0, reducaoBaseIcms: 0 };
+};
+
 const icmsDoItem = (p: ProdutoFiscal, regime: RegimeTributario, base: number): { ok: true; icms: Impostos } | { ok: false; erro: string } => {
   const origin = Number(p.origem || '0');
   const codigo = String(p.csosn ?? '').trim();
@@ -463,7 +483,8 @@ export const montarItemNotaFiscal = (a: {
   }
   let cfop = cfopOperacao || (isExportCfop(cfopCadastro) ? cfopCadastro : cfopParaDestino(cfopCadastro, contexto.interestadual));
   let produtoFiscal = p;
-  if (!cfopOperacao && contexto.interestadual && !isExportCfop(cfopCadastro)) {
+  // Fim especifico de exportacao (x.501/x.502) escolhido na nota: o "CFOP interestadual" do cadastro (6102) nao troca.
+  if (!cfopOperacao && contexto.interestadual && !isExportCfop(cfopCadastro) && !ehCfopFimEspecificoExportacao(cfopCadastro)) {
     const cfopInter = soDigitos(p.cfopInterestadual);
     const csosnInter = String(p.csosnInterestadual ?? '').trim();
     if (cfopInter) {
@@ -487,6 +508,12 @@ export const montarItemNotaFiscal = (a: {
   }
   // Base dos impostos = valor do item menos o desconto (vProd - vDesc).
   const base = arred(totalAmount - desconto);
+  // Frete e outras despesas do item (27/10/2026): entram na base do ICMS e do IPI
+  // (vBC = vProd - vDesc + vFrete + vSeg + vOutro, regra da SEFAZ). PIS/COFINS e o
+  // valor aproximado dos tributos seguem sobre a mercadoria.
+  const frete = arred(Math.max(0, num(venda.frete)));
+  const outrasDespesas = arred(Math.max(0, num(venda.outrasDespesas)));
+  const baseComAcessorios = arred(base + frete + outrasDespesas);
 
   const unidade = String(venda.unidadeSigla || '').trim().toUpperCase() || 'UN';
   if (!String(venda.unidadeSigla || '').trim()) {
@@ -504,14 +531,16 @@ export const montarItemNotaFiscal = (a: {
   // Entrega futura: simples faturamento sem destaque de ICMS; remessa sem PIS/COFINS/IPI de novo.
   const faturamentoEntregaFutura = contexto.entregaFutura === 'faturamento';
   const remessaEntregaFutura = contexto.entregaFutura === 'remessa';
-  const produtoIcms = faturamentoEntregaFutura ? produtoSemDestaqueDeIcms(produtoFiscal, contexto.regime) : produtoFiscal;
-  const icms = icmsDoItem(produtoIcms, contexto.regime, base);
+  const produtoIcms = cfopSemIncidenciaDeIcms(cfop)
+    ? produtoSemIcmsNaExportacao(produtoFiscal, contexto.regime)
+    : faturamentoEntregaFutura ? produtoSemDestaqueDeIcms(produtoFiscal, contexto.regime) : produtoFiscal;
+  const icms = icmsDoItem(produtoIcms, contexto.regime, baseComAcessorios);
   if (!icms.ok) return icms;
   const pis = pisCofinsDoItem('PIS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstPis, p.aliquotaPis, p, contexto.regime, base);
   if (!pis.ok) return pis;
   const cofins = pisCofinsDoItem('COFINS', remessaEntregaFutura ? CST_PIS_COFINS_SEM_INCIDENCIA : p.cstCofins, p.aliquotaCofins, p, contexto.regime, base);
   if (!cofins.ok) return cofins;
-  const ipi = remessaEntregaFutura ? { ok: true as const, grupo: null } : ipiDoItem(p, base);
+  const ipi = remessaEntregaFutura ? { ok: true as const, grupo: null } : ipiDoItem(p, baseComAcessorios);
   if (!ipi.ok) return ipi;
   const ibsCbs = ibsCbsDoItem(p, base);
 
@@ -546,6 +575,8 @@ export const montarItemNotaFiscal = (a: {
     ...unitFields.fields!,
     totalAmount,
     ...(desconto > 0 ? { discountAmount: desconto } : {}),
+    ...(frete > 0 ? { freightAmount: frete } : {}),
+    ...(outrasDespesas > 0 ? { othersAmount: outrasDespesas } : {}),
     makeupTotal: true,
     ...(beneficio ? { taxBenefitCode: beneficio } : {}),
     taxes: {

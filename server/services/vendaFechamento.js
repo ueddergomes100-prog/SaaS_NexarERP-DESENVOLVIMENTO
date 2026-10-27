@@ -620,6 +620,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       },
       frete: pedido.frete,
       encargos: pedido.encargos,
+      // Transporte para a nota (27/10/2026): modalidade, transportadora, placa, volumes.
+      ...(pedido.transporte ? { transporte: pedido.transporte } : {}),
       valorTotal: totais.valorTotal,
       valorTotalCentavos: totais.valorTotalCentavos,
       formaPagamento: resumo.paymentMethodLabel,

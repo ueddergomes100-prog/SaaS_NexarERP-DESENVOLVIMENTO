@@ -29,6 +29,9 @@ import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import TabelaItensVenda, { type TabelaItensVendaHandle } from './TabelaItensVenda';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
+import CampoDecimal from '../../components/common/CampoDecimal';
+import TransporteDoPedidoPanel from '../../components/vendas/TransporteDoPedidoPanel';
+import { TRANSPORTE_VAZIO, lerTransporte, transporteParaGravar, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
 import { numeroDaNota } from '../../utils/nomeArquivoDomain';
 import { reancorarVencimentosNoFaturamento } from '../../utils/faturamentoPreVendaDomain';
@@ -503,6 +506,8 @@ const PedidoVendaForm: React.FC = () => {
 
   const [frete, setFrete] = useState<number>(0);
   const [encargos, setEncargos] = useState<number>(0);
+  // Transporte para a nota (27/10/2026): modalidade, transportadora, placa e volumes.
+  const [transporte, setTransporte] = useState<TransporteDoPedido>(TRANSPORTE_VAZIO);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(true);
@@ -1189,6 +1194,7 @@ const PedidoVendaForm: React.FC = () => {
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
             setEncargos(p.encargos || 0);
+            setTransporte(lerTransporte((p as { transporte?: unknown }).transporte));
             // Mesmo defeito que a OS tinha: o desconto geral era gravado mas
             // nunca voltava pro campo ao reabrir o pedido. Reabrir e salvar de
             // novo regravava com o campo vazio -- o desconto sumia e o total
@@ -2590,6 +2596,7 @@ const PedidoVendaForm: React.FC = () => {
           },
           frete: Number(frete || 0),
           encargos: Number(encargos || 0),
+          ...(transporteParaGravar(transporte) ? { transporte: transporteParaGravar(transporte) } : {}),
           valorTotal: valorTotalPedido,
           valorTotalCentavos: valorTotalPedidoCentavos,
           dataVenda: dataVendaParaGravar,
@@ -3455,6 +3462,7 @@ const PedidoVendaForm: React.FC = () => {
           },
           frete: Number(frete || 0),
           encargos: Number(encargos || 0),
+          ...(transporteParaGravar(transporte) ? { transporte: transporteParaGravar(transporte) } : {}),
           pagamentos: pagamentosParaFechar,
           ...(orcamentoId ? { orcamentoId } : {}),
           ...(entregaFuturaDaVenda ? { entregaFutura: true, previsaoEntrega } : {}),
@@ -3653,6 +3661,7 @@ const PedidoVendaForm: React.FC = () => {
             },
             frete: Number(frete || 0),
             encargos: Number(encargos || 0),
+            transporte: transporteParaGravar(transporte),
             valorTotal: valorTotalPedido,
             valorTotalCentavos: valorTotalPedidoCentavos,
             formaPagamento: paymentSummary.paymentMethodLabel,
@@ -5878,16 +5887,15 @@ const PedidoVendaForm: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Frete (+)</span>
                 {isViewing && !canEditPendingOrder ? (
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>R$ {frete.toFixed(0)}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{frete.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                 ) : (
-                  <input
-                    type="number"
-                    step="1"
-                    min="0"
-                    inputMode="numeric"
-                    value={frete || ''}
-                    onChange={(e) => setFrete(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
-                    style={{ width: '100px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
+                  // Com centavos (27/10/2026): antes so' aceitava numero inteiro.
+                  <CampoDecimal
+                    valor={frete}
+                    onValor={setFrete}
+                    casasMinimas={2}
+                    aria-label="Frete"
+                    style={{ width: '110px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
                   />
                 )}
               </div>
@@ -5895,19 +5903,26 @@ const PedidoVendaForm: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Encargos (+)</span>
                 {isViewing && !canEditPendingOrder ? (
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>R$ {encargos.toFixed(0)}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{encargos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                 ) : (
-                  <input
-                    type="number"
-                    step="1"
-                    min="0"
-                    inputMode="numeric"
-                    value={encargos || ''}
-                    onChange={(e) => setEncargos(Math.max(0, Math.trunc(Number(e.target.value) || 0)))}
-                    style={{ width: '100px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
+                  <CampoDecimal
+                    valor={encargos}
+                    onValor={setEncargos}
+                    casasMinimas={2}
+                    aria-label="Encargos"
+                    title="Vai para a nota fiscal como outras despesas acessórias"
+                    style={{ width: '110px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '6px 10px', color: 'var(--text-primary)', textAlign: 'right' }}
                   />
                 )}
               </div>
+
+              <TransporteDoPedidoPanel
+                tenantId={tenantId}
+                transporte={transporte}
+                frete={frete}
+                disabled={isViewing && !canEditPendingOrder}
+                onChange={setTransporte}
+              />
             </div>
             <div className="pedido-total">
               <span className="hd-rotulo">Total</span>

@@ -271,6 +271,21 @@ test('resolveInvoiceUnitFields bloqueia CFOP de exportacao sem peso configurado'
   assert.equal(pesoZero.ok, false);
 });
 
+test('fim especifico de exportacao (5501/6501/5502/6502) tambem converte para quilo; vendido em KG nao precisa de peso', () => {
+  const caixa = resolveInvoiceUnitFields({ cfop: 6501, unidadeComercial: 'UN', quantidadeComercial: 200, valorUnitarioComercial: 8.3, pesoLiquidoUnitarioKg: 0.1 });
+  assert.equal(caixa.ok, true);
+  assert.equal(caixa.fields?.unit, 'UN');
+  assert.equal(caixa.fields?.unitTax, 'KG');
+  assert.equal(caixa.fields?.quantityTax, 20); // 200 un de 100 g
+  assert.ok(Math.abs((caixa.fields?.unitTaxAmount || 0) - 83) < 1e-9); // 1660 / 20 kg
+  assert.equal(resolveInvoiceUnitFields({ cfop: '5.502', unidadeComercial: 'UN', quantidadeComercial: 1, valorUnitarioComercial: 1 }).ok, false);
+  const emKg = resolveInvoiceUnitFields({ cfop: 6501, unidadeComercial: 'kg', quantidadeComercial: 20, valorUnitarioComercial: 83 });
+  assert.equal(emKg.ok, true);
+  assert.equal(emKg.fields?.quantityTax, 20);
+  assert.equal(emKg.fields?.unitTax, 'KG');
+  assert.equal(resolveInvoiceDestination(6501, 'interstate'), 'interstate');
+});
+
 // --- Empresa que nao controla fiscal --------------------------------------
 
 test('fiscal vem ligado por padrao', () => {

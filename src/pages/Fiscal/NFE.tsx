@@ -153,8 +153,10 @@ interface PedidoVendaItem {
   aliquotaIpi?: number;
   cstIbs?: string;
   aliquotaIbs?: number;
+  aliquotaIbsMunicipal?: number;
   cstCbs?: string;
   aliquotaCbs?: number;
+  classTribIbsCbs?: string;
   /** Peso liquido POR UNIDADE (kg) do produto -- so usado quando o CFOP
    * do item e de exportacao (7101/7102), pra converter a quantidade
    * comercial pra quilo antes de emitir (ver fiscalDomain.ts). */
@@ -777,8 +779,10 @@ const NFE: React.FC = () => {
               enquadramentoIpi: f.enquadramentoIpi,
               cstIbs: f.cstIbs,
               aliquotaIbs: f.aliquotaIbs,
+              aliquotaIbsMunicipal: f.aliquotaIbsMunicipal,
               cstCbs: f.cstCbs,
               aliquotaCbs: f.aliquotaCbs,
+              classTribIbsCbs: f.classTribIbsCbs,
               cest: f.cest,
               codigoBarras: f.codigoBarras,
               beneficioFiscal: f.beneficioFiscal,

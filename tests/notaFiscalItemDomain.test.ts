@@ -211,6 +211,45 @@ test('CEST e cBenef vao quando o cadastro tem; IBS/CBS com CST antigo de 2 digit
   assert.equal(it.taxes.ibsCbs, undefined);
 });
 
+test('IBS/CBS (27/10): cClassTrib obrigatoria, IBS da UF e do municipio, base sem ICMS/PIS/COFINS', () => {
+  // Como o ERP antigo mandava na nota da Sol Natus: CST 000, cClassTrib 000001, IBS UF 0,1%, CBS 0,9%.
+  const reforma = { ...farinha, cstIbs: '000', classTribIbsCbs: '000001', aliquotaIbs: 0.1, aliquotaCbs: 0.9 };
+  const venda = { quantidade: 100, precoUnitario: 8.3, desconto: 0, unidadeSigla: 'UN', frete: 180.97 };
+  const it = montar(reforma, venda).item as Record<string, any>;
+  assert.deepEqual(it.taxes.ibsCbs, {
+    cst: 0, classification: 1, baseTax: 1010.97,
+    ibsStateRate: 0.1, ibsStateAmount: 1.01, ibsCityRate: 0, ibsCityAmount: 0, ibsAmount: 1.01,
+    cbsRate: 0.9, cbsAmount: 9.1,
+  });
+
+  // Regime normal com ICMS e PIS/COFINS destacados: saem da base do IBS/CBS.
+  const normal = montarItemNotaFiscal({
+    produto: { ...reforma, csosn: '00', aliquotaIcms: 18, cstPis: '01', aliquotaPis: 1.65, cstCofins: '01', aliquotaCofins: 7.6 },
+    venda: { quantidade: 1, precoUnitario: 100, desconto: 0, unidadeSigla: 'UN' },
+    contexto: { regime: 'lucro_real', interestadual: false },
+    codigoItem: '1',
+  });
+  assert.ok(normal.ok);
+  // 100 - 18 (ICMS) - 1,65 (PIS) - 7,60 (COFINS)
+  assert.equal((normal.item as Record<string, any>).taxes.ibsCbs.baseTax, 72.75);
+
+  // CST sem cClassTrib, ou cClassTrib de outro CST: barra com o nome do produto.
+  const semClass = montarItemNotaFiscal({ produto: { ...reforma, classTribIbsCbs: '' }, venda, contexto: simplesInterno, codigoItem: '1' });
+  assert.equal(semClass.ok, false);
+  assert.match(!semClass.ok ? semClass.erro : '', /FARINHA DE AVEIA 500G.*cClassTrib/);
+  const outroCst = montarItemNotaFiscal({ produto: { ...reforma, classTribIbsCbs: '410004' }, venda, contexto: simplesInterno, codigoItem: '1' });
+  assert.equal(outroCst.ok, false);
+
+  // Imunidade (410): so' CST e classificacao, sem aliquotas.
+  const imune = montar({ ...reforma, cstIbs: '410', classTribIbsCbs: '410004' }, venda).item as Record<string, any>;
+  assert.deepEqual(imune.taxes.ibsCbs, { cst: 410, classification: 410004 });
+
+  // O cadastro e' lido com os campos novos.
+  const lido = produtoFiscalDoCadastro({ nome: 'X', cstIbs: '000', classTribIbsCbs: '000001', aliquotaIbs: 0.1, aliquotaIbsMunicipal: 0.05 });
+  assert.equal(lido.classTribIbsCbs, '000001');
+  assert.equal(lido.aliquotaIbsMunicipal, 0.05);
+});
+
 test('venda para outro estado troca o CFOP (5102 -> 6102, 5405 -> 6404) e volta no interno', () => {
   assert.equal(cfopParaDestino('5102', true), '6102');
   assert.equal(cfopParaDestino('5405', true), '6404');

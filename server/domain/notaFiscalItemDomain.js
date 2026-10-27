@@ -335,13 +335,53 @@ const ipiDoItem = (p, base) => {
     }
     return { ok: true, grupo: { cst: Number(cst), classificationCode, baseTax: arred(base), rate: 0, amount: 0 } };
 };
-/** IBS/CBS (Reforma Tributaria) -- so' vai com CST de 3 digitos; codigo antigo de 2 digitos gravado no campo e' ignorado. */
+/** CST do IBS/CBS sem o grupo de aliquotas [gIBSCBS]: isencao (400) e imunidade/nao incidencia (410). */
+const CST_IBS_CBS_SEM_ALIQUOTAS = ['400', '410'];
+/**
+ * IBS/CBS (Reforma Tributaria) -- so' vai com CST de 3 digitos; codigo antigo
+ * de 2 digitos gravado no campo e' ignorado (o grupo nao vai).
+ *
+ * 27/10/2026: antes ia so' CST, base e CBS -- sem a classificacao tributaria
+ * (cClassTrib, obrigatoria no grupo) e sem o IBS, embora o cadastro tivesse a
+ * aliquota do IBS. Agora: CST sem cClassTrib barra com mensagem; vai o IBS da
+ * UF e do municipio. Base (NT 2025.002): valor do item + frete + outras
+ * despesas - desconto - ICMS - PIS - COFINS.
+ */
 const ibsCbsDoItem = (p, base) => {
     const cst = soDigitos(p.cstIbs || p.cstCbs);
     if (cst.length !== 3)
-        return null;
+        return { ok: true, grupo: null };
+    const classificacao = soDigitos(p.classTribIbsCbs);
+    const corrigir = 'Edite o produto em Estoque > aba Fiscal (o código vem do contador).';
+    if (classificacao.length !== 6) {
+        return { ok: false, erro: `O produto "${p.nome}" tem CST de IBS/CBS ${cst} e está sem a classificação tributária (cClassTrib, 6 dígitos), que a SEFAZ exige junto. ${corrigir}` };
+    }
+    if (!classificacao.startsWith(cst)) {
+        return { ok: false, erro: `A classificação tributária do IBS/CBS do produto "${p.nome}" (${classificacao}) não é do CST ${cst}: os 3 primeiros dígitos têm que ser o CST. ${corrigir}` };
+    }
+    if (CST_IBS_CBS_SEM_ALIQUOTAS.includes(cst))
+        return { ok: true, grupo: { cst: Number(cst), classification: Number(classificacao) } };
+    const baseTax = arred(Math.max(0, base));
+    const ibsStateRate = num(p.aliquotaIbs);
+    const ibsCityRate = num(p.aliquotaIbsMunicipal);
     const cbsRate = num(p.aliquotaCbs);
-    return { cst: Number(cst), baseTax: arred(base), cbsRate, cbsAmount: arred(base * cbsRate / 100) };
+    const ibsStateAmount = arred(baseTax * ibsStateRate / 100);
+    const ibsCityAmount = arred(baseTax * ibsCityRate / 100);
+    return {
+        ok: true,
+        grupo: {
+            cst: Number(cst),
+            classification: Number(classificacao),
+            baseTax,
+            ibsStateRate,
+            ibsStateAmount,
+            ibsCityRate,
+            ibsCityAmount,
+            ibsAmount: arred(ibsStateAmount + ibsCityAmount),
+            cbsRate,
+            cbsAmount: arred(baseTax * cbsRate / 100),
+        },
+    };
 };
 // ---------------------------------------------------------------------------
 // Item completo
@@ -426,7 +466,10 @@ const montarItemNotaFiscal = (a) => {
     const ipi = remessaEntregaFutura ? { ok: true, grupo: null } : ipiDoItem(p, baseComAcessorios);
     if (!ipi.ok)
         return ipi;
-    const ibsCbs = ibsCbsDoItem(p, base);
+    const valorDoGrupo = (g) => num(g?.amount);
+    const ibsCbs = ibsCbsDoItem(p, baseComAcessorios - valorDoGrupo(icms.icms) - valorDoGrupo(pis.grupo) - valorDoGrupo(cofins.grupo));
+    if (!ibsCbs.ok)
+        return ibsCbs;
     const pct = (0, exports.percentuaisTributos)(p);
     const tributos = {
         federal: arred(base * pct.federal / 100),
@@ -466,7 +509,7 @@ const montarItemNotaFiscal = (a) => {
             pis: pis.grupo,
             cofins: cofins.grupo,
             ...(ipi.grupo ? { ipi: ipi.grupo } : {}),
-            ...(ibsCbs ? { ibsCbs } : {}),
+            ...(ibsCbs.grupo ? { ibsCbs: ibsCbs.grupo } : {}),
         },
     };
     return { ok: true, item, tributos, avisos };
@@ -525,8 +568,10 @@ const produtoFiscalDoCadastro = (data, opcoes = {}) => {
         enquadramentoIpi: pega('enquadramentoIpi'),
         cstIbs: pega('cstIbs'),
         aliquotaIbs: num(data.aliquotaIbs ?? fiscal.aliquotaIbs),
+        aliquotaIbsMunicipal: num(data.aliquotaIbsMunicipal ?? fiscal.aliquotaIbsMunicipal),
         cstCbs: pega('cstCbs'),
         aliquotaCbs: num(data.aliquotaCbs ?? fiscal.aliquotaCbs),
+        classTribIbsCbs: pega('classTribIbsCbs'),
         // Vendido em embalagem: o GTIN e' o da embalagem (caixa tem codigo proprio); sem ele, o da unidade nao serve.
         codigoBarras: embalagem ? String(embalagem.codigoBarras || '') : String(data.codigoBarras || ''),
         beneficioFiscal: pega('beneficioFiscal'),

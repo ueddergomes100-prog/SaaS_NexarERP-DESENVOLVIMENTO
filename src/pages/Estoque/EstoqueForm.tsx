@@ -209,8 +209,11 @@ interface ProdutoFormData {
   cest: string;
   cstPis: string;
   cstCofins: string;
+  /** CST do IBS/CBS: um codigo so' para os dois na nota (cstCbs grava igual). */
   cstIbs: string;
   cstCbs: string;
+  /** Classificacao tributaria do IBS/CBS [cClassTrib], 6 digitos. */
+  classTribIbsCbs: string;
   cstIpi: string;
   /** Venda para outro estado quando a tributacao muda (produto com ST). Vazio = derivado. */
   cfopInterestadual: string;
@@ -226,6 +229,7 @@ interface ProdutoFormData {
   aliquotaPis: string;
   aliquotaCofins: string;
   aliquotaIbs: string;
+  aliquotaIbsMunicipal: string;
   aliquotaCbs: string;
   aliquotaIpi: string;
   reducaoBaseIcms: string;
@@ -364,6 +368,7 @@ const emptyFormData: ProdutoFormData = {
   cstCofins: '',
   cstIbs: '',
   cstCbs: '',
+  classTribIbsCbs: '',
   cstIpi: '',
   cfopInterestadual: '',
   csosnInterestadual: '',
@@ -376,6 +381,7 @@ const emptyFormData: ProdutoFormData = {
   aliquotaPis: '',
   aliquotaCofins: '',
   aliquotaIbs: '',
+  aliquotaIbsMunicipal: '',
   aliquotaCbs: '',
   aliquotaIpi: '',
   reducaoBaseIcms: '',
@@ -875,8 +881,9 @@ const EstoqueForm: React.FC = () => {
               cest: data.cest || data.fiscal?.cest || '',
               cstPis: data.cstPis || data.fiscal?.cstPis || '',
               cstCofins: data.cstCofins || data.fiscal?.cstCofins || '',
-              cstIbs: data.cstIbs || data.fiscal?.cstIbs || '',
+              cstIbs: data.cstIbs || data.fiscal?.cstIbs || data.cstCbs || data.fiscal?.cstCbs || '',
               cstCbs: data.cstCbs || data.fiscal?.cstCbs || '',
+              classTribIbsCbs: data.classTribIbsCbs || data.fiscal?.classTribIbsCbs || '',
               cstIpi: data.cstIpi || data.fiscal?.cstIpi || '',
               enquadramentoIpi: data.enquadramentoIpi || '',
               cfopInterestadual: data.cfopInterestadual || '',
@@ -889,6 +896,7 @@ const EstoqueForm: React.FC = () => {
               aliquotaPis: String(data.aliquotaPis ?? data.fiscal?.aliquotaPis ?? ''),
               aliquotaCofins: String(data.aliquotaCofins ?? data.fiscal?.aliquotaCofins ?? ''),
               aliquotaIbs: String(data.aliquotaIbs ?? data.fiscal?.aliquotaIbs ?? ''),
+              aliquotaIbsMunicipal: String(data.aliquotaIbsMunicipal ?? data.fiscal?.aliquotaIbsMunicipal ?? ''),
               aliquotaCbs: String(data.aliquotaCbs ?? data.fiscal?.aliquotaCbs ?? ''),
               aliquotaIpi: String(data.aliquotaIpi ?? data.fiscal?.aliquotaIpi ?? ''),
               reducaoBaseIcms: String(data.reducaoBaseIcms ?? data.fiscal?.reducaoBaseIcms ?? ''),
@@ -1534,9 +1542,14 @@ const EstoqueForm: React.FC = () => {
         aliquotaPis: toNumber(formData.aliquotaPis),
         aliquotaCofins: toNumber(formData.aliquotaCofins),
         aliquotaIbs: toNumber(formData.aliquotaIbs),
+        aliquotaIbsMunicipal: toNumber(formData.aliquotaIbsMunicipal),
         aliquotaCbs: toNumber(formData.aliquotaCbs),
         aliquotaIpi: toNumber(formData.aliquotaIpi),
         reducaoBaseIcms: toNumber(formData.reducaoBaseIcms),
+        // A nota tem um CST so' para IBS e CBS: o campo da tela grava nos dois.
+        cstIbs: formData.cstIbs.replace(/\D/g, ''),
+        cstCbs: formData.cstIbs.replace(/\D/g, ''),
+        classTribIbsCbs: formData.classTribIbsCbs.replace(/\D/g, ''),
         ncm: formData.ncm.replace(/\D/g, ''),
         cfop: formData.cfop,
         csosn: formData.csosn,
@@ -1627,13 +1640,15 @@ const EstoqueForm: React.FC = () => {
           cest: formData.cest,
           cstPis: formData.cstPis,
           cstCofins: formData.cstCofins,
-          cstIbs: formData.cstIbs,
-          cstCbs: formData.cstCbs,
+          cstIbs: formData.cstIbs.replace(/\D/g, ''),
+          cstCbs: formData.cstIbs.replace(/\D/g, ''),
+          classTribIbsCbs: formData.classTribIbsCbs.replace(/\D/g, ''),
           cstIpi: formData.cstIpi,
           aliquotaIcms: toNumber(formData.aliquotaIcms),
           aliquotaPis: toNumber(formData.aliquotaPis),
           aliquotaCofins: toNumber(formData.aliquotaCofins),
           aliquotaIbs: toNumber(formData.aliquotaIbs),
+          aliquotaIbsMunicipal: toNumber(formData.aliquotaIbsMunicipal),
           aliquotaCbs: toNumber(formData.aliquotaCbs),
           aliquotaIpi: toNumber(formData.aliquotaIpi),
           reducaoBaseIcms: toNumber(formData.reducaoBaseIcms),
@@ -2669,23 +2684,32 @@ const EstoqueForm: React.FC = () => {
 
               <div className="form-grid-4">
                 <div className="input-group">
-                  <label>CST IBS</label>
-                  <input type="text" name="cstIbs" maxLength={3} value={formData.cstIbs} onChange={handleChange} />
+                  <label>CST IBS/CBS</label>
+                  <input type="text" name="cstIbs" maxLength={3} inputMode="numeric" title="3 dígitos (tabela da Reforma). Um código só para IBS e CBS." value={formData.cstIbs} onChange={handleChange} />
                 </div>
                 <div className="input-group">
-                  <label>Alíquota IBS (%)</label>
+                  <label>Classificação tributária (cClassTrib)</label>
+                  <input type="text" name="classTribIbsCbs" maxLength={6} inputMode="numeric" title="6 dígitos; os 3 primeiros são o CST" value={formData.classTribIbsCbs} onChange={handleChange} />
+                  {formData.cstIbs.replace(/\D/g, '').length === 3 && formData.classTribIbsCbs.replace(/\D/g, '').length !== 6 && (
+                    <span className="field-hint" style={{ color: '#ef4444' }}>Obrigatória junto com o CST: sem ela a nota deste produto é barrada.</span>
+                  )}
+                </div>
+              </div>
+              <div className="form-grid-4">
+                <div className="input-group">
+                  <label>Alíquota IBS estadual (%)</label>
                   <input type="number" name="aliquotaIbs" step="0.01" min="0" value={formData.aliquotaIbs} onChange={handleChange} />
                 </div>
                 <div className="input-group">
-                  <label>CST CBS</label>
-                  <input type="text" name="cstCbs" maxLength={3} value={formData.cstCbs} onChange={handleChange} />
+                  <label>Alíquota IBS municipal (%)</label>
+                  <input type="number" name="aliquotaIbsMunicipal" step="0.01" min="0" value={formData.aliquotaIbsMunicipal} onChange={handleChange} />
                 </div>
                 <div className="input-group">
                   <label>Alíquota CBS (%)</label>
                   <input type="number" name="aliquotaCbs" step="0.01" min="0" value={formData.aliquotaCbs} onChange={handleChange} />
                 </div>
               </div>
-              <span className="field-hint">IBS e CBS são os novos tributos da Reforma Tributária (substituem gradualmente ICMS/ISS e PIS/COFINS até 2033). O CST tem 3 dígitos (tabela da Reforma); em branco, o grupo não vai na nota.</span>
+              <span className="field-hint">IBS e CBS são os novos tributos da Reforma Tributária (substituem gradualmente ICMS/ISS e PIS/COFINS até 2033). Em branco, o grupo não vai na nota. Em 2026 (ano de teste) é comum CST 000, cClassTrib 000001, IBS estadual 0,1% e CBS 0,9% — confirme com o contador. Isenção (400) e imunidade (410) vão sem alíquotas.</span>
 
               <div className="fiscal-tip">
                 <strong>Dica fiscal</strong>

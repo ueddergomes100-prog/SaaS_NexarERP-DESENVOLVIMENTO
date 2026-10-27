@@ -33,6 +33,7 @@ import {
   type RetencoesNfse,
 } from '../../utils/nfseEntradaDomain';
 import PagamentoCard, { type BancoParaEntrada } from '../../components/fiscal/entrada/PagamentoCard';
+import NotasRecebidasCard from '../../components/fiscal/entrada/NotasRecebidasCard';
 import CampoDecimal from '../../components/common/CampoDecimal';
 import { campoInputStyle, campoLabelStyle, cartaoStyle, grupoStyle, moeda, tituloDoCartaoStyle } from '../../components/fiscal/entrada/estilos';
 
@@ -459,6 +460,17 @@ const EntradaNFSe: React.FC = () => {
         </button>
       </div>
 
+      {!origem && tenantId && (
+        <NotasRecebidasCard
+          tipo="nfse"
+          tenantId={tenantId}
+          onXml={(xml, arquivo) => {
+            const lido = lerNfseXml(xml);
+            if (!lido.ok) { showError('Não foi possível ler a NFS-e', lido.erro); return; }
+            comecar('xml', lido.nota, xml, arquivo);
+          }}
+        />
+      )}
       {!origem ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
           <div

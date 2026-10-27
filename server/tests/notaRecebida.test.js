@@ -154,3 +154,45 @@ test('limite de requisicoes pede pra esperar', () => {
 test('erro desconhecido nao vaza texto tecnico vazio', () => {
   assert.match(mensagemDeFalha(500, {}), /Tente novamente/);
 });
+
+// ---------------------------------------------------------------------------
+// Lista das notas recebidas + importar com um clique (27/10/2026)
+// ---------------------------------------------------------------------------
+const recebidas = require('../services/notaRecebida');
+
+test('lista: tipo, periodo e cursor viram a consulta da Spedy (ou erro em portugues)', () => {
+  assert.equal(recebidas.tipoRecebida('nfe'), 'nfe');
+  assert.equal(recebidas.tipoRecebida('nfse'), 'nfse');
+  assert.equal(recebidas.tipoRecebida('cte'), null);
+  assert.equal(recebidas.tipoRecebida('constructor'), null);
+  const ok = recebidas.consultaDaLista({ de: '2026-10-01', ate: '2026-10-27', cursor: 'abc123==' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.query, 'limit=50&initialDate=2026-10-01&endDate=2026-10-27&cursor=abc123%3D%3D');
+  assert.match(recebidas.consultaDaLista({ de: '27/10/2026' }).erro, /inicial/);
+  assert.match(recebidas.consultaDaLista({ de: '2026-10-27', ate: '2026-10-01' }).erro, /depois/);
+  assert.match(recebidas.consultaDaLista({ cursor: 'a b&c' }).erro, /Página/);
+});
+
+test('lista: NF-e sem XML completo pede ciencia; NFS-e sem XML fica indisponivel; cancelada nao importa', () => {
+  const chave = '31261012345678000190550010000047111000000010';
+  const nfe = recebidas.itemDaListaRecebida({
+    id: 'u1', accessKey: chave, isComplete: false, status: 'authorized', issuedOn: '2026-10-20T10:00:00-03:00', amount: 1500.5,
+    issuer: { name: 'FORN', legalName: 'FORNECEDOR LTDA', federalTaxNumber: '12.345.678/0001-90' }, manifestation: { status: 'none' },
+  }, 'nfe');
+  assert.deepEqual(nfe, {
+    id: 'u1', tipo: 'nfe', chave, numero: '4711', serie: '1', emitenteNome: 'FORNECEDOR LTDA', emitenteCnpj: '12345678000190',
+    emitidaEm: '2026-10-20', valorTotal: 1500.5, descricao: '', situacao: 'ciencia', manifestacao: 'none',
+  });
+  assert.equal(recebidas.itemDaListaRecebida({ isComplete: true, status: 'authorized' }, 'nfe').situacao, 'pronta');
+  assert.equal(recebidas.itemDaListaRecebida({ isComplete: true, status: 'canceled' }, 'nfe').situacao, 'cancelada');
+  const nfse = recebidas.itemDaListaRecebida({ id: 'u2', number: 152, isComplete: false, status: 'authorized', serviceDescription: 'Honorários' }, 'nfse');
+  assert.equal(nfse.situacao, 'indisponivel');
+  assert.equal(nfse.numero, '152');
+  assert.equal(nfse.descricao, 'Honorários');
+});
+
+test('sincronizar cedo demais: diz quando da para pedir de novo', () => {
+  assert.match(recebidas.mensagemDaSincronizacao({ retryAfterSeconds: 290 }), /5 minutos/);
+  assert.match(recebidas.mensagemDaSincronizacao({ nextAllowedSyncAt: '2026-10-27T15:01:00Z' }, new Date('2026-10-27T15:00:30Z')), /1 minuto\b/);
+  assert.match(recebidas.mensagemDaSincronizacao({}), /alguns minutos/);
+});

@@ -65,6 +65,7 @@ import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
 import CabecalhoDaNota from '../../components/fiscal/entrada/CabecalhoDaNota';
 import TotaisDaNotaCard from '../../components/fiscal/entrada/TotaisDaNotaCard';
 import PagamentoCard, { type BancoParaEntrada } from '../../components/fiscal/entrada/PagamentoCard';
+import NotasRecebidasCard from '../../components/fiscal/entrada/NotasRecebidasCard';
 import { campoInputStyle } from '../../components/fiscal/entrada/estilos';
 import ItemDaNotaCard, { type CadastroVinculado } from '../../components/fiscal/entrada/ItemDaNotaCard';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
@@ -1728,8 +1729,13 @@ const EntradaNFE: React.FC = () => {
       </div>
 
       {!selectedFile ? (
-        // Chave de acesso + dropzone
+        // Notas recebidas (busca automatica) + chave de acesso + dropzone
         <div className="form-grid">
+          {tenantId && (
+            <div style={{ gridColumn: 'span 12' }}>
+              <NotasRecebidasCard tipo="nfe" tenantId={tenantId} onXml={processarXmlDeTexto} />
+            </div>
+          )}
           <div className="card" style={{ gridColumn: 'span 12', padding: '24px 32px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', marginBottom: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
               <Search size={18} color="var(--accent-purple)" />

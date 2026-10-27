@@ -93,7 +93,7 @@ const resumoDaNota = (nota) => ({
   serie: String(nota?.series || ''),
   emitenteNome: nota?.issuer?.name || nota?.issuer?.corporateName || '',
   emitenteCnpj: somenteDigitos(nota?.issuer?.federalTaxNumber || ''),
-  emitidaEm: nota?.issuedAt || nota?.issueDate || '',
+  emitidaEm: nota?.issuedOn || nota?.issuedAt || nota?.issueDate || '',
   valorTotal: Number(nota?.totalAmount ?? nota?.amount ?? 0),
   chave: somenteDigitos(nota?.accessKey || ''),
 });
@@ -184,7 +184,85 @@ const mensagemDeFalha = (status, corpo) => {
   return detalhe || 'Não foi possível consultar a nota na SEFAZ agora. Tente novamente em instantes.';
 };
 
+// ---------------------------------------------------------------------------
+// LISTA DAS NOTAS RECEBIDAS (27/10/2026). Pedido do dono: "o sistema sozinho
+// ja busca, o usuario so' clica em importar". A Spedy ja sincroniza sozinha,
+// de tempos em tempos, as NF-e (SEFAZ) e as NFS-e (Ambiente Nacional) emitidas
+// contra o CNPJ; aqui so' se traduz a lista para a tela.
+// ---------------------------------------------------------------------------
+
+const TIPOS_RECEBIDA = { nfe: 'inbound-product-invoices', nfse: 'inbound-service-invoices' };
+const LIMITE_DA_LISTA = 50;
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 'nfe' | 'nfse', ou null quando invalido. */
+const tipoRecebida = (valor) => (Object.prototype.hasOwnProperty.call(TIPOS_RECEBIDA, valor) ? valor : null);
+
+/**
+ * Query da lista na Spedy a partir do que a tela mandou. Devolve
+ * `{ ok, query }` ou `{ ok: false, erro }` em portugues.
+ */
+const consultaDaLista = ({ de, ate, cursor } = {}) => {
+  if (de && !DATA_ISO.test(de)) return { ok: false, erro: 'A data inicial do período está inválida.' };
+  if (ate && !DATA_ISO.test(ate)) return { ok: false, erro: 'A data final do período está inválida.' };
+  if (de && ate && de > ate) return { ok: false, erro: 'A data inicial do período é depois da data final.' };
+  const cursorLimpo = String(cursor || '').trim();
+  if (cursorLimpo && !/^[\w\-=+/.]{1,512}$/.test(cursorLimpo)) return { ok: false, erro: 'Página inválida. Recarregue a lista.' };
+  const params = new URLSearchParams({ limit: String(LIMITE_DA_LISTA) });
+  if (de) params.set('initialDate', de);
+  if (ate) params.set('endDate', ate);
+  if (cursorLimpo) params.set('cursor', cursorLimpo);
+  return { ok: true, query: params.toString() };
+};
+
+/**
+ * Uma nota da lista da Spedy -> linha da tela. `situacao`:
+ *  - `pronta`: o XML completo ja' esta' disponivel;
+ *  - `ciencia`: NF-e sem XML completo; ao importar, registra a Ciencia da Operacao;
+ *  - `indisponivel`: NFS-e sem XML completo (a manifestacao da NFS-e e' definitiva: o sistema nao faz sozinho);
+ *  - `cancelada`: cancelada/denegada, nao se da entrada.
+ */
+const itemDaListaRecebida = (nota, tipo) => {
+  const chave = somenteDigitos(nota?.accessKey || '');
+  const status = String(nota?.status || '').toLowerCase();
+  const daChave = tipo === 'nfe' ? dadosDaChave(chave) : null;
+  let situacao = 'pronta';
+  if (status === 'canceled' || status === 'denied') situacao = 'cancelada';
+  else if (nota?.isComplete !== true) situacao = tipo === 'nfe' ? 'ciencia' : 'indisponivel';
+  return {
+    id: String(nota?.id || ''),
+    tipo,
+    chave,
+    numero: tipo === 'nfe' ? (daChave?.numero || '') : (nota?.number != null ? String(nota.number) : ''),
+    serie: daChave?.serie || '',
+    emitenteNome: String(nota?.issuer?.legalName || nota?.issuer?.name || ''),
+    emitenteCnpj: somenteDigitos(nota?.issuer?.federalTaxNumber || ''),
+    emitidaEm: String(nota?.issuedOn || nota?.issuedAt || '').slice(0, 10),
+    valorTotal: Number(nota?.amount ?? nota?.totalAmount ?? 0),
+    descricao: String(nota?.serviceDescription || ''),
+    situacao,
+    manifestacao: String(nota?.manifestation?.status || 'none'),
+  };
+};
+
+/** Resposta 429 da sincronizacao -> quando da' para pedir de novo, em portugues. */
+const mensagemDaSincronizacao = (corpo, agora = new Date()) => {
+  const proxima = corpo?.nextAllowedSyncAt ? new Date(corpo.nextAllowedSyncAt) : null;
+  let segundos = Number(corpo?.retryAfterSeconds);
+  if (!(segundos > 0) && proxima && !Number.isNaN(proxima.getTime())) segundos = (proxima.getTime() - agora.getTime()) / 1000;
+  if (!(segundos > 0)) return 'A busca de notas novas foi pedida há pouco. Aguarde alguns minutos e tente de novo.';
+  const minutos = Math.ceil(segundos / 60);
+  return `A busca de notas novas foi pedida há pouco. Dá para pedir de novo em ${minutos} minuto${minutos > 1 ? 's' : ''}. `
+    + 'A lista já mostra o que chegou até agora.';
+};
+
 module.exports = {
+  LIMITE_DA_LISTA,
+  TIPOS_RECEBIDA,
+  consultaDaLista,
+  itemDaListaRecebida,
+  mensagemDaSincronizacao,
+  tipoRecebida,
   TAMANHO_CHAVE,
   dadosDaChave,
   digitoVerificador,

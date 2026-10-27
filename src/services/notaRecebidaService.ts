@@ -74,9 +74,36 @@ const chamar = async <T>(caminho: string, init?: RequestInit): Promise<T> => {
   return dados as T;
 };
 
+/** Nota da lista de recebidas (server/services/notaRecebida.js, itemDaListaRecebida). */
+export type TipoNotaRecebida = 'nfe' | 'nfse';
+export interface NotaRecebidaDaLista {
+  id: string;
+  tipo: TipoNotaRecebida;
+  chave: string;
+  numero: string;
+  serie: string;
+  emitenteNome: string;
+  emitenteCnpj: string;
+  /** AAAA-MM-DD */
+  emitidaEm: string;
+  valorTotal: number;
+  descricao: string;
+  /** pronta | ciencia (NF-e: registra a ciência ao importar) | indisponivel (NFS-e sem XML) | cancelada */
+  situacao: 'pronta' | 'ciencia' | 'indisponivel' | 'cancelada';
+  manifestacao: string;
+}
+
 export const notaRecebidaService = {
   /** Procura a nota na SEFAZ pela chave. Pode voltar pedindo a manifestação. */
   buscar: (chave: string) => chamar<RespostaBuscaNota>(`buscar?chave=${encodeURIComponent(chave)}`),
   /** Registra a Ciência da Operação e devolve o XML. Só depois do "sim" do usuário. */
   manifestar: (id: string) => chamar<RespostaBuscaNota>('manifestar', { method: 'POST', body: JSON.stringify({ id }) }),
+  /** Notas emitidas contra o CNPJ da empresa (a Spedy busca sozinha, de tempos em tempos). */
+  listarRecebidas: (tipo: TipoNotaRecebida, de: string, ate: string, cursor = '') => chamar<{ notas: NotaRecebidaDaLista[]; proximaPagina: string | null }>(
+    `recebidas?${new URLSearchParams({ tipo, de, ate, ...(cursor ? { cursor } : {}) }).toString()}`,
+  ),
+  /** Pede a busca de notas novas agora (há um intervalo mínimo entre pedidos). */
+  sincronizarRecebidas: (tipo: TipoNotaRecebida) => chamar<{ ok: boolean; aviso: string }>('recebidas/sincronizar', { method: 'POST', body: JSON.stringify({ tipo }) }),
+  /** Baixa o XML (NF-e sem XML completo: registra a Ciência da Operação antes). */
+  importarRecebida: (tipo: TipoNotaRecebida, id: string) => chamar<RespostaBuscaNota>('recebidas/importar', { method: 'POST', body: JSON.stringify({ tipo, id }) }),
 };

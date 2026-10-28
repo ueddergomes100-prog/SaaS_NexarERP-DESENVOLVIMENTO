@@ -155,11 +155,12 @@ const OSList: React.FC = () => {
       return;
     }
 
+    // 28/10/2026: saiu o "(Link do PDF aqui)" (texto fixo, nunca virou link) e o "Somos da
+    // Hennder ERP" (a mensagem sai do WhatsApp da oficina, nao do sistema).
     const mensagem = encodeURIComponent(
       `Olá, ${os.clienteNome}! Tudo bem?\n\n` +
-      `Somos da Hennder ERP. Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (${rotulos.identificacao}: ${identificacaoCurta(modoOficina, os)}).\n` +
-      `O status atual da sua OS #${os.numeroOS || os.id.substring(0,8).toUpperCase()} é: *${os.status}*.\n\n` +
-      `Acesse seu orçamento/OS neste link: (Link do PDF aqui)`
+      `Gostaríamos de atualizar sobre o serviço do seu ${os.modelo || 'veículo'} (${rotulos.identificacao}: ${identificacaoCurta(modoOficina, os)}).\n` +
+      `O status atual da sua OS #${os.numeroOS || os.id.substring(0,8).toUpperCase()} é: *${os.status}*.`
     );
 
     window.open(`https://wa.me/55${telLimpado}?text=${mensagem}`, '_blank');

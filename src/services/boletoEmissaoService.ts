@@ -101,7 +101,7 @@ export const bancoDoBoleto = (titulo: Pick<TituloBoleto, 'bancoId'>, bancosComBo
 export const validarTituloParaEmissao = (titulo: TituloBoleto, bancosComBoleto: BancoBoleto[]): BancoBoleto => {
   const banco = bancoDoBoleto(titulo, bancosComBoleto);
   if (!banco) {
-    throw new Error('Nenhum banco preparado para boleto. Abra Financeiro → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco".');
+    throw new Error('Nenhum banco preparado para boleto. Abra Cadastros Auxiliares → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco".');
   }
   const erroConvenio = erroDoConvenioBoleto({
     cooperativa: banco.agencia,
@@ -227,7 +227,7 @@ export const dadosPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBole
   const { tenantId, titulo, bancosComBoleto } = a;
   if (!tenantId) throw new Error('Sessão sem empresa identificada. Atualize a página.');
   const calc = recalcularBoleto(titulo, bancosComBoleto);
-  if (!calc) throw new Error('Configure o convênio de boleto em Financeiro → Bancos.');
+  if (!calc) throw new Error('Configure o convênio de boleto em Cadastros Auxiliares → Bancos.');
   const { banco } = calc;
   if (!banco.boleto?.cnpjCedente || !banco.boleto?.nomeCedente) {
     throw new Error('Preencha o CNPJ e o nome do cedente na Configuração de Boleto do banco antes de gerar o boleto.');

@@ -225,7 +225,7 @@ export const planejarEstornoPagar = (titulo: TituloParaEstorno): PlanoEstorno =>
   if (titulo.bancoId) {
     return bloqueado(
       'Este pagamento tem um banco vinculado, mas não foi registrado por "Dar Baixa". '
-      + 'Para não errar o saldo do banco, o ajuste deve ser feito em Financeiro > Bancos.',
+      + 'Para não errar o saldo do banco, o ajuste deve ser feito em Cadastros Auxiliares > Bancos.',
     );
   }
 

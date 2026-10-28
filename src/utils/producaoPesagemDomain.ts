@@ -122,7 +122,7 @@ export const calcularPesagem = (e: EntradaPesagem): ResultadoPesagem => {
 
   const unidadeG = gramas(numero(e.pesoUnidadeKg));
   if (!Number.isFinite(unidadeG) || unidadeG <= 0) {
-    return { ...VAZIO, detalheTaras, taraKg: kg(taraG), erro: 'O produto está sem o peso líquido da unidade. Informe em Estoque → editar produto → "Peso líquido unitário (kg)", ou digite aqui.' };
+    return { ...VAZIO, detalheTaras, taraKg: kg(taraG), erro: 'O produto está sem o peso líquido da unidade. Informe em Estoque → editar produto → aba Composição → "Peso líquido de cada unidade (kg)", ou digite aqui.' };
   }
   const embalagemUnG = Math.max(0, gramas(numero(e.pesoEmbalagemKg)) || 0);
   const manual = e.embalagemManualKg;

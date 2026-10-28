@@ -134,7 +134,7 @@ const planejarEstornoPagar = (titulo) => {
     }
     if (titulo.bancoId) {
         return bloqueado('Este pagamento tem um banco vinculado, mas não foi registrado por "Dar Baixa". '
-            + 'Para não errar o saldo do banco, o ajuste deve ser feito em Financeiro > Bancos.');
+            + 'Para não errar o saldo do banco, o ajuste deve ser feito em Cadastros Auxiliares > Bancos.');
     }
     // Baixa antiga em dinheiro/sem banco: a tela gravava forma E data do
     // pagamento. Lancamento que nasceu ja' pago (despesa marcada como paga no

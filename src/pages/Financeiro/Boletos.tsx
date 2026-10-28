@@ -439,7 +439,7 @@ const Boletos: React.FC = () => {
     }
 
     const banco = bancosComBoleto.find((b) => b.id === lista[0].bancoId) || bancosComBoleto[0];
-    if (!banco) { showError('Sem convênio', 'Configure o convênio de boleto em Financeiro → Bancos.'); return; }
+    if (!banco) { showError('Sem convênio', 'Configure o convênio de boleto em Cadastros Auxiliares → Bancos.'); return; }
     if (!banco.boleto?.cnpjCedente || !banco.boleto?.nomeCedente) {
       showError(
         'Cedente incompleto',
@@ -713,7 +713,7 @@ const Boletos: React.FC = () => {
         <div className="card" style={{ padding: '16px 20px', marginBottom: '20px', backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.4)' }}>
           <strong style={{ color: '#f59e0b' }}>Nenhum banco preparado para boleto.</strong>
           <span style={{ color: 'var(--text-secondary)' }}>
-            {' '}Abra Financeiro → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco".
+            {' '}Abra Cadastros Auxiliares → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco".
           </span>
         </div>
       )}

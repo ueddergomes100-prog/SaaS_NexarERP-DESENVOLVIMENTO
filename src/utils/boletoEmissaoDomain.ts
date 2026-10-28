@@ -52,13 +52,13 @@ export interface ConvenioBoletoCadastro {
  */
 export const erroDoConvenioBoleto = (convenio: ConvenioBoletoCadastro | null | undefined): string | null => {
   if (!convenio) {
-    return 'Este banco não tem convênio de boleto configurado. Edite o banco em Financeiro → Bancos e preencha a Configuração de Boleto.';
+    return 'Este banco não tem convênio de boleto configurado. Edite o banco em Cadastros Auxiliares → Bancos e preencha a Configuração de Boleto.';
   }
   const faltando: string[] = [];
   if (!convenio.cooperativa?.trim()) faltando.push('cooperativa/agência');
   if (!convenio.conta?.trim()) faltando.push('conta');
   if (faltando.length > 0) {
-    return `Complete o convênio de boleto do banco antes de emitir: falta ${faltando.join(', ')}. Edite em Financeiro → Bancos.`;
+    return `Complete o convênio de boleto do banco antes de emitir: falta ${faltando.join(', ')}. Edite em Cadastros Auxiliares → Bancos.`;
   }
   return null;
 };

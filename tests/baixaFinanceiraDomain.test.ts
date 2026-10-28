@@ -112,7 +112,7 @@ test('pagar: pagamento que nasceu com outra operação não é baixa e fica bloq
 test('pagar: banco vinculado sem a marca de baixa é bloqueado para não errar o saldo', () => {
   const plano = planejarEstornoPagar({ status: 'Paga', bancoId: 'b1', valorCentavos: 100 });
   assert.equal(plano.permitido, false);
-  assert.match(plano.bloqueio, /Financeiro > Bancos/);
+  assert.match(plano.bloqueio, /Cadastros Auxiliares > Bancos/);
 });
 
 // ---------- Contas a Receber ----------

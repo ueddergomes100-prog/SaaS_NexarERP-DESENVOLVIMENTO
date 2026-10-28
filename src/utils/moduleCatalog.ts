@@ -33,7 +33,10 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   { group: 'Estoque', items: [
     { id: 'cadastros.estoque', label: 'Estoque / Produtos' },
     { id: 'estoque.ajusteManual', label: 'Ajuste Manual de Estoque' },
+    { id: 'estoque.balanco', label: 'Balanço (inventário)' },
     { id: 'estoque.relatorio', label: 'Relatório de Estoque' },
+    { id: 'operacoes.lotes', label: 'Lotes e Validades' },
+    { id: 'estoque.movimentacao', label: 'Movimentação de Produtos' },
     { id: 'estoque.relatorioAjustes', label: 'Relatório de Ajustes de Estoque' },
     { id: 'estoque.nota_avulsa', label: 'Nota Avulsa (Compra Manual)' },
     { id: 'estoque.precificacao', label: 'Precificação (preços em lote)' },
@@ -52,6 +55,9 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   ]},
   { group: 'Comercial & Vendas', items: [
     { id: 'comercial.pedidos', label: 'Pedido de Vendas' },
+    { id: 'comercial.promocoes', label: 'Promoções' },
+    { id: 'comercial.cashback', label: 'Cashback' },
+    { id: 'comercial.entregas_futuras', label: 'Entregas Futuras' },
     { id: 'comercial.orcamentos', label: 'Orçamentos' },
     { id: 'comercial.devolucoes', label: 'Devolução de Venda' },
     { id: 'comercial.trocas', label: 'Trocas de Mercadoria' },
@@ -75,10 +81,12 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'financeiro.receber', label: 'Contas a Receber' },
     { id: 'financeiro.pagar', label: 'Contas a Pagar' },
     { id: 'financeiro.faturamento', label: 'Painel de Faturamento' },
+    { id: 'financeiro.custos', label: 'Custos e Formação de Preço' },
     { id: 'financeiro.comissoes', label: 'Controle de Comissões' }
   ]},
   { group: 'Fiscal', items: [
     { id: 'fiscal.nfe', label: 'Notas Fiscais' },
+    { id: 'fiscal.relatorio_contador', label: 'Relatório do Contador' },
     { id: 'fiscal.entrada_nfe', label: 'Entrada de XML' }
   ]},
   { group: 'Utilitários', items: [
@@ -97,7 +105,8 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'operacoes.producao', label: 'Produção Interna' },
     { id: 'operacoes.expedicao', label: 'Expedição e Entregas' },
     { id: 'operacoes.rotas', label: 'Rotas e Motoristas' },
-    { id: 'operacoes.lotes', label: 'Lotes e Validades' }
+    { id: 'operacoes.romaneios', label: 'Romaneio de Entrega' },
+    { id: 'operacoes.frota', label: 'Frota e Custo por Veículo' }
   ]},
   { group: 'Administrativo & Logs', items: [
     { id: 'cadastros.usuarios', label: 'Usuários' },
@@ -108,7 +117,31 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
   ]}
 ];
 
-export const moduleLabelMap = MODULE_GROUPS.flatMap(group => group.items).reduce<Record<string, string>>((acc, item) => {
+/**
+ * Modulos separados em 28/10/2026 (pedido do dono): antes iam junto do modulo
+ * "pai" e nao dava para bloquear separado. Bloquear o pai bloqueia o filho
+ * (quem ja tinha o pai bloqueado nao ganha tela nova); o filho bloqueia sozinho.
+ */
+export const MODULO_PAI: Record<string, string> = {
+  'comercial.promocoes': 'comercial.pedidos',
+  'comercial.cashback': 'comercial.pedidos',
+  'comercial.entregas_futuras': 'comercial.pedidos',
+  'estoque.balanco': 'estoque.ajusteManual',
+  'operacoes.lotes': 'estoque.relatorio',
+  'estoque.movimentacao': 'estoque.relatorio',
+  'operacoes.romaneios': 'operacoes.rotas',
+  'operacoes.frota': 'operacoes.rotas',
+  'financeiro.custos': 'financeiro.faturamento',
+  'fiscal.relatorio_contador': 'fiscal.nfe',
+};
+
+/** Bloqueios que valem de verdade: os gravados mais os filhos de pai bloqueado. */
+export const modulosBloqueadosEfetivos = (bloqueados: readonly string[]): string[] => {
+  const filhos = Object.keys(MODULO_PAI).filter((filho) => bloqueados.includes(MODULO_PAI[filho]) && !bloqueados.includes(filho));
+  return filhos.length === 0 ? [...bloqueados] : [...bloqueados, ...filhos];
+};
+
+export const moduleLabelMap =MODULE_GROUPS.flatMap(group => group.items).reduce<Record<string, string>>((acc, item) => {
   acc[item.id] = item.label;
   return acc;
 }, {});

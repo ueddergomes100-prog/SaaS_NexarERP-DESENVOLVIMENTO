@@ -70,8 +70,8 @@ const PlatformAdminLayout: React.FC = () => {
           </span>
           {/* Nao existe botao generico "Ir para o ERP" aqui de proposito: ele
               abria a ultima empresa usada sem dizer qual era. A entrada no
-              sistema de um cliente e' pelo "Acessar Dados" da linha dele, na
-              aba Empresas, onde fica explicito de quem e' a base. */}
+              sistema de um cliente e' pelo "⋯ > Entrar no sistema da empresa"
+              da linha dele, na aba Empresas, onde fica explicito de quem e' a base. */}
           <button
             type="button"
             className="icon-btn"

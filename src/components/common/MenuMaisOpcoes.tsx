@@ -29,16 +29,21 @@ export interface ItemMenuMaisOpcoes {
 interface MenuMaisOpcoesProps {
   itens: ItemMenuMaisOpcoes[];
   rotulo?: string;
+  /** So' o icone "⋯" (para a linha de uma tabela); o rotulo vira a dica. */
+  compacto?: boolean;
 }
 
 const LARGURA_MINIMA_MENU = 250;
 
-const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais opções' }) => {
+const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais opções', compacto = false }) => {
   const [aberto, setAberto] = useState(false);
   // O menu abre alinhado pela direita do botao; quando o botao fica colado na
   // esquerda (celular, topo quebrado em linhas) nao cabe e sairia cortado
   // pela borda -- ai' abre alinhado pela esquerda.
   const [alinharEsquerda, setAlinharEsquerda] = useState(false);
+  // Compacto (linha de tabela): o menu sai em position fixed, senao a tabela
+  // (overflow) cortava o menu da ultima linha (28/10/2026).
+  const [posicaoFixa, setPosicaoFixa] = useState<React.CSSProperties | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   const visiveis = itens.filter((item) => !item.oculto);
 
@@ -48,13 +53,17 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
       if (ref.current && !ref.current.contains(e.target as Node)) setAberto(false);
     };
     const fecharEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false); };
+    // Fixo na tela: rolar a pagina descolaria o menu do botao, entao fecha.
+    const fecharAoRolar = () => { if (compacto) setAberto(false); };
     document.addEventListener('mousedown', fecharFora);
     document.addEventListener('keydown', fecharEsc);
+    window.addEventListener('scroll', fecharAoRolar, true);
     return () => {
       document.removeEventListener('mousedown', fecharFora);
       document.removeEventListener('keydown', fecharEsc);
+      window.removeEventListener('scroll', fecharAoRolar, true);
     };
-  }, [aberto]);
+  }, [aberto, compacto]);
 
   if (visiveis.length === 0) return null;
 
@@ -62,26 +71,41 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
     <div ref={ref} style={{ position: 'relative' }}>
       <button
         type="button"
-        className="btn-secondary"
+        className={compacto ? 'icon-btn' : 'btn-secondary'}
         aria-haspopup="menu"
         aria-expanded={aberto}
+        aria-label={compacto ? rotulo : undefined}
+        title={compacto ? rotulo : undefined}
         onClick={() => {
           const caixa = ref.current?.getBoundingClientRect();
           // Mede a partir da area de conteudo (<main>), nao da janela: com o menu
           // lateral aberto, abrir para a esquerda passava por baixo dele (19/10/2026).
           const inicioDoConteudo = ref.current?.closest('main')?.getBoundingClientRect().left ?? 0;
           setAlinharEsquerda(Boolean(caixa && caixa.right - LARGURA_MINIMA_MENU < inicioDoConteudo + 8));
+          if (compacto && caixa) {
+            const alturaEstimada = visiveis.length * 40 + 24;
+            const cabeAbaixo = caixa.bottom + 6 + alturaEstimada <= window.innerHeight;
+            setPosicaoFixa({
+              position: 'fixed',
+              right: Math.max(8, window.innerWidth - caixa.right),
+              ...(cabeAbaixo ? { top: caixa.bottom + 6 } : { bottom: window.innerHeight - caixa.top + 6 }),
+            });
+          }
           setAberto((atual) => !atual);
         }}
-        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        style={compacto
+          ? { padding: '8px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }
+          : { display: 'flex', alignItems: 'center', gap: '8px' }}
       >
-        <MoreHorizontal size={18} /> {rotulo} <ChevronDown size={16} />
+        {compacto ? <MoreHorizontal size={16} /> : <><MoreHorizontal size={18} /> {rotulo} <ChevronDown size={16} /></>}
       </button>
       {aberto && (
         <div
           role="menu"
           style={{
-            position: 'absolute', ...(alinharEsquerda ? { left: 0 } : { right: 0 }), top: 'calc(100% + 6px)',
+            ...(compacto && posicaoFixa
+              ? posicaoFixa
+              : { position: 'absolute' as const, ...(alinharEsquerda ? { left: 0 } : { right: 0 }), top: 'calc(100% + 6px)' }),
             minWidth: `${LARGURA_MINIMA_MENU}px`, maxWidth: 'calc(100vw - 16px)', zIndex: 50,
             backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
             boxShadow: '0 12px 28px rgba(0,0,0,0.35)', padding: '6px 0',

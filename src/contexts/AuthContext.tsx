@@ -6,6 +6,7 @@ import Swal from 'sweetalert2';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
 import { permissoesEfetivas } from '../utils/permissoesAppDomain';
+import { modulosBloqueadosEfetivos } from '../utils/moduleCatalog';
 import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../utils/cashbackDomain';
 import {
   buildActiveSessionWarningHtml,
@@ -802,7 +803,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Sem grupo ainda, quem pode criar a primeira filial e' o dono/administrador da empresa.
   const ehGestorDasFiliais = grupo ? ehGestorDoGrupo(grupo, usuarioDasFiliais) : isTenantManagerRole(userRole);
   // O plano (modulos) e' do grupo: fora da matriz, valem os bloqueios dela.
-  const blockedModulesEfetivos = grupo && tenantId && tenantId !== grupo.matrizTenantId ? grupo.modulosBloqueados : blockedModules;
+  // Modulo filho de pai bloqueado (28/10/2026) conta como bloqueado -- MODULO_PAI.
+  const modulosDoPlano = grupo && tenantId && tenantId !== grupo.matrizTenantId ? grupo.modulosBloqueados : blockedModules;
+  const blockedModulesEfetivos = useMemo(() => modulosBloqueadosEfetivos(modulosDoPlano), [modulosDoPlano]);
   const trocarFilial = useCallback(async (destino: string) => {
     await entrarNaFilial(destino);
   }, []);

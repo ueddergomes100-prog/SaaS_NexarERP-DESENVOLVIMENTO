@@ -22,10 +22,13 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   // generico '/estoque' logo abaixo (mais especifico primeiro, senao nunca
   // seriam alcancadas) -- e 'relatorio-ajustes' antes de 'relatorio' pelo
   // mesmo motivo (prefixo mais longo primeiro).
-  else if (path.startsWith('/estoque/ajuste') || path.startsWith('/estoque/balanco')) routeModule = 'estoque.ajusteManual';
+  else if (path.startsWith('/estoque/ajuste')) routeModule = 'estoque.ajusteManual';
+  // Modulos proprios desde 28/10/2026 (MODULO_PAI em moduleCatalog.ts): pai bloqueado bloqueia o filho.
+  else if (path.startsWith('/estoque/balanco')) routeModule = 'estoque.balanco';
   else if (path.startsWith('/estoque/relatorio-ajustes')) routeModule = 'estoque.relatorioAjustes';
-  // Movimentacao de produtos (26/10/2026): mesmo modulo do plano do Relatorio de Estoque.
-  else if (path.startsWith('/estoque/relatorio') || path.startsWith('/estoque/lotes') || path.startsWith('/estoque/movimentacao')) routeModule = 'estoque.relatorio';
+  else if (path.startsWith('/estoque/lotes')) routeModule = 'operacoes.lotes';
+  else if (path.startsWith('/estoque/movimentacao')) routeModule = 'estoque.movimentacao';
+  else if (path.startsWith('/estoque/relatorio')) routeModule = 'estoque.relatorio';
   else if (path.startsWith('/estoque/notas-avulsas')) routeModule = 'estoque.nota_avulsa';
   else if (path.startsWith('/estoque/precificacao')) routeModule = 'estoque.precificacao';
   else if (path.startsWith('/estoque/etiquetas')) routeModule = 'estoque.etiquetas';
@@ -42,11 +45,14 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/vendedores')) routeModule = 'cadastros.vendedores';
   else if (path.startsWith('/producao/ordens') || path.startsWith('/producao/relatorios')) routeModule = 'operacoes.producao';
   else if (path.startsWith('/operacoes/expedicao') || path.startsWith('/operacoes/conferencia')) routeModule = 'operacoes.expedicao';
-  // Entregas futuras (23/10/2026): e' venda -- quem tem pedidos tem a tela.
-  else if (path.startsWith('/operacoes/entregas-futuras')) routeModule = 'comercial.pedidos';
-  else if (path.startsWith('/operacoes/rotas') || path.startsWith('/operacoes/motoristas') || path.startsWith('/operacoes/frota') || path.startsWith('/operacoes/romaneios')) routeModule = 'operacoes.rotas';
+  else if (path.startsWith('/operacoes/entregas-futuras')) routeModule = 'comercial.entregas_futuras';
+  else if (path.startsWith('/operacoes/romaneios')) routeModule = 'operacoes.romaneios';
+  else if (path.startsWith('/operacoes/frota')) routeModule = 'operacoes.frota';
+  else if (path.startsWith('/operacoes/rotas') || path.startsWith('/operacoes/motoristas')) routeModule = 'operacoes.rotas';
   else if (path.startsWith('/pedidos-venda')) routeModule = 'comercial.pedidos';
-  else if (path.startsWith('/minhas-vendas') || path.startsWith('/vendas/promocoes') || path.startsWith('/vendas/cashback')) routeModule = 'comercial.pedidos';
+  else if (path.startsWith('/minhas-vendas')) routeModule = 'comercial.pedidos';
+  else if (path.startsWith('/vendas/promocoes')) routeModule = 'comercial.promocoes';
+  else if (path.startsWith('/vendas/cashback')) routeModule = 'comercial.cashback';
   else if (path.startsWith('/orcamentos')) routeModule = 'comercial.orcamentos';
   else if (path.startsWith('/vendas/devolucoes')) routeModule = 'comercial.devolucoes';
   else if (path.startsWith('/vendas/trocas')) routeModule = 'comercial.trocas';
@@ -59,8 +65,7 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/crm/lembretes') || path.startsWith('/crm')) routeModule = 'crm.lembretes';
   else if (path.startsWith('/financeiro/caixa-registros')) routeModule = 'financeiro.caixa_registros';
   else if (path.startsWith('/financeiro/caixas')) routeModule = 'financeiro.caixa';
-  // Custos e formacao de preco (23/10/2026): junto do Faturamento no plano.
-  else if (path.startsWith('/financeiro/custos')) routeModule = 'financeiro.faturamento';
+  else if (path.startsWith('/financeiro/custos')) routeModule = 'financeiro.custos';
   else if (path.startsWith('/financeiro/caixa')) routeModule = 'financeiro.caixa';
   else if (path.startsWith('/financeiro/banco')) routeModule = 'financeiro.banco';
   else if (path.startsWith('/financeiro/cheques')) routeModule = 'financeiro.cheques';
@@ -69,7 +74,8 @@ export const resolveRouteAccess = (pathname: string): RouteAccess => {
   else if (path.startsWith('/financeiro/contas-pagar')) routeModule = 'financeiro.pagar';
   else if (path.startsWith('/financeiro/faturamento')) routeModule = 'financeiro.faturamento';
   else if (path.startsWith('/financeiro/comissoes') || path.startsWith('/financeiro')) routeModule = 'financeiro.comissoes';
-  else if (path.startsWith('/fiscal/nfe') || path.startsWith('/fiscal/relatorio-contador') || path.startsWith('/fiscal/tabelas')) routeModule = 'fiscal.nfe';
+  else if (path.startsWith('/fiscal/relatorio-contador')) routeModule = 'fiscal.relatorio_contador';
+  else if (path.startsWith('/fiscal/nfe') || path.startsWith('/fiscal/tabelas')) routeModule = 'fiscal.nfe';
   else if (path.startsWith('/fiscal/entrada-nfe') || path.startsWith('/fiscal')) routeModule = 'fiscal.entrada_nfe';
   else if (path.startsWith('/utilitarios/sintegra')) routeModule = 'utilitarios.sintegra';
   else if (path.startsWith('/relatorios-diversos')) routeModule = 'logs.relatorios_diversos';

@@ -24,8 +24,10 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.so_caixa': ['comercial.pedidos'],
   'vendas.alterar': ['comercial.pedidos'],
   'vendas.excluir': ['comercial.pedidos'],
-  'vendas.promocoes': ['comercial.pedidos'],
-  'vendas.cashback': ['comercial.pedidos'],
+  // Modulos proprios desde 28/10/2026 (MODULO_PAI em moduleCatalog.ts).
+  'vendas.promocoes': ['comercial.promocoes'],
+  'vendas.cashback': ['comercial.cashback'],
+  'operacoes.entregas_futuras': ['comercial.entregas_futuras'],
   'vendas.pedidos_pendentes_editar': ['comercial.pedidos'],
   'vendas.pedidos_pendentes_editar_cliente': ['comercial.pedidos'],
   'vendas.pedidos_pendentes_alterar_qtd': ['comercial.pedidos'],
@@ -57,9 +59,9 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'cadastros.estoque_alterar': ['cadastros.estoque'],
 
   'operacoes.producao_relatorios': ['operacoes.producao'],
-  'operacoes.romaneios': ['operacoes.rotas'],
-  'operacoes.romaneios_reabrir': ['operacoes.rotas'],
-  'operacoes.entregas_app': ['operacoes.rotas'],
+  'operacoes.romaneios': ['operacoes.romaneios'],
+  'operacoes.romaneios_reabrir': ['operacoes.romaneios'],
+  'operacoes.entregas_app': ['operacoes.romaneios'],
 
   'financeiro.estornar': ['financeiro.receber', 'financeiro.pagar', 'financeiro.caixa'],
   'financeiro.alterar_valor_documento': ['financeiro.receber'],
@@ -70,11 +72,10 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
 
   'fiscal.emitir': ['fiscal.nfe'],
   'fiscal.excluir': ['fiscal.nfe'],
-  'fiscal.relatorio_contador': ['fiscal.nfe'],
+  'fiscal.relatorio_contador': ['fiscal.relatorio_contador'],
   'fiscal.tabelas': ['fiscal.nfe'],
-  // Balanco (21/10/2026): faz parte do modulo de ajuste de estoque.
-  'estoque.balanco_gerenciar': ['estoque.ajusteManual'],
-  'estoque.balanco_contar': ['estoque.ajusteManual'],
+  'estoque.balanco_gerenciar': ['estoque.balanco'],
+  'estoque.balanco_contar': ['estoque.balanco'],
   'fiscal.entrada': ['fiscal.entrada_nfe'],
   'fiscal.entrada_historico': ['fiscal.entrada_nfe'],
 

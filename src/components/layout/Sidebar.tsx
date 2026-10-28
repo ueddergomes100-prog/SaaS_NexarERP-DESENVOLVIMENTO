@@ -201,9 +201,9 @@ const Sidebar: React.FC = () => {
         { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
         { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
-        { label: 'Promoções', to: '/vendas/promocoes', icon: Tag, module: 'comercial.pedidos', permission: 'vendas.promocoes' },
+        { label: 'Promoções', to: '/vendas/promocoes', icon: Tag, module: 'comercial.promocoes', permission: 'vendas.promocoes' },
         // Cashback so' com o cashback ligado -- ver canAccess.
-        { label: 'Cashback', to: '/vendas/cashback', icon: Coins, module: 'comercial.pedidos', permission: 'vendas.cashback' },
+        { label: 'Cashback', to: '/vendas/cashback', icon: Coins, module: 'comercial.cashback', permission: 'vendas.cashback' },
         { label: 'Trocas', to: '/vendas/trocas', icon: Repeat, module: 'comercial.trocas', permission: 'vendas.troca_gerenciar' },
         { label: 'Condicional', to: '/vendas/condicional', icon: ShoppingBag, module: 'comercial.condicional', permission: 'vendas.condicional' },
         { label: 'Relatório de Vendas', to: '/relatorios-vendas', icon: BarChart2, module: 'comercial.relatorios', permission: 'vendas.relatorios' },
@@ -242,15 +242,15 @@ const Sidebar: React.FC = () => {
         { label: 'Produtos', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
         { label: 'Ajuste Manual', to: '/estoque/ajuste', icon: SlidersHorizontal, module: 'estoque.ajusteManual', permission: 'estoque.ajusteManual' },
         // Balanco (21/10/2026): o gestor abre/confere/fecha; quem conta tem a tela "Contar balanco".
-        { label: 'Balanço', to: '/estoque/balanco', icon: ClipboardList, module: 'estoque.ajusteManual', permission: 'estoque.balanco_gerenciar' },
-        { label: 'Contar balanço', to: '/estoque/balanco/contar', icon: ClipboardCheck, module: 'estoque.ajusteManual', permission: 'estoque.balanco_contar' },
+        { label: 'Balanço', to: '/estoque/balanco', icon: ClipboardList, module: 'estoque.balanco', permission: 'estoque.balanco_gerenciar' },
+        { label: 'Contar balanço', to: '/estoque/balanco/contar', icon: ClipboardCheck, module: 'estoque.balanco', permission: 'estoque.balanco_contar' },
         { label: 'Transferências', to: '/estoque/transferencias', icon: ArrowLeftRight, module: 'cadastros.estoque', permission: 'filiais.utilizar' },
         { label: 'Relatório de Estoque', to: '/estoque/relatorio', icon: PieChart, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
         // Lotes e Validades (2026-09-25): leitura, entao usa a permissao do Relatorio de Estoque.
-        { label: 'Lotes e Validades', to: '/estoque/lotes', icon: CalendarClock, module: 'estoque.relatorio', permission: 'estoque.relatorio' },
+        { label: 'Lotes e Validades', to: '/estoque/lotes', icon: CalendarClock, module: 'operacoes.lotes', permission: 'estoque.relatorio' },
         { label: 'Relatório de Ajustes', to: '/estoque/relatorio-ajustes', icon: History, module: 'estoque.relatorioAjustes', permission: 'estoque.relatorioAjustes' },
         // Movimentacao de produtos (26/10/2026): toda entrada e saida (venda, compra, producao, ajuste, balanco...).
-        { label: 'Movimentação de Produtos', to: '/estoque/movimentacao', icon: ArrowLeftRight, module: 'estoque.relatorio', permission: 'estoque.movimentacao' },
+        { label: 'Movimentação de Produtos', to: '/estoque/movimentacao', icon: ArrowLeftRight, module: 'estoque.movimentacao', permission: 'estoque.movimentacao' },
         // De proposito FORA do prefixo 'fiscal.' -- Nota Avulsa e a
         // ferramenta pra quem NAO controla fiscal (compra sem XML). Ficar
         // atras do gate de controlaFiscal contradiria o proprio motivo
@@ -299,12 +299,12 @@ const Sidebar: React.FC = () => {
       icon: Truck,
       items: [
         { label: 'Conferência de Mercadoria', to: '/operacoes/expedicao', icon: Truck, module: 'operacoes.expedicao', permission: 'operacoes.expedicao' },
-        { label: 'Entregas futuras', to: '/operacoes/entregas-futuras', icon: PackageCheck, module: 'comercial.pedidos', permission: 'operacoes.entregas_futuras' },
-        { label: 'Romaneio de Entrega', to: '/operacoes/romaneios', icon: ClipboardList, module: 'operacoes.rotas', permission: 'operacoes.romaneios' },
+        { label: 'Entregas futuras', to: '/operacoes/entregas-futuras', icon: PackageCheck, module: 'comercial.entregas_futuras', permission: 'operacoes.entregas_futuras' },
+        { label: 'Romaneio de Entrega', to: '/operacoes/romaneios', icon: ClipboardList, module: 'operacoes.romaneios', permission: 'operacoes.romaneios' },
         { label: 'Rotas e Despesas', to: '/operacoes/rotas', icon: Route, module: 'operacoes.rotas', permission: 'operacoes.rotas' },
         { label: 'Motoristas', to: '/operacoes/motoristas', icon: IdCard, module: 'operacoes.rotas', permission: 'operacoes.rotas' },
-        { label: 'Frota', to: '/operacoes/frota', icon: Truck, module: 'operacoes.rotas', permission: 'operacoes.rotas' },
-        { label: 'Custo por Veículo', to: '/operacoes/frota/custos', icon: PieChart, module: 'operacoes.rotas', permission: 'operacoes.rotas' }
+        { label: 'Frota', to: '/operacoes/frota', icon: Truck, module: 'operacoes.frota', permission: 'operacoes.rotas' },
+        { label: 'Custo por Veículo', to: '/operacoes/frota/custos', icon: PieChart, module: 'operacoes.frota', permission: 'operacoes.rotas' }
       ]
     },
     {
@@ -322,7 +322,7 @@ const Sidebar: React.FC = () => {
         { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },
         { label: 'Contas a Pagar', to: '/financeiro/contas-pagar', icon: Receipt, module: 'financeiro.pagar', permission: 'financeiro.pagar' },
         { label: 'Faturamento', to: '/financeiro/faturamento', icon: BarChart2, module: 'financeiro.faturamento', permission: 'financeiro.faturamento' },
-        { label: 'Custos e Formação de Preço', to: '/financeiro/custos', icon: Calculator, module: 'financeiro.faturamento', permission: 'financeiro.custos' },
+        { label: 'Custos e Formação de Preço', to: '/financeiro/custos', icon: Calculator, module: 'financeiro.custos', permission: 'financeiro.custos' },
         { label: 'Comissões a Pagar', to: '/financeiro/comissoes', icon: DollarSign, module: 'financeiro.comissoes', permission: 'financeiro.comissoes' }
       ]
     },
@@ -332,7 +332,7 @@ const Sidebar: React.FC = () => {
       icon: Receipt,
       items: [
         { label: 'Notas Fiscais', to: '/fiscal/nfe', icon: Receipt, module: 'fiscal.nfe', permission: 'fiscal.emitir' },
-        { label: 'Relatório do Contador', to: '/fiscal/relatorio-contador', icon: FileText, module: 'fiscal.nfe', permission: 'fiscal.relatorio_contador' },
+        { label: 'Relatório do Contador', to: '/fiscal/relatorio-contador', icon: FileText, module: 'fiscal.relatorio_contador', permission: 'fiscal.relatorio_contador' },
         { label: 'Tabelas Fiscais', to: '/fiscal/tabelas', icon: BookOpen, module: 'fiscal.nfe', permission: 'fiscal.tabelas' },
         { label: 'Entrada de XML', to: '/fiscal/entrada-nfe', icon: Inbox, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },
         { label: 'Entrada de NFS-e', to: '/fiscal/entrada-nfse', icon: FileText, module: 'fiscal.entrada_nfe', permission: 'fiscal.entrada' },

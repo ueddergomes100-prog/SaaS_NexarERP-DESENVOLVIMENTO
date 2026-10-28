@@ -13,6 +13,8 @@ import { showError, showSuccess } from '../../utils/alerts';
 import { lerGrupo, lerLimiteFiliais, lerPercentualFilial, mensalidadeComFiliais, type GrupoEmpresarial } from '../../utils/filialDomain';
 import { spedyAdminService, type SpedyMasterKeyStatus } from '../../services/spedyAdminService';
 import CadastrarEmpresaSpedyModal from '../../components/admin/CadastrarEmpresaSpedyModal';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import ModulosDaEmpresaModal from '../../components/admin/ModulosDaEmpresaModal';
 
 interface TenantInfo {
   id: string;
@@ -66,7 +68,17 @@ const SuperAdmin: React.FC = () => {
    * mas nao identicos). Nesse caso NAO navega: cair no ERP com o tenant
    * anterior ainda ativo seria pior que nao abrir.
    */
-  const handleAcessarDados = (tenantId: string, nomeOficina: string) => {
+  const handleAcessarDados = async (tenantId: string, nomeOficina: string) => {
+    const confirmacao = await Swal.fire({
+      title: `Entrar no sistema de ${nomeOficina}?`,
+      text: 'Você vai usar o sistema como gerente desta empresa. O que for feito lá vale de verdade para o cliente.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Entrar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#8b5cf6',
+    });
+    if (!confirmacao.isConfirmed) return;
     if (!setActiveTenantId(tenantId)) {
       Swal.fire({
         title: 'Não foi possível abrir esta empresa',
@@ -88,6 +100,7 @@ const SuperAdmin: React.FC = () => {
   const [spedyMasterKeyProducao, setSpedyMasterKeyProducao] = useState('');
   const [salvandoMasterKey, setSalvandoMasterKey] = useState<'sandbox' | 'production' | null>(null);
   const [empresaSpedyModal, setEmpresaSpedyModal] = useState<{ tenantId: string; tenantNome: string } | null>(null);
+  const [empresaModulos, setEmpresaModulos] = useState<TenantInfo | null>(null);
 
   const filteredTenants = tenants.filter(t =>
     (t.nomeOficina || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1084,16 +1097,7 @@ const SuperAdmin: React.FC = () => {
                           >
                             <Ban size={14} /> Suspender
                           </button>
-                        ) : (
-                          <button
-                            className="btn-secondary"
-                            onClick={() => handleAcessarDados(tenant.id, tenant.nomeOficina)}
-                            title={`Abrir o sistema de ${tenant.nomeOficina}`}
-                            style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: 'var(--radius-md)' }}
-                          >
-                            Acessar Dados <ExternalLink size={14} />
-                          </button>
-                        )}
+                        ) : null}
                         <button
                           type="button"
                           className="icon-btn"
@@ -1110,21 +1114,42 @@ const SuperAdmin: React.FC = () => {
                           <Server size={16} />
                         </button>
                         <button
+                          type="button"
                           className="icon-btn"
-                          onClick={() => setEmpresaSpedyModal({ tenantId: tenant.id, tenantNome: tenant.nomeOficina })}
-                          style={{ padding: '8px', color: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          title="Cadastrar na Spedy (nota fiscal)"
+                          onClick={() => setEmpresaModulos(tenant)}
+                          style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)' }}
+                          title={`Módulos de ${tenant.nomeOficina}${tenant.modulosBloqueados?.length ? ` (${tenant.modulosBloqueados.length} bloqueados)` : ''}`}
+                          aria-label={`Módulos de ${tenant.nomeOficina}`}
                         >
-                          <ShieldCheck size={16} />
+                          <Blocks size={16} />
                         </button>
-                        <button
-                          className="icon-btn"
-                          onClick={() => handleDeleteTenant(tenant)}
-                          style={{ padding: '8px', color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 'var(--radius-md)', border: 'none', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          title="Excluir Empresa"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {/* 28/10/2026 (dono): "Acessar Dados" saiu da linha; entrar no
+                            sistema do cliente, Spedy e excluir ficam no "⋯" da empresa. */}
+                        <MenuMaisOpcoes
+                          compacto
+                          rotulo={`Mais opções de ${tenant.nomeOficina}`}
+                          itens={[
+                            {
+                              texto: 'Entrar no sistema da empresa',
+                              Icone: ExternalLink,
+                              titulo: 'Abre o sistema desta empresa como gerente, para suporte e implantação.',
+                              oculto: tenant.status === 'Inadimplente',
+                              onClick: () => { void handleAcessarDados(tenant.id, tenant.nomeOficina); },
+                            },
+                            {
+                              texto: 'Cadastrar na Spedy (nota fiscal)',
+                              Icone: ShieldCheck,
+                              onClick: () => setEmpresaSpedyModal({ tenantId: tenant.id, tenantNome: tenant.nomeOficina }),
+                            },
+                            {
+                              texto: 'Excluir empresa',
+                              Icone: Trash2,
+                              perigo: true,
+                              separadorAntes: true,
+                              onClick: () => handleDeleteTenant(tenant),
+                            },
+                          ]}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -1149,6 +1174,16 @@ const SuperAdmin: React.FC = () => {
           tenantId={empresaSpedyModal.tenantId}
           tenantNome={empresaSpedyModal.tenantNome}
           onFechar={() => setEmpresaSpedyModal(null)}
+        />
+      )}
+
+      {empresaModulos && (
+        <ModulosDaEmpresaModal
+          tenantId={empresaModulos.id}
+          tenantNome={empresaModulos.nomeOficina}
+          bloqueados={empresaModulos.modulosBloqueados || []}
+          onSalvo={(bloqueados) => setTenants(prev => prev.map(t => t.id === empresaModulos.id ? { ...t, modulosBloqueados: bloqueados } : t))}
+          onFechar={() => setEmpresaModulos(null)}
         />
       )}
     </div>

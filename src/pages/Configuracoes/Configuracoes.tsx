@@ -12,6 +12,7 @@ import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, 
 import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { salvarConfiguracoesGerais } from '../../services/filialService';
+import { salvarModulosBloqueados } from '../../services/plataformaService';
 import { semCamposGerais } from '../../utils/configuracoesGeraisDomain';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db, storage } from '../../services/firebase';
@@ -1280,31 +1281,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
 
     setIsSavingTenantModules(true);
     try {
-      await updateDoc(doc(db, 'usuarios', tenantId), {
-        modulosBloqueados: moduleBlockedDraft,
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Módulos bloqueados atualizados'),
-      });
-
-      try {
-        await updateDoc(doc(db, 'configuracoes', tenantId), {
-          modulosBloqueados: moduleBlockedDraft,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Módulos bloqueados atualizados'),
-        });
-      } catch {
-        await setDoc(doc(db, 'configuracoes', tenantId), {
-          tenantId,
-          modulosBloqueados: moduleBlockedDraft,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Módulos bloqueados atualizados'),
-        }, { merge: true });
-      }
-
-      showSuccess('Módulos e telas atualizados com sucesso!');
+      // Pelo servidor (28/10/2026): grava no dono, na configuracao e no grupo,
+      // senao as filiais ficavam com o bloqueio antigo.
+      const r = await salvarModulosBloqueados(tenantId, moduleBlockedDraft);
+      showSuccess(r.filiais > 0 ? `Módulos e telas atualizados, junto com ${r.filiais === 1 ? 'a filial' : `as ${r.filiais} filiais`}.` : 'Módulos e telas atualizados com sucesso!');
     } catch (error) {
-      console.error('Erro ao salvar módulos da empresa:', error);
-      showError('Erro', 'Não foi possível atualizar os módulos desta empresa.');
+      showError('Não foi possível salvar os módulos', error instanceof Error ? error.message : 'Tente novamente.');
     } finally {
       setIsSavingTenantModules(false);
     }

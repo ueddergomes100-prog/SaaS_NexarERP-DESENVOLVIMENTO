@@ -48,7 +48,8 @@ const OrdensProducaoList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const { openTab } = useTabs();
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusOrdem | 'todas'>('todas');
+  // 28/10/2026 (dono): a tela abre em "Criada" e "Todas" nao mostra as canceladas (so' a aba Cancelada).
+  const [statusFilter, setStatusFilter] = useState<StatusOrdem | 'todas'>('criada');
 
   const { currentUser, tenantId } = useAuth();
 
@@ -68,7 +69,7 @@ const OrdensProducaoList: React.FC = () => {
   const ordens = useMemo(() => [...items].sort((a, b) => String(b.numero || '').localeCompare(String(a.numero || ''))), [items]);
 
   const filteredOrdens = ordens.filter(ordem => {
-    if (statusFilter !== 'todas' && ordem.status !== statusFilter) return false;
+    if (statusFilter === 'todas' ? ordem.status === 'cancelada' : ordem.status !== statusFilter) return false;
     // Acento nao conta e "+" exige todas as palavras, igual as telas de venda.
     return matchesAllSearchTerms([ordem.numero, ordem.produtoNome], searchTerm);
   });
@@ -123,11 +124,14 @@ const OrdensProducaoList: React.FC = () => {
         ))}
       </div>
       {(statusFilter === 'todas' || !STATUS_ORDEM_PENDENTE.includes(statusFilter)) && (
-        <div style={{ marginTop: '-20px' }}>
+        <div>
+          {/* Sem recuo negativo: com ele a faixa violeta terminava rente aos botoes (print do dono, 28/10/2026). */}
           <AvisoHistoricoDoPeriodo
             todoPeriodo={todoPeriodo}
             onAlternar={() => setTodoPeriodo((atual) => !atual)}
-            textoRecente="Criadas, em produção e pausadas de qualquer data; finalizadas, canceladas e estornadas, só as deste mês."
+            textoRecente={statusFilter === 'todas'
+              ? 'Criadas, em produção e pausadas de qualquer data; finalizadas e estornadas, só as deste mês. Canceladas ficam na aba Cancelada.'
+              : 'Criadas, em produção e pausadas de qualquer data; finalizadas, canceladas e estornadas, só as deste mês.'}
             textoTodo="Ordens de todo o período."
             botaoRecente="Ver só as deste mês"
           />

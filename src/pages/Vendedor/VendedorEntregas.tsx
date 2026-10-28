@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ChevronRight, Truck } from 'lucide-react';
-import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
@@ -9,15 +9,16 @@ import { podeUsarEntregasNoApp } from './vendedorPermissoes';
 import { lerRomaneio } from '../../services/romaneioService';
 import { resumoDoRomaneio, type Romaneio } from '../../utils/romaneioDomain';
 import { comOrigem, useVoltarPara } from './navegacaoApp';
+import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entregasDoMotorista';
 
 /*
  * ENTREGAS NO APP DO MOTORISTA (2026-10-08): as rotas EM ANDAMENTO.
  *
  * "Minhas" = rotas em que o motorista e' este usuario (o cadastro do
  * motorista e' motoristas/{uid}, criado por "Este funcionario e' motorista"
- * no usuario). "Todas" = as outras rotas em andamento da empresa, para o
- * gestor acompanhar ou para um motorista que saiu no lugar de outro. A rota
- * fechada pela loja some daqui.
+ * no usuario). "Todas" = as outras rotas em andamento da empresa, so' para
+ * dono e gestor (28/10/2026: motorista ve so' as dele, igual as vendas do
+ * app -- entregasDoMotorista.ts). A rota fechada pela loja some daqui.
  *
  * onSnapshot de proposito: com o cache persistente do app, a lista abre sem
  * sinal e atualiza sozinha quando a loja libera uma rota nova.
@@ -65,18 +66,13 @@ const VendedorEntregas: React.FC = () => {
 
   // Motorista ja' cadastrado vinculado ao login (26/10/2026): as rotas dele usam o
   // id do cadastro de motorista, gravado em usuarios/{uid}.motoristaId.
-  const [motoristaVinculado, setMotoristaVinculado] = useState('');
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-    getDoc(doc(db, 'usuarios', currentUser.uid))
-      .then((s) => setMotoristaVinculado(s.exists() ? String(s.data().motoristaId || '') : ''))
-      .catch(() => setMotoristaVinculado(''));
-  }, [currentUser?.uid]);
+  const { motoristaVinculado } = useMotoristaVinculado(currentUser?.uid);
+  // 28/10/2026 (dono): cada motorista ve so' as dele; "Todas" so' para dono e gestor.
+  const veTodas = veTodasAsRotas(userRole, isOwner);
 
-  const minhas = useMemo(() => rotas.filter((r) => (
-    r.motoristaId === currentUser?.uid || (Boolean(motoristaVinculado) && r.motoristaId === motoristaVinculado)
-  )), [rotas, currentUser?.uid, motoristaVinculado]);
-  const lista = aba === 'minhas' ? minhas : rotas;
+  const minhas = useMemo(() => rotas.filter((r) => rotaEhDoMotorista(r.motoristaId, currentUser?.uid, motoristaVinculado)),
+    [rotas, currentUser?.uid, motoristaVinculado]);
+  const lista = aba === 'todas' && veTodas ? rotas : minhas;
 
   if (!pode) return <Navigate to="/vendedor" replace />;
 
@@ -99,10 +95,12 @@ const VendedorEntregas: React.FC = () => {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <VendedorHeader titulo="Entregas" aoVoltar={() => voltarPara('/vendedor')} />
 
-      <div style={{ padding: '14px 20px 0', display: 'flex', gap: '8px' }}>
-        {abaBotao('minhas', 'Minhas rotas', minhas.length)}
-        {abaBotao('todas', 'Todas', rotas.length)}
-      </div>
+      {veTodas && (
+        <div style={{ padding: '14px 20px 0', display: 'flex', gap: '8px' }}>
+          {abaBotao('minhas', 'Minhas rotas', minhas.length)}
+          {abaBotao('todas', 'Todas', rotas.length)}
+        </div>
+      )}
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {carregando ? (
@@ -111,7 +109,7 @@ const VendedorEntregas: React.FC = () => {
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{erro}</div>
         ) : lista.length === 0 ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.5 }}>
-            {aba === 'minhas'
+            {aba === 'minhas' || !veTodas
               ? 'Nenhuma rota sua em andamento. A loja libera a rota no Romaneio de Entrega e ela aparece aqui.'
               : 'Nenhuma rota em andamento na empresa.'}
           </div>

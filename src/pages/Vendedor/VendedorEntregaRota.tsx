@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
 import { podeUsarEntregasNoApp } from './vendedorPermissoes';
 import { lerRomaneio } from '../../services/romaneioService';
+import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entregasDoMotorista';
 import {
   ROTULO_STATUS_ENTREGA,
   diferencaDoRecebido,
@@ -144,9 +145,16 @@ const VendedorEntregaRota: React.FC = () => {
   const voltarPara = useVoltarPara();
   const { tenantId, currentUser, userRole, isOwner, userPermissions } = useAuth();
   const pode = podeUsarEntregasNoApp(userRole, isOwner, userPermissions);
-  const [rota, setRota] = useState<RotaDoApp | null>(null);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState('');
+  const [rotaLida, setRota] = useState<RotaDoApp | null>(null);
+  const [carregandoRota, setCarregando] = useState(true);
+  const [erroDaRota, setErro] = useState('');
+  // 28/10/2026 (dono): motorista abre so' a rota dele; dono e gestor abrem todas (entregasDoMotorista.ts).
+  const { motoristaVinculado, carregado: vinculoCarregado } = useMotoristaVinculado(currentUser?.uid);
+  const veTodas = veTodasAsRotas(userRole, isOwner);
+  const rotaDeOutro = Boolean(rotaLida) && !veTodas && vinculoCarregado && !rotaEhDoMotorista(rotaLida?.motoristaId, currentUser?.uid, motoristaVinculado);
+  const rota = rotaDeOutro || (!veTodas && !vinculoCarregado) ? null : rotaLida;
+  const carregando = carregandoRota || (!veTodas && !vinculoCarregado);
+  const erro = rotaDeOutro ? 'Esta rota é de outro motorista. Em Entregas aparecem só as suas rotas.' : erroDaRota;
   const [aba, setAba] = useState<'faltam' | 'feitas'>('faltam');
   const [pendencias, setPendencias] = useState<PendenciaGuardada[]>([]);
 

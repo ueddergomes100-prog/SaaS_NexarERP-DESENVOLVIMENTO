@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import VendedorHeader from './VendedorHeader';
 import { podeUsarEntregasNoApp } from './vendedorPermissoes';
 import { lerRomaneio } from '../../services/romaneioService';
+import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entregasDoMotorista';
 import { anexarCanhoto, registrarEntregaNoApp } from '../../services/entregaCampoService';
 import type { UsuarioDoCampo } from '../../services/osCampoService';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
@@ -61,9 +62,16 @@ const VendedorEntregaRegistrar: React.FC = () => {
     ? { id: currentUser.uid, nome: userNome || currentUser.displayName || 'Motorista', email: currentUser.email || '' }
     : null;
 
-  const [rota, setRota] = useState<RotaDoApp | null>(null);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState('');
+  const [rotaLida, setRota] = useState<RotaDoApp | null>(null);
+  const [carregandoRota, setCarregando] = useState(true);
+  const [erroDaRota, setErro] = useState('');
+  // 28/10/2026 (dono): motorista registra so' na rota dele; dono e gestor em todas (entregasDoMotorista.ts).
+  const { motoristaVinculado, carregado: vinculoCarregado } = useMotoristaVinculado(currentUser?.uid);
+  const veTodas = veTodasAsRotas(userRole, isOwner);
+  const rotaDeOutro = Boolean(rotaLida) && !veTodas && vinculoCarregado && !rotaEhDoMotorista(rotaLida?.motoristaId, currentUser?.uid, motoristaVinculado);
+  const rota = rotaDeOutro || (!veTodas && !vinculoCarregado) ? null : rotaLida;
+  const carregando = carregandoRota || (!veTodas && !vinculoCarregado);
+  const erro = rotaDeOutro ? 'Esta rota é de outro motorista. Em Entregas aparecem só as suas rotas.' : erroDaRota;
   const [motivos, setMotivos] = useState<string[]>(MOTIVOS_NAO_ENTREGA_PADRAO);
   const [pendencias, setPendencias] = useState<PendenciaGuardada[]>([]);
 

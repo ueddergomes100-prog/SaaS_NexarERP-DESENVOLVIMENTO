@@ -150,6 +150,26 @@ body.light-theme .app-layout-wrapper .nexus-nav-link.active { color: #6d28d9; }
 .app-layout-wrapper .nexus-rail-item { width: 40px; height: 40px; border-radius: 12px; }
 .app-layout-wrapper .nexus-rail-item.active { background: #7c3aed; color: #fff; box-shadow: 0 8px 16px -8px rgba(124, 58, 237, 0.85); }
 
+/* Pilula que escorrega (28/10/2026, usePilulaDoMenu.ts): o fundo do item
+   ativo passa para a pilula, que fica atras do item e anda entre eles. */
+.app-layout-wrapper .com-pilula .nexus-rail-item.active,
+.app-layout-wrapper .com-pilula .nexus-rail-item.active:hover { background: transparent; box-shadow: none; }
+/* O icone so' fica branco quando a pilula chega nele (senao: branco no fundo claro). */
+.app-layout-wrapper .com-pilula .nexus-rail-item.active { transition: color 0.12s ease 0.2s; }
+@media (prefers-reduced-motion: reduce) {
+  .app-layout-wrapper .com-pilula .nexus-rail-item.active { transition: none; }
+}
+.app-layout-wrapper .nexus-rail-modules .nexus-pilula {
+  background: #7c3aed;
+  border-radius: 12px;
+  box-shadow: 0 8px 16px -8px rgba(124, 58, 237, 0.85);
+}
+.app-layout-wrapper .com-pilula .nexus-nav-link.active,
+.app-layout-wrapper .com-pilula .nexus-nav-link.active:hover { background: transparent; }
+.app-layout-wrapper .com-pilula .nexus-nav-link.active::before { display: none; }
+.app-layout-wrapper .nexus-sidebar-nav .nexus-pilula { background: var(--app-icone-fundo); border-radius: 10px; }
+.app-layout-wrapper .nexus-sidebar-nav .nexus-pilula::before { left: -13px; top: 9px; bottom: 9px; width: 3px; background: #7c3aed; }
+
 /* usuario no rodape */
 .app-layout-wrapper .nexus-sidebar-footer { padding: 10px 14px 16px; border-top: 0; }
 .app-layout-wrapper .nexus-user-card {

@@ -70,6 +70,7 @@ import hennderIcon from '../../assets/hennder-icon.webp';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
 import BootSplash from './BootSplash';
+import { usePilulaDoMenu } from '../../hooks/usePilulaDoMenu';
 import './Layout.css';
 
 type NavItem = {
@@ -538,6 +539,10 @@ const Sidebar: React.FC = () => {
    * ali. So cai no e-mail quando nao ha nome nenhum cadastrado. */
   const userName = userNome || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Usuário';
   const userInitial = userName.trim().charAt(0).toUpperCase() || 'N';
+  // Destaque que escorrega de um item para o outro (28/10/2026) -- usePilulaDoMenu.
+  const chavePilula = `${currentPath}|${miniSidebar}`;
+  const { containerRef: railRef, pilulaRef: railPilulaRef } = usePilulaDoMenu<HTMLDivElement>('.nexus-rail-item', chavePilula);
+  const { containerRef: menuRef, pilulaRef: menuPilulaRef } = usePilulaDoMenu<HTMLElement>('.nexus-nav-link', chavePilula);
 
   return (
     <>
@@ -553,7 +558,8 @@ const Sidebar: React.FC = () => {
               <img src={hennderIcon} alt="Hennder ERP" />
             </button>
 
-            <div className="nexus-rail-modules">
+            <div className="nexus-rail-modules com-pilula" ref={railRef}>
+              <span className="nexus-pilula" ref={railPilulaRef} aria-hidden="true" />
               {railShortcuts.map((item) => {
                 const Icon = item.icon;
                 const active = currentPath === item.to || currentPath.startsWith(`${item.to}/`);
@@ -669,7 +675,8 @@ const Sidebar: React.FC = () => {
             </div>
           </div>
 
-          <nav className="nexus-sidebar-nav" aria-label="Menu principal">
+          <nav className="nexus-sidebar-nav com-pilula" aria-label="Menu principal" ref={menuRef}>
+            <span className="nexus-pilula" ref={menuPilulaRef} aria-hidden="true" />
             {visibleGroups.map((group) => {
               const Icon = group.icon;
               const expanded = isExpanded(group);

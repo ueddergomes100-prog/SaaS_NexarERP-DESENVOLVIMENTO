@@ -34,6 +34,13 @@ const numero = (v: unknown): number => {
 const gramas = (kg: number): number => Math.round(kg * 1000);
 const kg = (g: number): number => g / 1000;
 
+/** Nome da caixa sempre em maiusculas e sem espaco sobrando: com o Caps Lock trocado no meio da
+ *  digitacao saia "caIXA 2" (28/10/2026). Vale tambem para as caixas ja' gravadas, na leitura. */
+export const nomeDaTara = (nome: unknown): string => String(nome ?? '').trim().replace(/\s+/g, ' ').toLocaleUpperCase('pt-BR').slice(0, 40);
+
+/** Caixa acima disto e' quase sempre peso digitado em gramas (1900 em vez de 1,900). */
+export const PESO_MAXIMO_TARA_KG = 100;
+
 /** Lista gravada na configuracao da filial (tarasProducao); lixo e peso invalido ficam de fora. */
 export const parseTaras = (raw: unknown): TaraProducao[] => {
   if (!Array.isArray(raw)) return [];
@@ -42,7 +49,7 @@ export const parseTaras = (raw: unknown): TaraProducao[] => {
     .filter((t): t is Record<string, unknown> => Boolean(t))
     .map((t) => ({
       id: String(t.id ?? '').trim(),
-      nome: String(t.nome ?? '').trim().slice(0, 40),
+      nome: nomeDaTara(t.nome),
       pesoKg: numero(t.pesoKg),
       ativa: t.ativa !== false,
     }))
@@ -53,10 +60,11 @@ export const parseTaras = (raw: unknown): TaraProducao[] => {
 export const erroDasTaras = (taras: Array<{ nome: string; pesoKg: unknown }>): string | null => {
   const nomes = new Set<string>();
   for (const t of taras) {
-    const nome = String(t.nome ?? '').trim();
+    const nome = nomeDaTara(t.nome);
     if (!nome) return 'Toda caixa precisa de um nome (ex.: Caixa 1).';
     const peso = numero(t.pesoKg);
-    if (!Number.isFinite(peso) || peso <= 0 || peso > 1000) return `Informe o peso da "${nome}" em kg, maior que zero (ex.: 1,900).`;
+    if (!Number.isFinite(peso) || peso <= 0) return `Informe o peso da "${nome}" em kg, maior que zero (ex.: 1,900).`;
+    if (peso > PESO_MAXIMO_TARA_KG) return `A "${nome}" ficou com ${peso.toLocaleString('pt-BR')} kg. O peso é em quilos, com vírgula: caixa de 1.900 gramas = 1,900.`;
     const chave = nome.toLowerCase();
     if (nomes.has(chave)) return `Há duas caixas com o nome "${nome}". Use nomes diferentes.`;
     nomes.add(chave);

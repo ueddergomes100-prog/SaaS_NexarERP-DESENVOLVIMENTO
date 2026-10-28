@@ -5,6 +5,7 @@ import {
   consumoDoComponente,
   erroDasTaras,
   ganhoDePeso,
+  nomeDaTara,
   parseTaras,
   unidadeEmKg,
 } from '../src/utils/producaoPesagemDomain';
@@ -23,7 +24,7 @@ test('exemplo do dono: 24,250 kg - caixa 1 - caixa 2 = 20,600 kg = 82 pacotes de
   assert.equal(r.unidadesExatas, 82.4);
   assert.equal(r.unidadesSugeridas, 82, 'so pacote fechado');
   assert.equal(r.residuoKg, 0.1);
-  assert.deepEqual(r.detalheTaras.map((t) => [t.nome, t.quantidade, t.totalKg]), [['Caixa 1', 1, 1.9], ['Caixa 2', 1, 1.75]]);
+  assert.deepEqual(r.detalheTaras.map((t) => [t.nome, t.quantidade, t.totalKg]), [['CAIXA 1', 1, 1.9], ['CAIXA 2', 1, 1.75]]);
 });
 
 test('com o peso da sacolinha: cada pacote pesa unidade + embalagem na balanca', () => {
@@ -63,4 +64,18 @@ test('ganho de peso e taras', () => {
   assert.match(erroDasTaras([{ nome: 'Caixa 1', pesoKg: 1 }, { nome: 'caixa 1', pesoKg: 2 }]) || '', /duas caixas/);
   assert.match(erroDasTaras([{ nome: '', pesoKg: 1 }]) || '', /nome/);
   assert.match(erroDasTaras([{ nome: 'Caixa', pesoKg: 'x' }]) || '', /peso/);
+});
+
+test('nome da caixa sempre em maiusculas e peso em gramas e recusado (28/10)', () => {
+  // Caps Lock trocado no meio: "caIXA 2" gravado vira "CAIXA 2" na leitura, sem rotina de dados.
+  assert.deepEqual(parseTaras([{ id: 'a', nome: '  caIXA   2 ', pesoKg: 1.75 }]).map((t) => t.nome), ['CAIXA 2']);
+  assert.equal(nomeDaTara('caixa 1'), 'CAIXA 1');
+  assert.match(erroDasTaras([{ nome: 'Caixa 1', pesoKg: 1900 }]) || '', /quilos, com vírgula/);
+  assert.equal(erroDasTaras([{ nome: 'Caixa 1', pesoKg: '1,900' }]), null);
+  // Embalagem por unidade (como no cadastro): 24,250 - 3,650 de caixas, pacote 0,250 + sacolinha 0,005.
+  const r = calcularPesagem({ pesoBrutoKg: '24,25', tarasUsadas: { c1: 1, c2: 1 }, taras: TARAS, pesoUnidadeKg: 0.25, pesoEmbalagemKg: '0,005' });
+  assert.equal(r.erro, null);
+  assert.equal(r.unidadesSugeridas, 80);
+  assert.equal(r.embalagemKg, 0.4);
+  assert.equal(r.residuoKg, 0.2);
 });

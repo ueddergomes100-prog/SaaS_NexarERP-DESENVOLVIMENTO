@@ -12,7 +12,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { authenticate } = require('../middleware/auth');
 const { db, admin } = require('../config/firebase');
-const { erroDasTaras } = require('../domain/producaoPesagemDomain');
+const { erroDasTaras, nomeDaTara } = require('../domain/producaoPesagemDomain');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { registrarLog } = require('../services/auditoria');
 
@@ -35,7 +35,7 @@ router.post('/taras', podeMexerNaProducao, async (req, res) => {
     if (erro) return res.status(400).json({ error: erro });
     const taras = recebidas.map((t) => ({
       id: /^[A-Za-z0-9_-]{1,40}$/.test(String(t.id || '')) ? String(t.id) : crypto.randomUUID().slice(0, 8),
-      nome: String(t.nome).trim().slice(0, 40),
+      nome: nomeDaTara(t.nome),
       pesoKg: Math.round(Number(String(t.pesoKg).replace(',', '.')) * 1000) / 1000,
       ativa: t.ativa !== false,
     }));

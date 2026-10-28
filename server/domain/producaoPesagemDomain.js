@@ -20,13 +20,19 @@
  * 20,6 exato e 20,6 / 0,25 viraria 82,39999.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.unidadeEmKg = exports.ganhoDePeso = exports.consumoDoComponente = exports.calcularPesagem = exports.erroDasTaras = exports.parseTaras = void 0;
+exports.unidadeEmKg = exports.ganhoDePeso = exports.consumoDoComponente = exports.calcularPesagem = exports.erroDasTaras = exports.parseTaras = exports.PESO_MAXIMO_TARA_KG = exports.nomeDaTara = void 0;
 const numero = (v) => {
     const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v);
     return Number.isFinite(n) ? n : NaN;
 };
 const gramas = (kg) => Math.round(kg * 1000);
 const kg = (g) => g / 1000;
+/** Nome da caixa sempre em maiusculas e sem espaco sobrando: com o Caps Lock trocado no meio da
+ *  digitacao saia "caIXA 2" (28/10/2026). Vale tambem para as caixas ja' gravadas, na leitura. */
+const nomeDaTara = (nome) => String(nome ?? '').trim().replace(/\s+/g, ' ').toLocaleUpperCase('pt-BR').slice(0, 40);
+exports.nomeDaTara = nomeDaTara;
+/** Caixa acima disto e' quase sempre peso digitado em gramas (1900 em vez de 1,900). */
+exports.PESO_MAXIMO_TARA_KG = 100;
 /** Lista gravada na configuracao da filial (tarasProducao); lixo e peso invalido ficam de fora. */
 const parseTaras = (raw) => {
     if (!Array.isArray(raw))
@@ -36,7 +42,7 @@ const parseTaras = (raw) => {
         .filter((t) => Boolean(t))
         .map((t) => ({
         id: String(t.id ?? '').trim(),
-        nome: String(t.nome ?? '').trim().slice(0, 40),
+        nome: (0, exports.nomeDaTara)(t.nome),
         pesoKg: numero(t.pesoKg),
         ativa: t.ativa !== false,
     }))
@@ -47,12 +53,14 @@ exports.parseTaras = parseTaras;
 const erroDasTaras = (taras) => {
     const nomes = new Set();
     for (const t of taras) {
-        const nome = String(t.nome ?? '').trim();
+        const nome = (0, exports.nomeDaTara)(t.nome);
         if (!nome)
             return 'Toda caixa precisa de um nome (ex.: Caixa 1).';
         const peso = numero(t.pesoKg);
-        if (!Number.isFinite(peso) || peso <= 0 || peso > 1000)
+        if (!Number.isFinite(peso) || peso <= 0)
             return `Informe o peso da "${nome}" em kg, maior que zero (ex.: 1,900).`;
+        if (peso > exports.PESO_MAXIMO_TARA_KG)
+            return `A "${nome}" ficou com ${peso.toLocaleString('pt-BR')} kg. O peso é em quilos, com vírgula: caixa de 1.900 gramas = 1,900.`;
         const chave = nome.toLowerCase();
         if (nomes.has(chave))
             return `Há duas caixas com o nome "${nome}". Use nomes diferentes.`;

@@ -163,8 +163,7 @@ const OrdemProducaoForm: React.FC = () => {
   const [pesoBruto, setPesoBruto] = useState('');
   const [tarasUsadas, setTarasUsadas] = useState<Record<string, string>>({});
   const [pesoUnidade, setPesoUnidade] = useState('');
-  const [pesoEmbalagemUn, setPesoEmbalagemUn] = useState(0);
-  const [embalagemManual, setEmbalagemManual] = useState('');
+  const [pesoEmbalagemUn, setPesoEmbalagemUn] = useState('');
   const [refugoUnidades, setRefugoUnidades] = useState('');
   const [refugoMotivo, setRefugoMotivo] = useState('');
   // A quantidade segue a sugestao da balanca ate' a pessoa digitar a dela (contagem).
@@ -174,8 +173,8 @@ const OrdemProducaoForm: React.FC = () => {
   const [salvandoTaras, setSalvandoTaras] = useState(false);
 
   const resultadoPesagem = useMemo(() => calcularPesagem({
-    pesoBrutoKg: pesoBruto, tarasUsadas, taras, pesoUnidadeKg: pesoUnidade, pesoEmbalagemKg: pesoEmbalagemUn, embalagemManualKg: embalagemManual,
-  }), [pesoBruto, tarasUsadas, taras, pesoUnidade, pesoEmbalagemUn, embalagemManual]);
+    pesoBrutoKg: pesoBruto, tarasUsadas, taras, pesoUnidadeKg: pesoUnidade, pesoEmbalagemKg: pesoEmbalagemUn,
+  }), [pesoBruto, tarasUsadas, taras, pesoUnidade, pesoEmbalagemUn]);
 
   useEffect(() => {
     if (pesagemAtiva && !quantidadeDigitada && !resultadoPesagem.erro) setQuantidadeProduzidaInput(String(resultadoPesagem.unidadesSugeridas));
@@ -616,7 +615,7 @@ const OrdemProducaoForm: React.FC = () => {
         const produto = produtoSnap.exists() ? produtoSnap.data() : {};
         const pesoUn = Number(produto.pesoLiquidoUnitarioKg) || 0;
         setPesoUnidade(pesoUn > 0 ? String(pesoUn) : '');
-        setPesoEmbalagemUn(Number(produto.pesoEmbalagemKg) || 0);
+        setPesoEmbalagemUn(Number(produto.pesoEmbalagemKg) > 0 ? String(produto.pesoEmbalagemKg) : '');
         setTaras(parseTaras(configSnap && configSnap.exists() ? configSnap.data().tarasProducao : []));
         setPesagemAtiva(pesoUn > 0);
       } catch (erroPesos) {
@@ -625,7 +624,6 @@ const OrdemProducaoForm: React.FC = () => {
       }
       setPesoBruto('');
       setTarasUsadas({});
-      setEmbalagemManual('');
       setRefugoUnidades('');
       setRefugoMotivo('');
       setQuantidadeDigitada(false);
@@ -1015,11 +1013,14 @@ const OrdemProducaoForm: React.FC = () => {
                         <input type="number" step="0.001" min="0" value={pesoUnidade} onChange={(e) => setPesoUnidade(e.target.value)} style={inputStyle} title="Vem do cadastro do produto (peso líquido unitário). Ex.: pacote de 250 g = 0,250" />
                       </div>
                       <div className="input-group">
-                        <label>Embalagens (kg)</label>
-                        <input type="number" step="0.001" min="0" value={embalagemManual} onChange={(e) => setEmbalagemManual(e.target.value)} style={inputStyle}
-                          title={pesoEmbalagemUn > 0 ? `Em branco = ${pesoEmbalagemUn} kg por unidade (cadastro do produto). Digite para usar o peso total das sacolinhas.` : 'Peso total das sacolinhas/embalagens. Em branco = não desconta.'} />
-                        {!embalagemManual.trim() && resultadoPesagem.embalagemKg > 0 && (
-                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Calculado: {resultadoPesagem.embalagemKg.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} kg</span>
+                        <label>Peso de cada embalagem (kg)</label>
+                        {/* 28/10/2026: por unidade, como no cadastro (vem preenchido de la'); antes era o total e confundia. */}
+                        <input type="number" step="0.001" min="0" value={pesoEmbalagemUn} onChange={(e) => setPesoEmbalagemUn(e.target.value)} style={inputStyle}
+                          title="Sacolinha/pacote vazio. Vem do cadastro do produto; troque se hoje a embalagem for outra. Em branco ou 0 = não desconta." />
+                        {resultadoPesagem.embalagemKg > 0 && (
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            Total: {resultadoPesagem.unidadesSugeridas} × {(Number(String(pesoEmbalagemUn).replace(',', '.')) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} = {resultadoPesagem.embalagemKg.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} kg
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1052,7 +1053,7 @@ const OrdemProducaoForm: React.FC = () => {
                         <strong style={{ fontSize: '13px' }}>Caixas (taras) da filial</strong>
                         {tarasRascunho.map((t, i) => (
                           <div key={t.id || `nova-${i}`} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <input value={t.nome} onChange={(e) => setTarasRascunho((l) => l.map((x, j) => (j === i ? { ...x, nome: e.target.value } : x)))} aria-label="Nome da caixa" title="Ex.: Caixa 1" style={{ ...inputStyle, padding: '8px 10px' }} />
+                            <input value={t.nome} onChange={(e) => setTarasRascunho((l) => l.map((x, j) => (j === i ? { ...x, nome: e.target.value.toLocaleUpperCase('pt-BR') } : x)))} aria-label="Nome da caixa" title="Ex.: Caixa 1" style={{ ...inputStyle, padding: '8px 10px' }} />
                             <input type="number" step="0.001" min="0" value={t.pesoKg} onChange={(e) => setTarasRascunho((l) => l.map((x, j) => (j === i ? { ...x, pesoKg: e.target.value } : x)))} aria-label="Peso da caixa (kg)" title="Peso da caixa vazia em kg (ex.: 1,900)" style={{ ...inputStyle, padding: '8px 10px', width: '140px' }} />
                             <button type="button" className="icon-btn" title="Remover" onClick={() => setTarasRascunho((l) => l.filter((_, j) => j !== i))}><X size={16} /></button>
                           </div>

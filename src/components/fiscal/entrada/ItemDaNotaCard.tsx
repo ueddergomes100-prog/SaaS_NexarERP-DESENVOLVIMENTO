@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link2, Unlink } from 'lucide-react';
 import type { ItemDaNota } from '../../../utils/nfeXmlDomain';
-import type { ItemEntradaConfig } from '../../../utils/entradaNfeDomain';
+import type { ItemEntradaConfig, UnidadeDaEmpresa, UnidadeDoItemNovo } from '../../../utils/entradaNfeDomain';
 import type { CustoDoItemDeEntrada } from '../../../utils/custoEntradaDomain';
 import { fatorValido, quantidadeNoEstoque } from '../../../utils/custoEntradaDomain';
 import { CSOSN_OPTIONS, ICMS_CST_OPTIONS, nomesTemPalavraEmComum } from '../../../utils/fiscalDomain';
@@ -42,6 +42,10 @@ interface ItemDaNotaCardProps {
   /** Custo por unidade de ESTOQUE (ja dividido pelo fator). */
   custoUnitarioEstoque: number;
   cadastro: CadastroVinculado | undefined;
+  /** Unidades cadastradas da empresa e a escolhida para o item NOVO (1 SC da nota = 25 KG no estoque). */
+  unidadesDaEmpresa: ReadonlyArray<UnidadeDaEmpresa>;
+  unidadeNova: UnidadeDoItemNovo;
+  onUnidadeNova: (unidadeEstoqueId: string) => void;
   /** Produto vinculado controla lote: lote e validade sao obrigatorios (vem do XML quando ha rastro). */
   exigeLote?: boolean;
   usaCsosn: boolean;
@@ -72,7 +76,7 @@ const Detalhe: React.FC<{ rotulo: string; valor: React.ReactNode }> = ({ rotulo,
 );
 
 const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
-  indice, total, item, config, custo, custoUnitarioEstoque, cadastro, exigeLote = false, usaCsosn,
+  indice, total, item, config, custo, custoUnitarioEstoque, cadastro, unidadesDaEmpresa, unidadeNova, onUnidadeNova, exigeLote = false, usaCsosn,
   markupVarejoDigitado, markupAtacadoDigitado,
   onAlterarTipo, onAlterarConfig, onAlterarCampo, onPrecoVarejo, onMarkupVarejo, onPrecoAtacado, onMarkupAtacado,
   onAbrirVinculo, onDesvincular, painelDeVinculo, blocoCfop, soRegistro = false,
@@ -89,6 +93,10 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
     ? avisosDePreco({ custo: custoUnitarioEstoque, precoVarejo, atacadoAtivo: config.atacadoAtivo, precoAtacado, descontoMaximoPercentual: descontoMaximo })
     : [];
   const vinculado = config.classificacao !== 'novo';
+  const siglaDoEstoque = vinculado ? cadastro?.unidade : unidadeNova.sigla;
+  const siglaDaNota = String(item.unidade || '').trim().toUpperCase() || 'UN';
+  // Unidade da nota que nao existe no cadastro de unidades ainda aparece como opcao ("a mesma da nota").
+  const notaForaDoCadastro = !unidadesDaEmpresa.some((u) => String(u.sigla || '').trim().toUpperCase() === siglaDaNota);
   const botaoPequeno: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', fontSize: '12px' };
 
   return (
@@ -172,9 +180,31 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
               <input type="number" step="any" min="0" value={config.fator} onChange={(e) => onAlterarCampo('fator', e.target.value)} style={campoInputStyle} aria-label={`Fator de conversão do item ${item.descricao}`} />
             </div>
           ) : (
-            <Detalhe rotulo="Unidade do estoque" valor={<strong>{item.unidade} (a mesma da nota)</strong>} />
+            <>
+              <div className="input-group">
+                <label htmlFor={`unidade-estoque-${indice}`} style={campoLabelStyle}>Unidade do estoque</label>
+                <select
+                  id={`unidade-estoque-${indice}`}
+                  value={unidadeNova.id}
+                  onChange={(e) => onUnidadeNova(e.target.value)}
+                  className="form-select"
+                  style={campoInputStyle}
+                >
+                  {notaForaDoCadastro && <option value="">{siglaDaNota} (a mesma da nota)</option>}
+                  {unidadesDaEmpresa.map((u) => (
+                    <option key={u.id} value={u.id}>{u.sigla}{u.nome ? ` - ${u.nome}` : ''}{String(u.sigla || '').trim().toUpperCase() === siglaDaNota ? ' (a mesma da nota)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+              {!unidadeNova.mesmaDaNota && (
+                <div className="input-group">
+                  <label htmlFor={`fator-novo-${indice}`} style={campoLabelStyle}>1 {item.unidade} da nota equivale a quantos {unidadeNova.sigla}?</label>
+                  <input id={`fator-novo-${indice}`} type="number" step="any" min="0" value={config.fator} onChange={(e) => onAlterarCampo('fator', e.target.value)} style={campoInputStyle} aria-label={`Fator de conversão do item ${item.descricao}`} />
+                </div>
+              )}
+            </>
           )}
-          <Detalhe rotulo="Entra no estoque" valor={<strong>{quantidadeEntrando.toLocaleString('pt-BR', { maximumFractionDigits: 6 })}{cadastro?.unidade ? ` ${cadastro.unidade}` : ''}</strong>} />
+          <Detalhe rotulo="Entra no estoque" valor={<strong>{quantidadeEntrando.toLocaleString('pt-BR', { maximumFractionDigits: 6 })}{siglaDoEstoque ? ` ${siglaDoEstoque}` : ''}</strong>} />
           <Detalhe rotulo="Custo real da entrada" valor={<strong>{moeda(custo?.custoTotal ?? 0)}</strong>} />
           <Detalhe rotulo="Custo por unidade de estoque" valor={<strong style={{ color: '#10b981' }}>{moeda4(custoUnitarioEstoque)}</strong>} />
           {cadastro && custoAnterior > 0 && (

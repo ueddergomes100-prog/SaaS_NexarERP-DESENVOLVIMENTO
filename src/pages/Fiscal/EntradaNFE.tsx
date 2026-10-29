@@ -42,8 +42,11 @@ import {
   buildNotaFiscalEntradaRecord,
   buildInitialItemEntradaConfig,
   cfopDeSaidaSugerido,
+  fatorDoItemNovo,
   mensagemDeNotaDuplicada,
   nomeDoCadastroNovo,
+  unidadeDoItemNovo,
+  type UnidadeDaEmpresa,
   primeiraNotaAtiva,
   semUndefined,
   type NotaFiscalEntradaItemRecord,
@@ -251,6 +254,8 @@ const EntradaNFE: React.FC = () => {
    * ja estao marcados.
    */
   const { items: fornecedoresAtuais } = useTenantCollection<{ id: string; nome?: string; codigo?: string; tipo?: string; ativo?: boolean }>('fornecedores', tenantId);
+  /** Unidades cadastradas da empresa: o item novo escolhe em qual entra no estoque (1 SC da nota = 25 KG). */
+  const { items: unidadesDaEmpresa } = useTenantCollection<UnidadeDaEmpresa>('unidades_medida', tenantId);
   const [fornecedorStatus, setFornecedorStatus] = useState<FornecedorStatus>('idle');
   const [showFornecedorModal, setShowFornecedorModal] = useState(false);
   const [fornecedorForm, setFornecedorForm] = useState({ nome: '', cnpj: '', telefone: '', email: '' });
@@ -708,6 +713,16 @@ const EntradaNFE: React.FC = () => {
     setVinculoAberto((atual) => (atual === idx ? null : idx));
   };
 
+  /** Unidade de estoque do item novo; voltando para a da nota, a conversao volta a 1. */
+  const handleUnidadeDoItemNovo = (idx: number, unidadeEstoqueId: string) => {
+    if (!parsedData) return;
+    setItemConfigs((prev) => prev.map((config, i) => {
+      if (i !== idx) return config;
+      const proxima = { ...config, unidadeEstoqueId };
+      return unidadeDoItemNovo(proxima, parsedData.items[idx].unidade, unidadesDaEmpresa).mesmaDaNota ? { ...proxima, fator: '1' } : proxima;
+    }));
+  };
+
   const handleAlterarConfigItem = (idx: number, patch: Partial<ItemEntradaConfig>) => {
     setItemConfigs((prev) => prev.map((config, i) => (i === idx ? { ...config, ...patch } : config)));
   };
@@ -1020,6 +1035,13 @@ const EntradaNFE: React.FC = () => {
         showError('Conversão de unidade', `Informe quantas unidades do estoque cabem em 1 ${item.unidade} de "${item.descricao}" (use 1 se a nota e o estoque usam a mesma unidade).`);
         return;
       }
+      if (config.classificacao === 'novo') {
+        const unidade = unidadeDoItemNovo(config, item.unidade, unidadesDaEmpresa);
+        if (fatorDoItemNovo(config, unidade) <= 0) {
+          showError('Conversão de unidade', `Informe quantos ${unidade.sigla} cabem em 1 ${item.unidade} de "${item.descricao}", ou escolha a mesma unidade da nota em "Unidade do estoque".`);
+          return;
+        }
+      }
       if (config.classificacao === 'novo' && !nomeDoCadastroNovo(config, item.descricao)) {
         showError('Nome do item obrigatório', `Informe o nome com que o item ${item.numero || idx + 1} ("${item.descricao}") vai entrar no cadastro, no campo "Nome no cadastro".`);
         return;
@@ -1121,7 +1143,8 @@ const EntradaNFE: React.FC = () => {
       const itensPlano = parsedData.items.map((item, idx) => {
         const config = itemConfigs[idx];
         const custo = custosDosItens[idx];
-        const fator = config.classificacao === 'novo' ? 1 : fatorValido(config.fator);
+        const unidadeNova = unidadeDoItemNovo(config, item.unidade, unidadesDaEmpresa);
+        const fator = config.classificacao === 'novo' ? (fatorDoItemNovo(config, unidadeNova) || 1) : fatorValido(config.fator);
         const ehMateriaPrima = config.tipo === 'materia_prima';
         const ehInsumo = config.tipo === 'insumo';
         // CFOP que nao movimenta estoque (ativo, servico, devolucao de venda, transferencia...): so' registro.
@@ -1134,6 +1157,7 @@ const EntradaNFE: React.FC = () => {
           config,
           custo,
           fator,
+          unidadeNova,
           ehMateriaPrima,
           ehInsumo,
           semEstoque,
@@ -1310,7 +1334,7 @@ const EntradaNFE: React.FC = () => {
                 codigo: item.codigo,
                 nome: nomeDoCadastroNovo(config, item.descricao),
                 categoria: 'DIVERSOS',
-                unidade: item.unidade.toUpperCase() || 'UN',
+                unidade: plano.unidadeNova.sigla,
                 quantidade: quantidadeEstoque,
                 estoqueMinimo: 0,
                 precoCusto: custoUn,
@@ -1318,7 +1342,7 @@ const EntradaNFE: React.FC = () => {
                 custoMedio: custoUn,
                 fornecedor: fornecedorMatch.nome,
                 ...(item.codigo ? { codigosFornecedor: { [fornecedorMatch.id]: item.codigo } } : {}),
-                fatoresFornecedor: { [fornecedorMatch.id]: 1 },
+                fatoresFornecedor: { [fornecedorMatch.id]: fator },
                 ...camposDeLote,
                 tenantId,
                 createdAt: serverTimestamp(),
@@ -1418,11 +1442,12 @@ const EntradaNFE: React.FC = () => {
               fornecedor: fornecedorMatch.nome,
               fornecedorId: fornecedorMatch.id,
               codigosFornecedor: item.codigo ? { [fornecedorMatch.id]: item.codigo } : {},
-              fatoresFornecedor: { [fornecedorMatch.id]: 1 },
+              fatoresFornecedor: { [fornecedorMatch.id]: fator },
               categoria: 'DIVERSOS',
-              unidadeMedidaId: 'un',
-              unidadeMedidaSigla: item.unidade.toUpperCase() || 'UN',
-              unidadeMedidaCasasDecimais: 0,
+              ...(plano.unidadeNova.id ? { unidadeMedidaId: plano.unidadeNova.id } : {}),
+              unidadeMedidaSigla: plano.unidadeNova.sigla,
+              unidadeMedidaCasasDecimais: plano.unidadeNova.casasDecimais,
+              unidadeMedidaFracionado: plano.unidadeNova.fracionado,
               ncm: item.ncm,
               ...(item.cest.length === 7 ? { cest: item.cest } : {}),
               cfop: cfopDeSaidaSugerido(item.cfop),
@@ -2089,6 +2114,9 @@ const EntradaNFE: React.FC = () => {
                       custo={custosDosItens[idx]}
                       custoUnitarioEstoque={custoUnitarioDoItem(idx)}
                       cadastro={cadastro}
+                      unidadesDaEmpresa={unidadesDaEmpresa}
+                      unidadeNova={unidadeDoItemNovo(config, item.unidade, unidadesDaEmpresa)}
+                      onUnidadeNova={(id) => handleUnidadeDoItemNovo(idx, id)}
                       exigeLote={exigeLoteNoItem(idx)}
                       usaCsosn={usesCsosn(regimeTributario)}
                       markupVarejoDigitado={markupDigitado[`${idx}-v`]}

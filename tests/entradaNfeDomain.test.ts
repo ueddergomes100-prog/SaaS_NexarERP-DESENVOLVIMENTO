@@ -6,6 +6,8 @@ import {
   cfopDeSaidaSugerido,
   mensagemDeNotaDuplicada,
   nomeDoCadastroNovo,
+  unidadeDoItemNovo,
+  fatorDoItemNovo,
   primeiraNotaAtiva,
   semUndefined,
   findTituloBloqueandoExclusao,
@@ -206,4 +208,23 @@ test('nomeDoCadastroNovo: sem edicao usa a descricao da nota; editado usa o digi
   assert.equal(nomeDoCadastroNovo({}, 'Paraf sext 1/4 zb'), 'PARAF SEXT 1/4 ZB');
   assert.equal(nomeDoCadastroNovo({ nomeCadastro: '  parafuso  sextavado 1/4 ' }, 'Paraf sext 1/4 zb'), 'PARAFUSO SEXTAVADO 1/4');
   assert.equal(nomeDoCadastroNovo({ nomeCadastro: '   ' }, 'Paraf sext 1/4 zb'), '');
+});
+
+test('unidadeDoItemNovo: sem escolha usa a unidade da empresa com a sigla da nota; senao a escolhida', () => {
+  const unidades = [
+    { id: 'u-sc', sigla: 'SC', nome: 'SACO', casasDecimais: 0, permiteFracionado: false },
+    { id: 'u-kg', sigla: 'kg', nome: 'QUILOGRAMA', casasDecimais: 3, permiteFracionado: true },
+  ];
+  assert.deepEqual(unidadeDoItemNovo({}, 'sc', unidades), { id: 'u-sc', sigla: 'SC', casasDecimais: 0, fracionado: false, mesmaDaNota: true });
+  assert.deepEqual(unidadeDoItemNovo({ unidadeEstoqueId: 'u-kg' }, 'SC', unidades), { id: 'u-kg', sigla: 'KG', casasDecimais: 3, fracionado: true, mesmaDaNota: false });
+  // Unidade da nota fora do cadastro: entra nela mesma, sem id.
+  assert.deepEqual(unidadeDoItemNovo({}, 'FD', unidades), { id: '', sigla: 'FD', casasDecimais: 0, fracionado: false, mesmaDaNota: true });
+  assert.deepEqual(unidadeDoItemNovo({ unidadeEstoqueId: '' }, '', []), { id: '', sigla: 'UN', casasDecimais: 0, fracionado: false, mesmaDaNota: true });
+});
+
+test('fatorDoItemNovo: 1 na mesma unidade; o digitado em outra; vazio = 0 (a tela bloqueia)', () => {
+  assert.equal(fatorDoItemNovo({ fator: '25' }, { mesmaDaNota: true }), 1);
+  assert.equal(fatorDoItemNovo({ fator: '25' }, { mesmaDaNota: false }), 25);
+  assert.equal(fatorDoItemNovo({ fator: '' }, { mesmaDaNota: false }), 0);
+  assert.equal(fatorDoItemNovo({ fator: '-2' }, { mesmaDaNota: false }), 0);
 });

@@ -173,7 +173,62 @@ export interface ItemEntradaConfig {
    * nao usa (o nome do cadastro existente nao muda pela entrada).
    */
   nomeCadastro?: string;
+  /**
+   * Unidade de ESTOQUE do item novo (29/10/2026): id de `unidades_medida`.
+   * Ausente = a unidade da empresa com a mesma sigla da nota; '' = a da nota.
+   * Diferente da nota (1 SC = 25 KG), o `fator` converte quantidade e custo.
+   */
+  unidadeEstoqueId?: string;
 }
+
+/** Unidade cadastrada da empresa, como a entrada precisa dela. */
+export interface UnidadeDaEmpresa {
+  id: string;
+  sigla: string;
+  nome?: string;
+  casasDecimais?: number;
+  permiteFracionado?: boolean;
+}
+
+export interface UnidadeDoItemNovo {
+  /** '' quando a unidade da nota nao existe no cadastro de unidades. */
+  id: string;
+  sigla: string;
+  casasDecimais: number;
+  fracionado: boolean;
+  mesmaDaNota: boolean;
+}
+
+const siglaNormalizada = (valor: unknown): string => String(valor ?? '').trim().toUpperCase();
+
+/** Unidade com que o item NOVO entra no estoque: a escolhida, ou a da nota. */
+export const unidadeDoItemNovo = (
+  config: Pick<ItemEntradaConfig, 'unidadeEstoqueId'>,
+  siglaDaNota: string,
+  unidades: ReadonlyArray<UnidadeDaEmpresa>,
+): UnidadeDoItemNovo => {
+  const nota = siglaNormalizada(siglaDaNota) || 'UN';
+  const escolhida = config.unidadeEstoqueId === undefined
+    ? unidades.find((u) => siglaNormalizada(u.sigla) === nota)
+    : unidades.find((u) => u.id === config.unidadeEstoqueId);
+  if (!escolhida) return { id: '', sigla: nota, casasDecimais: 0, fracionado: false, mesmaDaNota: true };
+  const sigla = siglaNormalizada(escolhida.sigla);
+  const casas = Number(escolhida.casasDecimais);
+  return {
+    id: escolhida.id,
+    sigla,
+    casasDecimais: Number.isFinite(casas) && casas > 0 ? casas : 0,
+    fracionado: escolhida.permiteFracionado === true,
+    mesmaDaNota: sigla === nota,
+  };
+};
+
+/** Fator do item novo: 1 na mesma unidade da nota; senao o digitado (vazio/invalido = 0, a tela bloqueia). */
+export const fatorDoItemNovo = (config: Pick<ItemEntradaConfig, 'fator'>, unidade: Pick<UnidadeDoItemNovo, 'mesmaDaNota'>): number => {
+  if (unidade.mesmaDaNota) return 1;
+  const numero = Number(config.fator);
+  return Number.isFinite(numero) && numero > 0 ? numero : 0;
+};
 
 /** Nome com que o item novo entra no cadastro: o digitado, ou a descricao da nota. Vazio = falta o nome. */
 export const nomeDoCadastroNovo = (config: Pick<ItemEntradaConfig, 'nomeCadastro'>, descricaoDaNota: string): string =>

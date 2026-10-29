@@ -29,7 +29,7 @@
     "react-router-dom": "^7.14.2",
     "recharts": "^3.8.1",
     "sweetalert2": "^11.26.24",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -44,5 +44,8 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.6"
   }
 }

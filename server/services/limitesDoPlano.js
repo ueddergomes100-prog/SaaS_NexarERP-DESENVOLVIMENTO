@@ -96,6 +96,10 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
   let appLiberado = false;
   let limiteApp = 0;
   if (motorista) {
+    const jaCadastrado = await motoristaSemLoginComMesmoNome(tenantId, nome);
+    if (jaCadastrado) {
+      throw new ErroLimite(409, `Já existe o motorista ${jaCadastrado} em Operações → Motoristas, com as rotas dele. Para não duplicar, crie o login sem marcar "Este funcionário é motorista" e depois, na ficha dele, use "Vincular".`);
+    }
     ({ app: limiteApp } = await limitesDaEmpresa(tenantId));
     appLiberado = registros.filter((r) => r.acessoAppMobile === true).length < limiteApp;
   }
@@ -214,6 +218,34 @@ const vagaNoApp = async (tenantId, vendedorId) => {
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
 
+/** Nome para comparar motoristas: sem acento, sem espaco sobrando, maiusculo. */
+const nomeComparavel = (nome) => String(nome ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+
+/*
+ * MOTORISTA EM DOBRO (29/10/2026, Sol Life). Marcar "Este funcionario e'
+ * motorista" na ficha de quem ja' existia em Operacoes > Motoristas criava um
+ * segundo motorista com o mesmo nome (motoristas/{uid}); rotas, romaneios e
+ * despesas continuavam no antigo, e o app (que mostra so' as rotas do
+ * motorista do login) ficava vazio. Agora: criar com o mesmo nome de um
+ * motorista sem login e' recusado (use Vincular), e o Vincular troca o
+ * motorista criado automaticamente pelo antigo, se o automatico nao tiver
+ * historico nenhum.
+ */
+const motoristaSemLoginComMesmoNome = async (tenantId, nome) => {
+  const procurado = nomeComparavel(nome);
+  const snap = await db.collection('motoristas').where('tenantId', '==', tenantId).get();
+  const achado = snap.docs.find((d) => !d.data().usuarioId && d.data().ativo !== false && nomeComparavel(d.data().nome) === procurado);
+  return achado ? String(achado.data().nome || '') : '';
+};
+
+/** Algum romaneio, rota, despesa ou veiculo aponta para este motorista? */
+const motoristaTemHistorico = async (tenantId, motoristaId) => {
+  const consultas = [
+    ['romaneios', 'motoristaId'], ['rotas', 'motoristaId'], ['transacoes', 'motoristaId'], ['frota', 'motoristaPadraoId'],
+  ].map(([colecao, campo]) => db.collection(colecao).where('tenantId', '==', tenantId).where(campo, '==', motoristaId).limit(1).get());
+  return (await Promise.all(consultas)).some((s) => !s.empty);
+};
+
 const vincularMotorista = async ({ user, tenantId, corpo }) => {
   const c = corpo || {};
   const usuarioId = String(c.usuarioId ?? '');
@@ -222,10 +254,11 @@ const vincularMotorista = async ({ user, tenantId, corpo }) => {
 
   const refUsuario = db.collection('usuarios').doc(usuarioId);
   const refMotorista = db.collection('motoristas').doc(motoristaId);
+  const refProprio = db.collection('motoristas').doc(usuarioId);
   const [snapUsuario, snapMotorista, snapProprio, jaVinculados] = await Promise.all([
     refUsuario.get(),
     refMotorista.get(),
-    db.collection('motoristas').doc(usuarioId).get(),
+    refProprio.get(),
     db.collection('motoristas').where('tenantId', '==', tenantId).where('usuarioId', '==', usuarioId).get(),
   ]);
   const alvo = snapUsuario.exists ? snapUsuario.data() : null;
@@ -234,11 +267,19 @@ const vincularMotorista = async ({ user, tenantId, corpo }) => {
   if (!motorista || motorista.tenantId !== tenantId) throw new ErroLimite(404, 'Este motorista não existe mais. Atualize a lista de motoristas.');
   if (alvo.role !== 'Funcionario' || ehVendedorSemLogin(alvo)) throw new ErroLimite(400, 'Só funcionário com login pode ser vinculado a um motorista.');
   if (motorista.usuarioId && motorista.usuarioId !== usuarioId) throw new ErroLimite(409, `O motorista ${motorista.nome || ''} já está vinculado a outro usuário.`);
-  const outro = (snapProprio.exists && snapProprio.data().tenantId === tenantId && snapProprio.id !== motoristaId)
-    || jaVinculados.docs.some((d) => d.id !== motoristaId)
+  if (motorista.ativo === false) throw new ErroLimite(400, `O motorista ${motorista.nome || ''} está inativo. Reative em Operações → Motoristas antes de vincular.`);
+
+  // O motorista criado automaticamente para este login (motoristas/{uid}) pode
+  // ser trocado pelo escolhido -- so' se nada aponta para ele.
+  const automatico = snapProprio.exists && snapProprio.data().tenantId === tenantId && snapProprio.id !== motoristaId
+    && snapProprio.data().usuarioId === usuarioId && !(alvo.motoristaId && alvo.motoristaId !== motoristaId);
+  const outro = (snapProprio.exists && snapProprio.data().tenantId === tenantId && snapProprio.id !== motoristaId && !automatico)
+    || jaVinculados.docs.some((d) => d.id !== motoristaId && !(automatico && d.id === usuarioId))
     || (alvo.motoristaId && alvo.motoristaId !== motoristaId);
   if (outro) throw new ErroLimite(409, `${alvo.nome || 'Este usuário'} já está vinculado a outro motorista. Confira em Operações → Motoristas.`);
-  if (motorista.ativo === false) throw new ErroLimite(400, `O motorista ${motorista.nome || ''} está inativo. Reative em Operações → Motoristas antes de vincular.`);
+  if (automatico && await motoristaTemHistorico(tenantId, usuarioId)) {
+    throw new ErroLimite(409, `O motorista ${snapProprio.data().nome || ''} criado para este login já tem rotas, romaneios ou despesas. Para não perder esse histórico, a troca não foi feita. Fale com o suporte.`);
+  }
 
   let appLiberado = alvo.acessoAppMobile === true;
   let limiteApp = 0;
@@ -248,8 +289,16 @@ const vincularMotorista = async ({ user, tenantId, corpo }) => {
   }
   const permissoes = Array.isArray(alvo.permissoes) ? alvo.permissoes : [];
 
+  // Telefone/CNH digitados no automatico passam para o escolhido, se ele estiver sem.
+  const doAutomatico = automatico ? snapProprio.data() : {};
+  const herdados = {};
+  for (const campo of ['telefone', 'cnh']) {
+    if (!String(motorista[campo] ?? '').trim() && String(doAutomatico[campo] ?? '').trim()) herdados[campo] = String(doAutomatico[campo]).trim();
+  }
+
   const lote = db.batch();
-  lote.update(refMotorista, { usuarioId, ...buildDocumentUpdateMetadata(user.uid, agora(), 'Vinculado ao usuário') });
+  lote.update(refMotorista, { usuarioId, ...herdados, ...buildDocumentUpdateMetadata(user.uid, agora(), 'Vinculado ao usuário') });
+  if (automatico) lote.delete(refProprio);
   lote.update(refUsuario, {
     motoristaId,
     ...(permissoes.includes(PERMISSAO_ENTREGAS_APP) ? {} : { permissoes: [...permissoes, PERMISSAO_ENTREGAS_APP] }),
@@ -258,7 +307,7 @@ const vincularMotorista = async ({ user, tenantId, corpo }) => {
     ...buildDocumentUpdateMetadata(user.uid, agora(), 'Vinculado ao motorista'),
   });
   await lote.commit();
-  return { usuarioId, motoristaId, nome: alvo.nome || '', motoristaNome: motorista.nome || '', appLiberado, limiteApp };
+  return { usuarioId, motoristaId, nome: alvo.nome || '', motoristaNome: motorista.nome || '', appLiberado, limiteApp, duplicadoRemovido: automatico };
 };
 
 // ===========================================================================
@@ -313,6 +362,10 @@ const editarFicha = async ({ user, tenantId, corpo }) => {
       await refMotorista.update({ nome: nome.toUpperCase(), telefone: motorista.telefone, cnh: motorista.cnh, ...buildDocumentUpdateMetadata(user.uid, agora()) });
       resultadoMotorista = { novo: false, appLiberado: alvo.acessoAppMobile === true, limiteApp: 0 };
     } else {
+      const jaCadastrado = await motoristaSemLoginComMesmoNome(tenantId, nome);
+      if (jaCadastrado) {
+        throw new ErroLimite(409, `Já existe o motorista ${jaCadastrado} em Operações → Motoristas, com as rotas dele. Para não duplicar, desmarque "Este funcionário é motorista" e use "Vincular" logo abaixo para ligar este login a ele.`);
+      }
       let appLiberado = alvo.acessoAppMobile === true;
       let limiteApp = 0;
       if (!appLiberado) {

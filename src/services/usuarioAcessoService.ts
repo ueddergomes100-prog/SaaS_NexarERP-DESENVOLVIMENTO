@@ -83,7 +83,7 @@ export const alterarSituacaoNoServidor = (usuarioId: string, ativo: boolean) =>
 
 /** Vincula um motorista ja' cadastrado (Operacoes > Motoristas) ao login deste funcionario (26/10/2026). */
 export const vincularMotoristaNoServidor = (usuarioId: string, motoristaId: string) =>
-  postar<{ appLiberado: boolean; limiteApp: number; motoristaNome: string }>('vincular-motorista', { usuarioId, motoristaId }, 'Não foi possível vincular o motorista. Tente novamente.');
+  postar<{ appLiberado: boolean; limiteApp: number; motoristaNome: string; duplicadoRemovido?: boolean }>('vincular-motorista', { usuarioId, motoristaId }, 'Não foi possível vincular o motorista. Tente novamente.');
 
 /** Liga/desliga o app Vendas de um funcionario ou vendedor; ligar confere a vaga contratada. */
 export const alterarAcessoAppNoServidor = (usuarioId: string, ligar: boolean) =>

@@ -52,6 +52,9 @@ const UsuarioForm: React.FC = () => {
   // de novo em Operacoes > Motoristas.
   const [ehMotorista, setEhMotorista] = useState(false);
   const [motoristaJaVinculado, setMotoristaJaVinculado] = useState(false);
+  // Vinculo pelo motorista criado junto com o login (motoristas/{uid}): pode ser
+  // trocado pelo motorista que ja' existia (29/10/2026, motorista em dobro na Sol Life).
+  const [vinculoAutomatico, setVinculoAutomatico] = useState(false);
   const [dadosMotorista, setDadosMotorista] = useState({ telefone: '', cnh: '' });
   const [motoristasSemLogin, setMotoristasSemLogin] = useState<Array<{ id: string; nome: string }>>([]);
   const [motoristaEscolhido, setMotoristaEscolhido] = useState('');
@@ -59,14 +62,14 @@ const UsuarioForm: React.FC = () => {
 
   // Motoristas sem login (cadastrados em Operacoes > Motoristas), para o botao "Vincular".
   React.useEffect(() => {
-    if (!isEditing || !tenantId || motoristaJaVinculado) return;
+    if (!isEditing || !tenantId || (motoristaJaVinculado && !vinculoAutomatico)) return;
     getDocs(query(collection(db, 'motoristas'), where('tenantId', '==', tenantId)))
       .then((snap) => setMotoristasSemLogin(snap.docs
         .filter((d) => d.data().ativo !== false && !d.data().usuarioId && d.id !== id)
         .map((d) => ({ id: d.id, nome: String(d.data().nome || '') }))
         .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))))
       .catch((erro) => console.error('Erro ao ler os motoristas:', erro));
-  }, [isEditing, tenantId, motoristaJaVinculado, id]);
+  }, [isEditing, tenantId, motoristaJaVinculado, vinculoAutomatico, id]);
 
   const vincularMotoristaExistente = async () => {
     if (!id || !motoristaEscolhido) return;
@@ -74,8 +77,10 @@ const UsuarioForm: React.FC = () => {
     try {
       const r = await vincularMotoristaNoServidor(id, motoristaEscolhido);
       setMotoristaJaVinculado(true);
+      setVinculoAutomatico(false);
       setEhMotorista(true);
-      if (r.appLiberado) showSuccess(`Vinculado ao motorista ${r.motoristaNome}: as rotas dele já aparecem no aplicativo deste usuário.`);
+      if (r.duplicadoRemovido) showSuccess(`Vinculado ao motorista ${r.motoristaNome}. O cadastro repetido foi apagado e as rotas dele já aparecem no aplicativo deste usuário.`);
+      else if (r.appLiberado) showSuccess(`Vinculado ao motorista ${r.motoristaNome}: as rotas dele já aparecem no aplicativo deste usuário.`);
       else showWarning(`Vinculado ao motorista ${r.motoristaNome}. O aplicativo não foi liberado: a empresa já usa as ${r.limiteApp} vagas do app contratadas.`);
     } catch (erro) {
       showError('Não foi possível vincular', erro instanceof Error && erro.message ? erro.message : 'Tente de novo em instantes.');
@@ -106,6 +111,7 @@ const UsuarioForm: React.FC = () => {
             const m = motoristaSnap.data();
             setEhMotorista(true);
             setMotoristaJaVinculado(true);
+            setVinculoAutomatico(!motoristaIdVinculado);
             setDadosMotorista({ telefone: m.telefone || '', cnh: m.cnh || '' });
           }
         } catch (erro) {
@@ -525,9 +531,13 @@ const UsuarioForm: React.FC = () => {
               Já vinculado. Para tirar da lista de motoristas, use Operações → Motoristas.
             </span>
           )}
-          {isEditing && !motoristaJaVinculado && !ehMotorista && motoristasSemLogin.length > 0 && (
+          {isEditing && (!motoristaJaVinculado || vinculoAutomatico) && motoristasSemLogin.length > 0 && (
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '10px' }}>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Ou vincular a um motorista já cadastrado:</span>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                {vinculoAutomatico
+                  ? 'Este motorista foi criado junto com o login. Se ele já existia em Operações → Motoristas, com as rotas dele, troque por ele:'
+                  : 'Ou vincular a um motorista já cadastrado:'}
+              </span>
               <select
                 value={motoristaEscolhido}
                 onChange={(e) => setMotoristaEscolhido(e.target.value)}
@@ -545,7 +555,7 @@ const UsuarioForm: React.FC = () => {
                 onClick={() => void vincularMotoristaExistente()}
                 title="As rotas deste motorista passam a aparecer no aplicativo deste usuário. O histórico de rotas e despesas do motorista continua igual."
               >
-                {vinculando ? 'Vinculando...' : 'Vincular'}
+                {vinculando ? 'Vinculando...' : vinculoAutomatico ? 'Trocar por este' : 'Vincular'}
               </button>
             </div>
           )}

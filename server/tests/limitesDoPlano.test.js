@@ -157,6 +157,58 @@ test('vincular motorista: recusa motorista de outro usuario, usuario ja vinculad
   await assert.rejects(() => s.vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', motoristaId: 'fora' } }), (e) => e.status === 404);
 });
 
+test('motorista em dobro (29/10/2026): Vincular troca o criado com o login pelo antigo e apaga o repetido', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/anderson': { tenantId: 'loja', role: 'Funcionario', nome: 'ANDERSON', permissoes: ['operacoes.entregas_app'], acessoAppMobile: true },
+    'motoristas/anderson': { tenantId: 'loja', nome: 'ANDERSON', usuarioId: 'anderson', telefone: '33 9999', cnh: '', ativo: true },
+    'motoristas/antigo': { tenantId: 'loja', nome: 'ANDERSON', telefone: '', cnh: '123', ativo: true },
+    'romaneios/r1': { tenantId: 'loja', motoristaId: 'antigo' },
+  }), { consultas: true });
+  const r = await carregar(fake.db).vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'anderson', motoristaId: 'antigo' } });
+  assert.equal(r.duplicadoRemovido, true);
+  assert.equal(fake.ler('motoristas/anderson'), undefined);
+  const antigo = fake.ler('motoristas/antigo');
+  assert.equal(antigo.usuarioId, 'anderson');
+  assert.equal(antigo.telefone, '33 9999');
+  assert.equal(antigo.cnh, '123');
+  assert.equal(fake.ler('usuarios/anderson').motoristaId, 'antigo');
+});
+
+test('motorista em dobro: o criado com o login que ja tem historico nao e trocado', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/anderson': { tenantId: 'loja', role: 'Funcionario', nome: 'ANDERSON' },
+    'motoristas/anderson': { tenantId: 'loja', nome: 'ANDERSON', usuarioId: 'anderson', ativo: true },
+    'motoristas/antigo': { tenantId: 'loja', nome: 'ANDERSON', ativo: true },
+    'rotas/x': { tenantId: 'loja', motoristaId: 'anderson' },
+  }), { consultas: true });
+  await assert.rejects(
+    () => carregar(fake.db).vincularMotorista({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'anderson', motoristaId: 'antigo' } }),
+    (e) => e.status === 409 && /histórico/.test(e.message),
+  );
+  assert.equal(fake.ler('motoristas/anderson').usuarioId, 'anderson');
+  assert.equal(fake.ler('motoristas/antigo').usuarioId, undefined);
+});
+
+test('motorista em dobro: ficha e criar login recusam motorista com o mesmo nome de um sem login', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/loja': { tenantId: 'loja', role: 'Master', limiteUsuarios: 5, limiteAcessoMobile: 1 },
+    'usuarios/dirceu': { tenantId: 'loja', role: 'Funcionario', nome: 'Dirceu Marques', permissoes: [] },
+    'motoristas/antigo': { tenantId: 'loja', nome: 'DIRCEU  MÁRQUES', ativo: true },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(
+    () => s.editarFicha({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'dirceu', nome: 'Dirceu Marques', motorista: { telefone: '', cnh: '' } } }),
+    (e) => e.status === 409 && /Vincular/.test(e.message),
+  );
+  assert.equal(fake.ler('motoristas/dirceu'), undefined);
+  await assert.rejects(
+    () => s.criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ nome: 'dirceu marques', motorista: {} }) }),
+    (e) => e.status === 409 && /Vincular/.test(e.message),
+  );
+  // Sem o "e' motorista", a ficha salva normal.
+  await s.editarFicha({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'dirceu', nome: 'Dirceu Marques' } });
+});
+
 test('ficha do funcionario: nome e codigo; codigo repetido recusa; marcar motorista cria o vinculado (26/10/2026)', async () => {
   const fake = criarBancoFalso(base({
     'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', codigoVendedor: '03', permissoes: [] },

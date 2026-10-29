@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
-import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search } from 'lucide-react';
+import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { baixarBoletoPeloRetorno } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -326,6 +326,20 @@ const Boletos: React.FC = () => {
    * titulo volta para "Aguardando emissao". Nao mexe em nada do lado do banco: so' apaga o que ficou
    * gravado aqui. O nosso numero que foi reservado fica "pulado" (o contador nunca anda pra tras).
    */
+  const desfazerUmaEmissao = async (titulo: TituloBoleto, uid: string) => {
+    await runTransaction(db, async (transaction) => {
+      const ref = doc(db, 'transacoes', titulo.id);
+      const snap = await transaction.get(ref);
+      if (!snap.exists()) throw new Error('Título não encontrado. Atualize a página.');
+      if (snap.data().status === 'Paga') throw new Error('Este título já foi pago — não é possível desfazer a emissão.');
+      transaction.update(ref, {
+        boleto: deleteField(),
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(uid, serverTimestamp(), 'Emissão de boleto desfeita'),
+      });
+    });
+  };
+
   const desfazerEmissao = async (titulo: TituloBoleto) => {
     if (!currentUser) return;
     const confirmacao = await NexusSwal.fire({
@@ -344,21 +358,64 @@ const Boletos: React.FC = () => {
 
     setProcessando(true);
     try {
-      await runTransaction(db, async (transaction) => {
-        const ref = doc(db, 'transacoes', titulo.id);
-        const snap = await transaction.get(ref);
-        if (!snap.exists()) throw new Error('Título não encontrado. Atualize a página.');
-        if (snap.data().status === 'Paga') throw new Error('Este título já foi pago — não é possível desfazer a emissão.');
-        transaction.update(ref, {
-          boleto: deleteField(),
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Emissão de boleto desfeita'),
-        });
-      });
+      await desfazerUmaEmissao(titulo, currentUser.uid);
       showSuccess('Emissão desfeita. O título voltou para "Aguardando emissão".');
     } catch (erro: any) {
       console.error('Erro ao desfazer emissão do boleto:', erro);
       showError('Não foi possível desfazer', erro?.message || 'Tente novamente em instantes.');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  /** Mesmo "Desfazer" da linha, para todos os marcados que ainda nao foram pagos. */
+  const marcadosParaDesfazer = listaAtual.filter((t) => selecionados.has(t.id) && t.boleto && statusBoletoEfetivo(t.boleto) !== 'pago');
+
+  const desfazerSelecionados = async () => {
+    if (!currentUser) return;
+    const lista = marcadosParaDesfazer;
+    if (lista.length === 0) {
+      showError('Nada marcado', 'Marque os boletos que quer desfazer. Boleto já pago não pode ser desfeito.');
+      return;
+    }
+    const confirmacao = await NexusSwal.fire({
+      title: `Desfazer a emissão de ${lista.length} boleto${lista.length === 1 ? '' : 's'}?`,
+      html: `<div style="text-align:left;font-size:14px">`
+        + `Remove o nosso número, a linha digitável e o código de barras gravados nos títulos marcados. `
+        + `Eles voltam para "Aguardando emissão" e podem ser emitidos de novo. Isso não desfaz nada que já `
+        + `tenha sido enviado ao banco.`
+        + `</div>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Desfazer emissão',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirmacao.isConfirmed) return;
+
+    setProcessando(true);
+    let desfeitos = 0;
+    const falhas: string[] = [];
+    try {
+      for (const titulo of lista) {
+        try {
+          await desfazerUmaEmissao(titulo, currentUser.uid);
+          desfeitos += 1;
+        } catch (erro: any) {
+          console.error('Erro ao desfazer emissão do boleto:', erro);
+          const nome = titulo.clienteNome || titulo.fornecedorNome || 'Título';
+          falhas.push(`${nome} (nosso número ${formatarNossoNumeroSicoobExibicao(titulo.boleto?.nossoNumero || '')}): ${erro?.message || 'tente novamente em instantes.'}`);
+        }
+      }
+      setSelecionados(new Set());
+      if (falhas.length === 0) {
+        showSuccess(`${desfeitos} emissão(ões) desfeita(s). Os títulos voltaram para "Aguardando emissão".`);
+      } else {
+        await NexusSwal.fire({
+          title: `${desfeitos} de ${lista.length} emissão(ões) desfeita(s)`,
+          html: `<div style="text-align:left;font-size:14px">Não deu pra desfazer:<br/>${falhas.map((f) => f.replace(/[<>&]/g, '')).join('<br/>')}</div>`,
+          icon: desfeitos > 0 ? 'warning' : 'error',
+        });
+      }
     } finally {
       setProcessando(false);
     }
@@ -683,6 +740,17 @@ const Boletos: React.FC = () => {
           {aba !== 'aguardando' && selecionados.size > 0 && (
             <button className="btn-primary" onClick={() => void imprimirSelecionados()} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Printer size={18} /> Imprimir 2ª via ({selecionados.size})
+            </button>
+          )}
+          {aba !== 'aguardando' && marcadosParaDesfazer.length > 0 && (
+            <button
+              className="btn-secondary"
+              onClick={() => void desfazerSelecionados()}
+              disabled={processando}
+              title="Remove o nosso número/linha digitável dos marcados e volta para Aguardando emissão"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}
+            >
+              <Undo2 size={18} /> Desfazer selecionados ({marcadosParaDesfazer.length})
             </button>
           )}
           <button className="btn-secondary" onClick={gerarRemessa} disabled={processando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

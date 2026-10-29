@@ -321,48 +321,120 @@ const Boletos: React.FC = () => {
   };
 
   /**
-   * Desfaz a emissao (nosso numero, linha digitavel, codigo de barras) de um titulo que ainda nao foi
-   * pago -- por exemplo um boleto emitido de teste, ou emitido antes de uma correcao no calculo. O
-   * titulo volta para "Aguardando emissao". Nao mexe em nada do lado do banco: so' apaga o que ficou
-   * gravado aqui. O nosso numero que foi reservado fica "pulado" (o contador nunca anda pra tras).
+   * "Desfazer" de um boleto ainda nao pago, por linha ou para os marcados. Dois destinos:
+   *  - 'aguardando': apaga a emissao (nosso numero, linha digitavel, codigo de barras) -- por exemplo
+   *    um boleto emitido de teste, ou antes de uma correcao no calculo. O titulo volta para "Aguardando
+   *    emissao" e, emitido de novo, sai com OUTRO nosso numero (o contador nunca anda pra tras).
+   *  - 'emitidos': so' tira da remessa (status volta a 'emitido', numeroRemessa 0, como na emissao).
+   *    Nosso numero e codigo de barras ficam os mesmos: o boleto que o cliente ja tem continua valendo
+   *    e entra na proxima remessa. So' vale para quem esta em remessa.
+   * Nao mexe em nada do lado do banco: so' no que ficou gravado aqui.
    */
-  const desfazerUmaEmissao = async (titulo: TituloBoleto, uid: string) => {
+  type DestinoDesfazer = 'aguardando' | 'emitidos';
+
+  const desfazerUm = async (titulo: TituloBoleto, destino: DestinoDesfazer, uid: string): Promise<boolean> => {
+    let feito = false;
     await runTransaction(db, async (transaction) => {
       const ref = doc(db, 'transacoes', titulo.id);
       const snap = await transaction.get(ref);
       if (!snap.exists()) throw new Error('Título não encontrado. Atualize a página.');
       if (snap.data().status === 'Paga') throw new Error('Este título já foi pago — não é possível desfazer a emissão.');
-      transaction.update(ref, {
-        boleto: deleteField(),
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(uid, serverTimestamp(), 'Emissão de boleto desfeita'),
-      });
+      if (destino === 'emitidos') {
+        // Fora da remessa ja': nada a fazer (num lote misto, os "Emitido" ficam como estao).
+        if (snap.data().boleto?.status !== 'em_remessa') return;
+        transaction.update(ref, {
+          'boleto.status': 'emitido',
+          'boleto.numeroRemessa': 0,
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(uid, serverTimestamp(), `Boleto tirado da remessa ${snap.data().boleto?.numeroRemessa || ''}`.trim()),
+        });
+      } else {
+        transaction.update(ref, {
+          boleto: deleteField(),
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(uid, serverTimestamp(), 'Emissão de boleto desfeita'),
+        });
+      }
+      feito = true;
     });
+    return feito;
   };
 
-  const desfazerEmissao = async (titulo: TituloBoleto) => {
-    if (!currentUser) return;
-    const confirmacao = await NexusSwal.fire({
-      title: 'Desfazer emissão deste boleto?',
+  /** Pergunta para onde volta; quem esta em remessa pode voltar para Emitidos sem trocar o codigo de barras. */
+  const perguntarDestino = async (lista: TituloBoleto[]): Promise<DestinoDesfazer | null> => {
+    const umSo = lista.length === 1;
+    const emRemessa = lista.filter((t) => t.boleto?.status === 'em_remessa').length;
+    const titulo = umSo ? 'Desfazer este boleto?' : `Desfazer ${lista.length} boletos?`;
+    if (emRemessa === 0) {
+      const r = await NexusSwal.fire({
+        title: titulo,
+        html: `<div style="text-align:left;font-size:14px">`
+          + `Remove o nosso número, a linha digitável e o código de barras gravados ${umSo ? 'neste título' : 'nos títulos marcados'}. `
+          + `${umSo ? 'Ele volta' : 'Eles voltam'} para "Aguardando emissão" e ${umSo ? 'pode ser emitido' : 'podem ser emitidos'} de novo, com outro código. `
+          + `Isso não desfaz nada que já tenha sido enviado ao banco.`
+          + `</div>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Voltar para Aguardando emissão',
+        cancelButtonText: 'Cancelar',
+      });
+      return r.isConfirmed ? 'aguardando' : null;
+    }
+    const foraDaRemessa = lista.length - emRemessa;
+    const r = await NexusSwal.fire({
+      title: titulo,
       html: `<div style="text-align:left;font-size:14px">`
-        + `Remove o nosso número, a linha digitável e o código de barras gravados neste título. `
-        + `Ele volta para "Aguardando emissão" e pode ser emitido de novo. Isso não desfaz nada que já `
-        + `tenha sido enviado ao banco.`
+        + `<b>Voltar para Emitidos:</b> tira da remessa e mantém o mesmo nosso número, linha digitável e código de barras. `
+        + `O boleto que o cliente já tem continua valendo; ${umSo ? 'ele entra' : 'eles entram'} na próxima remessa que você gerar.`
+        + (foraDaRemessa > 0 ? ` (${foraDaRemessa} dos marcados não ${foraDaRemessa === 1 ? 'está' : 'estão'} em remessa e ${foraDaRemessa === 1 ? 'fica' : 'ficam'} como ${foraDaRemessa === 1 ? 'está' : 'estão'}.)` : '')
+        + `<br/><br/><b>Voltar para Aguardando emissão:</b> apaga o nosso número e o código de barras; emitido de novo, sai com outro código.`
+        + `<br/><br/>Nenhuma das duas desfaz o que já foi enviado ao banco.`
         + `</div>`,
-      icon: 'warning',
+      icon: 'question',
       showCancelButton: true,
-      confirmButtonText: 'Desfazer emissão',
+      showDenyButton: true,
+      confirmButtonText: 'Voltar para Emitidos',
+      denyButtonText: 'Voltar para Aguardando emissão',
       cancelButtonText: 'Cancelar',
     });
-    if (!confirmacao.isConfirmed) return;
+    if (r.isConfirmed) return 'emitidos';
+    if (r.isDenied) return 'aguardando';
+    return null;
+  };
+
+  const desfazer = async (lista: TituloBoleto[]) => {
+    if (!currentUser) return;
+    if (lista.length === 0) {
+      showError('Nada marcado', 'Marque os boletos que quer desfazer. Boleto já pago não pode ser desfeito.');
+      return;
+    }
+    const destino = await perguntarDestino(lista);
+    if (!destino) return;
 
     setProcessando(true);
+    let feitos = 0;
+    const falhas: string[] = [];
     try {
-      await desfazerUmaEmissao(titulo, currentUser.uid);
-      showSuccess('Emissão desfeita. O título voltou para "Aguardando emissão".');
-    } catch (erro: any) {
-      console.error('Erro ao desfazer emissão do boleto:', erro);
-      showError('Não foi possível desfazer', erro?.message || 'Tente novamente em instantes.');
+      for (const titulo of lista) {
+        try {
+          if (await desfazerUm(titulo, destino, currentUser.uid)) feitos += 1;
+        } catch (erro: any) {
+          console.error('Erro ao desfazer o boleto:', erro);
+          const nome = titulo.clienteNome || titulo.fornecedorNome || 'Título';
+          falhas.push(`${nome} (nosso número ${formatarNossoNumeroSicoobExibicao(titulo.boleto?.nossoNumero || '')}): ${erro?.message || 'tente novamente em instantes.'}`);
+        }
+      }
+      setSelecionados(new Set());
+      const paraOnde = destino === 'emitidos' ? '"Emitidos", com o mesmo código de barras' : '"Aguardando emissão"';
+      if (falhas.length === 0) {
+        showSuccess(feitos === 1 ? `O boleto voltou para ${paraOnde}.` : `${feitos} boletos voltaram para ${paraOnde}.`);
+      } else {
+        await NexusSwal.fire({
+          title: `${feitos} de ${lista.length} boleto(s) desfeito(s)`,
+          html: `<div style="text-align:left;font-size:14px">Não deu pra desfazer:<br/>${falhas.map((f) => f.replace(/[<>&]/g, '')).join('<br/>')}</div>`,
+          icon: feitos > 0 ? 'warning' : 'error',
+        });
+      }
     } finally {
       setProcessando(false);
     }
@@ -370,56 +442,6 @@ const Boletos: React.FC = () => {
 
   /** Mesmo "Desfazer" da linha, para todos os marcados que ainda nao foram pagos. */
   const marcadosParaDesfazer = listaAtual.filter((t) => selecionados.has(t.id) && t.boleto && statusBoletoEfetivo(t.boleto) !== 'pago');
-
-  const desfazerSelecionados = async () => {
-    if (!currentUser) return;
-    const lista = marcadosParaDesfazer;
-    if (lista.length === 0) {
-      showError('Nada marcado', 'Marque os boletos que quer desfazer. Boleto já pago não pode ser desfeito.');
-      return;
-    }
-    const confirmacao = await NexusSwal.fire({
-      title: `Desfazer a emissão de ${lista.length} boleto${lista.length === 1 ? '' : 's'}?`,
-      html: `<div style="text-align:left;font-size:14px">`
-        + `Remove o nosso número, a linha digitável e o código de barras gravados nos títulos marcados. `
-        + `Eles voltam para "Aguardando emissão" e podem ser emitidos de novo. Isso não desfaz nada que já `
-        + `tenha sido enviado ao banco.`
-        + `</div>`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Desfazer emissão',
-      cancelButtonText: 'Cancelar',
-    });
-    if (!confirmacao.isConfirmed) return;
-
-    setProcessando(true);
-    let desfeitos = 0;
-    const falhas: string[] = [];
-    try {
-      for (const titulo of lista) {
-        try {
-          await desfazerUmaEmissao(titulo, currentUser.uid);
-          desfeitos += 1;
-        } catch (erro: any) {
-          console.error('Erro ao desfazer emissão do boleto:', erro);
-          const nome = titulo.clienteNome || titulo.fornecedorNome || 'Título';
-          falhas.push(`${nome} (nosso número ${formatarNossoNumeroSicoobExibicao(titulo.boleto?.nossoNumero || '')}): ${erro?.message || 'tente novamente em instantes.'}`);
-        }
-      }
-      setSelecionados(new Set());
-      if (falhas.length === 0) {
-        showSuccess(`${desfeitos} emissão(ões) desfeita(s). Os títulos voltaram para "Aguardando emissão".`);
-      } else {
-        await NexusSwal.fire({
-          title: `${desfeitos} de ${lista.length} emissão(ões) desfeita(s)`,
-          html: `<div style="text-align:left;font-size:14px">Não deu pra desfazer:<br/>${falhas.map((f) => f.replace(/[<>&]/g, '')).join('<br/>')}</div>`,
-          icon: desfeitos > 0 ? 'warning' : 'error',
-        });
-      }
-    } finally {
-      setProcessando(false);
-    }
-  };
 
   // --- Boleto para imprimir / ver -------------------------------------------
 
@@ -745,9 +767,9 @@ const Boletos: React.FC = () => {
           {aba !== 'aguardando' && marcadosParaDesfazer.length > 0 && (
             <button
               className="btn-secondary"
-              onClick={() => void desfazerSelecionados()}
+              onClick={() => void desfazer(marcadosParaDesfazer)}
               disabled={processando}
-              title="Remove o nosso número/linha digitável dos marcados e volta para Aguardando emissão"
+              title="Tira os marcados da remessa (voltam para Emitidos, mesmo código de barras) ou apaga a emissão (voltam para Aguardando emissão)"
               style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}
             >
               <Undo2 size={18} /> Desfazer selecionados ({marcadosParaDesfazer.length})
@@ -1035,9 +1057,9 @@ const Boletos: React.FC = () => {
                               <button
                                 className="btn-secondary"
                                 style={{ padding: '6px 12px', fontSize: '13px', color: '#ef4444' }}
-                                onClick={() => void desfazerEmissao(t)}
+                                onClick={() => void desfazer([t])}
                                 disabled={processando}
-                                title="Remove o nosso número/linha digitável deste título e volta para Aguardando emissão"
+                                title="Tira da remessa (volta para Emitidos, mesmo código de barras) ou apaga a emissão (volta para Aguardando emissão)"
                               >
                                 Desfazer
                               </button>

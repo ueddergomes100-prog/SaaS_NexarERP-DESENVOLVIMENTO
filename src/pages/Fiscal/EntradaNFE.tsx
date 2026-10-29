@@ -43,6 +43,7 @@ import {
   buildInitialItemEntradaConfig,
   cfopDeSaidaSugerido,
   mensagemDeNotaDuplicada,
+  nomeDoCadastroNovo,
   primeiraNotaAtiva,
   semUndefined,
   type NotaFiscalEntradaItemRecord,
@@ -1018,6 +1019,10 @@ const EntradaNFE: React.FC = () => {
         showError('Conversão de unidade', `Informe quantas unidades do estoque cabem em 1 ${item.unidade} de "${item.descricao}" (use 1 se a nota e o estoque usam a mesma unidade).`);
         return;
       }
+      if (config.classificacao === 'novo' && !nomeDoCadastroNovo(config, item.descricao)) {
+        showError('Nome do item obrigatório', `Informe o nome com que o item ${item.numero || idx + 1} ("${item.descricao}") vai entrar no cadastro, no campo "Nome no cadastro".`);
+        return;
+      }
       if (exigeLoteNoItem(idx)) {
         const { erro } = lotesDoItem(idx);
         if (erro) {
@@ -1302,7 +1307,7 @@ const EntradaNFE: React.FC = () => {
               // Materia-Prima: unidade e fornecedor ficam como texto livre.
               transaction.set(ref, semUndefined({
                 codigo: item.codigo,
-                nome: item.descricao.toUpperCase(),
+                nome: nomeDoCadastroNovo(config, item.descricao),
                 categoria: 'DIVERSOS',
                 unidade: item.unidade.toUpperCase() || 'UN',
                 quantidade: quantidadeEstoque,
@@ -1403,7 +1408,7 @@ const EntradaNFE: React.FC = () => {
             // tributacao, do que a pessoa preencheu na tela.
             transaction.set(ref, semUndefined({
               codigo: item.codigo,
-              nome: item.descricao.toUpperCase(),
+              nome: nomeDoCadastroNovo(config, item.descricao),
               quantidade: quantidadeEstoque,
               estoqueMinimo: 0,
               precoCusto: custoUn,

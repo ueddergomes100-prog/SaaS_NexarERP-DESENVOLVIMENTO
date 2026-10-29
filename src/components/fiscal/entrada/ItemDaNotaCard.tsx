@@ -144,7 +144,20 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
             )}
           </>
         ) : (
-          <button type="button" className="btn-secondary" onClick={onAbrirVinculo} style={botaoPequeno}><Link2 size={13} /> Já tenho este item cadastrado — vincular</button>
+          <>
+            <div className="input-group" style={{ flex: '1 1 320px', margin: 0 }}>
+              <label htmlFor={`nome-cadastro-${indice}`} style={campoLabelStyle}>Nome no cadastro *</label>
+              <input
+                id={`nome-cadastro-${indice}`}
+                type="text"
+                value={config.nomeCadastro ?? item.descricao.toUpperCase()}
+                onChange={(e) => onAlterarCampo('nomeCadastro', e.target.value)}
+                title={`Na nota: ${item.descricao}. O item entra no cadastro com o nome que estiver aqui; nas próximas notas deste fornecedor ele é reconhecido pelo código.`}
+                style={{ ...campoInputStyle, textTransform: 'uppercase' }}
+              />
+            </div>
+            <button type="button" className="btn-secondary" onClick={onAbrirVinculo} style={{ ...botaoPequeno, alignSelf: 'flex-end' }}><Link2 size={13} /> Já tenho este item cadastrado — vincular</button>
+          </>
         )}
       </div>
       {painelDeVinculo}

@@ -5,6 +5,7 @@ import {
   buildInitialItemEntradaConfig,
   cfopDeSaidaSugerido,
   mensagemDeNotaDuplicada,
+  nomeDoCadastroNovo,
   primeiraNotaAtiva,
   semUndefined,
   findTituloBloqueandoExclusao,
@@ -199,4 +200,10 @@ test('CFOP de saída sugerido: interestadual vira estadual, o resto não é inve
   assert.equal(cfopDeSaidaSugerido('1102'), '');
   assert.equal(cfopDeSaidaSugerido(''), '');
   assert.equal(cfopDeSaidaSugerido('51'), '');
+});
+
+test('nomeDoCadastroNovo: sem edicao usa a descricao da nota; editado usa o digitado; vazio fica vazio', () => {
+  assert.equal(nomeDoCadastroNovo({}, 'Paraf sext 1/4 zb'), 'PARAF SEXT 1/4 ZB');
+  assert.equal(nomeDoCadastroNovo({ nomeCadastro: '  parafuso  sextavado 1/4 ' }, 'Paraf sext 1/4 zb'), 'PARAFUSO SEXTAVADO 1/4');
+  assert.equal(nomeDoCadastroNovo({ nomeCadastro: '   ' }, 'Paraf sext 1/4 zb'), '');
 });

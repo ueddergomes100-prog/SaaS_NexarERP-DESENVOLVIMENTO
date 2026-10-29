@@ -167,7 +167,17 @@ export interface ItemEntradaConfig {
   atacadoBloqueado: boolean;
   lote: string;
   validade: string;
+  /**
+   * Nome do cadastro NOVO (29/10/2026): a pessoa pode trocar a descricao do
+   * fornecedor pela que ela usa. Ausente = a descricao da nota. Item vinculado
+   * nao usa (o nome do cadastro existente nao muda pela entrada).
+   */
+  nomeCadastro?: string;
 }
+
+/** Nome com que o item novo entra no cadastro: o digitado, ou a descricao da nota. Vazio = falta o nome. */
+export const nomeDoCadastroNovo = (config: Pick<ItemEntradaConfig, 'nomeCadastro'>, descricaoDaNota: string): string =>
+  String(config.nomeCadastro ?? descricaoDaNota ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 
 // Subconjunto dos campos fiscais de um produto de `estoque` ja cadastrado,
 // usado so pra pre-preencher a precificacao quando o item da nota mescla

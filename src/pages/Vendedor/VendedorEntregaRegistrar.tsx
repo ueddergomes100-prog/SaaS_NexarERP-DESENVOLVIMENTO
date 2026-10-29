@@ -103,7 +103,10 @@ const VendedorEntregaRegistrar: React.FC = () => {
       setCarregando(false);
     }, (e) => {
       console.error('Erro ao abrir a rota:', e);
-      setErro('Não foi possível abrir a rota. Verifique a internet e tente de novo.');
+      // 29/10/2026: as rules recusam a rota de outro motorista.
+      setErro((e as { code?: string })?.code === 'permission-denied'
+        ? 'Esta rota é de outro motorista. Em Entregas aparecem só as suas rotas.'
+        : 'Não foi possível abrir a rota. Verifique a internet e tente de novo.');
       setCarregando(false);
     });
     return parar;

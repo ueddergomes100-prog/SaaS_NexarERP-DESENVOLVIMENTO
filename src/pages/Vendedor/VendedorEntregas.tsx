@@ -47,28 +47,49 @@ const VendedorEntregas: React.FC = () => {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
 
+  // Motorista ja' cadastrado vinculado ao login (26/10/2026): as rotas dele usam o
+  // id do cadastro de motorista, gravado em usuarios/{uid}.motoristaId.
+  const { motoristaVinculado, carregado: vinculoCarregado } = useMotoristaVinculado(currentUser?.uid);
+  // 28/10/2026 (dono): cada motorista ve so' as dele; "Todas" so' para dono e gestor.
+  const veTodas = veTodasAsRotas(userRole, isOwner);
+  const uid = currentUser?.uid || '';
+
   useEffect(() => {
     if (!tenantId || !pode) return;
-    const q = query(collection(db, 'romaneios'), where('tenantId', '==', tenantId), where('status', '==', 'em_rota'));
-    const parar = onSnapshot(q, (snap) => {
-      const lista = snap.docs.map((d) => ({ id: d.id, ...lerRomaneio(d.data()) }));
+    // 29/10/2026: as rules so' entregam ao motorista as rotas dele, entao a consulta
+    // dele vai por motoristaId (o login e o motorista vinculado); dono e gestor leem todas.
+    if (!veTodas && !vinculoCarregado) return;
+    const base = [where('tenantId', '==', tenantId), where('status', '==', 'em_rota')];
+    const consultas = veTodas
+      ? [query(collection(db, 'romaneios'), ...base)]
+      : [...new Set([uid, motoristaVinculado].filter(Boolean))]
+        .map((motoristaId) => query(collection(db, 'romaneios'), ...base, where('motoristaId', '==', motoristaId)));
+    if (consultas.length === 0) {
+      setRotas([]);
+      setCarregando(false);
+      return;
+    }
+    const porConsulta: RotaDoApp[][] = consultas.map(() => []);
+    const recebidas = new Set<number>();
+    const juntar = () => {
+      if (recebidas.size < consultas.length) return;
+      const lista = [...new Map(porConsulta.flat().map((r) => [r.id, r])).values()];
       lista.sort((a, b) => b.dataSaida.localeCompare(a.dataSaida) || b.numero - a.numero);
       setRotas(lista);
       setErro('');
       setCarregando(false);
+    };
+    const paradas = consultas.map((q, i) => onSnapshot(q, (snap) => {
+      porConsulta[i] = snap.docs.map((d) => ({ id: d.id, ...lerRomaneio(d.data()) }));
+      recebidas.add(i);
+      juntar();
     }, (e) => {
       console.error('Erro ao carregar as rotas em andamento:', e);
       setErro('Não foi possível carregar as rotas. Verifique a internet e tente de novo.');
       setCarregando(false);
-    });
-    return parar;
-  }, [tenantId, pode]);
-
-  // Motorista ja' cadastrado vinculado ao login (26/10/2026): as rotas dele usam o
-  // id do cadastro de motorista, gravado em usuarios/{uid}.motoristaId.
-  const { motoristaVinculado } = useMotoristaVinculado(currentUser?.uid);
-  // 28/10/2026 (dono): cada motorista ve so' as dele; "Todas" so' para dono e gestor.
-  const veTodas = veTodasAsRotas(userRole, isOwner);
+    }));
+    return () => paradas.forEach((parar) => parar());
+  }, [tenantId, pode, veTodas, vinculoCarregado, uid, motoristaVinculado]);
 
   const minhas = useMemo(() => rotas.filter((r) => rotaEhDoMotorista(r.motoristaId, currentUser?.uid, motoristaVinculado)),
     [rotas, currentUser?.uid, motoristaVinculado]);

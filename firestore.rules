@@ -374,7 +374,28 @@ service cloud.firestore {
         resource.data.status == 'em_rota' &&
         request.resource.data.status == 'em_rota' &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registros', 'updatedAt'].concat(documentAuditFields())) &&
-        hasPermission('operacoes.entregas_app');
+        hasPermission('operacoes.entregas_app') &&
+        romaneioDoLogin();
+    }
+
+    // Cada motorista ve' so' as rotas dele (2026-10-29, pedido do dono; antes
+    // so' a tela do app escondia -- aa7afd8). A rota e' do login quando o
+    // motorista dela e' o proprio login (motoristas/{uid}) ou o motorista
+    // vinculado (usuarios/{uid}.motoristaId). Dono, Master/Admin, plataforma e
+    // quem tem 'operacoes.romaneios' (o escritorio que monta as rotas) veem todas.
+    // O app consulta por motoristaId (VendedorEntregas) para a lista passar aqui.
+    function romaneioDoLogin() {
+      let motorista = resource.data.get('motoristaId', '');
+      let perfil = currentProfile();
+      return motorista == request.auth.uid ||
+        request.auth.uid == resource.data.tenantId ||
+        perfil.get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin'] ||
+        (motorista != '' && motorista == perfil.get('motoristaId', '')) ||
+        perfil.get('permissoes', []).hasAny(['operacoes.romaneios']);
+    }
+
+    function romaneioVisivelAoLogin(collectionName) {
+      return collectionName != 'romaneios' || resource == null || tokenIsSuperAdmin() || romaneioDoLogin();
     }
 
     // Movimento de SALDO do banco (2026-09-29). Venda, OS, baixa de titulo,
@@ -1001,7 +1022,7 @@ service cloud.firestore {
         // (server/services/cashback.js); o resumo fica em clientes/{id}.cashback,
         // que a tela tambem nao grava (cashbackSoPeloServidor).
         'cashback_movimentos'
-      ] && canReadTenantDocument();
+      ] && canReadTenantDocument() && romaneioVisivelAoLogin(collectionName);
 
       allow create: if collectionName in [
         'clientes',

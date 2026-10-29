@@ -41,6 +41,7 @@ import {
   resumoDoRomaneio,
   situacaoDoPedidoAoEncerrar,
   tituloDoRomaneio,
+  numeracaoMensalDoRomaneio,
   TIPOS_ACERTO_PADRAO,
   type EntregaRomaneio,
   type Romaneio,
@@ -80,6 +81,17 @@ test('título da rota: número com 2 dígitos e nome em maiúscula, como a loja 
   assert.equal(tituloDoRomaneio(4, 'Daniela'), 'Rota 04 DANIELA');
   assert.equal(tituloDoRomaneio(12, ''), 'Rota 12');
   assert.equal(tituloDoRomaneio(0, 'x'), 'Rota -- X');
+});
+
+test('numero da rota recomeça todo mês, pelo mês da data de saída (29/10/2026)', () => {
+  assert.deepEqual(numeracaoMensalDoRomaneio('2026-11-01', '2026-10-31'), { chave: 'romaneios_2026_11', inicio: '2026-11-01', fim: '2026-11-31' });
+  assert.equal(numeracaoMensalDoRomaneio('2026-10-28', '2026-11-02').chave, 'romaneios_2026_10');
+  // Sem data de saída: o mês de hoje.
+  assert.equal(numeracaoMensalDoRomaneio('', '2026-12-05').chave, 'romaneios_2026_12');
+  // A faixa pega o mês inteiro na comparação de texto AAAA-MM-DD.
+  const { inicio, fim } = numeracaoMensalDoRomaneio('2026-02-10', '2026-02-10');
+  assert.ok('2026-02-28' >= inicio && '2026-02-28' <= fim);
+  assert.ok(!('2026-03-01' <= fim));
 });
 
 test('só pedido faturado entra na rota; pré-venda e cancelado dizem o porquê', () => {

@@ -214,6 +214,21 @@ export const tituloDoRomaneio = (numero: number, nome: string): string => {
   return `Rota ${n}${complemento ? ` ${complemento}` : ''}`;
 };
 
+/**
+ * NUMERO DA ROTA RECOMECA TODO MES (29/10/2026, pedido do dono): Rota 01, 02...
+ * de novo a cada mes. Vale o mes da DATA DE SAIDA (rota montada no dia 31 para
+ * sair dia 1o e' do mes seguinte); sem data, o de hoje. Um contador por mes
+ * (contadores/{tenant}/sequencias/romaneios_AAAA_MM); o primeiro numero do mes
+ * nunca fica abaixo do maior ja' gravado nele (`inicio`/`fim` para buscar), para
+ * o mes da mudanca nao repetir as rotas que ja' sairam pelo contador antigo.
+ * O numero e' dado na criacao: trocar a data depois nao renumera.
+ */
+export const numeracaoMensalDoRomaneio = (dataSaida: string, hoje: string): { chave: string; inicio: string; fim: string } => {
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(String(dataSaida || '')) ? dataSaida : hoje;
+  const mes = data.slice(0, 7);
+  return { chave: `romaneios_${mes.replace('-', '_')}`, inicio: `${mes}-01`, fim: `${mes}-31` };
+};
+
 /** Nome de tipo/motivo cadastrado pela empresa: caixa alta, aparado, ate 40 letras. */
 export const normalizarNomeCadastro = (texto: unknown): string => limpar(texto).toUpperCase().slice(0, 40);
 

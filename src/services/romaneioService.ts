@@ -13,7 +13,7 @@ import { auth, db } from './firebase';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import { reserveTenantSequence } from '../utils/firestoreAtomic';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
-import { addDaysToDateInput } from '../utils/dateTime';
+import { addDaysToDateInput, getDateInputInTimeZone } from '../utils/dateTime';
 import { LOTE_IN_POR_CAMPO, LOTE_IN_POR_ID } from '../utils/firestoreLimites';
 import { STATUS_PRE_VENDA } from '../utils/preVendaDomain';
 import { erroDePreVendaParaLiberar, pedidosSemFaturar } from '../utils/rotaPreVendaDomain';
@@ -26,6 +26,7 @@ import {
   erroDoRegistroDeEntrega,
   erroParaLiberar,
   montarEntregaDoPedido,
+  numeracaoMensalDoRomaneio,
   registroParaGravar,
   romaneioDoDocumento,
   tituloDoRomaneio,
@@ -167,6 +168,19 @@ export const salvarRomaneioEmMontagem = async (args: {
   const { tenantId, uid, romaneio } = args;
   const ref: DocumentReference = args.id ? doc(db, COLECAO_ROMANEIOS, args.id) : doc(collection(db, COLECAO_ROMANEIOS));
 
+  // Rota nova: numero do mes da saida, nunca abaixo do maior ja' gravado nesse mes.
+  const numeracao = numeracaoMensalDoRomaneio(romaneio.dataSaida, getDateInputInTimeZone());
+  let pisoDoMes = 0;
+  if (!args.id) {
+    const doMes = await getDocs(query(
+      collection(db, COLECAO_ROMANEIOS),
+      where('tenantId', '==', tenantId),
+      where('dataSaida', '>=', numeracao.inicio),
+      where('dataSaida', '<=', numeracao.fim),
+    ));
+    pisoDoMes = doMes.docs.reduce((maior, d) => Math.max(maior, Number(d.data().numero) || 0), 0);
+  }
+
   return runTransaction(db, async (transaction) => {
     let numero = romaneio.numero;
     let anteriores: string[] = [];
@@ -193,7 +207,7 @@ export const salvarRomaneioEmMontagem = async (args: {
       }
     });
 
-    if (!args.id) numero = await reserveTenantSequence(transaction, db, tenantId, 'romaneios', 0);
+    if (!args.id) numero = await reserveTenantSequence(transaction, db, tenantId, numeracao.chave, pisoDoMes);
     const titulo = tituloDoRomaneio(numero, romaneio.nome);
     const agora = serverTimestamp();
 

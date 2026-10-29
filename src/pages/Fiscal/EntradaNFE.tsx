@@ -492,8 +492,9 @@ const EntradaNFE: React.FC = () => {
       const insumoExistente = materiaPrimaExistente ? null : matchMateriaPrimaFromXmlItem(item, insumosAtuais, fornecedorMatch.id);
       const inicial = buildInitialItemEntradaConfig(item.valorUnitario, null, materiaPrimaExistente?.id || null, usaCsosn, insumoExistente?.id || null);
       const reconhecido = materiaPrimaExistente ?? insumoExistente;
+      const peloCodigoDoFornecedor = Boolean(item.codigo) && (reconhecido?.codigosFornecedor?.[fornecedorMatch.id] || '').trim().toLowerCase() === item.codigo.trim().toLowerCase();
       return reconhecido
-        ? { ...inicial, origemVinculo: 'automatico', fator: String(fatorValido(reconhecido.fatoresFornecedor?.[fornecedorMatch.id])) }
+        ? { ...inicial, origemVinculo: peloCodigoDoFornecedor ? 'codigo_fornecedor' : 'automatico', fator: String(fatorValido(reconhecido.fatoresFornecedor?.[fornecedorMatch.id])) }
         : inicial;
     });
     setItemConfigs(configs);

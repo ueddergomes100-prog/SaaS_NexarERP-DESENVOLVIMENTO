@@ -135,7 +135,8 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
             </span>
             <button type="button" className="btn-secondary" onClick={onAbrirVinculo} style={botaoPequeno}><Link2 size={13} /> Trocar cadastro</button>
             <button type="button" className="btn-secondary" onClick={onDesvincular} style={botaoPequeno}><Unlink size={13} /> Desvincular (cadastrar como novo)</button>
-            {cadastro && config.origemVinculo !== 'manual' && !nomesTemPalavraEmComum(item.descricao, cadastro.nome) && (
+            {/* Codigo do fornecedor ja aprendido numa entrada confirmada e' identificacao segura: o nome pode ter sido trocado de proposito. */}
+            {cadastro && config.origemVinculo !== 'manual' && config.origemVinculo !== 'codigo_fornecedor' && !nomesTemPalavraEmComum(item.descricao, cadastro.nome) && (
               <div role="alert" style={{ flexBasis: '100%', fontSize: '12.5px', color: '#f59e0b', lineHeight: 1.5 }}>
                 <strong>Confira:</strong> o nome do cadastro ({cadastro.nome}) não tem nada em comum com o item da nota. Se não for o mesmo produto, clique em
                 <strong> Trocar cadastro</strong> (busque pelo nome certo) ou em <strong>Desvincular</strong> — ao desvincular aparece a escolha

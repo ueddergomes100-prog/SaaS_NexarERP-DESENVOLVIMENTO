@@ -111,6 +111,7 @@ import {
   DEFAULT_MINUTA_MOSTRAR_MARCA,
   DEFAULT_MINUTA_MOSTRAR_LOCAL,
 } from '../../utils/conferenciaDomain';
+import { DEFAULT_VALORES_NA_MINUTA_DO_APP, OPCOES_VALORES_NA_MINUTA_DO_APP, parseValoresNaMinutaDoApp, type ValoresNaMinutaDoApp } from '../../utils/minutaDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../../utils/loteDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
@@ -344,6 +345,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     ordenarMinutaPorLocal: DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
     minutaMostrarMarca: DEFAULT_MINUTA_MOSTRAR_MARCA,
     minutaMostrarLocal: DEFAULT_MINUTA_MOSTRAR_LOCAL,
+    appMinutaValores: DEFAULT_VALORES_NA_MINUTA_DO_APP as ValoresNaMinutaDoApp,
     emiteNFe: false,
     emiteNFCe: false,
     emiteNFSe: false,
@@ -522,6 +524,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             ordenarMinutaPorLocal: data.ordenarMinutaPorLocal ?? DEFAULT_ORDENAR_MINUTA_POR_LOCAL,
             minutaMostrarMarca: data.minutaMostrarMarca ?? DEFAULT_MINUTA_MOSTRAR_MARCA,
             minutaMostrarLocal: data.minutaMostrarLocal ?? DEFAULT_MINUTA_MOSTRAR_LOCAL,
+            appMinutaValores: parseValoresNaMinutaDoApp(data.appMinutaValores),
             emiteNFe: data.emiteNFe ?? false,
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
@@ -3267,6 +3270,24 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   Mostrar a coluna Local (localização no estoque) na minuta
                 </label>
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Desmarcada, a coluna some do papel e a Descrição ganha o espaço. Vale para toda minuta impressa, com ou sem conferência de mercadoria.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Valores na minuta do App Vendas</label>
+                {OPCOES_VALORES_NA_MINUTA_DO_APP.map((opcao) => (
+                  <label key={opcao.valor} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="radio"
+                      name="appMinutaValores"
+                      checked={formData.appMinutaValores === opcao.valor}
+                      onChange={() => setFormData({ ...formData, appMinutaValores: opcao.valor })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    {opcao.rotulo}
+                  </label>
+                ))}
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Vale para a minuta que o vendedor manda ao cliente pelo WhatsApp, no app (Rascunhos). Com valores, sai o preço de cada item e o <strong>total do pedido</strong>, com o aviso de que os valores dependem da confirmação da loja. A minuta impressa na loja continua sem valores.</p>
               </div>
 
               {formData.conferenciaMercadoria && (

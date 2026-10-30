@@ -12,6 +12,7 @@ import {
   formatarTelefoneMinuta,
   formatarTotalPecasMinuta,
   rotuloDocumentoMinuta,
+  totaisDaMinutaComValores,
 } from '../../utils/minutaDomain';
 import type { RascunhoVenda } from './vendedorRascunhosStore';
 
@@ -20,7 +21,9 @@ import type { RascunhoVenda } from './vendedorRascunhosStore';
  * conferir o que pediu ANTES de enviar o pedido a loja.
  *
  * Mesmo desenho da minuta impressa na retaguarda (MinutaPrintDocument.tsx) e,
- * como ela, SEM valor monetario. Diferencas: o rascunho ainda nao tem numero
+ * como ela, SEM valor monetario -- a nao ser que a empresa ligue os valores
+ * (Configuracoes, "Valores na minuta do App Vendas", 30/10/2026): ai' sai com
+ * preco unitario, total de cada item e o total do pedido. Diferencas: o rascunho ainda nao tem numero
  * de pedido (sai "RASCUNHO") e so' guarda codigo/nome/quantidade/unidade dos
  * itens -- codigo de barras, marca e local ficam de fora.
  *
@@ -35,6 +38,8 @@ export interface DadosMinutaRascunho {
   nomeEmpresa: string;
   vendedorNome: string;
   geradoEm: Date;
+  /** Com precos e total do pedido (a empresa ligou em Configuracoes). Padrao: sem. */
+  comValores?: boolean;
 }
 
 const PRETO: [number, number, number] = [30, 30, 30];
@@ -45,7 +50,10 @@ export const nomeArquivoMinutaRascunho = (clienteNome: string): string => {
   return `Minuta - ${limpo || 'Cliente'}.pdf`;
 };
 
-export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedorNome, geradoEm }: DadosMinutaRascunho): Blob => {
+const moeda = (valor: number): string => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const precoUnitario = (valor: number): string => valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedorNome, geradoEm, comValores = false }: DadosMinutaRascunho): Blob => {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const largura = pdf.internal.pageSize.getWidth();
   const altura = pdf.internal.pageSize.getHeight();
@@ -62,7 +70,14 @@ export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedo
   pdf.setFont('helvetica', 'bold').setFontSize(15);
   texto('MINUTA DE ENTREGA', largura / 2, 16, { align: 'center' });
   pdf.setFont('helvetica', 'normal').setFontSize(9);
-  texto('RASCUNHO - pedido ainda não enviado à loja, sujeito a conferência', largura / 2, 21.5, { align: 'center' });
+  texto(
+    comValores
+      ? 'RASCUNHO - pedido ainda não enviado à loja. Valores sujeitos à confirmação da loja'
+      : 'RASCUNHO - pedido ainda não enviado à loja, sujeito a conferência',
+    largura / 2,
+    21.5,
+    { align: 'center' },
+  );
 
   // Quadro do cabecalho: cada linha tem um texto a esquerda e outro a direita.
   const dadosCliente = cliente || {};
@@ -95,18 +110,31 @@ export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedo
     unidade: item.unidadeMedidaSigla || 'UN',
     codigo: item.codigo || '',
     nome: item.nome,
+    precoUnitario: Number(item.precoUnitario) || 0,
+    subtotal: Number(item.subtotal) || 0,
   }));
+  const colunas = comValores ? 6 : 4;
   autoTable(pdf, {
     startY: topoQuadro + alturaLinha * linhas.length + 8,
     margin: { left: margem, right: margem, bottom: 50 },
-    head: [['Quantid.', 'Und.', 'Matric.', 'Descrição']],
+    head: [comValores
+      ? ['Quantid.', 'Und.', 'Matric.', 'Descrição', { content: 'Preço Unit.', styles: { halign: 'right' as const } }, { content: 'Total', styles: { halign: 'right' as const } }]
+      : ['Quantid.', 'Und.', 'Matric.', 'Descrição']],
     body: itens.length > 0
-      ? itens.map((i) => [formatarQuantidadeMinuta(i.quantidade), i.unidade, i.codigo, i.nome])
-      : [[{ content: 'Nenhum item adicionado.', colSpan: 4, styles: { halign: 'center' as const } }]],
+      ? itens.map((i) => {
+        const linha = [formatarQuantidadeMinuta(i.quantidade), i.unidade, i.codigo, i.nome];
+        return comValores ? [...linha, precoUnitario(i.precoUnitario), moeda(i.subtotal)] : linha;
+      })
+      : [[{ content: 'Nenhum item adicionado.', colSpan: colunas, styles: { halign: 'center' as const } }]],
     theme: 'plain',
     styles: { font: 'helvetica', fontSize: 9, textColor: PRETO, cellPadding: 1.6, lineColor: [150, 150, 150], lineWidth: { bottom: 0.15 } },
     headStyles: { fontStyle: 'bold', lineColor: PRETO, lineWidth: { top: 0.4, bottom: 0.4 } },
-    columnStyles: { 0: { halign: 'right', cellWidth: 26 }, 1: { cellWidth: 14 }, 2: { halign: 'right', cellWidth: 22 } },
+    columnStyles: {
+      0: { halign: 'right', cellWidth: 22 },
+      1: { cellWidth: 12 },
+      2: { halign: 'right', cellWidth: 20 },
+      ...(comValores ? { 4: { halign: 'right' as const, cellWidth: 24 }, 5: { halign: 'right' as const, cellWidth: 27 } } : {}),
+    },
   });
 
   // Total, entrega e assinaturas. Se nao couber, vai pra folha seguinte.
@@ -119,6 +147,24 @@ export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedo
   texto('Total de Peça(s):', margem, y);
   pdf.setFont('helvetica', 'bold');
   texto(formatarTotalPecasMinuta(itens), margem + 34, y);
+
+  if (comValores) {
+    // Totais a direita, na mesma altura do total de pecas.
+    const totais = totaisDaMinutaComValores(rascunho.itens);
+    const direita = margem + util;
+    const linhasTotais: Array<[string, string]> = [
+      ...(totais.desconto > 0 ? [['Subtotal:', moeda(totais.bruto)], ['Desconto:', `- ${moeda(totais.desconto)}`]] as Array<[string, string]> : []),
+      ['TOTAL DO PEDIDO:', moeda(totais.total)],
+    ];
+    linhasTotais.forEach(([rotulo, valor], i) => {
+      const ultima = i === linhasTotais.length - 1;
+      pdf.setFont('helvetica', ultima ? 'bold' : 'normal').setFontSize(ultima ? 11 : 10);
+      texto(rotulo, direita - 42, y + i * 5.5, { align: 'right' });
+      texto(valor, direita, y + i * 5.5, { align: 'right' });
+    });
+    y += (linhasTotais.length - 1) * 5.5;
+    pdf.setFont('helvetica', 'normal').setFontSize(10);
+  }
 
   pdf.setFont('helvetica', 'normal');
   texto('Data de Entrega  ____/____/____', margem, y + 14);

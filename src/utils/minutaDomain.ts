@@ -116,3 +116,44 @@ export const enderecoMinuta = (cliente: { endereco?: string; numero?: string } |
   if (rua && numero) return `${rua}, ${numero}`;
   return rua || numero;
 };
+
+/**
+ * VALORES NA MINUTA DO APP VENDAS (pedido de cliente, 30/10/2026).
+ *
+ * A minuta que o vendedor manda pelo WhatsApp saia sempre SEM valor (igual a
+ * da loja). O cliente quer conferir os precos e o total para lancar no
+ * sistema dele. A empresa decide, por filial, em Configuracoes:
+ *   'nunca'            -- como sempre foi (padrao);
+ *   'sempre'           -- toda minuta do app sai com precos e total;
+ *   'vendedor_escolhe' -- o app pergunta na hora de enviar.
+ */
+export type ValoresNaMinutaDoApp = 'nunca' | 'sempre' | 'vendedor_escolhe';
+
+export const DEFAULT_VALORES_NA_MINUTA_DO_APP: ValoresNaMinutaDoApp = 'nunca';
+
+export const OPCOES_VALORES_NA_MINUTA_DO_APP: ReadonlyArray<{ valor: ValoresNaMinutaDoApp; rotulo: string }> = [
+  { valor: 'nunca', rotulo: 'Nunca mostrar valores (só produtos e quantidades)' },
+  { valor: 'sempre', rotulo: 'Sempre mostrar preços e total do pedido' },
+  { valor: 'vendedor_escolhe', rotulo: 'O vendedor escolhe na hora de enviar' },
+];
+
+export const parseValoresNaMinutaDoApp = (valor: unknown): ValoresNaMinutaDoApp => (
+  valor === 'sempre' || valor === 'vendedor_escolhe' ? valor : DEFAULT_VALORES_NA_MINUTA_DO_APP
+);
+
+/** Totais da minuta com valores, em centavos para nao acumular erro de arredondamento. */
+export const totaisDaMinutaComValores = (
+  itens: ReadonlyArray<{ precoUnitario?: unknown; quantidade?: unknown; subtotal?: unknown }>,
+): { bruto: number; desconto: number; total: number } => {
+  let bruto = 0;
+  let desconto = 0;
+  let total = 0;
+  for (const item of itens) {
+    const precoBruto = Math.round((Number(item.precoUnitario) || 0) * (Number(item.quantidade) || 0) * 100);
+    const subtotal = Math.round((Number(item.subtotal) || 0) * 100);
+    bruto += precoBruto;
+    total += subtotal;
+    desconto += Math.max(0, precoBruto - subtotal);
+  }
+  return { bruto: bruto / 100, desconto: desconto / 100, total: total / 100 };
+};

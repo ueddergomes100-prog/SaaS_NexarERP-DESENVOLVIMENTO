@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   codigoENomeMinuta,
+  parseValoresNaMinutaDoApp,
+  totaisDaMinutaComValores,
   condicaoPagamentoMinuta,
   enderecoMinuta,
   formatarCepMinuta,
@@ -72,4 +74,19 @@ test('data curta e hora da pre-venda, no fuso de Sao Paulo', () => {
   assert.equal(formatarHoraMinuta(d), '09:59');
   assert.equal(formatarDataCurtaMinuta(null), '');
   assert.equal(formatarHoraMinuta(new Date('lixo')), '');
+});
+
+test('valores na minuta do app: so sempre e vendedor_escolhe ligam; o resto e nunca', () => {
+  assert.equal(parseValoresNaMinutaDoApp('sempre'), 'sempre');
+  assert.equal(parseValoresNaMinutaDoApp('vendedor_escolhe'), 'vendedor_escolhe');
+  assert.equal(parseValoresNaMinutaDoApp(undefined), 'nunca');
+  assert.equal(parseValoresNaMinutaDoApp(true), 'nunca');
+});
+
+test('totais da minuta com valores: soma em centavos; desconto = bruto - subtotal', () => {
+  assert.deepEqual(totaisDaMinutaComValores([
+    { precoUnitario: 0.1, quantidade: 3, subtotal: 0.3 },
+    { precoUnitario: 10, quantidade: 2, subtotal: 18 },
+  ]), { bruto: 20.3, desconto: 2, total: 18.3 });
+  assert.deepEqual(totaisDaMinutaComValores([]), { bruto: 0, desconto: 0, total: 0 });
 });

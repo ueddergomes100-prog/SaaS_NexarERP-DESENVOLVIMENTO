@@ -18,6 +18,7 @@ import {
   type RascunhoVenda,
 } from './vendedorRascunhosStore';
 import { enviarRascunhos, rotuloTipoRascunho, type ResultadoEnvio } from './envioRascunhos';
+import { parseValoresNaMinutaDoApp } from '../../utils/minutaDomain';
 
 /** Resposta em ate' `ms`; passou disso (ou deu erro), devolve null -- a minuta segue sem esse dado. */
 const comTempoLimite = <T,>(promessa: Promise<T>, ms = 3000): Promise<T | null> => Promise.race([
@@ -47,7 +48,7 @@ const caminhoDeEdicao = (rascunho: RascunhoVenda) => `/vendedor/${rascunho.tipo 
  */
 const VendedorRascunhos: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, modoRotaPreVenda } = useAuth();
+  const { tenantId, currentUser, userNome, trabalhaComPreVenda, permiteVendaSemEstoque, conferenciaMercadoriaAtiva, modoRotaPreVenda, valoresNaMinutaDoApp } = useAuth();
   // Rota na pre-venda (21/10/2026): ao marcar "Pronto", pergunta a rota quando ha' mais de uma em montagem.
   const { escolherRota, modalDeRota } = useEscolhaDeRota(modoRotaPreVenda);
   const [rascunhos, setRascunhos] = useState<RascunhoVenda[]>(() => (
@@ -114,7 +115,8 @@ const VendedorRascunhos: React.FC = () => {
   };
 
   /**
-   * Manda a minuta do rascunho (PDF, sem valores) pro WhatsApp do cliente
+   * Manda a minuta do rascunho (PDF; com ou sem valores, conforme a empresa
+   * configurou -- 30/10/2026) pro WhatsApp do cliente
    * conferir o pedido antes de ele ir pra loja. Nao envia nem altera o
    * rascunho. Cadastro do cliente e nome da empresa sao complemento: se nao
    * carregarem (sem internet, por exemplo), a minuta sai com o que o
@@ -122,6 +124,22 @@ const VendedorRascunhos: React.FC = () => {
    */
   const handleEnviarMinuta = async (rascunho: RascunhoVenda) => {
     if (!tenantId || gerandoMinuta) return;
+    // Valores na minuta (30/10/2026): troca nao tem preco; nos demais vale a configuracao da filial.
+    let comValores = rascunho.tipo !== 'troca' && valoresNaMinutaDoApp === 'sempre';
+    if (rascunho.tipo !== 'troca' && valoresNaMinutaDoApp === 'vendedor_escolhe') {
+      const escolha = await NexusSwal.fire({
+        icon: 'question',
+        title: 'Minuta com valores?',
+        text: 'Com valores, o cliente recebe o preço de cada item e o total do pedido. Sem valores, só os produtos e as quantidades.',
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Com valores',
+        denyButtonText: 'Sem valores',
+        cancelButtonText: 'Voltar',
+      });
+      if (!escolha.isConfirmed && !escolha.isDenied) return;
+      comValores = escolha.isConfirmed;
+    }
     setGerandoMinuta(rascunho.localId);
     try {
       // As duas buscas correm juntas e com tempo limite (2026-10-02): com sinal
@@ -136,6 +154,8 @@ const VendedorRascunhos: React.FC = () => {
         ? clienteSnap.data() as MinutaCliente
         : null;
       const nomeEmpresa = String(configSnap?.data()?.nomeOficina || '').trim();
+      // A empresa desligou os valores depois que o app carregou: vale o que esta' gravado agora.
+      if (comValores && configSnap?.exists() && parseValoresNaMinutaDoApp(configSnap.data().appMinutaValores) === 'nunca') comValores = false;
 
       const telefone = cliente?.celular || cliente?.telefone || rascunho.cliente.telefone || '';
       const pdf = gerarMinutaRascunhoPdf({
@@ -144,6 +164,7 @@ const VendedorRascunhos: React.FC = () => {
         nomeEmpresa,
         vendedorNome: userNome || currentUser?.displayName || 'Vendedor',
         geradoEm: new Date(),
+        comValores,
       });
       const nomeArquivo = nomeArquivoMinutaRascunho(rascunho.cliente.nome);
       const mensagem = `Olá, ${rascunho.cliente.nome}! Segue a minuta do seu pedido para conferência.`;

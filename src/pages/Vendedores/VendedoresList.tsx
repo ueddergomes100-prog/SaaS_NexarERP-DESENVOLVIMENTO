@@ -103,6 +103,8 @@ interface FormState {
   /** Modulos extras liberados no app mobile (ids de MODULOS_MOBILE_EXTRAS,
    *  que sao os MESMOS ids de permissionCatalog.ts). So vale com acessoAppMobile. */
   modulosExtras: string[];
+  /** Meta de vendas do mes em reais (30/10/2026). Vazio = sem meta. Fica em configuracoes/{filial}.metasVendedores. */
+  metaMensal: string;
 }
 
 const FORM_VAZIO: FormState = {
@@ -117,6 +119,16 @@ const FORM_VAZIO: FormState = {
   liberaDesconto: false,
   acessoAppMobile: false,
   modulosExtras: [],
+  metaMensal: '',
+};
+
+/** "12.500,50" / "12500.5" -> 12500.5; vazio -> 0; invalido -> null. */
+const lerMetaMensal = (texto: string): number | null => {
+  const limpo = texto.trim();
+  if (!limpo) return 0;
+  const normalizado = limpo.includes(',') ? limpo.replace(/\./g, '').replace(',', '.') : limpo;
+  const valor = Number(normalizado);
+  return Number.isFinite(valor) && valor >= 0 ? Math.round(valor * 100) / 100 : null;
 };
 
 /** Permissoes minimas pra o vendedor de balcao operar no aplicativo mobile
@@ -166,11 +178,19 @@ const VendedoresList: React.FC = () => {
    *  em acessoMobileDomain.ts). Mesma fonte que UsuarioForm.tsx usa pro login
    *  do funcionario. */
   const [cnpjEmpresa, setCnpjEmpresa] = useState('');
+  /** Metas do mes por vendedor (30/10/2026), nas configuracoes da filial -- o app mostra em "Meu desempenho". */
+  const [metasVendedores, setMetasVendedores] = useState<Record<string, number>>({});
+  // Quem grava nas configuracoes da empresa (mesma trava das rules: canEditTenantConfig).
+  const podeDefinirMeta = ehGestor || userPermissions.includes('administrativo.config');
 
   useEffect(() => {
     if (!tenantId) return;
     getDoc(doc(db, 'configuracoes', tenantId))
-      .then((snap) => setCnpjEmpresa(snap.exists() ? (snap.data().cnpj || '') : ''))
+      .then((snap) => {
+        setCnpjEmpresa(snap.exists() ? (snap.data().cnpj || '') : '');
+        const metas = snap.exists() ? snap.data().metasVendedores : null;
+        setMetasVendedores(metas && typeof metas === 'object' ? metas as Record<string, number> : {});
+      })
       .catch(() => setCnpjEmpresa(''));
   }, [tenantId]);
 
@@ -235,6 +255,7 @@ const VendedoresList: React.FC = () => {
       modulosExtras: MODULOS_MOBILE_EXTRAS
         .map((modulo) => modulo.id)
         .filter((id) => (vendedor.permissoes || []).includes(id)),
+      metaMensal: Number(metasVendedores[vendedor.id]) > 0 ? String(metasVendedores[vendedor.id]).replace('.', ',') : '',
     });
     setModalAberto(true);
   };
@@ -294,6 +315,12 @@ const VendedoresList: React.FC = () => {
       return;
     }
     if (definindoPin && !(await pinLiberado(form.pin))) return;
+
+    const metaMensal = podeDefinirMeta ? lerMetaMensal(form.metaMensal) : 0;
+    if (metaMensal === null) {
+      showError('Meta inválida', 'Informe a meta do mês em reais (por exemplo 15000 ou 15.000,00), ou deixe em branco para não ter meta.');
+      return;
+    }
 
     // "Usa o aplicativo mobile" so cobra vaga do limite quando esta LIGANDO
     // agora -- editar outro campo de quem ja tinha acesso nao passa por
@@ -404,6 +431,24 @@ const VendedoresList: React.FC = () => {
       } catch (error) {
         console.error('Erro ao atualizar o acesso ao app mobile:', error);
         showWarning(`${nome} foi salvo, mas o aplicativo mobile não foi atualizado. ${error instanceof Error && error.message ? error.message : 'Abra a edição e salve de novo.'}`);
+      }
+
+      // Meta do mes (30/10/2026): nas configuracoes da filial, onde o app le. So' grava se mudou.
+      const metaAnterior = Number(metasVendedores[vendedorId]) || 0;
+      if (podeDefinirMeta && vendedorId && metaMensal !== metaAnterior) {
+        try {
+          await updateDoc(doc(db, 'configuracoes', tenantId), {
+            [`metasVendedores.${vendedorId}`]: metaMensal > 0 ? metaMensal : deleteField(),
+          });
+          setMetasVendedores((atuais) => {
+            const proximas = { ...atuais };
+            if (metaMensal > 0) proximas[vendedorId] = metaMensal; else delete proximas[vendedorId];
+            return proximas;
+          });
+        } catch (error) {
+          console.error('Erro ao gravar a meta do vendedor:', error);
+          showWarning(`${nome} foi salvo, mas a meta do mês não. Abra a edição e salve de novo; se continuar, confira se você pode alterar as Configurações da empresa.`);
+        }
       }
 
       if (definindoPin) {
@@ -850,6 +895,28 @@ const VendedoresList: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {podeDefinirMeta && (
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '18px', marginTop: '18px' }}>
+                <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#7c3aed' }}></span>
+                  Meta de vendas do mês
+                </h4>
+                <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Aparece para o vendedor no App Vendas, em "Meu Desempenho", com a barra de quanto já vendeu. Vale todo mês até você mudar; em branco, sem meta.
+                </p>
+                <div className="input-group">
+                  <label>Meta mensal (R$)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={form.metaMensal}
+                    onChange={(e) => setForm({ ...form, metaMensal: e.target.value.replace(/[^\d.,]/g, '') })}
+                    style={{ ...inputStyle, width: '200px' }}
+                  />
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '28px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
               <button type="button" className="btn-secondary" onClick={() => setModalAberto(false)} disabled={salvando}>

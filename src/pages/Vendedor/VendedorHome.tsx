@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Package, PackageCheck, Receipt, Repeat, Send, ShieldCheck, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, BarChart3, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Package, PackageCheck, Receipt, Repeat, Send, ShieldCheck, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
@@ -213,6 +213,7 @@ const VendedorHome: React.FC = () => {
         <div className="vendedor-atalhos-grid">
           {tela(PERMISSAO_APP.pedido) && <Atalho Icone={Box} rotulo="Novo Pedido" variante="principal" aoTocar={() => navigate('/vendedor/pedido/novo')} />}
           {tela(PERMISSAO_APP.orcamento) && <Atalho Icone={FileText} rotulo="Novo Orçamento" aoTocar={() => navigate('/vendedor/orcamento/novo')} />}
+          {tela(PERMISSAO_APP.pedido) && <Atalho Icone={BarChart3} rotulo="Meu Desempenho" detalhe="Vendas, meta e comissão" aoTocar={() => navigate('/vendedor/desempenho')} />}
           {tela(PERMISSAO_APP.preco) && <Atalho Icone={Tag} rotulo="Consultar Preço" aoTocar={() => navigate('/vendedor/preco')} />}
           {tela(PERMISSAO_APP.clientes) && <Atalho Icone={Users} rotulo="Consultar Cliente" aoTocar={() => navigate('/vendedor/cliente')} />}
           {podeSolicitarTroca && (

@@ -8,6 +8,7 @@ import VendedorNovoOrcamento from './VendedorNovoOrcamento';
 import VendedorConsultarCliente from './VendedorConsultarCliente';
 import VendedorConsultarPreco from './VendedorConsultarPreco';
 import VendedorMeusPedidos from './VendedorMeusPedidos';
+import VendedorDesempenho from './VendedorDesempenho';
 import VendedorPerfil from './VendedorPerfil';
 import VendedorBottomNav from './VendedorBottomNav';
 import VendedorEmBreve from './VendedorEmBreve';
@@ -148,6 +149,7 @@ const VendedorShell: React.FC = () => {
           <Route path="entregas/:id" element={<VendedorEntregaRota />} />
           <Route path="entregas/:id/:pedidoId" element={<VendedorEntregaRegistrar />} />
           <Route path="pedidos" element={so(PERMISSAO_APP.pedido, <VendedorMeusPedidos />)} />
+          <Route path="desempenho" element={so(PERMISSAO_APP.pedido, <VendedorDesempenho />)} />
           <Route path="cliente" element={so(PERMISSAO_APP.clientes, <VendedorConsultarCliente />)} />
           <Route path="cliente/novo" element={so(PERMISSAO_APP.clientes, <VendedorNovoCliente />)} />
           <Route path="preco" element={so(PERMISSAO_APP.preco, <VendedorConsultarPreco />)} />

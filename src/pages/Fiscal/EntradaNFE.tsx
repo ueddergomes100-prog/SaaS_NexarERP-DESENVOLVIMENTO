@@ -43,7 +43,10 @@ import {
   buildInitialItemEntradaConfig,
   cfopDeSaidaSugerido,
   fatorDoItemNovo,
+  idDaNotaDeEntrada,
+  MENSAGEM_NOTA_LANCADA_AO_MESMO_TEMPO,
   mensagemDeNotaDuplicada,
+  type NotaJaLancada,
   nomeDoCadastroNovo,
   unidadeDoItemNovo,
   type UnidadeDaEmpresa,
@@ -985,22 +988,44 @@ const EntradaNFE: React.FC = () => {
    * para entrada antiga sem chave, por fornecedor + numero (+ serie). Nota
    * EXCLUIDA nao conta: excluir e' justamente como se libera lancar de novo.
    */
-  const verificarNotaDuplicada = async (nota: NotaParseada, fornecedorId: string, numeroNF: string) => {
-    if (!tenantId) return null;
+  const verificarNotaDuplicada = async (nota: NotaParseada, fornecedorId: string, numeroNF: string): Promise<{ ativa: NotaJaLancada | null; lancamentosDaChave: number }> => {
+    if (!tenantId) return { ativa: null, lancamentosDaChave: 0 };
     const colecaoNotas = collection(db, 'notas_fiscais_entrada');
-    const encontradas: Array<{ numeroNF: string; dataEmissao: string; fornecedorNome: string; status?: string }> = [];
+    const encontradas: NotaJaLancada[] = [];
+    let lancamentosDaChave = 0;
     if (nota.chave) {
       const porChave = await getDocs(query(colecaoNotas, where('tenantId', '==', tenantId), where('chaveAcesso', '==', nota.chave)));
-      porChave.forEach((d) => encontradas.push(d.data() as (typeof encontradas)[number]));
+      lancamentosDaChave = porChave.size;
+      porChave.forEach((d) => encontradas.push(d.data() as NotaJaLancada));
     }
     const porNumero = await getDocs(query(colecaoNotas, where('tenantId', '==', tenantId), where('fornecedorId', '==', fornecedorId), where('numeroNF', '==', numeroNF)));
     porNumero.forEach((d) => {
       const dados = d.data();
       const mesmaSerie = !dados.serie || !nota.serie || dados.serie === nota.serie;
-      if (mesmaSerie) encontradas.push(dados as (typeof encontradas)[number]);
+      if (mesmaSerie) encontradas.push(dados as NotaJaLancada);
     });
-    return primeiraNotaAtiva(encontradas);
+    return { ativa: primeiraNotaAtiva(encontradas), lancamentosDaChave };
   };
+
+  /**
+   * Nota ja lancada: avisa assim que o XML e o fornecedor estao na tela (30/10/2026),
+   * antes de a pessoa preencher os itens. A confirmacao confere de novo.
+   */
+  const [notaJaLancada, setNotaJaLancada] = useState<NotaJaLancada | null>(null);
+  useEffect(() => {
+    setNotaJaLancada(null);
+    if (!parsedData || fornecedorStatus !== 'found' || !fornecedorMatch) return;
+    let cancelado = false;
+    verificarNotaDuplicada(parsedData.nota, fornecedorMatch.id, parsedData.numeroNF)
+      .then(({ ativa }) => {
+        if (cancelado || !ativa) return;
+        setNotaJaLancada(ativa);
+        showError('Nota já lançada', mensagemDeNotaDuplicada(ativa));
+      })
+      .catch((erro) => console.error('Erro ao conferir se a nota já foi lançada:', erro));
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsedData, fornecedorStatus, fornecedorMatch?.id]);
 
   // Salva dados no Firestore
   const handleConfirmarEntrada = async () => {
@@ -1127,12 +1152,14 @@ const EntradaNFE: React.FC = () => {
     });
 
     try {
-      const jaLancada = await verificarNotaDuplicada(nota, fornecedorMatch.id, parsedData.numeroNF);
+      const { ativa: jaLancada, lancamentosDaChave } = await verificarNotaDuplicada(nota, fornecedorMatch.id, parsedData.numeroNF);
       if (jaLancada) {
         Swal.close();
+        setNotaJaLancada(jaLancada);
         showError('Nota já lançada', mensagemDeNotaDuplicada(jaLancada));
         return;
       }
+      setNotaJaLancada(null);
 
       // ---------------------------------------------------------- plano da entrada
       const agora = new Date();
@@ -1197,7 +1224,9 @@ const EntradaNFE: React.FC = () => {
         ? []
         : modoPagamentoEfetivo === 'prazo' ? parcelas.map(() => doc(collection(db, 'transacoes'))) : [doc(collection(db, 'transacoes'))];
       const tituloFreteRef = freteGeraTituloProprio(frete) ? doc(collection(db, 'transacoes')) : null;
-      const notaRef = doc(collection(db, 'notas_fiscais_entrada'));
+      // Id tirado da chave: a transacao le esse documento e para se outro clique ja gravou a mesma nota.
+      const idDaNota = idDaNotaDeEntrada(tenantId, nota.chave, lancamentosDaChave);
+      const notaRef = idDaNota ? doc(db, 'notas_fiscais_entrada', idDaNota) : doc(collection(db, 'notas_fiscais_entrada'));
       const titulosPagarIds = [...titulosRefs.map((ref) => ref.id), ...(tituloFreteRef ? [tituloFreteRef.id] : [])];
       const bancoRef = notaGeraContaAPagar && modoPagamentoEfetivo === 'avista' && destinoPagamento === 'banco' ? doc(db, 'bancos', bancoId) : null;
       const bancoNome = bancos.find((b) => b.id === bancoId)?.nome || '';
@@ -1235,6 +1264,7 @@ const EntradaNFE: React.FC = () => {
         insumosCriados = 0;
 
         // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
+        if (idDaNota && (await transaction.get(notaRef)).exists()) throw new Error(MENSAGEM_NOTA_LANCADA_AO_MESMO_TEMPO);
         const snapshots = new Map<string, DocumentSnapshot<DocumentData>>();
         for (const plano of itensPlano) {
           if (plano.vinculado && !snapshots.has(plano.ref.path)) snapshots.set(plano.ref.path, await transaction.get(plano.ref));
@@ -1691,7 +1721,8 @@ const EntradaNFE: React.FC = () => {
     } catch (err) {
       console.error(err);
       Swal.close();
-      showError('Erro na Importação', (err as Error).message || 'Falha ao salvar itens no banco de dados. Nada foi gravado: você pode tentar de novo.');
+      const mensagem = (err as Error).message;
+      showError(mensagem === MENSAGEM_NOTA_LANCADA_AO_MESMO_TEMPO ? 'Nota já lançada' : 'Erro na Importação', mensagem || 'Falha ao salvar itens no banco de dados. Nada foi gravado: você pode tentar de novo.');
     } finally {
       setIsProcessing(false);
     }
@@ -2142,6 +2173,11 @@ const EntradaNFE: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px', marginTop: '16px' }}>
                 {fornecedorStatus !== 'found' && (
                   <span style={{ fontSize: '13px', color: '#ef4444' }}>Cadastre o fornecedor para liberar a confirmação</span>
+                )}
+                {notaJaLancada && (
+                  <span role="alert" style={{ fontSize: '13px', color: '#ef4444', maxWidth: '520px' }}>
+                    Esta nota já está no Histórico de Entradas. Para lançar de novo, exclua o lançamento anterior lá.
+                  </span>
                 )}
                 <button
                   className="btn-secondary"

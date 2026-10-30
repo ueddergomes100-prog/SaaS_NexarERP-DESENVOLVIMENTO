@@ -118,6 +118,25 @@ export const mensagemDeNotaDuplicada = (existente: NotaJaLancada): string => {
     + 'Lançar de novo somaria o estoque e as contas a pagar em dobro. Se o lançamento anterior estava errado, exclua-o no Histórico de Entradas e lance esta nota outra vez.';
 };
 
+/**
+ * Id do registro da nota de entrada, tirado da CHAVE (30/10/2026). Com id fixo,
+ * a gravacao le o documento dentro da transacao: dois cliques (duas abas, duas
+ * pessoas) na mesma nota ao mesmo tempo nao passam os dois -- o segundo encontra
+ * o primeiro e para. Cada lancamento anterior da mesma chave (inclusive os
+ * excluidos, que continuam no Historico) empurra o sufixo: _2, _3...
+ * Sem chave (nota antiga ou digitada) = null: id aleatorio, como antes.
+ */
+export const idDaNotaDeEntrada = (tenantId: string, chave: string | undefined, lancamentosDaChave: number): string | null => {
+  const digitos = String(chave || '').replace(/\D/g, '');
+  if (digitos.length !== 44 || !tenantId) return null;
+  const base = `${tenantId}_nfe_${digitos}`;
+  return lancamentosDaChave > 0 ? `${base}_${lancamentosDaChave + 1}` : base;
+};
+
+/** Mensagem quando a mesma nota foi gravada por outro clique enquanto esta era conferida. */
+export const MENSAGEM_NOTA_LANCADA_AO_MESMO_TEMPO = 'Esta nota acabou de ser lançada em outra tela (outra aba ou outra pessoa) enquanto esta era gravada. '
+  + 'Nada foi gravado aqui, para não somar o estoque e as contas a pagar em dobro. Confira a nota no Histórico de Entradas.';
+
 /** Entre as notas encontradas, a primeira que ainda vale (nao excluida). */
 export const primeiraNotaAtiva = <T extends { status?: string }>(notas: T[]): T | null => (
   notas.find((nota) => (nota.status ?? 'ativa') !== 'excluida') ?? null

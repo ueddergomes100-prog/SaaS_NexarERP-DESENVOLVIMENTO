@@ -5,6 +5,7 @@ import {
   buildInitialItemEntradaConfig,
   cfopDeSaidaSugerido,
   mensagemDeNotaDuplicada,
+  idDaNotaDeEntrada,
   nomeDoCadastroNovo,
   unidadeDoItemNovo,
   fatorDoItemNovo,
@@ -227,4 +228,14 @@ test('fatorDoItemNovo: 1 na mesma unidade; o digitado em outra; vazio = 0 (a tel
   assert.equal(fatorDoItemNovo({ fator: '25' }, { mesmaDaNota: false }), 25);
   assert.equal(fatorDoItemNovo({ fator: '' }, { mesmaDaNota: false }), 0);
   assert.equal(fatorDoItemNovo({ fator: '-2' }, { mesmaDaNota: false }), 0);
+});
+
+test('idDaNotaDeEntrada: id fixo pela chave; lancamento anterior (mesmo excluido) empurra o sufixo; sem chave valida = aleatorio', () => {
+  const chave = '31261012345678000190550010000012341123456789';
+  assert.equal(idDaNotaDeEntrada('T1', chave, 0), `T1_nfe_${chave}`);
+  assert.equal(idDaNotaDeEntrada('T1', chave, 1), `T1_nfe_${chave}_2`);
+  assert.equal(idDaNotaDeEntrada('T1', `NFe${chave}`, 2), `T1_nfe_${chave}_3`);
+  assert.equal(idDaNotaDeEntrada('T1', '', 0), null);
+  assert.equal(idDaNotaDeEntrada('T1', '123', 0), null);
+  assert.equal(idDaNotaDeEntrada('', chave, 0), null);
 });

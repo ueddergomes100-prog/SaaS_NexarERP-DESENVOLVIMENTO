@@ -41,6 +41,8 @@ export interface ItemParaPreco {
   desconto?: number;
   embalagemId?: unknown;
   fatorConversao?: unknown;
+  /** Bonificacao (30/10/2026): item de brinde, a preco zero de proposito -- nao confere. */
+  bonificado?: unknown;
 }
 
 export interface PrecoConferido {
@@ -102,7 +104,7 @@ export const conferirPrecos = (args: {
   const itens = args.itens.map((item): PrecoConferido => {
     const cobrado = brutoDaLinha(item.precoUnitario, item.quantidade);
     const descontoDoItem = toCents(positivo(item.desconto));
-    const produto = item.id && item.id !== 'avulso' ? args.produtos[item.id] : null;
+    const produto = item.id && item.id !== 'avulso' && item.bonificado !== true ? args.produtos[item.id] : null;
     if (!produto) return { precoSistema: 0, brutoCentavos: cobrado, descontoCentavos: descontoDoItem, diferencaCentavos: 0 };
 
     const unidade = unidadeDoItem(produto, item);

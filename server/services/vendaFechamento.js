@@ -49,6 +49,7 @@ const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domai
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const cd = require('../domain/conferenciaDescontoDomain');
 const cp = require('../domain/conferenciaPrecoDomain');
+const bonif = require('../domain/bonificacaoDomain');
 const { condicaoDoPagamento, parseFormasAVista } = require('../domain/precoVendaDomain');
 const { lerPromocao, promocaoValeNoDia } = require('../domain/promocaoDomain');
 const { descontoPadraoDoCliente } = require('../domain/descontoDomain');
@@ -217,6 +218,34 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   // Balanco aberto com as vendas travadas (21/10/2026): nada finaliza ate' ele fechar.
   const travaDoBalanco = bloqueioPorBalanco(config.balancoEmAndamento, pedido.pdvSessionId ? 'finalizar a venda no PDV' : 'finalizar a venda');
   if (travaDoBalanco) throw new ErroVenda(409, travaDoBalanco);
+
+  // Bonificacao (30/10/2026): item de brinde so' com a chave da filial e com quem pode
+  // bonificar (quem fatura ou o vendedor da venda). Acima do limite, so' fatura quem
+  // aprova desconto (dono/gestor ou "Vendas: Aprovar Desconto Acima do Limite").
+  let bonificacaoDaVenda = null;
+  if (bonif.temItemBonificado(pedido.itens)) {
+    let vendedorPodeBonificar = false;
+    if (pedido.vendedorId && !temPermissao(user, bonif.PERMISSAO_BONIFICAR)) {
+      const vendedorSnap = await db.collection('usuarios').doc(pedido.vendedorId).get();
+      const v = vendedorSnap.exists ? vendedorSnap.data() : null;
+      vendedorPodeBonificar = Boolean(v && v.tenantId === tenantId && Array.isArray(v.permissoes) && v.permissoes.includes(bonif.PERMISSAO_BONIFICAR));
+    }
+    const situacaoBonificacao = bonif.situacaoDaBonificacao({
+      itens: pedido.itens,
+      config: bonif.parseConfigBonificacao(config.bonificacao),
+      podeBonificar: temPermissao(user, bonif.PERMISSAO_BONIFICAR) || vendedorPodeBonificar,
+    });
+    if (!situacaoBonificacao.ok) throw new ErroVenda(409, situacaoBonificacao.mensagem);
+    if (situacaoBonificacao.precisaLiberacao && !temPermissao(user, cd.PERMISSAO_LIBERAR_DESCONTO)) {
+      throw new ErroVenda(409, `${situacaoBonificacao.mensagem} Peça para quem aprova desconto (dono, gerente ou "Vendas: Aprovar Desconto Acima do Limite") faturar este pedido, ou diminua a bonificação.`);
+    }
+    const resumoBonificacao = bonif.resumoDaBonificacao(pedido.itens);
+    bonificacaoDaVenda = {
+      valorCentavos: resumoBonificacao.bonificadoCentavos,
+      percentual: resumoBonificacao.percentual,
+      ...(situacaoBonificacao.precisaLiberacao ? { liberadaPorId: user.uid, liberadaPorNome: String(user.nome || user.email || '') } : {}),
+    };
+  }
 
   // Pagamentos: a mesma conta da tela, com a configuracao lida daqui.
   const totais = venda.totaisDoFechamento({
@@ -611,6 +640,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       valorTotalDescontosCentavos: fin.toCents(totais.valorTotalDescontos),
       // Itens abaixo do preco do sistema: quanto isso deu de desconto (21/10/2026).
       ...(precos.diferencaTotalCentavos > 0 ? { descontoPorPrecoCentavos: precos.diferencaTotalCentavos } : {}),
+      // Bonificacao (30/10/2026): valor cheio dos itens de brinde e quem liberou acima do limite.
+      ...(bonificacaoDaVenda ? { bonificacao: bonificacaoDaVenda } : {}),
       descontoGeral: {
         tipo: pedido.descontoGeral.tipo,
         valorInformado: pedido.descontoGeral.valorInformado,

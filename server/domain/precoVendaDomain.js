@@ -128,7 +128,8 @@ const reprecificarItens = (itens, condicao) => {
     let alterados = 0;
     let diferenca = 0;
     const novos = itens.map((item) => {
-        if (!item.tabelaPreco || item.origemPreco === 'manual')
+        // Item bonificado (30/10/2026) fica a preco zero: a forma de pagamento nao mexe nele.
+        if (!item.tabelaPreco || item.origemPreco === 'manual' || item.bonificado === true)
             return item;
         const { preco, origem } = (0, exports.precoAutomatico)(item.tabelaPreco, condicao);
         if (Math.abs(preco - item.precoUnitario) < 0.0001 && origem === item.origemPreco)

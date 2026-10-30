@@ -56,7 +56,7 @@ const conferirPrecos = (args) => {
     const itens = args.itens.map((item) => {
         const cobrado = brutoDaLinha(item.precoUnitario, item.quantidade);
         const descontoDoItem = (0, financeDomain_1.toCents)(positivo(item.desconto));
-        const produto = item.id && item.id !== 'avulso' ? args.produtos[item.id] : null;
+        const produto = item.id && item.id !== 'avulso' && item.bonificado !== true ? args.produtos[item.id] : null;
         if (!produto)
             return { precoSistema: 0, brutoCentavos: cobrado, descontoCentavos: descontoDoItem, diferencaCentavos: 0 };
         const unidade = unidadeDoItem(produto, item);

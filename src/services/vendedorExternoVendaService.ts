@@ -56,6 +56,9 @@ export interface ItemVendaExterna {
   origemPreco?: OrigemPreco;
   promocaoId?: string;
   promocaoNome?: string;
+  /** Bonificacao (30/10/2026): item de brinde -- preco 0 para o cliente, preco cheio em precoReferencia. Ver bonificacaoDomain.ts. */
+  bonificado?: boolean;
+  precoReferencia?: number;
 }
 
 const semDesconto = () => ({

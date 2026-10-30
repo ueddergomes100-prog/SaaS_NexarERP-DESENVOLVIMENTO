@@ -388,3 +388,64 @@ test('total arredondado por linha (kg): duas linhas fracionadas fecham com o val
   const r = await carregar(fake.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1', itens, pagamentos: [pagamento({ valor: '0.03' })] }) });
   assert.equal(r.totalCentavos, 3);
 });
+
+// Bonificacao (30/10/2026): item de brinde vai a preco zero, baixa o estoque e fica fora do total e da comissao.
+const comBrinde = (extra = {}) => corpo({
+  itens: [
+    { id: 'p1', nome: 'RAÇÃO', precoUnitario: 10, quantidade: 2, desconto: 0, subtotal: 20 },
+    // A tela manda preco 7 por engano: o servidor zera (bonificado nunca leva preco).
+    { id: 'p2', nome: 'PETISCO', precoUnitario: 7, quantidade: 1, desconto: 0, subtotal: 7, bonificado: true, precoReferencia: 1.5 },
+  ],
+  ...extra,
+});
+const baseComBrinde = (config = { ativa: true, limitePercentual: 10 }, extra = {}) => base({
+  'configuracoes/loja': { tenantId: 'loja', bonificacao: config },
+  'estoque/p2': { tenantId: 'loja', nome: 'PETISCO', quantidade: 5, quantidadeReservada: 0, precoVenda: 1.5 },
+  ...extra,
+});
+const BONIFICA = { ...VENDEDOR, permissoes: ['vendas.pedidos', 'vendas.bonificar'] };
+
+test('bonificacao: brinde baixa o estoque, sai a zero do total e da comissao, e a venda grava o valor dele', async () => {
+  const fake = criarBancoFalso(baseComBrinde(), { consultas: true });
+  const r = await carregar(fake.db).finalizarVenda({ user: BONIFICA, tenantId: 'loja', corpo: comBrinde() });
+  assert.equal(r.totalCentavos, 2000);
+  const pedido = fake.ler('pedidos_venda/venda1');
+  assert.equal(pedido.itens[1].precoUnitario, 0);
+  assert.equal(pedido.itens[1].subtotal, 0);
+  assert.equal(pedido.itens[1].bonificado, true);
+  assert.equal(pedido.itens[1].precoReferencia, 1.5);
+  assert.deepEqual(pedido.bonificacao, { valorCentavos: 150, percentual: 7.5 });
+  assert.equal(pedido.comissao.valorOriginalCentavos, 100, 'comissao so\' da parte vendida');
+  assert.equal(fake.ler('estoque/p2').quantidade, 4);
+});
+
+test('bonificacao: desligada, sem permissao, so\' brinde ou acima do limite sem quem aprova desconto recusa sem gravar', async () => {
+  const casos = [
+    { banco: baseComBrinde({ ativa: false }), user: BONIFICA, corpo: comBrinde(), msg: /não trabalha com bonificação/ },
+    { banco: baseComBrinde(), user: VENDEDOR, corpo: comBrinde(), msg: /Pode bonificar/ },
+    {
+      banco: baseComBrinde(),
+      user: BONIFICA,
+      corpo: comBrinde({ itens: [{ id: 'p2', nome: 'PETISCO', precoUnitario: 0, quantidade: 1, desconto: 0, subtotal: 0, bonificado: true, precoReferencia: 1.5 }], pagamentos: [pagamento({ valor: '0' })] }),
+      msg: /só tem itens bonificados/,
+    },
+    { banco: baseComBrinde({ ativa: true, limitePercentual: 5 }), user: BONIFICA, corpo: comBrinde(), msg: /passa do limite/ },
+  ];
+  for (const caso of casos) {
+    const fake = criarBancoFalso(caso.banco, { consultas: true });
+    await assert.rejects(carregar(fake.db).finalizarVenda({ user: caso.user, tenantId: 'loja', corpo: caso.corpo }), (e) => caso.msg.test(e.message) && e.status === 409);
+    assert.equal(fake.ler('pedidos_venda/venda1'), undefined);
+    assert.equal(fake.ler('estoque/p2').quantidade, 5);
+  }
+});
+
+test('bonificacao: vendedor da venda pode bonificar (pedido do app) e quem aprova desconto fatura acima do limite', async () => {
+  const fake = criarBancoFalso(baseComBrinde({ ativa: true, limitePercentual: 5 }, {
+    'usuarios/vend1': { tenantId: 'loja', nome: 'VENDEDOR UM', permissoes: ['vendas.bonificar'] },
+  }), { consultas: true });
+  const APROVA = { ...FATURISTA, permissoes: ['vendas.pre_venda_finalizar', 'vendas.liberar_desconto'], nome: 'GERENTE' };
+  await carregar(fake.db).finalizarVenda({ user: APROVA, tenantId: 'loja', corpo: comBrinde() });
+  const pedido = fake.ler('pedidos_venda/venda1');
+  assert.equal(pedido.bonificacao.liberadaPorId, 'fat1');
+  assert.equal(pedido.bonificacao.liberadaPorNome, 'GERENTE');
+});

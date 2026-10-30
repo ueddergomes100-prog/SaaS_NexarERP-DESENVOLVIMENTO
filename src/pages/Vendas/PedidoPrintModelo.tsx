@@ -16,8 +16,12 @@ interface PedidoPrintModeloProps {
  * impressao unitaria, em lote e do app do vendedor passam por aqui, pra um
  * modelo novo nao ficar faltando em uma delas.
  */
-const PedidoPrintModelo: React.FC<PedidoPrintModeloProps> = ({ pedidoData, clientData, configData, parcelas }) => {
+const PedidoPrintModelo: React.FC<PedidoPrintModeloProps> = ({ pedidoData: pedidoOriginal, clientData, configData, parcelas }) => {
   const modelo = configData?.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL;
+  // Bonificacao (30/10/2026): o brinde sai marcado em qualquer modelo (vai a R$ 0,00).
+  const pedidoData = Array.isArray(pedidoOriginal?.itens) && pedidoOriginal.itens.some((i: { bonificado?: unknown }) => i?.bonificado === true)
+    ? { ...pedidoOriginal, itens: pedidoOriginal.itens.map((i: { bonificado?: unknown; nome?: string }) => (i?.bonificado === true ? { ...i, nome: `${i.nome || ''} (BONIFICADO)` } : i)) }
+    : pedidoOriginal;
 
   if (modelo === 'meia-folha') {
     return <PedidoPrintMeiaFolha pedidoData={pedidoData} clientData={clientData} configData={configData} parcelas={parcelas} />;

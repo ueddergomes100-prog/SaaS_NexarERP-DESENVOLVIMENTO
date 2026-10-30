@@ -18,6 +18,8 @@ import {
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
+import { MENSAGEM_SO_BONIFICADO, PERMISSAO_BONIFICAR, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
+import { hasTenantFullAccess } from '../../utils/roles';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
@@ -40,7 +42,9 @@ const VendedorNovoPedido: React.FC = () => {
   const location = useLocation();
   const { localId } = useParams();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
-  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions, controlaFiscal, modoRotaPreVenda } = useAuth();
+  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions, controlaFiscal, modoRotaPreVenda, configBonificacao, userRole, isOwner } = useAuth();
+  // Bonificacao (30/10/2026): a empresa ligou e a pessoa pode bonificar.
+  const podeBonificar = configBonificacao.ativa && (hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_BONIFICAR));
   // Rota na pre-venda (21/10/2026): ao marcar "Pronto para enviar", pergunta a rota quando ha' mais de uma em montagem.
   const { escolherRota, modalDeRota } = useEscolhaDeRota(modoRotaPreVenda);
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
@@ -97,6 +101,11 @@ const VendedorNovoPedido: React.FC = () => {
     const erroNota = erroDaEscolhaNotaFiscal(notaFiscal, Boolean(controlaFiscal));
     if (erroNota) {
       showError('Nota fiscal', erroNota);
+      return;
+    }
+    const bonificacao = resumoDaBonificacao(itens);
+    if (bonificacao.quantidadeDeItens > 0 && bonificacao.vendidoCentavos <= 0) {
+      showError('Pedido só com bonificação', MENSAGEM_SO_BONIFICADO);
       return;
     }
     if (!tenantId || !currentUser) return;
@@ -176,7 +185,7 @@ const VendedorNovoPedido: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} precos={promocoesVigentes} consomeQuota />
+        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} precos={promocoesVigentes} consomeQuota podeBonificar={podeBonificar} />
 
         <div style={{ marginTop: '22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

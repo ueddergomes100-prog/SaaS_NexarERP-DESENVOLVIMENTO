@@ -125,7 +125,7 @@ const MinutaPrintLote: React.FC = () => {
             itensPedido.map(async (item: any): Promise<MinutaItem> => {
               const base: MinutaItem = {
                 id: item.id,
-                nome: item.nome,
+                nome: item.bonificado === true ? `${item.nome} (BONIFICADO)` : item.nome,
                 quantidade: item.quantidade,
                 unidadeMedidaSigla: item.unidadeMedidaSigla,
                 unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais,

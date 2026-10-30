@@ -15,6 +15,7 @@ import {
   totaisDaMinutaComValores,
 } from '../../utils/minutaDomain';
 import type { RascunhoVenda } from './vendedorRascunhosStore';
+import { ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
 
 /**
  * Minuta do RASCUNHO em PDF, pra o vendedor mandar pelo WhatsApp do cliente
@@ -109,8 +110,10 @@ export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedo
     quantidade: item.quantidade,
     unidade: item.unidadeMedidaSigla || 'UN',
     codigo: item.codigo || '',
-    nome: item.nome,
-    precoUnitario: Number(item.precoUnitario) || 0,
+    // Bonificacao (30/10/2026): o cliente ve que o item vai de brinde.
+    nome: ehBonificado(item) ? `${item.nome} (BONIFICADO)` : item.nome,
+    bonificado: ehBonificado(item),
+    precoUnitario: ehBonificado(item) ? Number(item.precoReferencia) || 0 : Number(item.precoUnitario) || 0,
     subtotal: Number(item.subtotal) || 0,
   }));
   const colunas = comValores ? 6 : 4;
@@ -123,7 +126,7 @@ export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedo
     body: itens.length > 0
       ? itens.map((i) => {
         const linha = [formatarQuantidadeMinuta(i.quantidade), i.unidade, i.codigo, i.nome];
-        return comValores ? [...linha, precoUnitario(i.precoUnitario), moeda(i.subtotal)] : linha;
+        return comValores ? [...linha, precoUnitario(i.precoUnitario), i.bonificado ? 'Bonificado' : moeda(i.subtotal)] : linha;
       })
       : [[{ content: 'Nenhum item adicionado.', colSpan: colunas, styles: { halign: 'center' as const } }]],
     theme: 'plain',
@@ -154,6 +157,9 @@ export const gerarMinutaRascunhoPdf = ({ rascunho, cliente, nomeEmpresa, vendedo
     const direita = margem + util;
     const linhasTotais: Array<[string, string]> = [
       ...(totais.desconto > 0 ? [['Subtotal:', moeda(totais.bruto)], ['Desconto:', `- ${moeda(totais.desconto)}`]] as Array<[string, string]> : []),
+      ...(resumoDaBonificacao(rascunho.itens).bonificadoCentavos > 0
+        ? [['Bonificação (sem cobrança):', moeda(resumoDaBonificacao(rascunho.itens).bonificadoCentavos / 100)]] as Array<[string, string]>
+        : []),
       ['TOTAL DO PEDIDO:', moeda(totais.total)],
     ];
     linhasTotais.forEach(([rotulo, valor], i) => {

@@ -39,6 +39,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.pre_venda_cancelar': ['comercial.pedidos'],
   'vendas.alterar_pagamento_finalizada': ['comercial.pedidos'],
   'vendas.liberar_desconto': ['comercial.pedidos'],
+  'vendas.bonificar': ['comercial.pedidos'],
   'vendas.pre_venda_relatorio': ['comercial.relatorios'],
   'vendas.relatorios': ['comercial.relatorios'],
   'vendas.devolucao': ['comercial.devolucoes'],

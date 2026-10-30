@@ -7,6 +7,7 @@ import {
   somarTributos, textoTributosAproximados, type ProdutoFiscal, type ValoresTributosItem,
 } from '../utils/notaFiscalItemDomain';
 import { ratearValorPorPesos } from '../utils/notaAvulsaDomain';
+import { MENSAGEM_NFCE_COM_BONIFICACAO, temItemBonificado } from '../utils/bonificacaoDomain';
 
 /**
  * NFC-e (cupom fiscal) de um pedido -- montagem UNICA, usada pelos tres
@@ -33,6 +34,8 @@ export interface ItemPedidoParaEmissao {
   unidadeMedidaSigla?: string;
   fatorConversao?: number;
   embalagemId?: string;
+  /** Bonificacao (30/10/2026): pedido com brinde so' sai em NF-e. */
+  bonificado?: boolean;
 }
 
 interface PagamentoPedidoParaEmissao {
@@ -93,6 +96,8 @@ export const montarNfceDoPedido = async (pedido: PedidoParaEmissao): Promise<{
   itensFiscais: Record<string, unknown>[];
   avisos: string[];
 }> => {
+  // A SEFAZ nao aceita CFOP de bonificacao (5.910) na NFC-e: pedido com brinde sai em NF-e.
+  if (temItemBonificado(pedido.itens)) throw new NfceEmissaoError(MENSAGEM_NFCE_COM_BONIFICACAO);
   let regime: RegimeTributario = DEFAULT_REGIME_TRIBUTARIO;
   const confSnap = await getDoc(doc(db, 'configuracoes', pedido.tenantId));
   if (confSnap.exists()) regime = (confSnap.data().regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario;

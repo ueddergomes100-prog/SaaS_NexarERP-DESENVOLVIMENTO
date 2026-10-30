@@ -21,7 +21,9 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
 import * as loteBaixa from '../../services/loteBaixaService';
 import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
-import { isPlatformAdminRole } from '../../utils/roles';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { bonificarItem, cobrarItem, PERMISSAO_BONIFICAR, resumoDaBonificacao, situacaoDaBonificacao, temItemBonificado } from '../../utils/bonificacaoDomain';
+import { PERMISSAO_LIBERAR_DESCONTO } from '../../utils/conferenciaDescontoDomain';
 import { MOTIVOS_TROCA, PERMISSAO_TROCA_GERENCIAR, PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { trocaService, TrocaError } from '../../services/trocaService';
 import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -304,6 +306,9 @@ interface ItemVenda {
   /** Promocao que esta no preco do item (some quando a promocao sai). */
   promocaoId?: string;
   promocaoNome?: string;
+  /** Bonificacao (30/10/2026): item de brinde, preco 0; preco cheio em precoReferencia. Ver bonificacaoDomain.ts. */
+  bonificado?: boolean;
+  precoReferencia?: number;
 }
 
 interface LinkedNfe {
@@ -624,7 +629,9 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback, modoRotaPreVenda } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback, modoRotaPreVenda, configBonificacao } = useAuth();
+  // Bonificacao (30/10/2026): a empresa ligou e a pessoa pode bonificar (dono/gestor sempre).
+  const podeBonificar = configBonificacao.ativa && (hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_BONIFICAR));
   // Rota na pre-venda (21/10/2026): pergunta "Rota 1 ou 2?" ao gravar a pre-venda (rotaPreVendaDomain.ts).
   const { escolherRota, modalDeRota } = useEscolhaDeRota(modoRotaPreVenda);
 
@@ -1324,6 +1331,8 @@ const PedidoVendaForm: React.FC = () => {
             ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
             ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
             ...(item.quantidadeBase !== undefined ? { quantidadeBase: item.quantidadeBase } : {}),
+            // Bonificacao (30/10/2026): o brinde vem como brinde; quem nao pode bonificar volta para cobrado no faturamento.
+            ...(item.bonificado === true ? { bonificado: true, precoReferencia: Number(item.precoReferencia || 0) } : {}),
           });
         }
         setClienteNome(origem.clienteNome || '');
@@ -2032,7 +2041,11 @@ const PedidoVendaForm: React.FC = () => {
     const novaQtd = campos.quantidade ?? item.quantidade;
     const novoPreco = campos.precoUnitario ?? item.precoUnitario;
     if (!Number.isFinite(novaQtd) || novaQtd <= 0) return 'A quantidade deve ser maior que zero.';
-    if (!Number.isFinite(novoPreco) || novoPreco <= 0) return 'Informe um preço unitário maior que zero.';
+    // Item bonificado (30/10/2026): so' a quantidade muda; continua a preco zero.
+    if (item.bonificado && (campos.precoUnitario !== undefined || campos.desconto !== undefined)) {
+      return 'Este item está bonificado (vai sem cobrança). Para mudar o preço ou dar desconto, volte o item para cobrado no botão do presente.';
+    }
+    if (!item.bonificado && (!Number.isFinite(novoPreco) || novoPreco <= 0)) return 'Informe um preço unitário maior que zero.';
     if (!isValidSaleQuantity(novaQtd, opcaoItem.permiteFracionado, opcaoItem.casasDecimais)) {
       return opcaoItem.permiteFracionado
         ? `A quantidade de ${item.nome} aceita no máximo ${opcaoItem.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${siglaItem}.`
@@ -2104,7 +2117,7 @@ const PedidoVendaForm: React.FC = () => {
     let avisoQuota: string | undefined;
     // Item com tabela de precos: preco mexido aqui vira 'manual' (nunca troca
     // sozinho); quantidade nova passa de novo pela quota da promocao.
-    if (item.tabelaPreco && produtoCatalogo) {
+    if (item.tabelaPreco && produtoCatalogo && !item.bonificado) {
       let tabela = item.tabelaPreco;
       if (item.promocaoId) {
         const conferida = conferirQuotaDaPromocao(produtoCatalogo, tabela, novaQtdBase, index);
@@ -2185,6 +2198,7 @@ const PedidoVendaForm: React.FC = () => {
   const valorTotalDescontos = valorTotalDescontosItens + descontoGeral;
   const valorTotalPedido = Math.max(0, valorTotalItens - valorTotalDescontos + Number(frete || 0) + Number(encargos || 0));
   const valorTotalPedidoCentavos = toCents(valorTotalPedido);
+  const resumoBonificacao = resumoDaBonificacao(itens);
 
   /** Aplica o total digitado: a diferenca para o total sem desconto vira o desconto geral, em reais. */
   const aplicarTotalDigitado = () => {
@@ -3199,6 +3213,20 @@ const PedidoVendaForm: React.FC = () => {
       return false;
     }
 
+    // Bonificacao (30/10/2026): a chave da filial, um item cobrado pelo menos e,
+    // acima do limite, so' fatura quem aprova desconto. O servidor confere de novo.
+    if (temItemBonificado(itens)) {
+      const situacaoBonificacao = situacaoDaBonificacao({ itens, config: configBonificacao, podeBonificar: true });
+      if (!situacaoBonificacao.ok) {
+        showError('Bonificação', situacaoBonificacao.mensagem);
+        return false;
+      }
+      if (situacaoBonificacao.precisaLiberacao && !(hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_LIBERAR_DESCONTO))) {
+        showError('Bonificação acima do limite', `${situacaoBonificacao.mensagem} Peça para quem aprova desconto (dono, gerente ou "Vendas: Aprovar Desconto Acima do Limite") faturar este pedido, ou diminua a bonificação.`);
+        return false;
+      }
+    }
+
     if (!garantirVendedorIdentificado(
       () => { void handleFinalizarVenda(); },
       `Finalizar venda de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}`,
@@ -3647,6 +3675,8 @@ const PedidoVendaForm: React.FC = () => {
             valorTotalItensCentavos: toCents(valorTotalItens),
             valorTotalDescontos,
             valorTotalDescontosCentavos: toCents(valorTotalDescontos),
+            // Bonificacao (30/10/2026): valor cheio dos itens de brinde (o servidor grava o mesmo).
+            ...(resumoBonificacao.quantidadeDeItens > 0 ? { bonificacao: { valorCentavos: resumoBonificacao.bonificadoCentavos, percentual: resumoBonificacao.percentual } } : {}),
             // Snapshot do desconto GERAL (nao dos descontos de item, ja
             // embutidos em cada item de `itens`) -- usado pelo relatorio de
             // descontos concedidos (Fatia 6).
@@ -4039,6 +4069,7 @@ const PedidoVendaForm: React.FC = () => {
               nome: item.nome,
               quantidade: item.quantidade,
               precoUnitario: item.precoUnitario,
+              ...(item.bonificado ? { bonificado: true } : {}),
               ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla } : {}),
               ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
               ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
@@ -4256,6 +4287,7 @@ const PedidoVendaForm: React.FC = () => {
           nome: item.nome,
           quantidade: item.quantidade,
           precoUnitario: item.precoUnitario,
+          ...(item.bonificado ? { bonificado: true } : {}),
           ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla } : {}),
           ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
           ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
@@ -5821,6 +5853,9 @@ const PedidoVendaForm: React.FC = () => {
               onAtualizarItem={aplicarEdicaoDeItem}
               onTrocarProduto={(index, produto) => trocarProdutoDoItem(index, produto.id)}
               onRemover={handleRemoveItem}
+              onAlternarBonificacao={podeBonificar && (!isViewing || canEditPendingOrder)
+                ? (index) => setItens((atuais) => atuais.map((it, i) => (i !== index ? it : it.bonificado ? cobrarItem(it) : bonificarItem(it))))
+                : undefined}
             />
 
             {itens.length > 0 && (!isViewing || canEditPendingQtd) && (
@@ -5839,6 +5874,15 @@ const PedidoVendaForm: React.FC = () => {
               <span>Total Itens:</span>
               <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalItens)}</span>
             </div>
+            {resumoBonificacao.quantidadeDeItens > 0 && (
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: '#d97706', alignItems: 'center' }}
+                title="Valor cheio dos itens de brinde. Não entra no total nem na comissão; na NF-e sai com o CFOP de bonificação."
+              >
+                <span>Bonificação (sem cobrança):</span>
+                <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(resumoBonificacao.bonificadoCentavos / 100)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: '#ef4444', alignItems: 'center' }}>
               <span>Descontos:</span>
               <span>- {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalDescontos)}</span>

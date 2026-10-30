@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Search, Trash2 } from 'lucide-react';
+import { Gift, Search, Trash2 } from 'lucide-react';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
@@ -53,6 +53,9 @@ export interface ItemDaTabela {
   origemPreco?: string;
   promocaoNome?: string;
   tabelaPreco?: { venda: number } | null;
+  /** Bonificacao (30/10/2026): item de brinde -- preco 0, preco cheio em precoReferencia. */
+  bonificado?: boolean;
+  precoReferencia?: number;
 }
 
 export interface ProdutoLancavel extends SearchableProduct {
@@ -83,6 +86,8 @@ interface Props {
   /** Troca o produto da linha (codigo editado), mantendo a quantidade. Erro em portugues ou null. */
   onTrocarProduto: (index: number, produto: ProdutoLancavel) => string | null;
   onRemover: (index: number) => void;
+  /** Bonificar / voltar para cobrado (so' quando a empresa ligou e a pessoa pode bonificar). */
+  onAlternarBonificacao?: (index: number) => void;
 }
 
 const moeda = (valor: number) => `R$ ${(Number(valor) || 0).toFixed(2).replace('.', ',')}`;
@@ -102,7 +107,7 @@ const ROTULO_ARIA: Record<CampoEditavel, string> = {
 
 const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
   itens, catalogo, podeEditar, podeRemover, permitirDescontoPorItem, selectedIndex, onSelect,
-  onAtualizarItem, onTrocarProduto, onRemover,
+  onAtualizarItem, onTrocarProduto, onRemover, onAlternarBonificacao,
 }, ref) => {
   const [edicao, setEdicao] = useState<Edicao | null>(null);
   // Evita aplicar duas vezes (Enter ja' aplicou e o blur vem em seguida).
@@ -127,6 +132,8 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
     if (!campoEditavel(campo)) return;
     const item = itens[index];
     if (!item) return;
+    // Item bonificado vai a preco zero: preco e desconto nao se editam (volte para cobrado antes).
+    if (item.bonificado && (campo === 'precoUnitario' || campo === 'desconto')) return;
     onSelect(index);
     // Troca de produto comeca VAZIA: a busca trava quando ja' vem com texto
     // (ProductAutocomplete), e o codigo atual continua a vista na linha.
@@ -344,8 +351,9 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
               ), 'tiv-centro')}
               {celula(index, item, 'precoUnitario', (
                 <span className="tiv-num">
-                  {moeda(item.precoUnitario)}
-                  {item.origemPreco === 'promocao' && (
+                  {moeda(item.bonificado ? Number(item.precoReferencia) || 0 : item.precoUnitario)}
+                  {item.bonificado && <span className="tiv-sub" style={{ color: '#d97706', fontWeight: 700 }} title="Brinde: vai sem cobrança">bonificado</span>}
+                  {!item.bonificado && item.origemPreco === 'promocao' && (
                     <span className="tiv-sub tiv-sub-promo" title={item.promocaoNome ? `Promoção: ${item.promocaoNome}` : 'Promoção'}>
                       promoção{item.tabelaPreco ? <> · de <s>{moeda(item.tabelaPreco.venda)}</s></> : null}
                     </span>
@@ -362,15 +370,30 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
               <td className="tiv-td tiv-direita tiv-num tiv-forte">{moeda(item.subtotal)}</td>
               {podeRemover && (
                 <td className="tiv-td tiv-centro">
-                  <button
-                    type="button"
-                    className="tiv-remover"
-                    onClick={(e) => { e.stopPropagation(); onRemover(index); }}
-                    title="Tirar da venda"
-                    aria-label={`Tirar ${item.nome} da venda`}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div style={{ display: 'inline-flex', gap: '2px' }}>
+                    {(onAlternarBonificacao || item.bonificado) && (
+                      <button
+                        type="button"
+                        className="tiv-remover"
+                        disabled={!onAlternarBonificacao}
+                        onClick={(e) => { e.stopPropagation(); onAlternarBonificacao?.(index); }}
+                        title={item.bonificado ? 'Voltar para cobrado' : 'Bonificar (brinde, sem cobrança)'}
+                        aria-label={item.bonificado ? `Voltar ${item.nome} para cobrado` : `Bonificar ${item.nome}`}
+                        style={{ color: item.bonificado ? '#d97706' : 'var(--text-muted)' }}
+                      >
+                        <Gift size={16} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="tiv-remover"
+                      onClick={(e) => { e.stopPropagation(); onRemover(index); }}
+                      title="Tirar da venda"
+                      aria-label={`Tirar ${item.nome} da venda`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </td>
               )}
             </tr>

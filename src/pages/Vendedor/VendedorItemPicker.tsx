@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Check, Trash2 } from 'lucide-react';
+import { Search, Check, Trash2, Gift } from 'lucide-react';
 import ProdutoOpcaoBusca from '../../components/common/ProdutoOpcaoBusca';
 import { LISTAR_TUDO_TERM, searchProducts } from '../../utils/productSearch';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
@@ -8,6 +8,7 @@ import { podeVenderSemEstoque } from '../../utils/estoqueReservaDomain';
 import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import { precificarNoApp, promocaoParaMostrar, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
+import { bonificarItem, cobrarItem, ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
 
 export interface ProdutoVendedorExterno {
   id: string;
@@ -36,6 +37,8 @@ interface Props {
   precos?: PrecosDoApp | null;
   /** Pedido confere quota e limite por venda da promocao; orcamento e OS nao (como no desktop). */
   consomeQuota?: boolean;
+  /** Bonificacao (30/10/2026): mostra "Bonificar" em cada item (empresa ligou + permissao). So' no pedido. */
+  podeBonificar?: boolean;
 }
 
 const RESULTADOS_LIMITE = 15;
@@ -58,7 +61,7 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
  * painel -- exatamente o oposto do que precisa aqui. Escrever a lista de novo
  * aqui evita arriscar as telas desktop, que continuam com o fluxo de sempre.
  */
-const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true, precos = null, consomeQuota = false }) => {
+const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true, precos = null, consomeQuota = false, podeBonificar = false }) => {
   const [produtoBusca, setProdutoBusca] = useState('');
   // Tocar na busca ja' mostra a lista (mesmo comportamento do Pedido de Venda);
   // "Mostrar mais" aumenta o corte. "#" lista tudo, "#gel" filtra.
@@ -168,7 +171,12 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
     onItensChange(itens.filter((_, i) => i !== index));
   };
 
+  const handleAlternarBonificacao = (index: number) => {
+    onItensChange(itens.map((item, i) => (i !== index ? item : ehBonificado(item) ? cobrarItem(item) : bonificarItem(item))));
+  };
+
   const total = itens.reduce((soma, item) => soma + item.subtotal, 0);
+  const bonificacao = resumoDaBonificacao(itens);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -295,15 +303,35 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                   {item.nome}
                 </div>
                 <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                  {item.quantidade} {item.unidadeMedidaSigla}{mostrarValores ? <> &times; {formatarMoeda(item.precoUnitario)}</> : null}
+                  {item.quantidade} {item.unidadeMedidaSigla}{mostrarValores ? <> &times; {formatarMoeda(ehBonificado(item) ? Number(item.precoReferencia) || 0 : item.precoUnitario)}</> : null}
                 </div>
-                {mostrarValores && item.origemPreco === 'promocao' && item.tabelaPreco && (
+                {ehBonificado(item) && (
+                  <div style={{ fontSize: '12.5px', fontWeight: 700, color: '#d97706', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Gift size={13} /> Bonificado · sem cobrança
+                  </div>
+                )}
+                {mostrarValores && !ehBonificado(item) && item.origemPreco === 'promocao' && item.tabelaPreco && (
                   <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#10b981', marginTop: '2px' }} title={item.promocaoNome}>
                     promoção · de <s>{formatarMoeda(item.tabelaPreco.venda)}</s>
                   </div>
                 )}
               </div>
               {mostrarValores && <div style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.subtotal)}</div>}
+              {(podeBonificar || ehBonificado(item)) && (
+                <button
+                  type="button"
+                  onClick={() => handleAlternarBonificacao(index)}
+                  disabled={!podeBonificar}
+                  aria-label={ehBonificado(item) ? `Voltar ${item.nome} para cobrado` : `Bonificar ${item.nome}`}
+                  title={ehBonificado(item) ? 'Voltar para cobrado' : 'Bonificar (brinde, sem cobrança)'}
+                  style={{
+                    color: ehBonificado(item) ? '#d97706' : 'var(--text-muted)', background: ehBonificado(item) ? 'rgba(217,119,6,0.12)' : 'transparent',
+                    border: 'none', borderRadius: '8px', cursor: podeBonificar ? 'pointer' : 'default', display: 'flex', padding: '6px',
+                  }}
+                >
+                  <Gift size={17} />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => handleRemover(index)}
@@ -317,6 +345,12 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
         </div>
       )}
 
+      {bonificacao.quantidadeDeItens > 0 && mostrarValores && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13.5px', color: '#d97706', fontWeight: 600 }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Gift size={14} /> Bonificação (sem cobrança)</span>
+          <span>{formatarMoeda(bonificacao.bonificadoCentavos / 100)}</span>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '6px' }}>
         <span style={{ fontSize: '15px', color: 'var(--text-secondary)', fontWeight: 500 }}>Total</span>
         <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>{mostrarValores ? formatarMoeda(total) : '—'}</span>

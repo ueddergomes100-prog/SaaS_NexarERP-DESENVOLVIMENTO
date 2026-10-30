@@ -116,9 +116,15 @@ const lerPedidoDeFechamento = (corpo) => {
         const id = String(i.id ?? '');
         if (!id || (id !== 'avulso' && !ID_VALIDO.test(id)))
             return { erro: `${nome}: produto inválido. Remova o item e lance de novo.` };
-        const precoUnitario = numero(i.precoUnitario);
+        // Bonificacao (30/10/2026): item de brinde vai a preco zero, sem desconto; o preco cheio
+        // (precoReferencia) so' serve para a NF-e e para o limite. Ver bonificacaoDomain.ts.
+        const bonificado = i.bonificado === true;
+        const precoReferencia = numero(i.precoReferencia);
+        if (bonificado && !(precoReferencia >= 0))
+            return { erro: `${nome}: valor da bonificação inválido. Volte o item para cobrado e bonifique de novo.` };
+        const precoUnitario = bonificado ? 0 : numero(i.precoUnitario);
         const quantidade = numero(i.quantidade);
-        const desconto = i.desconto === undefined || i.desconto === null || i.desconto === '' ? 0 : numero(i.desconto);
+        const desconto = bonificado || i.desconto === undefined || i.desconto === null || i.desconto === '' ? 0 : numero(i.desconto);
         if (!(precoUnitario >= 0))
             return { erro: `${nome}: preço inválido.` };
         if (!(quantidade > 0))
@@ -135,6 +141,14 @@ const lerPedidoDeFechamento = (corpo) => {
             return { erro: `${nome}: unidade de venda inválida.` };
         const item = { ...i, id, nome, precoUnitario, quantidade, desconto, subtotal: 0 };
         item.subtotal = (0, exports.subtotalDaLinha)(item);
+        if (bonificado) {
+            item.bonificado = true;
+            item.precoReferencia = precoReferencia;
+        }
+        else {
+            delete item.bonificado;
+            delete item.precoReferencia;
+        }
         if (fator !== undefined)
             item.fatorConversao = fator;
         if (lotes.length > 0)

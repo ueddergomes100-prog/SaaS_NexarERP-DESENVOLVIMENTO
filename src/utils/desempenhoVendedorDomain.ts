@@ -27,6 +27,7 @@ export interface ItemParaDesempenho {
   nome?: string;
   quantidade?: number;
   subtotal?: number;
+  bonificado?: boolean;
 }
 
 export interface VendaParaDesempenho {
@@ -191,7 +192,8 @@ export const calcularDesempenho = (
     }
     for (const item of venda.itens || []) {
       const chave = item.id || item.nome || '';
-      if (!chave) continue;
+      // Brinde (bonificacao, 30/10/2026) nao e' venda do produto.
+      if (!chave || item.bonificado === true) continue;
       const atual = produtos.get(chave) || { chave, nome: item.nome || 'Produto', totalCentavos: 0, quantidade: 0 };
       atual.totalCentavos += centavosDe(item.subtotal);
       atual.quantidade += Number(item.quantidade) || 0;

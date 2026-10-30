@@ -111,6 +111,7 @@ import {
   DEFAULT_MINUTA_MOSTRAR_MARCA,
   DEFAULT_MINUTA_MOSTRAR_LOCAL,
 } from '../../utils/conferenciaDomain';
+import { parseConfigBonificacao } from '../../utils/bonificacaoDomain';
 import { DEFAULT_VALORES_NA_MINUTA_DO_APP, OPCOES_VALORES_NA_MINUTA_DO_APP, parseValoresNaMinutaDoApp, type ValoresNaMinutaDoApp } from '../../utils/minutaDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../../utils/loteDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -346,6 +347,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     minutaMostrarMarca: DEFAULT_MINUTA_MOSTRAR_MARCA,
     minutaMostrarLocal: DEFAULT_MINUTA_MOSTRAR_LOCAL,
     appMinutaValores: DEFAULT_VALORES_NA_MINUTA_DO_APP as ValoresNaMinutaDoApp,
+    // Bonificacao no pedido (30/10/2026): limite em texto enquanto edita; vira numero ao salvar.
+    bonificacao: { ativa: false, limitePercentual: '' },
     emiteNFe: false,
     emiteNFCe: false,
     emiteNFSe: false,
@@ -525,6 +528,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             minutaMostrarMarca: data.minutaMostrarMarca ?? DEFAULT_MINUTA_MOSTRAR_MARCA,
             minutaMostrarLocal: data.minutaMostrarLocal ?? DEFAULT_MINUTA_MOSTRAR_LOCAL,
             appMinutaValores: parseValoresNaMinutaDoApp(data.appMinutaValores),
+            bonificacao: (() => {
+              const lida = parseConfigBonificacao(data.bonificacao);
+              return { ativa: lida.ativa, limitePercentual: lida.limitePercentual > 0 ? String(lida.limitePercentual) : '' };
+            })(),
             emiteNFe: data.emiteNFe ?? false,
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
@@ -1045,6 +1052,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         nfseAliquotaIssPadrao,
         ...limitesDesconto,
         modoLimiteDesconto: formData.modoLimiteDesconto,
+        bonificacao: parseConfigBonificacao({
+          ativa: formData.bonificacao.ativa,
+          limitePercentual: Number(String(formData.bonificacao.limitePercentual || '0').replace(',', '.')),
+        }),
         spedyApiKey: deleteField(),
         ...(podeAtualizarSpedyApiKey ? { spedyApiKeyConfigured: Boolean(trimmedSpedyApiKey) } : {}),
         tenantId,
@@ -3410,6 +3421,42 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                     Vale para as 4 telas acima. "Solicitar senha" exige a permissão "Vendas: Aprovar Desconto Acima do
                     Limite" (ou ser Admin/Master) de quem for digitar a senha.
+                  </p>
+                </div>
+
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Bonificação no pedido (item de brinde)</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.bonificacao.ativa}
+                      onChange={(e) => setFormData({ ...formData, bonificacao: { ...formData.bonificacao, ativa: e.target.checked } })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Trabalhar com bonificação
+                  </label>
+                  {formData.bonificacao.ativa && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Sem liberação até</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        title="Em branco = toda bonificação pede liberação"
+                        value={formData.bonificacao.limitePercentual}
+                        onChange={(e) => setFormData({ ...formData, bonificacao: { ...formData.bonificacao, limitePercentual: e.target.value } })}
+                        disabled={!isEditingMode}
+                        style={{ width: '110px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+                      />
+                      <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>% do valor vendido no pedido</span>
+                    </div>
+                  )}
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                    Ligada, quem tem a permissão <strong>"Vendas: Pode Bonificar"</strong> marca um item do pedido como bonificado (no computador e no App Vendas):
+                    o item vai sem cobrança, baixa o estoque e não entra na receita nem na comissão. Acima do limite, o faturamento pede a liberação de quem aprova
+                    desconto. Na NF-e o item sai com o valor cheio e o CFOP de bonificação (5.910 / 6.910); pedido com bonificação não sai em NFC-e.
                   </p>
                 </div>
 

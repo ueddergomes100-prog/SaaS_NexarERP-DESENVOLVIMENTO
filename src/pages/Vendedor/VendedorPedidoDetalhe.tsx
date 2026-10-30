@@ -24,6 +24,8 @@ interface ItemPedido {
   precoUnitario: number;
   subtotal: number;
   unidadeMedidaSigla?: string;
+  bonificado?: boolean;
+  precoReferencia?: number;
 }
 
 interface PedidoDetalhe {
@@ -221,8 +223,9 @@ const VendedorPedidoDetalhe: React.FC = () => {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '14.5px', fontWeight: 600, color: 'var(--text-primary)' }}>{item.nome}</div>
                     <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      {item.quantidade} {item.unidadeMedidaSigla || 'UN'} × {formatarMoeda(Number(item.precoUnitario || 0))}
+                      {item.quantidade} {item.unidadeMedidaSigla || 'UN'} × {formatarMoeda(Number((item.bonificado ? item.precoReferencia : item.precoUnitario) || 0))}
                     </div>
+                    {item.bonificado && <div style={{ fontSize: '12.5px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>Bonificado · sem cobrança</div>}
                   </div>
                   <div style={{ fontSize: '14.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(Number(item.subtotal || 0))}</div>
                 </div>

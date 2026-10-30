@@ -127,6 +127,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.orcamentos_excluir', label: 'Vendas: Excluir Orçamentos', color: '#ef4444' },
       { id: 'vendas.relatorios', label: 'Vendas: Relatórios', color: '#f59e0b' },
       { id: 'vendas.liberar_desconto', label: 'Vendas: Aprovar Desconto Acima do Limite', color: '#ef4444' },
+      // Bonificacao (30/10/2026): item de brinde dentro do pedido -- ver bonificacaoDomain.ts.
+      { id: 'vendas.bonificar', label: 'Vendas: Pode Bonificar (item de brinde no pedido)', color: '#ef4444' },
     ],
   },
   {

@@ -61,6 +61,7 @@ import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInpu
 import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 import { cfopEhDeSaida, cfopsParaEscolha, formatarCodigoCfop, naturezaDaOperacaoPelosCfops, problemaDoCfop } from '../../utils/cfopDomain';
+import { cfopDaBonificacao } from '../../utils/bonificacaoDomain';
 import { FINALIDADE_NOTA_FATURAMENTO, FINALIDADE_NOTA_REMESSA, cfopDoFaturamento, infoComplementarDoFaturamento, parsePrevisaoEntrega } from '../../utils/entregaFuturaDomain';
 import { pedidoEntraNaEmissao } from '../../utils/notaDoPedidoDomain';
 import { definirComNotaFiscalNoServidor } from '../../services/vendaServidorService';
@@ -134,6 +135,9 @@ interface PedidoVendaItem {
   precoUnitario: number;
   desconto: number;
   valorTotal: number;
+  /** Bonificacao (30/10/2026): item de brinde; na nota sai com o preco cheio e o CFOP 5.910/6.910. */
+  bonificado?: boolean;
+  precoReferencia?: number;
   /** Codigo interno do produto (Estoque -> Codigo interno, ex: "1") --
    * distinto de `id` (o id do documento no Firestore). A NF-e manda isso
    * como "codigo do produto" na DANFE; usar o id do documento ali confunde
@@ -1025,6 +1029,20 @@ const NFE: React.FC = () => {
       }));
     }
 
+    // Bonificacao (30/10/2026, decisao do dono; contador confirma): o brinde sai com o
+    // VALOR CHEIO e o CFOP de bonificacao, imposto normal. A nota soma o valor dele e,
+    // nos pagamentos, essa parte vai como "outros" (nao ha' cobranca -- ver a emissao); as
+    // parcelas e o boleto continuam so' da parte vendida.
+    let bonificadoNaNotaCentavos = 0;
+    itemsWithTaxes = itemsWithTaxes.map((item) => {
+      if (!item.bonificado) return item;
+      const preco = Number(item.precoReferencia) || 0;
+      const valorCheio = Math.round(Math.round(preco * 100) * Number(item.quantidade || 0)) / 100;
+      bonificadoNaNotaCentavos += Math.round(valorCheio * 100);
+      const cfop = cfopDaBonificacao(interestadual);
+      return { ...item, precoUnitario: preco, valorTotal: valorCheio, desconto: 0, cfop, cfopInterestadual: cfopDaBonificacao(true) };
+    });
+
     // Frete, encargos e transporte (27/10/2026): a transportadora e' lida AGORA
     // (cadastro corrigido depois da venda vale). Nao achou = a montagem da nota avisa.
     let transportadora: CadastroTransportadora | null = null;
@@ -1058,7 +1076,7 @@ const NFE: React.FC = () => {
         documento: foundClient?.documento || '',
         inscricaoEstadual: foundClient?.identidade || '',
         email: foundClient?.email || '',
-        valor: String(pedido.valorTotal),
+        valor: String(Math.round(Number(pedido.valorTotal || 0) * 100 + bonificadoNaNotaCentavos) / 100),
         descricao: cupom
           ? `Lançamento de NF-e decorrente do Cupom Fiscal ref. Pedido #${pedido.numeroPedido}`
           : `Venda Ref. Pedido #${pedido.numeroPedido} - Itens: ${descItens}`,
@@ -2061,6 +2079,7 @@ const NFE: React.FC = () => {
     // itens antes do desconto), nunca igual ao invoiceAmount, senao o desconto nao aparece na
     // nota nenhuma (era exatamente o bug: os dois saiam iguais a valorNumerico, que ja e' liquido).
     const productAmountBruto = itemsPayload.reduce((soma, it) => soma + Number(it.totalAmount || 0), 0);
+    const bonificadoDaNotaCentavos = itensDaNota.reduce((soma, it) => soma + (it.bonificado ? Math.round(Number(it.valorTotal || 0) * 100) : 0), 0);
     const discountAmountTotal = itemsPayload.reduce((soma, it) => soma + Number(it.discountAmount || 0), 0);
     const totaisImpostos = totaisImpostosDosItens(itemsPayload);
     const tributosNota = somarTributos(tributosItens);
@@ -2118,7 +2137,11 @@ const NFE: React.FC = () => {
       ...(exportacao.exportation ? { exportation: exportacao.exportation } : {}),
       ...(transporteDaNota && transporteDaNota.ok ? { transport: transporteDaNota.transport } : {}),
       // Meio de pagamento de verdade (dinheiro, pix, boleto...), nao mais "outros" fixo.
-      payments: montarPagamentosNota(a.pagamentos, valorNumerico),
+      // Bonificacao (30/10/2026): o valor cheio do brinde entra na nota sem cobranca -- vai como "outros".
+      payments: montarPagamentosNota(
+        bonificadoDaNotaCentavos > 0 ? [...a.pagamentos, { formaPagamento: 'Bonificação', valorCentavos: bonificadoDaNotaCentavos }] : a.pagamentos,
+        valorNumerico,
+      ),
       ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
       ...(billingPayload ? { billing: billingPayload } : {}),
       total: {
@@ -2926,6 +2949,7 @@ const NFE: React.FC = () => {
           nome: String(item.nome || ''),
           quantidade: Number(item.quantidade) || 0,
           precoUnitario: Number(item.precoUnitario) || 0,
+          ...(item.bonificado === true ? { bonificado: true } : {}),
           ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: String(item.unidadeMedidaSigla) } : {}),
           ...(item.fatorConversao !== undefined ? { fatorConversao: Number(item.fatorConversao) } : {}),
           ...(item.embalagemId ? { embalagemId: String(item.embalagemId) } : {}),

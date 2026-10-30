@@ -9,9 +9,15 @@ import {
   resumoDaBonificacao,
   situacaoDaBonificacao,
   temItemBonificado,
+  separarItensDaBonificacao,
+  situacaoDoPedidoDeBonificacao,
+  parseTributacaoBonificacao,
+  idDoPedidoDeBonificacao,
+  ehPedidoDeBonificacao,
+  type ItemComBonificacao,
 } from '../src/utils/bonificacaoDomain';
 
-const item = (preco: number, qtd: number) => ({ id: 'p', nome: 'ARROZ', precoUnitario: preco, quantidade: qtd, desconto: 0, subtotal: Math.round(preco * qtd * 100) / 100 });
+const item = (preco: number, qtd: number): ItemComBonificacao & { id: string; nome: string } => ({ id: 'p', nome: 'ARROZ', precoUnitario: preco, quantidade: qtd, desconto: 0, subtotal: Math.round(preco * qtd * 100) / 100 });
 
 test('bonificar guarda o preco cheio e zera o que o cliente paga; cobrar devolve', () => {
   const b = bonificarItem(item(12.5, 3));
@@ -50,4 +56,27 @@ test('config e CFOP', () => {
   assert.deepEqual(parseConfigBonificacao({ ativa: 'sim', limitePercentual: 500 }), { ativa: false, limitePercentual: 100 });
   assert.equal(cfopDaBonificacao(false), '5910');
   assert.equal(cfopDaBonificacao(true), '6910');
+});
+
+test('pedido de bonificacao: separa brindes, id ligado e situacao pelo limite da venda de origem', () => {
+  const itens = [item(100, 1), bonificarItem(item(5, 2))];
+  const { cobrados, brindes } = separarItensDaBonificacao(itens);
+  assert.equal(cobrados.length, 1);
+  assert.equal(brindes.length, 1);
+  assert.equal(idDoPedidoDeBonificacao('abc'), 'abcb');
+  assert.equal(ehPedidoDeBonificacao({ tipoPedido: 'bonificacao' }), true);
+  assert.equal(ehPedidoDeBonificacao({}), false);
+  const config = parseConfigBonificacao({ ativa: true, limitePercentual: 10 });
+  assert.deepEqual(situacaoDoPedidoDeBonificacao({ itens: brindes, config, podeBonificar: true, vendaDeOrigemCentavos: 10000 }), { ok: true, precisaLiberacao: false });
+  const acima = situacaoDoPedidoDeBonificacao({ itens: brindes, config, podeBonificar: true, vendaDeOrigemCentavos: 5000 });
+  assert.equal(acima.ok && acima.precisaLiberacao, true);
+  const semVenda = situacaoDoPedidoDeBonificacao({ itens: brindes, config, podeBonificar: true, vendaDeOrigemCentavos: 0 });
+  assert.equal(semVenda.ok && semVenda.precisaLiberacao, true);
+  assert.equal(situacaoDoPedidoDeBonificacao({ itens, config, podeBonificar: true, vendaDeOrigemCentavos: 10000 }).ok, false);
+  assert.equal(situacaoDoPedidoDeBonificacao({ itens: [], config, podeBonificar: true, vendaDeOrigemCentavos: 10000 }).ok, false);
+});
+
+test('tributacao da bonificacao: padrao sem tributacao; codigo invalido volta ao padrao', () => {
+  assert.deepEqual(parseTributacaoBonificacao(undefined), { csosn: '400', cstIcms: '40', cstPis: '08', cstCofins: '08' });
+  assert.deepEqual(parseTributacaoBonificacao({ csosn: '102', cstIcms: '00', cstPis: '01', cstCofins: 'x' }), { csosn: '102', cstIcms: '00', cstPis: '01', cstCofins: '08' });
 });

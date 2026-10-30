@@ -20,6 +20,31 @@
 
 export const PERMISSAO_BONIFICAR = 'vendas.bonificar';
 
+/*
+ * PEDIDO DE BONIFICACAO (contador, 30/10/2026): venda e bonificacao sao NOTAS
+ * DISTINTAS (CFOP e tributacao diferentes). O vendedor continua marcando o item
+ * como "Bonificar" no pedido; ao enviar/gravar, o sistema SEPARA: o pedido de
+ * venda leva so' o que e' cobrado e nasce um PEDIDO DE BONIFICACAO (tipoPedido
+ * 'bonificacao') so' com os brindes, ligado a venda pelos ids. O pedido de
+ * bonificacao fatura sem pagamento, sem titulo e sem comissao, baixa o estoque
+ * e sai em NF-e propria (5.910/6.910) com a tributacao da bonificacao da empresa.
+ */
+export const TIPO_PEDIDO_BONIFICACAO = 'bonificacao';
+export const ROTULO_PEDIDO_BONIFICACAO = 'Bonificação';
+
+export const ehPedidoDeBonificacao = (pedido: { tipoPedido?: unknown } | null | undefined): boolean => (
+  pedido?.tipoPedido === TIPO_PEDIDO_BONIFICACAO
+);
+
+/** Id do pedido de bonificacao que nasce da venda: fixo, para reenviar nao duplicar. */
+export const idDoPedidoDeBonificacao = (idDaVenda: string): string => `${idDaVenda}b`;
+
+/** Separa os itens cobrados (venda) dos brindes (pedido de bonificacao). */
+export const separarItensDaBonificacao = <T extends { bonificado?: unknown }>(itens: ReadonlyArray<T>): { cobrados: T[]; brindes: T[] } => ({
+  cobrados: itens.filter((item) => !ehBonificado(item)),
+  brindes: itens.filter((item) => ehBonificado(item)),
+});
+
 export interface ItemComBonificacao {
   precoUnitario: number;
   quantidade: number;
@@ -60,8 +85,10 @@ export const bonificarItem = <T extends ItemComBonificacao>(item: T): T => ({
 /** Volta o item a ser cobrado, pelo preco cheio que estava guardado. */
 export const cobrarItem = <T extends ItemComBonificacao>(item: T): T => {
   if (!ehBonificado(item)) return item;
-  const { bonificado: _bonificado, precoReferencia, ...resto } = item;
-  const preco = positivo(precoReferencia);
+  const preco = positivo(item.precoReferencia);
+  const resto: Partial<T> = { ...item };
+  delete resto.bonificado;
+  delete resto.precoReferencia;
   return {
     ...resto,
     precoUnitario: preco,
@@ -162,6 +189,70 @@ export const situacaoDaBonificacao = (args: {
     ok: true,
     precisaLiberacao: true,
     mensagem: `A bonificação deste pedido (${reais(resumo.bonificadoCentavos)}, ${String(resumo.percentual).replace('.', ',')}% do vendido) passa do limite da empresa (${String(args.config.limitePercentual).replace('.', ',')}%) e precisa da liberação de um responsável.`,
+  };
+};
+
+/**
+ * O PEDIDO DE BONIFICACAO pode faturar? Todos os itens tem de ser brinde; a empresa
+ * precisa ter ligado e alguem com a permissao precisa ter bonificado. O limite % e'
+ * sobre a VENDA DE ORIGEM (o que o cliente pagou no pedido ligado); sem venda ligada,
+ * so' quem aprova desconto fatura.
+ */
+export const situacaoDoPedidoDeBonificacao = (args: {
+  itens: ReadonlyArray<ItemComBonificacao>;
+  config: ConfigBonificacao;
+  podeBonificar: boolean;
+  vendaDeOrigemCentavos: number;
+}): SituacaoDaBonificacao => {
+  if (args.itens.length === 0) return { ok: false, mensagem: 'O pedido de bonificação está sem itens. Inclua os brindes ou cancele o pedido.' };
+  if (args.itens.some((item) => !ehBonificado(item))) {
+    return { ok: false, mensagem: 'Pedido de bonificação só leva itens bonificados. Tire o item cobrado daqui e lance-o num pedido de venda.' };
+  }
+  if (!args.config.ativa) return { ok: false, mensagem: MENSAGEM_BONIFICACAO_DESLIGADA };
+  if (!args.podeBonificar) return { ok: false, mensagem: MENSAGEM_SEM_PERMISSAO_BONIFICAR };
+  const bonificado = resumoDaBonificacao(args.itens).bonificadoCentavos;
+  const venda = Math.max(0, Math.round(args.vendaDeOrigemCentavos) || 0);
+  if (venda <= 0) {
+    return { ok: true, precisaLiberacao: true, mensagem: `Esta bonificação (${reais(bonificado)}) não está ligada a uma venda e precisa da liberação de um responsável.` };
+  }
+  const limiteCentavos = Math.floor(venda * (args.config.limitePercentual / 100));
+  if (bonificado <= limiteCentavos + 1) return { ok: true, precisaLiberacao: false };
+  const percentual = Math.round((bonificado / venda) * 1000) / 10;
+  return {
+    ok: true,
+    precisaLiberacao: true,
+    mensagem: `A bonificação (${reais(bonificado)}, ${String(percentual).replace('.', ',')}% da venda ligada) passa do limite da empresa (${String(args.config.limitePercentual).replace('.', ',')}%) e precisa da liberação de um responsável.`,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Tributacao da nota de bonificacao (por filial; padrao sem tributacao)
+// ---------------------------------------------------------------------------
+
+export interface TributacaoBonificacao {
+  /** Simples Nacional. Padrao 400 (nao tributada pelo Simples). */
+  csosn: string;
+  /** Regime normal. Padrao 40 (isenta). */
+  cstIcms: string;
+  /** Padrao 08 (sem incidencia). */
+  cstPis: string;
+  cstCofins: string;
+}
+
+export const DEFAULT_TRIBUTACAO_BONIFICACAO: TributacaoBonificacao = { csosn: '400', cstIcms: '40', cstPis: '08', cstCofins: '08' };
+
+const codigo = (valor: unknown, tamanho: number, padrao: string): string => {
+  const digitos = String(valor ?? '').replace(/\D/g, '');
+  return digitos.length === tamanho ? digitos : padrao;
+};
+
+export const parseTributacaoBonificacao = (valor: unknown): TributacaoBonificacao => {
+  const v = (valor && typeof valor === 'object' ? valor : {}) as Record<string, unknown>;
+  return {
+    csosn: codigo(v.csosn, 3, DEFAULT_TRIBUTACAO_BONIFICACAO.csosn),
+    cstIcms: codigo(v.cstIcms, 2, DEFAULT_TRIBUTACAO_BONIFICACAO.cstIcms),
+    cstPis: codigo(v.cstPis, 2, DEFAULT_TRIBUTACAO_BONIFICACAO.cstPis),
+    cstCofins: codigo(v.cstCofins, 2, DEFAULT_TRIBUTACAO_BONIFICACAO.cstCofins),
   };
 };
 

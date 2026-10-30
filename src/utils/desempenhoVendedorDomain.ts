@@ -41,6 +41,8 @@ export interface VendaParaDesempenho {
   clienteNome?: string;
   itens?: ItemParaDesempenho[];
   comissao?: { status?: string; valorAtualCentavos?: number; valorAtual?: number } | null;
+  /** 'bonificacao' = pedido so' de brindes (30/10/2026): nao e' venda, fica fora das contas. */
+  tipoPedido?: string;
 }
 
 export interface ResumoPeriodo {
@@ -152,7 +154,7 @@ export const calcularDesempenho = (
   let comissaoMesCentavos = 0;
 
   for (const venda of vendas) {
-    if (isPedidoCancelado(venda.status)) continue;
+    if (isPedidoCancelado(venda.status) || venda.tipoPedido === 'bonificacao') continue;
     const total = totalDaVendaCentavos(venda);
     if (!contaComoFaturamento(venda.status)) {
       somar(aguardandoFaturamento, total);

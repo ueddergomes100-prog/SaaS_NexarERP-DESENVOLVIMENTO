@@ -36,6 +36,8 @@ interface ItemLista {
   createdAtMillis: number;
   /** "Sem nota" (false) nao mostra "Emitir Nota Fiscal" (23/10/2026). */
   comNotaFiscal?: boolean;
+  /** Pedido de bonificacao (30/10/2026): so' brindes, nota propria. */
+  bonificacao?: boolean;
 }
 
 const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -58,6 +60,7 @@ const paraItemDaLista = (fonte: FonteMeusPedidos, id: string, data: DocumentData
   tipo: fonte === 'pedidos' ? 'Pedido' : 'Orçamento',
   numero: (fonte === 'pedidos' ? data.numeroPedido : data.numeroOrcamento) || '',
   status: data.status || '',
+  ...(data.tipoPedido === 'bonificacao' ? { bonificacao: true } : {}),
   clienteNome: data.clienteNome || '',
   valorTotal: Number(data.valorTotal || 0),
   createdAtMillis: toMillis(data.createdAt),
@@ -367,7 +370,7 @@ const VendedorMeusPedidos: React.FC = () => {
                       {item.clienteNome || 'Sem cliente'}
                     </div>
                     <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {item.tipo} #{item.numero}
+                      {item.bonificacao ? 'Bonificação' : item.tipo} #{item.numero}
                       <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: corStatus(item.status) }} />
                       <span style={{ color: corStatus(item.status), fontWeight: 600 }}>{item.status}</span>
                     </div>

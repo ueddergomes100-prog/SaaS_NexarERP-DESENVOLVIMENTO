@@ -61,7 +61,7 @@ import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInpu
 import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 import { cfopEhDeSaida, cfopsParaEscolha, formatarCodigoCfop, naturezaDaOperacaoPelosCfops, problemaDoCfop } from '../../utils/cfopDomain';
-import { cfopDaBonificacao } from '../../utils/bonificacaoDomain';
+import { cfopDaBonificacao, ehPedidoDeBonificacao, parseTributacaoBonificacao, type TributacaoBonificacao } from '../../utils/bonificacaoDomain';
 import { FINALIDADE_NOTA_FATURAMENTO, FINALIDADE_NOTA_REMESSA, cfopDoFaturamento, infoComplementarDoFaturamento, parsePrevisaoEntrega } from '../../utils/entregaFuturaDomain';
 import { pedidoEntraNaEmissao } from '../../utils/notaDoPedidoDomain';
 import { definirComNotaFiscalNoServidor } from '../../services/vendaServidorService';
@@ -230,6 +230,9 @@ interface PedidoVenda {
   /** Venda com entrega futura (23/10/2026): a nota sai como simples faturamento (5.922/6.922). */
   entregaFutura?: boolean;
   previsaoEntrega?: string;
+  /** Pedido de bonificacao (30/10/2026): nota propria, CFOP 5.910/6.910, sem pagamento. */
+  tipoPedido?: string;
+  pedidoVendaOrigemNumero?: string;
   /** "Com nota / Sem nota" (23/10/2026): false some da emissao; ausente = pedido antigo, sem marcacao. */
   comNotaFiscal?: boolean;
   /** Frete, encargos e transporte do pedido (27/10/2026): vao para a nota (vFrete, vOutro, [transp]). */
@@ -308,6 +311,8 @@ const paraPedidoVenda = (id: string, dData: DocumentData): PedidoVenda => ({
   frete: Math.max(0, Number(dData.frete) || 0),
   encargos: Math.max(0, Number(dData.encargos) || 0),
   transporte: lerTransporte(dData.transporte),
+  ...(dData.tipoPedido ? { tipoPedido: String(dData.tipoPedido) } : {}),
+  ...(dData.pedidoVendaOrigemNumero ? { pedidoVendaOrigemNumero: String(dData.pedidoVendaOrigemNumero) } : {}),
 });
 
 /**
@@ -1000,12 +1005,14 @@ const NFE: React.FC = () => {
     // uma venda dentro do mesmo estado ser marcada como interestadual
     // por engano (rejeicao 772 da Sefaz).
     let companyState = 'SP';
+    let tributacaoBonificacao: TributacaoBonificacao = parseTributacaoBonificacao(undefined);
     try {
       const confRef = doc(db, 'configuracoes', tenantId || '');
       const confSnap = await getDoc(confRef);
       if (confSnap.exists()) {
         const estadoConfig = String(confSnap.data().nfseCidadeEstado || '').trim();
         if (estadoConfig) companyState = estadoConfig.toUpperCase();
+        tributacaoBonificacao = parseTributacaoBonificacao(confSnap.data().tributacaoBonificacao);
       }
     } catch (err) {
       console.warn("Erro ao buscar estado da oficina:", err);
@@ -1029,18 +1036,22 @@ const NFE: React.FC = () => {
       }));
     }
 
-    // Bonificacao (30/10/2026, decisao do dono; contador confirma): o brinde sai com o
-    // VALOR CHEIO e o CFOP de bonificacao, imposto normal. A nota soma o valor dele e,
-    // nos pagamentos, essa parte vai como "outros" (nao ha' cobranca -- ver a emissao); as
-    // parcelas e o boleto continuam so' da parte vendida.
+    // Bonificacao (contador, 30/10/2026): NOTA PROPRIA do pedido de bonificacao. Cada brinde
+    // sai com o VALOR CHEIO, o CFOP de bonificacao e a TRIBUTACAO DA BONIFICACAO da empresa
+    // (Configuracoes; padrao sem tributacao). Sem pagamento ("sem pagamento" na emissao).
     let bonificadoNaNotaCentavos = 0;
+    const codigoIcmsDaBonificacao = usesCsosn(regimeTributario) ? tributacaoBonificacao.csosn : tributacaoBonificacao.cstIcms;
     itemsWithTaxes = itemsWithTaxes.map((item) => {
       if (!item.bonificado) return item;
       const preco = Number(item.precoReferencia) || 0;
       const valorCheio = Math.round(Math.round(preco * 100) * Number(item.quantidade || 0)) / 100;
       bonificadoNaNotaCentavos += Math.round(valorCheio * 100);
       const cfop = cfopDaBonificacao(interestadual);
-      return { ...item, precoUnitario: preco, valorTotal: valorCheio, desconto: 0, cfop, cfopInterestadual: cfopDaBonificacao(true) };
+      return {
+        ...item, precoUnitario: preco, valorTotal: valorCheio, desconto: 0, cfop, cfopInterestadual: cfopDaBonificacao(true),
+        csosn: codigoIcmsDaBonificacao, csosnInterestadual: codigoIcmsDaBonificacao, aliquotaIcms: 0, reducaoBaseIcms: 0,
+        cstPis: tributacaoBonificacao.cstPis, aliquotaPis: 0, cstCofins: tributacaoBonificacao.cstCofins, aliquotaCofins: 0,
+      };
     });
 
     // Frete, encargos e transporte (27/10/2026): a transportadora e' lida AGORA
@@ -1079,7 +1090,9 @@ const NFE: React.FC = () => {
         valor: String(Math.round(Number(pedido.valorTotal || 0) * 100 + bonificadoNaNotaCentavos) / 100),
         descricao: cupom
           ? `Lançamento de NF-e decorrente do Cupom Fiscal ref. Pedido #${pedido.numeroPedido}`
-          : `Venda Ref. Pedido #${pedido.numeroPedido} - Itens: ${descItens}`,
+          : ehPedidoDeBonificacao(pedido)
+            ? `Bonificação Ref. Pedido #${pedido.numeroPedido}${pedido.pedidoVendaOrigemNumero ? ` (venda #${pedido.pedidoVendaOrigemNumero})` : ''} - Itens: ${descItens}`
+            : `Venda Ref. Pedido #${pedido.numeroPedido} - Itens: ${descItens}`,
         // So' o endereco DESTE cliente -- sem cair no que o formulario ja tinha
         // (exemplo ou o cliente do pedido anterior). Faltou dado? A trava de
         // endereco incompleto avisa na hora de transmitir.
@@ -2080,6 +2093,7 @@ const NFE: React.FC = () => {
     // nota nenhuma (era exatamente o bug: os dois saiam iguais a valorNumerico, que ja e' liquido).
     const productAmountBruto = itemsPayload.reduce((soma, it) => soma + Number(it.totalAmount || 0), 0);
     const bonificadoDaNotaCentavos = itensDaNota.reduce((soma, it) => soma + (it.bonificado ? Math.round(Number(it.valorTotal || 0) * 100) : 0), 0);
+    const notaSoDeBonificacao = itensDaNota.length > 0 && itensDaNota.every((it) => it.bonificado === true);
     const discountAmountTotal = itemsPayload.reduce((soma, it) => soma + Number(it.discountAmount || 0), 0);
     const totaisImpostos = totaisImpostosDosItens(itemsPayload);
     const tributosNota = somarTributos(tributosItens);
@@ -2137,11 +2151,13 @@ const NFE: React.FC = () => {
       ...(exportacao.exportation ? { exportation: exportacao.exportation } : {}),
       ...(transporteDaNota && transporteDaNota.ok ? { transport: transporteDaNota.transport } : {}),
       // Meio de pagamento de verdade (dinheiro, pix, boleto...), nao mais "outros" fixo.
-      // Bonificacao (30/10/2026): o valor cheio do brinde entra na nota sem cobranca -- vai como "outros".
-      payments: montarPagamentosNota(
-        bonificadoDaNotaCentavos > 0 ? [...a.pagamentos, { formaPagamento: 'Bonificação', valorCentavos: bonificadoDaNotaCentavos }] : a.pagamentos,
-        valorNumerico,
-      ),
+      // Bonificacao (30/10/2026): nota so' de brindes sai "sem pagamento" (tPag 90, valor zero).
+      payments: notaSoDeBonificacao
+        ? [{ method: 'noPayment', amount: 0 }]
+        : montarPagamentosNota(
+          bonificadoDaNotaCentavos > 0 ? [...a.pagamentos, { formaPagamento: 'Bonificação', valorCentavos: bonificadoDaNotaCentavos }] : a.pagamentos,
+          valorNumerico,
+        ),
       ...(duplicatesPayload.length > 0 ? { duplicates: duplicatesPayload } : {}),
       ...(billingPayload ? { billing: billingPayload } : {}),
       total: {
@@ -3792,7 +3808,7 @@ const NFE: React.FC = () => {
                       {/* So' pedido sem nota valendo e nao marcado "Sem nota" (23/10/2026); o escolhido continua visivel. */}
                       {[...pedidosParaEmitir, ...pedidosVenda.filter((p) => p.id === importedPedidoId && !pedidosParaEmitir.some((x) => x.id === p.id))].map(p => (
                         <option key={p.id} value={p.id}>
-                          Pedido #{p.numeroPedido} - {p.clienteNome} ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)})
+                          {ehPedidoDeBonificacao(p) ? 'Bonificação' : 'Pedido'} #{p.numeroPedido} - {p.clienteNome} ({ehPedidoDeBonificacao(p) ? 'sem cobrança' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valorTotal)})
                         </option>
                       ))}
                     </select>

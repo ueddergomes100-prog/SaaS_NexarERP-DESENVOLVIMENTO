@@ -22,8 +22,8 @@ import { spedyService } from '../../services/spedyService';
 import * as loteBaixa from '../../services/loteBaixaService';
 import { applyStockAdjustments, applyStockFieldDeltas, describeTransactionError, formatSequenceValue, getCurrentMaxSequence, getNextTenantSequenceValue, writeTenantSequenceValue } from '../../utils/firestoreAtomic';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
-import { bonificarItem, cobrarItem, PERMISSAO_BONIFICAR, resumoDaBonificacao, situacaoDaBonificacao, temItemBonificado } from '../../utils/bonificacaoDomain';
-import { PERMISSAO_LIBERAR_DESCONTO } from '../../utils/conferenciaDescontoDomain';
+import { bonificarItem, cobrarItem, ehPedidoDeBonificacao, idDoPedidoDeBonificacao, MENSAGEM_SO_BONIFICADO, PERMISSAO_BONIFICAR, resumoDaBonificacao, separarItensDaBonificacao, temItemBonificado, TIPO_PEDIDO_BONIFICACAO } from '../../utils/bonificacaoDomain';
+import { criarPreVendaExterna, type ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import { MOTIVOS_TROCA, PERMISSAO_TROCA_GERENCIAR, PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { trocaService, TrocaError } from '../../services/trocaService';
 import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -448,6 +448,10 @@ const PedidoVendaForm: React.FC = () => {
   const [observacaoPedido, setObservacaoPedido] = useState('');
   /** Marca do vendedor externo: o pedido sai COM (true) ou SEM (false) nota fiscal. Ausente = nao informado. */
   const [comNotaFiscalPedido, setComNotaFiscalPedido] = useState<boolean | null>(null);
+  /** Pedido de bonificacao aberto (30/10/2026): so' brindes, fatura sem pagamento. Ver bonificacaoDomain.ts. */
+  const [bonificacaoAberta, setBonificacaoAberta] = useState<{ origemId: string; origemNumero: string } | null>(null);
+  /** Id do pedido de bonificacao separado desta venda, para a venda guardar a ligacao ao gravar. */
+  const bonificacaoSeparadaRef = useRef('');
   const [formaPagamento, setFormaPagamento] = useState('Dinheiro');
   const [dataVenda, setDataVenda] = useState(() => getDateInputInTimeZone());
   // Separa "data que o usuario escolheu" de "data que a tela herdou do
@@ -1197,6 +1201,10 @@ const PedidoVendaForm: React.FC = () => {
             setStatusConferencia((p.statusConferencia as StatusConferencia) || '');
             setConferidoPorNome(p.conferidoPorNome || '');
             setItens(p.itens || []);
+            setBonificacaoAberta(ehPedidoDeBonificacao(p)
+              ? { origemId: String(p.pedidoVendaOrigemId || ''), origemNumero: String(p.pedidoVendaOrigemNumero || '') }
+              : null);
+            if (p.pedidoBonificacaoId) bonificacaoSeparadaRef.current = String(p.pedidoBonificacaoId);
             reservaPropriaRef.current = p.estoqueReservado === true ? mapaDaReserva(p.itens || []) : new Map();
             setOrcamentoId(p.orcamentoId || '');
             setFrete(p.frete || 0);
@@ -2179,7 +2187,8 @@ const PedidoVendaForm: React.FC = () => {
         // entrou com o de agora -- comparar o preco cobrado daria alarme falso em
         // item a vista ou em promocao. Item antigo compara como sempre comparou.
         const precoDeReferencia = item.tabelaPreco ? item.tabelaPreco.venda : item.precoUnitario;
-        if (!(item.tabelaPreco && item.embalagemId) && Math.abs(produtoAtual.precoVenda - precoDeReferencia) > 0.001) {
+        // Brinde (bonificacao) fica a preco zero de proposito: nao e' preco que mudou.
+        if (!item.bonificado && !(item.tabelaPreco && item.embalagemId) && Math.abs(produtoAtual.precoVenda - precoDeReferencia) > 0.001) {
           warnings.push(`${item.nome}: preço de venda mudou de R$ ${precoDeReferencia.toFixed(2)} para R$ ${produtoAtual.precoVenda.toFixed(2)}.`);
         }
         return warnings;
@@ -2436,6 +2445,118 @@ const PedidoVendaForm: React.FC = () => {
     return null;
   };
 
+  /**
+   * Bonificacao (contador, 30/10/2026): venda e bonificacao sao NOTAS DISTINTAS. Os itens
+   * marcados "Bonificar" saem desta venda e viram um PEDIDO DE BONIFICACAO proprio, ligado
+   * a ela. Devolve true quando separou (ou parou): a pessoa confere e clica de novo.
+   */
+  const separarBonificacaoDoPedido = async (acao: string): Promise<boolean> => {
+    if (bonificacaoAberta || !temItemBonificado(itens) || !tenantId || !currentUser) return false;
+    const { cobrados, brindes } = separarItensDaBonificacao(itens);
+    if (cobrados.length === 0) {
+      showError('Pedido só com bonificação', MENSAGEM_SO_BONIFICADO);
+      return true;
+    }
+    const cliente = clienteIdSelecionado ? clientesDisponiveis.find((c) => c.id === clienteIdSelecionado) : undefined;
+    if (!cliente) {
+      showError('Escolha o cliente', 'O pedido de bonificação precisa do cliente cadastrado. Escolha o cliente na lista antes de continuar.');
+      return true;
+    }
+    const confirma = await NexusSwal.fire({
+      icon: 'info',
+      title: 'Bonificação em pedido separado',
+      html: `${brindes.length === 1 ? 'O item bonificado vai' : `Os ${brindes.length} itens bonificados vão`} para um <strong>pedido de bonificação</strong> próprio, com nota fiscal separada (exigência fiscal). Esta venda segue só com os itens cobrados.`,
+      showCancelButton: true,
+      confirmButtonText: 'Separar a bonificação',
+      cancelButtonText: 'Voltar',
+    });
+    if (!confirma.isConfirmed) return true;
+    // A venda ainda nao tem id: reserva o que ela vai usar, para a bonificacao nascer ligada.
+    if (!id && !idVendaServidorRef.current) idVendaServidorRef.current = doc(collection(db, 'pedidos_venda')).id;
+    const idDaVenda = id || idVendaServidorRef.current;
+    const vendedorDaVenda = vendedorIdentificadoRef.current?.vendedorId || vendedorId || currentUser.uid;
+    const vendedorNome = vendedoresDisponiveis.find((v) => v.id === vendedorDaVenda)?.nome || currentUser.displayName || currentUser.email || 'Vendedor';
+    try {
+      const bonificacao = await criarPreVendaExterna({
+        tenantId,
+        usuarioId: currentUser.uid,
+        vendedorId: vendedorDaVenda,
+        vendedorNome,
+        clienteId: cliente.id,
+        clienteNome: cliente.nome,
+        itens: brindes as unknown as ItemVendaExterna[],
+        permitirVendaSemEstoque,
+        observacao: observacaoPedido,
+        ...(comNotaFiscalPedido !== null ? { comNotaFiscal: comNotaFiscalPedido } : {}),
+        idDocumento: idDoPedidoDeBonificacao(idDaVenda),
+        conferenciaMercadoriaAtiva,
+        tipoPedido: TIPO_PEDIDO_BONIFICACAO,
+        pedidoVendaOrigemId: idDaVenda,
+        ...(numeroPedido && id ? { pedidoVendaOrigemNumero: numeroPedido } : {}),
+      });
+      bonificacaoSeparadaRef.current = bonificacao.id;
+      setItens(cobrados);
+      setSelectedItemIndex(null);
+      showSuccess(`Bonificação #${bonificacao.numeroPedido} criada com os brindes. Confira e ${acao} a venda, agora só com os itens cobrados.`);
+    } catch (error) {
+      console.error('Erro ao criar o pedido de bonificação:', error);
+      showError('Não foi possível criar a bonificação', error instanceof Error && error.message ? error.message : 'Verifique a internet e tente de novo. A venda não foi alterada.');
+    }
+    return true;
+  };
+
+  /** Fatura o PEDIDO DE BONIFICACAO: sem pagamento, sempre pelo servidor (que confere permissao e limite). */
+  const handleFaturarBonificacao = async (): Promise<boolean> => {
+    if (submitLockRef.current || !bonificacaoAberta || !id || !tenantId || !currentUser) return false;
+    if (itens.length === 0) {
+      showError('Atenção', 'O pedido de bonificação está sem itens.');
+      return false;
+    }
+    if (isViewing && conferenciaPendenteParaFaturar(conferenciaMercadoriaAtiva, statusConferencia)) {
+      const aviso = avisoFaturarSemConferencia(statusConferencia);
+      const confirmaSemConferencia = await NexusSwal.fire({
+        title: aviso.title, text: aviso.text, icon: 'warning', showCancelButton: true,
+        confirmButtonText: aviso.confirmButtonText, cancelButtonText: 'Voltar', confirmButtonColor: '#f59e0b', reverseButtons: true,
+      });
+      if (!confirmaSemConferencia.isConfirmed) return false;
+    }
+    submitLockRef.current = true;
+    setIsLoading(true);
+    try {
+      const planoLotes = await prepararBaixaDeLotes({
+        db,
+        tenantId,
+        linhas: linhasParaLote(itens.map((item) => ({ id: item.id, nome: item.nome, quantidade: item.quantidade, fatorConversao: item.fatorConversao }))),
+        modo: loteModoSaida,
+        avisarVencido: loteAvisarVencido,
+      });
+      if (planoLotes === null) return false;
+      const resposta = await finalizarVendaNoServidor({
+        pedidoId: id,
+        tipoPedido: TIPO_PEDIDO_BONIFICACAO,
+        dataVenda: getDateInputInTimeZone(),
+        vendedorId,
+        clienteId: clienteIdSelecionado,
+        clienteNome: clienteNome.trim().toUpperCase() || 'CONSUMIDOR FINAL',
+        observacao: observacaoPedido.trim(),
+        itens: itens.map((item, indice) => ({ ...item, ...camposDeLoteDoItem(planoLotes, String(indice)) })),
+        descontoGeral: { tipo: 'valor', valorInformado: 0 },
+        frete: 0,
+        encargos: 0,
+        pagamentos: [],
+      });
+      setStatus('Finalizada');
+      showSuccess(`Bonificação #${resposta.numeroPedido} faturada: o estoque baixou e não gerou cobrança. A nota sai em NF-e (Fiscal › NF-e › importar o pedido), com o CFOP de bonificação.`);
+      return true;
+    } catch (error) {
+      showError('Não foi possível faturar a bonificação', error instanceof Error && error.message ? error.message : 'Nada foi gravado. Tente de novo.');
+      return false;
+    } finally {
+      submitLockRef.current = false;
+      setIsLoading(false);
+    }
+  };
+
   const handleGravarPreVenda = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
@@ -2444,6 +2565,7 @@ const PedidoVendaForm: React.FC = () => {
       return false;
     }
     if (!exigirEscolhaDaNotaFiscal()) return false;
+    if (await separarBonificacaoDoPedido('grave')) return false;
 
     // A pre-venda ja carimba vendedorId, e a comissao nasce dali -- entao ela
     // pede identificacao igual a venda.
@@ -2528,6 +2650,8 @@ const PedidoVendaForm: React.FC = () => {
       const currentMaxPedido = regravando
         ? 0
         : await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
+      // Id da pre-venda nova: o reservado quando a bonificacao ja' foi separada (nasce ligada).
+      const idNovaPreVenda = regravando ? id! : (idVendaServidorRef.current || doc(collection(db, 'pedidos_venda')).id);
 
       await runTransaction(db, async (transaction) => {
         const nextPedido = regravando
@@ -2547,7 +2671,7 @@ const PedidoVendaForm: React.FC = () => {
         const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || currentUser.displayName || currentUser.email || 'Vendedor';
         vendedorGravado = { id: selectedSellerId, nome: sellerName };
 
-        const preVendaRef = regravando ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
+        const preVendaRef = doc(db, 'pedidos_venda', idNovaPreVenda);
         preVendaId = preVendaRef.id;
 
         // Toda leitura antes de qualquer escrita (regra do Firestore).
@@ -2625,6 +2749,13 @@ const PedidoVendaForm: React.FC = () => {
           previsaoEntrega: trabalhaComEntregaFutura && entregaFutura ? previsaoEntrega : '',
           // "Com nota / Sem nota" (23/10/2026): sem nota nunca vai para a emissao.
           ...(comNotaFiscalPedido !== null ? { comNotaFiscal: comNotaFiscalPedido } : {}),
+          // Bonificacao (30/10/2026): a ligacao venda <-> bonificacao nao se perde ao regravar.
+          ...(existingData?.tipoPedido === TIPO_PEDIDO_BONIFICACAO ? { tipoPedido: TIPO_PEDIDO_BONIFICACAO } : {}),
+          ...(existingData?.pedidoVendaOrigemId ? { pedidoVendaOrigemId: existingData.pedidoVendaOrigemId } : {}),
+          ...(existingData?.pedidoVendaOrigemNumero ? { pedidoVendaOrigemNumero: existingData.pedidoVendaOrigemNumero } : {}),
+          ...(bonificacaoSeparadaRef.current || existingData?.pedidoBonificacaoId
+            ? { pedidoBonificacaoId: bonificacaoSeparadaRef.current || existingData?.pedidoBonificacaoId }
+            : {}),
           // A PRE-VENDA JA ENTRA NA FILA DA EXPEDICAO.
           //
           // Antes disto, a conferencia so' comecava quando a venda era
@@ -2699,6 +2830,8 @@ const PedidoVendaForm: React.FC = () => {
       // Operacao concluida: a proxima venda pede identificacao de novo.
       esquecerVendedorIdentificado();
       gravouComSucesso = true;
+      idVendaServidorRef.current = '';
+      bonificacaoSeparadaRef.current = '';
 
       // A pre-venda ja' esta' gravada; a rota e' complemento (o servidor
       // decide com a configuracao e as rotas em montagem). Falhou, so' avisa.
@@ -3201,30 +3334,18 @@ const PedidoVendaForm: React.FC = () => {
   const handleFinalizarVenda = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
+    if (bonificacaoAberta) return handleFaturarBonificacao();
     if (itens.length === 0) {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
       return false;
     }
     if (!exigirEscolhaDaNotaFiscal()) return false;
+    if (await separarBonificacaoDoPedido('finalize')) return false;
     // Balanco aberto com as vendas travadas (21/10/2026): pre-venda continua, finalizar nao.
     const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda');
     if (travaDoBalanco) {
       showError('Balanço em andamento', travaDoBalanco);
       return false;
-    }
-
-    // Bonificacao (30/10/2026): a chave da filial, um item cobrado pelo menos e,
-    // acima do limite, so' fatura quem aprova desconto. O servidor confere de novo.
-    if (temItemBonificado(itens)) {
-      const situacaoBonificacao = situacaoDaBonificacao({ itens, config: configBonificacao, podeBonificar: true });
-      if (!situacaoBonificacao.ok) {
-        showError('Bonificação', situacaoBonificacao.mensagem);
-        return false;
-      }
-      if (situacaoBonificacao.precisaLiberacao && !(hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_LIBERAR_DESCONTO))) {
-        showError('Bonificação acima do limite', `${situacaoBonificacao.mensagem} Peça para quem aprova desconto (dono, gerente ou "Vendas: Aprovar Desconto Acima do Limite") faturar este pedido, ou diminua a bonificação.`);
-        return false;
-      }
     }
 
     if (!garantirVendedorIdentificado(
@@ -3569,7 +3690,9 @@ const PedidoVendaForm: React.FC = () => {
             }
           }
 
-          const newPedidoRef = finalizandoPedidoAberto ? doc(db, 'pedidos_venda', id!) : doc(collection(db, 'pedidos_venda'));
+          // Venda nova: o id reservado (a bonificacao separada ja' nasceu ligada a ele).
+          if (!finalizandoPedidoAberto && !idVendaServidorRef.current) idVendaServidorRef.current = doc(collection(db, 'pedidos_venda')).id;
+          const newPedidoRef = doc(db, 'pedidos_venda', finalizandoPedidoAberto ? id! : idVendaServidorRef.current);
           newPedidoId = newPedidoRef.id;
 
           // Le o documento aberto ANTES de qualquer escrita da transacao
@@ -3669,6 +3792,10 @@ const PedidoVendaForm: React.FC = () => {
             clienteNome: finalClienteNome,
             observacao: observacaoPedido.trim(),
             itens: itensParaGravar,
+            // Bonificacao (30/10/2026): a venda guarda o id do pedido de bonificacao separado dela.
+            ...(bonificacaoSeparadaRef.current || dadosPedidoAberto?.pedidoBonificacaoId
+              ? { pedidoBonificacaoId: bonificacaoSeparadaRef.current || dadosPedidoAberto?.pedidoBonificacaoId }
+              : {}),
             promocaoIds: promocaoIdsDosItens(itens),
             ...(orcamentoId ? { orcamentoId } : {}),
             valorTotalItens,
@@ -3884,6 +4011,8 @@ const PedidoVendaForm: React.FC = () => {
       // Operacao concluida: a proxima venda pede identificacao de novo.
       esquecerVendedorIdentificado();
       saveSucceeded = true;
+      idVendaServidorRef.current = '';
+      bonificacaoSeparadaRef.current = '';
       // Pre-venda faturada em outro dia: agora, com a venda gravada, a tela
       // mostra a data do faturamento e os vencimentos que foram gravados.
       const faturouEmOutroDia = (isPreVendaAberta || isPendingFromAgent) && dataVenda !== dataVendaParaGravar;
@@ -5031,14 +5160,16 @@ const PedidoVendaForm: React.FC = () => {
           <div>
             <h1 className="page-title">
               {isViewing
-                ? `${isPreVendaAberta ? 'Pré-venda' : 'Pedido de Venda'} #${numeroPedido}`
+                ? `${bonificacaoAberta ? 'Bonificação' : isPreVendaAberta ? 'Pré-venda' : 'Pedido de Venda'} #${numeroPedido}`
                 : 'Novo pedido de venda'}
             </h1>
             <p className="page-subtitle">
               {isViewing
                 ? (status === 'Cancelada'
                   ? 'Esta venda foi CANCELADA'
-                  : isPreVendaAberta
+                  : bonificacaoAberta
+                    ? `Pedido de bonificação — só brindes, sem cobrança${bonificacaoAberta.origemNumero ? `, ligado à venda #${bonificacaoAberta.origemNumero}` : ''}. Nota própria (CFOP de bonificação).`
+                    : isPreVendaAberta
                     ? 'Pré-venda em aberto — estoque reservado, sem lançamento financeiro. Ainda não entra em faturamento.'
                     : isPendingFromAgent
                       ? (canEditPendingOrder ? 'Pedido pendente — edite e finalize a venda' : 'Pedido pendente de confirmação (fora de uma integração externa)')
@@ -5346,7 +5477,7 @@ const PedidoVendaForm: React.FC = () => {
           {((!isViewing && !esconderFinalizarEmPedidoNovo) || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981' }}>
               <ShoppingCart size={18} />
-              {isLoading ? 'Finalizando...' : 'Finalizar Venda'}
+              {isLoading ? 'Finalizando...' : (bonificacaoAberta ? 'Faturar Bonificação' : 'Finalizar Venda')}
             </button>
           )}
         </div>
@@ -6080,7 +6211,21 @@ const PedidoVendaForm: React.FC = () => {
             </div>
           )}
 
-          <div ref={pagamentoSectionRef}>
+          {bonificacaoAberta && (
+            <div
+              role="note"
+              className="card"
+              style={{ padding: '18px 20px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(217,119,6,0.45)', backgroundColor: 'rgba(217,119,6,0.08)', display: 'flex', flexDirection: 'column', gap: '6px' }}
+            >
+              <strong style={{ color: '#d97706', fontSize: '15px', letterSpacing: '0.04em' }}>PEDIDO DE BONIFICAÇÃO</strong>
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Só brindes, sem cobrança: faturar baixa o estoque e não gera conta a receber nem comissão. A nota é uma NF-e própria, com o CFOP de bonificação
+                {bonificacaoAberta.origemNumero ? ` (ligada à venda #${bonificacaoAberta.origemNumero})` : bonificacaoAberta.origemId ? ' (ligada à venda que originou)' : ''}.
+              </span>
+            </div>
+          )}
+
+          <div ref={pagamentoSectionRef} style={bonificacaoAberta ? { display: 'none' } : undefined}>
             <PaymentsEditor
               customerName={clienteNome}
               disabled={isViewing && !canEditPendingOrder && !editandoPagamento}
@@ -6126,7 +6271,7 @@ const PedidoVendaForm: React.FC = () => {
           {((!isViewing && !esconderFinalizarEmPedidoNovo) || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary pedido-botao-final" onClick={handleFinalizarVenda} disabled={isLoading}>
               <ShoppingCart size={22} />
-              Finalizar venda
+              {bonificacaoAberta ? 'Faturar bonificação' : 'Finalizar venda'}
             </button>
           )}
 

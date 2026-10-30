@@ -219,30 +219,45 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const travaDoBalanco = bloqueioPorBalanco(config.balancoEmAndamento, pedido.pdvSessionId ? 'finalizar a venda no PDV' : 'finalizar a venda');
   if (travaDoBalanco) throw new ErroVenda(409, travaDoBalanco);
 
-  // Bonificacao (30/10/2026): item de brinde so' com a chave da filial e com quem pode
-  // bonificar (quem fatura ou o vendedor da venda). Acima do limite, so' fatura quem
-  // aprova desconto (dono/gestor ou "Vendas: Aprovar Desconto Acima do Limite").
+  // Bonificacao (contador, 30/10/2026): venda e bonificacao sao NOTAS DISTINTAS. Brinde
+  // nunca fatura dentro da venda -- vai no PEDIDO DE BONIFICACAO ligado a ela, que fatura
+  // sem pagamento. Quem pode: a chave da filial e a permissao (de quem fatura ou do vendedor
+  // que bonificou). Acima do limite % sobre a venda ligada, so' quem aprova desconto.
   let bonificacaoDaVenda = null;
-  if (bonif.temItemBonificado(pedido.itens)) {
+  if (!pedido.ehBonificacao && bonif.temItemBonificado(pedido.itens)) {
+    throw new ErroVenda(409, 'Item bonificado não sai na nota da venda: ele vai num pedido de bonificação separado (exigência fiscal). Grave a pré-venda de novo para o sistema separar os brindes.');
+  }
+  if (pedido.ehBonificacao) {
+    const gravadoSnap = await db.collection('pedidos_venda').doc(pedido.pedidoId).get();
+    const gravado = gravadoSnap.exists && gravadoSnap.data().tenantId === tenantId ? gravadoSnap.data() : null;
+    if (!gravado || !bonif.ehPedidoDeBonificacao(gravado)) throw new ErroVenda(409, 'Este pedido não é de bonificação. Atualize a tela.');
+    const vendedorDaBonificacao = String(gravado.vendedorId || pedido.vendedorId || '');
     let vendedorPodeBonificar = false;
-    if (pedido.vendedorId && !temPermissao(user, bonif.PERMISSAO_BONIFICAR)) {
-      const vendedorSnap = await db.collection('usuarios').doc(pedido.vendedorId).get();
+    if (vendedorDaBonificacao && !temPermissao(user, bonif.PERMISSAO_BONIFICAR)) {
+      const vendedorSnap = await db.collection('usuarios').doc(vendedorDaBonificacao).get();
       const v = vendedorSnap.exists ? vendedorSnap.data() : null;
       vendedorPodeBonificar = Boolean(v && v.tenantId === tenantId && Array.isArray(v.permissoes) && v.permissoes.includes(bonif.PERMISSAO_BONIFICAR));
     }
-    const situacaoBonificacao = bonif.situacaoDaBonificacao({
+    let vendaDeOrigemCentavos = 0;
+    if (gravado.pedidoVendaOrigemId) {
+      const origemSnap = await db.collection('pedidos_venda').doc(String(gravado.pedidoVendaOrigemId)).get();
+      const origem = origemSnap.exists && origemSnap.data().tenantId === tenantId ? origemSnap.data() : null;
+      if (origem && origem.status !== 'Cancelada') vendaDeOrigemCentavos = Number(origem.valorTotalCentavos ?? fin.toCents(origem.valorTotal || 0)) || 0;
+    }
+    const situacaoBonificacao = bonif.situacaoDoPedidoDeBonificacao({
       itens: pedido.itens,
       config: bonif.parseConfigBonificacao(config.bonificacao),
       podeBonificar: temPermissao(user, bonif.PERMISSAO_BONIFICAR) || vendedorPodeBonificar,
+      vendaDeOrigemCentavos,
     });
     if (!situacaoBonificacao.ok) throw new ErroVenda(409, situacaoBonificacao.mensagem);
     if (situacaoBonificacao.precisaLiberacao && !temPermissao(user, cd.PERMISSAO_LIBERAR_DESCONTO)) {
-      throw new ErroVenda(409, `${situacaoBonificacao.mensagem} Peça para quem aprova desconto (dono, gerente ou "Vendas: Aprovar Desconto Acima do Limite") faturar este pedido, ou diminua a bonificação.`);
+      throw new ErroVenda(409, `${situacaoBonificacao.mensagem} Peça para quem aprova desconto (dono, gerente ou "Vendas: Aprovar Desconto Acima do Limite") faturar esta bonificação, ou diminua os brindes.`);
     }
     const resumoBonificacao = bonif.resumoDaBonificacao(pedido.itens);
     bonificacaoDaVenda = {
       valorCentavos: resumoBonificacao.bonificadoCentavos,
-      percentual: resumoBonificacao.percentual,
+      ...(vendaDeOrigemCentavos > 0 ? { percentualDaVenda: Math.round((resumoBonificacao.bonificadoCentavos / vendaDeOrigemCentavos) * 1000) / 10 } : {}),
       ...(situacaoBonificacao.precisaLiberacao ? { liberadaPorId: user.uid, liberadaPorNome: String(user.nome || user.email || '') } : {}),
     };
   }
@@ -260,21 +275,24 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     lerColecaoDaEmpresa('bandeiras_cartao', tenantId),
     lerColecaoDaEmpresa('bancos', tenantId),
   ]);
-  let pagamentos;
-  try {
-    pagamentos = fin.normalizePayments(totais.valorTotalCentavos, pedido.pagamentos, {
-      saleDate: pedido.dataVenda,
-      maxCreditInstallments: financeiro.maxCreditInstallments || undefined,
-      creditFeePercentByInstallment: financeiro.creditFeePercentByInstallment,
-      debitFeePercent: financeiro.debitFeePercent,
-      creditSettlementDays: financeiro.creditSettlementDays,
-      debitSettlementDays: financeiro.debitSettlementDays,
-      cardFeeSchedulesByBrand: fin.buildCardFeeSchedulesByBrand(bandeiras),
-      pagamentoCartaoSimplificadoAtivo: fin.parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo),
-      bancoPadraoSimplificado: fin.resolveBancoPadraoSimplificado(bancosDaEmpresa.map((b) => ({ id: b.id, nome: String(b.nome || ''), ativo: b.ativo }))),
-    });
-  } catch (erro) {
-    throw new ErroVenda(400, erro instanceof Error && erro.message ? erro.message : 'Revise os dados do pagamento.');
+  let pagamentos = [];
+  // Bonificacao: mercadoria sem cobranca -- nada de pagamento, titulo nem banco.
+  if (!pedido.ehBonificacao) {
+    try {
+      pagamentos = fin.normalizePayments(totais.valorTotalCentavos, pedido.pagamentos, {
+        saleDate: pedido.dataVenda,
+        maxCreditInstallments: financeiro.maxCreditInstallments || undefined,
+        creditFeePercentByInstallment: financeiro.creditFeePercentByInstallment,
+        debitFeePercent: financeiro.debitFeePercent,
+        creditSettlementDays: financeiro.creditSettlementDays,
+        debitSettlementDays: financeiro.debitSettlementDays,
+        cardFeeSchedulesByBrand: fin.buildCardFeeSchedulesByBrand(bandeiras),
+        pagamentoCartaoSimplificadoAtivo: fin.parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo),
+        bancoPadraoSimplificado: fin.resolveBancoPadraoSimplificado(bancosDaEmpresa.map((b) => ({ id: b.id, nome: String(b.nome || ''), ativo: b.ativo }))),
+      });
+    } catch (erro) {
+      throw new ErroVenda(400, erro instanceof Error && erro.message ? erro.message : 'Revise os dados do pagamento.');
+    }
   }
   pagamentos = fin.explodeInstallmentPaymentRecords(pagamentos);
   const resumo = fin.summarizePayments(pagamentos);
@@ -640,8 +658,13 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       valorTotalDescontosCentavos: fin.toCents(totais.valorTotalDescontos),
       // Itens abaixo do preco do sistema: quanto isso deu de desconto (21/10/2026).
       ...(precos.diferencaTotalCentavos > 0 ? { descontoPorPrecoCentavos: precos.diferencaTotalCentavos } : {}),
-      // Bonificacao (30/10/2026): valor cheio dos itens de brinde e quem liberou acima do limite.
+      // Bonificacao (30/10/2026): valor cheio dos brindes, quem liberou acima do limite e a ligacao
+      // venda <-> bonificacao (as duas guardam o id da outra desde a pre-venda).
       ...(bonificacaoDaVenda ? { bonificacao: bonificacaoDaVenda } : {}),
+      ...(aberto && bonif.ehPedidoDeBonificacao(aberto) ? { tipoPedido: bonif.TIPO_PEDIDO_BONIFICACAO } : {}),
+      ...(aberto && aberto.pedidoVendaOrigemId ? { pedidoVendaOrigemId: aberto.pedidoVendaOrigemId } : {}),
+      ...(aberto && aberto.pedidoVendaOrigemNumero ? { pedidoVendaOrigemNumero: aberto.pedidoVendaOrigemNumero } : {}),
+      ...(aberto && aberto.pedidoBonificacaoId ? { pedidoBonificacaoId: aberto.pedidoBonificacaoId } : {}),
       descontoGeral: {
         tipo: pedido.descontoGeral.tipo,
         valorInformado: pedido.descontoGeral.valorInformado,
@@ -655,7 +678,7 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       ...(pedido.transporte ? { transporte: pedido.transporte } : {}),
       valorTotal: totais.valorTotal,
       valorTotalCentavos: totais.valorTotalCentavos,
-      formaPagamento: resumo.paymentMethodLabel,
+      formaPagamento: pedido.ehBonificacao ? bonif.ROTULO_PEDIDO_BONIFICACAO : resumo.paymentMethodLabel,
       condicaoPagamento: resumo.paymentCondition,
       pagamentos: pagamentosGravados,
       totalRecebido: resumo.received,

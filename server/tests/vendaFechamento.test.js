@@ -389,63 +389,71 @@ test('total arredondado por linha (kg): duas linhas fracionadas fecham com o val
   assert.equal(r.totalCentavos, 3);
 });
 
-// Bonificacao (30/10/2026): item de brinde vai a preco zero, baixa o estoque e fica fora do total e da comissao.
-const comBrinde = (extra = {}) => corpo({
-  itens: [
-    { id: 'p1', nome: 'RAÇÃO', precoUnitario: 10, quantidade: 2, desconto: 0, subtotal: 20 },
-    // A tela manda preco 7 por engano: o servidor zera (bonificado nunca leva preco).
-    { id: 'p2', nome: 'PETISCO', precoUnitario: 7, quantidade: 1, desconto: 0, subtotal: 7, bonificado: true, precoReferencia: 1.5 },
-  ],
-  ...extra,
-});
-const baseComBrinde = (config = { ativa: true, limitePercentual: 10 }, extra = {}) => base({
+// Bonificacao (contador, 30/10/2026): venda e bonificacao sao notas distintas. O brinde vai num
+// PEDIDO DE BONIFICACAO ligado a venda, que fatura sem pagamento, baixa o estoque e nao gera
+// titulo nem comissao.
+const brinde = (extra = {}) => ({ id: 'p2', nome: 'PETISCO', precoUnitario: 0, quantidade: 1, desconto: 0, subtotal: 0, bonificado: true, precoReferencia: 1.5, ...extra });
+const corpoBonificacao = (extra = {}) => corpo({ idDocumento: undefined, pedidoId: 'bon1', tipoPedido: 'bonificacao', itens: [brinde()], pagamentos: [], ...extra });
+const baseBonificacao = (config = { ativa: true, limitePercentual: 10 }, extra = {}) => base({
   'configuracoes/loja': { tenantId: 'loja', bonificacao: config },
-  'estoque/p2': { tenantId: 'loja', nome: 'PETISCO', quantidade: 5, quantidadeReservada: 0, precoVenda: 1.5 },
+  'estoque/p2': { tenantId: 'loja', nome: 'PETISCO', quantidade: 5, quantidadeReservada: 1, precoVenda: 1.5 },
+  'pedidos_venda/venda0': { tenantId: 'loja', numeroPedido: '0007', status: 'Finalizada', valorTotalCentavos: 2000, valorTotal: 20, pedidoBonificacaoId: 'bon1' },
+  'pedidos_venda/bon1': {
+    tenantId: 'loja', numeroPedido: '0008', status: 'Pré-venda', tipoPedido: 'bonificacao', vendedorId: 'vend1', clienteId: 'cli1', clienteNome: 'MARIA',
+    itens: [brinde()], estoqueReservado: true, pedidoVendaOrigemId: 'venda0', pedidoVendaOrigemNumero: '0007',
+  },
   ...extra,
 });
-const BONIFICA = { ...VENDEDOR, permissoes: ['vendas.pedidos', 'vendas.bonificar'] };
+const BONIFICA = { ...FATURISTA, permissoes: ['vendas.pre_venda_finalizar', 'vendas.bonificar'] };
 
-test('bonificacao: brinde baixa o estoque, sai a zero do total e da comissao, e a venda grava o valor dele', async () => {
-  const fake = criarBancoFalso(baseComBrinde(), { consultas: true });
-  const r = await carregar(fake.db).finalizarVenda({ user: BONIFICA, tenantId: 'loja', corpo: comBrinde() });
-  assert.equal(r.totalCentavos, 2000);
-  const pedido = fake.ler('pedidos_venda/venda1');
-  assert.equal(pedido.itens[1].precoUnitario, 0);
-  assert.equal(pedido.itens[1].subtotal, 0);
-  assert.equal(pedido.itens[1].bonificado, true);
-  assert.equal(pedido.itens[1].precoReferencia, 1.5);
-  assert.deepEqual(pedido.bonificacao, { valorCentavos: 150, percentual: 7.5 });
-  assert.equal(pedido.comissao.valorOriginalCentavos, 100, 'comissao so\' da parte vendida');
-  assert.equal(fake.ler('estoque/p2').quantidade, 4);
+test('bonificacao: item bonificado dentro da venda e\' recusado (vai no pedido de bonificacao)', async () => {
+  const fake = criarBancoFalso(baseBonificacao(), { consultas: true });
+  const itens = [{ id: 'p1', nome: 'RAÇÃO', precoUnitario: 10, quantidade: 2, desconto: 0, subtotal: 20 }, brinde()];
+  await assert.rejects(carregar(fake.db).finalizarVenda({ user: BONIFICA, tenantId: 'loja', corpo: corpo({ itens }) }), (e) => /pedido de bonificação separado/.test(e.message) && e.status === 409);
+  assert.equal(fake.ler('pedidos_venda/venda1'), undefined);
 });
 
-test('bonificacao: desligada, sem permissao, so\' brinde ou acima do limite sem quem aprova desconto recusa sem gravar', async () => {
+test('bonificacao: o pedido de bonificacao fatura sem pagamento, baixa o estoque (consumindo a reserva) e grava a ligacao', async () => {
+  const fake = criarBancoFalso(baseBonificacao(), { consultas: true });
+  const r = await carregar(fake.db).finalizarVenda({ user: BONIFICA, tenantId: 'loja', corpo: corpoBonificacao() });
+  assert.equal(r.totalCentavos, 0);
+  const pedido = fake.ler('pedidos_venda/bon1');
+  assert.equal(pedido.status, 'Finalizada');
+  assert.equal(pedido.tipoPedido, 'bonificacao');
+  assert.equal(pedido.formaPagamento, 'Bonificação');
+  assert.equal(pedido.pedidoVendaOrigemId, 'venda0');
+  assert.deepEqual(pedido.pagamentos, []);
+  assert.equal(pedido.itens[0].precoReferencia, 1.5);
+  assert.deepEqual(pedido.bonificacao, { valorCentavos: 150, percentualDaVenda: 7.5 });
+  assert.equal(fake.ler('estoque/p2').quantidade, 4);
+  assert.equal(fake.ler('estoque/p2').quantidadeReservada, 0);
+  assert.equal(fake.ler('transacoes/bon1'), undefined, 'bonificacao nao gera titulo');
+});
+
+test('bonificacao: desligada, sem permissao, item cobrado, com pagamento, pedido que nao e\' bonificacao ou acima do limite recusa sem gravar', async () => {
   const casos = [
-    { banco: baseComBrinde({ ativa: false }), user: BONIFICA, corpo: comBrinde(), msg: /não trabalha com bonificação/ },
-    { banco: baseComBrinde(), user: VENDEDOR, corpo: comBrinde(), msg: /Pode bonificar/ },
-    {
-      banco: baseComBrinde(),
-      user: BONIFICA,
-      corpo: comBrinde({ itens: [{ id: 'p2', nome: 'PETISCO', precoUnitario: 0, quantidade: 1, desconto: 0, subtotal: 0, bonificado: true, precoReferencia: 1.5 }], pagamentos: [pagamento({ valor: '0' })] }),
-      msg: /só tem itens bonificados/,
-    },
-    { banco: baseComBrinde({ ativa: true, limitePercentual: 5 }), user: BONIFICA, corpo: comBrinde(), msg: /passa do limite/ },
+    { banco: baseBonificacao({ ativa: false }), user: BONIFICA, corpo: corpoBonificacao(), msg: /não trabalha com bonificação/ },
+    { banco: baseBonificacao(), user: FATURISTA, corpo: corpoBonificacao(), msg: /Pode bonificar/ },
+    { banco: baseBonificacao(), user: BONIFICA, corpo: corpoBonificacao({ itens: [{ id: 'p1', nome: 'RAÇÃO', precoUnitario: 10, quantidade: 1, desconto: 0, subtotal: 10 }] }), msg: /só leva itens bonificados/ },
+    { banco: baseBonificacao(), user: BONIFICA, corpo: corpoBonificacao({ pagamentos: [pagamento()] }), msg: /não tem pagamento/ },
+    { banco: baseBonificacao(undefined, { 'pedidos_venda/bon1': { tenantId: 'loja', status: 'Pré-venda', itens: [brinde()] } }), user: BONIFICA, corpo: corpoBonificacao(), msg: /não é de bonificação/ },
+    { banco: baseBonificacao({ ativa: true, limitePercentual: 5 }), user: BONIFICA, corpo: corpoBonificacao(), msg: /passa do limite/ },
   ];
   for (const caso of casos) {
     const fake = criarBancoFalso(caso.banco, { consultas: true });
-    await assert.rejects(carregar(fake.db).finalizarVenda({ user: caso.user, tenantId: 'loja', corpo: caso.corpo }), (e) => caso.msg.test(e.message) && e.status === 409);
-    assert.equal(fake.ler('pedidos_venda/venda1'), undefined);
+    await assert.rejects(carregar(fake.db).finalizarVenda({ user: caso.user, tenantId: 'loja', corpo: caso.corpo }), (e) => caso.msg.test(e.message) && [400, 409].includes(e.status));
+    assert.equal(fake.ler('pedidos_venda/bon1').status, 'Pré-venda');
     assert.equal(fake.ler('estoque/p2').quantidade, 5);
   }
 });
 
-test('bonificacao: vendedor da venda pode bonificar (pedido do app) e quem aprova desconto fatura acima do limite', async () => {
-  const fake = criarBancoFalso(baseComBrinde({ ativa: true, limitePercentual: 5 }, {
+test('bonificacao: o vendedor que bonificou tem a permissao e quem aprova desconto fatura acima do limite', async () => {
+  const fake = criarBancoFalso(baseBonificacao({ ativa: true, limitePercentual: 5 }, {
     'usuarios/vend1': { tenantId: 'loja', nome: 'VENDEDOR UM', permissoes: ['vendas.bonificar'] },
   }), { consultas: true });
   const APROVA = { ...FATURISTA, permissoes: ['vendas.pre_venda_finalizar', 'vendas.liberar_desconto'], nome: 'GERENTE' };
-  await carregar(fake.db).finalizarVenda({ user: APROVA, tenantId: 'loja', corpo: comBrinde() });
-  const pedido = fake.ler('pedidos_venda/venda1');
+  await carregar(fake.db).finalizarVenda({ user: APROVA, tenantId: 'loja', corpo: corpoBonificacao() });
+  const pedido = fake.ler('pedidos_venda/bon1');
   assert.equal(pedido.bonificacao.liberadaPorId, 'fat1');
   assert.equal(pedido.bonificacao.liberadaPorNome, 'GERENTE');
 });

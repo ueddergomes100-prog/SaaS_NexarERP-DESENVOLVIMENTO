@@ -4,6 +4,7 @@ import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ModoRotaPreVenda } from '../../utils/rotaPreVendaDomain';
 import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService';
 import { listarRascunhos, marcarErroRascunho, removerRascunho, type RascunhoVenda } from './vendedorRascunhosStore';
+import { idDoPedidoDeBonificacao, separarItensDaBonificacao, TIPO_PEDIDO_BONIFICACAO } from '../../utils/bonificacaoDomain';
 
 /*
  * ENVIO DOS RASCUNHOS DO APP VENDAS.
@@ -59,22 +60,40 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
     if (!ctx.trabalhaComPreVenda) {
       throw new Error('A opção "Pré-venda" está desligada nas Configurações da empresa. Peça pro administrador habilitar.');
     }
-    const { id, numeroPedido } = await criarPreVendaExterna({
+    // Bonificacao (contador, 30/10/2026): os brindes saem num PEDIDO DE BONIFICACAO
+    // proprio, ligado a venda (ids fixos: reenviar nao duplica nenhum dos dois).
+    const { cobrados, brindes } = separarItensDaBonificacao(rascunho.itens);
+    const idBonificacao = brindes.length > 0 ? idDoPedidoDeBonificacao(rascunho.localId) : '';
+    const comum = {
       tenantId: ctx.tenantId,
       usuarioId: ctx.usuarioId,
       vendedorId: ctx.usuarioId,
       vendedorNome: ctx.vendedorNome,
       clienteId: rascunho.cliente.id,
       clienteNome: rascunho.cliente.nome,
-      itens: rascunho.itens,
       observacao: rascunho.observacao,
       ...(rascunho.notaFiscal ? { comNotaFiscal: comNotaFiscalDaEscolha(rascunho.notaFiscal) } : {}),
       // Segue a config da empresa "Permitir venda sem estoque", como as
       // demais telas de venda.
       permitirVendaSemEstoque: ctx.permiteVendaSemEstoque,
-      idDocumento: rascunho.localId,
       conferenciaMercadoriaAtiva: ctx.conferenciaMercadoriaAtiva,
+    };
+    const { id, numeroPedido } = await criarPreVendaExterna({
+      ...comum,
+      itens: cobrados,
+      idDocumento: rascunho.localId,
+      ...(idBonificacao ? { pedidoBonificacaoId: idBonificacao } : {}),
     });
+    const bonificacao = idBonificacao
+      ? await criarPreVendaExterna({
+        ...comum,
+        itens: brindes,
+        idDocumento: idBonificacao,
+        tipoPedido: TIPO_PEDIDO_BONIFICACAO,
+        pedidoVendaOrigemId: id,
+        pedidoVendaOrigemNumero: numeroPedido,
+      })
+      : null;
     // Rota na pre-venda (21/10/2026): a pre-venda ja' esta' na base; a rota
     // e' complemento -- o servidor confere se a escolhida ainda esta' em
     // montagem e, se nao, usa a que sobrou. Falhou, a loja coloca pelo Romaneio.
@@ -82,7 +101,9 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
     const rota = perguntaRotaNaPreVenda(ctx.modoRotaPreVenda)
       ? textoDoResultadoDaRota(await colocarPedidoNaRotaSemFalhar(id, rascunho.rota?.id)).replace(/\.$/, '')
       : '';
-    return `Pré-venda #${numeroPedido} enviada${rota ? ` — ${rota}` : ''}`;
+    // A bonificacao vai junto, na mesma entrega.
+    if (bonificacao && perguntaRotaNaPreVenda(ctx.modoRotaPreVenda)) await colocarPedidoNaRotaSemFalhar(bonificacao.id, rascunho.rota?.id);
+    return `Pré-venda #${numeroPedido}${bonificacao ? ` e Bonificação #${bonificacao.numeroPedido} enviadas` : ' enviada'}${rota ? ` — ${rota}` : ''}`;
   }
   const { numeroOrcamento } = await criarOrcamentoExterno({
     tenantId: ctx.tenantId,

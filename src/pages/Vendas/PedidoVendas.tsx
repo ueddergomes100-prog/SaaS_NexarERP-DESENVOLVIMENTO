@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { ehPedidoDeBonificacao } from '../../utils/bonificacaoDomain';
 import { useNavigate } from 'react-router-dom';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
@@ -938,6 +939,7 @@ const PedidoVendas: React.FC = () => {
                     <td className="hd-tabela__mudo">{p.formaPagamento || '—'}</td>
                     <td>
                       <span className={`hd-chip ${tomDoStatusPedido(p.status)}`}>{p.status}</span>
+                      {ehPedidoDeBonificacao(p as { tipoPedido?: unknown }) && <span className="hd-chip" style={{ marginLeft: '6px', color: '#d97706', borderColor: 'rgba(217,119,6,0.45)', backgroundColor: 'rgba(217,119,6,0.10)' }} title="Pedido de bonificação: só brindes, sem cobrança, nota própria">BONIFICAÇÃO</span>}
                       {rotuloNotaFiscalPedido(p.comNotaFiscal) && (
                         <div style={{ marginTop: '6px' }}>
                           <span

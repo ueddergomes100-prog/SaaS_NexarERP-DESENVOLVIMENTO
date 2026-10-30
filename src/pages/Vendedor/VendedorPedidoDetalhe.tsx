@@ -30,6 +30,8 @@ interface ItemPedido {
 
 interface PedidoDetalhe {
   id: string;
+  /** 'bonificacao' = pedido so' de brindes (30/10/2026). */
+  tipoPedido?: string;
   numeroPedido: string;
   status: string;
   statusConferencia?: string;
@@ -97,6 +99,7 @@ const VendedorPedidoDetalhe: React.FC = () => {
       setPedido({
         id: snap.id,
         numeroPedido: data.numeroPedido || '',
+        ...(data.tipoPedido ? { tipoPedido: String(data.tipoPedido) } : {}),
         status: data.status || '',
         statusConferencia: data.statusConferencia,
         clienteNome: data.clienteNome || '',
@@ -189,7 +192,7 @@ const VendedorPedidoDetalhe: React.FC = () => {
             <div style={cardStyle}>
               <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{pedido.clienteNome || 'Sem cliente'}</div>
               <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                {pedido.status}{pedido.dataVenda ? ` · ${pedido.dataVenda.split('-').reverse().join('/')}` : ''}
+                {pedido.tipoPedido === 'bonificacao' ? 'BONIFICAÇÃO · ' : ''}{pedido.status}{pedido.dataVenda ? ` · ${pedido.dataVenda.split('-').reverse().join('/')}` : ''}
               </div>
               {rotuloNotaFiscalPedido(pedido.comNotaFiscal) && (
                 <div style={{ marginTop: '8px' }}>

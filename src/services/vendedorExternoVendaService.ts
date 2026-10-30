@@ -92,12 +92,25 @@ export interface CriarPreVendaExternaParams {
    *  antes desta pre-venda (app do vendedor externo) nunca ganhava o campo,
    *  entao nunca aparecia na fila. */
   conferenciaMercadoriaAtiva?: boolean;
+  /** Pedido de bonificacao (30/10/2026): so' brindes, fatura sem pagamento (bonificacaoDomain.ts). */
+  tipoPedido?: 'bonificacao';
+  /** Venda e bonificacao nascem ligadas (cada uma guarda o id da outra). */
+  pedidoBonificacaoId?: string;
+  pedidoVendaOrigemId?: string;
+  pedidoVendaOrigemNumero?: string;
 }
 
 export const criarPreVendaExterna = async (
   params: CriarPreVendaExternaParams,
 ): Promise<{ id: string; numeroPedido: string }> => {
   const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque, idDocumento, observacao, comNotaFiscal, conferenciaMercadoriaAtiva } = params;
+  // Ligacao venda <-> bonificacao: so' as chaves que vieram (nunca undefined no Firestore).
+  const vinculo = {
+    ...(params.tipoPedido ? { tipoPedido: params.tipoPedido } : {}),
+    ...(params.pedidoBonificacaoId ? { pedidoBonificacaoId: params.pedidoBonificacaoId } : {}),
+    ...(params.pedidoVendaOrigemId ? { pedidoVendaOrigemId: params.pedidoVendaOrigemId } : {}),
+    ...(params.pedidoVendaOrigemNumero ? { pedidoVendaOrigemNumero: params.pedidoVendaOrigemNumero } : {}),
+  };
 
   const valorTotalItens = itens.reduce((soma, item) => soma + item.subtotal, 0);
   const currentMaxPedido = await getCurrentMaxSequence(db, 'pedidos_venda', tenantId, 'numeroPedido').catch(() => 0);
@@ -160,6 +173,7 @@ export const criarPreVendaExterna = async (
       // Marca do vendedor: a loja ve na pre-venda se o pedido leva nota fiscal. So' grava quando
       // foi informado (nunca undefined no Firestore) -- venda de balcao nao tem o campo.
       ...(typeof comNotaFiscal === 'boolean' ? { comNotaFiscal } : {}),
+      ...vinculo,
       tenantId,
       usuarioResponsavelId: usuarioId,
       vendedorId,

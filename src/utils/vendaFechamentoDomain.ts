@@ -164,6 +164,11 @@ export interface PedidoDeFechamento {
   previsaoEntrega: string;
   /** "Com nota / Sem nota" (23/10/2026, notaDoPedidoDomain.ts); null = nao informado (mantem o do pedido aberto). */
   comNotaFiscal: boolean | null;
+  /**
+   * Pedido de bonificacao (30/10/2026, bonificacaoDomain.ts): so' brindes, fatura
+   * SEM pagamento. O servidor confere contra o pedido gravado.
+   */
+  ehBonificacao: boolean;
 }
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
@@ -250,8 +255,13 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
   if (!(frete >= 0)) return { erro: 'Frete inválido.' };
   if (!(encargos >= 0)) return { erro: 'Encargos inválidos.' };
 
-  if (!Array.isArray(c.pagamentos) || c.pagamentos.length === 0) return { erro: 'Informe a forma de pagamento.' };
-  if (c.pagamentos.length > 60) return { erro: 'Pagamentos demais nesta venda. Junte os pagamentos da mesma forma.' };
+  // Pedido de bonificacao (30/10/2026): sempre um pedido ja' gravado e sem pagamento.
+  const ehBonificacao = c.tipoPedido === 'bonificacao';
+  if (ehBonificacao && !pedidoId) return { erro: 'Bonificação sem pedido gravado. Atualize a tela e tente de novo.' };
+  if (ehBonificacao && Array.isArray(c.pagamentos) && c.pagamentos.length > 0) return { erro: 'Bonificação não tem pagamento: é mercadoria sem cobrança.' };
+  if (!ehBonificacao && (!Array.isArray(c.pagamentos) || c.pagamentos.length === 0)) return { erro: 'Informe a forma de pagamento.' };
+  const listaDePagamentos = Array.isArray(c.pagamentos) ? c.pagamentos : [];
+  if (listaDePagamentos.length > 60) return { erro: 'Pagamentos demais nesta venda. Junte os pagamentos da mesma forma.' };
 
   const vendedorId = String(c.vendedorId ?? '');
   if (vendedorId && !ID_VALIDO.test(vendedorId)) return { erro: 'Vendedor inválido. Escolha o vendedor de novo.' };
@@ -284,11 +294,12 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
       frete,
       encargos,
       transporte: transporteParaGravar(lerTransporte(c.transporte)),
-      pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p as Record<string, unknown> : {})),
+      pagamentos: listaDePagamentos.map((p) => (p && typeof p === 'object' ? p as Record<string, unknown> : {})),
       orcamentoId,
       pdvSessionId,
       comprovanteVendedorId,
       entregaFutura: c.entregaFutura === true,
+      ehBonificacao,
       previsaoEntrega: DATA_VALIDA.test(String(c.previsaoEntrega ?? '')) ? String(c.previsaoEntrega) : '',
       comNotaFiscal: typeof c.comNotaFiscal === 'boolean' ? c.comNotaFiscal : null,
     },

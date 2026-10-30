@@ -167,9 +167,16 @@ const lerPedidoDeFechamento = (corpo) => {
         return { erro: 'Frete inválido.' };
     if (!(encargos >= 0))
         return { erro: 'Encargos inválidos.' };
-    if (!Array.isArray(c.pagamentos) || c.pagamentos.length === 0)
+    // Pedido de bonificacao (30/10/2026): sempre um pedido ja' gravado e sem pagamento.
+    const ehBonificacao = c.tipoPedido === 'bonificacao';
+    if (ehBonificacao && !pedidoId)
+        return { erro: 'Bonificação sem pedido gravado. Atualize a tela e tente de novo.' };
+    if (ehBonificacao && Array.isArray(c.pagamentos) && c.pagamentos.length > 0)
+        return { erro: 'Bonificação não tem pagamento: é mercadoria sem cobrança.' };
+    if (!ehBonificacao && (!Array.isArray(c.pagamentos) || c.pagamentos.length === 0))
         return { erro: 'Informe a forma de pagamento.' };
-    if (c.pagamentos.length > 60)
+    const listaDePagamentos = Array.isArray(c.pagamentos) ? c.pagamentos : [];
+    if (listaDePagamentos.length > 60)
         return { erro: 'Pagamentos demais nesta venda. Junte os pagamentos da mesma forma.' };
     const vendedorId = String(c.vendedorId ?? '');
     if (vendedorId && !ID_VALIDO.test(vendedorId))
@@ -207,11 +214,12 @@ const lerPedidoDeFechamento = (corpo) => {
             frete,
             encargos,
             transporte: (0, transporteNotaDomain_1.transporteParaGravar)((0, transporteNotaDomain_1.lerTransporte)(c.transporte)),
-            pagamentos: c.pagamentos.map((p) => (p && typeof p === 'object' ? p : {})),
+            pagamentos: listaDePagamentos.map((p) => (p && typeof p === 'object' ? p : {})),
             orcamentoId,
             pdvSessionId,
             comprovanteVendedorId,
             entregaFutura: c.entregaFutura === true,
+            ehBonificacao,
             previsaoEntrega: DATA_VALIDA.test(String(c.previsaoEntrega ?? '')) ? String(c.previsaoEntrega) : '',
             comNotaFiscal: typeof c.comNotaFiscal === 'boolean' ? c.comNotaFiscal : null,
         },

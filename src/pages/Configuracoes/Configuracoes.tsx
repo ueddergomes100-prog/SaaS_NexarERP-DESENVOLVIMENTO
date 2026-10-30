@@ -111,7 +111,9 @@ import {
   DEFAULT_MINUTA_MOSTRAR_MARCA,
   DEFAULT_MINUTA_MOSTRAR_LOCAL,
 } from '../../utils/conferenciaDomain';
-import { parseConfigBonificacao } from '../../utils/bonificacaoDomain';
+import { parseConfigBonificacao, parseTributacaoBonificacao, type TributacaoBonificacao } from '../../utils/bonificacaoDomain';
+import { CSOSN_OPTIONS as CSOSN_BONIFICACAO, ICMS_CST_OPTIONS as CST_ICMS_BONIFICACAO } from '../../utils/fiscalDomain';
+import { PIS_COFINS_CST_SAIDA_OPTIONS } from '../../utils/notaFiscalItemDomain';
 import { DEFAULT_VALORES_NA_MINUTA_DO_APP, OPCOES_VALORES_NA_MINUTA_DO_APP, parseValoresNaMinutaDoApp, type ValoresNaMinutaDoApp } from '../../utils/minutaDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../../utils/loteDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -349,6 +351,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     appMinutaValores: DEFAULT_VALORES_NA_MINUTA_DO_APP as ValoresNaMinutaDoApp,
     // Bonificacao no pedido (30/10/2026): limite em texto enquanto edita; vira numero ao salvar.
     bonificacao: { ativa: false, limitePercentual: '' },
+    tributacaoBonificacao: parseTributacaoBonificacao(undefined) as TributacaoBonificacao,
     emiteNFe: false,
     emiteNFCe: false,
     emiteNFSe: false,
@@ -528,6 +531,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             minutaMostrarMarca: data.minutaMostrarMarca ?? DEFAULT_MINUTA_MOSTRAR_MARCA,
             minutaMostrarLocal: data.minutaMostrarLocal ?? DEFAULT_MINUTA_MOSTRAR_LOCAL,
             appMinutaValores: parseValoresNaMinutaDoApp(data.appMinutaValores),
+            tributacaoBonificacao: parseTributacaoBonificacao(data.tributacaoBonificacao),
             bonificacao: (() => {
               const lida = parseConfigBonificacao(data.bonificacao);
               return { ativa: lida.ativa, limitePercentual: lida.limitePercentual > 0 ? String(lida.limitePercentual) : '' };
@@ -1052,6 +1056,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         nfseAliquotaIssPadrao,
         ...limitesDesconto,
         modoLimiteDesconto: formData.modoLimiteDesconto,
+        tributacaoBonificacao: parseTributacaoBonificacao(formData.tributacaoBonificacao),
         bonificacao: parseConfigBonificacao({
           ativa: formData.bonificacao.ativa,
           limitePercentual: Number(String(formData.bonificacao.limitePercentual || '0').replace(',', '.')),
@@ -3453,10 +3458,40 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>% do valor vendido no pedido</span>
                     </div>
                   )}
+                  {formData.bonificacao.ativa && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Tributação da nota de bonificação</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
+                        {([
+                          { campo: 'csosn' as const, rotulo: 'CSOSN (Simples Nacional)', opcoes: CSOSN_BONIFICACAO },
+                          { campo: 'cstIcms' as const, rotulo: 'CST ICMS (regime normal)', opcoes: CST_ICMS_BONIFICACAO },
+                          { campo: 'cstPis' as const, rotulo: 'CST PIS', opcoes: PIS_COFINS_CST_SAIDA_OPTIONS },
+                          { campo: 'cstCofins' as const, rotulo: 'CST COFINS', opcoes: PIS_COFINS_CST_SAIDA_OPTIONS },
+                        ]).map(({ campo, rotulo, opcoes }) => (
+                          <label key={campo} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            {rotulo}
+                            <select
+                              value={formData.tributacaoBonificacao[campo]}
+                              onChange={(e) => setFormData({ ...formData, tributacaoBonificacao: { ...formData.tributacaoBonificacao, [campo]: e.target.value } })}
+                              disabled={!isEditingMode}
+                              className="form-select"
+                              style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
+                            >
+                              {opcoes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        Padrão sem tributação (CSOSN 400 / CST 40, PIS e COFINS 08), como costuma ser a bonificação para distribuição gratuita. Bonificação para revenda pode ter imposto: confirme os códigos com o seu contador.
+                      </span>
+                    </div>
+                  )}
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                    Ligada, quem tem a permissão <strong>"Vendas: Pode Bonificar"</strong> marca um item do pedido como bonificado (no computador e no App Vendas):
-                    o item vai sem cobrança, baixa o estoque e não entra na receita nem na comissão. Acima do limite, o faturamento pede a liberação de quem aprova
-                    desconto. Na NF-e o item sai com o valor cheio e o CFOP de bonificação (5.910 / 6.910); pedido com bonificação não sai em NFC-e.
+                    Ligada, quem tem a permissão <strong>"Vendas: Pode Bonificar"</strong> marca um item do pedido como bonificado (no computador e no App Vendas).
+                    Ao gravar, o sistema separa os brindes num <strong>pedido de bonificação</strong> próprio, ligado à venda: ele fatura sem cobrança, baixa o estoque,
+                    não entra na receita nem na comissão e sai numa <strong>NF-e própria</strong> (CFOP 5.910 / 6.910, sem pagamento) — venda e bonificação são notas
+                    distintas. Acima do limite (% da venda ligada), só fatura quem aprova desconto. Bonificação não sai em NFC-e.
                   </p>
                 </div>
 

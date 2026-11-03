@@ -58,6 +58,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'mecanica.os_excluir': ['mecanica.os'],
 
   'cadastros.estoque_alterar': ['cadastros.estoque'],
+  'estoque.produto_avancado': ['cadastros.estoque'],
 
   'operacoes.producao_relatorios': ['operacoes.producao'],
   'operacoes.romaneios': ['operacoes.romaneios'],

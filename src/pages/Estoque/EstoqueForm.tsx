@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/unidadeMedidaDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_PRODUTO_AVANCADO } from '../../utils/permissionCatalog';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { chaveDoProdutoPeloId, mudouCadastroDoGrupo } from '../../utils/cadastroGrupoDomain';
@@ -550,9 +551,12 @@ const EstoqueForm: React.FC = () => {
   const [linhasDaGrade, setLinhasDaGrade] = useState<LinhaDaGrade[]>([]);
   const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal, grupo, ehGestorDasFiliais, nivelAcesso } = useAuth();
   // Modo Avancado (compras, embalagens, composicao, atacado, e-commerce e as
-  // configuracoes avancadas) so' para dono, administrador e gerente (decisao
-  // do dono, 20/10/2026). Funcionario fica no basico.
-  const podeModoAvancado = hasTenantFullAccess(userRole, Boolean(isOwner)) || nivelAcesso === 'gerente';
+  // configuracoes avancadas) para dono, administrador e gerente (decisao do
+  // dono, 20/10/2026) e, desde 03/11/2026, para o funcionario com a permissao
+  // "Estoque: Cadastro Avancado de Produto". Sem ela, fica no basico.
+  const podeModoAvancado = hasTenantFullAccess(userRole, Boolean(isOwner))
+    || nivelAcesso === 'gerente'
+    || userPermissions.includes(PERMISSAO_PRODUTO_AVANCADO);
   useEffect(() => {
     if (!podeModoAvancado && modoCadastro === 'avancado') setModoCadastro('rapido');
   }, [podeModoAvancado, modoCadastro]);

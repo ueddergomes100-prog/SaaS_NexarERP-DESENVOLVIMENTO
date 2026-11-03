@@ -171,6 +171,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // liberava abrir/criar/excluir o cadastro inteiro do produto (custo,
       // margem, fornecedor) sem controle independente -- achado pelo usuario.
       { id: 'cadastros.estoque_alterar', label: 'Estoque: Abrir Cadastro de Produto', color: '#0ea5e9' },
+      // Modo Avancado do cadastro (03/11/2026): compras, embalagens, composicao, atacado,
+      // e-commerce e configuracoes avancadas. Dono, administrador e gerente ja' tinham.
+      { id: 'estoque.produto_avancado', label: 'Estoque: Cadastro Avançado de Produto', color: '#0ea5e9' },
       { id: 'estoque.ajusteManual', label: 'Estoque: Ajuste Manual', color: '#0ea5e9' },
       // Balanco / inventario (21/10/2026): quem abre/confere/fecha e quem so' conta (app e computador).
       { id: 'estoque.balanco_gerenciar', label: 'Estoque: Balanço — abrir, conferir e fechar', color: '#0ea5e9' },
@@ -316,6 +319,8 @@ export const permissionLabelMap = PERMISSION_CATALOG.reduce<Record<string, strin
  * pode fazer.
  */
 export const PERMISSAO_LIBERAR_DESCONTO = 'vendas.liberar_desconto';
+/** Modo Avancado do cadastro de produto para funcionario (03/11/2026). */
+export const PERMISSAO_PRODUTO_AVANCADO = 'estoque.produto_avancado';
 
 /** Incluir e alterar vendedor de balcao comum sem ser o dono (21/10/2026). Ver VendedoresList.tsx. */
 export const PERMISSAO_INCLUIR_VENDEDOR = 'cadastros.vendedores_incluir';

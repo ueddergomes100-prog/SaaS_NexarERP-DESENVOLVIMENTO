@@ -31,6 +31,7 @@ const {
   compensarChequeRecebido,
   compensarChequeEmitido,
   baixarBoletoPeloRetorno,
+  receberBoletoCanceladoPeloRetorno,
   lancarNoBanco,
   transferirEntreBancos,
 } = require('../services/movimentoBanco');
@@ -403,6 +404,14 @@ router.post('/cheque-emitido/compensar', rotaDeMovimento('financeiro.cheques', '
 /** POST /api/financeiro/boleto/retorno  { transacaoId, valorPagoCentavos, dataPagamento? } -- um boleto por chamada */
 router.post('/boleto/retorno', rotaDeMovimento('financeiro.boletos', 'dar baixa no boleto', baixarBoletoPeloRetorno,
   (r, corpo) => (r.jaEstavaPago ? '' : `Boleto "${r.descricao}" baixado pelo arquivo de retorno: ${reais(Number(corpo.valorPagoCentavos))}.`)));
+
+/**
+ * POST /api/financeiro/boleto/retorno/cancelado  { transacaoId, valorPagoCentavos, dataPagamento? }
+ * Boleto cancelado aqui que o cliente pagou no banco (03/11/2026): nasce um
+ * titulo avulso ja' pago, ligado ao boleto; venda e boleto seguem cancelados.
+ */
+router.post('/boleto/retorno/cancelado', rotaDeMovimento('financeiro.boletos', 'lançar o recebimento do boleto cancelado', receberBoletoCanceladoPeloRetorno,
+  (r) => (r.jaLancado ? '' : `Boleto cancelado "${r.descricao}" pago no banco: recebimento avulso de ${reais(r.valorPagoCentavos)} lançado no banco ${r.bancoNome || ''} (${r.novoId}).`)));
 
 /**
  * POST /api/financeiro/cobrar-em-boleto  { transacaoId, vencimento }

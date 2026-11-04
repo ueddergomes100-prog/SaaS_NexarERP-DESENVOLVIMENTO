@@ -3,7 +3,7 @@ import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTr
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
 import { db } from '../../services/firebase';
-import { baixarBoletoPeloRetorno } from '../../services/baixaFinanceiraService';
+import { baixarBoletoPeloRetorno, receberBoletoCanceladoPeloRetorno } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
@@ -703,17 +703,71 @@ const Boletos: React.FC = () => {
         // derruba o lote: os outros pagos seguem baixando e o recusado vai para
         // a lista do fim (03/11/2026 -- 1 boleto cancelado travava 46 pagos).
         const recusados: string[] = [];
+        // Cancelado no sistema, pago no banco: o servidor nao baixa (a venda nao
+        // existe mais) e a tela pergunta, no fim, se lanca como recebimento avulso.
+        const canceladosPagos: Array<{ titulo: TituloBoleto; valorPagoCentavos: number; dataPagamento?: string; descricao: string; clienteNome: string }> = [];
         for (const linha of resumo.liquidados) {
           const titulo = candidatos.find((t) => t.boleto?.nossoNumero === linha.nossoNumero);
           if (!titulo) { naoEncontrados += 1; continue; }
           if (titulo.status === 'Paga') continue;
+          const valorPagoCentavos = linha.valorPagoCentavos || titulo.valorCentavos;
           try {
-            if (await darBaixaBoleto(titulo, linha.valorPagoCentavos || titulo.valorCentavos, linha.dataOcorrencia)) baixados += 1;
+            const resultado = await darBaixaBoleto(titulo, valorPagoCentavos, linha.dataOcorrencia);
+            if (resultado.boletoCancelado) {
+              if (!resultado.jaLancadoAvulso) {
+                canceladosPagos.push({
+                  titulo,
+                  valorPagoCentavos,
+                  ...(linha.dataOcorrencia ? { dataPagamento: linha.dataOcorrencia } : {}),
+                  descricao: resultado.descricao || titulo.descricao || titulo.id,
+                  clienteNome: resultado.clienteNome || titulo.clienteNome || '',
+                });
+              }
+              continue;
+            }
+            if (!resultado.jaEstavaPago) baixados += 1;
           } catch (erro: any) {
             recusados.push(erro?.message || `O boleto "${titulo.descricao || titulo.id}" não pôde receber baixa.`);
           }
         }
+
+        let avulsosLancados = 0;
+        if (canceladosPagos.length > 0) {
+          const lista = canceladosPagos
+            .map((c) => `<li><b>${c.descricao}</b>${c.clienteNome ? ` — ${c.clienteNome}` : ''} — ${currency.format(fromCents(c.valorPagoCentavos))}${c.dataPagamento ? ` (pago em ${c.dataPagamento.split('-').reverse().join('/')})` : ''}</li>`)
+            .join('');
+          const pergunta = await NexusSwal.fire({
+            icon: 'question',
+            title: canceladosPagos.length === 1 ? 'Boleto cancelado, mas pago no banco' : `${canceladosPagos.length} boletos cancelados, mas pagos no banco`,
+            html: `<div style="text-align:left;font-size:14px">`
+              + `O cliente pagou no banco um boleto que está <b>cancelado</b> aqui:<ul style="margin:8px 0 12px 18px;padding:0">${lista}</ul>`
+              + `Lançar como <b>recebimento avulso</b> no banco? A venda e o boleto continuam cancelados — depois você decide se devolve o valor ou refatura.`
+              + `</div>`,
+            showCancelButton: true,
+            confirmButtonText: 'Lançar recebimento avulso',
+            cancelButtonText: 'Deixar para depois',
+          });
+          if (pergunta.isConfirmed) {
+            for (const c of canceladosPagos) {
+              try {
+                const r = await receberBoletoCanceladoPeloRetorno({
+                  transacaoId: c.titulo.id,
+                  valorPagoCentavos: c.valorPagoCentavos,
+                  ...(c.dataPagamento ? { dataPagamento: c.dataPagamento } : {}),
+                  tenantId: tenantId || '',
+                });
+                if (!r.jaLancado) avulsosLancados += 1;
+              } catch (erro: any) {
+                recusados.push(erro?.message || `O recebimento do boleto cancelado "${c.descricao}" não pôde ser lançado.`);
+              }
+            }
+          } else {
+            canceladosPagos.forEach((c) => recusados.push(`O boleto "${c.descricao}" está cancelado e ficou sem lançamento (${currency.format(fromCents(c.valorPagoCentavos))} pagos no banco).`));
+          }
+        }
+
         const naoEncontradosTexto = naoEncontrados > 0 ? ` ${naoEncontrados} do arquivo não foram encontrados aqui.` : '';
+        const avulsosTexto = avulsosLancados > 0 ? ` ${avulsosLancados} recebimento(s) avulso(s) de boleto cancelado lançado(s).` : '';
         if (recusados.length > 0) {
           await NexusSwal.fire({
             icon: 'warning',
@@ -721,10 +775,10 @@ const Boletos: React.FC = () => {
             html: `<div style="text-align:left;font-size:14px">`
               + `O banco recebeu o pagamento, mas o sistema não pôde dar baixa em:<ul style="margin:8px 0 0 18px;padding:0">`
               + recusados.map((m) => `<li>${m}</li>`).join('')
-              + `</ul>Confira esses títulos em Boletos e no Financeiro.${naoEncontradosTexto}</div>`,
+              + `</ul>Confira esses títulos em Boletos e no Financeiro.${avulsosTexto}${naoEncontradosTexto}</div>`,
           });
         } else {
-          showSuccess(`${baixados} boleto(s) baixados.${naoEncontradosTexto}`);
+          showSuccess(`${baixados} boleto(s) baixados.${avulsosTexto}${naoEncontradosTexto}`);
         }
       } catch (erro: any) {
         console.error('Erro ao aplicar retorno:', erro);
@@ -736,17 +790,15 @@ const Boletos: React.FC = () => {
     leitor.readAsText(arquivo, 'ISO-8859-1');
   };
 
-  /** Baixa de um boleto pago no retorno: titulo + saldo do banco gravados pelo servidor. Devolve false se ja' estava pago. */
-  const darBaixaBoleto = async (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string): Promise<boolean> => {
-    if (!tenantId || !currentUser) return false;
-    const resultado = await baixarBoletoPeloRetorno({
+  /** Baixa de um boleto pago no retorno: titulo + saldo do banco gravados pelo servidor. */
+  const darBaixaBoleto = (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string) => (
+    baixarBoletoPeloRetorno({
       transacaoId: titulo.id,
       valorPagoCentavos,
       ...(dataPagamento ? { dataPagamento } : {}),
-      tenantId,
-    });
-    return !resultado.jaEstavaPago;
-  };
+      tenantId: tenantId || '',
+    })
+  );
 
   // --- Render -------------------------------------------------------------
 

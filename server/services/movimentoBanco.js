@@ -41,7 +41,7 @@ const vendasParaCashback = (dados, renegociacao, quitou) => {
   if (quitou && renegociacao) renegociacao.origens.forEach((o) => { if (o.ref.parent.id === 'pedidos_venda') ids.add(o.ref.id); });
   return [...ids];
 };
-const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
+const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const {
   ErroBaixa,
   camposDoResumoDePagamentos,
@@ -270,7 +270,19 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
       resumo.jaEstavaPago = true;
       return;
     }
-    if (dados.status === 'Cancelada') throw new ErroBaixa(400, `O boleto "${dados.descricao || transacaoId}" está cancelado e não pode receber baixa.`);
+    if (dados.status === 'Cancelada') {
+      // Cancelado aqui, pago no banco (03/11/2026): nao da' baixa (a venda nao
+      // existe mais), mas tambem nao derruba o lote -- a tela pergunta se
+      // lanca como recebimento avulso (receberBoletoCanceladoPeloRetorno).
+      Object.assign(resumo, {
+        boletoCancelado: true,
+        jaLancadoAvulso: Boolean(dados.boleto && dados.boleto.recebimentoAvulsoId),
+        descricao: String(dados.descricao || transacaoId),
+        clienteNome: String(dados.clienteNome || dados.fornecedorNome || ''),
+        valorCentavos: centavosDoTitulo(dados),
+      });
+      return;
+    }
     recusarSeRenegociada(dados);
     if (!dados.boleto) throw new ErroBaixa(400, `O título "${dados.descricao || transacaoId}" não é um boleto emitido pelo sistema.`);
 
@@ -320,6 +332,108 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
   });
 
   for (const pedidoId of resumo.vendasParaCashback || []) await cashback.gerarSeDevidoSemFalhar({ user, tenantId, pedidoId });
+
+  return resumo;
+};
+
+/** Categoria do titulo avulso que nasce de boleto cancelado pago no banco. */
+const CATEGORIA_BOLETO_CANCELADO_PAGO = 'BOLETO PAGO DE VENDA CANCELADA';
+const ORIGEM_RETORNO_BOLETO_CANCELADO = 'retorno_boleto_cancelado';
+
+/**
+ * Boleto CANCELADO no sistema que o cliente pagou no banco (03/11/2026, caso
+ * real da Sol Life). A venda e o boleto continuam cancelados -- ressuscitar o
+ * titulo misturaria receita de venda que nao existe. O dinheiro entrou, entao
+ * nasce um titulo de Receber avulso ja' pago, ligado ao boleto, e o banco
+ * credita. Id fixo (`<boleto>_avulso`) + marca no boleto: repetir o arquivo
+ * nao lanca de novo. Quem decide devolver ou refaturar e' a empresa, depois.
+ */
+const receberBoletoCanceladoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
+  const transacaoId = idObrigatorio(corpo?.transacaoId, 'Boleto inválido. Atualize a tela e tente de novo.');
+  const valorPagoCentavos = Number(corpo?.valorPagoCentavos);
+  if (!Number.isInteger(valorPagoCentavos) || valorPagoCentavos <= 0) {
+    throw new ErroBaixa(400, 'O arquivo de retorno trouxe um valor pago inválido para este boleto. Confira o arquivo com o banco.');
+  }
+  const dataInformada = String(corpo?.dataPagamento || '').trim();
+  const dataPagamento = DATA_ISO.test(dataInformada) ? dataInformada : hoje;
+  const resumo = { jaLancado: false, valorPagoCentavos };
+
+  await db.runTransaction(async (tx) => {
+    const titulo = await lerTitulo(tx, tenantId, { transacaoId, tipo: 'entrada' });
+    const dados = titulo.dados;
+    const descricaoDoBoleto = String(dados.descricao || transacaoId);
+    resumo.descricao = descricaoDoBoleto;
+    if (!dados.boleto) throw new ErroBaixa(400, `O título "${descricaoDoBoleto}" não é um boleto emitido pelo sistema.`);
+    if (dados.status !== 'Cancelada') {
+      throw new ErroBaixa(409, `O boleto "${descricaoDoBoleto}" não está cancelado: importe o retorno de novo para dar a baixa normal.`);
+    }
+    if (dados.boleto.recebimentoAvulsoId) {
+      resumo.jaLancado = true;
+      resumo.novoId = String(dados.boleto.recebimentoAvulsoId);
+      return;
+    }
+    if (!dados.bancoId) {
+      throw new ErroBaixa(400, `O boleto "${descricaoDoBoleto}" não tem banco vinculado. Lance o recebimento à mão em Contas a Receber.`);
+    }
+    const banco = await lerBanco(tx, tenantId, String(dados.bancoId), 'Banco do boleto não encontrado. Confira o cadastro de bancos.');
+    const bancoNome = String(banco.dados.nome || '');
+    const nossoNumero = String(dados.boleto.nossoNumero || '');
+    const novoRef = db.collection('transacoes').doc(`${transacaoId}_avulso`);
+    const dataBr = dataPagamento.split('-').reverse().join('/');
+    resumo.novoId = novoRef.id;
+    resumo.bancoNome = bancoNome;
+
+    tx.set(novoRef, {
+      tenantId,
+      tipo: 'entrada',
+      status: 'Paga',
+      descricao: `${CATEGORIA_BOLETO_CANCELADO_PAGO}: ${descricaoDoBoleto}`.slice(0, DESCRICAO_MAX),
+      categoria: CATEGORIA_BOLETO_CANCELADO_PAGO,
+      valor: valorPagoCentavos / 100,
+      valorCentavos: valorPagoCentavos,
+      valorBruto: valorPagoCentavos / 100,
+      valorBrutoCentavos: valorPagoCentavos,
+      valorTaxa: 0,
+      valorTaxaCentavos: 0,
+      valorLiquido: valorPagoCentavos / 100,
+      valorLiquidoCentavos: valorPagoCentavos,
+      formaPagamento: 'Boleto',
+      condicaoPagamento: 'aprazo',
+      naturezaFinanceira: settledFinancialNatureForPayment('Boleto'),
+      movimentaCaixaFisico: false,
+      data: dataPagamento,
+      dataVencimento: dataPagamento,
+      dataPrevistaRecebimento: dataPagamento,
+      dataPagamento,
+      recebidoEm: agora(),
+      bancoId: String(dados.bancoId),
+      bancoNome,
+      ...(dados.clienteId ? { clienteId: String(dados.clienteId), clienteNome: String(dados.clienteNome || '') } : {}),
+      ...(!dados.clienteId && dados.fornecedorId ? { fornecedorId: String(dados.fornecedorId), fornecedorNome: String(dados.fornecedorNome || '') } : {}),
+      ...(dados.filialId ? { filialId: String(dados.filialId) } : {}),
+      origemLancamento: ORIGEM_RETORNO_BOLETO_CANCELADO,
+      boletoCanceladoId: transacaoId,
+      ...(nossoNumero ? { boletoCanceladoNossoNumero: nossoNumero } : {}),
+      observacao: `O cliente pagou no banco em ${dataBr} o boleto "${descricaoDoBoleto}"${nossoNumero ? ` (nosso número ${nossoNumero})` : ''}, que já estava cancelado no sistema. Recebimento registrado pelo arquivo de retorno; a venda e o boleto seguem cancelados.`,
+      lancadoPor: user.uid,
+      idempotencyKey: `retorno-boleto-cancelado:${transacaoId}`,
+      lancadoEm: agora(),
+      createdAt: agora(),
+      updatedAt: agora(),
+      criadoPor: user.uid,
+      ...buildDocumentMetadata(user.uid, agora()),
+    });
+    tx.update(titulo.ref, {
+      boleto: { ...dados.boleto, recebimentoAvulsoId: novoRef.id },
+      updatedAt: agora(),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), 'Boleto cancelado pago no banco: recebimento avulso lançado pelo retorno'),
+    });
+    tx.update(banco.ref, {
+      saldoCentavos: Number(banco.dados.saldoCentavos || 0) + valorPagoCentavos,
+      updatedAt: agora(),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), `Boleto cancelado pago (retorno): "${descricaoDoBoleto}"`),
+    });
+  });
 
   return resumo;
 };
@@ -447,6 +561,7 @@ module.exports = {
   compensarChequeRecebido,
   compensarChequeEmitido,
   baixarBoletoPeloRetorno,
+  receberBoletoCanceladoPeloRetorno,
   lancarNoBanco,
   transferirEntreBancos,
 };

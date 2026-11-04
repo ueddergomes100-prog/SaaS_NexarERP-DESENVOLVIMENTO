@@ -55,6 +55,7 @@ type RotaFinanceiro =
   | '/cheque/compensar'
   | '/cheque-emitido/compensar'
   | '/boleto/retorno'
+  | '/boleto/retorno/cancelado'
   | '/banco/lancamento'
   | '/banco/transferencia'
   | '/receber/lancar'
@@ -298,9 +299,31 @@ export const compensarChequeEmitido = (args: { transacaoId: string; dataPagament
   chamarFinanceiro<{ ok: boolean }>('/cheque-emitido/compensar', { ...args })
 );
 
+/** Resposta da baixa pelo retorno. Boleto cancelado aqui (e pago no banco) nao e' erro: volta marcado. */
+export interface ResultadoBaixaPeloRetorno {
+  ok: boolean;
+  jaEstavaPago: boolean;
+  /** true = o titulo esta' cancelado no sistema; nada foi gravado. */
+  boletoCancelado?: boolean;
+  /** true = o recebimento avulso deste boleto cancelado ja' foi lancado antes. */
+  jaLancadoAvulso?: boolean;
+  descricao?: string;
+  clienteNome?: string;
+  valorCentavos?: number;
+}
+
 /** Boletos > baixa de UM boleto pelo arquivo de retorno. Boleto ja' pago volta com jaEstavaPago. */
 export const baixarBoletoPeloRetorno = (args: { transacaoId: string; valorPagoCentavos: number; dataPagamento?: string; tenantId: string }) => (
-  chamarFinanceiro<{ ok: boolean; jaEstavaPago: boolean }>('/boleto/retorno', { ...args })
+  chamarFinanceiro<ResultadoBaixaPeloRetorno>('/boleto/retorno', { ...args })
+);
+
+/**
+ * Boletos > boleto CANCELADO aqui que o cliente pagou no banco (03/11/2026): o
+ * servidor lanca um titulo avulso ja' pago, ligado ao boleto, e credita o
+ * banco. Venda e boleto continuam cancelados. Repetir nao lanca de novo.
+ */
+export const receberBoletoCanceladoPeloRetorno = (args: { transacaoId: string; valorPagoCentavos: number; dataPagamento?: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean; jaLancado: boolean; novoId?: string; descricao?: string }>('/boleto/retorno/cancelado', { ...args })
 );
 
 /** Cadastro de Bancos > ajuste ou tarifa lancado a mao. */

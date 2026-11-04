@@ -91,6 +91,61 @@ test('boleto: baixa pelo retorno com o valor pago do arquivo; repetir o arquivo 
   await assert.rejects(() => s.baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'bl1', valorPagoCentavos: 0 }, hoje: HOJE }), /valor pago inválido/);
 });
 
+test('boleto cancelado pago no banco: retorno nao baixa nem derruba; recebimento avulso nasce pago e nao repete', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/bc1': {
+      tenantId: 'emp1', tipo: 'entrada', status: 'Cancelada', descricao: 'Venda Direta #0052 - Boleto', formaPagamento: 'Boleto',
+      boleto: { nossoNumero: '2023', status: 'em_remessa' }, valorCentavos: 94520, bancoId: 'b6', clienteId: 'cli1', clienteNome: 'MERCADO X', filialId: 'f1', pedidoId: 'p52',
+    },
+    'transacoes/ok1': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Boleto ok', formaPagamento: 'Boleto', boleto: { nossoNumero: '2024' }, valorCentavos: 1000, bancoId: 'b6' },
+    'bancos/b6': { tenantId: 'emp1', nome: 'Sicoob', saldoCentavos: 0 },
+    'pedidos_venda/p52': { tenantId: 'emp1', status: 'Cancelada' },
+  });
+  const s = carregar(fake.db);
+  const corpo = { transacaoId: 'bc1', valorPagoCentavos: 94520, dataPagamento: '2026-10-26' };
+
+  // 1. A baixa normal volta avisando, sem gravar nada (o lote continua).
+  const r = await s.baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', corpo, hoje: HOJE });
+  assert.equal(r.boletoCancelado, true);
+  assert.equal(r.jaLancadoAvulso, false);
+  assert.equal(r.descricao, 'Venda Direta #0052 - Boleto');
+  assert.equal(r.clienteNome, 'MERCADO X');
+  assert.equal(fake.ler('bancos/b6').saldoCentavos, 0);
+  assert.equal(fake.ler('transacoes/bc1').status, 'Cancelada');
+
+  // 2. A pessoa aceitou: titulo avulso ja' pago, ligado ao boleto; banco credita.
+  const a = await s.receberBoletoCanceladoPeloRetorno({ user: USER, tenantId: 'emp1', corpo, hoje: HOJE });
+  assert.equal(a.jaLancado, false);
+  assert.equal(a.novoId, 'bc1_avulso');
+  const novo = fake.ler('transacoes/bc1_avulso');
+  assert.equal(novo.status, 'Paga');
+  assert.equal(novo.tipo, 'entrada');
+  assert.equal(novo.valorCentavos, 94520);
+  assert.equal(novo.categoria, 'BOLETO PAGO DE VENDA CANCELADA');
+  assert.equal(novo.dataPagamento, '2026-10-26');
+  assert.equal(novo.bancoNome, 'Sicoob');
+  assert.equal(novo.clienteNome, 'MERCADO X');
+  assert.equal(novo.filialId, 'f1');
+  assert.equal(novo.boletoCanceladoId, 'bc1');
+  assert.equal(novo.pedidoId, undefined);
+  assert.equal(fake.ler('bancos/b6').saldoCentavos, 94520);
+  const boleto = fake.ler('transacoes/bc1');
+  assert.equal(boleto.status, 'Cancelada');
+  assert.equal(boleto.boleto.recebimentoAvulsoId, 'bc1_avulso');
+  assert.equal(fake.ler('pedidos_venda/p52').status, 'Cancelada');
+
+  // 3. Mesmo arquivo de novo: a baixa avisa que ja' foi lancado; lancar de novo nao credita.
+  const r2 = await s.baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', corpo, hoje: HOJE });
+  assert.equal(r2.jaLancadoAvulso, true);
+  const a2 = await s.receberBoletoCanceladoPeloRetorno({ user: USER, tenantId: 'emp1', corpo, hoje: HOJE });
+  assert.equal(a2.jaLancado, true);
+  assert.equal(fake.ler('bancos/b6').saldoCentavos, 94520);
+
+  // 4. Boleto que nao esta' cancelado nao entra por aqui.
+  await assert.rejects(() => s.receberBoletoCanceladoPeloRetorno({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'ok1', valorPagoCentavos: 1000 }, hoje: HOJE }), (e) => e.status === 409);
+  assert.equal(fake.ler('bancos/b6').saldoCentavos, 94520);
+});
+
 test('banco: lancamento manual de tarifa debita e grava o lancamento', async () => {
   const fake = criarBancoFalso({ 'bancos/b5': { tenantId: 'emp1', nome: 'Itaú', saldoCentavos: 10000 } });
   const s = carregar(fake.db);

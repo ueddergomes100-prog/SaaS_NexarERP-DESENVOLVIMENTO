@@ -699,17 +699,33 @@ const Boletos: React.FC = () => {
           snap.docs.forEach((d) => achados.push(paraTituloBoleto(d.id, d.data())));
         }
         const candidatos = [...titulos, ...achados];
+        // Um titulo que o servidor recusa (cancelado aqui, renegociado...) NAO
+        // derruba o lote: os outros pagos seguem baixando e o recusado vai para
+        // a lista do fim (03/11/2026 -- 1 boleto cancelado travava 46 pagos).
+        const recusados: string[] = [];
         for (const linha of resumo.liquidados) {
           const titulo = candidatos.find((t) => t.boleto?.nossoNumero === linha.nossoNumero);
           if (!titulo) { naoEncontrados += 1; continue; }
           if (titulo.status === 'Paga') continue;
-          if (await darBaixaBoleto(titulo, linha.valorPagoCentavos || titulo.valorCentavos, linha.dataOcorrencia)) baixados += 1;
+          try {
+            if (await darBaixaBoleto(titulo, linha.valorPagoCentavos || titulo.valorCentavos, linha.dataOcorrencia)) baixados += 1;
+          } catch (erro: any) {
+            recusados.push(erro?.message || `O boleto "${titulo.descricao || titulo.id}" não pôde receber baixa.`);
+          }
         }
-        showSuccess(
-          naoEncontrados > 0
-            ? `${baixados} boleto(s) baixados. ${naoEncontrados} do arquivo não foram encontrados aqui.`
-            : `${baixados} boleto(s) baixados.`,
-        );
+        const naoEncontradosTexto = naoEncontrados > 0 ? ` ${naoEncontrados} do arquivo não foram encontrados aqui.` : '';
+        if (recusados.length > 0) {
+          await NexusSwal.fire({
+            icon: 'warning',
+            title: `${baixados} boleto(s) baixados; ${recusados.length} ficou(aram) de fora`,
+            html: `<div style="text-align:left;font-size:14px">`
+              + `O banco recebeu o pagamento, mas o sistema não pôde dar baixa em:<ul style="margin:8px 0 0 18px;padding:0">`
+              + recusados.map((m) => `<li>${m}</li>`).join('')
+              + `</ul>Confira esses títulos em Boletos e no Financeiro.${naoEncontradosTexto}</div>`,
+          });
+        } else {
+          showSuccess(`${baixados} boleto(s) baixados.${naoEncontradosTexto}`);
+        }
       } catch (erro: any) {
         console.error('Erro ao aplicar retorno:', erro);
         showError('Não foi possível concluir a baixa', erro?.message || 'Confira os títulos e tente novamente.');

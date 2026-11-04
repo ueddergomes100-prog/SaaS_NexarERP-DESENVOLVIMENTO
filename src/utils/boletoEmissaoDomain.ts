@@ -122,13 +122,19 @@ const dataDdmmaaaaParaIso = (ddmmaaaa: string): string => {
  *   153-165  valor do titulo (centavos)
  *   254-266  valor pago (centavos)
  *
- * Ocorrencias vistas no arquivo real: 02 = entrada confirmada (149), 06 =
- * liquidacao (34), 11 = titulo em ser/pendente (9) e 04 (4) -- esta ultima
- * vem COM valor pago mas o significado nao esta confirmado, entao NAO da'
- * baixa sozinha: fica em "conferir".
+ * Ocorrencias vistas em arquivos reais: 02 = entrada confirmada, 06 =
+ * liquidacao, 11 = titulo em ser/pendente, 04 = transferencia de carteira
+ * (entrada) e 48 = confirmacao da instrucao de transferencia de carteira /
+ * modalidade de cobranca (tabela do Sicoob, a mesma do CNAB240 FEBRABAN,
+ * conferida no ACBrBancoSicoob em 03/11/2026). 04 e 48 vem COM o valor do
+ * titulo no campo "valor pago" mas NAO sao pagamento: sao so' informativos
+ * (num retorno real de 03/11/2026 vieram 116 linhas 48 -- o banco mudou a
+ * modalidade da carteira -- e a tela assustava com "122 com outra
+ * ocorrencia"). 09 = baixa do titulo no banco: nao e' pagamento, fica em
+ * "conferir" de proposito.
  */
 export const CODIGOS_LIQUIDACAO_CNAB400 = new Set(['06']);
-const CODIGOS_INFORMATIVOS_CNAB400 = new Set(['02', '11']);
+const CODIGOS_INFORMATIVOS_CNAB400 = new Set(['02', '11', '04', '48']);
 
 const dataDdmmaaParaIso = (ddmmaa: string): string => {
   const d = apenasDigitos(ddmmaa);

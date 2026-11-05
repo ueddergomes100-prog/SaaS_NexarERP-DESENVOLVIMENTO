@@ -507,6 +507,24 @@ body.light-theme textarea:disabled {
   z-index: 100000 !important;
 }
 
+/* Hover dos botoes das janelas de alerta (05/11/2026, foto do dono no cliente).
+ * O SweetAlert2 escurece o botao com color-mix(). Navegador sem essa funcao
+ * (Chrome anterior ao 111) descarta a cor: o fundo fica transparente e o texto
+ * branco some no fundo branco da janela. Aqui a cor do botao fica como esta' e
+ * quem escurece e' o filter, que funciona em qualquer navegador. */
+.swal2-popup .swal2-actions button.swal2-confirm:not([disabled]):is(:hover, :active) {
+  background-color: var(--swal2-confirm-button-background-color);
+  filter: brightness(0.9);
+}
+.swal2-popup .swal2-actions button.swal2-deny:not([disabled]):is(:hover, :active) {
+  background-color: var(--swal2-deny-button-background-color);
+  filter: brightness(0.9);
+}
+.swal2-popup .swal2-actions button.swal2-cancel:not([disabled]):is(:hover, :active) {
+  background-color: var(--swal2-cancel-button-background-color);
+  filter: brightness(0.9);
+}
+
 /* Icones animados (Lottie) nos avisos de sucesso/erro/aviso/excluir -- ver
  * src/utils/alerts.ts. O SweetAlert2 desenha borda e anima o proprio icone;
  * aqui a caixa do icone vira so' o palco da animacao. */

@@ -19,7 +19,7 @@
  * com aviso -- melhor do que vender alem da quota que a loja definiu.
  */
 import { camposDePrecoDoItem, type CamposDePrecoDoItem, type ProdutoPrecificavel } from './precoComPromocaoDomain';
-import type { CondicaoPagamento, TabelaDePrecoDoItem } from './precoVendaDomain';
+import { precoAutomatico, type CondicaoPagamento, type OrigemPreco, type TabelaDePrecoDoItem } from './precoVendaDomain';
 import type { PromocaoDoProduto } from './promocaoDomain';
 
 /** O app nao escolhe pagamento: vale o preco a prazo (a loja ajusta ao receber). */
@@ -88,6 +88,63 @@ export const precificarNoApp = (args: {
   const { preco, campos } = camposDePrecoDoItem(tabela, CONDICAO_DO_APP);
   return { preco, campos, aviso };
 };
+
+/*
+ * TROCAR O PRECO DO ITEM NO APP (05/11/2026, pedido de cliente; permissao
+ * "App: Alterar o preco do item", permissoesAppDomain.ts).
+ *
+ * Mesma regra do Pedido de Venda: preco digitado diferente do automatico vira
+ * 'manual' e nao muda mais sozinho ao receber a vista; quem digita o preco da
+ * tabela de novo volta ao automatico (com a promocao, se era o caso). Item
+ * 'manual' nao leva promocaoId: nao consome a quota da promocao.
+ *
+ * O dinheiro continua protegido no faturamento (conferenciaPrecoDomain.ts,
+ * decisao do dono de 21/10/2026): preco abaixo do sistema conta como desconto
+ * e passa pelos limites e pela liberacao. Acima e' livre.
+ */
+export interface ItemComPrecoDoApp {
+  precoUnitario: number;
+  quantidade: number;
+  subtotal: number;
+  tabelaPreco?: TabelaDePrecoDoItem;
+  origemPreco?: OrigemPreco;
+  promocaoId?: string;
+  promocaoNome?: string;
+}
+
+/**
+ * Le o que a pessoa digitou, em reais: "129,90", "1.250,50", "129.90", "1.250".
+ * null = nao e' um preco (texto, vazio, zero ou negativo). Ponto seguido de
+ * 3 digitos e' milhar; os outros sao decimal -- teclado de celular pode dar ponto
+ * no lugar da virgula, e ler "129.90" como 12.990 seria um erro caro.
+ */
+export const lerPrecoDigitado = (texto: string): number | null => {
+  const limpo = String(texto ?? '').trim().replace(/^r\$\s*/i, '').replace(/\s/g, '');
+  let normal: string;
+  if (/^\d+(\.\d{3})*,\d{1,2}$/.test(limpo)) normal = limpo.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(limpo)) normal = limpo.replace(/\./g, '');
+  else if (/^\d+(\.\d{1,2})?$/.test(limpo)) normal = limpo;
+  else return null;
+  const valor = Math.round(Number(normal) * 100) / 100;
+  return Number.isFinite(valor) && valor > 0 ? valor : null;
+};
+
+export const trocarPrecoDoItem = <T extends ItemComPrecoDoApp>(item: T, precoNovo: number): T => {
+  const digitado = Math.round(precoNovo * 100) / 100;
+  // Sem chave undefined no Firestore: as da promocao saem, e voltam so' se valerem.
+  const resto: T = { ...item };
+  delete resto.promocaoId;
+  delete resto.promocaoNome;
+  const subtotal = (preco: number) => Math.round(preco * (Number(item.quantidade) || 0) * 100) / 100;
+  if (!item.tabelaPreco) return { ...resto, precoUnitario: digitado, origemPreco: 'manual', subtotal: subtotal(digitado) };
+  const { preco, campos } = camposDePrecoDoItem(item.tabelaPreco, CONDICAO_DO_APP, digitado);
+  return { ...resto, ...campos, precoUnitario: preco, subtotal: subtotal(preco) };
+};
+
+/** Preco que o sistema poria no item, para mostrar ao lado do alterado. 0 = sem tabela. */
+export const precoDaTabelaDoItem = (item: Pick<ItemComPrecoDoApp, 'tabelaPreco'>): number => (
+  item.tabelaPreco ? precoAutomatico(item.tabelaPreco, CONDICAO_DO_APP).preco : 0
+);
 
 /** O que mostrar na busca: preco da promocao de hoje (e se e' so' a vista). null = sem promocao. */
 export const promocaoParaMostrar = (precos: PrecosDoApp | null | undefined, produto: ProdutoPrecificavel): { preco: number; soAVista: boolean; nome: string } | null => {

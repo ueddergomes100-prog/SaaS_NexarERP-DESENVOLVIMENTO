@@ -20,6 +20,7 @@ import type { ItemVendaExterna } from '../../services/vendedorExternoVendaServic
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
 import { MENSAGEM_SO_BONIFICADO, PERMISSAO_BONIFICAR, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
+import { podeAlterarPrecoNoApp } from '../../utils/permissoesAppDomain';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
 import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
 import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
@@ -185,7 +186,7 @@ const VendedorNovoPedido: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} precos={promocoesVigentes} consomeQuota podeBonificar={podeBonificar} />
+        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} precos={promocoesVigentes} consomeQuota podeBonificar={podeBonificar} podeAlterarPreco={podeAlterarPrecoNoApp({ role: userRole, isOwner, permissoes: userPermissions })} />
 
         <div style={{ marginTop: '22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

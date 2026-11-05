@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { idsDasPromocoes, precificarNoApp, promocaoParaMostrar, type PrecosDoApp } from '../src/utils/precoAppVendasDomain';
+import { idsDasPromocoes, lerPrecoDigitado, precificarNoApp, precoDaTabelaDoItem, promocaoParaMostrar, trocarPrecoDoItem, type ItemComPrecoDoApp, type PrecosDoApp } from '../src/utils/precoAppVendasDomain';
+import { conferirPrecos } from '../src/utils/conferenciaPrecoDomain';
+import { reprecificarItens } from '../src/utils/precoVendaDomain';
 import type { TabelaDePrecoDoItem } from '../src/utils/precoVendaDomain';
 import type { PromocaoDoProduto } from '../src/utils/promocaoDomain';
 
@@ -76,4 +78,85 @@ test('busca mostra a promocao; ids das promocoes do pedido sem repetir', () => {
   assert.deepEqual(promocaoParaMostrar(precos(), produto), { preco: 80, soAVista: false, nome: 'SEMANA DO PET' });
   assert.equal(promocaoParaMostrar(precos({ promo: null }), produto), null);
   assert.deepEqual(idsDasPromocoes([{ promocaoId: 'a' }, {}, { promocaoId: 'a' }, { promocaoId: 'b' }]), ['a', 'b']);
+});
+
+/* Trocar o preco do item no app (05/11/2026). */
+
+const itemDeTabela: ItemComPrecoDoApp & { id: string; nome: string; desconto: number } = {
+  id: 'p1',
+  nome: 'FILTRO',
+  precoUnitario: 260,
+  quantidade: 3,
+  desconto: 0,
+  subtotal: 780,
+  tabelaPreco: { venda: 260, vista: 240, promocao: null },
+  origemPreco: 'venda',
+};
+
+test('lerPrecoDigitado: virgula, milhar e ponto decimal do teclado do celular', () => {
+  assert.equal(lerPrecoDigitado('129,90'), 129.9);
+  assert.equal(lerPrecoDigitado('129,9'), 129.9);
+  assert.equal(lerPrecoDigitado('1.250,50'), 1250.5);
+  assert.equal(lerPrecoDigitado('129.90'), 129.9, 'nunca 12.990');
+  assert.equal(lerPrecoDigitado('1.250'), 1250);
+  assert.equal(lerPrecoDigitado('260'), 260);
+  assert.equal(lerPrecoDigitado('R$ 45,00'), 45);
+  for (const ruim of ['', '0', '0,00', 'abc', '1,2,3', '12,345', '-5']) assert.equal(lerPrecoDigitado(ruim), null, ruim);
+});
+
+test('trocar preco: vira manual, refaz o subtotal e nao troca sozinho ao receber a vista', () => {
+  const novo = trocarPrecoDoItem(itemDeTabela, 199.9);
+  assert.equal(novo.precoUnitario, 199.9);
+  assert.equal(novo.origemPreco, 'manual');
+  assert.equal(novo.subtotal, 599.7);
+  assert.equal(precoDaTabelaDoItem(novo), 260);
+  const { itens, alterados } = reprecificarItens([novo], 'vista');
+  assert.equal(alterados, 0);
+  assert.equal(itens[0].precoUnitario, 199.9);
+});
+
+test('trocar preco: digitar o da tabela volta ao automatico', () => {
+  const volta = trocarPrecoDoItem(trocarPrecoDoItem(itemDeTabela, 199.9), 260);
+  assert.equal(volta.origemPreco, 'venda');
+  assert.equal(volta.subtotal, 780);
+});
+
+test('trocar preco de item em promocao: sai da promocao (nao gasta quota) e volta se digitar o preco dela', () => {
+  const emPromocao: typeof itemDeTabela = {
+    ...itemDeTabela,
+    precoUnitario: 200,
+    subtotal: 600,
+    tabelaPreco: { venda: 260, vista: 240, promocao: { id: 'pr1', nome: 'SEMANA', preco: 200, soAVista: false } },
+    origemPreco: 'promocao',
+    promocaoId: 'pr1',
+    promocaoNome: 'SEMANA',
+  };
+  const manual = trocarPrecoDoItem(emPromocao, 150);
+  assert.equal(manual.origemPreco, 'manual');
+  assert.ok(!Object.keys(manual).includes('promocaoId'), 'sem chave undefined no Firestore');
+  assert.ok(!Object.keys(manual).includes('promocaoNome'));
+  const volta = trocarPrecoDoItem(manual, 200);
+  assert.equal(volta.origemPreco, 'promocao');
+  assert.equal(volta.promocaoId, 'pr1');
+});
+
+test('trocar preco de item sem tabela: manual, sem chave undefined', () => {
+  const semTabela: ItemComPrecoDoApp = { precoUnitario: 10, quantidade: 2, subtotal: 20 };
+  const novo = trocarPrecoDoItem(semTabela, 12.5);
+  assert.equal(novo.origemPreco, 'manual');
+  assert.equal(novo.subtotal, 25);
+  assert.ok(!Object.values(novo).some((v) => v === undefined));
+  assert.equal(precoDaTabelaDoItem(novo), 0);
+});
+
+test('preco alterado abaixo da tabela conta como desconto ao faturar; acima e livre', () => {
+  const conferir = (precoUnitario: number) => conferirPrecos({
+    itens: [{ ...trocarPrecoDoItem(itemDeTabela, precoUnitario) }],
+    produtos: { p1: { precoVenda: 260 } as never },
+    promocoes: [],
+    hoje: '2026-11-05',
+    condicao: 'prazo',
+  });
+  assert.equal(conferir(200).diferencaTotalCentavos, 18000);
+  assert.equal(conferir(300).diferencaTotalCentavos, 0);
 });

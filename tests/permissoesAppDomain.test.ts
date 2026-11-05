@@ -4,11 +4,13 @@ import {
   CHAVES_APP_NOVAS,
   MARCADOR_APP_DEFINIDO,
   PERMISSAO_APP,
+  PERMISSAO_APP_ALTERAR_PRECO,
   appDefinido,
   mexidasSemTer,
   permissaoValida,
   permissoesEfetivas,
   permissoesParaGravar,
+  podeAlterarPrecoNoApp,
   podeNoApp,
 } from '../src/utils/permissoesAppDomain';
 
@@ -58,4 +60,18 @@ test('id de permissao valido', () => {
   assert.equal(permissaoValida('a b.c'), false);
   assert.equal(permissaoValida('semponto'), false);
   assert.equal(permissaoValida(3), false);
+});
+
+test('alterar preco no app: nunca vem implicita; dono/administrador sempre; funcionario so marcado', () => {
+  assert.ok(!CHAVES_APP_NOVAS.includes(PERMISSAO_APP_ALTERAR_PRECO), 'mexe em dinheiro: nao pode ser "ja vem marcado"');
+  // Quem nunca teve o app gravado ganha as telas, mas nao esta chave (nem aplicando as efetivas).
+  const antigo = permissoesEfetivas(['vendas.pedidos']);
+  assert.ok(!antigo.includes(PERMISSAO_APP_ALTERAR_PRECO));
+  assert.equal(podeAlterarPrecoNoApp({ role: 'Funcionario', isOwner: false, permissoes: antigo }), false);
+  assert.equal(podeAlterarPrecoNoApp({ role: 'Funcionario', isOwner: false, permissoes: permissoesEfetivas([PERMISSAO_APP_ALTERAR_PRECO]) }), true);
+  assert.equal(podeAlterarPrecoNoApp({ role: 'Funcionario', isOwner: true, permissoes: [] }), true, 'dono');
+  assert.equal(podeAlterarPrecoNoApp({ role: 'Admin', isOwner: false, permissoes: [] }), true, 'administrador');
+  assert.ok(permissaoValida(PERMISSAO_APP_ALTERAR_PRECO), 'o servidor precisa aceitar gravar');
+  // Sobrevive a salvar as permissoes.
+  assert.ok(permissoesParaGravar([PERMISSAO_APP_ALTERAR_PRECO]).includes(PERMISSAO_APP_ALTERAR_PRECO));
 });

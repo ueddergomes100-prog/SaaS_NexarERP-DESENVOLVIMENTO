@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.permissaoValida = exports.mexidasSemTer = exports.podeNoApp = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.appDefinido = exports.CHAVES_APP_NOVAS = exports.PERMISSAO_APP = exports.MARCADOR_APP_DEFINIDO = void 0;
+exports.permissaoValida = exports.mexidasSemTer = exports.podeAlterarPrecoNoApp = exports.podeNoApp = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.appDefinido = exports.CHAVES_APP_NOVAS = exports.PERMISSAO_APP_ALTERAR_PRECO = exports.PERMISSAO_APP = exports.MARCADOR_APP_DEFINIDO = void 0;
 const roles_1 = require("./roles");
 /**
  * PERMISSOES DO APLICATIVO MOBILE (26/10/2026, pedido do dono).
@@ -38,6 +38,13 @@ exports.PERMISSAO_APP = {
     contasReceber: 'app.contas_receber',
     emitirNota: 'app.emitir_nota',
 };
+/**
+ * Trocar o preco do item no pedido/orcamento do app (05/11/2026, pedido de
+ * cliente). FORA de PERMISSAO_APP de proposito: as chaves de la' valem para
+ * quem nunca teve o app gravado ("ja' vem marcado"), e esta mexe em dinheiro --
+ * so' tem quem foi marcado. Dono e administrador sempre.
+ */
+exports.PERMISSAO_APP_ALTERAR_PRECO = 'app.alterar_preco';
 /** Chaves novas: quem nunca teve as permissoes do app gravadas conta com todas. */
 exports.CHAVES_APP_NOVAS = Object.values(exports.PERMISSAO_APP);
 const lista = (permissoes) => (Array.isArray(permissoes) ? permissoes.filter((p) => typeof p === 'string') : []);
@@ -64,6 +71,9 @@ exports.permissoesParaGravar = permissoesParaGravar;
 /** Dono/gestor sempre; o resto, pela chave do app (contando as implicitas). */
 const podeNoApp = (chave, args) => ((0, roles_1.hasTenantFullAccess)(args.role, args.isOwner) || (0, exports.permissoesEfetivas)(args.permissoes).includes(chave));
 exports.podeNoApp = podeNoApp;
+/** Pode trocar o preco do item no app? Nunca implicita: dono/administrador, ou a chave gravada. */
+const podeAlterarPrecoNoApp = (args) => ((0, roles_1.hasTenantFullAccess)(args.role, args.isOwner) || lista(args.permissoes).includes(exports.PERMISSAO_APP_ALTERAR_PRECO));
+exports.podeAlterarPrecoNoApp = podeAlterarPrecoNoApp;
 /**
  * Gerente so' da' e tira o que ELE MESMO tem (decisao de 19/10/2026), agora
  * contando as chaves implicitas do app dos dois lados. Devolve as permissoes

@@ -39,6 +39,14 @@ export const PERMISSAO_APP = {
   emitirNota: 'app.emitir_nota',
 } as const;
 
+/**
+ * Trocar o preco do item no pedido/orcamento do app (05/11/2026, pedido de
+ * cliente). FORA de PERMISSAO_APP de proposito: as chaves de la' valem para
+ * quem nunca teve o app gravado ("ja' vem marcado"), e esta mexe em dinheiro --
+ * so' tem quem foi marcado. Dono e administrador sempre.
+ */
+export const PERMISSAO_APP_ALTERAR_PRECO = 'app.alterar_preco';
+
 /** Chaves novas: quem nunca teve as permissoes do app gravadas conta com todas. */
 export const CHAVES_APP_NOVAS: string[] = Object.values(PERMISSAO_APP);
 
@@ -71,6 +79,11 @@ export const permissoesParaGravar = (marcadas: unknown): string[] => (
 /** Dono/gestor sempre; o resto, pela chave do app (contando as implicitas). */
 export const podeNoApp = (chave: string, args: { role: unknown; isOwner: boolean; permissoes: unknown }): boolean => (
   hasTenantFullAccess(args.role, args.isOwner) || permissoesEfetivas(args.permissoes).includes(chave)
+);
+
+/** Pode trocar o preco do item no app? Nunca implicita: dono/administrador, ou a chave gravada. */
+export const podeAlterarPrecoNoApp = (args: { role: unknown; isOwner: boolean; permissoes: unknown }): boolean => (
+  hasTenantFullAccess(args.role, args.isOwner) || lista(args.permissoes).includes(PERMISSAO_APP_ALTERAR_PRECO)
 );
 
 /**

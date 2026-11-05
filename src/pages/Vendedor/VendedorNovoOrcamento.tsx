@@ -9,6 +9,7 @@ import VendedorHeader from './VendedorHeader';
 import VendedorSeletorCliente from './VendedorSeletorCliente';
 import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
 import { clienteComCodigo } from '../../utils/pedidoVendedorDomain';
+import { podeAlterarPrecoNoApp } from '../../utils/permissoesAppDomain';
 import VendedorItemPicker, { type ProdutoVendedorExterno } from './VendedorItemPicker';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import type { VendedorNovoPedidoNavState } from './vendedorNavState';
@@ -29,7 +30,7 @@ const VendedorNovoOrcamento: React.FC = () => {
   const { localId } = useParams();
   const location = useLocation();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
-  const { tenantId, currentUser, userPermissions } = useAuth();
+  const { tenantId, currentUser, userPermissions, userRole, isOwner } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
   // Promocoes de hoje (19/10/2026): orcamento mostra o preco da promocao, sem consumir quota (como no desktop).
@@ -127,7 +128,7 @@ const VendedorNovoOrcamento: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque precos={promocoesVigentes} />
+        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque precos={promocoesVigentes} podeAlterarPreco={podeAlterarPrecoNoApp({ role: userRole, isOwner, permissoes: userPermissions })} />
       </div>
 
       <VendedorRodapeRascunho aoSalvar={handleSalvar} />

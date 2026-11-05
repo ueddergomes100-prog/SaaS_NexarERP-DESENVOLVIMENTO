@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Check, Trash2, Gift } from 'lucide-react';
+import { Search, Check, Trash2, Gift, Pencil } from 'lucide-react';
 import ProdutoOpcaoBusca from '../../components/common/ProdutoOpcaoBusca';
 import { LISTAR_TUDO_TERM, searchProducts } from '../../utils/productSearch';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
@@ -7,7 +7,7 @@ import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { podeVenderSemEstoque } from '../../utils/estoqueReservaDomain';
 import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
-import { precificarNoApp, promocaoParaMostrar, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
+import { lerPrecoDigitado, precificarNoApp, precoDaTabelaDoItem, promocaoParaMostrar, trocarPrecoDoItem, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
 import { bonificarItem, cobrarItem, ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
 
 export interface ProdutoVendedorExterno {
@@ -39,6 +39,8 @@ interface Props {
   consomeQuota?: boolean;
   /** Bonificacao (30/10/2026): mostra "Bonificar" em cada item (empresa ligou + permissao). So' no pedido. */
   podeBonificar?: boolean;
+  /** Permissao "App: Alterar o preco do item" (podeAlterarPrecoNoApp). So' pedido e orcamento. */
+  podeAlterarPreco?: boolean;
 }
 
 const RESULTADOS_LIMITE = 15;
@@ -61,7 +63,7 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
  * painel -- exatamente o oposto do que precisa aqui. Escrever a lista de novo
  * aqui evita arriscar as telas desktop, que continuam com o fluxo de sempre.
  */
-const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true, precos = null, consomeQuota = false, podeBonificar = false }) => {
+const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true, precos = null, consomeQuota = false, podeBonificar = false, podeAlterarPreco = false }) => {
   const [produtoBusca, setProdutoBusca] = useState('');
   // Tocar na busca ja' mostra a lista (mesmo comportamento do Pedido de Venda);
   // "Mostrar mais" aumenta o corte. "#" lista tudo, "#gel" filtra.
@@ -75,6 +77,9 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
     if (!termo) return { items: [], total: 0, truncated: false };
     return searchProducts(produtos, termo, { limit: limite });
   }, [produtos, termo, limite]);
+
+  // Item com o preco aberto para editar (uma linha por vez).
+  const [precoEmEdicao, setPrecoEmEdicao] = useState<{ index: number; valor: string } | null>(null);
 
   const totalSelecionados = Object.keys(selecionados).length;
 
@@ -168,10 +173,23 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
   };
 
   const handleRemover = (index: number) => {
+    setPrecoEmEdicao(null);
     onItensChange(itens.filter((_, i) => i !== index));
   };
 
+  const handleAplicarPreco = () => {
+    if (!precoEmEdicao) return;
+    const preco = lerPrecoDigitado(precoEmEdicao.valor);
+    if (preco === null) {
+      showError('Preço inválido', 'Digite o preço em reais, maior que zero (por exemplo 129,90). Para dar o item de brinde, use a bonificação.');
+      return;
+    }
+    onItensChange(itens.map((item, i) => (i === precoEmEdicao.index ? trocarPrecoDoItem(item, preco) : item)));
+    setPrecoEmEdicao(null);
+  };
+
   const handleAlternarBonificacao = (index: number) => {
+    setPrecoEmEdicao(null);
     onItensChange(itens.map((item, i) => (i !== index ? item : ehBonificado(item) ? cobrarItem(item) : bonificarItem(item))));
   };
 
@@ -294,12 +312,13 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
             <div
               key={`${item.id}-${index}`}
               style={{
-                display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', borderRadius: 'var(--app-raio-linha)',
+                padding: '14px', borderRadius: 'var(--app-raio-linha)',
                 backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)',
               }}
             >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
                   {item.nome}
                 </div>
                 <div style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginTop: '3px' }}>
@@ -315,8 +334,24 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                     promoção · de <s>{formatarMoeda(item.tabelaPreco.venda)}</s>
                   </div>
                 )}
+                {mostrarValores && !ehBonificado(item) && item.origemPreco === 'manual' && (
+                  <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#d97706', marginTop: '2px' }}>
+                    preço alterado{precoDaTabelaDoItem(item) > 0 ? <> · tabela {formatarMoeda(precoDaTabelaDoItem(item))}</> : null}
+                  </div>
+                )}
               </div>
               {mostrarValores && <div style={{ fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)' }}>{formatarMoeda(item.subtotal)}</div>}
+              {podeAlterarPreco && mostrarValores && !ehBonificado(item) && (
+                <button
+                  type="button"
+                  onClick={() => setPrecoEmEdicao(precoEmEdicao?.index === index ? null : { index, valor: item.precoUnitario.toFixed(2).replace('.', ',') })}
+                  aria-label={`Alterar o preço de ${item.nome}`}
+                  title="Alterar o preço"
+                  style={{ color: 'var(--text-muted)', background: 'transparent', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', padding: '6px' }}
+                >
+                  <Pencil size={16} />
+                </button>
+              )}
               {(podeBonificar || ehBonificado(item)) && (
                 <button
                   type="button"
@@ -340,6 +375,49 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
               >
                 <Trash2 size={16} />
               </button>
+              </div>
+              {precoEmEdicao?.index === index && (() => {
+                const digitado = lerPrecoDigitado(precoEmEdicao.valor);
+                const tabela = precoDaTabelaDoItem(item);
+                return (
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
+                    <label htmlFor={`preco-item-${index}`} style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      Preço de {item.unidadeMedidaSigla} (R$)
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        id={`preco-item-${index}`}
+                        type="text"
+                        inputMode="decimal"
+                        autoFocus
+                        value={precoEmEdicao.valor}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => setPrecoEmEdicao({ index, valor: e.target.value.replace(/[^0-9,.]/g, '') })}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAplicarPreco(); } }}
+                        style={{
+                          flex: 1, minWidth: 0, height: '44px', padding: '0 12px', borderRadius: '10px', border: '1px solid var(--border-color)',
+                          backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '16px', fontWeight: 700, boxSizing: 'border-box',
+                        }}
+                      />
+                      <button type="button" className="btn-secondary" onClick={() => setPrecoEmEdicao(null)} style={{ height: '44px', padding: '0 12px', fontSize: '14px' }}>
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAplicarPreco}
+                        style={{ height: '44px', padding: '0 16px', borderRadius: '10px', border: 'none', fontSize: '14px', fontWeight: 700, color: '#fff', cursor: 'pointer', background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)' }}
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+                    {digitado !== null && tabela > 0 && digitado < tabela && (
+                      <div style={{ fontSize: '12.5px', color: '#d97706', marginTop: '8px' }}>
+                        Abaixo do preço da tabela ({formatarMoeda(tabela)}): a diferença conta como desconto quando a loja faturar.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>

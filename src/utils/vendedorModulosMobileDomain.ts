@@ -21,6 +21,7 @@ export interface ModuloMobileExtra {
 export const MODULOS_MOBILE_EXTRAS: ModuloMobileExtra[] = [
   { id: 'vendas.pre_venda_cancelar', label: 'Cancelar pedido já enviado' },
   { id: 'vendas.bonificar', label: 'Bonificar item no pedido (brinde)' },
+  { id: 'app.alterar_preco', label: 'Alterar o preço do item (pedido e orçamento)' },
   { id: 'vendas.troca_solicitar', label: 'Trocas (pedir troca de mercadoria)' },
   { id: 'mecanica.os', label: 'Ordens de Serviço (consulta)' },
   { id: 'fiscal.emitir', label: 'Emitir Nota Fiscal' },

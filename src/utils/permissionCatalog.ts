@@ -47,6 +47,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'app.pedido', label: 'App: Novo Pedido e Meus Pedidos', color: '#8b5cf6' },
       { id: 'app.orcamento', label: 'App: Novo Orçamento', color: '#8b5cf6' },
       { id: 'app.preco', label: 'App: Consultar Preço', color: '#8b5cf6' },
+      // Nao vem marcada para ninguem (permissoesAppDomain.ts): mexe no valor da venda.
+      { id: 'app.alterar_preco', label: 'App: Alterar o preço do item (pedido e orçamento)', color: '#ef4444' },
       { id: 'app.clientes', label: 'App: Consultar Cliente', color: '#8b5cf6' },
       { id: 'vendas.troca_solicitar', label: 'App: Trocas — pedir troca e Minhas Trocas', color: '#8b5cf6' },
       { id: 'mecanica.os_app', label: 'App: OS (técnico) — ver e atender pelo celular', color: '#8b5cf6' },

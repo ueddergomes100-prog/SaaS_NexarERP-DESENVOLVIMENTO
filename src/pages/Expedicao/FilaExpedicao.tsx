@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Printer, Truck, ClipboardCheck, Lock } from 'lucide-react';
+import { Search, Printer, Truck, ClipboardCheck, Lock, PackageCheck } from 'lucide-react';
 import { collection, query, onSnapshot, where, Timestamp, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -11,7 +11,9 @@ import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { descreverTrava, mensagemDeBloqueio, type TravaDeEdicao } from '../../utils/travaEdicaoDomain';
-import { NexusSwal } from '../../utils/alerts';
+import { NexusSwal, showWarning } from '../../utils/alerts';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { montarDocumentoListaSeparacao, pedidosDaFilaParaSeparar, type DocumentoListaSeparacao } from '../../utils/listaSeparacaoDomain';
 
 interface PedidoExpedicaoData {
   id: string;
@@ -27,6 +29,8 @@ interface PedidoExpedicaoData {
   criadoPor?: string;
   /** 'troca' = reposicao sem cobranca (colecao `trocas`); ausente = pedido/pre-venda. */
   tipo?: 'troca';
+  /** Para a lista de separacao. */
+  itens?: unknown;
 }
 
 // Mesmos rotulos/cores de PedidoVendas.tsx (coluna "Conferência") -- mantidos
@@ -116,6 +120,9 @@ const FilaExpedicao: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusConferencia | 'todos'>('todos');
+  // Lista de separacao: linhas marcadas; nada marcado = as da tela que faltam conferir.
+  const [marcados, setMarcados] = useState<Set<string>>(() => new Set());
+  const [listaSeparacao, setListaSeparacao] = useState<DocumentoListaSeparacao | null>(null);
 
   // Trocas na MESMA fila (pedido do dono, 2026-09-24): as duas listas chegam por
   // ouvintes separados e sao juntadas aqui, ordenadas pela data.
@@ -147,6 +154,7 @@ const FilaExpedicao: React.FC = () => {
           usuarioResponsavelId: dados.usuarioResponsavelId,
           criadoPor: dados.criadoPor,
           tipo: 'troca',
+          itens: dados.itens,
         });
       });
       setTrocasDaFila(lista);
@@ -198,13 +206,62 @@ const FilaExpedicao: React.FC = () => {
     );
   });
 
+  const chaveDaLinha = (p: PedidoExpedicaoData) => `${p.tipo || 'pedido'}-${p.id}`;
+  const linhasDaLista = filteredPedidos.map((p) => ({ ...p, chave: chaveDaLinha(p) }));
+  const marcadosNaTela = linhasDaLista.filter((p) => marcados.has(p.chave)).length;
+
+  const alternarMarcado = (chave: string) => setMarcados((atual) => {
+    const proximo = new Set(atual);
+    if (proximo.has(chave)) proximo.delete(chave); else proximo.add(chave);
+    return proximo;
+  });
+
+  const abrirListaSeparacao = () => {
+    const escolhidos = pedidosDaFilaParaSeparar(linhasDaLista, marcados);
+    if (escolhidos.length === 0) {
+      showWarning('Nenhum pedido para separar', 'Marque os pedidos na lista ou mude o filtro: os que estão na tela já foram conferidos.');
+      return;
+    }
+    setListaSeparacao(montarDocumentoListaSeparacao({
+      titulo: 'Lista de separação — Fila de Expedição',
+      filtros: [`Pedidos: ${escolhidos.map((p) => `${p.tipo === 'troca' ? 'Troca ' : ''}#${p.numeroPedido}`).join(', ')}`],
+      pedidos: escolhidos.map((p) => ({
+        id: p.chave,
+        rotulo: `${p.tipo === 'troca' ? 'Troca' : 'Pedido'} #${p.numeroPedido}`,
+        clienteNome: p.clienteNome || 'Consumidor Final',
+        itens: p.itens,
+      })),
+    }));
+  };
+
+  if (listaSeparacao) {
+    return (
+      <RelatorioPreview
+        relatorioId="lista-separacao"
+        documento={listaSeparacao}
+        nomeArquivo="Lista de separacao"
+        onFechar={() => setListaSeparacao(null)}
+        rotuloFechar="Voltar à fila"
+      />
+    );
+  }
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px' }}>Fila de Expedição</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>Pedidos aguardando separação e conferência de mercadoria</p>
         </div>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={abrirListaSeparacao}
+          title={marcadosNaTela > 0 ? 'Todos os itens dos pedidos marcados' : 'Todos os itens dos pedidos da tela que faltam conferir. Para escolher, marque os pedidos na lista.'}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          <PackageCheck size={17} /> Lista de separação{marcadosNaTela > 0 ? ` (${marcadosNaTela})` : ''}
+        </button>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
@@ -274,6 +331,7 @@ const FilaExpedicao: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: '36px' }} aria-label="Marcar para a lista de separação" />
                 <th>Pedido</th>
                 <th>Data</th>
                 <th>Cliente</th>
@@ -284,11 +342,11 @@ const FilaExpedicao: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando fila de expedição...</td>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>Carregando fila de expedição...</td>
                 </tr>
               ) : filteredPedidos.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                     <Truck size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
                     <p>
                       {searchTerm
@@ -308,6 +366,14 @@ const FilaExpedicao: React.FC = () => {
                   const abrirConferencia = () => (travaDaLinha ? avisarEmEdicao(travaDaLinha) : navigate(caminhoConferencia));
                   return (
                   <tr key={`${p.tipo || 'pedido'}-${p.id}`} {...linha(`${p.tipo || 'pedido'}-${p.id}`, abrirConferencia)} style={travaDaLinha ? { opacity: 0.55 } : undefined} title={travaDaLinha ? descreverTrava(travaDaLinha) : undefined}>
+                    <td {...semAbrirLinha}>
+                      <input
+                        type="checkbox"
+                        checked={marcados.has(chaveDaLinha(p))}
+                        onChange={() => alternarMarcado(chaveDaLinha(p))}
+                        aria-label={`Marcar o pedido ${p.numeroPedido} para a lista de separação`}
+                      />
+                    </td>
                     <td className="font-medium">
                       #{p.numeroPedido}
                       {ehTroca && <span style={{ marginLeft: '8px', padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, color: '#fff', backgroundColor: '#8b5cf6' }}>TROCA</span>}

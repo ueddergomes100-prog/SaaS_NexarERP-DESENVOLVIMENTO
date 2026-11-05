@@ -78,6 +78,10 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
   const [paginas, setPaginas] = useState<string[]>([]);
   const [montando, setMontando] = useState(false);
   const [erroMontagem, setErroMontagem] = useState('');
+  // Plano B (05/11/2026): o PDF foi gerado, mas o leitor nao rodou aqui (navegador
+  // antigo: em computador de cliente todo relatorio dava "Nao foi possivel montar").
+  // Mostra no leitor de PDF do proprio navegador; Imprimir e Salvar continuam valendo.
+  const [urlPdfDoNavegador, setUrlPdfDoNavegador] = useState<string | null>(null);
   const pdfAtual = useRef<jsPDF | null>(null);
   const versaoMontagem = useRef(0);
 
@@ -113,6 +117,8 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
     gravarPreferencias(relatorioId, proximas);
   }, [relatorioId]);
 
+  useEffect(() => () => { if (urlPdfDoNavegador) URL.revokeObjectURL(urlPdfDoNavegador); }, [urlPdfDoNavegador]);
+
   const documentoCompleto = useMemo<DocumentoRelatorio | null>(() => (
     documento && empresa ? { ...documento, empresa, geradoPor: userNome || undefined } : null
   ), [documento, empresa, userNome]);
@@ -124,8 +130,9 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
     setErroMontagem('');
 
     const temporizador = window.setTimeout(async () => {
+      let pdf: jsPDF | null = null;
       try {
-        const pdf = gerarRelatorioPdf(documentoCompleto, preferencias);
+        pdf = gerarRelatorioPdf(documentoCompleto, preferencias);
         pdfAtual.current = pdf;
         const pdfjs = await import('pdfjs-dist');
         // Worker empacotado pelo Vite como .js. NAO usar o .mjs solto (?url): a
@@ -133,7 +140,11 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
         // recusa executar -- o relatorio dava "Nao foi possivel montar".
         if (!pdfjs.GlobalWorkerOptions.workerPort) pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
         const tarefa = pdfjs.getDocument({ data: pdf.output('arraybuffer') });
-        const carregado = await tarefa.promise;
+        // Worker que morre calado em navegador antigo nao avisa: desiste e cai no plano B.
+        const carregado = await Promise.race([
+          tarefa.promise,
+          new Promise<never>((_, recusar) => { window.setTimeout(() => recusar(new Error('O leitor de PDF não respondeu.')), 20000); }),
+        ]);
         const imagens: string[] = [];
         for (let numero = 1; numero <= carregado.numPages; numero += 1) {
           const pagina = await carregado.getPage(numero);
@@ -145,11 +156,20 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
           imagens.push(canvas.toDataURL('image/png'));
         }
         await tarefa.destroy();
-        if (versao === versaoMontagem.current) setPaginas(imagens);
+        if (versao === versaoMontagem.current) {
+          setPaginas(imagens);
+          setUrlPdfDoNavegador(null);
+        }
       } catch (falha) {
         console.error('Erro ao montar o relatório em PDF:', falha);
         if (versao === versaoMontagem.current) {
-          setErroMontagem('Não foi possível montar o relatório. Feche e abra de novo; se continuar, avise o suporte.');
+          if (pdf) {
+            setPaginas([]);
+            setUrlPdfDoNavegador(URL.createObjectURL(pdf.output('blob')));
+          } else {
+            pdfAtual.current = null;
+            setErroMontagem('Não foi possível montar o relatório. Feche e abra de novo; se continuar, avise o suporte.');
+          }
         }
       } finally {
         if (versao === versaoMontagem.current) setMontando(false);
@@ -161,7 +181,7 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
 
   const nadaMarcado = Boolean(documento && preferencias && secoesVisiveis(documento.secoes, preferencias).length === 0);
   // As folhas so' existem depois que o PDF foi gerado (pdfAtual preenchido).
-  const podeAgir = Boolean(paginas.length && !montando && !nadaMarcado);
+  const podeAgir = Boolean((paginas.length || urlPdfDoNavegador) && !montando && !nadaMarcado);
 
   const imprimir = () => {
     const pdf = pdfAtual.current;
@@ -329,6 +349,8 @@ const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
             <div className="relatorio-preview__mensagem relatorio-preview__mensagem--erro" role="alert">{mensagemErro}</div>
           ) : nadaMarcado ? (
             <div className="relatorio-preview__mensagem">Marque pelo menos uma coluna ao lado para montar o relatório.</div>
+          ) : urlPdfDoNavegador && !montando ? (
+            <iframe title={documento?.titulo || 'Relatório'} src={urlPdfDoNavegador} style={{ width: '100%', height: '75vh', border: 0, backgroundColor: '#ffffff' }} />
           ) : carregando || (!paginas.length && montando) || !documento ? (
             <div className="relatorio-preview__mensagem"><Loader2 className="spin-icon" size={30} /> Montando o relatório...</div>
           ) : (

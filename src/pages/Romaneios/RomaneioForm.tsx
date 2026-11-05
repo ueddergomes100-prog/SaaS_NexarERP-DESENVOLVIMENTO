@@ -4,13 +4,15 @@ import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdi
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle, ClipboardList, History, Loader2, Plus, Printer, RotateCcw, Save,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CheckCircle, ClipboardList, History, Loader2, PackageCheck, Plus, Printer, RotateCcw, Save,
   Search, Send, Settings2, Trash2, Truck, X, XCircle,
 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { montarDocumentoListaSeparacao, type DocumentoListaSeparacao } from '../../utils/listaSeparacaoDomain';
+import { lerItensDosPedidos } from '../../services/listaSeparacaoService';
 import { FiltroColuna, OpcoesFiltro, OpcoesFiltroMultiplo, opcoesDaColuna } from '../../components/common/FiltroColuna';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { hasTenantFullAccess } from '../../utils/roles';
@@ -138,6 +140,8 @@ const RomaneioForm: React.FC = () => {
   const [carregando, setCarregando] = useState(Boolean(id));
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [imprimindo, setImprimindo] = useState(false);
+  const [listaSeparacao, setListaSeparacao] = useState<DocumentoListaSeparacao | null>(null);
+  const [montandoLista, setMontandoLista] = useState(false);
   const [motivos, setMotivos] = useState<string[]>(parseMotivosNaoEntrega(null));
   const [tiposAcerto, setTiposAcerto] = useState<TipoAcerto[]>(parseTiposAcerto(null));
   // Rota na pre-venda (21/10/2026): com o modo "na pre-venda", a pre-venda
@@ -471,6 +475,18 @@ const RomaneioForm: React.FC = () => {
     );
   }
 
+  if (listaSeparacao) {
+    return (
+      <RelatorioPreview
+        relatorioId="lista-separacao"
+        documento={listaSeparacao}
+        nomeArquivo={`Lista de separacao ${tituloDoRomaneio(romaneio.numero, romaneio.nome)}`}
+        onFechar={() => setListaSeparacao(null)}
+        rotuloFechar="Voltar ao romaneio"
+      />
+    );
+  }
+
   if (imprimindo) {
     return (
       <RelatorioPreview
@@ -482,6 +498,36 @@ const RomaneioForm: React.FC = () => {
       />
     );
   }
+
+  // Todos os itens da rota somados + os itens de cada pedido, para separar de uma vez.
+  const abrirListaSeparacao = async () => {
+    if (!tenantId) return;
+    if (romaneio.entregas.length === 0) {
+      showError('Ainda não dá para montar a lista', 'Coloque pelo menos um pedido na rota antes de gerar a lista de separação.');
+      return;
+    }
+    setMontandoLista(true);
+    try {
+      const itens = await lerItensDosPedidos(tenantId, romaneio.entregas.map((e) => e.pedidoId));
+      setListaSeparacao(montarDocumentoListaSeparacao({
+        titulo: `Lista de separação — ${tituloDoRomaneio(romaneio.numero, romaneio.nome)}`,
+        periodo: `Saída: ${dataBr(romaneio.dataSaida) || 'sem data'}${romaneio.motoristaNome ? ` · Motorista: ${romaneio.motoristaNome}` : ''}`,
+        pedidos: romaneio.entregas.filter((e) => itens.has(e.pedidoId)).map((e) => ({
+          id: e.pedidoId,
+          rotulo: `Pedido #${e.numeroPedido}`,
+          clienteNome: e.clienteNome,
+          itens: itens.get(e.pedidoId),
+        })),
+        // Linha de entrega futura nao e' um pedido: os itens dela ficam em Expedicao > Entregas futuras.
+        semItens: romaneio.entregas.filter((e) => !itens.has(e.pedidoId)).map((e) => `#${e.numeroPedido}`),
+      }));
+    } catch (erro) {
+      console.error('Erro ao montar a lista de separação:', erro);
+      showError('Não foi possível montar a lista', 'Confira a internet e tente de novo.');
+    } finally {
+      setMontandoLista(false);
+    }
+  };
 
   const botao = (rotulo: string, icone: React.ReactNode, acao: () => void, primario = false, cor?: string) => (
     <button
@@ -522,6 +568,7 @@ const RomaneioForm: React.FC = () => {
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           {podeConfigurar && !encerrado && botao('Configurar', <Settings2 size={17} />, () => setConfigAberta(true))}
           {botao('Imprimir', <Printer size={17} />, () => setImprimindo(true))}
+          {botao(montandoLista ? 'Montando a lista...' : 'Lista de separação', <PackageCheck size={17} />, () => { if (!montandoLista) void abrirListaSeparacao(); })}
           {podeCancelar && botao('Cancelar', <Trash2 size={17} />, () => void cancelar(), false, '#ef4444')}
           {romaneio.status === 'fechado' && podeMexerEncerrado && botao('Reabrir', <RotateCcw size={17} />, () => void reabrir(), true)}
           {!encerrado && botao('Salvar', <Save size={17} />, () => void salvar())}

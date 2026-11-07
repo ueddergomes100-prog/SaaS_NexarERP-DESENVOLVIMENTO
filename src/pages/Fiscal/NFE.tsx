@@ -29,7 +29,7 @@ import {
 } from '../../utils/fiscalDomain';
 import {
   TEXTO_OPTANTE_SIMPLES_NACIONAL, cfopSemIncidenciaDeIcms, destinatarioEConsumidorFinal, montarItemNotaFiscal, montarPagamentosNota,
-  percentuaisTributos, produtoFiscalDoCadastro, resolverGtin, somarTributos, textoTributosAproximados, totaisImpostosDosItens, type ValoresTributosItem,
+  percentuaisTributos, produtoFiscalDoCadastro, resolverGtin, somarTributos, textoTributosAproximados, totaisImpostosDosItens, valorDaLinhaDaNota, type ValoresTributosItem,
 } from '../../utils/notaFiscalItemDomain';
 import { lerTransporte, montarTransporteDaNota, ratearPorPeso, resumoDoTransporte, type CadastroTransportadora, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
 import { UFS_EMBARQUE, camposFaltandoNoEndereco, cfopDeExportacaoSugerido, destinatarioDaNota, montarExportacaoDaNota, nomeDoPais, paisDoCliente, textoLegalDaExportacao } from '../../utils/exportacaoNotaDomain';
@@ -1186,8 +1186,21 @@ const NFE: React.FC = () => {
       return;
     }
 
-    const pedido = pedidoLidoPeloId || pedidosVenda.find(p => p.id === pedidoId);
+    let pedido = pedidoLidoPeloId || pedidosVenda.find(p => p.id === pedidoId);
     if (!pedido) return;
+    // A lista de pedidos e' lida quando a aba abre, e a aba fica montada: o
+    // pedido pode ter mudado depois (ex.: "Ajustar transporte" da venda
+    // finalizada, 07/11/2026 -- a nota saia com o peso antigo). Na hora de
+    // importar, le de novo do banco. So' o que ja' esta' na lista (a
+    // visibilidade de vendas continua valendo).
+    if (!pedidoLidoPeloId) {
+      try {
+        const snapAtual = await getDoc(doc(db, 'pedidos_venda', pedidoId));
+        if (snapAtual.exists()) pedido = paraPedidoVenda(snapAtual.id, snapAtual.data());
+      } catch (err) {
+        console.error('Erro ao reler o pedido para a nota (segue com a lista):', err);
+      }
+    }
     if (pedido.comNotaFiscal === false) {
       setImportedPedidoId('');
       showError('Pedido sem nota fiscal', `O pedido #${pedido.numeroPedido} está marcado como SEM nota fiscal. Para emitir, abra o pedido e troque para COM nota fiscal.`);
@@ -4313,7 +4326,9 @@ const NFE: React.FC = () => {
                               </td>
                               <td style={{ padding: '8px', textAlign: 'center' }}>{item.quantidade}</td>
                               <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-secondary)' }}>R$ {item.precoUnitario.toFixed(2)}</td>
-                              <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>R$ {(item.valorTotal || (item.quantidade * item.precoUnitario)).toFixed(2)}</td>
+                              {/* O valor da linha que vai na nota [vProd] (07/11/2026): antes o
+                                  toFixed do ponto flutuante mostrava 244.33 e a nota saia 244,34. */}
+                              <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>R$ {valorDaLinhaDaNota(item.quantidade, item.precoUnitario).toFixed(2)}</td>
                               <td style={{ padding: '8px' }}>
                                 <input
                                   type="text"

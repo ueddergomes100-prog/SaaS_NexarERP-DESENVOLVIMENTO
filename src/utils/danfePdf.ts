@@ -164,7 +164,7 @@ export const gerarDanfePdf = (nota: NotaParseada, opcoes: OpcoesDanfe = {}): jsP
   caixa(doc, MARGEM + LARGURA - 70, y, 40, 9, 'CNPJ / CPF', formatarDocumento(dest.documento));
   caixa(doc, MARGEM + LARGURA - 30, y, 30, 9, 'Data da emissão', dataBr(nota.dataEmissao));
   y += 9;
-  caixa(doc, MARGEM, y, LARGURA - 100, 9, 'Endereço', `${de.logradouro}${de.numero ? `, ${de.numero}` : ''}`);
+  caixa(doc, MARGEM, y, LARGURA - 100, 9, 'Endereço', `${de.logradouro}${de.numero ? `, ${de.numero}` : ''}${de.complemento ? ` - ${de.complemento}` : ''}`);
   caixa(doc, MARGEM + LARGURA - 100, y, 40, 9, 'Bairro / Distrito', de.bairro);
   caixa(doc, MARGEM + LARGURA - 60, y, 30, 9, 'CEP', formatarCep(de.cep));
   caixa(doc, MARGEM + LARGURA - 30, y, 30, 9, 'Data da saída', dataBr(nota.dataSaida));

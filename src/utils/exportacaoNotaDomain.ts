@@ -20,6 +20,8 @@
  * contador -- a tela da nota lembra disso, nao escolhe sozinha.
  */
 
+import { NUMERO_DO_ENDERECO_MAX } from './transporteNotaDomain';
+
 /** Pais ISO 3166-1 alfa-3 -> nome em portugues (o que aparece na tela). */
 export const PAISES: ReadonlyArray<{ codigo: string; nome: string }> = [
   { codigo: 'ZAF', nome: 'África do Sul' },
@@ -195,6 +197,15 @@ export const destinatarioDaNota = (f: FormDestinatario, stateTaxNumber?: string)
     },
   };
 };
+
+/**
+ * Numero do endereco do destinatario maior do que a Spedy aceita (10
+ * caracteres, NUMERO_DO_ENDERECO_MAX em transporteNotaDomain): a nota inteira
+ * volta recusada em ingles. Cliente do exterior sem numero vai "S/N".
+ */
+export const numeroDoEnderecoGrandeDemais = (f: Pick<FormDestinatario, 'numero'>): boolean => (
+  String(f.numero ?? '').trim().length > NUMERO_DO_ENDERECO_MAX
+);
 
 /**
  * Campos do endereco que faltam para emitir a NF-e (vazio = completo). Cliente

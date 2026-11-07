@@ -31,8 +31,8 @@ import {
   TEXTO_OPTANTE_SIMPLES_NACIONAL, cfopSemIncidenciaDeIcms, destinatarioEConsumidorFinal, montarItemNotaFiscal, montarPagamentosNota,
   percentuaisTributos, produtoFiscalDoCadastro, resolverGtin, somarTributos, textoTributosAproximados, totaisImpostosDosItens, valorDaLinhaDaNota, type ValoresTributosItem,
 } from '../../utils/notaFiscalItemDomain';
-import { lerTransporte, montarTransporteDaNota, ratearPorPeso, resumoDoTransporte, type CadastroTransportadora, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
-import { UFS_EMBARQUE, camposFaltandoNoEndereco, cfopDeExportacaoSugerido, destinatarioDaNota, montarExportacaoDaNota, nomeDoPais, paisDoCliente, textoLegalDaExportacao } from '../../utils/exportacaoNotaDomain';
+import { NUMERO_DO_ENDERECO_MAX, lerTransporte, montarTransporteDaNota, ratearPorPeso, resumoDoTransporte, type CadastroTransportadora, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
+import { UFS_EMBARQUE, camposFaltandoNoEndereco, cfopDeExportacaoSugerido, destinatarioDaNota, montarExportacaoDaNota, nomeDoPais, numeroDoEnderecoGrandeDemais, paisDoCliente, textoLegalDaExportacao } from '../../utils/exportacaoNotaDomain';
 
 /** Cliente do exterior: o documento da nota e' o estrangeiro e o pais vai junto (27/10/2026). */
 const documentoEPaisDoCliente = (d: Record<string, unknown>) => {
@@ -2268,6 +2268,18 @@ const NFE: React.FC = () => {
               ? 'Abra o cadastro deste cliente em Clientes, complete o endereço e a cidade do exterior e salve. '
               : 'Abra o cadastro deste cliente em Clientes, digite o CEP e saia do campo (rua, bairro, cidade, UF e o código IBGE são preenchidos sozinhos), complete o número e salve. ')
             + (formData.clienteId ? 'Depois, aqui na nota, clique em "Atualizar dados do cadastro" (aba de produtos) e transmita de novo.' : 'Depois, escolha o cliente de novo aqui na nota.')
+        );
+        return false;
+      }
+      // A Spedy aceita no maximo 10 caracteres no numero; acima disso recusa a
+      // nota inteira com mensagem em ingles (07/11/2026).
+      if (numeroDoEnderecoGrandeDemais(formData)) {
+        const numeroDigitado = String(formData.numero ?? '').trim();
+        showError(
+          'Número do endereço grande demais',
+          `O número do endereço de "${formData.clienteNome}" ("${numeroDigitado}") tem ${numeroDigitado.length} caracteres e a nota fiscal aceita no máximo ${NUMERO_DO_ENDERECO_MAX}. `
+            + 'Deixe no Número só o número do imóvel e passe o resto (sala, bloco, apartamento) para a rua. '
+            + (formData.clienteId ? 'Corrija no cadastro do cliente em Clientes e, aqui na nota, clique em "Atualizar dados do cadastro" (aba de produtos).' : 'Corrija aqui no campo Número do endereço do destinatário.')
         );
         return false;
       }

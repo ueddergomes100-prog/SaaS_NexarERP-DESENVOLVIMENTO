@@ -19,7 +19,7 @@
  * corrigir (CLAUDE.md, regra 1) -- a nota nao sai com dado inventado.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDoTransporte = exports.ratearPorPeso = exports.montarTransporteDaNota = exports.modalidadeEfetiva = exports.diferencasDoTransporte = exports.notaTravaOTransporte = exports.STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE = exports.transporteParaGravar = exports.temTransporte = exports.lerTransporte = exports.valorDigitado = exports.UFS_BRASIL = exports.placaValida = exports.normalizarPlaca = exports.TRANSPORTE_VAZIO = exports.VOLUMES_VAZIOS = exports.ROTULO_MODALIDADE_FRETE = exports.MODALIDADES_FRETE = void 0;
+exports.resumoDoTransporte = exports.ratearPorPeso = exports.montarTransporteDaNota = exports.modalidadeEfetiva = exports.diferencasDoTransporte = exports.notaTravaOTransporte = exports.STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE = exports.transporteParaGravar = exports.temTransporte = exports.lerTransporte = exports.valorDigitado = exports.UFS_BRASIL = exports.placaValida = exports.normalizarPlaca = exports.NUMERO_DO_ENDERECO_MAX = exports.TRANSPORTE_VAZIO = exports.VOLUMES_VAZIOS = exports.ROTULO_MODALIDADE_FRETE = exports.MODALIDADES_FRETE = void 0;
 exports.MODALIDADES_FRETE = ['byIssuer', 'byReceiver', 'byThirdParties', 'byIssuerOwnTransport', 'byReceiverOwnTransport', 'free'];
 /** Texto da tela (com o codigo modFrete da SEFAZ entre parenteses, que o contador conhece). */
 exports.ROTULO_MODALIDADE_FRETE = {
@@ -33,6 +33,14 @@ exports.ROTULO_MODALIDADE_FRETE = {
 exports.VOLUMES_VAZIOS = { quantidade: 0, especie: '', marca: '', numeracao: '', pesoBrutoKg: 0, pesoLiquidoKg: 0 };
 exports.TRANSPORTE_VAZIO = { modalidade: '', transportadoraId: '', transportadoraNome: '', placa: '', placaUf: '', volumes: exports.VOLUMES_VAZIOS };
 const texto = (v, max) => String(v ?? '').trim().slice(0, max);
+/**
+ * Tamanho maximo do numero do endereco na Spedy (AddressDto/AddressCreateDto
+ * `number`, maxLength 10 no openapi, conferido em 07/11/2026). Passar disso a
+ * Spedy recusa a nota inteira com "The field Number must be a string with a
+ * maximum length of 10" -- caso da transportadora com "2809, SALA ADM 2" no
+ * Numero. Vale para o destinatario e para a transportadora.
+ */
+exports.NUMERO_DO_ENDERECO_MAX = 10;
 /** Numero digitado ("1.234,5" ou "1234.5"); lixo/negativo = 0. Com virgula, ponto e' milhar. */
 const numero = (v) => {
     const s = String(v ?? '').trim();
@@ -160,10 +168,14 @@ const montarTransporteDaNota = (a) => {
             ...(soDigitos(c.telefone) ? { phone: soDigitos(c.telefone) } : {}),
         };
         const uf = String(c.estado ?? '').trim().toUpperCase();
+        const numeroEndereco = String(c.numero ?? '').trim();
         if (c.endereco && c.cidade && UFS.includes(uf)) {
+            if (numeroEndereco.length > exports.NUMERO_DO_ENDERECO_MAX) {
+                return { ok: false, erro: `O número do endereço da transportadora ${c.nome || nome} ("${numeroEndereco}") tem ${numeroEndereco.length} caracteres e a nota fiscal aceita no máximo ${exports.NUMERO_DO_ENDERECO_MAX}. Edite em Cadastros › Fornecedores e deixe no Número só o número do imóvel.` };
+            }
             carrier.address = {
                 street: texto(c.endereco, 60),
-                ...(c.numero ? { number: texto(c.numero, 60) } : {}),
+                ...(numeroEndereco ? { number: numeroEndereco } : {}),
                 ...(c.bairro ? { district: texto(c.bairro, 60) } : {}),
                 ...(soDigitos(c.cep) ? { postalCode: soDigitos(c.cep) } : {}),
                 city: { ...(soDigitos(c.codigoIbge).length === 7 ? { code: soDigitos(c.codigoIbge) } : {}), name: texto(c.cidade, 60), state: uf },

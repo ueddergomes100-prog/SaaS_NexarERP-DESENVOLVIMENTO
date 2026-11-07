@@ -9,6 +9,7 @@ import {
   montarExportacaoDaNota,
   nomeDoPais,
   normalizarDocumentoEstrangeiro,
+  numeroDoEnderecoGrandeDemais,
   paisDoCliente,
   textoLegalDaExportacao,
 } from '../src/utils/exportacaoNotaDomain';
@@ -46,6 +47,10 @@ test('destinatario do Brasil continua igual (CNPJ so digitos, IE, CEP, IBGE)', (
   assert.equal(r.address.postalCode, '35500000');
   assert.deepEqual(r.address.city, { code: '3122306', name: 'DIVINOPOLIS', state: 'MG' });
   assert.deepEqual(camposFaltandoNoEndereco(BRASIL), []);
+  // Numero acima de 10 caracteres: a Spedy recusa a nota inteira (07/11/2026).
+  assert.equal(numeroDoEnderecoGrandeDemais(BRASIL), false);
+  assert.equal(numeroDoEnderecoGrandeDemais({ numero: ' 1234567890 ' }), false);
+  assert.equal(numeroDoEnderecoGrandeDemais({ numero: '2809, SALA ADM 2' }), true);
   assert.deepEqual(camposFaltandoNoEndereco({ ...BRASIL, codigoIbge: '', cep: '' }), ['CEP', 'Código IBGE da cidade']);
 });
 

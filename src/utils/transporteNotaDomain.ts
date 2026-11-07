@@ -61,6 +61,14 @@ export const VOLUMES_VAZIOS: VolumesDoTransporte = { quantidade: 0, especie: '',
 export const TRANSPORTE_VAZIO: TransporteDoPedido = { modalidade: '', transportadoraId: '', transportadoraNome: '', placa: '', placaUf: '', volumes: VOLUMES_VAZIOS };
 
 const texto = (v: unknown, max: number): string => String(v ?? '').trim().slice(0, max);
+/**
+ * Tamanho maximo do numero do endereco na Spedy (AddressDto/AddressCreateDto
+ * `number`, maxLength 10 no openapi, conferido em 07/11/2026). Passar disso a
+ * Spedy recusa a nota inteira com "The field Number must be a string with a
+ * maximum length of 10" -- caso da transportadora com "2809, SALA ADM 2" no
+ * Numero. Vale para o destinatario e para a transportadora.
+ */
+export const NUMERO_DO_ENDERECO_MAX = 10;
 /** Numero digitado ("1.234,5" ou "1234.5"); lixo/negativo = 0. Com virgula, ponto e' milhar. */
 const numero = (v: unknown): number => {
   const s = String(v ?? '').trim();
@@ -224,10 +232,14 @@ export const montarTransporteDaNota = (a: {
       ...(soDigitos(c.telefone) ? { phone: soDigitos(c.telefone) } : {}),
     };
     const uf = String(c.estado ?? '').trim().toUpperCase();
+    const numeroEndereco = String(c.numero ?? '').trim();
     if (c.endereco && c.cidade && UFS.includes(uf)) {
+      if (numeroEndereco.length > NUMERO_DO_ENDERECO_MAX) {
+        return { ok: false, erro: `O número do endereço da transportadora ${c.nome || nome} ("${numeroEndereco}") tem ${numeroEndereco.length} caracteres e a nota fiscal aceita no máximo ${NUMERO_DO_ENDERECO_MAX}. Edite em Cadastros › Fornecedores e deixe no Número só o número do imóvel.` };
+      }
       carrier.address = {
         street: texto(c.endereco, 60),
-        ...(c.numero ? { number: texto(c.numero, 60) } : {}),
+        ...(numeroEndereco ? { number: numeroEndereco } : {}),
         ...(c.bairro ? { district: texto(c.bairro, 60) } : {}),
         ...(soDigitos(c.cep) ? { postalCode: soDigitos(c.cep) } : {}),
         city: { ...(soDigitos(c.codigoIbge).length === 7 ? { code: soDigitos(c.codigoIbge) } : {}), name: texto(c.cidade, 60), state: uf },

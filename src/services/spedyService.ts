@@ -1,5 +1,6 @@
 import { auth } from './firebase';
 import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
+import { traduzirMensagemDaSpedy } from '../utils/spedyMensagemDomain';
 
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -57,7 +58,7 @@ const getApiError = async (response: Response, fallback: string) => {
   let message = fallback;
   try {
     const data = await response.json();
-    message = data.error || fallback;
+    message = traduzirMensagemDaSpedy(data.error || fallback);
   } catch {
     // mantem o fallback
   }

@@ -86,6 +86,12 @@ test('bloqueios com a mensagem de onde corrigir', () => {
   if (!placaRuim.ok) assert.match(placaRuim.erro, /não é válida/); else assert.fail();
   const semUf = montarTransporteDaNota({ transporte: lerTransporte({ placa: 'ABC1234' }), frete: 0, transportadora: null });
   if (!semUf.ok) assert.match(semUf.erro, /UF da placa/); else assert.fail();
+  // Numero do endereco acima de 10 caracteres: a Spedy recusa a nota inteira (TSA, 07/11/2026).
+  const numeroLongo = montarTransporteDaNota({ transporte: comTransp, frete: 10, transportadora: { ...TRANSPORTADORA, numero: '2809, SALA ADM 2' } });
+  if (!numeroLongo.ok) assert.match(numeroLongo.erro, /"2809, SALA ADM 2"\) tem 16 caracteres.*no máximo 10.*Cadastros › Fornecedores/); else assert.fail();
+  const numeroNoLimite = montarTransporteDaNota({ transporte: comTransp, frete: 10, transportadora: { ...TRANSPORTADORA, numero: ' 1234567890 ' } });
+  assert.equal(numeroNoLimite.ok, true);
+  if (numeroNoLimite.ok) assert.equal(((numeroNoLimite.transport.carrier as Record<string, unknown>).address as Record<string, unknown>).number, '1234567890');
   // Sem endereco: sai, com aviso.
   const semEndereco = montarTransporteDaNota({ transporte: comTransp, frete: 10, transportadora: { nome: 'X', documento: '12345678000199', inscricaoEstadual: 'isento' } });
   assert.equal(semEndereco.ok, true);

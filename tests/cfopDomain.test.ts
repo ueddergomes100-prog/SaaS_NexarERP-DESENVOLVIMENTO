@@ -4,7 +4,9 @@ import {
   CFOPS,
   FUNCAO_DA_NATUREZA,
   acaoDaEntrada,
+  aplicarCfopEmTodos,
   cfopEhDeSaida,
+  cfopMaisComum,
   cfopEntradaSugerido,
   cfopInterestadualEquivalente,
   cfopPorCodigo,
@@ -76,6 +78,17 @@ test('funcao: cada CFOP faz o que o nome diz', () => {
   // So' venda, servico e o faturamento da entrega futura (5.922) contam como faturamento.
   const comReceita = Object.entries(FUNCAO_DA_NATUREZA).filter(([, x]) => x.receita).map(([n]) => n).sort();
   assert.deepEqual(comReceita, ['faturamento_venda_entrega_futura', 'servico_prestado', 'venda']);
+});
+
+test('CFOP para todos os itens: todos, so os vazios, codigo vazio nao mexe', () => {
+  const lista = ['1102', '', '2102', ''];
+  assert.deepEqual(aplicarCfopEmTodos(lista, '1.102'), ['1102', '1102', '1102', '1102']);
+  assert.deepEqual(aplicarCfopEmTodos(lista, '1403', 'so_vazios'), ['1102', '1403', '2102', '1403']);
+  assert.deepEqual(aplicarCfopEmTodos(lista, ''), lista);
+  assert.deepEqual(aplicarCfopEmTodos([], '1102'), []);
+  assert.equal(cfopMaisComum(['1102', '', '2102', '1102']), '1102');
+  assert.equal(cfopMaisComum(['', '']), '');
+  assert.equal(cfopMaisComum(['2102', '1102']), '2102', 'empate: o primeiro');
 });
 
 test('de-para: CFOP do fornecedor vira o CFOP de entrada certo', () => {

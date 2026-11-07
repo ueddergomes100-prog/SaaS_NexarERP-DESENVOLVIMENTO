@@ -365,6 +365,28 @@ export const cfopEntradaSugerido = (cfopFornecedor: unknown, destino?: DestinoDa
   return POR_CODIGO.has(sugerido) ? sugerido : '';
 };
 
+/**
+ * CFOP DE ENTRADA PARA TODOS OS ITENS (07/11/2026, pedido do dono lancando uma
+ * nota de 141 itens: "ficar colocando um a um e' fd"). A pessoa escolhe um CFOP
+ * uma vez e aplica em todos (ou so' nos que ainda estao sem); depois troca a
+ * mao o item que for diferente. `codigo` vazio nao mexe em nada.
+ */
+export const aplicarCfopEmTodos = (cfops: readonly string[], codigo: unknown, modo: 'todos' | 'so_vazios' = 'todos'): string[] => {
+  const c = normalizarCodigoCfop(codigo);
+  if (!c) return [...cfops];
+  return cfops.map((atual) => (modo === 'todos' || !atual ? c : atual));
+};
+
+/** O CFOP que mais aparece na lista (desempate: o primeiro). Vazio quando nenhum item tem. */
+export const cfopMaisComum = (cfops: readonly string[]): string => {
+  const contagem = new Map<string, number>();
+  cfops.forEach((c) => { if (c) contagem.set(c, (contagem.get(c) || 0) + 1); });
+  let melhor = '';
+  let maior = 0;
+  contagem.forEach((n, c) => { if (n > maior) { maior = n; melhor = c; } });
+  return melhor;
+};
+
 /** CFOP de saida valido no formato (5/6/7 + 3 numeros), esteja ou nao na tabela do sistema. */
 export const cfopEhDeSaida = (cfop: unknown): boolean => /^[567]\d{3}$/.test(normalizarCodigoCfop(cfop));
 

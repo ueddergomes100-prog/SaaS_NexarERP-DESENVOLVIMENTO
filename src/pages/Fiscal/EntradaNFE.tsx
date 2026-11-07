@@ -58,13 +58,16 @@ import {
 import {
   ROTULO_NATUREZA,
   acaoDaEntrada,
+  aplicarCfopEmTodos,
   cfopEntradaSugerido,
+  cfopMaisComum,
   cfopsParaEscolha,
   formatarCodigoCfop,
   problemaDoCfop,
   resumoDaFuncao,
 } from '../../utils/cfopDomain';
 import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
+import CfopParaTodosItens from './CfopParaTodosItens';
 import { registrarUsoFiscal } from '../../services/tabelasFiscaisService';
 import { contextoDeReajuste, sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { mostrarImpactoDeCusto } from '../../utils/impactoCustoAlert';
@@ -216,6 +219,8 @@ const EntradaNFE: React.FC = () => {
   // CFOP de entrada de cada item (Tabelas Fiscais, fase 2, 20/10/2026): sugerido
   // pela equivalencia com o CFOP do fornecedor; decide estoque e conta a pagar.
   const [cfopsEntrada, setCfopsEntrada] = useState<string[]>([]);
+  // CFOP escolhido para aplicar em todos os itens de uma vez (07/11/2026).
+  const [cfopParaTodos, setCfopParaTodos] = useState('');
   const { desativados: cfopsDesativados } = useCfopsDesativados();
   const [categoriaDespesa, setCategoriaDespesa] = useState<string>(CATEGORIAS_DE_COMPRA[0]);
   // Plano de contas de despesas da empresa (Configuracoes); vazio = lista padrao de compras.
@@ -506,7 +511,10 @@ const EntradaNFE: React.FC = () => {
         : inicial;
     });
     setItemConfigs(configs);
-    setCfopsEntrada(parsedData.items.map((item, i) => cfopEntradaSugerido(item.cfop, configs[i].tipo === 'insumo' ? 'insumo' : undefined)));
+    const sugeridos = parsedData.items.map((item, i) => cfopEntradaSugerido(item.cfop, configs[i].tipo === 'insumo' ? 'insumo' : undefined));
+    setCfopsEntrada(sugeridos);
+    // Ja' vem com o CFOP mais comum da nota; nota sem equivalencia (importacao, por exemplo) fica para a pessoa escolher.
+    setCfopParaTodos(cfopMaisComum(sugeridos));
     tiposDosItensRef.current = configs.map((c) => c.tipo);
   }, [parsedData, fornecedorStatus, fornecedorMatch, estoqueAtual, materiasPrimasAtuais, insumosAtuais, regimeTributario]);
 
@@ -585,6 +593,29 @@ const EntradaNFE: React.FC = () => {
     if (!parsedData) return;
     const config = configDoItemSemVinculo(parsedData.items[idx].valorUnitario, usesCsosn(regimeTributario));
     setItemConfigs((prev) => prev.map((atual, i) => (i === idx ? config : atual)));
+  };
+
+  /** Um CFOP para todos os itens (ou so' para os que ainda estao sem), em vez de um a um. */
+  const aplicarCfopParaTodos = async (modo: 'todos' | 'so_vazios') => {
+    if (!cfopParaTodos) {
+      showError('Escolha o CFOP', 'Escolha o CFOP de entrada na lista antes de aplicar nos itens.');
+      return;
+    }
+    const trocados = modo === 'todos' ? cfopsEntrada.filter((c) => c && c !== cfopParaTodos).length : 0;
+    if (trocados > 0) {
+      const r = await NexusSwal.fire({
+        title: `Trocar o CFOP de ${trocados} item(ns)?`,
+        text: `${trocados} item(ns) já têm outro CFOP de entrada e vão passar para ${formatarCodigoCfop(cfopParaTodos)}. Os demais recebem o mesmo CFOP. Depois dá para trocar um a um.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Trocar todos',
+        cancelButtonText: 'Só os que estão sem CFOP',
+      });
+      if (r.isDismissed && r.dismiss !== NexusSwal.DismissReason.cancel) return;
+      modo = r.isConfirmed ? 'todos' : 'so_vazios';
+    }
+    setCfopsEntrada((atuais) => aplicarCfopEmTodos(atuais, cfopParaTodos, modo));
+    showSuccess(`CFOP ${formatarCodigoCfop(cfopParaTodos)} aplicado em ${modo === 'todos' ? cfopsEntrada.length : cfopsEntrada.filter((c) => !c).length} item(ns).`);
   };
 
   /** CFOP de entrada do item (escolha da tabela) e o que ele faz -- Tabelas Fiscais, fase 2. */
@@ -2109,6 +2140,13 @@ const EntradaNFE: React.FC = () => {
                   <Package size={20} color="var(--accent-purple)" />
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Itens Encontrados no XML ({parsedData.items.length})</h3>
                 </div>
+                <CfopParaTodosItens
+                  cfops={cfopsEntrada}
+                  opcoes={cfopsParaEscolha({ tipo: 'entrada', desativados: cfopsDesativados, manter: cfopParaTodos })}
+                  valor={cfopParaTodos}
+                  onValor={setCfopParaTodos}
+                  onAplicar={(modo) => void aplicarCfopParaTodos(modo)}
+                />
                 {itemConfigs.some((c) => c.classificacao === 'novo') && (
                   <div style={{ padding: '10px 24px', borderBottom: '1px solid var(--border-color)', fontSize: '12.5px', color: '#fbbf24', lineHeight: 1.5 }}>
                     {itemConfigs.filter((c) => c.classificacao === 'novo').length} item(ns) serão cadastrados como <strong>novos</strong>. Se algum já existe no seu

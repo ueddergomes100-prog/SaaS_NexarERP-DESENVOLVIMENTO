@@ -65,7 +65,7 @@ const EscolherNotaEntradaModal = <T extends NotaEntradaParaEscolha>({ notas, car
           ))}
           {preco === 'nota' && (
             <span style={{ flexBasis: '100%', fontSize: '12px', color: '#d97706' }}>
-              Onde o valor da nota for menor que o preço de tabela, a diferença entra como desconto do item (limite de desconto e liberação valem como sempre).
+              Cada item fica com o valor da nota, sem desconto na nota fiscal. Se ficar abaixo do preço de tabela, ao finalizar a venda a diferença conta no limite de desconto (liberação como sempre).
             </span>
           )}
         </div>

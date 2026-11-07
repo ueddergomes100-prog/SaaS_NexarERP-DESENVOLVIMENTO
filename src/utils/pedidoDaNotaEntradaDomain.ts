@@ -5,11 +5,16 @@
  * o de venda do cadastro (padrao, decisao do dono) ou o valor unitario do XML
  * da nota (o custo, pedido do dono em 07/11/2026).
  *
- * Valor da nota abaixo da tabela segue a MESMA regra do preco digitado na grade
- * (01/10/2026): o item fica no preco de tabela e a diferenca vira DESCONTO do
- * item, com as travas de sempre (desconto por item ligado, maximo do produto,
- * limite do Pedido de Venda). Nunca um preco abaixo da tabela sem desconto
- * registrado. Igual ou acima da tabela vira preco digitado ('manual').
+ * Valor da nota: o PRECO do item e' o da nota, sem desconto (decisao do dono,
+ * 07/11/2026, depois de ver a NF-e: "o valor deve vir 100% igual o da nota, mas
+ * sem aparecer como desconto"). A primeira versao punha o item no preco de
+ * tabela + desconto (regra de 01/10 do preco digitado na grade) e a NF-e saiu
+ * com R$ 18 mil de desconto. O controle continua na FINALIZACAO: a conferencia
+ * de preco (conferenciaPrecoDomain.ts, tela e servidor) conta o que ficou
+ * abaixo do sistema no limite de desconto, com liberacao como sempre, e grava
+ * em descontoPorPrecoCentavos -- so' nao vira desconto na nota. Aqui, o item
+ * que ja' sabemos que vai travar (maximo do proprio produto, limite no modo
+ * "bloquear") fica com o preco de venda e entra no aviso.
  *
  * Parte pura: quais itens da nota viram linhas de venda (so' os de revenda,
  * somados por produto, na unidade do estoque) e o que fica de fora com o motivo.
@@ -132,19 +137,18 @@ export const precoDaLinha = (linha: Pick<LinhaDaNotaParaVenda, 'valorUnitarioNot
 );
 
 export interface PrecoDaNotaNoItem {
-  /** Preco unitario do item: o de tabela quando a nota e' mais barata; o da nota quando e' igual ou mais cara. */
+  /** Preco unitario do item: sempre o valor da nota. */
   precoUnitario: number;
-  /** Preco unitario x quantidade, em centavos (base do percentual de desconto). */
-  precoCheioCentavos: number;
-  /** Diferenca para a tabela em centavos, lancada como desconto do item (0 quando a nota nao e' mais barata). */
-  descontoCentavos: number;
+  /** Linha no preco de tabela (ou no da nota, se for maior), em centavos: base do percentual na conferencia. */
+  baseCentavos: number;
+  /** Quanto a linha fica abaixo da tabela, em centavos: na finalizacao conta no limite de desconto. */
+  abaixoDaTabelaCentavos: number;
 }
 
-/** Como o valor da nota entra no item: abaixo da tabela, preco de tabela + desconto (regra de 01/10/2026). */
+/** Valor da nota no item: o preco e' o da nota; a diferenca para a tabela so' conta no limite ao finalizar. */
 export const precoDaNotaNoItem = (precoTabela: number, precoNota: number, quantidade: number): PrecoDaNotaNoItem => {
-  const abaixo = precoNota < precoTabela - 0.0001;
-  const precoUnitario = abaixo ? precoTabela : precoNota;
-  const precoCheioCentavos = toCents(precoUnitario * quantidade);
-  const descontoCentavos = abaixo ? Math.min(precoCheioCentavos, toCents((precoTabela - precoNota) * quantidade)) : 0;
-  return { precoUnitario, precoCheioCentavos, descontoCentavos };
+  const linhaDaNota = toCents(precoNota * quantidade);
+  const abaixo = precoTabela > 0 && precoNota < precoTabela - 0.0001;
+  const baseCentavos = abaixo ? toCents(precoTabela * quantidade) : linhaDaNota;
+  return { precoUnitario: precoNota, baseCentavos, abaixoDaTabelaCentavos: abaixo ? Math.max(0, baseCentavos - linhaDaNota) : 0 };
 };

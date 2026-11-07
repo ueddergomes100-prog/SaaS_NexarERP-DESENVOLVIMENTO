@@ -75,12 +75,12 @@ test('preco da linha: so usa o valor da nota quando escolhido e quando a nota te
   assert.equal(precoDaLinha({ valorUnitarioNota: 0 }, 'nota'), null);
 });
 
-test('valor da nota abaixo da tabela: item no preco de tabela e a diferenca vira desconto do item', () => {
-  // Custo 6,1234 x 10 com tabela de 10,00: desconto de 38,77 (arredondado em centavos).
-  assert.deepEqual(precoDaNotaNoItem(10, 6.1234, 10), { precoUnitario: 10, precoCheioCentavos: 10000, descontoCentavos: 3877 });
-  // Igual ou acima da tabela: o preco da nota, sem desconto (subir e' livre).
-  assert.deepEqual(precoDaNotaNoItem(10, 10, 3), { precoUnitario: 10, precoCheioCentavos: 3000, descontoCentavos: 0 });
-  assert.deepEqual(precoDaNotaNoItem(10, 12.5, 2), { precoUnitario: 12.5, precoCheioCentavos: 2500, descontoCentavos: 0 });
-  // Produto sem preco de venda: o desconto nunca passa do valor do item.
-  assert.deepEqual(precoDaNotaNoItem(0, 5, 2), { precoUnitario: 5, precoCheioCentavos: 1000, descontoCentavos: 0 });
+test('valor da nota: o preco do item e\' o da nota, sem desconto; abaixo da tabela so\' conta no limite', () => {
+  // Custo 6,1234 x 10 com tabela de 10,00: item a 6,1234 (linha 61,23), 38,77 abaixo da tabela.
+  assert.deepEqual(precoDaNotaNoItem(10, 6.1234, 10), { precoUnitario: 6.1234, baseCentavos: 10000, abaixoDaTabelaCentavos: 3877 });
+  // Igual ou acima da tabela: nada abaixo.
+  assert.deepEqual(precoDaNotaNoItem(10, 10, 3), { precoUnitario: 10, baseCentavos: 3000, abaixoDaTabelaCentavos: 0 });
+  assert.deepEqual(precoDaNotaNoItem(10, 12.5, 2), { precoUnitario: 12.5, baseCentavos: 2500, abaixoDaTabelaCentavos: 0 });
+  // Produto sem preco de venda: o da nota, sem nada a conferir.
+  assert.deepEqual(precoDaNotaNoItem(0, 5, 2), { precoUnitario: 5, baseCentavos: 1000, abaixoDaTabelaCentavos: 0 });
 });

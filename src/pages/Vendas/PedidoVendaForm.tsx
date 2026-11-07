@@ -1949,9 +1949,10 @@ const PedidoVendaForm: React.FC = () => {
 
   /**
    * Os itens de revenda da nota viram itens do pedido. Preco: o de venda do
-   * cadastro (padrao) ou o valor do XML da nota. Valor da nota abaixo da tabela
-   * segue a regra do preco digitado na grade: preco de tabela + desconto do
-   * item, com as mesmas travas (desconto por item, maximo do produto, limite).
+   * cadastro (padrao) ou o valor do XML da nota, que entra como o PRECO do item,
+   * sem desconto (decisao do dono, 07/11/2026). O que fica abaixo da tabela conta
+   * no limite de desconto ao finalizar (conferencia de preco); o item que ja'
+   * travaria la' fica com o preco de venda e entra no aviso.
    */
   const montarDaNotaDeEntrada = async (nota: NotaEntradaDoc, precoEscolhido: PrecoDoPedidoDaNota) => {
     setNotaEntradaAberta(false);
@@ -1971,7 +1972,6 @@ const PedidoVendaForm: React.FC = () => {
     const novos: ItemVenda[] = [];
     const problemas = [...deFora];
     const semValorNaNota: string[] = [];
-    const abaixoDaTabela: string[] = [];
     const maximoDoProduto: string[] = [];
     const acimaDoLimite: string[] = [];
     const precisaLiberacao: string[] = [];
@@ -1995,42 +1995,32 @@ const PedidoVendaForm: React.FC = () => {
       const precoTabela = montado.item.precoUnitario;
       const quantidade = montado.item.quantidade;
       const noItem = precoDaNotaNoItem(precoTabela, precoDaNota, quantidade);
-      if (noItem.descontoCentavos > 0) {
-        // Nota mais barata que a tabela: preco de tabela + desconto do item (regra de 01/10).
-        abaixoDaTabela.push(produto.nome);
-        if (excedeLimiteItem(produto, noItem.descontoCentavos, noItem.precoCheioCentavos)) {
+      if (noItem.abaixoDaTabelaCentavos > 0) {
+        // Abaixo da tabela: na finalizacao conta no limite de desconto. O que ja' sabemos
+        // que vai travar la' (maximo do produto, limite "bloquear") fica no preco de venda.
+        if (excedeLimiteItem(produto, noItem.abaixoDaTabelaCentavos, noItem.baseCentavos)) {
           maximoDoProduto.push(`${produto.nome} (máx. ${produto.descontoMaximoPercentual}%)`);
           novos.push(montado.item);
           continue;
         }
-        const limite = checarLimiteTotal(limiteDescontoPedido, noItem.precoCheioCentavos, noItem.descontoCentavos);
+        const limite = checarLimiteTotal(limiteDescontoPedido, noItem.baseCentavos, noItem.abaixoDaTabelaCentavos);
         if (limite.excedeu && modoLimiteDesconto === 'bloquear') {
           acimaDoLimite.push(produto.nome);
           novos.push(montado.item);
           continue;
         }
         if (limite.excedeu) precisaLiberacao.push(produto.nome);
-        const desconto = fromCents(noItem.descontoCentavos);
-        novos.push({ ...montado.item, desconto, subtotal: Math.max(0, precoTabela * quantidade - desconto) });
-        continue;
       }
-      // Nota igual ou mais cara que a tabela: vira preco digitado ('manual'), como subir o preco na grade.
+      // O valor da nota vira o preco digitado do item ('manual': nao troca sozinho), sem desconto.
       const { preco, campos } = montado.item.tabelaPreco
         ? camposDePreco(montado.item.tabelaPreco, noItem.precoUnitario)
         : { preco: noItem.precoUnitario, campos: { origemPreco: 'manual' as OrigemPreco } };
       novos.push({ ...montado.item, ...campos, precoUnitario: preco, subtotal: Math.max(0, preco * quantidade) });
     }
-    if (abaixoDaTabela.length > 0 && !permitirDescontoPorItem) {
-      showError(
-        'Valor da nota abaixo do preço de tabela',
-        `Em ${abaixoDaTabela.length} item(ns) o valor da nota é menor que o preço de tabela, e o desconto por item está desligado em Configurações da filial. Ligue o desconto por item em Configurações da filial ou monte o pedido com o preço de venda do cadastro. Nada foi alterado no pedido.`,
-      );
-      return;
-    }
     if (semValorNaNota.length > 0) problemas.push(`sem valor na nota, ficaram com o preço de venda: ${semValorNaNota.join(', ')}`);
-    if (maximoDoProduto.length > 0) problemas.push(`o desconto passaria do máximo definido no cadastro do produto, ficaram com o preço de venda: ${maximoDoProduto.join(', ')}`);
-    if (acimaDoLimite.length > 0) problemas.push(`o desconto passaria do limite configurado para Pedido de Venda, ficaram com o preço de venda: ${acimaDoLimite.join(', ')}`);
-    if (precisaLiberacao.length > 0) problemas.push(`o desconto passa do limite configurado e vai precisar de liberação no fim da venda: ${precisaLiberacao.join(', ')}`);
+    if (maximoDoProduto.length > 0) problemas.push(`o valor da nota daria um desconto maior que o máximo definido no cadastro do produto, ficaram com o preço de venda:${maximoDoProduto.join(', ')}`);
+    if (acimaDoLimite.length > 0) problemas.push(`o valor da nota passa do limite de desconto configurado para Pedido de Venda, ficaram com o preço de venda: ${acimaDoLimite.join(', ')}`);
+    if (precisaLiberacao.length > 0) problemas.push(`o valor da nota passa do limite de desconto configurado; ao finalizar a venda vai precisar de liberação: ${precisaLiberacao.join(', ')}`);
     if (novos.length === 0) {
       showError('Nenhum item da nota entrou no pedido', problemas.length > 0 ? `Ficaram de fora: ${problemas.join('; ')}.` : 'A nota não tem produto de revenda cadastrado no Estoque.');
       return;
@@ -2040,7 +2030,7 @@ const PedidoVendaForm: React.FC = () => {
     if (problemas.length > 0) {
       showWarning(`${novos.length} item(ns) da NF ${numero} lançados; confira`, `Atenção: ${problemas.join('; ')}.`);
     } else {
-      showSuccess(`${novos.length} item(ns) da NF ${numero} lançados com ${precoEscolhido === 'nota' ? 'o valor da nota. Onde a nota é mais barata que a tabela, a diferença entrou como desconto do item' : 'o preço de venda do cadastro'}. Confira os itens e escolha o cliente e o pagamento.`);
+      showSuccess(`${novos.length} item(ns) da NF ${numero} lançados com ${precoEscolhido === 'nota' ? 'o valor da nota, sem desconto' : 'o preço de venda do cadastro'}. Confira os itens e escolha o cliente e o pagamento.`);
     }
   };
 

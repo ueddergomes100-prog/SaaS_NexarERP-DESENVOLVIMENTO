@@ -144,13 +144,27 @@ const parteDoDestinatario = (r: Obj): ParteDaNota => {
   };
 };
 
+/*
+ * Modalidade do frete: a Spedy recebe o nome (byIssuer...), o DANFE mostra o
+ * codigo modFrete da SEFAZ ("0 - Emitente"). Antes a previa imprimia
+ * "byIssuer" no campo Frete por conta (07/11/2026, nota de exportacao).
+ */
+const CODIGO_DA_MODALIDADE: Record<string, string> = {
+  byIssuer: '0', byReceiver: '1', byThirdParties: '2', byIssuerOwnTransport: '3', byReceiverOwnTransport: '4', free: '9',
+};
+const codigoDaModalidadeFrete = (v: unknown): string => {
+  const t = texto(v);
+  if (/^[0-49]$/.test(t)) return t;
+  return CODIGO_DA_MODALIDADE[t] || '9';
+};
+
 const transporteDaPrevia = (t: Obj): TransporteDaNota => {
   const carrier = obj(t.carrier);
   const endereco = obj(carrier.address);
   const cidade = obj(endereco.city);
   const volume = obj(t.volume);
   return {
-    modalidadeFrete: texto(t.freightModality) || '9',
+    modalidadeFrete: codigoDaModalidadeFrete(t.freightModality),
     transportadoraDocumento: digitos(carrier.federalTaxNumber),
     transportadoraNome: texto(carrier.name),
     transportadoraIe: texto(carrier.stateTaxNumber),

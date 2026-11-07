@@ -14,7 +14,7 @@ const payload = {
     { code: '3', gtinCode: 'SEM GTIN', description: 'FILTRO', ncm: '84212300', cfop: 5102, unit: 'UN', quantity: 2, unitAmount: 260, totalAmount: 520, discountAmount: 20, taxes: { icms: { origin: 0, csosn: 102 }, pis: { cst: 99 }, cofins: { cst: 99 } } },
     { code: '7', gtinCode: '7891234567890', description: 'OLEO', ncm: '27101932', cest: '0600100', cfop: 5405, unit: 'LT', quantity: 1, unitAmount: 50, totalAmount: 50, taxes: { icms: { origin: 0, cst: 60, baseTaxST: 80, amountST: 4.5 }, pis: { cst: 1, baseTax: 50, rate: 0.65, amount: 0.33 }, cofins: { cst: 1, baseTax: 50, rate: 3, amount: 1.5 }, ipi: { cst: 50, baseTax: 50, rate: 10, amount: 5 } } },
   ],
-  transport: { freightModality: '0', carrier: { name: 'TRANSP X', federalTaxNumber: '11222333000181', address: { street: 'AV B', number: '1', city: { name: 'BH', state: 'MG' } } }, vehicle: { plate: 'ABC1D23', state: 'mg' }, volume: { volumeQuantity: 3, species: 'CAIXA', grossWeight: 12.5, netWeight: 11 } },
+  transport: { freightModality: 'byIssuer', carrier: { name: 'TRANSP X', federalTaxNumber: '11222333000181', address: { street: 'AV B', number: '1', city: { name: 'BH', state: 'MG' } } }, vehicle: { plate: 'ABC1D23', state: 'mg' }, volume: { volumeQuantity: 3, species: 'CAIXA', grossWeight: 12.5, netWeight: 11 } },
   payments: [{ method: 'pix', amount: 300 }, { method: 'billetBanking', amount: 250 }],
   duplicates: [{ number: '001', dueDate: '2026-12-07T00:00:00', amount: 250 }],
   billing: { number: '0035', originalAmount: 250, discountAmount: 0, netAmount: 250 },

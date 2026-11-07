@@ -10,6 +10,7 @@ import {
   resolverGtin,
   somarTributos,
   textoTributosAproximados,
+  valorDaLinhaDaNota,
   totaisImpostosDosItens,
   type ContextoNota,
   type ProdutoFiscal,
@@ -370,4 +371,15 @@ test('venda a trading com fim especifico de exportacao (27/10/2026): 6.501 fica,
   assert.ok(normal.ok);
   assert.equal((normal.item as Record<string, any>).cfop, 6102);
   assert.equal((normal.item as Record<string, any>).taxes.icms.cst, 0);
+});
+
+test('valor da linha: meio centavo sobe, igual a venda, sem erro do ponto flutuante', () => {
+  // 9,75 x 25,06 = 244,335 (no ponto flutuante 244,33499999...): a venda cobra 244,34, a nota tambem.
+  assert.equal(valorDaLinhaDaNota(9.75, 25.06), 244.34);
+  assert.equal(valorDaLinhaDaNota(1.5, 18.79), 28.19);
+  assert.equal(valorDaLinhaDaNota(3.75, 15.66), 58.73);
+  assert.equal(valorDaLinhaDaNota(0.25, 18.79), 4.7);
+  assert.equal(valorDaLinhaDaNota(2, 15.66), 31.32);
+  assert.equal(valorDaLinhaDaNota(1.234, 2.5), 3.09, 'abaixo do meio centavo continua descendo');
+  assert.equal(valorDaLinhaDaNota(0, 10), 0);
 });

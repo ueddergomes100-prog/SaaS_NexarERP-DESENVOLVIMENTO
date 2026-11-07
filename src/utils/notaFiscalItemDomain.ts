@@ -141,6 +141,19 @@ export type ResultadoItemNota =
   | { ok: false; erro: string };
 
 const arred = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
+
+/**
+ * Valor da linha [vProd] = quantidade x preco, arredondado meio-para-cima
+ * sobre o DECIMAL exato. Math.round(q * p * 100) errava com o ponto flutuante:
+ * 9,75 x 25,06 = 244,335 vira 244,33499999... e saia 244,33, enquanto a venda
+ * (brutoDaLinhaCentavos) cobrava 244,34 -- nota e pagamento com 1 centavo de
+ * diferenca (07/11/2026, nota de exportacao com 141 itens). A folga de 1e-7
+ * centavo so' corrige o erro do ponto flutuante (bilionesimos), nunca um
+ * valor de verdade.
+ */
+export const valorDaLinhaDaNota = (quantidade: number, preco: number): number => (
+  Math.round((Number(quantidade) || 0) * (Number(preco) || 0) * 100 + 1e-7) / 100
+);
 const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '');
 const num = (v: unknown) => {
   const n = Number(String(v ?? '').replace(',', '.'));
@@ -547,7 +560,7 @@ export const montarItemNotaFiscal = (a: {
 
   const quantidade = num(venda.quantidade);
   const precoUnitario = num(venda.precoUnitario);
-  const totalAmount = arred(quantidade * precoUnitario);
+  const totalAmount = valorDaLinhaDaNota(quantidade, precoUnitario);
   const desconto = arred(num(venda.desconto));
   if (desconto > totalAmount) {
     return { ok: false, erro: `O desconto do item "${p.nome}" (R$ ${desconto.toFixed(2)}) é maior que o valor dele (R$ ${totalAmount.toFixed(2)}). Corrija o desconto na venda.` };

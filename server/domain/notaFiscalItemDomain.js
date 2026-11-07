@@ -31,10 +31,21 @@
  * 2026-09-30.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.produtoFiscalDoCadastro = exports.totaisImpostosDosItens = exports.montarItemNotaFiscal = exports.cfopSemIncidenciaDeIcms = exports.temSubstituicaoTributaria = exports.somarTributos = exports.textoTributosAproximados = exports.percentuaisTributos = exports.montarPagamentosNota = exports.meioPagamentoNota = exports.destinatarioEConsumidorFinal = exports.cfopParaDestino = exports.resolverGtin = exports.TEXTO_OPTANTE_SIMPLES_NACIONAL = exports.PIS_COFINS_CST_PADRAO_SIMPLES = exports.ENQUADRAMENTO_IPI_PADRAO = exports.IPI_CST_SAIDA_OPTIONS = exports.PIS_COFINS_CST_SAIDA_OPTIONS = void 0;
+exports.produtoFiscalDoCadastro = exports.totaisImpostosDosItens = exports.montarItemNotaFiscal = exports.cfopSemIncidenciaDeIcms = exports.temSubstituicaoTributaria = exports.somarTributos = exports.textoTributosAproximados = exports.percentuaisTributos = exports.montarPagamentosNota = exports.meioPagamentoNota = exports.destinatarioEConsumidorFinal = exports.cfopParaDestino = exports.resolverGtin = exports.TEXTO_OPTANTE_SIMPLES_NACIONAL = exports.PIS_COFINS_CST_PADRAO_SIMPLES = exports.ENQUADRAMENTO_IPI_PADRAO = exports.IPI_CST_SAIDA_OPTIONS = exports.PIS_COFINS_CST_SAIDA_OPTIONS = exports.valorDaLinhaDaNota = void 0;
 const importacaoFiscalDomain_1 = require("./importacaoFiscalDomain");
 const fiscalDomain_1 = require("./fiscalDomain");
 const arred = (v) => Math.round((Number(v) || 0) * 100) / 100;
+/**
+ * Valor da linha [vProd] = quantidade x preco, arredondado meio-para-cima
+ * sobre o DECIMAL exato. Math.round(q * p * 100) errava com o ponto flutuante:
+ * 9,75 x 25,06 = 244,335 vira 244,33499999... e saia 244,33, enquanto a venda
+ * (brutoDaLinhaCentavos) cobrava 244,34 -- nota e pagamento com 1 centavo de
+ * diferenca (07/11/2026, nota de exportacao com 141 itens). A folga de 1e-7
+ * centavo so' corrige o erro do ponto flutuante (bilionesimos), nunca um
+ * valor de verdade.
+ */
+const valorDaLinhaDaNota = (quantidade, preco) => (Math.round((Number(quantidade) || 0) * (Number(preco) || 0) * 100 + 1e-7) / 100);
+exports.valorDaLinhaDaNota = valorDaLinhaDaNota;
 const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
 const num = (v) => {
     const n = Number(String(v ?? '').replace(',', '.'));
@@ -422,7 +433,7 @@ const montarItemNotaFiscal = (a) => {
     }
     const quantidade = num(venda.quantidade);
     const precoUnitario = num(venda.precoUnitario);
-    const totalAmount = arred(quantidade * precoUnitario);
+    const totalAmount = (0, exports.valorDaLinhaDaNota)(quantidade, precoUnitario);
     const desconto = arred(num(venda.desconto));
     if (desconto > totalAmount) {
         return { ok: false, erro: `O desconto do item "${p.nome}" (R$ ${desconto.toFixed(2)}) é maior que o valor dele (R$ ${totalAmount.toFixed(2)}). Corrija o desconto na venda.` };

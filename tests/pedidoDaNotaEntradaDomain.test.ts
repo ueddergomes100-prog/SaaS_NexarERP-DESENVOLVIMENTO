@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { itensDaNotaParaVenda, notasDeEntradaParaEscolha, observacaoDoPedidoDaNota, rotuloDaNotaDeEntrada } from '../src/utils/pedidoDaNotaEntradaDomain';
+import { itensDaNotaParaVenda, notasDeEntradaParaEscolha, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, rotuloDaNotaDeEntrada } from '../src/utils/pedidoDaNotaEntradaDomain';
 import type { NotaFiscalEntradaItemRecord } from '../src/utils/entradaNfeDomain';
 
 const item = (parte: Partial<NotaFiscalEntradaItemRecord>): NotaFiscalEntradaItemRecord => ({
@@ -55,4 +55,32 @@ test('escolha da nota: so NF-e ativa com itens, mais recente primeiro, busca por
   // O formato de moeda usa espaco fixo (U+00A0) entre R$ e o numero.
   assert.deepEqual({ ...rotulo, detalhe: rotulo.detalhe.replace(/\u00a0/g, ' ') }, { titulo: 'NF 100 · ALFA', detalhe: 'Entrada 02/11/2026 · 1 item(ns) · R$ 1.234,50' });
   assert.equal(observacaoDoPedidoDaNota(notas[1]), 'Montado a partir da NF-e de entrada nº 200 (BETA).');
+  assert.equal(observacaoDoPedidoDaNota(notas[1], 'nota'), 'Montado a partir da NF-e de entrada nº 200 (BETA), com o valor da nota.');
+});
+
+test('valor da nota: media ponderada quando o mesmo produto vem em mais de uma linha, por unidade do estoque', () => {
+  const r = itensDaNotaParaVenda([
+    item({ itemId: 'p1', quantidade: 2, valorUnitario: 10 }),
+    item({ itemId: 'p1', quantidade: 3, valorUnitario: 20 }),
+    item({ itemId: 'p2', quantidade: 2, fator: 20, quantidadeEstoque: 40, valorUnitario: 300 }),
+  ]);
+  assert.equal(r.linhas[0].quantidade, 5);
+  assert.equal(r.linhas[0].valorUnitarioNota, 16, '(2x10 + 3x20) / 5');
+  assert.equal(r.linhas[1].valorUnitarioNota, 15, 'saco de 20 por 300 = 15 o kg');
+});
+
+test('preco da linha: so usa o valor da nota quando escolhido e quando a nota tem valor', () => {
+  assert.equal(precoDaLinha({ valorUnitarioNota: 12.5 }, 'nota'), 12.5);
+  assert.equal(precoDaLinha({ valorUnitarioNota: 12.5 }, 'venda'), null);
+  assert.equal(precoDaLinha({ valorUnitarioNota: 0 }, 'nota'), null);
+});
+
+test('valor da nota abaixo da tabela: item no preco de tabela e a diferenca vira desconto do item', () => {
+  // Custo 6,1234 x 10 com tabela de 10,00: desconto de 38,77 (arredondado em centavos).
+  assert.deepEqual(precoDaNotaNoItem(10, 6.1234, 10), { precoUnitario: 10, precoCheioCentavos: 10000, descontoCentavos: 3877 });
+  // Igual ou acima da tabela: o preco da nota, sem desconto (subir e' livre).
+  assert.deepEqual(precoDaNotaNoItem(10, 10, 3), { precoUnitario: 10, precoCheioCentavos: 3000, descontoCentavos: 0 });
+  assert.deepEqual(precoDaNotaNoItem(10, 12.5, 2), { precoUnitario: 12.5, precoCheioCentavos: 2500, descontoCentavos: 0 });
+  // Produto sem preco de venda: o desconto nunca passa do valor do item.
+  assert.deepEqual(precoDaNotaNoItem(0, 5, 2), { precoUnitario: 5, precoCheioCentavos: 1000, descontoCentavos: 0 });
 });

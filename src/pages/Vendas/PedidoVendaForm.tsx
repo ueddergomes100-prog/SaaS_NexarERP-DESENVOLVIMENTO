@@ -5,7 +5,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot, Timestamp } from 'firebase/firestore';
 import EscolherNotaEntradaModal from './EscolherNotaEntradaModal';
-import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, type NotaEntradaParaEscolha } from '../../utils/pedidoDaNotaEntradaDomain';
+import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, type NotaEntradaParaEscolha, type PrecoDoPedidoDaNota } from '../../utils/pedidoDaNotaEntradaDomain';
 import type { NotaFiscalEntradaItemRecord } from '../../utils/entradaNfeDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -1947,8 +1947,13 @@ const PedidoVendaForm: React.FC = () => {
     }
   };
 
-  /** Os itens de revenda da nota viram itens do pedido, com o preco de venda do cadastro (decisao do dono, 07/11/2026). */
-  const montarDaNotaDeEntrada = async (nota: NotaEntradaDoc) => {
+  /**
+   * Os itens de revenda da nota viram itens do pedido. Preco: o de venda do
+   * cadastro (padrao) ou o valor do XML da nota. Valor da nota abaixo da tabela
+   * segue a regra do preco digitado na grade: preco de tabela + desconto do
+   * item, com as mesmas travas (desconto por item, maximo do produto, limite).
+   */
+  const montarDaNotaDeEntrada = async (nota: NotaEntradaDoc, precoEscolhido: PrecoDoPedidoDaNota) => {
     setNotaEntradaAberta(false);
     const numero = String(nota.numeroNF || '?');
     if (itens.length > 0) {
@@ -1965,6 +1970,11 @@ const PedidoVendaForm: React.FC = () => {
     const { linhas, deFora } = itensDaNotaParaVenda(Array.isArray(nota.itens) ? nota.itens : []);
     const novos: ItemVenda[] = [];
     const problemas = [...deFora];
+    const semValorNaNota: string[] = [];
+    const abaixoDaTabela: string[] = [];
+    const maximoDoProduto: string[] = [];
+    const acimaDoLimite: string[] = [];
+    const precisaLiberacao: string[] = [];
     for (const linha of linhas) {
       const produto = produtosCatalogo.find((p) => p.id === linha.produtoId);
       if (!produto || produto.ativo === false) {
@@ -1976,18 +1986,61 @@ const PedidoVendaForm: React.FC = () => {
         problemas.push(montado.erro);
         continue;
       }
-      novos.push(montado.item);
+      const precoDaNota = precoDaLinha(linha, precoEscolhido);
+      if (precoDaNota === null) {
+        if (precoEscolhido === 'nota') semValorNaNota.push(produto.nome);
+        novos.push(montado.item);
+        continue;
+      }
+      const precoTabela = montado.item.precoUnitario;
+      const quantidade = montado.item.quantidade;
+      const noItem = precoDaNotaNoItem(precoTabela, precoDaNota, quantidade);
+      if (noItem.descontoCentavos > 0) {
+        // Nota mais barata que a tabela: preco de tabela + desconto do item (regra de 01/10).
+        abaixoDaTabela.push(produto.nome);
+        if (excedeLimiteItem(produto, noItem.descontoCentavos, noItem.precoCheioCentavos)) {
+          maximoDoProduto.push(`${produto.nome} (máx. ${produto.descontoMaximoPercentual}%)`);
+          novos.push(montado.item);
+          continue;
+        }
+        const limite = checarLimiteTotal(limiteDescontoPedido, noItem.precoCheioCentavos, noItem.descontoCentavos);
+        if (limite.excedeu && modoLimiteDesconto === 'bloquear') {
+          acimaDoLimite.push(produto.nome);
+          novos.push(montado.item);
+          continue;
+        }
+        if (limite.excedeu) precisaLiberacao.push(produto.nome);
+        const desconto = fromCents(noItem.descontoCentavos);
+        novos.push({ ...montado.item, desconto, subtotal: Math.max(0, precoTabela * quantidade - desconto) });
+        continue;
+      }
+      // Nota igual ou mais cara que a tabela: vira preco digitado ('manual'), como subir o preco na grade.
+      const { preco, campos } = montado.item.tabelaPreco
+        ? camposDePreco(montado.item.tabelaPreco, noItem.precoUnitario)
+        : { preco: noItem.precoUnitario, campos: { origemPreco: 'manual' as OrigemPreco } };
+      novos.push({ ...montado.item, ...campos, precoUnitario: preco, subtotal: Math.max(0, preco * quantidade) });
     }
+    if (abaixoDaTabela.length > 0 && !permitirDescontoPorItem) {
+      showError(
+        'Valor da nota abaixo do preço de tabela',
+        `Em ${abaixoDaTabela.length} item(ns) o valor da nota é menor que o preço de tabela, e o desconto por item está desligado em Configurações da filial. Ligue o desconto por item em Configurações da filial ou monte o pedido com o preço de venda do cadastro. Nada foi alterado no pedido.`,
+      );
+      return;
+    }
+    if (semValorNaNota.length > 0) problemas.push(`sem valor na nota, ficaram com o preço de venda: ${semValorNaNota.join(', ')}`);
+    if (maximoDoProduto.length > 0) problemas.push(`o desconto passaria do máximo definido no cadastro do produto, ficaram com o preço de venda: ${maximoDoProduto.join(', ')}`);
+    if (acimaDoLimite.length > 0) problemas.push(`o desconto passaria do limite configurado para Pedido de Venda, ficaram com o preço de venda: ${acimaDoLimite.join(', ')}`);
+    if (precisaLiberacao.length > 0) problemas.push(`o desconto passa do limite configurado e vai precisar de liberação no fim da venda: ${precisaLiberacao.join(', ')}`);
     if (novos.length === 0) {
       showError('Nenhum item da nota entrou no pedido', problemas.length > 0 ? `Ficaram de fora: ${problemas.join('; ')}.` : 'A nota não tem produto de revenda cadastrado no Estoque.');
       return;
     }
     setItens(novos);
-    setObservacaoPedido((atual) => (atual.trim() ? atual : observacaoDoPedidoDaNota(nota)));
+    setObservacaoPedido((atual) => (atual.trim() ? atual : observacaoDoPedidoDaNota(nota, precoEscolhido)));
     if (problemas.length > 0) {
-      showWarning(`${novos.length} item(ns) da NF ${numero} lançados; confira`, `Ficaram de fora: ${problemas.join('; ')}.`);
+      showWarning(`${novos.length} item(ns) da NF ${numero} lançados; confira`, `Atenção: ${problemas.join('; ')}.`);
     } else {
-      showSuccess(`${novos.length} item(ns) da NF ${numero} lançados com o preço de venda do cadastro. Confira os itens e escolha o cliente e o pagamento.`);
+      showSuccess(`${novos.length} item(ns) da NF ${numero} lançados com ${precoEscolhido === 'nota' ? 'o valor da nota. Onde a nota é mais barata que a tabela, a diferença entrou como desconto do item' : 'o preço de venda do cadastro'}. Confira os itens e escolha o cliente e o pagamento.`);
     }
   };
 
@@ -5237,7 +5290,7 @@ const PedidoVendaForm: React.FC = () => {
           notas={notasEntrada}
           carregando={carregandoNotasEntrada}
           erro={erroNotasEntrada}
-          onEscolher={(nota) => void montarDaNotaDeEntrada(nota)}
+          onEscolher={(nota, preco) => void montarDaNotaDeEntrada(nota, preco)}
           onFechar={() => setNotaEntradaAberta(false)}
         />
       )}

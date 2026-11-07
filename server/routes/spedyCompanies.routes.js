@@ -16,6 +16,7 @@ const BASE_URLS = {
 };
 
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
+const { passarParaProducao, problemaParaCadastrarNaSpedy } = require('../services/spedyProducao');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 
 // Estes tres ficam AQUI, so' esta rota usa. Em 2026-09-30 sairam para
@@ -35,7 +36,9 @@ const loadMasterApiKey = async (environment) => {
   const data = snap.exists ? snap.data() : {};
   const key = environment === 'production' ? data.masterApiKeyProducao : data.masterApiKeySandbox;
   if (!key) {
-    const error = new Error(`Chave mestra da Spedy (${environment === 'production' ? 'produção' : 'sandbox'}) ainda não foi configurada.`);
+    const error = new Error(environment === 'production'
+      ? 'A chave mestra da Spedy de produção ainda não foi configurada. Cadastre a chave no painel da plataforma, em Chave mestra da Spedy, e tente de novo.'
+      : 'A chave mestra da Spedy do sandbox (testes) não está configurada nesta base. Para emitir com valor fiscal, use "Passar para produção" nesta janela; para continuar em testes, cadastre a chave do sandbox no painel da plataforma, em Chave mestra da Spedy.');
     error.status = 400;
     throw error;
   }
@@ -112,17 +115,11 @@ router.post('/companies', async (req, res) => {
       return res.status(404).json({ error: 'Configurações desta empresa não foram encontradas.' });
     }
     const config = configSnap.data();
-    if (!config.cnpj || String(config.cnpj).replace(/\D/g, '').length !== 14) {
-      return res.status(400).json({ error: 'Esta empresa não tem um CNPJ válido cadastrado em Configurações. Cadastre o CNPJ antes de continuar.' });
-    }
-    // A Spedy exige cidade (codigo IBGE) no endereco pra cadastrar a
-    // empresa, mesmo a AddressDto marcando o campo como opcional na doc --
-    // sem isso ela devolve "A cidade é obrigatória", que não diz pro admin
-    // ONDE resolver. nfseCidadeCodigo so existe depois que alguem busca e
-    // seleciona a cidade na aba Nota Fiscal (Spedy) de Configuracoes.
-    if (!config.nfseCidadeCodigo) {
-      return res.status(400).json({ error: 'Esta empresa não tem cidade cadastrada para a Spedy. Vá em Configurações → Nota Fiscal (Spedy), busque e selecione a cidade antes de cadastrar a empresa.' });
-    }
+    // CNPJ e cidade (codigo IBGE): a Spedy exige a cidade mesmo a doc dizendo
+    // que e' opcional, e devolve "A cidade é obrigatória" sem dizer ONDE
+    // resolver. Mesma conferencia de "Passar para producao" (spedyProducao.js).
+    const problema = problemaParaCadastrarNaSpedy(config);
+    if (problema) return res.status(400).json({ error: problema });
 
     const masterApiKey = await loadMasterApiKey(environment);
     const payload = buildCompanyPayload(config);
@@ -170,6 +167,20 @@ router.post('/companies', async (req, res) => {
   } catch (error) {
     console.error('[Spedy Company Create]', error);
     return res.status(error.status || 500).json({ error: error.message || 'Erro interno ao cadastrar empresa na Spedy.' });
+  }
+});
+
+/** POST /companies/:tenantId/producao -- passa a empresa do sandbox para a
+ * producao da Spedy: cadastro novo na producao e troca da chave/id/ambiente
+ * (services/spedyProducao.js, 07/11/2026). */
+router.post('/companies/:tenantId/producao', async (req, res) => {
+  if (!requirePlatformAdmin(req, res)) return;
+  try {
+    const resultado = await passarParaProducao({ tenantId: req.params.tenantId, uid: req.user.uid });
+    return res.json(resultado);
+  } catch (error) {
+    console.error('[Spedy Company Producao]', error);
+    return res.status(error.status || 500).json({ error: error.status ? error.message : 'Erro interno ao passar a empresa para produção na Spedy. Nada foi alterado; tente de novo em instantes.' });
   }
 });
 

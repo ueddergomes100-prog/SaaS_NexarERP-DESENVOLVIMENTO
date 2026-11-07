@@ -95,6 +95,14 @@ export const spedyAdminService = {
     }, 'Erro ao cadastrar a empresa na Spedy.');
   },
 
+  /** Sandbox -> producao: cadastro novo na producao da Spedy e troca da chave (07/11/2026). */
+  async passarParaProducao(tenantId: string): Promise<SpedyCompanyCreated> {
+    return requestJson<SpedyCompanyCreated>(`/api/spedy-admin/companies/${tenantId}/producao`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }, 'Não foi possível passar a empresa para produção na Spedy.');
+  },
+
   async updateCompanySettings(tenantId: string, environment: SpedyEnv): Promise<SpedyCompanyCreated> {
     return requestJson<SpedyCompanyCreated>(`/api/spedy-admin/companies/${tenantId}/settings`, {
       method: 'PUT',

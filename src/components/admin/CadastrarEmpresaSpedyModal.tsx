@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { X, FileCheck2, Building2, ShieldCheck, Loader2 } from 'lucide-react';
-import { showError, showSuccess } from '../../utils/alerts';
+import { X, FileCheck2, Building2, ShieldCheck, Loader2, ArrowUpCircle } from 'lucide-react';
+import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
 import { spedyAdminService, type SpedyEnv } from '../../services/spedyAdminService';
 import { formatDateInputPtBr } from '../../utils/dateTime';
 
@@ -45,6 +45,7 @@ const CadastrarEmpresaSpedyModal: React.FC<CadastrarEmpresaSpedyModalProps> = ({
   const [ambiente, setAmbiente] = useState<SpedyEnv>('sandbox');
   const [criandoEmpresa, setCriandoEmpresa] = useState(false);
   const [atualizandoEmpresa, setAtualizandoEmpresa] = useState(false);
+  const [passandoParaProducao, setPassandoParaProducao] = useState(false);
   const [certificadoArquivo, setCertificadoArquivo] = useState<File | null>(null);
   const [certificadoSenha, setCertificadoSenha] = useState('');
   const [enviandoCertificado, setEnviandoCertificado] = useState(false);
@@ -91,6 +92,46 @@ const CadastrarEmpresaSpedyModal: React.FC<CadastrarEmpresaSpedyModalProps> = ({
       showError('Erro ao cadastrar empresa', error instanceof Error ? error.message : 'Não foi possível cadastrar a empresa na Spedy.');
     } finally {
       setCriandoEmpresa(false);
+    }
+  };
+
+  /**
+   * Sandbox -> producao (07/11/2026): na Spedy sao sistemas separados, entao e'
+   * um cadastro novo na producao com os dados atuais de Configuracoes, e a
+   * empresa passa a usar a chave nova. Certificado e numeracao comecam vazios.
+   */
+  const passarParaProducao = async () => {
+    const confirmacao = await NexusSwal.fire({
+      title: 'Passar para produção na Spedy?',
+      html: `<p style="margin:0 0 10px"><b>${escaparHtml(tenantNome)}</b> será cadastrada no ambiente de <b>produção</b> da Spedy, onde as notas têm valor fiscal, com os dados atuais de Configurações. A empresa passa a usar a chave nova.</p>`
+        + '<p style="margin:0 0 6px">Depois disso:</p>'
+        + '<ol style="text-align:left;margin:0;padding-left:20px">'
+        + '<li>envie o certificado digital A1 de novo, nesta janela;</li>'
+        + '<li>em Configurações → Nota Fiscal (Spedy), informe a série, o próximo número da NF-e e da NFC-e e o CSC de produção da NFC-e.</li>'
+        + '</ol>'
+        + '<p style="margin:10px 0 0">As notas de teste do sandbox não valem em produção. Não dá para voltar para o sandbox por aqui.</p>',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Passar para produção',
+      cancelButtonText: 'Voltar',
+    });
+    if (!confirmacao.isConfirmed) return;
+    setPassandoParaProducao(true);
+    try {
+      const resultado = await spedyAdminService.passarParaProducao(tenantId);
+      setEstado({
+        spedyCompanyId: resultado.companyId,
+        spedyEnvironment: 'production',
+        spedyCertificadoValidade: null,
+        spedyCertificadoStatus: null,
+      });
+      setAmbiente('production');
+      showSuccess('Empresa em produção na Spedy! Agora envie o certificado digital A1 aqui e confira a numeração em Configurações → Nota Fiscal (Spedy).');
+    } catch (error) {
+      console.error('Erro ao passar a empresa para produção na Spedy:', error);
+      showError('Não foi possível passar para produção', error instanceof Error ? error.message : 'Não foi possível passar a empresa para produção na Spedy. Nada foi alterado.');
+    } finally {
+      setPassandoParaProducao(false);
     }
   };
 
@@ -169,10 +210,27 @@ const CadastrarEmpresaSpedyModal: React.FC<CadastrarEmpresaSpedyModalProps> = ({
                   <option value="sandbox">Sandbox (Homologação / Testes)</option>
                   <option value="production">Produção (Valor Fiscal Real)</option>
                 </select>
-                {estado?.spedyCompanyId && (
+                {estado?.spedyCompanyId && estado.spedyEnvironment === 'production' && (
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-                    Ambiente travado — a empresa já foi cadastrada. Pra trocar de ambiente, é um cadastro novo.
+                    Empresa cadastrada no ambiente de produção da Spedy (notas com valor fiscal).
                   </p>
+                )}
+                {estado?.spedyCompanyId && estado.spedyEnvironment !== 'production' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      A empresa está no sandbox (testes, sem valor fiscal). Para emitir notas de verdade, passe para produção: é um cadastro novo na Spedy, com os dados atuais de Configurações.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={passarParaProducao}
+                      disabled={passandoParaProducao}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center', opacity: passandoParaProducao ? 0.7 : 1 }}
+                    >
+                      {passandoParaProducao ? <Loader2 size={16} className="spin-animation" /> : <ArrowUpCircle size={16} />}
+                      {passandoParaProducao ? 'Passando para produção...' : 'Passar para produção'}
+                    </button>
+                  </div>
                 )}
               </div>
 

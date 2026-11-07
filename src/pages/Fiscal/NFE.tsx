@@ -62,7 +62,8 @@ import { duplicatasDaNota } from '../../utils/duplicatasNfeDomain';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { intervaloConsultaPendentes } from '../../utils/consultaPendentesDomain';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
-import { cfopEhDeSaida, cfopsParaEscolha, formatarCodigoCfop, naturezaDaOperacaoPelosCfops, problemaDoCfop } from '../../utils/cfopDomain';
+import { aplicarCfopEmTodos, cfopEhDeSaida, cfopMaisComum, cfopsParaEscolha, formatarCodigoCfop, naturezaDaOperacaoPelosCfops, normalizarCodigoCfop, problemaDoCfop } from '../../utils/cfopDomain';
+import CfopParaTodosItens from './CfopParaTodosItens';
 import { cfopDaBonificacao, ehPedidoDeBonificacao, parseTributacaoBonificacao, type TributacaoBonificacao } from '../../utils/bonificacaoDomain';
 import { FINALIDADE_NOTA_FATURAMENTO, FINALIDADE_NOTA_REMESSA, cfopDoFaturamento, infoComplementarDoFaturamento, parsePrevisaoEntrega } from '../../utils/entregaFuturaDomain';
 import { pedidoEntraNaEmissao } from '../../utils/notaDoPedidoDomain';
@@ -333,6 +334,8 @@ const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
   // CFOPs desativados pela empresa (Fiscal > Tabelas Fiscais): saem da lista do item.
   const { desativados: cfopsDesativados } = useCfopsDesativados();
+  // CFOP de saida escolhido na faixa "para todos os itens" ('' = o mais comum da nota).
+  const [cfopParaTodos, setCfopParaTodos] = useState('');
 
   const canEmitirNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.emitir'));
   const canCancelarNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
@@ -472,6 +475,7 @@ const NFE: React.FC = () => {
     setRetransmittingInvoiceId(null);
     setCorrecaoRejeicao(null);
     setItemComProblema(null);
+    setCfopParaTodos('');
     pendingIntegrationIdRef.current = null;
   };
 
@@ -755,6 +759,45 @@ const NFE: React.FC = () => {
         setFormData(prev => ({ ...prev, [field]: value }));
       }
     }
+  };
+
+  /*
+   * CFOP DE SAIDA PARA TODOS OS ITENS (07/11/2026, pedido do dono, mesmo da
+   * Entrada de XML): nota de 141 itens era um a um. Mesmo efeito de escolher o
+   * CFOP no seletor de cada item -- a montagem do item (notaFiscalItemDomain)
+   * continua trocando 5xxx/6xxx pelo destino e usando o CFOP interestadual do
+   * cadastro, como sempre. Na transmissao, a pergunta "atualizar o cadastro do
+   * produto?" vale igual para essa troca.
+   */
+  const cfopsDosItens = importedPedidoItens.map((item) => normalizarCodigoCfop(item.cfop));
+  const cfopParaTodosEscolhido = cfopParaTodos || cfopMaisComum(cfopsDosItens);
+  const aplicarCfopParaTodos = async (modo: 'todos' | 'so_vazios') => {
+    const codigo = cfopParaTodosEscolhido;
+    if (!codigo) {
+      showError('Escolha o CFOP', 'Escolha o CFOP de saída na lista antes de aplicar nos itens.');
+      return;
+    }
+    const trocados = modo === 'todos' ? cfopsDosItens.filter((c) => c && c !== codigo).length : 0;
+    if (trocados > 0) {
+      const r = await NexusSwal.fire({
+        title: `Trocar o CFOP de ${trocados} item(ns)?`,
+        text: `${trocados} item(ns) já têm outro CFOP e vão passar para ${formatarCodigoCfop(codigo)}. Os demais recebem o mesmo CFOP. Depois dá para trocar um a um.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Trocar todos',
+        cancelButtonText: 'Só os que estão sem CFOP',
+      });
+      if (r.isDismissed && r.dismiss !== NexusSwal.DismissReason.cancel) return;
+      modo = r.isConfirmed ? 'todos' : 'so_vazios';
+    }
+    const novos = aplicarCfopEmTodos(cfopsDosItens, codigo, modo);
+    const quantos = modo === 'todos' ? cfopsDosItens.length : cfopsDosItens.filter((c) => !c).length;
+    setImportedPedidoItens((atuais) => atuais.map((item, i) => (
+      novos[i] && novos[i] !== normalizarCodigoCfop(item.cfop) ? { ...item, cfop: novos[i] } : item
+    )));
+    // Nota avulsa de uma linha: o item nasce do formulario (como em handleItemTaxChange).
+    if (!importedPedidoId && novos[0]) setFormData((prev) => ({ ...prev, cfop: novos[0] }));
+    showSuccess(`CFOP ${formatarCodigoCfop(codigo)} aplicado em ${quantos} item(ns).`);
   };
 
   // Auxiliar para buscar tributação real dos produtos no Firestore
@@ -2320,7 +2363,8 @@ const NFE: React.FC = () => {
       if (mudancas.length > 0) {
         const escolha = await NexusSwal.fire({
           title: 'Atualizar também o cadastro do produto?',
-          html: `<p style="margin:0 0 8px">Nesta nota você corrigiu:</p><ul style="text-align:left;margin:0;padding-left:18px">${mudancas.map((m) => `<li><strong>${escaparHtml(m.nome)}</strong> — ${ROTULO_CAMPO_FISCAL[m.campo]}: ${escaparHtml(m.antes || 'vazio')} → <strong>${escaparHtml(m.depois)}</strong></li>`).join('')}</ul><p style="margin:10px 0 0">Atualizando o cadastro, as próximas notas já saem certas.</p>`,
+          // Com o CFOP para todos (07/11/2026) a lista pode ter 141 linhas: mostra as primeiras e conta o resto.
+          html: `<p style="margin:0 0 8px">Nesta nota você corrigiu:</p><ul style="text-align:left;margin:0;padding-left:18px">${mudancas.slice(0, 12).map((m) => `<li><strong>${escaparHtml(m.nome)}</strong> — ${ROTULO_CAMPO_FISCAL[m.campo]}: ${escaparHtml(m.antes || 'vazio')} → <strong>${escaparHtml(m.depois)}</strong></li>`).join('')}${mudancas.length > 12 ? `<li>e mais ${mudancas.length - 12} correção(ões) em outros itens</li>` : ''}</ul><p style="margin:10px 0 0">Atualizando o cadastro, as próximas notas já saem certas.</p>`,
           icon: 'question',
           showDenyButton: true,
           showCancelButton: true,
@@ -4207,6 +4251,18 @@ const NFE: React.FC = () => {
                         Corrigiu o NCM, a IE ou o endereço no cadastro? Isto puxa de novo (e apaga o que foi digitado à mão aqui).
                       </span>
                     </div>
+                  )}
+
+                  {importedPedidoItens.length > 1 && (
+                    <CfopParaTodosItens
+                      tipo="saida"
+                      cfops={cfopsDosItens}
+                      opcoes={cfopsParaEscolha({ tipo: 'saida', desativados: cfopsDesativados, manter: cfopParaTodosEscolhido })}
+                      valor={cfopParaTodosEscolhido}
+                      onValor={setCfopParaTodos}
+                      onAplicar={(modo) => void aplicarCfopParaTodos(modo)}
+                      style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}
+                    />
                   )}
 
                   <div style={{ overflowX: 'auto', maxHeight: '400px' }}>

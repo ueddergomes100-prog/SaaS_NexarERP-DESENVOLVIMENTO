@@ -38,7 +38,11 @@ export interface LinhaDaNotaParaVenda {
   quantidade: number;
   /**
    * Valor unitario do XML por unidade do estoque (vUnCom / fator). O mesmo
-   * produto em mais de uma linha da nota fica com a media ponderada.
+   * produto em mais de uma linha da nota fica com a media ponderada. Quando o
+   * total da linha no XML (vProd) nao e' quantidade x preco arredondado -- o
+   * emitente truncou --, o preco ganha as casas que reproduzem aquele total
+   * (07/11/2026: 1,5 x 18,79 = 28,185 que o outro ERP gravou 28,18; o pedido
+   * leva 18,7867 e a linha da' 28,18, igual a nota).
    */
   valorUnitarioNota: number;
 }
@@ -55,12 +59,46 @@ const positivo = (v: unknown): number => {
 };
 const arred = (v: number): number => Math.round(v * 10000) / 10000;
 
-export const itensDaNotaParaVenda = (itens: ReadonlyArray<NotaFiscalEntradaItemRecord>): ItensDaNotaParaVenda => {
+/** Linha calculada como o sistema calcula (Math.round em centavos: pedido e NF-e). */
+const centavosDaLinha = (quantidade: number, preco: number): number => Math.round(quantidade * preco * 100);
+
+/** Menor preco (4 a 8 casas) cuja linha, arredondada como o sistema arredonda, da' o total em centavos. */
+const precoQueReproduzOTotal = (totalCentavos: number, quantidade: number): number => {
+  for (let casas = 4; casas <= 8; casas += 1) {
+    const escala = 10 ** casas;
+    const preco = Math.round((totalCentavos / 100 / quantidade) * escala) / escala;
+    if (centavosDaLinha(quantidade, preco) === totalCentavos) return preco;
+  }
+  return totalCentavos / 100 / quantidade;
+};
+
+/**
+ * Total de cada linha (vProd) tirado do XML guardado na entrada, na ordem dos
+ * itens gravados. null quando o XML nao bate item a item (codigo e quantidade):
+ * ai' o valor sai so' do preco unitario, como antes.
+ */
+export const totaisDasLinhasDoXml = (
+  itens: ReadonlyArray<Pick<NotaFiscalEntradaItemRecord, 'codigoXml' | 'quantidade'>>,
+  linhasDoXml: ReadonlyArray<{ codigo: string; quantidade: number; valorProduto: number }>,
+): number[] | null => {
+  if (itens.length === 0 || itens.length !== linhasDoXml.length) return null;
+  const bate = itens.every((item, i) => (
+    String(item.codigoXml || '') === String(linhasDoXml[i].codigo || '')
+    && Math.abs((Number(item.quantidade) || 0) - (Number(linhasDoXml[i].quantidade) || 0)) < 1e-9
+  ));
+  return bate ? linhasDoXml.map((l) => positivo(l.valorProduto)) : null;
+};
+
+export const itensDaNotaParaVenda = (
+  itens: ReadonlyArray<NotaFiscalEntradaItemRecord>,
+  totaisDasLinhas: ReadonlyArray<number> | null = null,
+): ItensDaNotaParaVenda => {
   const porProduto = new Map<string, LinhaDaNotaParaVenda>();
-  // Valor total da nota por produto (quantidade da nota x valor unitario do XML), para a media.
+  // Por produto: quantidade da nota x valor unitario do XML (para a media) e o total das linhas (vProd quando ha' XML).
+  const valorPeloUnitario = new Map<string, number>();
   const valorTotal = new Map<string, number>();
   const deFora: string[] = [];
-  itens.forEach((item) => {
+  itens.forEach((item, indice) => {
     const descricao = String(item.descricaoXml || '').trim() || 'Item sem descrição';
     if (item.tipo === 'materia_prima' || item.tipo === 'insumo') {
       deFora.push(`${descricao} (${item.tipo === 'insumo' ? 'insumo' : 'matéria-prima'}, não é produto de venda)`);
@@ -76,8 +114,10 @@ export const itensDaNotaParaVenda = (itens: ReadonlyArray<NotaFiscalEntradaItemR
       deFora.push(`${descricao} (sem quantidade)`);
       return;
     }
-    const totalDaLinha = positivo(item.valorUnitario) * (quantidade / fator);
-    valorTotal.set(item.itemId, (valorTotal.get(item.itemId) || 0) + totalDaLinha);
+    const pelaConta = positivo(item.valorUnitario) * (quantidade / fator);
+    const doXml = totaisDasLinhas ? positivo(totaisDasLinhas[indice]) : 0;
+    valorPeloUnitario.set(item.itemId, (valorPeloUnitario.get(item.itemId) || 0) + pelaConta);
+    valorTotal.set(item.itemId, (valorTotal.get(item.itemId) || 0) + (doXml || pelaConta));
     const atual = porProduto.get(item.itemId);
     if (atual) {
       atual.quantidade = arred(atual.quantidade + quantidade);
@@ -86,7 +126,12 @@ export const itensDaNotaParaVenda = (itens: ReadonlyArray<NotaFiscalEntradaItemR
     }
   });
   porProduto.forEach((linha) => {
-    linha.valorUnitarioNota = linha.quantidade > 0 ? arred((valorTotal.get(linha.produtoId) || 0) / linha.quantidade) : 0;
+    if (!(linha.quantidade > 0)) { linha.valorUnitarioNota = 0; return; }
+    const preco = arred((valorPeloUnitario.get(linha.produtoId) || 0) / linha.quantidade);
+    const totalCentavos = Math.round((valorTotal.get(linha.produtoId) || 0) * 100);
+    linha.valorUnitarioNota = centavosDaLinha(linha.quantidade, preco) === totalCentavos
+      ? preco
+      : precoQueReproduzOTotal(totalCentavos, linha.quantidade);
   });
   return { linhas: Array.from(porProduto.values()), deFora };
 };

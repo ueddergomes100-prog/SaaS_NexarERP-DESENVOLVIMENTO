@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { itensDaNotaParaVenda, notasDeEntradaParaEscolha, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, rotuloDaNotaDeEntrada } from '../src/utils/pedidoDaNotaEntradaDomain';
+import { itensDaNotaParaVenda, notasDeEntradaParaEscolha, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, rotuloDaNotaDeEntrada, totaisDasLinhasDoXml } from '../src/utils/pedidoDaNotaEntradaDomain';
 import type { NotaFiscalEntradaItemRecord } from '../src/utils/entradaNfeDomain';
 
 const item = (parte: Partial<NotaFiscalEntradaItemRecord>): NotaFiscalEntradaItemRecord => ({
@@ -67,6 +67,41 @@ test('valor da nota: media ponderada quando o mesmo produto vem em mais de uma l
   assert.equal(r.linhas[0].quantidade, 5);
   assert.equal(r.linhas[0].valorUnitarioNota, 16, '(2x10 + 3x20) / 5');
   assert.equal(r.linhas[1].valorUnitarioNota, 15, 'saco de 20 por 300 = 15 o kg');
+});
+
+test('linha truncada no XML: o preco ganha casas para a linha dar o mesmo total da nota', () => {
+  // Caso real (07/11/2026, nota 2 da AYLA): 1,5 x 18,79 = 28,185 gravado 28,18; 3,75 x 15,66 = 58,725 gravado 58,72.
+  const itens = [
+    item({ itemId: 'inhare', codigoXml: '000083', quantidade: 1.5, valorUnitario: 18.79 }),
+    item({ itemId: 'sucuba', codigoXml: '000132', quantidade: 3.75, valorUnitario: 15.66 }),
+    item({ itemId: 'avocado', codigoXml: '000001', quantidade: 0.25, valorUnitario: 18.79 }),
+  ];
+  const totais = totaisDasLinhasDoXml(itens, [
+    { codigo: '000083', quantidade: 1.5, valorProduto: 28.18 },
+    { codigo: '000132', quantidade: 3.75, valorProduto: 58.72 },
+    { codigo: '000001', quantidade: 0.25, valorProduto: 4.7 },
+  ]);
+  assert.deepEqual(totais, [28.18, 58.72, 4.7]);
+  const r = itensDaNotaParaVenda(itens, totais);
+  assert.equal(r.linhas[0].valorUnitarioNota, 18.7867);
+  assert.equal(Math.round(1.5 * r.linhas[0].valorUnitarioNota * 100), 2818);
+  assert.equal(r.linhas[1].valorUnitarioNota, 15.6587);
+  assert.equal(Math.round(3.75 * r.linhas[1].valorUnitarioNota * 100), 5872);
+  assert.equal(r.linhas[2].valorUnitarioNota, 18.79, 'linha que ja\' bate fica com o preco do XML');
+  // Sem o XML (ou XML que nao bate item a item), o preco e' o unitario, como antes.
+  assert.equal(itensDaNotaParaVenda(itens).linhas[0].valorUnitarioNota, 18.79);
+  assert.equal(totaisDasLinhasDoXml(itens, [{ codigo: '000083', quantidade: 1.5, valorProduto: 28.18 }]), null);
+  assert.equal(totaisDasLinhasDoXml(itens.slice(0, 1), [{ codigo: 'OUTRO', quantidade: 1.5, valorProduto: 28.18 }]), null);
+});
+
+test('mesmo produto em duas linhas com o mesmo preco: fica o preco do XML quando a soma bate', () => {
+  const itens = [
+    item({ itemId: 'pumpkin', codigoXml: '000117', quantidade: 1, valorUnitario: 17.23 }),
+    item({ itemId: 'pumpkin', codigoXml: '000042', quantidade: 0.6, valorUnitario: 17.23 }),
+  ];
+  const r = itensDaNotaParaVenda(itens, [17.23, 10.34]);
+  assert.equal(r.linhas[0].quantidade, 1.6);
+  assert.equal(r.linhas[0].valorUnitarioNota, 17.23);
 });
 
 test('preco da linha: so usa o valor da nota quando escolhido e quando a nota tem valor', () => {

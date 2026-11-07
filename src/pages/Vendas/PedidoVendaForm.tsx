@@ -5,7 +5,9 @@ import { useTabs } from '../../contexts/TabsContext';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot, Timestamp } from 'firebase/firestore';
 import EscolherNotaEntradaModal from './EscolherNotaEntradaModal';
-import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, type NotaEntradaParaEscolha, type PrecoDoPedidoDaNota } from '../../utils/pedidoDaNotaEntradaDomain';
+import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, totaisDasLinhasDoXml, type NotaEntradaParaEscolha, type PrecoDoPedidoDaNota } from '../../utils/pedidoDaNotaEntradaDomain';
+import { descompactarXml } from '../../utils/xmlCompactoDomain';
+import { parseNfeXml } from '../../utils/nfeXmlDomain';
 import type { NotaFiscalEntradaItemRecord } from '../../utils/entradaNfeDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -253,6 +255,8 @@ interface BandeiraCartao {
 interface NotaEntradaDoc extends NotaEntradaParaEscolha {
   id: string;
   itens: NotaFiscalEntradaItemRecord[];
+  /** XML original guardado na entrada (gzip + base64): dele sai o total de cada linha (vProd). */
+  xmlGzipBase64?: string;
 }
 
 interface ProdutoEstoque {
@@ -1968,7 +1972,18 @@ const PedidoVendaForm: React.FC = () => {
       });
       if (!r.isConfirmed) return;
     }
-    const { linhas, deFora } = itensDaNotaParaVenda(Array.isArray(nota.itens) ? nota.itens : []);
+    const itensDaNota = Array.isArray(nota.itens) ? nota.itens : [];
+    // Valor da nota: o total de cada linha vem do XML guardado, para o pedido dar o mesmo total
+    // mesmo quando o emitente truncou a linha. Sem XML (ou XML que nao bate), vale o preco unitario.
+    let totaisDasLinhas: number[] | null = null;
+    if (precoEscolhido === 'nota' && nota.xmlGzipBase64) {
+      try {
+        totaisDasLinhas = totaisDasLinhasDoXml(itensDaNota, parseNfeXml(await descompactarXml(nota.xmlGzipBase64)).itens);
+      } catch (erroXml) {
+        console.warn('XML da nota de entrada nao abriu; o valor sai do preco unitario:', erroXml);
+      }
+    }
+    const { linhas, deFora } = itensDaNotaParaVenda(itensDaNota, totaisDasLinhas);
     const novos: ItemVenda[] = [];
     const problemas = [...deFora];
     const semValorNaNota: string[] = [];

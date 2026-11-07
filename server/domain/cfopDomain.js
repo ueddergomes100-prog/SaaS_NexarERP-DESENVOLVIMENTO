@@ -22,7 +22,7 @@
  * Puro: usado pela tela, pela entrada/emissao e pelo servidor (server/domain).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDaFuncao = exports.naturezaDaOperacaoPelosCfops = exports.acaoDaEntrada = exports.problemaDoCfop = exports.cfopInterestadualEquivalente = exports.cfopEhDeSaida = exports.cfopEntradaSugerido = exports.NATUREZAS_DO_PRODUTO = exports.cfopsParaEscolha = exports.lerCfopsDesativados = exports.ROTULO_AMBITO = exports.ROTULO_TIPO = exports.cfopPorCodigo = exports.CFOPS = exports.formatarCodigoCfop = exports.normalizarCodigoCfop = exports.ROTULO_DESTINO = exports.ROTULO_FINANCEIRO = exports.ROTULO_ESTOQUE = exports.ROTULO_NATUREZA = exports.FUNCAO_DA_NATUREZA = void 0;
+exports.resumoDaFuncao = exports.naturezaDaOperacaoPelosCfops = exports.acaoDaEntrada = exports.problemaDoCfop = exports.cfopInterestadualEquivalente = exports.cfopEhDeSaida = exports.cfopMaisComum = exports.aplicarCfopEmTodos = exports.cfopEntradaSugerido = exports.NATUREZAS_DO_PRODUTO = exports.cfopsParaEscolha = exports.lerCfopsDesativados = exports.ROTULO_AMBITO = exports.ROTULO_TIPO = exports.cfopPorCodigo = exports.CFOPS = exports.formatarCodigoCfop = exports.normalizarCodigoCfop = exports.ROTULO_DESTINO = exports.ROTULO_FINANCEIRO = exports.ROTULO_ESTOQUE = exports.ROTULO_NATUREZA = exports.FUNCAO_DA_NATUREZA = void 0;
 exports.FUNCAO_DA_NATUREZA = {
     venda: { estoque: 'sai', financeiro: 'receber', receita: true, destino: 'nenhum' },
     servico_prestado: { estoque: 'nenhum', financeiro: 'receber', receita: true, destino: 'nenhum' },
@@ -291,6 +291,33 @@ const cfopEntradaSugerido = (cfopFornecedor, destino) => {
     return POR_CODIGO.has(sugerido) ? sugerido : '';
 };
 exports.cfopEntradaSugerido = cfopEntradaSugerido;
+/**
+ * CFOP DE ENTRADA PARA TODOS OS ITENS (07/11/2026, pedido do dono lancando uma
+ * nota de 141 itens: "ficar colocando um a um e' fd"). A pessoa escolhe um CFOP
+ * uma vez e aplica em todos (ou so' nos que ainda estao sem); depois troca a
+ * mao o item que for diferente. `codigo` vazio nao mexe em nada.
+ */
+const aplicarCfopEmTodos = (cfops, codigo, modo = 'todos') => {
+    const c = (0, exports.normalizarCodigoCfop)(codigo);
+    if (!c)
+        return [...cfops];
+    return cfops.map((atual) => (modo === 'todos' || !atual ? c : atual));
+};
+exports.aplicarCfopEmTodos = aplicarCfopEmTodos;
+/** O CFOP que mais aparece na lista (desempate: o primeiro). Vazio quando nenhum item tem. */
+const cfopMaisComum = (cfops) => {
+    const contagem = new Map();
+    cfops.forEach((c) => { if (c)
+        contagem.set(c, (contagem.get(c) || 0) + 1); });
+    let melhor = '';
+    let maior = 0;
+    contagem.forEach((n, c) => { if (n > maior) {
+        maior = n;
+        melhor = c;
+    } });
+    return melhor;
+};
+exports.cfopMaisComum = cfopMaisComum;
 /** CFOP de saida valido no formato (5/6/7 + 3 numeros), esteja ou nao na tabela do sistema. */
 const cfopEhDeSaida = (cfop) => /^[567]\d{3}$/.test((0, exports.normalizarCodigoCfop)(cfop));
 exports.cfopEhDeSaida = cfopEhDeSaida;

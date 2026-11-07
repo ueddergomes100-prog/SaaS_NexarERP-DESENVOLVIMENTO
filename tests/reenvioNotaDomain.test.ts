@@ -13,6 +13,20 @@ test('"Ambiente:0" e "definicoes do servico" prendem a configuracao na nota', ()
   assert.equal(rejeicaoPrendeConfiguracaoNaNota('Não foi possível encontrar as definições do serviço X'), true);
 });
 
+test('numero 0 e emitente incompleto (cadastro da empresa na Spedy) prendem a configuracao na nota', () => {
+  const msgAyla = "The 'Id' attribute is invalid - The value 'NFe' is invalid according to its datatype 'Id' - The Pattern constraint failed. "
+    + "The 'http://www.portalfiscal.inf.br/nfe:nNF' element is invalid - The value '0' is invalid according to its datatype 'http://www.portalfiscal.inf.br/nfe:TNF' - The Pattern constraint failed. "
+    + "The element 'enderEmit' in namespace 'http://www.portalfiscal.inf.br/nfe' has invalid child element 'xBairro' in namespace 'http://www.portalfiscal.inf.br/nfe'. List of possible elements expected: 'nro' in namespace 'http://www.portalfiscal.inf.br/nfe'. "
+    + "The element 'emit' in namespace 'http://www.portalfiscal.inf.br/nfe' has invalid child element 'CRT' in namespace 'http://www.portalfiscal.inf.br/nfe'. List of possible elements expected: 'IE' in namespace 'http://www.portalfiscal.inf.br/nfe'.";
+  assert.equal(rejeicaoPrendeConfiguracaoNaNota(msgAyla), true);
+  assert.equal(rejeicaoPrendeConfiguracaoNaNota("The 'http://www.portalfiscal.inf.br/nfe:nNF' element is invalid - The value '0' is invalid"), true);
+  assert.equal(rejeicaoPrendeConfiguracaoNaNota("The element 'enderEmit' in namespace 'x' has invalid child element 'xBairro'"), true);
+  // Endereco do DESTINATARIO e' dado da nota: reenvio com o mesmo id.
+  assert.equal(rejeicaoPrendeConfiguracaoNaNota("The element 'enderDest' in namespace 'x' has invalid child element 'xBairro'"), false);
+  const r = escolherIntegrationIdDoReenvio({ docId: 'nota1', tentativaAtual: 1, mensagemRejeicao: msgAyla, integrationIdAtual: 'nota1' });
+  assert.deepEqual(r, { integrationId: 'nota1-t2', tentativa: 2, notaNova: true });
+});
+
 test('rejeicao de dado (NCM, CFOP, endereco...) NAO gera nota nova', () => {
   assert.equal(rejeicaoPrendeConfiguracaoNaNota('Rejeição 778: NCM inexistente'), false);
   assert.equal(rejeicaoPrendeConfiguracaoNaNota('Ambiente:1 ok'), false);

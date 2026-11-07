@@ -29,10 +29,23 @@
  * gravado na nota local ou lido da propria Spedy); sem ele a tela nao transmite.
  */
 
-/** Rejeicao que a Spedy grava na nota e que so' uma nota nova resolve. */
+/**
+ * Rejeicao que a Spedy grava na nota e que so' uma nota nova resolve.
+ *
+ * 2026-11-07 (AYLA, primeira NF-e em producao): a empresa foi criada na Spedy
+ * sem numeracao, sem IE e sem numero no endereco. A nota voltou do schema com
+ * nNF "0" (Id "NFe" sem chave), `enderEmit` sem `nro` e `emit` sem `IE` --
+ * numero e emitente saem do cadastro da EMPRESA no momento em que a nota foi
+ * criada. Corrigido o cadastro (Configuracoes) e a numeracao, so' uma nota nova
+ * pega os dados atuais; o "numero 0" nao e' numero de verdade (nao ha' o que
+ * inutilizar).
+ */
 export const rejeicaoPrendeConfiguracaoNaNota = (mensagem?: string | null): boolean => {
   const texto = String(mensagem ?? '');
-  return /Ambiente:\s*0\b/i.test(texto) || /definições do serviço/i.test(texto);
+  return /Ambiente:\s*0\b/i.test(texto)
+    || /definições do serviço/i.test(texto)
+    || /nNF'? element is invalid - The value '0'/i.test(texto)
+    || /'enderEmit'|element 'emit'/i.test(texto);
 };
 
 export interface EscolhaIntegrationId {

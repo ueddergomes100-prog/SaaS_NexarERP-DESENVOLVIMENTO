@@ -45,6 +45,10 @@ const parseBrasilApiCnpj = (data, cnpj) => {
     bairro: data.bairro || '',
     telefone: [data.ddd_telefone_1, data.ddd_telefone_2].filter(Boolean).join(' / '),
     email: data.email || '',
+    // Para preencher a configuracao da empresa (07/11/2026): regime e codigo IBGE da cidade.
+    simplesNacional: data.opcao_pelo_simples === true ? true : data.opcao_pelo_simples === false ? false : null,
+    mei: data.opcao_pelo_mei === true,
+    codigoMunicipioIbge: data.codigo_municipio_ibge ? String(data.codigo_municipio_ibge) : '',
     provider: 'brasilapi'
   };
 };

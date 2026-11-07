@@ -21,6 +21,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { permissoesEfetivas, permissoesParaGravar } from '../../utils/permissoesAppDomain';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
+import { documentoService } from '../../services/documentoService';
+import { isCnpjValido } from '../../utils/documentoValidacao';
+import { avisoDaSituacao, preenchimentoPelaReceita, regimeSugerido, soOsVazios, type CamposDaEmpresa } from '../../utils/cnpjPreenchimentoDomain';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
@@ -186,6 +189,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
   const [isEditingMode, setIsEditingMode] = useState(true);
+  // CNPJ preenche tudo (07/11/2026, pedido do dono configurando um cliente): o
+  // CNPJ que ja' estava na base nao dispara a consulta; so' o que a pessoa digita.
+  const cnpjConsultadoRef = useRef('');
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false);
   const [showSuccessAnim, setShowSuccessAnim] = useState(false);
   // O que a Spedy tinha da empresa quando a tela abriu (ver dadosEmpresaParaSpedy).
   const dadosEmpresaSpedyRef = useRef('');
@@ -884,6 +891,87 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       setEnviandoLogo(false);
     }
   };
+
+  /** Entrou em edicao: o CNPJ atual e' o da base, nao consulta. */
+  useEffect(() => {
+    if (isEditingMode) cnpjConsultadoRef.current = formData.cnpj.replace(/\D/g, '');
+    // So' quando o modo muda; o CNPJ digitado e' tratado abaixo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditingMode]);
+
+  const preencherPeloCnpj = async (cnpj: string) => {
+    setConsultandoCnpj(true);
+    try {
+      const dados = await documentoService.consultarCnpj(cnpj);
+      if (!dados.encontrado) {
+        showWarning('CNPJ não encontrado', 'A Receita Federal não devolveu este CNPJ. Confira os números ou preencha os dados da empresa à mão.');
+        return;
+      }
+      const atual: CamposDaEmpresa = { razaoSocial: formData.razaoSocial, nomeOficina: formData.nomeOficina, rua: formData.rua, numero: formData.numero, bairro: formData.bairro, cep: formData.cep, telefone: formData.telefone, email: formData.email };
+      const { novos, sobrescritos } = preenchimentoPelaReceita(atual, dados);
+      let aplicar = novos;
+      if (sobrescritos.length > 0) {
+        const r = await NexusSwal.fire({
+          title: 'Substituir os dados já preenchidos?',
+          html: `<p style="margin:0 0 8px">A Receita Federal trouxe valores diferentes dos que estão na tela:</p><ul style="text-align:left;margin:0;padding-left:18px">${sobrescritos.map((c) => `<li><strong>${escaparHtml(c.rotulo)}</strong>: ${escaparHtml(c.de)} → <strong>${escaparHtml(c.para)}</strong></li>`).join('')}</ul>`,
+          icon: 'question',
+          showDenyButton: true,
+          showCancelButton: true,
+          confirmButtonText: 'Substituir tudo',
+          denyButtonText: 'Só preencher o que está vazio',
+          cancelButtonText: 'Não mexer',
+        });
+        if (r.isDismissed) return;
+        if (r.isDenied) aplicar = soOsVazios(atual, novos);
+      }
+      const regime = regimeSugerido(dados);
+      // Cidade da empresa: a Receita da' nome e UF (e o IBGE); a tela guarda a cidade da Spedy, que usa o mesmo codigo IBGE.
+      let cidade: { nfseCidadeCodigo: string; nfseCidadeNome: string; nfseCidadeEstado: string } | null = null;
+      if (dados.municipio && dados.uf) {
+        try {
+          const lista = await spedyService.searchServiceInvoiceCities('', 'sandbox', dados.municipio);
+          const uf = dados.uf.toUpperCase();
+          const achada = lista.items.find((c) => (dados.codigoMunicipioIbge ? String(c.code) === dados.codigoMunicipioIbge : String(c.state || '').toUpperCase() === uf && String(c.name || '').toUpperCase() === dados.municipio!.toUpperCase()))
+            || lista.items.find((c) => String(c.state || '').toUpperCase() === uf);
+          if (achada && achada.code) cidade = { nfseCidadeCodigo: String(achada.code), nfseCidadeNome: String(achada.name || dados.municipio), nfseCidadeEstado: String(achada.state || uf) };
+        } catch (erroCidade) {
+          console.warn('Nao foi possivel achar a cidade da empresa pelo CNPJ:', erroCidade);
+        }
+      }
+      setFormData((prev) => ({
+        ...prev,
+        ...aplicar,
+        ...(regime ? { regimeTributario: regime } : {}),
+        ...(cidade && !prev.nfseCidadeCodigo ? cidade : {}),
+      }));
+      const aviso = avisoDaSituacao(dados);
+      if (aviso) showWarning('Situação do CNPJ', aviso);
+      const faltou = [
+        !cidade && !formData.nfseCidadeCodigo ? 'a cidade' : '',
+        'a Inscrição Estadual',
+        regime ? '' : 'o regime tributário',
+      ].filter(Boolean);
+      showSuccess(`Dados da Receita Federal preenchidos.${faltou.length ? ` Confira ${faltou.join(', ')} e salve.` : ' Confira e salve.'}`);
+    } catch (erro) {
+      showWarning('Consulta do CNPJ', erro instanceof Error ? erro.message : 'Não foi possível consultar o CNPJ agora. Preencha os dados à mão ou tente de novo.');
+    } finally {
+      setConsultandoCnpj(false);
+    }
+  };
+
+  // CNPJ completo e valido digitado em modo de edicao: consulta e preenche.
+  useEffect(() => {
+    if (!isEditingMode) return undefined;
+    const digitos = formData.cnpj.replace(/\D/g, '');
+    if (digitos.length !== 14 || digitos === cnpjConsultadoRef.current || !isCnpjValido(digitos)) return undefined;
+    const timer = window.setTimeout(() => {
+      cnpjConsultadoRef.current = digitos;
+      void preencherPeloCnpj(digitos);
+    }, 500);
+    return () => window.clearTimeout(timer);
+    // Dispara pelo CNPJ digitado; o resto do formulario e' lido na hora da consulta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.cnpj, isEditingMode]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1638,8 +1726,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 }}
                 maxLength={18}
                 disabled={!isEditingMode}
+                title="Ao completar o CNPJ, os dados da empresa são buscados na Receita Federal e preenchidos aqui"
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
+              <span style={{ fontSize: '12px', color: consultandoCnpj ? 'var(--accent-purple)' : 'var(--text-muted)' }}>
+                {consultandoCnpj ? 'Buscando os dados da empresa na Receita Federal...' : 'Ao completar o CNPJ, razão social, nome fantasia, endereço, telefone e e-mail são preenchidos pela Receita Federal.'}
+              </span>
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Regime Tributário</label>

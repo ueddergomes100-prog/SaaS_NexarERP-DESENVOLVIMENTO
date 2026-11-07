@@ -75,8 +75,17 @@ const titulo = (doc: jsPDF, y: number, texto: string): number => {
   return y + 3.5;
 };
 
+export interface OpcoesDanfe {
+  /** Texto grande e claro atravessado em toda folha (previa antes de emitir). */
+  marcaDagua?: string;
+  /** Rodape no lugar do padrao "DANFE gerado a partir do XML". */
+  rodape?: string;
+  /** O que sai no lugar da chave quando a nota ainda nao tem (previa). */
+  textoSemChave?: string;
+}
+
 /** Desenha o DANFE e devolve o PDF. */
-export const gerarDanfePdf = (nota: NotaParseada): jsPDF => {
+export const gerarDanfePdf = (nota: NotaParseada, opcoes: OpcoesDanfe = {}): jsPDF => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const emit = nota.emitente;
   const dest = nota.destinatario;
@@ -132,7 +141,7 @@ export const gerarDanfePdf = (nota: NotaParseada): jsPDF => {
   doc.setTextColor(0);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
-  doc.text(formatarChave(nota.chave) || 'Chave não informada no XML', xChave + larguraChave / 2, y + 20, { align: 'center' });
+  doc.text(formatarChave(nota.chave) || opcoes.textoSemChave || 'Chave não informada no XML', xChave + larguraChave / 2, y + 20, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6);
   doc.text(doc.splitTextToSize('Consulta de autenticidade no portal nacional da NF-e www.nfe.fazenda.gov.br/portal ou no site da SEFAZ Autorizadora', larguraChave - 2) as string[], xChave + 1, y + 25);
@@ -263,7 +272,17 @@ export const gerarDanfePdf = (nota: NotaParseada): jsPDF => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
     doc.setTextColor(90);
-    doc.text(`DANFE gerado a partir do XML da nota — Folha ${pagina}/${paginas}`, 105, 293, { align: 'center' });
+    doc.text(`${opcoes.rodape || 'DANFE gerado a partir do XML da nota'} — Folha ${pagina}/${paginas}`, 105, 293, { align: 'center' });
+    if (opcoes.marcaDagua) {
+      // Por cima de tudo, clara, na diagonal: le-se a nota e ninguem confunde com a de verdade.
+      doc.saveGraphicsState();
+      doc.setGState(doc.GState({ opacity: 0.16 }));
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(46);
+      doc.setTextColor(180, 0, 0);
+      doc.text(opcoes.marcaDagua, 105, 160, { align: 'center', angle: 35 });
+      doc.restoreGraphicsState();
+    }
   }
   return doc;
 };

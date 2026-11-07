@@ -47,6 +47,8 @@ import { resolverInscricaoEstadualDestinatario } from '../../utils/destinatarioF
 import EmissaoProgressoModal from '../../components/common/EmissaoProgressoModal';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import { nomeArquivoDocumento, numeroDaNota } from '../../utils/nomeArquivoDomain';
+import { gerarDanfePdf } from '../../utils/danfePdf';
+import { MARCA_DAGUA_PREVIA, notaDaPrevia, TEXTO_RODAPE_PREVIA } from '../../utils/danfePreviaDomain';
 import CartaCorrecaoModal from '../../components/common/CartaCorrecaoModal';
 import InutilizacaoModal from '../../components/common/InutilizacaoModal';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
@@ -2181,13 +2183,15 @@ const NFE: React.FC = () => {
     return { payload, itemsPayload, avisos: [...new Set(avisosItens)] };
   };
 
-  const handleEmitir = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!config?.spedyApiKey || !tenantId || !currentUser) return;
-
+  /**
+   * Conferencias do formulario antes de montar a nota (campos, endereco do
+   * cliente, regime no lancamento avulso). Usadas pelo Transmitir e pela previa
+   * do DANFE: a previa passa pelo MESMO caminho da emissao.
+   */
+  const formularioProntoParaMontar = (): boolean => {
     if (!formData.clienteNome || !formData.documento || !formData.valor || !formData.descricao) {
       showError('Campos Incompletos', 'Preencha Nome do Cliente, Documento, Descrição e Valor.');
-      return;
+      return false;
     }
 
     // NF-e de produto manda o endereco completo do destinatario na XML --
@@ -2209,7 +2213,7 @@ const NFE: React.FC = () => {
               : 'Abra o cadastro deste cliente em Clientes, digite o CEP e saia do campo (rua, bairro, cidade, UF e o código IBGE são preenchidos sozinhos), complete o número e salve. ')
             + (formData.clienteId ? 'Depois, aqui na nota, clique em "Atualizar dados do cadastro" (aba de produtos) e transmita de novo.' : 'Depois, escolha o cliente de novo aqui na nota.')
         );
-        return;
+        return false;
       }
 
       // Lançamento avulso (sem Pedido de Venda importado) só monta o bloco
@@ -2224,9 +2228,81 @@ const NFE: React.FC = () => {
           'Lançamento avulso não suporta este regime tributário',
           `A empresa está no regime "${REGIME_TRIBUTARIO_OPTIONS.find(r => r.value === regimeTributario)?.label || regimeTributario}", que exige CST real de ICMS/PIS/COFINS por produto -- o lançamento avulso só monta o formato simplificado de Simples Nacional (CSOSN) e a Spedy vai rejeitar (SPD003). Importe um Pedido de Venda pronto em vez de lançar avulso: ele já usa os dados fiscais reais cadastrados em cada produto.`
         );
-        return;
+        return false;
       }
     }
+
+    return true;
+  };
+
+  /**
+   * PREVIA DO DANFE (07/11/2026, pedido do dono): monta a nota exatamente como a
+   * emissao monta (cadastro do cliente, IE, NCM, CFOP, CEST, impostos,
+   * transporte, pagamentos, requisitos da Spedy) e desenha o DANFE aqui, sem
+   * transmitir. A Spedy nao tem previa nem validacao sem emitir (documentacao
+   * conferida em 07/11/2026); o que so' a SEFAZ confere fica para a transmissao.
+   */
+  const [montandoPrevia, setMontandoPrevia] = useState(false);
+  const previsualizarDanfe = async () => {
+    if (!tenantId || formData.tipo !== 'NF-e') return;
+    if (!formularioProntoParaMontar()) return;
+    setMontandoPrevia(true);
+    try {
+      try {
+        const requisitos = await spedyService.getRequisitos();
+        const bloqueios = requisitos.nfe.checks.filter((c) => c.gravidade === 'bloqueio');
+        if (bloqueios.length > 0) {
+          showError('Faltam itens para emitir a NF-e', bloqueios.map((c) => `• ${c.mensagem} ${c.comoResolver}`.trim()).join('\n'));
+          return;
+        }
+      } catch (erroRequisitos) {
+        console.error('Nao foi possivel conferir os requisitos fiscais (a previa segue):', erroRequisitos);
+      }
+
+      let stateTaxNumber: string | undefined;
+      if (!formData.pais) {
+        const ie = resolverInscricaoEstadualDestinatario({ documento: formData.documento.replace(/\D/g, ''), identidade: formData.inscricaoEstadual, clienteNome: formData.clienteNome });
+        if (ie.erro) {
+          showError('Inscrição Estadual do destinatário', ie.erro);
+          return;
+        }
+        if (ie.aviso) showWarning(ie.aviso);
+        stateTaxNumber = ie.valor;
+      }
+
+      const { payload, avisos } = await montarPayloadNfe({
+        integrationId: 'previa',
+        form: formData,
+        itens: importedPedidoId ? importedPedidoItens : [],
+        pagamentos: importedPedidoId ? importedPedidoPagamentos : [],
+        numeroPedido: pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido,
+        referencedAccessKey,
+        stateTaxNumber,
+        entregaFutura: importedPedidoId ? entregaFuturaDoPedido : null,
+        acessorios: importedPedidoId ? importedAcessorios : null,
+      });
+      if (avisos.length > 0) showWarning('Confira o cadastro destes produtos', avisos.join(' '));
+
+      const emitente = (await getDoc(doc(db, 'configuracoes', tenantId))).data() || {};
+      const nota = notaDaPrevia({ payload, emitente, serie: seriePadrao.nfe, hoje: getDateInputInTimeZone() });
+      const pdf = gerarDanfePdf(nota, { marcaDagua: MARCA_DAGUA_PREVIA, rodape: TEXTO_RODAPE_PREVIA, textoSemChave: 'PRÉVIA — a chave sai na autorização' });
+      setPdfAberto({ titulo: `Prévia do DANFE — ${formData.clienteNome}`, nome: `Previa DANFE ${formData.clienteNome}`, blob: pdf.output('blob') });
+    } catch (err) {
+      if (err instanceof ErroItemNota) {
+        setItemComProblema(err.indice);
+        setActiveModalTab('produtos');
+      }
+      showError('A nota ainda não pode ser emitida', (err as Error).message || 'Confira os dados da nota.');
+    } finally {
+      setMontandoPrevia(false);
+    }
+  };
+
+  const handleEmitir = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!config?.spedyApiKey || !tenantId || !currentUser) return;
+
+    if (!formularioProntoParaMontar()) return;
 
     // Correcao feita NA NOTA (NCM, CEST, CFOP, CSOSN, origem) diferente do cadastro:
     // pergunta se leva pro produto tambem -- senao a proxima nota erra igual.
@@ -4282,6 +4358,18 @@ const NFE: React.FC = () => {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '32px' }}>
                 <button type="button" className="btn-secondary" onClick={handleCloseModal}>Cancelar</button>
+                {formData.tipo === 'NF-e' && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => void previsualizarDanfe()}
+                    disabled={isSubmitting || montandoPrevia}
+                    title="Monta a nota com todas as conferências da emissão e mostra o DANFE, sem transmitir"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Eye size={16} /> {montandoPrevia ? 'Montando a prévia...' : 'Visualizar DANFE'}
+                  </button>
+                )}
                 <button
                   type="submit"
                   className="btn-primary"

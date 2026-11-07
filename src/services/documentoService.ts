@@ -18,6 +18,11 @@ export interface ConsultaCnpjResultado {
   bairro?: string;
   telefone?: string;
   email?: string;
+  cep?: string;
+  /** Optante pelo Simples Nacional (null = a Receita nao informou). */
+  simplesNacional?: boolean | null;
+  mei?: boolean;
+  codigoMunicipioIbge?: string;
 }
 
 /** CPF nao tem consulta publica gratuita no Brasil (protegido por

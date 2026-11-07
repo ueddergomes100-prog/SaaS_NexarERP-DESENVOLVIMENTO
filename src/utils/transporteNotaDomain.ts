@@ -125,6 +125,46 @@ export const temTransporte = (t: TransporteDoPedido): boolean => (
 /** Para gravar no pedido: so' o que tem valor; null = nada (a chave fica de fora). */
 export const transporteParaGravar = (t: TransporteDoPedido): Record<string, unknown> | null => (temTransporte(t) ? { ...lerTransporte(t) } : null);
 
+/**
+ * TRANSPORTE DA VENDA FINALIZADA (07/11/2026, pedido do dono): volumes, pesos,
+ * transportadora e placa sao dados da nota, nao do valor -- muitas vezes so'
+ * se sabem na expedicao, depois de fechar a venda (caso real: peso liquido
+ * digitado errado numa exportacao ja' finalizada). Ajusta-se enquanto a venda
+ * nao tem nota transmitida; nota nesses status trava (rejeitada ou cancelada
+ * nao trava: a nota sai de novo com o transporte novo).
+ */
+export const STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE = ['authorized', 'enqueued', 'processing', 'created'] as const;
+
+export const notaTravaOTransporte = (status: unknown): boolean => (
+  (STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE as readonly string[]).includes(String(status ?? ''))
+);
+
+/** O que mudou no transporte, em portugues, para o historico da venda. */
+export const diferencasDoTransporte = (
+  antes: TransporteDoPedido,
+  depois: TransporteDoPedido,
+): Array<{ campo: string; valorAnterior: string; valorNovo: string }> => {
+  const a = lerTransporte(antes);
+  const d = lerTransporte(depois);
+  const kg = (n: number) => (n > 0 ? `${n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} kg` : '—');
+  const quem = (t: TransporteDoPedido) => (t.modalidade ? ROTULO_MODALIDADE_FRETE[t.modalidade] : 'Automático');
+  const placa = (t: TransporteDoPedido) => (t.placa ? `${t.placa}${t.placaUf ? `/${t.placaUf}` : ''}` : '—');
+  const linhas: Array<[string, string, string]> = [
+    ['Quem paga o frete', quem(a), quem(d)],
+    ['Transportadora', a.transportadoraNome || '—', d.transportadoraNome || '—'],
+    ['Placa do veículo', placa(a), placa(d)],
+    ['Volumes', a.volumes.quantidade > 0 ? String(a.volumes.quantidade) : '—', d.volumes.quantidade > 0 ? String(d.volumes.quantidade) : '—'],
+    ['Espécie', a.volumes.especie || '—', d.volumes.especie || '—'],
+    ['Marca', a.volumes.marca || '—', d.volumes.marca || '—'],
+    ['Numeração', a.volumes.numeracao || '—', d.volumes.numeracao || '—'],
+    ['Peso bruto', kg(a.volumes.pesoBrutoKg), kg(d.volumes.pesoBrutoKg)],
+    ['Peso líquido', kg(a.volumes.pesoLiquidoKg), kg(d.volumes.pesoLiquidoKg)],
+  ];
+  return linhas
+    .filter(([, x, y]) => x !== y)
+    .map(([campo, valorAnterior, valorNovo]) => ({ campo, valorAnterior, valorNovo }));
+};
+
 /** Modalidade que vai para a nota: a escolhida; sem escolha, com frete = por conta da loja, sem frete = sem frete. */
 export const modalidadeEfetiva = (t: TransporteDoPedido, frete: number): ModalidadeFrete => (
   t.modalidade || (frete > 0 ? 'byIssuer' : 'free')

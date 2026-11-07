@@ -3949,7 +3949,7 @@ const NFE: React.FC = () => {
                     })()}
                     {/* Frete e transporte do pedido (27/10/2026): o que vai para a nota. */}
                     {importedPedidoId && importedAcessorios && (
-                      <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }} title="Vem do Pedido de Venda (Frete e Encargos › Transporte). Para mudar, ajuste no pedido.">
+                      <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }} title="Vem do Pedido de Venda (Frete e Encargos › Transporte). Para mudar, use &quot;Ajustar transporte&quot; no pedido (vale para venda finalizada) e importe o pedido de novo aqui.">
                         <strong>Transporte na nota:</strong> {resumoDoTransporte(importedAcessorios.transporte, importedAcessorios.frete)}
                         {importedAcessorios.encargos > 0 ? ` · Outras despesas ${importedAcessorios.encargos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}
                       </p>

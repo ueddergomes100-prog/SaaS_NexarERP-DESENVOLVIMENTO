@@ -19,7 +19,7 @@
  * corrigir (CLAUDE.md, regra 1) -- a nota nao sai com dado inventado.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDoTransporte = exports.ratearPorPeso = exports.montarTransporteDaNota = exports.modalidadeEfetiva = exports.transporteParaGravar = exports.temTransporte = exports.lerTransporte = exports.valorDigitado = exports.UFS_BRASIL = exports.placaValida = exports.normalizarPlaca = exports.TRANSPORTE_VAZIO = exports.VOLUMES_VAZIOS = exports.ROTULO_MODALIDADE_FRETE = exports.MODALIDADES_FRETE = void 0;
+exports.resumoDoTransporte = exports.ratearPorPeso = exports.montarTransporteDaNota = exports.modalidadeEfetiva = exports.diferencasDoTransporte = exports.notaTravaOTransporte = exports.STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE = exports.transporteParaGravar = exports.temTransporte = exports.lerTransporte = exports.valorDigitado = exports.UFS_BRASIL = exports.placaValida = exports.normalizarPlaca = exports.TRANSPORTE_VAZIO = exports.VOLUMES_VAZIOS = exports.ROTULO_MODALIDADE_FRETE = exports.MODALIDADES_FRETE = void 0;
 exports.MODALIDADES_FRETE = ['byIssuer', 'byReceiver', 'byThirdParties', 'byIssuerOwnTransport', 'byReceiverOwnTransport', 'free'];
 /** Texto da tela (com o codigo modFrete da SEFAZ entre parenteses, que o contador conhece). */
 exports.ROTULO_MODALIDADE_FRETE = {
@@ -93,6 +93,40 @@ exports.temTransporte = temTransporte;
 /** Para gravar no pedido: so' o que tem valor; null = nada (a chave fica de fora). */
 const transporteParaGravar = (t) => ((0, exports.temTransporte)(t) ? { ...(0, exports.lerTransporte)(t) } : null);
 exports.transporteParaGravar = transporteParaGravar;
+/**
+ * TRANSPORTE DA VENDA FINALIZADA (07/11/2026, pedido do dono): volumes, pesos,
+ * transportadora e placa sao dados da nota, nao do valor -- muitas vezes so'
+ * se sabem na expedicao, depois de fechar a venda (caso real: peso liquido
+ * digitado errado numa exportacao ja' finalizada). Ajusta-se enquanto a venda
+ * nao tem nota transmitida; nota nesses status trava (rejeitada ou cancelada
+ * nao trava: a nota sai de novo com o transporte novo).
+ */
+exports.STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE = ['authorized', 'enqueued', 'processing', 'created'];
+const notaTravaOTransporte = (status) => (exports.STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE.includes(String(status ?? '')));
+exports.notaTravaOTransporte = notaTravaOTransporte;
+/** O que mudou no transporte, em portugues, para o historico da venda. */
+const diferencasDoTransporte = (antes, depois) => {
+    const a = (0, exports.lerTransporte)(antes);
+    const d = (0, exports.lerTransporte)(depois);
+    const kg = (n) => (n > 0 ? `${n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} kg` : '—');
+    const quem = (t) => (t.modalidade ? exports.ROTULO_MODALIDADE_FRETE[t.modalidade] : 'Automático');
+    const placa = (t) => (t.placa ? `${t.placa}${t.placaUf ? `/${t.placaUf}` : ''}` : '—');
+    const linhas = [
+        ['Quem paga o frete', quem(a), quem(d)],
+        ['Transportadora', a.transportadoraNome || '—', d.transportadoraNome || '—'],
+        ['Placa do veículo', placa(a), placa(d)],
+        ['Volumes', a.volumes.quantidade > 0 ? String(a.volumes.quantidade) : '—', d.volumes.quantidade > 0 ? String(d.volumes.quantidade) : '—'],
+        ['Espécie', a.volumes.especie || '—', d.volumes.especie || '—'],
+        ['Marca', a.volumes.marca || '—', d.volumes.marca || '—'],
+        ['Numeração', a.volumes.numeracao || '—', d.volumes.numeracao || '—'],
+        ['Peso bruto', kg(a.volumes.pesoBrutoKg), kg(d.volumes.pesoBrutoKg)],
+        ['Peso líquido', kg(a.volumes.pesoLiquidoKg), kg(d.volumes.pesoLiquidoKg)],
+    ];
+    return linhas
+        .filter(([, x, y]) => x !== y)
+        .map(([campo, valorAnterior, valorNovo]) => ({ campo, valorAnterior, valorNovo }));
+};
+exports.diferencasDoTransporte = diferencasDoTransporte;
 /** Modalidade que vai para a nota: a escolhida; sem escolha, com frete = por conta da loja, sem frete = sem frete. */
 const modalidadeEfetiva = (t, frete) => (t.modalidade || (frete > 0 ? 'byIssuer' : 'free'));
 exports.modalidadeEfetiva = modalidadeEfetiva;

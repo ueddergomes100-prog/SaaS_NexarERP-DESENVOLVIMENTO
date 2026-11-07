@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import ClientAutocomplete from '../common/ClientAutocomplete';
 import CampoDecimal from '../common/CampoDecimal';
@@ -27,6 +27,8 @@ interface Props {
   transporte: TransporteDoPedido;
   frete: number;
   disabled?: boolean;
+  /** Abre o bloco (ex.: "Ajustar transporte" da venda finalizada). */
+  abrir?: boolean;
   onChange: (t: TransporteDoPedido) => void;
 }
 
@@ -36,9 +38,16 @@ const campo: React.CSSProperties = {
 };
 const rotulo: React.CSSProperties = { fontSize: '12px', color: 'var(--text-secondary)' };
 
-const TransporteDoPedidoPanel: React.FC<Props> = ({ tenantId, transporte, frete, disabled, onChange }) => {
+const TransporteDoPedidoPanel: React.FC<Props> = ({ tenantId, transporte, frete, disabled, abrir, onChange }) => {
   const [aberto, setAberto] = useState(() => temTransporte(transporte));
   const [busca, setBusca] = useState(transporte.transportadoraNome);
+  useEffect(() => {
+    if (abrir) setAberto(true);
+  }, [abrir]);
+  // O nome na busca acompanha o pedido (carregado depois, ou "Cancelar" do ajuste).
+  useEffect(() => {
+    setBusca(transporte.transportadoraNome);
+  }, [transporte.transportadoraNome]);
   const { items: fornecedores } = useTenantCollection<{ id: string; nome?: string; codigo?: string; tipo?: string; ativo?: boolean }>('fornecedores', aberto ? tenantId : null);
   const mudar = (m: Partial<TransporteDoPedido>) => onChange({ ...transporte, ...m });
   const mudarVolumes = (m: Partial<TransporteDoPedido['volumes']>) => onChange({ ...transporte, volumes: { ...transporte.volumes, ...m } });

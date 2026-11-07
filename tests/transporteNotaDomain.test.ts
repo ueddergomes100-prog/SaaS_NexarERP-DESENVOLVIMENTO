@@ -9,6 +9,8 @@ import {
   placaValida,
   ratearPorPeso,
   resumoDoTransporte,
+  diferencasDoTransporte,
+  notaTravaOTransporte,
   temTransporte,
   transporteParaGravar,
   valorDigitado,
@@ -112,4 +114,21 @@ test('placa e resumo', () => {
   assert.equal(placaValida('ABC1234'), true);
   assert.equal(placaValida('AB1234'), false);
   assert.match(resumoDoTransporte(lerTransporte({ transportadoraNome: 'RAPIDO SUL', volumes: { quantidade: 2, especie: 'CX' } }), 180.5), /Frete R\$\s?180,50 · Por conta da loja — CIF \(0\) · RAPIDO SUL · 2 vol\. CX/);
+});
+
+test('venda finalizada: nota transmitida trava o transporte; rejeitada ou cancelada nao', () => {
+  for (const st of ['authorized', 'enqueued', 'processing', 'created']) assert.equal(notaTravaOTransporte(st), true, st);
+  for (const st of ['rejected', 'denied', 'canceled', 'cancelled', '', undefined]) assert.equal(notaTravaOTransporte(st), false, String(st));
+});
+
+test('historico do transporte: so o que mudou, em portugues', () => {
+  const antes = lerTransporte({ modalidade: 'byIssuer', transportadoraNome: 'TSA LOGISTICA LTDA', volumes: { quantidade: 2, especie: 'PALETTS', pesoBrutoKg: 445.12, pesoLiquidoKg: 0.537 } });
+  const depois = lerTransporte({ ...antes, volumes: { ...antes.volumes, pesoLiquidoKg: 410.521 } });
+  assert.deepEqual(diferencasDoTransporte(antes, depois), [
+    { campo: 'Peso líquido', valorAnterior: '0,537 kg', valorNovo: '410,521 kg' },
+  ]);
+  assert.deepEqual(diferencasDoTransporte(antes, antes), []);
+  assert.deepEqual(diferencasDoTransporte(TRANSPORTE_VAZIO, lerTransporte({ placa: 'abc1d23', placaUf: 'MG' })), [
+    { campo: 'Placa do veículo', valorAnterior: '—', valorNovo: 'ABC1D23/MG' },
+  ]);
 });

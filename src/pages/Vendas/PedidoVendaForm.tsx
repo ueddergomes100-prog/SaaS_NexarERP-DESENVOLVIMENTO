@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { useTabs } from '../../contexts/TabsContext';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil } from 'lucide-react';
-import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, updateDoc, deleteField, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot, Timestamp } from 'firebase/firestore';
 import EscolherNotaEntradaModal from './EscolherNotaEntradaModal';
 import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, type NotaEntradaParaEscolha, type PrecoDoPedidoDaNota } from '../../utils/pedidoDaNotaEntradaDomain';
 import type { NotaFiscalEntradaItemRecord } from '../../utils/entradaNfeDomain';
@@ -36,7 +36,7 @@ import TabelaItensVenda, { type TabelaItensVendaHandle } from './TabelaItensVend
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import CampoDecimal from '../../components/common/CampoDecimal';
 import TransporteDoPedidoPanel from '../../components/vendas/TransporteDoPedidoPanel';
-import { TRANSPORTE_VAZIO, lerTransporte, transporteParaGravar, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
+import { TRANSPORTE_VAZIO, diferencasDoTransporte, lerTransporte, notaTravaOTransporte, transporteParaGravar, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
 import { numeroDaNota } from '../../utils/nomeArquivoDomain';
 import { reancorarVencimentosNoFaturamento } from '../../utils/faturamentoPreVendaDomain';
@@ -636,6 +636,11 @@ const PedidoVendaForm: React.FC = () => {
   /** Destrava a secao de pagamento numa venda JA finalizada. Fora deste modo
    * a venda finalizada continua somente-leitura, como sempre foi. */
   const [editandoPagamento, setEditandoPagamento] = useState(false);
+  /** "Ajustar transporte" da venda finalizada (07/11/2026): destrava SO' o
+   * bloco de transporte (volumes, pesos, transportadora, placa) enquanto a
+   * venda nao tem nota transmitida. Frete e encargos continuam travados. */
+  const [editandoTransporte, setEditandoTransporte] = useState(false);
+  const transporteAntesDaEdicaoRef = useRef<TransporteDoPedido>(TRANSPORTE_VAZIO);
   /** Pagamentos como estavam ao entrar em "Alterar Pagamento": o Cancelar volta
    * a tela para eles (antes a escolha descartada ficava aparecendo -- 19/10/2026). */
   const pagamentosAntesDaEdicaoRef = useRef<PaymentDraft[]>([]);
@@ -948,7 +953,13 @@ const PedidoVendaForm: React.FC = () => {
   // Trava de edicao (15/10/2026): pedido aberto para EDITAR (pre-venda/pedido
   // pendente, ou trocando o pagamento da venda finalizada) e' de uma pessoa
   // por vez, no computador ou no celular. So' ver a venda continua livre.
-  const travaPedido = useTravaDeEdicao({ tipo: 'pedido_venda', registroId: id, ativa: isViewing && (canEditPendingOrder || editandoPagamento) });
+  const travaPedido = useTravaDeEdicao({ tipo: 'pedido_venda', registroId: id, ativa: isViewing && (canEditPendingOrder || editandoPagamento || editandoTransporte) });
+  // Transporte da venda finalizada (07/11/2026, transporteNotaDomain): NF-e
+  // transmitida ou cupom autorizado travam; rejeitada/cancelada nao.
+  const canAjustarTransporteFinalizada = Boolean(
+    isViewing && status === 'Finalizada' && canEditVenda
+    && !notaTravaOTransporte(nfeVinculada?.status) && !nfceAutorizada,
+  );
   const podeLiberarTravaPedido = usePodeLiberarTrava();
   /** Com "Exigir identificação do vendedor" ligado, quem vende de verdade e'
    * quem digitar codigo+PIN no popup (ver garantirVendedorIdentificado),
@@ -3216,6 +3227,83 @@ const PedidoVendaForm: React.FC = () => {
    *    devolucao nao muda (19/10/2026, cancelamentoVendaDomain.ts).
    * Com a chave "Venda pelo servidor" quem refaz tudo e' o servidor.
    */
+  /**
+   * AJUSTAR TRANSPORTE DA VENDA FINALIZADA (07/11/2026, pedido do dono): grava
+   * SO' o bloco de transporte -- volumes, pesos, transportadora e placa nao
+   * mexem no valor, no estoque nem no financeiro. Antes de gravar confere no
+   * BANCO se a nota ja' foi transmitida (outra aba ou outro computador).
+   */
+  const iniciarAjusteDoTransporte = () => {
+    transporteAntesDaEdicaoRef.current = transporte;
+    setEditandoTransporte(true);
+  };
+  const cancelarAjusteDoTransporte = () => {
+    setTransporte(transporteAntesDaEdicaoRef.current);
+    setEditandoTransporte(false);
+  };
+  const handleSalvarTransporte = async () => {
+    if (submitLockRef.current) return;
+    if (!currentUser || !tenantId || !id) return;
+    const antes = transporteAntesDaEdicaoRef.current;
+    const alteracoes = diferencasDoTransporte(antes, transporte);
+    if (alteracoes.length === 0) {
+      setEditandoTransporte(false);
+      return;
+    }
+    submitLockRef.current = true;
+    setIsLoading(true);
+    try {
+      const pedidoSnap = await getDoc(doc(db, 'pedidos_venda', id));
+      const pedidoAtual = pedidoSnap.exists() ? pedidoSnap.data() : null;
+      if (!pedidoAtual || pedidoAtual.status !== 'Finalizada') {
+        showError('Venda mudou', 'Esta venda não está mais finalizada (foi cancelada ou alterada em outra tela). Feche e abra a venda de novo.');
+        return;
+      }
+      const notasSnap = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', '==', id)));
+      const notaTransmitida = notasSnap.docs
+        .map((d) => d.data())
+        .find((n) => n.finalidade !== 'devolucao' && notaTravaOTransporte(n.status));
+      if (notaTransmitida) {
+        showError(
+          'Nota fiscal já transmitida',
+          `A ${notaTransmitida.tipo || 'nota fiscal'}${notaTransmitida.number ? ` nº ${notaTransmitida.number}` : ''} desta venda já foi transmitida, então o transporte não muda mais por aqui. Para corrigir peso ou volumes de uma NF-e autorizada, use a Carta de Correção em Fiscal › Notas Fiscais.`,
+        );
+        return;
+      }
+      const gravar = transporteParaGravar(transporte);
+      await updateDoc(doc(db, 'pedidos_venda', id), {
+        transporte: gravar ?? deleteField(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Transporte ajustado em venda finalizada'),
+      });
+      try {
+        const { createAuditLog } = await import('../../services/logService');
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'vendas',
+          acao: 'edicao',
+          descricao: `Transporte da venda #${numeroPedido} ajustado depois de finalizada: ${alteracoes.map((a) => `${a.campo} de ${a.valorAnterior} para ${a.valorNovo}`).join('; ')}. Valor da venda não mudou.`,
+          registroRelacionadoId: id,
+          vendedorId: pedidoAtual.vendedorId,
+          vendedorNome: pedidoAtual.vendedorNome,
+          alteracoes,
+          status: 'sucesso',
+        });
+      } catch (err) {
+        console.error('Erro ao registrar log do ajuste de transporte:', err);
+      }
+      setEditandoTransporte(false);
+      showSuccess('Transporte da venda atualizado. A nota fiscal sai com os dados novos.');
+    } catch (err) {
+      console.error('Erro ao salvar o transporte da venda finalizada:', err);
+      showError('Transporte não foi salvo', 'Não foi possível gravar o transporte desta venda. Confira a internet e tente de novo; se continuar, feche e abra a venda outra vez.');
+    } finally {
+      submitLockRef.current = false;
+      setIsLoading(false);
+    }
+  };
+
   const handleSalvarPagamentoAlterado = async () => {
     if (submitLockRef.current) return;
     if (!currentUser || !tenantId || !id) return;
@@ -6199,6 +6287,18 @@ const PedidoVendaForm: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                 <Truck size={14} />
                 Frete e Encargos
+                {canAjustarTransporteFinalizada && !editandoTransporte && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={iniciarAjusteDoTransporte}
+                    disabled={isLoading || editandoPagamento}
+                    title="Corrigir volumes, pesos, transportadora ou placa antes de emitir a nota. O valor da venda não muda."
+                    style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: '12px', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}
+                  >
+                    Ajustar transporte
+                  </button>
+                )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -6237,9 +6337,16 @@ const PedidoVendaForm: React.FC = () => {
                 tenantId={tenantId}
                 transporte={transporte}
                 frete={frete}
-                disabled={isViewing && !canEditPendingOrder}
+                disabled={isViewing && !canEditPendingOrder && !editandoTransporte}
+                abrir={editandoTransporte}
                 onChange={setTransporte}
               />
+              {editandoTransporte && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <button type="button" className="btn-secondary" onClick={cancelarAjusteDoTransporte} disabled={isLoading}>Cancelar</button>
+                  <button type="button" className="btn-primary" onClick={() => { void handleSalvarTransporte(); }} disabled={isLoading}>Salvar transporte</button>
+                </div>
+              )}
             </div>
             <div className="pedido-total">
               <span className="hd-rotulo">Total</span>

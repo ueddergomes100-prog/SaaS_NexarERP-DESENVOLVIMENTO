@@ -3,7 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { useTabs } from '../../contexts/TabsContext';
 import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil } from 'lucide-react';
-import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, getDocs, updateDoc, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot, Timestamp } from 'firebase/firestore';
+import EscolherNotaEntradaModal from './EscolherNotaEntradaModal';
+import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, type NotaEntradaParaEscolha } from '../../utils/pedidoDaNotaEntradaDomain';
+import type { NotaFiscalEntradaItemRecord } from '../../utils/entradaNfeDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, lerResumoCashback } from '../../utils/cashbackDomain';
@@ -246,6 +249,12 @@ interface BandeiraCartao {
   prazoRecebimentoCreditoDias?: number;
   prazoRecebimentoDebitoDias?: number;
 }
+/** NF-e de entrada como esta' gravada (notas_fiscais_entrada), o que a escolha e a montagem usam. */
+interface NotaEntradaDoc extends NotaEntradaParaEscolha {
+  id: string;
+  itens: NotaFiscalEntradaItemRecord[];
+}
+
 interface ProdutoEstoque {
   id: string;
   /** Filiais: onde o cadastro nasceu (filtro "Itens desta filial"). */
@@ -446,6 +455,12 @@ const PedidoVendaForm: React.FC = () => {
   const [clienteIdSelecionado, setClienteIdSelecionado] = useState<string | null>(null);
   /** Observacao do pedido: sai na Minuta de Entrega ("Obs.:"). */
   const [observacaoPedido, setObservacaoPedido] = useState('');
+  // Montar o pedido a partir de uma NF-e de entrada (07/11/2026, pedido do dono):
+  // botao pequeno no cabecalho do pedido novo; quantidades da nota, preco do cadastro.
+  const [notaEntradaAberta, setNotaEntradaAberta] = useState(false);
+  const [notasEntrada, setNotasEntrada] = useState<NotaEntradaDoc[]>([]);
+  const [carregandoNotasEntrada, setCarregandoNotasEntrada] = useState(false);
+  const [erroNotasEntrada, setErroNotasEntrada] = useState('');
   /** Marca do vendedor externo: o pedido sai COM (true) ou SEM (false) nota fiscal. Ausente = nao informado. */
   const [comNotaFiscalPedido, setComNotaFiscalPedido] = useState<boolean | null>(null);
   /** Pedido de bonificacao aberto (30/10/2026): so' brindes, fatura sem pagamento. Ver bonificacaoDomain.ts. */
@@ -1912,6 +1927,69 @@ const PedidoVendaForm: React.FC = () => {
     documentoAtualId: id,
     permiteVendaSemEstoque: permitirVendaSemEstoque,
   });
+
+  /** Abre a escolha da NF-e de entrada (lancadas nos ultimos 90 dias). */
+  const abrirNotasDeEntrada = async () => {
+    if (!tenantId) return;
+    setNotaEntradaAberta(true);
+    setCarregandoNotasEntrada(true);
+    setErroNotasEntrada('');
+    try {
+      const inicio = new Date();
+      inicio.setDate(inicio.getDate() - 90);
+      const snap = await getDocs(query(collection(db, 'notas_fiscais_entrada'), where('tenantId', '==', tenantId), where('createdAt', '>=', Timestamp.fromDate(inicio))));
+      setNotasEntrada(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<NotaEntradaDoc, 'id'>) })));
+    } catch (erro) {
+      console.error('Erro ao buscar as notas de entrada:', erro);
+      setErroNotasEntrada('Não foi possível buscar as notas de entrada. Confira sua conexão e tente de novo.');
+    } finally {
+      setCarregandoNotasEntrada(false);
+    }
+  };
+
+  /** Os itens de revenda da nota viram itens do pedido, com o preco de venda do cadastro (decisao do dono, 07/11/2026). */
+  const montarDaNotaDeEntrada = async (nota: NotaEntradaDoc) => {
+    setNotaEntradaAberta(false);
+    const numero = String(nota.numeroNF || '?');
+    if (itens.length > 0) {
+      const r = await NexusSwal.fire({
+        title: 'Substituir os itens já lançados?',
+        text: `Os ${itens.length} item(ns) deste pedido serão trocados pelos da NF ${numero}.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Substituir',
+        cancelButtonText: 'Voltar',
+      });
+      if (!r.isConfirmed) return;
+    }
+    const { linhas, deFora } = itensDaNotaParaVenda(Array.isArray(nota.itens) ? nota.itens : []);
+    const novos: ItemVenda[] = [];
+    const problemas = [...deFora];
+    for (const linha of linhas) {
+      const produto = produtosCatalogo.find((p) => p.id === linha.produtoId);
+      if (!produto || produto.ativo === false) {
+        problemas.push(`${linha.descricao} (inativo ou sem cadastro no Estoque)`);
+        continue;
+      }
+      const montado = montarItemDoCatalogo(produto, linha.quantidade);
+      if ('erro' in montado) {
+        problemas.push(montado.erro);
+        continue;
+      }
+      novos.push(montado.item);
+    }
+    if (novos.length === 0) {
+      showError('Nenhum item da nota entrou no pedido', problemas.length > 0 ? `Ficaram de fora: ${problemas.join('; ')}.` : 'A nota não tem produto de revenda cadastrado no Estoque.');
+      return;
+    }
+    setItens(novos);
+    setObservacaoPedido((atual) => (atual.trim() ? atual : observacaoDoPedidoDaNota(nota)));
+    if (problemas.length > 0) {
+      showWarning(`${novos.length} item(ns) da NF ${numero} lançados; confira`, `Ficaram de fora: ${problemas.join('; ')}.`);
+    } else {
+      showSuccess(`${novos.length} item(ns) da NF ${numero} lançados com o preço de venda do cadastro. Confira os itens e escolha o cliente e o pagamento.`);
+    }
+  };
 
   const montarItemDoCatalogo = (
     product: ProdutoEstoque,
@@ -5154,6 +5232,15 @@ const PedidoVendaForm: React.FC = () => {
 
   return (
     <div className="os-page">
+      {notaEntradaAberta && (
+        <EscolherNotaEntradaModal
+          notas={notasEntrada}
+          carregando={carregandoNotasEntrada}
+          erro={erroNotasEntrada}
+          onEscolher={(nota) => void montarDaNotaDeEntrada(nota)}
+          onFechar={() => setNotaEntradaAberta(false)}
+        />
+      )}
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div className="header-title-group">
           <button className="icon-btn back-btn" onClick={() => navigate('/pedidos-venda')}><ArrowLeft size={20} /></button>
@@ -5177,6 +5264,18 @@ const PedidoVendaForm: React.FC = () => {
                 : 'Escolha o cliente, lance os itens e defina o pagamento'}
             </p>
             {/* Numero da NF-e da venda sempre a' vista (2026-09-30). Autorizada: clica e abre o PDF. */}
+            {!isViewing && !copiarDe && !doOrcamento && (
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => void abrirNotasDeEntrada()}
+                title="Montar o pedido a partir de uma NF-e de entrada (itens e quantidades da nota, preço de venda do cadastro)"
+                aria-label="Montar o pedido a partir de uma NF-e de entrada"
+                style={{ color: 'var(--text-muted)', alignSelf: 'center' }}
+              >
+                <FileText size={16} />
+              </button>
+            )}
             {isViewing && situacaoNfeVinculada && (
               <div style={{ marginTop: '8px' }}>
                 <button

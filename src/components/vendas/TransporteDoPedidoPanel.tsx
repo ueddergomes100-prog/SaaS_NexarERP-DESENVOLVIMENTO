@@ -139,11 +139,11 @@ const TransporteDoPedidoPanel: React.FC<Props> = ({ tenantId, transporte, frete,
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <span style={rotulo}>Peso bruto (kg)</span>
-              <CampoDecimal valor={transporte.volumes.pesoBrutoKg} disabled={disabled} onValor={(n) => mudarVolumes({ pesoBrutoKg: n })} style={campo} />
+              <CampoDecimal casasMaximas={3} valor={transporte.volumes.pesoBrutoKg} disabled={disabled} onValor={(n) => mudarVolumes({ pesoBrutoKg: n })} style={campo} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <span style={rotulo}>Peso líquido (kg)</span>
-              <CampoDecimal valor={transporte.volumes.pesoLiquidoKg} disabled={disabled} onValor={(n) => mudarVolumes({ pesoLiquidoKg: n })} style={campo} />
+              <CampoDecimal casasMaximas={3} valor={transporte.volumes.pesoLiquidoKg} disabled={disabled} onValor={(n) => mudarVolumes({ pesoLiquidoKg: n })} style={campo} />
             </label>
           </div>
         </div>

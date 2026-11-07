@@ -50,14 +50,17 @@ exports.placaValida = placaValida;
 const UFS = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'];
 exports.UFS_BRASIL = UFS;
 /** Valor de dinheiro digitado ("180,50", "1.234,56", "180.5") -> numero com 2 casas; lixo/negativo = 0. */
-const valorDigitado = (v) => {
+const valorDigitado = (v, casas = 2) => {
     const s = String(v ?? '').trim();
     if (!s)
         return 0;
     // Com virgula: ponto e' milhar. Sem virgula: ponto e' decimal.
     const normal = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s;
     const n = Number(normal);
-    return Number.isFinite(n) && n > 0 ? arred2(n) : 0;
+    if (!Number.isFinite(n) || n <= 0)
+        return 0;
+    // Peso em kg vai com 3 casas na NF-e (pesoL/pesoB); dinheiro com 2 (07/11/2026: 0,537 kg virava 0,54).
+    return casas === 3 ? arred3(n) : arred2(n);
 };
 exports.valorDigitado = valorDigitado;
 /** O que veio gravado no pedido (ou do corpo do servidor), limpo. Nunca devolve undefined. */

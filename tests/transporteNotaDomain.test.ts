@@ -25,6 +25,10 @@ test('frete digitado com virgula, milhar e ponto decimal (o campo so aceitava in
   assert.equal(valorDigitado('180.5'), 180.5);
   assert.equal(valorDigitado(''), 0);
   assert.equal(valorDigitado('-3'), 0);
+  // Peso com 3 casas (gramas), como a NF-e aceita.
+  assert.equal(valorDigitado('0,537', 3), 0.537);
+  assert.equal(valorDigitado('0,537'), 0.54, 'dinheiro continua com 2 casas');
+  assert.equal(valorDigitado('445,12', 3), 445.12);
   assert.equal(valorDigitado('abc'), 0);
 });
 

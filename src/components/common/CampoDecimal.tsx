@@ -13,14 +13,16 @@ interface Props extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value
   onValor: (n: number) => void;
   /** Casas mostradas ao sair do campo: 2 para dinheiro (138,50); 0 = so' as que tem. */
   casasMinimas?: number;
+  /** Casas guardadas: 2 (dinheiro, padrao) ou 3 (peso em kg, como a NF-e). */
+  casasMaximas?: 2 | 3;
 }
 
-const CampoDecimal: React.FC<Props> = ({ valor, onValor, casasMinimas = 0, ...resto }) => {
-  const formatar = (n: number) => (n > 0 ? n.toLocaleString('pt-BR', { minimumFractionDigits: casasMinimas, maximumFractionDigits: 2 }) : '');
+const CampoDecimal: React.FC<Props> = ({ valor, onValor, casasMinimas = 0, casasMaximas = 2, ...resto }) => {
+  const formatar = (n: number) => (n > 0 ? n.toLocaleString('pt-BR', { minimumFractionDigits: casasMinimas, maximumFractionDigits: casasMaximas }) : '');
   const [texto, setTexto] = useState(() => formatar(valor));
   useEffect(() => {
     // So' reescreve quando o numero de fora e' outro (nao a cada tecla).
-    if (Math.abs(valorDigitado(texto) - (valor || 0)) > 0.0001) setTexto(formatar(valor));
+    if (Math.abs(valorDigitado(texto, casasMaximas) - (valor || 0)) > 0.0001) setTexto(formatar(valor));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valor]);
   return (
@@ -32,9 +34,9 @@ const CampoDecimal: React.FC<Props> = ({ valor, onValor, casasMinimas = 0, ...re
       onChange={(e) => {
         const limpo = e.target.value.replace(/[^\d.,]/g, '');
         setTexto(limpo);
-        onValor(valorDigitado(limpo));
+        onValor(valorDigitado(limpo, casasMaximas));
       }}
-      onBlur={(e) => { setTexto(formatar(valorDigitado(texto))); resto.onBlur?.(e); }}
+      onBlur={(e) => { setTexto(formatar(valorDigitado(texto, casasMaximas))); resto.onBlur?.(e); }}
     />
   );
 };

@@ -18,6 +18,8 @@ import { spedyService } from '../../services/spedyService';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
+import { cancelarPreVendaNoServidor } from '../../services/vendaServidorService';
+import { avisosDaSelecao, listaDeNumeros, resumoDoCancelamentoEmLote, separarPreVendasParaCancelar, type ResultadoDoCancelamentoEmLote } from '../../utils/cancelamentoPreVendaLoteDomain';
 import {
   contaComoFaturamento,
   isPedidoAberto,
@@ -158,6 +160,10 @@ const PedidoVendas: React.FC = () => {
   // Mesma permissao cobre editar/finalizar E recusar um pedido pendente do
   // agente -- nao criar uma permissao a mais so pra recusar.
   const canEditPendenteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar'));
+  // Cancelar pre-vendas marcadas de uma vez (08/11/2026): a mesma permissao do
+  // botao "Cancelar Pré-venda" do pedido; o servidor confere de novo.
+  const canCancelarPreVenda = Boolean(trabalhaComPreVenda) && (isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions && userPermissions.includes('vendas.pre_venda_cancelar')));
+  const [cancelandoEmLote, setCancelandoEmLote] = useState(false);
 
   const [pedidos, setPedidos] = useState<PedidoVendaData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -578,6 +584,75 @@ const PedidoVendas: React.FC = () => {
     }
   };
 
+  // Pre-vendas marcadas que podem ser canceladas em lote (cancelamentoPreVendaLoteDomain.ts).
+  const selecaoParaCancelar = canCancelarPreVenda && selectedIds.size > 0
+    ? separarPreVendasParaCancelar(pedidos, selectedIds, (id) => travasPedidos.has(id))
+    : null;
+
+  /**
+   * Cancela de uma vez as pre-vendas marcadas (08/11/2026, pedido do dono). Cada
+   * uma vai pelo mesmo cancelamento do pedido (servidor: permissao, rota de
+   * entrega, reserva de estoque, orcamento de origem, historico), uma de cada
+   * vez; a que falhar nao impede as outras e aparece no resumo com o motivo.
+   */
+  const handleCancelarPreVendasSelecionadas = async () => {
+    if (!selecaoParaCancelar || selecaoParaCancelar.cancelaveis.length === 0 || cancelandoEmLote) return;
+    const { cancelaveis } = selecaoParaCancelar;
+    const n = cancelaveis.length;
+    const avisos = avisosDaSelecao(selecaoParaCancelar);
+    const confirmacao = await NexusSwal.fire({
+      title: n === 1 ? 'Cancelar 1 pré-venda?' : `Cancelar ${n} pré-vendas?`,
+      html: `<p style="margin:0 0 10px">${escaparHtml(listaDeNumeros(cancelaveis))}</p>`
+        + '<p style="margin:0">O estoque reservado volta a ficar disponível para venda. As pré-vendas ficam registradas como canceladas.</p>'
+        + avisos.map((a) => `<p style="margin:10px 0 0;color:#b45309">${escaparHtml(a)}</p>`).join(''),
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: n === 1 ? 'Sim, cancelar' : `Sim, cancelar as ${n}`,
+      cancelButtonText: 'Voltar',
+      confirmButtonColor: '#ef4444',
+      reverseButtons: true,
+    });
+    if (!confirmacao.isConfirmed) return;
+
+    setCancelandoEmLote(true);
+    const resultado: ResultadoDoCancelamentoEmLote = { canceladas: [], falhas: [] };
+    void NexusSwal.fire({
+      title: 'Cancelando pré-vendas...',
+      text: `0 de ${n}`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => NexusSwal.showLoading(),
+    });
+    try {
+      for (const [indice, preVenda] of cancelaveis.entries()) {
+        const progresso = NexusSwal.getHtmlContainer();
+        if (progresso) progresso.textContent = `${indice + 1} de ${n} (#${preVenda.numero})`;
+        try {
+          await cancelarPreVendaNoServidor(preVenda.id, 'Pré-venda cancelada em lote pela lista de pedidos');
+          resultado.canceladas.push(preVenda);
+        } catch (erro) {
+          resultado.falhas.push({ ...preVenda, motivo: erro instanceof Error && erro.message ? erro.message : 'Não foi possível cancelar agora. Tente de novo.' });
+        }
+      }
+    } finally {
+      setCancelandoEmLote(false);
+    }
+    // Canceladas saem da selecao; as que falharam ficam marcadas para tentar de novo.
+    setSelectedIds((atual) => {
+      const next = new Set(atual);
+      resultado.canceladas.forEach((p) => next.delete(p.id));
+      return next;
+    });
+    const resumo = resumoDoCancelamentoEmLote(resultado);
+    await NexusSwal.fire({
+      title: resumo.titulo,
+      html: `<div style="text-align:left;white-space:pre-line">${escaparHtml(resumo.texto)}</div>`,
+      icon: resumo.tudoCerto ? 'success' : resultado.canceladas.length > 0 ? 'warning' : 'error',
+      confirmButtonText: 'Entendi',
+    });
+  };
+
   // ---------- design novo (14/10/2026): busca + abas com contagem, tabela e rodape de totais ----------
   const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
   // Contagem de cada aba com a MESMA regra da lista (busca e periodo), sem os
@@ -676,6 +751,19 @@ const PedidoVendas: React.FC = () => {
             >
               <FileText size={18} />
               {showItemPreview ? 'Ocultar Itens' : 'Ver Itens'}
+            </button>
+          )}
+          {selecaoParaCancelar && selecaoParaCancelar.cancelaveis.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { void handleCancelarPreVendasSelecionadas(); }}
+              disabled={cancelandoEmLote}
+              className="btn-secondary"
+              title="Cancela as pré-vendas marcadas e libera o estoque reservado delas"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.45)' }}
+            >
+              <XCircle size={18} />
+              Cancelar Pré-vendas ({selecaoParaCancelar.cancelaveis.length})
             </button>
           )}
           {selectedIds.size > 0 && (

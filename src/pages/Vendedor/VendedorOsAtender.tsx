@@ -35,6 +35,8 @@ import { podeUsarOsNoApp } from './vendedorPermissoes';
 import { fotosPendentesDaOs, rotuloNumeroOS, temAssinaturaPendente } from '../../utils/offlineDomain';
 import { assinarFilaOffline, listarPendenciasDaOs, type PendenciaGuardada } from '../../utils/filaOffline';
 import { useVoltarPara } from './navegacaoApp';
+import CameraFoto from '../../components/common/CameraFoto';
+import { cameraLeCodigo } from '../../components/common/LeitorCameraCodigo';
 
 /*
  * ATENDIMENTO DA OS NO CAMPO (app do tecnico, fase 3 -- 2026-10-08).
@@ -103,6 +105,8 @@ const VendedorOsAtender: React.FC = () => {
   const carregouLocal = useRef(false);
   const inputCamera = useRef<HTMLInputElement>(null);
   const inputGaleria = useRef<HTMLInputElement>(null);
+  // Camera DENTRO do app (09/11/2026): a camera do Android podia fechar o app e perder a foto (CameraFoto.tsx).
+  const [cameraAberta, setCameraAberta] = useState(false);
 
   const usuario: UsuarioDoCampo | null = currentUser
     ? { id: currentUser.uid, nome: userNome || currentUser.displayName || 'Técnico', email: currentUser.email || '' }
@@ -286,7 +290,7 @@ const VendedorOsAtender: React.FC = () => {
     else if (r.isDenied) voltarPara(`/vendedor/os/${id}`);
   };
 
-  const enviarFotos = async (arquivos: FileList | null) => {
+  const enviarFotos = async (arquivos: FileList | File[] | null) => {
     if (!arquivos || arquivos.length === 0) return;
     const lista = Array.from(arquivos);
     const cabe = podeAdicionarFotos([...os.fotos, ...fotosPendentes], lista.length);
@@ -479,9 +483,16 @@ const VendedorOsAtender: React.FC = () => {
           <div style={{ display: 'flex', gap: '8px' }}>
             <input ref={inputCamera} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => void enviarFotos(e.target.files)} />
             <input ref={inputGaleria} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => void enviarFotos(e.target.files)} />
-            <button type="button" className="btn-secondary" disabled={!!enviandoFotos} onClick={() => inputCamera.current?.click()} style={{ flex: 1, height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Camera size={17} /> Tirar foto</button>
+            <button type="button" className="btn-secondary" disabled={!!enviandoFotos} onClick={() => (cameraLeCodigo() ? setCameraAberta(true) : inputCamera.current?.click())} style={{ flex: 1, height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Camera size={17} /> Tirar foto</button>
             <button type="button" className="btn-secondary" disabled={!!enviandoFotos} onClick={() => inputGaleria.current?.click()} style={{ flex: 1, height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}><Images size={17} /> Da galeria</button>
           </div>
+          <CameraFoto
+            aberto={cameraAberta}
+            titulo="Foto da OS"
+            onFoto={(arquivo) => { setCameraAberta(false); void enviarFotos([arquivo]); }}
+            onFechar={() => setCameraAberta(false)}
+            onUsarCameraDoCelular={() => { setCameraAberta(false); inputCamera.current?.click(); }}
+          />
         </section>
 
         <section style={cardStyle}>

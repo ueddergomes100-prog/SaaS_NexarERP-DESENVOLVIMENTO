@@ -11,6 +11,8 @@ import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entr
 import { anexarCanhoto, registrarEntregaNoApp } from '../../services/entregaCampoService';
 import type { UsuarioDoCampo } from '../../services/osCampoService';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
+import CameraFoto from '../../components/common/CameraFoto';
+import { cameraLeCodigo } from '../../components/common/LeitorCameraCodigo';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   FORMAS_RECEBIDAS_NA_ENTREGA,
@@ -91,6 +93,9 @@ const VendedorEntregaRegistrar: React.FC = () => {
   const [dataEntrega, setDataEntrega] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
+  // Camera DENTRO do app (09/11/2026): abrir a camera do Android fechava o app
+  // em celular com pouca memoria e a foto do canhoto sumia (CameraFoto.tsx).
+  const [cameraAberta, setCameraAberta] = useState(false);
   const inputCamera = useRef<HTMLInputElement>(null);
   const inputGaleria = useRef<HTMLInputElement>(null);
 
@@ -179,7 +184,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
     }
   };
 
-  const enviarFoto = async (arquivos: FileList | null) => {
+  const enviarFoto = async (arquivos: FileList | File[] | null) => {
     const arquivo = arquivos?.[0];
     if (inputCamera.current) inputCamera.current.value = '';
     if (inputGaleria.current) inputGaleria.current.value = '';
@@ -341,13 +346,20 @@ const VendedorEntregaRegistrar: React.FC = () => {
               <input ref={inputCamera} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => void enviarFoto(e.target.files)} />
               <input ref={inputGaleria} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => void enviarFoto(e.target.files)} />
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button type="button" className="btn-secondary" disabled={enviandoFoto} onClick={() => inputCamera.current?.click()} style={{ flex: 1, height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <button type="button" className="btn-secondary" disabled={enviandoFoto} onClick={() => (cameraLeCodigo() ? setCameraAberta(true) : inputCamera.current?.click())} style={{ flex: 1, height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                   {enviandoFoto ? <Loader2 size={16} className="spin-icon" /> : <Camera size={16} />} {entrega.canhotoUrl || canhotoPendente ? 'Tirar outra' : 'Tirar foto'}
                 </button>
                 <button type="button" className="btn-secondary" disabled={enviandoFoto} onClick={() => inputGaleria.current?.click()} style={{ flex: 1, height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                   <Images size={16} /> Da galeria
                 </button>
               </div>
+              <CameraFoto
+                aberto={cameraAberta}
+                titulo="Foto do canhoto"
+                onFoto={(arquivo) => { setCameraAberta(false); void enviarFoto([arquivo]); }}
+                onFechar={() => setCameraAberta(false)}
+                onUsarCameraDoCelular={() => { setCameraAberta(false); inputCamera.current?.click(); }}
+              />
             </div>
 
             <button type="button" className="btn-primary" onClick={() => void salvar()} disabled={salvando} style={{ height: '52px', fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>

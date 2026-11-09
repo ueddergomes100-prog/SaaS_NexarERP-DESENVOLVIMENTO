@@ -96,8 +96,8 @@ async function authenticate(req, res, next) {
       permissoes,
       nivelAcesso,
       nome: nome || email || uid,
-      // Dono da empresa: o Master da empresa casa (mesma regra do AuthContext).
-      dono: role === 'Master' && homeTenantId === uid,
+      // Dono da empresa: o login cujo uid e' o da empresa casa (mesma regra do AuthContext: isOwner).
+      dono: homeTenantId === uid,
       // Caminho da tela que chamou (fetchComTimeout manda em `_tela`): diz no
       // historico se veio do sistema, do app Vendas, do app do motorista...
       telaCliente: typeof req.query?._tela === 'string' ? req.query._tela.slice(0, 200) : '',

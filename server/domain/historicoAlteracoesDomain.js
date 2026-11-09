@@ -18,7 +18,7 @@
  * Na interface a palavra e' "Histórico de alterações", nunca "log".
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDasAlteracoes = exports.opcoesDosFiltros = exports.filtrarRegistros = exports.rotuloDoModulo = exports.telaDoRegistro = exports.juntarRegistros = exports.nomeDeQuemFez = exports.textoQuemEQuando = exports.dataHoraBrasil = exports.dataDoRegistro = exports.montarRegistroHistorico = exports.documentoDaDescricao = exports.semUndefined = exports.diferencasEntre = exports.valorParaHistorico = exports.corDaAcao = exports.rotuloDaAcao = exports.ehAcaoCritica = exports.rotuloDaOrigem = exports.origemDaRota = exports.telaDaRota = exports.rotuloDoPapel = exports.ROTULO_ORIGEM = void 0;
+exports.comNomeDaFilial = exports.resumoDasAlteracoes = exports.opcoesDosFiltros = exports.filtrarRegistros = exports.rotuloDoModulo = exports.telaDoRegistro = exports.juntarRegistros = exports.nomeDeQuemFez = exports.textoQuemEQuando = exports.dataHoraBrasil = exports.dataDoRegistro = exports.montarRegistroHistorico = exports.documentoDaDescricao = exports.semUndefined = exports.diferencasEntre = exports.valorParaHistorico = exports.corDaAcao = exports.rotuloDaAcao = exports.ehAcaoCritica = exports.rotuloDaOrigem = exports.origemDaRota = exports.telaDaRota = exports.rotuloDoPapel = exports.ROTULO_ORIGEM = void 0;
 exports.ROTULO_ORIGEM = {
     sistema: 'Sistema',
     app_vendas: 'App Vendas',
@@ -542,3 +542,14 @@ const resumoDasAlteracoes = (alteracoes, limite = 6) => {
     return partes.join('; ') + (resto > 0 ? `; e mais ${resto} campo(s)` : '');
 };
 exports.resumoDasAlteracoes = resumoDasAlteracoes;
+/**
+ * Registro sem o nome da filial (o servidor grava so' o id, sem ler mais nada)
+ * ganha o nome na hora de mostrar, pelas filiais do grupo: "10 · LOJA CENTRO".
+ */
+const comNomeDaFilial = (registros, filiais) => {
+    if (!filiais || filiais.length === 0)
+        return registros;
+    const porId = new Map(filiais.map((f) => [f.tenantId, [texto(f.codigo), texto(f.nome)].filter(Boolean).join(' · ')]));
+    return registros.map((r) => (r.filialNome || !r.filialId || !porId.get(r.filialId) ? r : { ...r, filialNome: porId.get(r.filialId) || null }));
+};
+exports.comNomeDaFilial = comNomeDaFilial;

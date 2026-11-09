@@ -22,6 +22,7 @@ import {
 import { isPlatformAdminRole, isTenantManagerRole, hasModuleAccess } from '../../utils/roles';
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import AvisoQuemFez from '../../components/common/AvisoQuemFez';
 import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
@@ -1766,10 +1767,9 @@ const OSForm: React.FC = () => {
                 de ser raro. Ver getNextTenantSequenceValue. */}
             <p className="page-subtitle">{isEditing ? `Gerenciando OS #${formData.numeroOS || id?.substring(0,6).toUpperCase()}` : 'Preencha os dados — o número da OS é definido ao salvar'}</p>
             {cancelamentoInfo && (
-              <p style={{ margin: '4px 0 0', fontSize: '13px', fontWeight: 600, color: '#ef4444' }}>
-                {textoQuemEQuando('Cancelada', cancelamentoInfo.nome, cancelamentoInfo.quando) || 'OS cancelada'}
-                {cancelamentoInfo.motivo ? `. Motivo: ${cancelamentoInfo.motivo}` : ''}
-              </p>
+              <div>
+                <AvisoQuemFez texto={`${textoQuemEQuando('Cancelada', cancelamentoInfo.nome, cancelamentoInfo.quando) || 'OS cancelada'}${cancelamentoInfo.motivo ? `. Motivo: ${cancelamentoInfo.motivo}` : ''}`} />
+              </div>
             )}
           </div>
         </div>

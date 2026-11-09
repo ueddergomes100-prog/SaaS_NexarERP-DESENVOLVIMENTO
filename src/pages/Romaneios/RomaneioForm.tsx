@@ -13,6 +13,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import AvisoQuemFez from '../../components/common/AvisoQuemFez';
 import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { montarDocumentoListaSeparacao, type DocumentoListaSeparacao } from '../../utils/listaSeparacaoDomain';
 import { lerItensDosPedidos } from '../../services/listaSeparacaoService';
@@ -578,9 +579,12 @@ const RomaneioForm: React.FC = () => {
               const texto = evento ? textoQuemEQuando(acao === 'cancelado' ? 'Cancelado' : 'Fechado', evento.usuarioNome, evento.emIso) : '';
               if (!texto && !(acao === 'cancelado' && podeVerHistorico)) return null;
               return (
-                <p style={{ margin: '6px 0 0', fontSize: '13.5px', fontWeight: 700, color: acao === 'cancelado' ? '#ef4444' : '#10b981' }}>
-                  {texto ? `${texto}${evento?.motivo ? `. Motivo: ${evento.motivo}` : ''}` : 'Quem cancelou está em Mais opções › Histórico de alterações.'}
-                </p>
+                <div>
+                  <AvisoQuemFez
+                    tom={acao === 'cancelado' ? 'perigo' : 'sucesso'}
+                    texto={texto ? `${texto}${evento?.motivo ? `. Motivo: ${evento.motivo}` : ''}` : 'Quem cancelou está em Mais opções › Histórico de alterações.'}
+                  />
+                </div>
               );
             })()}
           </div>

@@ -61,6 +61,7 @@ import '../OS/OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import AvisoQuemFez from '../../components/common/AvisoQuemFez';
 import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { hasModuleAccess } from '../../utils/roles';
 import { useModoOficina } from '../../hooks/useModoOficina';
@@ -898,9 +899,9 @@ const OrcamentoForm: React.FC = () => {
             <h1 className="page-title">{isEditing ? 'Editar Orçamento' : 'Novo Orçamento'}</h1>
             <p className="page-subtitle">{isEditing ? `Orçamento #${formData.numeroOrcamento}` : 'Crie uma nova proposta comercial'}</p>
             {recusaInfo && textoQuemEQuando('Recusado', recusaInfo.nome, recusaInfo.quando) && (
-              <p style={{ margin: '4px 0 0', fontSize: '13px', fontWeight: 600, color: '#ef4444' }}>
-                {textoQuemEQuando('Recusado', recusaInfo.nome, recusaInfo.quando)}
-              </p>
+              <div>
+                <AvisoQuemFez texto={textoQuemEQuando('Recusado', recusaInfo.nome, recusaInfo.quando)} />
+              </div>
             )}
           </div>
         </div>

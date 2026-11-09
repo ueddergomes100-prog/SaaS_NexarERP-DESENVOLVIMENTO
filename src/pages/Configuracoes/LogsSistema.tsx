@@ -6,6 +6,7 @@ import { lerHistoricoDoPeriodo, LIMITE_REGISTROS_PERIODO } from '../../services/
 import { isPlatformAdminRole } from '../../utils/roles';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import {
+  comNomeDaFilial,
   corDaAcao,
   dataHoraBrasil,
   documentoDaDescricao,
@@ -55,7 +56,7 @@ const mostrarValor = (valor: unknown): string => {
 };
 
 const LogsSistema: React.FC = () => {
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, grupo } = useAuth();
   const hoje = getDateInputInTimeZone();
 
   const permitido = userRole === null
@@ -113,10 +114,11 @@ const LogsSistema: React.FC = () => {
     return () => { cancelado = true; };
   }, [permitido, tenantId, inicio, fim, periodoInvalido, recarregar]);
 
-  const opcoes = useMemo(() => opcoesDosFiltros(registros), [registros]);
+  const comFilial = useMemo(() => comNomeDaFilial(registros, grupo?.filiais), [registros, grupo]);
+  const opcoes = useMemo(() => opcoesDosFiltros(comFilial), [comFilial]);
   const filtrados = useMemo(
-    () => filtrarRegistros(registros, { usuario, tela, documento, acao }),
-    [registros, usuario, tela, documento, acao],
+    () => filtrarRegistros(comFilial, { usuario, tela, documento, acao }),
+    [comFilial, usuario, tela, documento, acao],
   );
 
   const frasesDosFiltros = (): string[] => [

@@ -227,6 +227,7 @@ import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBus
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
 import { createAuditLog as registrarHistorico } from '../../services/logService';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import AvisoQuemFez from '../../components/common/AvisoQuemFez';
 import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDomain';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
@@ -5485,9 +5486,7 @@ const PedidoVendaForm: React.FC = () => {
             <p className="page-subtitle">
               {isViewing
                 ? (status === 'Cancelada'
-                  ? (textoQuemEQuando('Cancelado', cancelamentoInfo?.nome, cancelamentoInfo?.quando)
-                    ? `${textoQuemEQuando('Cancelado', cancelamentoInfo?.nome, cancelamentoInfo?.quando)}${cancelamentoInfo?.motivo ? `. Motivo: ${cancelamentoInfo.motivo}` : ''}`
-                    : 'Este pedido foi CANCELADO')
+                  ? 'Este pedido foi CANCELADO'
                   : bonificacaoAberta
                     ? `Pedido de bonificação — só brindes, sem cobrança${bonificacaoAberta.origemNumero ? `, ligado à venda #${bonificacaoAberta.origemNumero}` : ''}. Nota própria (CFOP de bonificação).`
                     : isPreVendaAberta
@@ -5497,6 +5496,12 @@ const PedidoVendaForm: React.FC = () => {
                       : 'Detalhes do Pedido e Impressão')
                 : 'Escolha o cliente, lance os itens e defina o pagamento'}
             </p>
+            {/* Quem cancelou e quando (09/11/2026): a prova a' vista, sem abrir nada. */}
+            {isViewing && status === 'Cancelada' && cancelamentoInfo && textoQuemEQuando('Cancelado', cancelamentoInfo.nome, cancelamentoInfo.quando) && (
+              <div>
+                <AvisoQuemFez texto={`${textoQuemEQuando('Cancelado', cancelamentoInfo.nome, cancelamentoInfo.quando)}${cancelamentoInfo.motivo ? `. Motivo: ${cancelamentoInfo.motivo}` : ''}`} />
+              </div>
+            )}
             {/* Numero da NF-e da venda sempre a' vista (2026-09-30). Autorizada: clica e abre o PDF. */}
             {!isViewing && !copiarDe && !doOrcamento && (
               <button

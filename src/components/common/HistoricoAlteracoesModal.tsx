@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FileText, History, Loader2, X } from 'lucide-react';
 import { lerHistoricoDoDocumento } from '../../services/historicoService';
+import { useAuth } from '../../contexts/AuthContext';
 import {
+  comNomeDaFilial,
   corDaAcao,
   dataHoraBrasil,
   nomeDeQuemFez,
@@ -39,7 +41,9 @@ const mostrarValor = (valor: unknown): string => {
  * Daqui sai o relatorio em PDF -- a prova que se mostra ao cliente.
  */
 const HistoricoAlteracoesModal: React.FC<HistoricoAlteracoesModalProps> = ({ open, onClose, tenantId, registroId, titulo }) => {
-  const [registros, setRegistros] = useState<RegistroLido[]>([]);
+  const { grupo } = useAuth();
+  const [lidos, setRegistros] = useState<RegistroLido[]>([]);
+  const registros = useMemo(() => comNomeDaFilial(lidos, grupo?.filiais), [lidos, grupo]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
   const [aberto, setAberto] = useState<string | null>(null);

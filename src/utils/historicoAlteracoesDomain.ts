@@ -657,3 +657,16 @@ export const resumoDasAlteracoes = (alteracoes: MudancaDeCampo[] | null | undefi
   const resto = alteracoes.length - limite;
   return partes.join('; ') + (resto > 0 ? `; e mais ${resto} campo(s)` : '');
 };
+
+/**
+ * Registro sem o nome da filial (o servidor grava so' o id, sem ler mais nada)
+ * ganha o nome na hora de mostrar, pelas filiais do grupo: "10 · LOJA CENTRO".
+ */
+export const comNomeDaFilial = <T extends RegistroLido>(
+  registros: T[],
+  filiais: Array<{ tenantId: string; codigo?: string; nome?: string }> | null | undefined,
+): T[] => {
+  if (!filiais || filiais.length === 0) return registros;
+  const porId = new Map(filiais.map((f) => [f.tenantId, [texto(f.codigo), texto(f.nome)].filter(Boolean).join(' · ')]));
+  return registros.map((r) => (r.filialNome || !r.filialId || !porId.get(r.filialId) ? r : { ...r, filialNome: porId.get(r.filialId) || null }));
+};

@@ -24,6 +24,7 @@ import {
   caminhosDoRegistro,
   erroDoAcerto,
   erroDoPedidoParaRomaneio,
+  erroDaDataDaEntrega,
   erroDoRegistroDeEntrega,
   erroParaLiberar,
   montarEntregaDoPedido,
@@ -408,7 +409,8 @@ export const registrarEntrega = async (args: {
     if (indice < 0) throw new Error('Este pedido não está mais nesta rota. Atualize a página.');
     const atual = romaneio.entregas[indice];
     // A regra da justificativa compara com o valor do pedido que esta' na rota.
-    const erro = erroDoRegistroDeEntrega({ ...args.registro, valorTotalCentavos: atual.valorTotalCentavos });
+    const erro = erroDoRegistroDeEntrega({ ...args.registro, valorTotalCentavos: atual.valorTotalCentavos })
+      || erroDaDataDaEntrega(args.registro, { hoje: getDateInputInTimeZone(), dataSaida: romaneio.dataSaida });
     if (erro) throw new Error(erro);
     // Grava na lista E no mapa `registros` (o app do motorista le e grava no mapa);
     // o canhoto que o app ja' tiver enviado e' preservado.

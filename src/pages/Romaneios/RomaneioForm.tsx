@@ -21,7 +21,7 @@ import { FiltroColuna, OpcoesFiltro, OpcoesFiltroMultiplo, opcoesDaColuna } from
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
-import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
+import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
 import {
   cancelarRomaneio,
@@ -51,6 +51,7 @@ import {
   textoDoPlano,
   FORMAS_RECEBIDAS_NA_ENTREGA,
   centavosDoTexto,
+  dataDaEntrega,
   diferencaDoRecebido,
   entregasDaBusca,
   formaRecebidaPadrao,
@@ -730,8 +731,8 @@ const RomaneioForm: React.FC = () => {
                   {!emMontagem && (
                     <td style={{ padding: '8px', fontSize: '13px' }}>
                       <span style={{ fontWeight: 700, color: COR_ENTREGA[e.status] }}>{ROTULO_STATUS_ENTREGA[e.status]}</span>
-                      {e.status === 'entregue' && <div style={{ color: 'var(--text-muted)' }}>{e.recebedorNome}{e.registradoEm ? ` · ${new Date(e.registradoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}</div>}
-                      {e.status === 'nao_entregue' && <div style={{ color: 'var(--text-muted)' }}>{e.motivo}</div>}
+                      {e.status === 'entregue' && <div style={{ color: 'var(--text-muted)' }}>{e.recebedorNome}{dataDaEntrega(e) ? ` · ${formatDateInputPtBr(dataDaEntrega(e))}` : ''}</div>}
+                      {e.status === 'nao_entregue' && <div style={{ color: 'var(--text-muted)' }}>{e.motivo}{dataDaEntrega(e) ? ` · ${formatDateInputPtBr(dataDaEntrega(e))}` : ''}</div>}
                       {e.recebidoCentavos > 0 && <div style={{ color: 'var(--text-muted)' }}>Recebeu {moeda(e.recebidoCentavos)} ({e.recebidoForma})</div>}
                       {precisaJustificarValor(e) && (
                         <div style={{ color: '#f59e0b', fontWeight: 600 }} title="Valor recebido diferente do valor do pedido">
@@ -920,6 +921,7 @@ const RomaneioForm: React.FC = () => {
       {registrando && id && tenantId && currentUser && (
         <RegistrarEntregaModal
           entrega={registrando}
+          dataSaida={romaneio.dataSaida}
           motivos={motivos}
           onFechar={() => { setRegistrando(null); if (buscaEntrega) buscaEntregaRef.current?.focus(); }}
           onSalvar={async (registro) => {
@@ -1177,10 +1179,12 @@ const AdicionarPedidosModal: React.FC<{
 
 const RegistrarEntregaModal: React.FC<{
   entrega: EntregaRomaneio;
+  /** Saida da rota: a data da entrega nao pode ser antes dela. */
+  dataSaida: string;
   motivos: string[];
   onFechar: () => void;
   onSalvar: (registro: RegistroDeEntrega) => Promise<void>;
-}> = ({ entrega, motivos, onFechar, onSalvar }) => {
+}> = ({ entrega, dataSaida, motivos, onFechar, onSalvar }) => {
   const [status, setStatus] = useState<StatusEntrega>(entrega.status === 'pendente' ? 'entregue' : entrega.status);
   const [recebedorNome, setRecebedorNome] = useState(entrega.recebedorNome);
   const [recebedorDocumento, setRecebedorDocumento] = useState(entrega.recebedorDocumento);
@@ -1189,6 +1193,9 @@ const RegistrarEntregaModal: React.FC<{
   const [recebidoForma, setRecebidoForma] = useState(entrega.recebidoForma || formaRecebidaPadrao(entrega.formaPagamento));
   const [observacao, setObservacao] = useState(entrega.observacao);
   const [justificativa, setJustificativa] = useState(entrega.justificativaValor);
+  // Data da entrega (09/11/2026): a que o motorista informou ou hoje.
+  const hoje = getDateInputInTimeZone();
+  const [dataEntrega, setDataEntrega] = useState(dataDaEntrega(entrega) || hoje);
   const [salvando, setSalvando] = useState(false);
   const recebidoCentavos = status === 'pendente' ? 0 : centavosDoTexto(recebido);
   const diferenca = status === 'pendente' ? 0 : diferencaDoRecebido({ recebidoCentavos, valorTotalCentavos: entrega.valorTotalCentavos });
@@ -1196,7 +1203,7 @@ const RegistrarEntregaModal: React.FC<{
   const salvar = async () => {
     setSalvando(true);
     try {
-      await onSalvar({ status, recebedorNome, recebedorDocumento, motivo, recebidoCentavos, recebidoForma, observacao, justificativaValor: justificativa });
+      await onSalvar({ status, recebedorNome, recebedorDocumento, motivo, recebidoCentavos, recebidoForma, observacao, justificativaValor: justificativa, dataEntrega });
     } finally {
       setSalvando(false);
     }
@@ -1229,6 +1236,21 @@ const RegistrarEntregaModal: React.FC<{
           {opcao('nao_entregue', 'Não entregue', <XCircle size={16} />)}
           {entrega.status !== 'pendente' && opcao('pendente', 'Voltar a pendente', <ArrowLeft size={16} />)}
         </div>
+
+        {status !== 'pendente' && (
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px', maxWidth: '220px' }}>
+            <span style={estiloRotulo}>{status === 'entregue' ? 'Data da entrega *' : 'Data da tentativa *'}</span>
+            <input
+              type="date"
+              value={dataEntrega}
+              onChange={(e) => setDataEntrega(e.target.value)}
+              min={/^\d{4}-\d{2}-\d{2}$/.test(dataSaida) ? dataSaida : undefined}
+              max={hoje}
+              title="Dia em que a mercadoria foi entregue (ou a tentativa foi feita)"
+              style={estiloCampo}
+            />
+          </label>
+        )}
 
         {status === 'entregue' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>

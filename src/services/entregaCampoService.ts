@@ -4,10 +4,12 @@ import { db, storage } from './firebase';
 import { estaOnline, type UsuarioDoCampo } from './osCampoService';
 import { comprimirImagem } from '../utils/comprimirImagem';
 import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
+import { getDateInputInTimeZone } from '../utils/dateTime';
 import { LADO_MAXIMO_FOTO_PX, TAMANHO_MAXIMO_FOTO_BYTES } from '../utils/osCampoDomain';
 import {
   caminhosDoRegistro,
   descricaoDaEntrega,
+  erroDaDataDaEntrega,
   erroDoRegistroDeEntrega,
   registroParaGravar,
   rotuloDoRomaneioNoHistorico,
@@ -68,7 +70,8 @@ export const registrarEntregaNoApp = async (p: {
   /** Para o Historico de alteracoes dizer "Rota 02" (numero, nome e data de saida). */
   rota?: Pick<Romaneio, 'numero' | 'nome' | 'dataSaida'>;
 }): Promise<void> => {
-  const erro = erroDoRegistroDeEntrega({ ...p.registro, valorTotalCentavos: p.entrega.valorTotalCentavos });
+  const erro = erroDoRegistroDeEntrega({ ...p.registro, valorTotalCentavos: p.entrega.valorTotalCentavos })
+    || erroDaDataDaEntrega(p.registro, { hoje: getDateInputInTimeZone(), dataSaida: p.rota?.dataSaida });
   if (erro) throw new Error(erro);
   const gravado = registroParaGravar(p.entrega, p.registro, { nome: p.usuario.nome, via: 'app', agoraIso: new Date().toISOString() });
   try {

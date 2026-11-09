@@ -28,6 +28,7 @@ import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './rela
 import type { DespesaRota } from './rotaDomain';
 import { STATUS_PRE_VENDA } from './preVendaDomain';
 import { diferencasEntre, type MudancaDeCampo } from './historicoAlteracoesDomain';
+import { getDateInputInTimeZone } from './dateTime';
 
 export type StatusRomaneio = 'montagem' | 'em_rota' | 'fechado' | 'cancelado';
 export type StatusEntrega = 'pendente' | 'entregue' | 'nao_entregue';
@@ -69,8 +70,15 @@ export interface EntregaRomaneio {
   status: StatusEntrega;
   recebedorNome: string;
   recebedorDocumento: string;
-  /** ISO (data e hora) da entrega ou da tentativa. */
+  /** ISO (data e hora) em que o registro foi feito (prova; nao e' editavel). */
   registradoEm: string;
+  /**
+   * Dia da entrega ou da tentativa (AAAA-MM-DD), informado por quem registra
+   * (09/11/2026, pedido do dono: o motorista registra depois e coloca o dia
+   * certo). Vazio em registro antigo: vale o dia de `registradoEm`
+   * (`dataDaEntrega`).
+   */
+  dataEntrega: string;
   registradoPor: string;
   motivo: string;
   /** O que o motorista recebeu na entrega -- so' registro, nao baixa titulo. */
@@ -352,6 +360,7 @@ export const montarEntregaDoPedido = (
   justificativaValor: '',
   registradoVia: '',
   registradoEm: '',
+  dataEntrega: '',
   registradoPor: '',
   motivo: '',
   recebidoCentavos: 0,
@@ -473,7 +482,7 @@ export const erroDoRegistroDeEntrega = (
 /** O que o app grava por pedido -- subconjunto da entrega. */
 export const CAMPOS_DO_REGISTRO = [
   'status', 'recebedorNome', 'recebedorDocumento', 'motivo', 'recebidoCentavos', 'recebidoForma',
-  'observacao', 'justificativaValor', 'registradoEm', 'registradoPor', 'registradoVia', 'canhotoUrl', 'canhotoCaminho',
+  'observacao', 'justificativaValor', 'registradoEm', 'dataEntrega', 'registradoPor', 'registradoVia', 'canhotoUrl', 'canhotoCaminho',
 ] as const;
 
 export type RegistroGravado = Pick<EntregaRomaneio, (typeof CAMPOS_DO_REGISTRO)[number]>;
@@ -501,6 +510,8 @@ export interface DadosDoRegistro {
   recebidoForma: string;
   observacao: string;
   justificativaValor: string;
+  /** Dia da entrega/tentativa (AAAA-MM-DD); invalido ou vazio grava o dia do registro. */
+  dataEntrega: string;
 }
 
 /** O registro que vai para `registros.{pedidoId}` -- sem undefined, sempre completo. */
@@ -521,11 +532,52 @@ export const registroParaGravar = (
     observacao: limpar(r.observacao),
     justificativaValor: pendente ? '' : limpar(r.justificativaValor),
     registradoEm: pendente ? '' : quem.agoraIso,
+    dataEntrega: pendente ? '' : (ehDataDoCampo(r.dataEntrega) ? r.dataEntrega : diaDoInstante(quem.agoraIso)),
     registradoPor: pendente ? '' : quem.nome,
     registradoVia: pendente ? '' : quem.via,
     canhotoUrl: limpar(entrega.canhotoUrl),
     canhotoCaminho: limpar(entrega.canhotoCaminho),
   };
+};
+
+// ---------------------------------------------------------------------------
+// DATA DA ENTREGA (09/11/2026)
+// ---------------------------------------------------------------------------
+
+const ehDataDoCampo = (valor: unknown): valor is string => (
+  typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor) && !Number.isNaN(new Date(`${valor}T12:00:00Z`).getTime())
+);
+
+/** Dia (AAAA-MM-DD, horario de Brasilia) de um instante ISO; vazio se invalido. */
+const diaDoInstante = (iso: string): string => {
+  const data = new Date(iso);
+  return iso && !Number.isNaN(data.getTime()) ? getDateInputInTimeZone(data) : '';
+};
+
+/** Dia da entrega/tentativa: o informado ou, em registro antigo, o dia em que foi registrado. Pendente = vazio. */
+export const dataDaEntrega = (entrega: Pick<EntregaRomaneio, 'status' | 'dataEntrega' | 'registradoEm'>): string => {
+  if (entrega.status === 'pendente') return '';
+  return ehDataDoCampo(entrega.dataEntrega) ? entrega.dataEntrega : diaDoInstante(entrega.registradoEm);
+};
+
+/**
+ * A data informada serve? Obrigatoria para entregue/nao entregue; nao pode
+ * ser depois de hoje nem antes da saida da rota (o caminhao nao tinha saido).
+ */
+export const erroDaDataDaEntrega = (
+  registro: { status: StatusEntrega; dataEntrega?: string },
+  contexto: { hoje: string; dataSaida?: string },
+): string | null => {
+  if (registro.status === 'pendente') return null;
+  const nome = registro.status === 'entregue' ? 'da entrega' : 'da tentativa';
+  if (!ehDataDoCampo(registro.dataEntrega)) return `Informe a data ${nome}.`;
+  if (ehDataDoCampo(contexto.hoje) && registro.dataEntrega > contexto.hoje) {
+    return `A data ${nome} (${dataBr(registro.dataEntrega)}) é depois de hoje (${dataBr(contexto.hoje)}). Confira a data.`;
+  }
+  if (ehDataDoCampo(contexto.dataSaida) && registro.dataEntrega < contexto.dataSaida) {
+    return `A data ${nome} (${dataBr(registro.dataEntrega)}) é anterior à saída da rota (${dataBr(contexto.dataSaida)}). Confira a data.`;
+  }
+  return null;
 };
 
 /** Campo a campo (`registros.{pedidoId}.status`...): e' o que deixa dois aparelhos gravarem sem se atropelar. */
@@ -717,6 +769,7 @@ export const montarDocumentoRomaneio = (romaneio: Romaneio): DocumentoRomaneio =
     { id: 'total', titulo: 'Vr Total', tipo: 'moeda', valor: (e) => e.valorTotalCentavos },
     { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, padrao: romaneio.status === 'fechado', valor: (e) => ROTULO_STATUS_ENTREGA[e.status] },
     { id: 'recebedor', titulo: 'Recebido por', tipo: 'texto', largura: 34, padrao: romaneio.status === 'fechado', valor: (e) => (e.status === 'nao_entregue' ? e.motivo : e.recebedorNome) },
+    { id: 'dataEntrega', titulo: 'Data entrega', tipo: 'texto', largura: 20, padrao: romaneio.status === 'fechado', valor: (e) => dataBr(dataDaEntrega(e)) },
     { id: 'recebido', titulo: 'Recebido (R$)', tipo: 'moeda', padrao: romaneio.status === 'fechado', valor: (e) => e.recebidoCentavos },
     { id: 'diferenca', titulo: 'Diferença no valor', tipo: 'texto', largura: 40, padrao: resumo.comDiferenca > 0, valor: (e) => (precisaJustificarValor(e) ? `${textoDaDiferenca(diferencaDoRecebido(e))}: ${e.justificativaValor}` : '') },
     { id: 'assinatura', titulo: 'Assinatura', tipo: 'texto', largura: 34, padrao: false, valor: () => '' },
@@ -888,6 +941,7 @@ export const montarDocumentoRelatorioRomaneios = (
           { id: 'cidade', titulo: 'Cidade', tipo: 'texto', largura: 26, padrao: false, valor: (e: LinhaEntrega) => e.cidade },
           { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, valor: (e: LinhaEntrega) => ROTULO_STATUS_ENTREGA[e.status] },
           { id: 'detalhe', titulo: 'Recebido por / motivo', tipo: 'texto', largura: 40, valor: (e: LinhaEntrega) => (e.status === 'nao_entregue' ? e.motivo : e.recebedorNome) },
+          { id: 'dataEntrega', titulo: 'Data entrega', tipo: 'texto', largura: 20, valor: (e: LinhaEntrega) => dataBr(dataDaEntrega(e)) },
           { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (e: LinhaEntrega) => e.valorTotalCentavos },
         ],
       },
@@ -1286,10 +1340,10 @@ export const descricaoDaMontagem = (
 /** Frase do registro de uma entrega: "Pedido #0375 (MERCEARIA X): Entregue, recebeu JOAO." */
 export const descricaoDaEntrega = (
   entrega: Pick<EntregaRomaneio, 'numeroPedido' | 'clienteNome'>,
-  registro: { status: StatusEntrega; recebedorNome?: string; motivo?: string; recebidoCentavos?: number; recebidoForma?: string },
+  registro: { status: StatusEntrega; recebedorNome?: string; motivo?: string; recebidoCentavos?: number; recebidoForma?: string; dataEntrega?: string },
 ): string => {
   const partes = [
-    `Pedido #${entrega.numeroPedido}${limpar(entrega.clienteNome) ? ` (${limpar(entrega.clienteNome)})` : ''}: ${ROTULO_STATUS_ENTREGA[registro.status] || registro.status}`,
+    `Pedido #${entrega.numeroPedido}${limpar(entrega.clienteNome) ? ` (${limpar(entrega.clienteNome)})` : ''}: ${ROTULO_STATUS_ENTREGA[registro.status] || registro.status}${registro.status !== 'pendente' && ehDataDoCampo(registro.dataEntrega) ? ` em ${dataBr(registro.dataEntrega)}` : ''}`,
     registro.status === 'entregue' && limpar(registro.recebedorNome) ? `recebeu ${limpar(registro.recebedorNome)}` : '',
     registro.status === 'nao_entregue' && limpar(registro.motivo) ? `motivo: ${limpar(registro.motivo)}` : '',
     (Number(registro.recebidoCentavos) || 0) > 0 ? `motorista recebeu ${moeda(Number(registro.recebidoCentavos) || 0)}${limpar(registro.recebidoForma) ? ` em ${limpar(registro.recebidoForma)}` : ''}` : '',

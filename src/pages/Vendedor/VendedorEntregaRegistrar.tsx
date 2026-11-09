@@ -11,8 +11,10 @@ import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entr
 import { anexarCanhoto, registrarEntregaNoApp } from '../../services/entregaCampoService';
 import type { UsuarioDoCampo } from '../../services/osCampoService';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   FORMAS_RECEBIDAS_NA_ENTREGA,
+  dataDaEntrega,
   formaRecebidaPadrao,
   MOTIVOS_NAO_ENTREGA_PADRAO,
   centavosDoTexto,
@@ -34,7 +36,9 @@ import { useVoltarPara } from './navegacaoApp';
  * Entregue (quem recebeu, documento) ou nao entregue (motivo da lista que a
  * loja configurou), quanto o motorista recebeu e como, e a foto do canhoto.
  * Valor recebido diferente do valor do pedido exige a explicacao para o
- * administrativo (romaneioDomain.ts, erroDoRegistroDeEntrega). Tudo
+ * administrativo (romaneioDomain.ts, erroDoRegistroDeEntrega). A data da
+ * entrega (09/11/2026) vem com hoje e o motorista troca quando registra
+ * depois; nao pode ser depois de hoje nem antes da saida da rota. Tudo
  * funciona sem sinal: o registro fica na fila do SDK e a foto na fila do
  * aparelho (entregaCampoService.ts).
  */
@@ -84,6 +88,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
   const [recebidoForma, setRecebidoForma] = useState<string>('Dinheiro');
   const [observacao, setObservacao] = useState('');
   const [justificativa, setJustificativa] = useState('');
+  const [dataEntrega, setDataEntrega] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
   const inputCamera = useRef<HTMLInputElement>(null);
@@ -139,12 +144,14 @@ const VendedorEntregaRegistrar: React.FC = () => {
     setRecebidoForma(entrega.recebidoForma || formaRecebidaPadrao(entrega.formaPagamento));
     setObservacao(entrega.observacao);
     setJustificativa(entrega.justificativaValor);
+    setDataEntrega(dataDaEntrega(entrega) || getDateInputInTimeZone());
     setPreenchido(true);
   }, [entrega, preenchido]);
 
   if (!pode) return <Navigate to="/vendedor" replace />;
 
   const emRota = rota?.status === 'em_rota';
+  const hoje = getDateInputInTimeZone();
   const recebidoCentavos = status === 'pendente' ? 0 : centavosDoTexto(recebido);
   const diferenca = entrega && status !== 'pendente' ? diferencaDoRecebido({ recebidoCentavos, valorTotalCentavos: entrega.valorTotalCentavos }) : 0;
   const canhotoPendente = Boolean(pedidoId && canhotosPendentesDaRota(pendencias, id || '').has(pedidoId));
@@ -160,7 +167,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
         usuario,
         romaneioId: id,
         entrega,
-        registro: { status, recebedorNome, recebedorDocumento, motivo, recebidoCentavos, recebidoForma, observacao, justificativaValor: justificativa },
+        registro: { status, recebedorNome, recebedorDocumento, motivo, recebidoCentavos, recebidoForma, observacao, justificativaValor: justificativa, dataEntrega },
         ...(rotaLida ? { rota: { numero: rotaLida.numero, nome: rotaLida.nome, dataSaida: rotaLida.dataSaida } } : {}),
       });
       showSuccess(status === 'entregue' ? 'Entrega registrada.' : status === 'nao_entregue' ? 'Tentativa registrada.' : 'Entrega voltou para "falta entregar".');
@@ -239,6 +246,21 @@ const VendedorEntregaRegistrar: React.FC = () => {
               <button type="button" onClick={() => setStatus('pendente')} style={{ background: 'none', border: 'none', color: status === 'pendente' ? 'var(--brand-400)' : 'var(--text-muted)', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: 0 }}>
                 <ArrowLeft size={14} /> Voltar para "falta entregar"
               </button>
+            )}
+
+            {status !== 'pendente' && (
+              <label style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={rotulo}>{status === 'entregue' ? 'Data da entrega *' : 'Data da tentativa *'}</span>
+                <input
+                  type="date"
+                  value={dataEntrega}
+                  onChange={(e) => setDataEntrega(e.target.value)}
+                  min={/^\d{4}-\d{2}-\d{2}$/.test(rota.dataSaida) ? rota.dataSaida : undefined}
+                  max={hoje}
+                  title="Dia em que a mercadoria foi entregue (ou a tentativa foi feita)"
+                  style={campo}
+                />
+              </label>
             )}
 
             {status === 'entregue' && (

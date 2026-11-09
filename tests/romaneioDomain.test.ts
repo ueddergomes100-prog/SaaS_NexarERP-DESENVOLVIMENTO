@@ -6,6 +6,9 @@ import {
   caminhosDoRegistro,
   cancelamentoDesfazEntregas,
   contagemDoPlano,
+  dataDaEntrega,
+  descricaoDaEntrega,
+  erroDaDataDaEntrega,
   despesasDoAcerto,
   despesasJaLancadas,
   erroDoMotivo,
@@ -342,22 +345,24 @@ test('valor recebido diferente do pedido exige justificativa; zero e igual nao',
 test('registro do app: completo, sem undefined, campo a campo em registros.{pedidoId}', () => {
   const e = entrega('7', { canhotoUrl: 'http://x/c.jpg', canhotoCaminho: 'empresas/t/romaneios/r/p7-1.jpg' });
   const gravado = registroParaGravar(e, {
-    status: 'entregue', recebedorNome: ' joão ', recebedorDocumento: ' 123 ', motivo: 'ignorado', recebidoCentavos: 10000.4, recebidoForma: 'Pix', observacao: ' obs ', justificativaValor: '',
+    status: 'entregue', recebedorNome: ' joão ', recebedorDocumento: ' 123 ', motivo: 'ignorado', recebidoCentavos: 10000.4, recebidoForma: 'Pix', observacao: ' obs ', justificativaValor: '', dataEntrega: '2026-10-07',
   }, { nome: 'Pedro', via: 'app', agoraIso: '2026-10-08T12:00:00.000Z' });
   assert.deepEqual(gravado, {
     status: 'entregue', recebedorNome: 'JOÃO', recebedorDocumento: '123', motivo: '', recebidoCentavos: 10000, recebidoForma: 'Pix',
-    observacao: 'obs', justificativaValor: '', registradoEm: '2026-10-08T12:00:00.000Z', registradoPor: 'Pedro', registradoVia: 'app',
+    observacao: 'obs', justificativaValor: '', registradoEm: '2026-10-08T12:00:00.000Z', dataEntrega: '2026-10-07', registradoPor: 'Pedro', registradoVia: 'app',
     canhotoUrl: 'http://x/c.jpg', canhotoCaminho: 'empresas/t/romaneios/r/p7-1.jpg',
   });
   assert.ok(Object.values(gravado).every((v) => v !== undefined));
   const caminhos = caminhosDoRegistro('p7', gravado);
   assert.equal(caminhos['registros.p7.status'], 'entregue');
   assert.equal(caminhos['registros.p7.canhotoUrl'], 'http://x/c.jpg');
-  assert.equal(Object.keys(caminhos).length, 13);
+  assert.equal(caminhos['registros.p7.dataEntrega'], '2026-10-07');
+  assert.equal(Object.keys(caminhos).length, 14);
   // voltar a pendente limpa tudo e nao carimba quem/quando; o canhoto fica
   const pendente = registroParaGravar(e, { ...gravado, status: 'pendente', recebidoCentavos: 500, justificativaValor: 'x' }, { nome: 'Pedro', via: 'sistema', agoraIso: 'agora' });
   assert.equal(pendente.recebidoCentavos, 0);
   assert.equal(pendente.registradoEm, '');
+  assert.equal(pendente.dataEntrega, '');
   assert.equal(pendente.justificativaValor, '');
   assert.equal(pendente.canhotoUrl, 'http://x/c.jpg');
 });
@@ -413,4 +418,46 @@ test('busca do acerto: numero do pedido sem zeros, numero da nota ou nome do cli
   assert.deepEqual(entregasDaBusca(entregas, 'sao jose').map((e) => e.numeroPedido), ['0081']);
   assert.equal(entregasDaBusca(entregas, '  ').length, 3);
   assert.equal(entregasDaBusca(entregas, '999').length, 0);
+});
+
+test('data da entrega (09/11/2026): informada pelo motorista, conferida e com o dia do registro em registro antigo', () => {
+  const dados = {
+    status: 'entregue' as const, recebedorNome: 'ANA', recebedorDocumento: '', motivo: '', recebidoCentavos: 0, recebidoForma: '', observacao: '', justificativaValor: '',
+  };
+  // Data valida vai como esta; vazia ou invalida grava o dia do registro em Brasilia (01h30 UTC ainda e' o dia anterior).
+  assert.equal(registroParaGravar(entrega('1'), { ...dados, dataEntrega: '2026-11-07' }, { nome: 'P', via: 'app', agoraIso: '2026-11-09T19:00:00.000Z' }).dataEntrega, '2026-11-07');
+  assert.equal(registroParaGravar(entrega('1'), { ...dados, dataEntrega: '' }, { nome: 'P', via: 'app', agoraIso: '2026-11-10T01:30:00.000Z' }).dataEntrega, '2026-11-09');
+  assert.equal(registroParaGravar(entrega('1'), { ...dados, dataEntrega: '07/11/2026' }, { nome: 'P', via: 'app', agoraIso: '2026-11-09T19:00:00.000Z' }).dataEntrega, '2026-11-09');
+
+  // Leitura: a informada; registro antigo sem o campo usa o dia de registradoEm; pendente nao tem data.
+  assert.equal(dataDaEntrega(entrega('1', { status: 'entregue', dataEntrega: '2026-11-07', registradoEm: '2026-11-09T19:00:00.000Z' })), '2026-11-07');
+  assert.equal(dataDaEntrega(entrega('1', { status: 'entregue', registradoEm: '2026-11-10T01:30:00.000Z' })), '2026-11-09');
+  assert.equal(dataDaEntrega(entrega('1', { status: 'nao_entregue', dataEntrega: '2026-11-08' })), '2026-11-08');
+  assert.equal(dataDaEntrega(entrega('1', { status: 'pendente', dataEntrega: '2026-11-08' })), '');
+  assert.equal(aplicarRegistros([entrega('1')], { p1: { status: 'entregue', dataEntrega: '2026-11-08' } })[0].dataEntrega, '2026-11-08');
+
+  // Conferencia: obrigatoria, nao depois de hoje, nao antes da saida da rota.
+  const contexto = { hoje: '2026-11-09', dataSaida: '2026-11-04' };
+  assert.equal(erroDaDataDaEntrega({ status: 'entregue', dataEntrega: '2026-11-08' }, contexto), null);
+  assert.equal(erroDaDataDaEntrega({ status: 'entregue', dataEntrega: '2026-11-04' }, contexto), null);
+  assert.equal(erroDaDataDaEntrega({ status: 'entregue', dataEntrega: '2026-11-09' }, contexto), null);
+  assert.equal(erroDaDataDaEntrega({ status: 'pendente', dataEntrega: '' }, contexto), null);
+  assert.equal(erroDaDataDaEntrega({ status: 'entregue', dataEntrega: '' }, contexto), 'Informe a data da entrega.');
+  assert.equal(erroDaDataDaEntrega({ status: 'nao_entregue' }, contexto), 'Informe a data da tentativa.');
+  assert.equal(
+    erroDaDataDaEntrega({ status: 'entregue', dataEntrega: '2026-11-10' }, contexto),
+    'A data da entrega (10/11/2026) é depois de hoje (09/11/2026). Confira a data.',
+  );
+  assert.equal(
+    erroDaDataDaEntrega({ status: 'nao_entregue', dataEntrega: '2026-11-03' }, contexto),
+    'A data da tentativa (03/11/2026) é anterior à saída da rota (04/11/2026). Confira a data.',
+  );
+  // Rota sem data de saida valida: so' o limite de hoje.
+  assert.equal(erroDaDataDaEntrega({ status: 'entregue', dataEntrega: '2026-01-01' }, { hoje: '2026-11-09', dataSaida: '' }), null);
+
+  // Historico: a frase leva o dia.
+  assert.equal(
+    descricaoDaEntrega({ numeroPedido: '0373', clienteNome: 'MERCEARIA' }, { status: 'entregue', recebedorNome: 'ANA', dataEntrega: '2026-11-08' }),
+    'Pedido #0373 (MERCEARIA): Entregue em 08/11/2026, recebeu ANA.',
+  );
 });

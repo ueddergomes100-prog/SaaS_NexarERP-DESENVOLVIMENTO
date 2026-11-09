@@ -10,6 +10,7 @@ import { lerRomaneio } from '../../services/romaneioService';
 import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entregasDoMotorista';
 import {
   ROTULO_STATUS_ENTREGA,
+  dataDaEntrega,
   diferencaDoRecebido,
   entregasDaBusca,
   linkDoMapa,
@@ -23,6 +24,7 @@ import { canhotosPendentesDaRota } from '../../utils/offlineDomain';
 import { assinarFilaOffline, listarPendencias, type PendenciaGuardada } from '../../utils/filaOffline';
 import { dataCurta, tituloDaRota, type RotaDoApp } from './VendedorEntregas';
 import { comOrigem, useVoltarPara } from './navegacaoApp';
+import { formatDateInputPtBr } from '../../utils/dateTime';
 
 /*
  * UMA ROTA NO APP DO MOTORISTA (2026-10-08): "Faltam entregar" e "Feitas",
@@ -54,11 +56,6 @@ const atalho: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: '6px', height: '40px', padding: '0 12px', borderRadius: '10px',
   border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)',
   fontSize: '13px', fontWeight: 600, textDecoration: 'none',
-};
-
-const horaCurta = (iso: string) => {
-  const data = new Date(iso);
-  return Number.isNaN(data.getTime()) ? '' : data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 
 const CartaoEntrega: React.FC<{
@@ -102,7 +99,7 @@ const CartaoEntrega: React.FC<{
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, color: COR_STATUS[entrega.status] }}>
             {entrega.status === 'entregue' ? <CheckCircle size={15} /> : <XCircle size={15} />}
             {ROTULO_STATUS_ENTREGA[entrega.status]}
-            {entrega.registradoEm && <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>· {horaCurta(entrega.registradoEm)}</span>}
+            {dataDaEntrega(entrega) && <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>· {formatDateInputPtBr(dataDaEntrega(entrega))}</span>}
           </div>
           {entrega.status === 'entregue' && entrega.recebedorNome && (
             <div style={{ color: 'var(--text-secondary)' }}>Recebido por {entrega.recebedorNome}{entrega.recebedorDocumento ? ` (${entrega.recebedorDocumento})` : ''}</div>

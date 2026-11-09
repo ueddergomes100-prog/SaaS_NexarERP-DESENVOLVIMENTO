@@ -1,9 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
-exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = void 0;
+exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.erroDaDataDaEntrega = exports.dataDaEntrega = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
+exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = void 0;
 const preVendaDomain_1 = require("./preVendaDomain");
 const historicoAlteracoesDomain_1 = require("./historicoAlteracoesDomain");
+const dateTime_1 = require("./dateTime");
 exports.ROTULO_STATUS_ROMANEIO = {
     montagem: 'Em montagem',
     em_rota: 'Em rota',
@@ -210,6 +211,7 @@ const montarEntregaDoPedido = (pedido, cliente, nota) => ({
     justificativaValor: '',
     registradoVia: '',
     registradoEm: '',
+    dataEntrega: '',
     registradoPor: '',
     motivo: '',
     recebidoCentavos: 0,
@@ -317,7 +319,7 @@ exports.erroDoRegistroDeEntrega = erroDoRegistroDeEntrega;
 /** O que o app grava por pedido -- subconjunto da entrega. */
 exports.CAMPOS_DO_REGISTRO = [
     'status', 'recebedorNome', 'recebedorDocumento', 'motivo', 'recebidoCentavos', 'recebidoForma',
-    'observacao', 'justificativaValor', 'registradoEm', 'registradoPor', 'registradoVia', 'canhotoUrl', 'canhotoCaminho',
+    'observacao', 'justificativaValor', 'registradoEm', 'dataEntrega', 'registradoPor', 'registradoVia', 'canhotoUrl', 'canhotoCaminho',
 ];
 /** Mapa `registros` do documento aplicado sobre a lista de entregas. */
 const aplicarRegistros = (entregas, registros) => {
@@ -347,6 +349,7 @@ const registroParaGravar = (entrega, r, quem) => {
         observacao: limpar(r.observacao),
         justificativaValor: pendente ? '' : limpar(r.justificativaValor),
         registradoEm: pendente ? '' : quem.agoraIso,
+        dataEntrega: pendente ? '' : (ehDataDoCampo(r.dataEntrega) ? r.dataEntrega : diaDoInstante(quem.agoraIso)),
         registradoPor: pendente ? '' : quem.nome,
         registradoVia: pendente ? '' : quem.via,
         canhotoUrl: limpar(entrega.canhotoUrl),
@@ -354,6 +357,41 @@ const registroParaGravar = (entrega, r, quem) => {
     };
 };
 exports.registroParaGravar = registroParaGravar;
+// ---------------------------------------------------------------------------
+// DATA DA ENTREGA (09/11/2026)
+// ---------------------------------------------------------------------------
+const ehDataDoCampo = (valor) => (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor) && !Number.isNaN(new Date(`${valor}T12:00:00Z`).getTime()));
+/** Dia (AAAA-MM-DD, horario de Brasilia) de um instante ISO; vazio se invalido. */
+const diaDoInstante = (iso) => {
+    const data = new Date(iso);
+    return iso && !Number.isNaN(data.getTime()) ? (0, dateTime_1.getDateInputInTimeZone)(data) : '';
+};
+/** Dia da entrega/tentativa: o informado ou, em registro antigo, o dia em que foi registrado. Pendente = vazio. */
+const dataDaEntrega = (entrega) => {
+    if (entrega.status === 'pendente')
+        return '';
+    return ehDataDoCampo(entrega.dataEntrega) ? entrega.dataEntrega : diaDoInstante(entrega.registradoEm);
+};
+exports.dataDaEntrega = dataDaEntrega;
+/**
+ * A data informada serve? Obrigatoria para entregue/nao entregue; nao pode
+ * ser depois de hoje nem antes da saida da rota (o caminhao nao tinha saido).
+ */
+const erroDaDataDaEntrega = (registro, contexto) => {
+    if (registro.status === 'pendente')
+        return null;
+    const nome = registro.status === 'entregue' ? 'da entrega' : 'da tentativa';
+    if (!ehDataDoCampo(registro.dataEntrega))
+        return `Informe a data ${nome}.`;
+    if (ehDataDoCampo(contexto.hoje) && registro.dataEntrega > contexto.hoje) {
+        return `A data ${nome} (${dataBr(registro.dataEntrega)}) é depois de hoje (${dataBr(contexto.hoje)}). Confira a data.`;
+    }
+    if (ehDataDoCampo(contexto.dataSaida) && registro.dataEntrega < contexto.dataSaida) {
+        return `A data ${nome} (${dataBr(registro.dataEntrega)}) é anterior à saída da rota (${dataBr(contexto.dataSaida)}). Confira a data.`;
+    }
+    return null;
+};
+exports.erroDaDataDaEntrega = erroDaDataDaEntrega;
 /** Campo a campo (`registros.{pedidoId}.status`...): e' o que deixa dois aparelhos gravarem sem se atropelar. */
 const caminhosDoRegistro = (pedidoId, registro) => (Object.fromEntries(exports.CAMPOS_DO_REGISTRO.map((campo) => [`registros.${pedidoId}.${campo}`, registro[campo]])));
 exports.caminhosDoRegistro = caminhosDoRegistro;
@@ -502,6 +540,7 @@ const montarDocumentoRomaneio = (romaneio) => {
         { id: 'total', titulo: 'Vr Total', tipo: 'moeda', valor: (e) => e.valorTotalCentavos },
         { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, padrao: romaneio.status === 'fechado', valor: (e) => exports.ROTULO_STATUS_ENTREGA[e.status] },
         { id: 'recebedor', titulo: 'Recebido por', tipo: 'texto', largura: 34, padrao: romaneio.status === 'fechado', valor: (e) => (e.status === 'nao_entregue' ? e.motivo : e.recebedorNome) },
+        { id: 'dataEntrega', titulo: 'Data entrega', tipo: 'texto', largura: 20, padrao: romaneio.status === 'fechado', valor: (e) => dataBr((0, exports.dataDaEntrega)(e)) },
         { id: 'recebido', titulo: 'Recebido (R$)', tipo: 'moeda', padrao: romaneio.status === 'fechado', valor: (e) => e.recebidoCentavos },
         { id: 'diferenca', titulo: 'Diferença no valor', tipo: 'texto', largura: 40, padrao: resumo.comDiferenca > 0, valor: (e) => ((0, exports.precisaJustificarValor)(e) ? `${(0, exports.textoDaDiferenca)((0, exports.diferencaDoRecebido)(e))}: ${e.justificativaValor}` : '') },
         { id: 'assinatura', titulo: 'Assinatura', tipo: 'texto', largura: 34, padrao: false, valor: () => '' },
@@ -645,6 +684,7 @@ const montarDocumentoRelatorioRomaneios = (romaneios, filtro, rotuloMotorista) =
                     { id: 'cidade', titulo: 'Cidade', tipo: 'texto', largura: 26, padrao: false, valor: (e) => e.cidade },
                     { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, valor: (e) => exports.ROTULO_STATUS_ENTREGA[e.status] },
                     { id: 'detalhe', titulo: 'Recebido por / motivo', tipo: 'texto', largura: 40, valor: (e) => (e.status === 'nao_entregue' ? e.motivo : e.recebedorNome) },
+                    { id: 'dataEntrega', titulo: 'Data entrega', tipo: 'texto', largura: 20, valor: (e) => dataBr((0, exports.dataDaEntrega)(e)) },
                     { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (e) => e.valorTotalCentavos },
                 ],
             },
@@ -946,7 +986,7 @@ exports.descricaoDaMontagem = descricaoDaMontagem;
 /** Frase do registro de uma entrega: "Pedido #0375 (MERCEARIA X): Entregue, recebeu JOAO." */
 const descricaoDaEntrega = (entrega, registro) => {
     const partes = [
-        `Pedido #${entrega.numeroPedido}${limpar(entrega.clienteNome) ? ` (${limpar(entrega.clienteNome)})` : ''}: ${exports.ROTULO_STATUS_ENTREGA[registro.status] || registro.status}`,
+        `Pedido #${entrega.numeroPedido}${limpar(entrega.clienteNome) ? ` (${limpar(entrega.clienteNome)})` : ''}: ${exports.ROTULO_STATUS_ENTREGA[registro.status] || registro.status}${registro.status !== 'pendente' && ehDataDoCampo(registro.dataEntrega) ? ` em ${dataBr(registro.dataEntrega)}` : ''}`,
         registro.status === 'entregue' && limpar(registro.recebedorNome) ? `recebeu ${limpar(registro.recebedorNome)}` : '',
         registro.status === 'nao_entregue' && limpar(registro.motivo) ? `motivo: ${limpar(registro.motivo)}` : '',
         (Number(registro.recebidoCentavos) || 0) > 0 ? `motorista recebeu ${moeda(Number(registro.recebidoCentavos) || 0)}${limpar(registro.recebidoForma) ? ` em ${limpar(registro.recebidoForma)}` : ''}` : '',

@@ -43,6 +43,11 @@
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Hennder Vendas</title>
+    <!-- Tela de carregamento (09/11/2026): o Android tira a abertura do app
+         na primeira pintura da pagina e esta tela entra no lugar, ate' o React
+         assumir o #root com a mesma tela (CarregandoApp.tsx). -->
+    <link rel="stylesheet" href="/src/pages/Vendedor/carregandoApp.css" />
+    <link rel="preload" as="image" href="/icon-vendedor-192.png" />
   </head>
   <body>
     <!-- Tema antes de o React montar, para nao piscar escuro e clarear (utils/tema.ts). -->
@@ -56,7 +61,15 @@
         } catch (e) { document.body.classList.add('light-theme'); }
       })();
     </script>
-    <div id="root"></div>
+    <div id="root">
+      <div class="hv-carregando" role="status" aria-live="polite">
+        <img class="hv-carregando-icone" src="/icon-vendedor-192.png" alt="" width="88" height="88" />
+        <div class="hv-carregando-nome">Hennder Vendas</div>
+        <div class="hv-carregando-barra" aria-hidden="true"></div>
+        <div class="hv-carregando-texto">Carregando…</div>
+        <div class="hv-carregando-lento">Está demorando mais que o normal. Confira a internet do celular; o aplicativo abre sozinho assim que carregar.</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

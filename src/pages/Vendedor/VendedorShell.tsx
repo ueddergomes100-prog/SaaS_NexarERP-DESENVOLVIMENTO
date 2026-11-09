@@ -41,6 +41,7 @@ import { podeLiberarDescontoNoApp, podeTelaDoApp, PERMISSAO_APP } from './vended
 import { renovarAvisosSeAtivos } from '../../services/notificacoesPushService';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
+import CarregandoApp from './CarregandoApp';
 
 /**
  * Guarda de acesso do aplicativo do vendedor externo, separada da
@@ -70,13 +71,7 @@ const VendedorShell: React.FC = () => {
     if (currentUser && acessoAppMobile) void renovarAvisosSeAtivos();
   }, [currentUser, acessoAppMobile]);
 
-  if (loading) {
-    return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-primary)', color: 'var(--text-muted)' }}>
-        Carregando...
-      </div>
-    );
-  }
+  if (loading) return <CarregandoApp />;
 
   if (!currentUser) {
     return <Navigate to="/vendedor/login" replace />;

@@ -1,0 +1,100 @@
+/*
+ * Tela de carregamento do app Vendas (09/11/2026, pedido do dono).
+ *
+ * Aparece em dois momentos, com o MESMO desenho (por isso um arquivo so'):
+ *  1. no vendedor.html, dentro do #root, antes de o JavaScript chegar -- o
+ *     Android tira a abertura do aplicativo (fundo #0C0616 com o icone) assim
+ *     que a pagina pinta a primeira vez, e e' esta tela que entra no lugar;
+ *  2. no React (CarregandoApp.tsx), enquanto a tela pedida baixa e o login e'
+ *     conferido. O React troca o conteudo do #root pela mesma tela, sem piscar.
+ *
+ * Cores fixas (nao seguem o tema claro/escuro): continuacao da abertura do
+ * Android, que e' sempre escura.
+ */
+.hv-carregando {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 42%, #2a1258 0%, #160a2e 38%, #0c0616 72%);
+  color: #ffffff;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  text-align: center;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.hv-carregando-icone {
+  width: 88px;
+  height: 88px;
+  border-radius: 24px;
+  box-shadow: 0 12px 40px rgba(124, 58, 237, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  animation: hv-carregando-pulsar 1.8s ease-in-out infinite;
+}
+
+.hv-carregando-nome {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.hv-carregando-barra {
+  position: relative;
+  width: 148px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.hv-carregando-barra::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #a78bfa, #7c3aed);
+  animation: hv-carregando-correr 1.3s ease-in-out infinite;
+}
+
+.hv-carregando-texto {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* Internet fraca: depois de 8 s explica a demora (sem JavaScript). */
+.hv-carregando-lento {
+  max-width: 260px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  animation: hv-carregando-aparecer 0.4s ease 8s forwards;
+}
+
+@keyframes hv-carregando-pulsar {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+
+@keyframes hv-carregando-correr {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@keyframes hv-carregando-aparecer {
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hv-carregando-icone { animation: none; }
+  .hv-carregando-barra::before { animation-duration: 2.6s; }
+}

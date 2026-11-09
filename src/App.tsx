@@ -7,6 +7,13 @@ import PlatformAdminRoute from './components/layout/PlatformAdminRoute';
 import PlatformAdminLayout from './components/layout/PlatformAdminLayout';
 import AppLayout from './components/layout/AppLayout';
 import PageLoader from './components/layout/PageLoader';
+import CarregandoApp from './pages/Vendedor/CarregandoApp';
+
+// App Vendas (09/11/2026): enquanto a tela pedida baixa, a tela de carregamento
+// propria do app (a mesma que ja' vem no vendedor.html), nao o "Carregando
+// modulo..." do sistema.
+const ehRotaDoAppVendas = (caminho: string): boolean => caminho === '/vendedor' || caminho.startsWith('/vendedor/') || caminho === '/vendedor.html';
+const CarregandoRota: React.FC = () => (ehRotaDoAppVendas(window.location.pathname) ? <CarregandoApp /> : <PageLoader />);
 
 // Painel da plataforma e as rotas publicas ficam fora do sistema de abas
 // (Sistema de Abas, F19) -- continuam com import direto aqui. Todo o resto
@@ -39,7 +46,7 @@ function App() {
       <ErrorBoundary>
         <AuthProvider>
           <BrowserRouter>
-            <Suspense fallback={<PageLoader />}>
+            <Suspense fallback={<CarregandoRota />}>
               <Routes>
                 {/* Rotas Públicas */}
                 <Route path="/login" element={<AuthPage />} />

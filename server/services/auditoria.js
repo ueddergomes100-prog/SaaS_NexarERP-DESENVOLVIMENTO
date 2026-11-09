@@ -29,6 +29,8 @@ const montar = (user, dados) => ({
     vendedorId: dados.vendedorId,
     vendedorNome: dados.vendedorNome,
     snapshot: dados.snapshotExcluido ? reduzirSnapshotDeLog(dados.snapshotExcluido) : null,
+    // 'erro' (ex.: nota recusada pela Spedy) e 'negado'; sem informar, 'sucesso'.
+    status: dados.status,
     critico: dados.critico,
     rota: user.telaCliente || '',
     tela: dados.tela,

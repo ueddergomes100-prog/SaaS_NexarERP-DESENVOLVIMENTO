@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
@@ -15,9 +15,31 @@ import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
+
+/** Campos comparados no Histórico de alterações, com o nome que aparece na tela. */
+const CAMPOS_FORNECEDOR_HISTORICO: CampoComparado[] = [
+  { campo: 'codigo', rotulo: 'Código' },
+  { campo: 'nome', rotulo: 'Nome / Razão Social' },
+  { campo: 'tipo', rotulo: 'Tipo' },
+  { campo: 'identidade', rotulo: 'Inscrição Estadual / C.I.' },
+  { campo: 'telefone', rotulo: 'Telefone fixo' },
+  { campo: 'celular', rotulo: 'Celular / WhatsApp' },
+  { campo: 'cnpj', rotulo: 'CNPJ / CPF' },
+  { campo: 'email', rotulo: 'E-mail' },
+  { campo: 'cep', rotulo: 'CEP' },
+  { campo: 'endereco', rotulo: 'Rua / Logradouro' },
+  { campo: 'numero', rotulo: 'Número' },
+  { campo: 'bairro', rotulo: 'Bairro' },
+  { campo: 'cidade', rotulo: 'Cidade' },
+  { campo: 'estado', rotulo: 'Estado (UF)' },
+  { campo: 'codigoIbge', rotulo: 'Código IBGE da cidade' },
+  { campo: 'observacoes', rotulo: 'Observações' },
+];
 
 const FornecedorForm: React.FC = () => {
   const navigate = useNavigate();
@@ -55,6 +77,8 @@ const FornecedorForm: React.FC = () => {
   /** Fornecedor que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
   const [inativo, setInativo] = useState(false);
   const { currentUser, tenantId } = useAuth();
+  /** Cadastro como estava ao abrir: o "antes" do Histórico de alterações. */
+  const fornecedorOriginalRef = useRef<Record<string, unknown> | null>(null);
 
   const [isCepSearching, setIsCepSearching] = useState(false);
   const [cepSearchError, setCepSearchError] = useState('');
@@ -101,6 +125,7 @@ const FornecedorForm: React.FC = () => {
           const docSnap = await getDoc(doc(db, 'fornecedores', id));
           if (docSnap.exists()) {
             const data = docSnap.data() as any;
+            fornecedorOriginalRef.current = data;
             setFormData(prev => ({ ...prev, ...data }));
             setInativo(data.ativo === false);
           }
@@ -190,12 +215,42 @@ const FornecedorForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = diferencasEntre(fornecedorOriginalRef.current, dataToSave as Record<string, unknown>, CAMPOS_FORNECEDOR_HISTORICO);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Fornecedor ${dataToSave.nome} alterado: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'fornecedor',
+            documentoNumero: `Fornecedor ${dataToSave.nome}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
+        fornecedorOriginalRef.current = { ...(fornecedorOriginalRef.current || {}), ...dataToSave };
         showSuccess('Fornecedor atualizado!');
       } else {
-        await addDoc(collection(db, 'fornecedores'), {
+        const novo = await addDoc(collection(db, 'fornecedores'), {
           ...dataToSave,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Fornecedor ${dataToSave.nome} cadastrado${dataToSave.codigo ? ` (código ${dataToSave.codigo})` : ''}.`,
+          registroRelacionadoId: novo.id,
+          documentoTipo: 'fornecedor',
+          documentoNumero: `Fornecedor ${dataToSave.nome}`,
+          status: 'sucesso',
         });
         showSuccess('Fornecedor cadastrado!');
       }

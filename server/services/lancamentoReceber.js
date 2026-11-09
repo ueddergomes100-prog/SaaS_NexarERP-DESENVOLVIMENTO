@@ -10,7 +10,9 @@
 const { admin, db } = require('../config/firebase');
 const dom = require('../domain/lancamentoReceberDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
+const { fromCents } = require('../domain/financeDomain');
 const { ErroBaixa } = require('./baixaFinanceira');
+const auditoria = require('./auditoria');
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
 
@@ -132,6 +134,20 @@ const cancelarContaAReceber = async ({ user, tenantId, corpo }) => {
       cancelamento: { motivo: pedido.motivo, porUid: user.uid, ...(user.email ? { porEmail: user.email } : {}), em: agora() },
       updatedAt: agora(),
       ...buildDocumentUpdateMetadata(user.uid, agora(), `Conta a receber cancelada: ${pedido.motivo}`),
+    });
+    // Historico de alteracoes (09/11/2026): na MESMA transacao do cancelamento (ultima escrita).
+    auditoria.registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'cancelamento',
+      descricao: `Conta a receber "${resumo.descricao}" de ${resumo.devedorNome || 'sem nome'} (R$ ${fromCents(resumo.valorCentavos).toFixed(2).replace('.', ',')}) cancelada. Motivo: ${pedido.motivo}`,
+      registroId: pedido.transacaoId,
+      documentosRelacionados: [dados.pedidoId, dados.osId].filter(Boolean).map(String),
+      documentoTipo: 'conta_receber',
+      documentoNumero: `Conta a receber ${resumo.descricao || pedido.transacaoId}`,
+      motivo: pedido.motivo,
+      alteracoes: [{ campo: 'Situação', valorAnterior: String(dados.status || 'Pendente'), valorNovo: 'Cancelada' }],
+      critico: true,
+      snapshotExcluido: dados,
     });
   });
   return { ...resumo, motivo: pedido.motivo };

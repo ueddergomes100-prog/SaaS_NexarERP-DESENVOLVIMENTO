@@ -11,6 +11,8 @@ import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useT
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
 import { normalizeCreditCardFeeSchedule } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
@@ -62,6 +64,26 @@ const BANDEIRAS_PADRAO: Array<Pick<BandeiraCartao, 'nome' | 'ativo' | 'ordem'>> 
 ];
 
 const REQUIRED_PERMISSION = 'cadastros.bandeiras_cartao';
+
+/** Taxas e prazos da bandeira "achatados" para o Histórico de alterações (um campo por parcela). */
+const taxasParaHistorico = (dados: {
+  taxaDebitoPercentual?: unknown;
+  taxasCreditoPorParcela?: Record<string, unknown> | null;
+  prazoRecebimentoCreditoDias?: unknown;
+  prazoRecebimentoDebitoDias?: unknown;
+}): Record<string, unknown> => ({
+  taxaDebitoPercentual: dados.taxaDebitoPercentual ?? null,
+  prazoRecebimentoCreditoDias: dados.prazoRecebimentoCreditoDias ?? null,
+  prazoRecebimentoDebitoDias: dados.prazoRecebimentoDebitoDias ?? null,
+  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`credito${i + 1}x`, dados.taxasCreditoPorParcela?.[String(i + 1)] ?? null])),
+});
+
+const CAMPOS_TAXAS_HISTORICO: CampoComparado[] = [
+  { campo: 'taxaDebitoPercentual', rotulo: 'Taxa de débito (%)' },
+  ...Array.from({ length: 12 }, (_, i) => ({ campo: `credito${i + 1}x`, rotulo: `Taxa de crédito em ${i + 1}x (%)` })),
+  { campo: 'prazoRecebimentoCreditoDias', rotulo: 'Prazo de recebimento do crédito (dias)' },
+  { campo: 'prazoRecebimentoDebitoDias', rotulo: 'Prazo de recebimento do débito (dias)' },
+];
 
 const BandeirasCartaoList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
@@ -151,6 +173,16 @@ const BandeirasCartaoList: React.FC = () => {
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
       }
+      createAuditLog({
+        tenantId: tenantId || '',
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'cadastros',
+        acao: 'criacao',
+        descricao: `${missing.length} bandeira(s) de cartão padrão cadastrada(s): ${missing.map((item) => item.nome).join(', ')}.`,
+        documentoTipo: 'bandeira_cartao',
+        status: 'sucesso',
+      });
       showSuccess('Bandeiras padrão adicionadas!');
     } catch (error) {
       console.error(error);
@@ -243,6 +275,34 @@ const BandeirasCartaoList: React.FC = () => {
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Taxas de cartão atualizadas'),
       });
+      // Historico de alteracoes (09/11/2026): taxa por taxa, so' quando algo mudou.
+      const alteracoes = diferencasEntre(
+        taxasParaHistorico(feesTarget),
+        taxasParaHistorico({
+          taxaDebitoPercentual: debitFee,
+          taxasCreditoPorParcela: creditFees,
+          prazoRecebimentoCreditoDias: creditSettlementDays,
+          prazoRecebimentoDebitoDias: debitSettlementDays,
+        }),
+        CAMPOS_TAXAS_HISTORICO,
+      );
+      if (alteracoes.length > 0) {
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'edicao',
+          descricao: feesTarget.taxasCreditoPorParcela === undefined
+            ? `Bandeira ${feesTarget.nome}: taxas e prazos próprios definidos (antes usava os das Configurações).`
+            : `Bandeira ${feesTarget.nome}: taxas e prazos alterados (${alteracoes.map((a) => a.campo).join(', ')}).`,
+          registroRelacionadoId: feesTarget.id,
+          documentoTipo: 'bandeira_cartao',
+          documentoNumero: `Bandeira ${feesTarget.nome}`,
+          alteracoes,
+          status: 'sucesso',
+        });
+      }
       showSuccess('Taxas atualizadas!');
       closeFeesModal();
     } catch (error) {
@@ -301,6 +361,27 @@ const BandeirasCartaoList: React.FC = () => {
           ...docDataSemSituacao,
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const anterior = bandeiras.find((b) => b.id === editingId);
+        const alteracoes = diferencasEntre(anterior as unknown as Record<string, unknown> | undefined, docDataSemSituacao, [
+          { campo: 'nome', rotulo: 'Nome' },
+          { campo: 'ordem', rotulo: 'Ordem' },
+        ]);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Bandeira ${docData.nome} alterada: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: editingId,
+            documentoTipo: 'bandeira_cartao',
+            documentoNumero: `Bandeira ${docData.nome}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Bandeira atualizada!');
       } else {
         const jaExiste = bandeiras.some((b) => b.nome.toUpperCase() === docData.nome.toUpperCase());
@@ -310,10 +391,22 @@ const BandeirasCartaoList: React.FC = () => {
           return;
         }
 
-        await addDoc(collection(db, 'bandeiras_cartao'), {
+        const nova = await addDoc(collection(db, 'bandeiras_cartao'), {
           ...docData,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Bandeira de cartão ${docData.nome} cadastrada.`,
+          registroRelacionadoId: nova.id,
+          documentoTipo: 'bandeira_cartao',
+          documentoNumero: `Bandeira ${docData.nome}`,
+          status: 'sucesso',
         });
         showSuccess('Bandeira cadastrada!');
       }

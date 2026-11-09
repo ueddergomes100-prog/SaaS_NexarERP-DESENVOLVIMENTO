@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { ROTULO_POR_ORIGEM } from '../../utils/producaoDomain';
+import { createAuditLog } from '../../services/logService';
 import {
   decodificarArquivoTexto,
   detectarDelimitador,
@@ -227,9 +228,38 @@ const ImportarComposicao: React.FC = () => {
     }
 
     setSalvando(true);
+    // Historico de alteracoes (09/11/2026): uma importacao = um registro (nao um por produto).
+    const gravados: typeof grupos = [];
+    let registrada = false;
+    const registrarImportacao = (concluida: boolean, total: number) => {
+      if (gravados.length === 0 || registrada) return;
+      registrada = true;
+      const substituidas = gravados.filter((g) => composicoesExistentes.has(g.produtoId)).length;
+      const itens = gravados.reduce((soma, g) => soma + g.itens.length, 0);
+      const nomes = gravados.map((g) => g.produtoNome).filter(Boolean);
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'estoque',
+        acao: 'importacao',
+        descricao: [
+          concluida
+            ? `Importou a composição (receita) de ${gravados.length} produto(s) da planilha "${nomeArquivo}": ${itens} componente(s) no total.`
+            : `Importação de composição da planilha "${nomeArquivo}" interrompida por erro: ${gravados.length} de ${total} produto(s) foram gravados.`,
+          substituidas > 0 ? `${substituidas} produto(s) já tinham composição e ela foi substituída.` : '',
+          `Produtos: ${nomes.slice(0, 20).join(', ')}${nomes.length > 20 ? ` e mais ${nomes.length - 20}` : ''}.`,
+        ].filter(Boolean).join(' '),
+        // Os primeiros produtos tambem mostram a importacao no historico deles.
+        documentosRelacionados: gravados.map((g) => g.produtoId).slice(0, 10),
+        documentoTipo: 'produto',
+        documentoNumero: `Planilha ${nomeArquivo}`,
+        status: concluida ? 'sucesso' : 'erro',
+      });
+    };
+    const timestamp = serverTimestamp();
+    const paraGravar = substituirExistentes ? grupos : grupos.filter((g) => !composicoesExistentes.has(g.produtoId));
     try {
-      const timestamp = serverTimestamp();
-      const paraGravar = substituirExistentes ? grupos : grupos.filter((g) => !composicoesExistentes.has(g.produtoId));
 
       const LOTE_MAXIMO = 400;
       for (let inicio = 0; inicio < paraGravar.length; inicio += LOTE_MAXIMO) {
@@ -242,7 +272,9 @@ const ImportarComposicao: React.FC = () => {
           batch.set(doc(db, 'produtos_composicao', grupo.produtoId), montarComposicaoImportada(grupo, tenantId, currentUser.uid, timestamp));
         });
         await batch.commit();
+        gravados.push(...lote);
       }
+      registrarImportacao(true, paraGravar.length);
 
       setResultado({
         produtos: paraGravar.length,
@@ -261,6 +293,7 @@ const ImportarComposicao: React.FC = () => {
       });
     } catch (error) {
       console.error('Erro ao importar composições:', error);
+      registrarImportacao(false, paraGravar.length);
       showError('Erro ao importar', 'Não foi possível concluir a importação. Confira sua conexão e tente novamente.');
     } finally {
       setSalvando(false);

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
 import { spedyService } from '../../services/spedyService';
 import {
   devolucaoNfeService,
@@ -41,7 +40,6 @@ const formatarData = (iso: string | null | undefined): string => {
 };
 
 const DevolucaoNfeModal: React.FC<DevolucaoNfeModalProps> = ({ devolucaoId, numeroPedido, onClose }) => {
-  const { currentUser, tenantId } = useAuth();
   const [previa, setPrevia] = useState<PreviaDevolucaoNfe | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
@@ -109,22 +107,10 @@ const DevolucaoNfeModal: React.FC<DevolucaoNfeModalProps> = ({ devolucaoId, nume
           consultar: (tipo, spedyId) => spedyService.getInvoice(tipo === 'NFS-e' ? 'service' : tipo === 'NFC-e' ? 'consumer' : 'product', spedyId),
         });
       }
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser?.uid || '',
-          usuarioEmail: currentUser?.email || '',
-          modulo: 'fiscal',
-          acao: 'emissao_devolucao',
-          descricao: `NF-e de devolução enviada${numeroPedido ? ` para o pedido #${numeroPedido}` : ''} no valor de ${moeda(previa.valorTotal)}.`,
-          registroRelacionadoId: resultado.notaId,
-          status: 'sucesso',
-          critical: true,
-        });
-      } catch {
-        // auditoria nao pode derrubar a emissao
-      }
+      // Historico de alteracoes (09/11/2026): gravado pelo SERVIDOR na emissao
+      // (server/routes/devolucaoNfe.routes.js), ligado a nota, a devolucao e ao
+      // pedido de origem -- inclusive quando a Spedy recusa. Registrar aqui
+      // tambem duplicaria o registro.
     } catch (erro) {
       setProgresso((atual) => (atual ? { ...atual, desfecho: 'falha_envio', erroEnvio: (erro as Error).message } : atual));
     } finally {

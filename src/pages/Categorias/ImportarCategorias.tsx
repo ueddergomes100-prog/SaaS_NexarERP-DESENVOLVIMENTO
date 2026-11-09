@@ -9,6 +9,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
 import {
   decodificarArquivoTexto,
   detectarDelimitador,
@@ -142,6 +143,7 @@ const ImportarCategorias: React.FC = () => {
     }
 
     setSalvando(true);
+    let gravadas = 0;
     try {
       const timestamp = serverTimestamp();
 
@@ -161,6 +163,7 @@ const ImportarCategorias: React.FC = () => {
         });
 
         await batch.commit();
+        gravadas += lote.length;
       }
 
       setResultadoImportacao({ criados: linhasAtivas.length });
@@ -171,6 +174,22 @@ const ImportarCategorias: React.FC = () => {
       showError('Erro ao importar', 'Não foi possível concluir a importação. Nenhuma categoria foi gravada neste lote com erro -- tente novamente.');
     } finally {
       setSalvando(false);
+      // Historico de alteracoes (09/11/2026): um registro com a quantidade
+      // (se parou no meio, conta so' os lotes que foram gravados).
+      if (gravadas > 0) {
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'importacao',
+          descricao: gravadas === linhasAtivas.length
+            ? `${gravadas} categoria(s) importada(s) por planilha.`
+            : `${gravadas} de ${linhasAtivas.length} categoria(s) importada(s) por planilha (a importação parou no meio).`,
+          documentoTipo: 'categoria',
+          status: 'sucesso',
+        });
+      }
     }
   };
 

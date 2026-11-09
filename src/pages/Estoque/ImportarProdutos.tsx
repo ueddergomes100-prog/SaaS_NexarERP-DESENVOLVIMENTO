@@ -14,6 +14,7 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { garantirMarcasCadastradas } from '../../utils/marcaDomain';
+import { createAuditLog } from '../../services/logService';
 import {
   decodificarArquivoTexto,
   detectarDelimitador,
@@ -346,6 +347,31 @@ const ImportarProdutos: React.FC = () => {
     }
 
     setSalvando(true);
+    // Historico de alteracoes (09/11/2026): uma importacao = um registro (nao um por produto).
+    let gravados = 0;
+    let primeiroCodigo = '';
+    let ultimoCodigo = '';
+    let registrada = false;
+    let ligouEmbalagem = false;
+    const registrarImportacao = (concluida: boolean) => {
+      if (gravados === 0 || registrada) return;
+      registrada = true;
+      const codigos = primeiroCodigo && ultimoCodigo ? ` (códigos ${primeiroCodigo} a ${ultimoCodigo})` : '';
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'estoque',
+        acao: 'importacao',
+        descricao: concluida
+          ? `Importou ${gravados} produto(s) da planilha "${nomeArquivo}"${codigos}.${ligouEmbalagem ? ' A venda por embalagem foi ligada nas configurações.' : ''}`
+          : `Importação de produtos da planilha "${nomeArquivo}" interrompida por erro: ${gravados} de ${produtos.length} foram gravados${codigos}.`,
+        documentoTipo: 'produto',
+        documentoNumero: `Planilha ${nomeArquivo}`,
+        ...(ligouEmbalagem ? { alteracoes: [{ campo: 'Vender por embalagem (configuração)', valorAnterior: 'Não', valorNovo: 'Sim' }] } : {}),
+        status: concluida ? 'sucesso' : 'erro',
+      });
+    };
     try {
       let proximoCodigo = Number(await getProximoCodigoProduto(tenantId));
       const timestamp = serverTimestamp();
@@ -355,6 +381,7 @@ const ImportarProdutos: React.FC = () => {
       for (let inicio = 0; inicio < produtos.length; inicio += LOTE_MAXIMO) {
         const lote = produtos.slice(inicio, inicio + LOTE_MAXIMO);
         const batch = writeBatch(db);
+        const codigoInicialDoLote = String(proximoCodigo);
 
         lote.forEach((produto) => {
           const unidadeBase = unidadesDisponiveis.find((u) => u.id === produto.unidadeId);
@@ -405,7 +432,12 @@ const ImportarProdutos: React.FC = () => {
         }
 
         await batch.commit();
+        gravados += lote.length;
+        if (inicio === 0 && precisaLigarEmbalagem) ligouEmbalagem = true;
+        if (!primeiroCodigo) primeiroCodigo = codigoInicialDoLote;
+        ultimoCodigo = String(proximoCodigo - 1);
       }
+      registrarImportacao(true);
 
       // Cadastro de Marcas ja nasce completo -- cria as que a planilha
       // trouxe e ainda nao existiam, sem o usuario ter que digitar cada
@@ -419,6 +451,8 @@ const ImportarProdutos: React.FC = () => {
       await sincronizarCustosSemFalhar({ tenantId, usuarioId: currentUser.uid, origemDaMudanca: 'Importação de produtos', todos: true });
     } catch (error) {
       console.error('Erro ao importar produtos:', error);
+      // Parte dos lotes ja' entrou: o registro diz quantos, para conferir antes de repetir.
+      registrarImportacao(false);
       showError(
         'Erro ao importar',
         `A importação parou antes de terminar. ${(error as Error)?.message || ''}

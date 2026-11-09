@@ -12,6 +12,7 @@ import { fetchComTimeout } from '../../utils/fetchComTimeout';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
+import { createAuditLog } from '../../services/logService';
 import {
   decodificarArquivoTexto,
   detectarDelimitador,
@@ -309,6 +310,7 @@ const ImportarClientes: React.FC = () => {
 
     setSalvando(true);
     setProgressoIbge({ atual: 0, total: 0 });
+    let gravados = 0;
     try {
       const mapaIbgePorCep = await resolverCodigosIbgePorCep(
         linhasAtivas.map((c) => c.cep),
@@ -374,6 +376,7 @@ const ImportarClientes: React.FC = () => {
         });
 
         await batch.commit();
+        gravados += lote.length;
       }
 
       setResultadoImportacao({ criados: linhasAtivas.length });
@@ -385,6 +388,22 @@ const ImportarClientes: React.FC = () => {
     } finally {
       setSalvando(false);
       setProgressoIbge(null);
+      // Historico de alteracoes (09/11/2026): um registro com a quantidade
+      // (se parou no meio, conta so' os lotes que foram gravados).
+      if (gravados > 0) {
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'importacao',
+          descricao: gravados === linhasAtivas.length
+            ? `${gravados} cliente(s) importado(s) por planilha.`
+            : `${gravados} de ${linhasAtivas.length} cliente(s) importado(s) por planilha (a importação parou no meio).`,
+          documentoTipo: 'cliente',
+          status: 'sucesso',
+        });
+      }
     }
   };
 

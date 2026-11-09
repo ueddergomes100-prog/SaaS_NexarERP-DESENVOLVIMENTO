@@ -234,8 +234,14 @@ const NotasAvulsasList: React.FC = () => {
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'nota_avulsa',
           acao: 'cancelamento',
-          descricao: `Nota Avulsa #${nota.numero} cancelada (fornecedor "${nota.fornecedorNome}").`,
+          descricao: `Nota Avulsa #${nota.numero} cancelada (fornecedor "${nota.fornecedorNome}"). Estoque retirado e ${transacaoRefsExternos.length} lançamento(s) financeiro(s) cancelado(s).`,
           registroRelacionadoId: nota.id,
+          // Historico de alteracoes (09/11/2026): tambem nos titulos cancelados, com a copia da nota.
+          documentosRelacionados: transacaoRefsExternos.map((ref) => ref.id),
+          documentoTipo: 'nota_avulsa',
+          documentoNumero: `Nota Avulsa ${nota.numero} — ${nota.fornecedorNome}`,
+          alteracoes: [{ campo: 'Situação', valorAnterior: 'Ativa', valorNovo: 'Cancelada' }],
+          snapshotExcluido: { ...nota },
           status: 'sucesso',
           critical: true,
         });

@@ -88,12 +88,13 @@ export const definirServidorQueRecebeTela = (base: string) => {
 const comTelaNaUrl = (url: string, init: RequestInit): string => {
   const metodo = String(init.method || 'GET').toUpperCase();
   if (!servidorQueRecebeTela || metodo === 'GET' || !url.startsWith(servidorQueRecebeTela) || /[?&]_tela=/.test(url)) return url;
-  let tela = '';
-  try {
-    tela = typeof window !== 'undefined' ? window.location.pathname : '';
-  } catch {
-    tela = '';
-  }
+  const tela = (() => {
+    try {
+      return typeof window !== 'undefined' ? window.location.pathname : '';
+    } catch {
+      return '';
+    }
+  })();
   if (!tela) return url;
   return `${url}${url.includes('?') ? '&' : '?'}_tela=${encodeURIComponent(tela.slice(0, 200))}`;
 };

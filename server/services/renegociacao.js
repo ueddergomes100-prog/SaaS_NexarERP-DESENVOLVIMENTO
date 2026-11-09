@@ -30,6 +30,9 @@ const {
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { ErroBaixa, agora, apagar, lerTitulo, lerBanco } = require('./baixaFinanceira');
 const { reabrirOrigens } = require('./renegociacaoOrigem');
+const auditoria = require('./auditoria');
+
+const reaisDoHistorico = (centavos) => `R$ ${fromCents(centavos).toFixed(2).replace('.', ',')}`;
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -310,6 +313,21 @@ const desfazerRenegociacao = async ({ user, tenantId, pedido }) => {
     resumo.quantidadeNovas = novos.length;
     resumo.quantidadeAntigas = antigos.length;
     resumo.clienteNome = inicial.dados.clienteNome || 'cliente';
+
+    // Historico de alteracoes (09/11/2026): na MESMA transacao (ultima escrita),
+    // com o mesmo texto que a rota gravava depois.
+    auditoria.registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'cancelamento',
+      descricao: `Renegociação de ${resumo.clienteNome} desfeita: ${resumo.quantidadeNovas} parcela(s) nova(s) cancelada(s)${resumo.estornadas ? ` (${resumo.estornadas} recebida(s) estornada(s), ${reaisDoHistorico(resumo.retiradoDoBancoCentavos)} saíram do banco)` : ''} e ${resumo.quantidadeAntigas} parcela(s) antiga(s) de volta em aberto. Motivo: ${pedido.motivo}`,
+      registroId: registro.id,
+      // As parcelas antigas (de volta em aberto) e as novas (canceladas).
+      documentosRelacionados: [...antigos.map((a) => a.ref.id), ...novos.map((n) => n.id)],
+      documentoTipo: 'renegociacao',
+      documentoNumero: `Renegociação de ${resumo.clienteNome}`,
+      motivo: pedido.motivo,
+      critico: true,
+    });
   });
 
   return resumo;

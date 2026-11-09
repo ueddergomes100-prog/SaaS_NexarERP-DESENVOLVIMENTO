@@ -24,6 +24,8 @@ import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
 import { avisoDeSoma, erroDaDespesa, montarTitulosDaDespesa } from '../../utils/despesaParceladaDomain';
 import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2 } from 'lucide-react';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import {
@@ -75,6 +77,24 @@ interface TransacaoData extends TituloParaEstorno {
   motoristaNome?: string;
 }
 
+/** Historico de alteracoes (09/11/2026): valores como o usuario le. */
+const reaisDoHistorico = (valor: unknown): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
+
+/** Campos da conta a pagar comparados na edicao, com o nome que o usuario entende. */
+const CAMPOS_DA_CONTA_A_PAGAR: CampoComparado[] = [
+  { campo: 'descricao', rotulo: 'Descrição' },
+  { campo: 'valor', rotulo: 'Valor', formatar: (v) => (v === undefined || v === null || v === '' ? '' : reaisDoHistorico(v)) },
+  { campo: 'data', rotulo: 'Vencimento', formatar: (v) => dataBrasileira(typeof v === 'string' ? v : '') || (v ?? '') },
+  { campo: 'categoria', rotulo: 'Categoria' },
+  { campo: 'fornecedorNome', rotulo: 'Fornecedor' },
+  { campo: 'formaPagamentoPrevista', rotulo: 'Forma de pagamento' },
+  { campo: 'veiculoNome', rotulo: 'Veículo' },
+  { campo: 'motoristaNome', rotulo: 'Motorista' },
+];
+
+/** Como o usuario conhece a conta no Historico de alteracoes. */
+const numeroDaContaAPagar = (descricao: unknown): string => `Conta a pagar ${String(descricao || '').trim() || 'sem descrição'}`;
+
 // Espelha GrupoCliente de ContasReceber.tsx. Diferenca deliberada: uma
 // despesa nem sempre tem fornecedor -- compras importadas de XML gravam
 // fornecedorId/fornecedorNome (ver EntradaNFE.tsx), mas despesa lancada a
@@ -97,6 +117,8 @@ const ContasPagar: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Como a conta estava ao abrir a edicao: base do "antes e depois" do historico.
+  const [contaEmEdicao, setContaEmEdicao] = useState<TransacaoData | null>(null);
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
   const [buscaGrupo, setBuscaGrupo] = useState('');
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
@@ -318,6 +340,7 @@ const ContasPagar: React.FC = () => {
     });
     setBuscaFornecedor('');
     setEditingId(null);
+    setContaEmEdicao(null);
     setVeiculoDaDespesa('');
     setMotoristaDaDespesa('');
     setFormaDespesa('Boleto');
@@ -352,6 +375,7 @@ const ContasPagar: React.FC = () => {
     setVeiculoDaDespesa(t.veiculoId || '');
     setMotoristaDaDespesa(t.motoristaId || '');
     setEditingId(t.id);
+    setContaEmEdicao(t);
     setIsModalOpen(true);
   };
 
@@ -384,22 +408,20 @@ const ContasPagar: React.FC = () => {
           status: 'Cancelada',
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Lançamento cancelado: ${result.value}`),
         });
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser.uid,
-            usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'financeiro',
-            acao: 'cancelamento',
-            descricao: `Despesa "${t.descricao}" cancelada. Motivo: ${result.value}`,
-            registroRelacionadoId: t.id,
-            status: 'sucesso',
-            critical: true,
-          });
-        } catch {
-          // ignore audit log error
-        }
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'financeiro',
+          acao: 'cancelamento',
+          descricao: `Despesa "${t.descricao}" cancelada. Motivo: ${result.value}`,
+          registroRelacionadoId: t.id,
+          documentoTipo: 'conta_pagar',
+          documentoNumero: numeroDaContaAPagar(t.descricao),
+          motivo: String(result.value || '').trim(),
+          status: 'sucesso',
+          critical: true,
+        });
         showSuccess('Despesa cancelada com sucesso!');
       } catch (err) {
         showError('Erro', 'Não foi possível cancelar o lançamento.');
@@ -456,13 +478,35 @@ const ContasPagar: React.FC = () => {
         const grupoParcelasId = doc(collection(db, 'transacoes')).id;
         const titulos = montarTitulosDaDespesa(dadosDaDespesa, parcelasDespesa, bancosParaCheque, grupoParcelasId);
         const lote = writeBatch(db);
-        titulos.forEach((titulo) => lote.set(doc(collection(db, 'transacoes')), {
-          ...titulo,
-          tenantId,
-          createdAt: serverTimestamp(),
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-        }));
+        const idsDosTitulos: string[] = [];
+        titulos.forEach((titulo) => {
+          const ref = doc(collection(db, 'transacoes'));
+          idsDosTitulos.push(ref.id);
+          lote.set(ref, {
+            ...titulo,
+            tenantId,
+            createdAt: serverTimestamp(),
+            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          });
+        });
         await lote.commit();
+        // Historico de alteracoes (09/11/2026): um registro pela gravacao inteira.
+        const totalLancado = titulos.reduce((soma, titulo) => soma + (Number(titulo.valorCentavos) || 0), 0) / 100;
+        const descricaoBase = formData.descricao.toUpperCase().trim();
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'financeiro',
+          acao: 'criacao',
+          descricao: `Conta a pagar "${descricaoBase}" lançada em ${titulos.length} ${formaDespesa === 'Cheque' ? 'cheque(s)' : 'parcela(s)'}, total de ${reaisDoHistorico(totalLancado)}`
+            + `${fornecedorEscolhido ? `, fornecedor ${fornecedorEscolhido.fornecedorNome}` : ', sem fornecedor'}. Forma: ${formaDespesa}.`,
+          registroRelacionadoId: idsDosTitulos[0],
+          documentosRelacionados: idsDosTitulos.slice(1),
+          documentoTipo: 'conta_pagar',
+          documentoNumero: numeroDaContaAPagar(descricaoBase),
+          status: 'sucesso',
+        });
         showSuccess(formaDespesa === 'Cheque'
           ? `${titulos.length} cheque(s) lançado(s)! Confirme a compensação em Financeiro › Cheques › Emitidos.`
           : `${titulos.length} parcela(s) lançada(s) em Contas a Pagar!`);
@@ -471,7 +515,7 @@ const ContasPagar: React.FC = () => {
       }
 
       if (editingId) {
-        await updateDoc(doc(db, 'transacoes', editingId), {
+        const camposEditados = {
           descricao: formData.descricao.toUpperCase().trim(),
           data: formData.data,
           valor: valorNum,
@@ -480,12 +524,36 @@ const ContasPagar: React.FC = () => {
           ...(fornecedorEscolhido || { fornecedorId: '', fornecedorNome: '' }),
           ...(veiculoEscolhido ? dadosDoVeiculo : { veiculoId: '', veiculoNome: '', veiculoPlaca: '' }),
           ...(motoristaEscolhido ? {} : { motoristaId: '', motoristaNome: '' }),
+        };
+        await updateDoc(doc(db, 'transacoes', editingId), {
+          ...camposEditados,
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const antes = contaEmEdicao && contaEmEdicao.id === editingId
+          ? (contaEmEdicao as unknown as Record<string, unknown>)
+          : null;
+        const alteracoes = antes ? diferencasEntre(antes, { ...antes, ...camposEditados }, CAMPOS_DA_CONTA_A_PAGAR) : [];
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'financeiro',
+            acao: 'edicao',
+            descricao: `Conta a pagar "${camposEditados.descricao}" alterada (${alteracoes.map((a) => a.campo).join(', ')}).`,
+            registroRelacionadoId: editingId,
+            documentoTipo: 'conta_pagar',
+            documentoNumero: numeroDaContaAPagar(camposEditados.descricao),
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Conta atualizada com sucesso!');
       } else {
-        await addDoc(collection(db, 'transacoes'), {
-          descricao: formData.descricao.toUpperCase().trim(),
+        const descricaoNova = formData.descricao.toUpperCase().trim();
+        const novaConta = await addDoc(collection(db, 'transacoes'), {
+          descricao: descricaoNova,
           data: formData.data,
           valor: valorNum,
           categoria: formData.categoria.toUpperCase().trim(),
@@ -497,6 +565,19 @@ const ContasPagar: React.FC = () => {
           tenantId,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'financeiro',
+          acao: 'criacao',
+          descricao: `Conta a pagar "${descricaoNova}" lançada: ${reaisDoHistorico(valorNum)}, vencimento ${dataBrasileira(formData.data) || formData.data}`
+            + `${fornecedorEscolhido ? `, fornecedor ${fornecedorEscolhido.fornecedorNome}` : ', sem fornecedor'}, 1 parcela. Forma: ${formaDespesa}.`,
+          registroRelacionadoId: novaConta.id,
+          documentoTipo: 'conta_pagar',
+          documentoNumero: numeroDaContaAPagar(descricaoNova),
+          status: 'sucesso',
         });
         showSuccess('Conta a pagar lançada com sucesso!');
       }

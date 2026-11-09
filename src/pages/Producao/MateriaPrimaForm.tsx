@@ -14,6 +14,31 @@ import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService'
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
+
+/** Numero sem valor (cadastro antigo sem o campo) conta como 0: nao vira "alteracao" falsa. */
+const numeroOuZero = (v: unknown): number => Number(v) || 0;
+const reais = (v: unknown): string => numeroOuZero(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/** Campos da materia-prima que aparecem no Histórico de alterações (o saldo nao muda pela edicao). */
+const CAMPOS_DO_HISTORICO: CampoComparado[] = [
+  { campo: 'codigo', rotulo: 'Código' },
+  { campo: 'nome', rotulo: 'Nome' },
+  { campo: 'categoria', rotulo: 'Categoria' },
+  { campo: 'unidade', rotulo: 'Unidade' },
+  { campo: 'estoqueMinimo', rotulo: 'Estoque mínimo', formatar: numeroOuZero },
+  { campo: 'precoCusto', rotulo: 'Custo unitário', formatar: reais },
+  { campo: 'fornecedor', rotulo: 'Fornecedor' },
+  { campo: 'marca', rotulo: 'Marca' },
+  { campo: 'referencia', rotulo: 'Referência' },
+  { campo: 'lote', rotulo: 'Lote' },
+  { campo: 'validade', rotulo: 'Validade' },
+];
+
+const rotuloDaMateriaPrima = (nome: string, codigo: string): string => (
+  `Matéria-prima ${nome}${codigo ? ` (cód. ${codigo})` : ''}`
+);
 
 const inputStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-tertiary)',
@@ -205,6 +230,23 @@ const MateriaPrimaForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou, campo a campo.
+        const alteracoes = diferencasEntre(antesDaEdicao.data() || {}, dataToSaveSemSaldo, CAMPOS_DO_HISTORICO);
+        if (tenantId && alteracoes.length > 0) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'producao',
+            acao: 'edicao',
+            descricao: `${rotuloDaMateriaPrima(dataToSave.nome, dataToSave.codigo)} alterada: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'materia_prima',
+            documentoNumero: rotuloDaMateriaPrima(dataToSave.nome, dataToSave.codigo),
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         if (tenantId && custoAnterior !== dataToSave.precoCusto) {
           // O custo dos produtos acabados acompanha a materia-prima. Mostra o
           // impacto (custo, margem, preco de venda que NAO foi mexido).
@@ -217,11 +259,25 @@ const MateriaPrimaForm: React.FC = () => {
         }
         showSuccess('Matéria-prima atualizada!');
       } else {
-        await addDoc(collection(db, 'materias_primas'), {
+        const novaRef = await addDoc(collection(db, 'materias_primas'), {
           ...dataToSave,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
+        if (tenantId) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'producao',
+            acao: 'criacao',
+            descricao: `${rotuloDaMateriaPrima(dataToSave.nome, dataToSave.codigo)} cadastrada: saldo inicial ${dataToSave.quantidade} ${dataToSave.unidade}, custo ${reais(dataToSave.precoCusto)}.`,
+            registroRelacionadoId: novaRef.id,
+            documentoTipo: 'materia_prima',
+            documentoNumero: rotuloDaMateriaPrima(dataToSave.nome, dataToSave.codigo),
+            status: 'sucesso',
+          });
+        }
         showSuccess('Matéria-prima cadastrada!');
       }
       initialSnapshotRef.current = JSON.stringify(formData);

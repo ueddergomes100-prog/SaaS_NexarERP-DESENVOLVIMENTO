@@ -19,6 +19,7 @@ import './Estoque.css';
 import { CadastroError, alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { createAuditLog } from '../../services/logService';
 import OrigensDaReservaModal from '../../components/common/OrigensDaReservaModal';
 import { resumoDeReserva } from '../../utils/estoqueReservaDomain';
 import { ordenarPorSaldo, proximaOrdemSaldo, ROTULO_FILTRO_SALDO, ROTULO_ORDEM_SALDO, saldoPassaNoFiltro, type FiltroSaldo, type OrdemSaldo } from '../../utils/estoqueListaDomain';
@@ -224,8 +225,27 @@ const EstoqueList: React.FC = () => {
 
     if (isConfirmed.isConfirmed) {
       setLoading(true);
+      // Historico de alteracoes (09/11/2026): UM registro para a padronizacao inteira
+      // (nao um por produto), com quantos mudaram e uma amostra do antes -> depois.
+      let count = 0;
+      const amostra: Array<{ campo: string; valorAnterior: string; valorNovo: string }> = [];
+      const registrar = (concluida: boolean) => {
+        if (count === 0) return;
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'estoque',
+          acao: 'edicao',
+          descricao: concluida
+            ? `Padronizou os nomes dos produtos em MAIÚSCULAS: ${count} produto(s) alterado(s).${count > amostra.length ? ` Abaixo, os ${amostra.length} primeiros.` : ''}`
+            : `Padronização dos nomes em MAIÚSCULAS interrompida por erro: ${count} produto(s) chegaram a ser alterados.`,
+          documentoTipo: 'produto',
+          alteracoes: amostra,
+          status: concluida ? 'sucesso' : 'erro',
+        });
+      };
       try {
-        let count = 0;
         for (const p of pecasList) {
           const upName = p.nome.toUpperCase().trim();
           if (p.nome !== upName) {
@@ -234,10 +254,13 @@ const EstoqueList: React.FC = () => {
               ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Nome padronizado para maiúsculas'),
             });
             count++;
+            if (amostra.length < 50) amostra.push({ campo: `Nome${p.codigo ? ` (cód. ${p.codigo})` : ''}`, valorAnterior: p.nome, valorNovo: upName });
           }
         }
+        registrar(true);
         showSuccess(`Pronto! ${count} produtos foram atualizados.`);
       } catch(err) {
+        registrar(false);
         showError('Erro', 'Ocorreu um erro na migração.');
       } finally {
         setLoading(false);

@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
+import { createAuditLog } from '../../services/logService';
 import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicadoCheck';
 import { apenasDigitos, isCnpjValido } from '../../utils/documentoValidacao';
 import { documentoService } from '../../services/documentoService';
@@ -167,6 +168,18 @@ const VendedorNovoCliente: React.FC = () => {
         ...dados,
         createdAt: serverTimestamp(),
         ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+      });
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'cadastros',
+        acao: 'criacao',
+        descricao: `Cliente ${dados.nome} cadastrado pelo app Vendas${codigo ? ` (código ${codigo})` : ''}.`,
+        registroRelacionadoId: ref.id,
+        documentoTipo: 'cliente',
+        documentoNumero: `Cliente ${dados.nome}`,
+        status: 'sucesso',
       });
 
       showSuccess('Cliente cadastrado!');

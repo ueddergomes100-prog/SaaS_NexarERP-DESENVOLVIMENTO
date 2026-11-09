@@ -362,6 +362,11 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           acao: 'devolucao',
           descricao: `Devolução concluída para o pedido #${numeroPedido} no valor de R$ ${valorTotalCalculado.toFixed(2)}.`,
           registroRelacionadoId: novaDevolucaoRef.id,
+          // Historico de alteracoes (09/11/2026): aparece tambem no pedido de origem.
+          documentosRelacionados: [pedidoId],
+          documentoTipo: 'devolucao',
+          documentoNumero: `Devolução do Pedido ${numeroPedido}`,
+          ...(motivo ? { motivo } : {}),
           vendedorId: vendedorDaVendaOriginal.id,
           vendedorNome: vendedorDaVendaOriginal.nome,
           status: 'sucesso',

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { collection, doc, getDoc, serverTimestamp, updateDoc, writeBatch } from 'firebase/firestore';
 import { AlertTriangle, ArrowLeft, Loader2, Plus, Save, Settings2, Trash2, Truck, X } from 'lucide-react';
 import { db } from '../../services/firebase';
+import { createAuditLog } from '../../services/logService';
 import { useAuth } from '../../contexts/AuthContext';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -90,6 +91,25 @@ const RotaForm: React.FC = () => {
     setSalvandoTipos(true);
     try {
       await updateDoc(doc(db, 'configuracoes', tenantId), { tiposDespesaRota: novaLista });
+      // Historico de alteracoes (09/11/2026): tipo de despesa incluido ou removido.
+      const incluidos = novaLista.filter((t) => !tiposPersonalizados.includes(t));
+      const removidos = tiposPersonalizados.filter((t) => !novaLista.includes(t));
+      if (incluidos.length || removidos.length) {
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'configuracoes',
+          acao: 'edicao',
+          descricao: `Tipos de despesa de rota alterados:${incluidos.length ? ` incluído ${incluidos.map((t) => `"${t}"`).join(', ')}` : ''}`
+            + `${incluidos.length && removidos.length ? ';' : ''}${removidos.length ? ` removido ${removidos.map((t) => `"${t}"`).join(', ')}` : ''}.`,
+          registroRelacionadoId: tenantId,
+          documentoTipo: 'configuracoes',
+          documentoNumero: 'Tipos de despesa de rota',
+          alteracoes: [{ campo: 'Tipos de despesa de rota', valorAnterior: tiposPersonalizados.join(', '), valorNovo: novaLista.join(', ') }],
+          status: 'sucesso',
+        });
+      }
       setTiposPersonalizados(novaLista);
       return true;
     } catch (erro) {
@@ -250,6 +270,23 @@ const RotaForm: React.FC = () => {
       });
 
       await lote.commit();
+      // Historico de alteracoes (09/11/2026): a rota e as despesas que ela lancou, num registro so'.
+      const dataDaRota = rota.data ? rota.data.split('-').reverse().join('/') : '';
+      const resumoPorTipo = despesas.map((d) => `${d.tipo} ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(d.valor) || 0)}`).join('; ');
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'financeiro',
+        acao: 'criacao',
+        descricao: `Rota de ${rota.motoristaNome || 'motorista não informado'}${rota.veiculo.trim() ? ` (${rota.veiculo.trim()})` : ''} em ${dataDaRota} lançada com ${despesas.length} despesa(s) pagas, `
+          + `total de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalDaRota(despesas))}: ${resumoPorTipo}.`,
+        registroRelacionadoId: rotaRef.id,
+        documentosRelacionados: transacaoIds,
+        documentoTipo: 'rota',
+        documentoNumero: `Rota de ${rota.motoristaNome || 'motorista'} ${dataDaRota}`.trim(),
+        status: 'sucesso',
+      });
       showSuccess(`Rota salva! ${despesas.length} despesa(s) lançada(s) no financeiro.`);
       navigate('/operacoes/rotas');
     } catch (erro) {

@@ -18,6 +18,8 @@ import { formatDateInputPtBr } from '../../utils/dateTime';
 import { DIAS_NOTAS_PARA_IMPORTAR, lerNotasAtivasParaImportar } from '../../services/notasParaImportar';
 import { simularPrecos } from '../../services/custosService';
 import type { LinhaDaSimulacao } from '../../utils/custosDomain';
+import { createAuditLog } from '../../services/logService';
+import type { MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 
 /** O que a tela precisa saber de cada produto do estoque. Fica num mapa por
  * id: e' a fonte dos valores originais (pra saber o que mudou no save) e do
@@ -384,11 +386,48 @@ const Precificacao: React.FC = () => {
     const gravacoes = [...alteracoes.map((a) => ({ ...a, pelaGrade: false })), ...propagacoes];
 
     setIsSaving(true);
+    // Historico de alteracoes (09/11/2026): UM registro por "Salvar", com a lista
+    // produto: preco antes -> depois (limitada) e os primeiros produtos ligados.
+    let gravados = 0;
+    const registrarPrecos = (concluido: boolean) => {
+      const feitas = gravacoes.slice(0, gravados);
+      if (feitas.length === 0) return;
+      const precoTexto = (v: unknown) => (v === null || v === undefined || v === '' ? '' : formatBRL(Number(v) || 0));
+      const mudancas: MudancaDeCampo[] = [];
+      feitas.forEach(({ linha, resultado, pelaGrade }) => {
+        const original = produtos.get(linha.produtoId);
+        const nome = `${original?.nome || linha.produtoNome}${original?.codigo ? ` (cód. ${original.codigo})` : ''}${pelaGrade ? ' [variação]' : ''}`;
+        const campos: Array<[string, unknown, unknown]> = [
+          ['Preço de venda', original?.precoVenda, resultado.campos.precoVenda],
+          ['Preço promocional', original?.precoPromocional, resultado.campos.precoPromocional],
+          ['Preço à vista', original?.precoAVista, 'precoAVista' in resultado.campos ? resultado.campos.precoAVista : original?.precoAVista],
+          ['Preço a prazo', original?.precoAPrazo, 'precoAPrazo' in resultado.campos ? resultado.campos.precoAPrazo : original?.precoAPrazo],
+        ];
+        campos.forEach(([rotulo, antes, depois]) => {
+          if (precoTexto(antes) === precoTexto(depois)) return;
+          mudancas.push({ campo: `${nome} — ${rotulo}`, valorAnterior: precoTexto(antes) || null, valorNovo: precoTexto(depois) || null });
+        });
+      });
+      const variacoes = feitas.filter((g) => g.pelaGrade).length;
+      const principais = feitas.length - variacoes;
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'estoque',
+        acao: 'edicao',
+        descricao: `${concluido ? 'Preços alterados' : 'Alteração de preços interrompida por erro'} na Precificação: ${principais} produto(s)${variacoes ? ` e ${variacoes} variação(ões) de grade` : ''}${concluido ? '' : ` de ${gravacoes.length} gravados`}.${mudancas.length > 60 ? ` Abaixo, as 60 primeiras de ${mudancas.length} mudanças.` : ''}`,
+        // Os primeiros produtos mostram este registro no historico deles.
+        documentosRelacionados: feitas.map((g) => g.linha.produtoId).slice(0, 10),
+        documentoTipo: 'produto',
+        alteracoes: mudancas.slice(0, 60),
+        status: concluido ? 'sucesso' : 'erro',
+      });
+    };
     try {
       // Lotes de 400 (o limite do Firestore e' 500) -- mesmo padrao da
       // importacao de produtos. Lote ja gravado permanece se o seguinte
       // falhar; a mensagem de erro avisa quantos entraram.
-      let gravados = 0;
       for (let inicio = 0; inicio < gravacoes.length; inicio += LOTE_MAXIMO) {
         const lote = gravacoes.slice(inicio, inicio + LOTE_MAXIMO);
         const batch = writeBatch(db);
@@ -404,6 +443,7 @@ const Precificacao: React.FC = () => {
         await batch.commit();
         gravados += lote.length;
       }
+      registrarPrecos(true);
 
       // Atualiza o mapa local com o que acabou de ser gravado, pra coluna
       // "Situação" e o "o que mudou" do proximo save partirem do estado novo
@@ -437,6 +477,7 @@ const Precificacao: React.FC = () => {
       showSuccess(`${principais} ${principais === 1 ? 'produto atualizado' : 'produtos atualizados'} com sucesso!${propagacoes.length ? ` ${propagacoes.length} variação(ões) de grade acompanharam o principal.` : ''}`);
     } catch (error) {
       console.error('Erro ao salvar preços:', error);
+      registrarPrecos(false);
       showError('Erro ao salvar preços', 'Não foi possível gravar todos os preços. Confira a lista e tente novamente — os produtos já gravados permanecem.');
     } finally {
       setIsSaving(false);

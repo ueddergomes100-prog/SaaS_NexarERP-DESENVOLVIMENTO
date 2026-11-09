@@ -1692,6 +1692,11 @@ const EntradaNFE: React.FC = () => {
           modulo: 'estoque',
           acao: 'criacao',
           descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas, ${insumosAtualizados} insumos atualizados, ${insumosCriados} novos insumos cadastrados. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamentoEfetivo === 'avista' ? ', paga à vista' : ''}.`,
+          // Historico de alteracoes (09/11/2026): na nota de entrada e nos titulos a pagar gerados.
+          registroRelacionadoId: notaRef.id,
+          documentosRelacionados: titulosPagarIds,
+          documentoTipo: 'nota_entrada',
+          documentoNumero: `NF-e de entrada ${parsedData.numeroNF}${nota.serie ? ` série ${nota.serie}` : ''} — ${fornecedorMatch.nome}`,
           status: 'sucesso'
         });
       } catch {

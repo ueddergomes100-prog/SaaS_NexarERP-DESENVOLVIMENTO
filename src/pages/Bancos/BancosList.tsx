@@ -20,6 +20,8 @@ import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useT
 import { fromCents, toCents, validateBankTransfer } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { useEscapeLayer, useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
@@ -84,6 +86,57 @@ interface LancamentoBancario extends TenantCollectionItem {
 const REQUIRED_PERMISSION = 'cadastros.bancos';
 
 const formatBRL = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+
+/**
+ * Historico de alteracoes do cadastro do banco (09/11/2026). Compara SO' os
+ * campos desta lista (o convenio de boleto achatado em campos soltos), com o
+ * nome que o usuario ve na tela: campo que nao esta aqui nunca vai para o
+ * historico -- se um dia o banco guardar chave ou senha de API, ela fica de
+ * fora ate' alguem decidir como mostrar (so' "alterado", nunca o valor).
+ */
+const ROTULO_TIPO_CONTA: Record<string, string> = { corrente: 'Corrente', poupanca: 'Poupança', outro: 'Outro' };
+const CAMPOS_DO_BANCO: CampoComparado[] = [
+  { campo: 'nome', rotulo: 'Nome' },
+  { campo: 'banco', rotulo: 'Banco' },
+  { campo: 'agencia', rotulo: 'Agência' },
+  { campo: 'conta', rotulo: 'Conta' },
+  { campo: 'tipoConta', rotulo: 'Tipo de conta', formatar: (v) => ROTULO_TIPO_CONTA[String(v || '')] || v },
+  { campo: 'ordem', rotulo: 'Ordem' },
+  { campo: 'boletoAtivo', rotulo: 'Emite boleto por este banco', formatar: (v) => (v ? 'Sim' : 'Não') },
+  { campo: 'boletoContaDv', rotulo: 'Boleto: dígito da conta' },
+  { campo: 'boletoCodigoCliente', rotulo: 'Boleto: código do beneficiário' },
+  { campo: 'boletoCnpjCedente', rotulo: 'Boleto: CNPJ do cedente' },
+  { campo: 'boletoNomeCedente', rotulo: 'Boleto: nome do cedente' },
+  { campo: 'boletoInstrucoes', rotulo: 'Boleto: instruções' },
+  { campo: 'boletoMultaPercentual', rotulo: 'Boleto: multa (%)' },
+  { campo: 'boletoJurosMensalPercentual', rotulo: 'Boleto: juros ao mês (%)' },
+  { campo: 'boletoPrazoPadraoDias', rotulo: 'Boleto: prazo padrão (dias)' },
+  { campo: 'boletoProximoNossoNumero', rotulo: 'Boleto: próximo nosso número' },
+  { campo: 'boletoProximaRemessa', rotulo: 'Boleto: próxima remessa' },
+];
+
+const bancoParaHistorico = (b: Partial<Pick<Banco, 'nome' | 'banco' | 'agencia' | 'conta' | 'tipoConta' | 'ordem'>> & { boleto?: ConvenioBoleto }): Record<string, unknown> => ({
+  nome: b.nome ?? '',
+  banco: b.banco ?? '',
+  agencia: b.agencia ?? '',
+  conta: b.conta ?? '',
+  tipoConta: b.tipoConta ?? '',
+  ordem: b.ordem ?? '',
+  boletoAtivo: Boolean(b.boleto?.ativo),
+  // Convenio desligado: o resto do convenio nao vale (e nao e' gravado).
+  ...(b.boleto?.ativo ? {
+    boletoContaDv: b.boleto.contaDv ?? '',
+    boletoCodigoCliente: b.boleto.codigoCliente ?? '',
+    boletoCnpjCedente: b.boleto.cnpjCedente ?? '',
+    boletoNomeCedente: b.boleto.nomeCedente ?? '',
+    boletoInstrucoes: b.boleto.instrucoes ?? '',
+    boletoMultaPercentual: b.boleto.multaPercentual ?? '',
+    boletoJurosMensalPercentual: b.boleto.jurosMensalPercentual ?? '',
+    boletoPrazoPadraoDias: b.boleto.prazoPadraoDias ?? '',
+    boletoProximoNossoNumero: b.boleto.proximoNossoNumero ?? '',
+    boletoProximaRemessa: b.boleto.proximaRemessa ?? '',
+  } : {}),
+});
 
 const emptyBankForm = () => ({
   nome: '',
@@ -257,7 +310,7 @@ const BancosList: React.FC = () => {
     setModalLoading(true);
     try {
       if (editingId) {
-        await updateDoc(doc(db, 'bancos', editingId), {
+        const camposEditados = {
           nome: modalForm.nome.trim(),
           banco: modalForm.banco.trim(),
           agencia: modalForm.agencia.trim(),
@@ -265,9 +318,31 @@ const BancosList: React.FC = () => {
           tipoConta: modalForm.tipoConta,
           ordem: Number(modalForm.ordem) || 0,
           boleto,
+        };
+        // Como o banco estava antes de gravar (a lista e' a colecao inteira, ao vivo).
+        const antes = bancos.find((b) => b.id === editingId) || null;
+        await updateDoc(doc(db, 'bancos', editingId), {
+          ...camposEditados,
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = antes ? diferencasEntre(bancoParaHistorico(antes), bancoParaHistorico(camposEditados), CAMPOS_DO_BANCO) : [];
+        if (alteracoes.length > 0 && tenantId) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Banco "${camposEditados.nome}" alterado (${alteracoes.map((a) => a.campo).join(', ')}).`,
+            registroRelacionadoId: editingId,
+            documentoTipo: 'banco',
+            documentoNumero: `Banco ${camposEditados.nome}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Banco atualizado!');
       } else {
         const saldoInicialCentavos = toCents(modalForm.saldoInicial);
@@ -287,8 +362,9 @@ const BancosList: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
+        let lancamentoSaldoId = '';
         if (saldoInicialCentavos !== 0) {
-          await addDoc(collection(db, 'lancamentos_bancarios'), {
+          const lancamentoRef = await addDoc(collection(db, 'lancamentos_bancarios'), {
             tenantId,
             bancoId: novoBancoRef.id,
             bancoNome: modalForm.nome.trim(),
@@ -299,6 +375,25 @@ const BancosList: React.FC = () => {
             data: getDateInputInTimeZone(),
             createdBy: currentUser?.uid || null,
             createdAt: serverTimestamp(),
+          });
+          lancamentoSaldoId = lancamentoRef.id;
+        }
+        // Historico de alteracoes (09/11/2026): cadastro e saldo inicial num registro so'.
+        if (tenantId) {
+          const nomeNovo = modalForm.nome.trim();
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'criacao',
+            descricao: `Banco "${nomeNovo}" cadastrado com saldo inicial de ${formatBRL(fromCents(saldoInicialCentavos))}`
+              + `${boleto.ativo ? ', emitindo boleto' : ''}.`,
+            registroRelacionadoId: novoBancoRef.id,
+            ...(lancamentoSaldoId ? { documentosRelacionados: [lancamentoSaldoId] } : {}),
+            documentoTipo: 'banco',
+            documentoNumero: `Banco ${nomeNovo}`,
+            status: 'sucesso',
           });
         }
         showSuccess('Banco cadastrado!');

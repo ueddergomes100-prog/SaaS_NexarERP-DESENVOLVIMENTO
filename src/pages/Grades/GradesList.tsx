@@ -8,6 +8,8 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { chaveDoProdutoPeloId } from '../../utils/cadastroGrupoDomain';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre } from '../../utils/historicoAlteracoesDomain';
 import {
   LIMITE_DA_OPCAO,
   LIMITE_DO_NOME_DA_GRADE,
@@ -224,15 +226,47 @@ const GradesList: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = diferencasEntre(original as unknown as Record<string, unknown> | undefined, { nome: valor.nome, opcoes: valor.opcoes }, [
+          { campo: 'nome', rotulo: 'Nome' },
+          { campo: 'opcoes', rotulo: 'Opções', formatar: (v) => (Array.isArray(v) ? v.join(', ') : '') },
+        ]);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Grade ${valor.nome} alterada: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: editingId,
+            documentoTipo: 'grade',
+            documentoNumero: `Grade ${valor.nome}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Grade atualizada!');
       } else {
-        await addDoc(collection(db, 'grades'), {
+        const nova = await addDoc(collection(db, 'grades'), {
           nome: valor.nome,
           opcoes: valor.opcoes,
           tenantId,
           ativo: true,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Grade ${valor.nome} cadastrada com as opções: ${valor.opcoes.join(', ')}.`,
+          registroRelacionadoId: nova.id,
+          documentoTipo: 'grade',
+          documentoNumero: `Grade ${valor.nome}`,
+          status: 'sucesso',
         });
         showSuccess('Grade cadastrada!');
       }

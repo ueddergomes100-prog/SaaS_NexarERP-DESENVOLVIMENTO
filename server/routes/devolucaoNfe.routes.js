@@ -9,8 +9,16 @@ const {
   prepararDevolucao,
 } = require('../services/devolucaoNfe');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
+const { registrarLog } = require('../services/auditoria');
 
 const router = express.Router();
+
+const moeda = (valor) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
+/** Numero da nota para o historico; '' quando ainda nao tem (fila da SEFAZ, rejeitada, numero 0). */
+const numeroDaNotaNoHistorico = (numero) => {
+  const n = String(numero ?? '').trim().replace(/^0+(?=\d)/, '');
+  return n && n !== '0' ? n : '';
+};
 router.use(authenticate);
 
 /**
@@ -203,8 +211,21 @@ router.post('/emitir', async (req, res) => {
       body: JSON.stringify(payload)
     }, PERFIS.spedyEmissao);
     const notaSpedy = await response.json().catch(() => ({}));
+    const pedidoDoHistorico = `Pedido ${pedido.numeroPedido || ''}`.trim();
     if (!response.ok) {
-      throw new ErroDevolucao(response.status, notaSpedy.errors?.[0]?.message || notaSpedy.error || 'A Spedy recusou a nota de devolução.');
+      const motivoRecusa = notaSpedy.errors?.[0]?.message || notaSpedy.error || 'A Spedy recusou a nota de devolução.';
+      // Historico de alteracoes (09/11/2026): a tentativa do usuario fica registrada na devolucao e no pedido.
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'fiscal',
+        acao: 'emissao',
+        descricao: `NF-e de devolução do ${pedidoDoHistorico} não emitida: ${motivoRecusa}`,
+        registroId: devolucao.id,
+        documentosRelacionados: [pedido.id],
+        documentoTipo: 'devolucao',
+        documentoNumero: `NF-e de devolução do ${pedidoDoHistorico}`,
+        motivo: motivoRecusa,
+      });
+      throw new ErroDevolucao(response.status, motivoRecusa);
     }
 
     // A partir daqui a nota EXISTE na Spedy: falha ao gravar nao pode virar "nao emitida".
@@ -250,6 +271,31 @@ router.post('/emitir', async (req, res) => {
         alteradoEm: agora,
       });
       reservou = false;
+
+      // Historico de alteracoes (09/11/2026): na nota, na devolucao e no pedido de origem.
+      {
+        const numero = numeroDaNotaNoHistorico(notaSpedy.number);
+        const status = notaSpedy.status || 'enqueued';
+        const rejeitada = status === 'rejected' || status === 'denied';
+        const motivoRejeicao = `${notaSpedy.processingDetail?.code || ''} ${notaSpedy.processingDetail?.message || ''}`.trim();
+        const titulo = numero ? `NF-e de devolução ${numero} do ${pedidoDoHistorico}` : `NF-e de devolução do ${pedidoDoHistorico}`;
+        const original = preparo.notaOriginal.numero ? ` Nota original: NF-e ${numeroDaNotaNoHistorico(preparo.notaOriginal.numero) || preparo.notaOriginal.numero}.` : '';
+        registrarLog({ ...req.user, tenantId }, {
+          modulo: 'fiscal',
+          acao: 'emissao',
+          descricao: status === 'authorized'
+            ? `${titulo} emitida e autorizada pela SEFAZ, no valor de ${moeda(preparo.valorTotal)}.${original}`
+            : rejeitada
+              ? `${titulo} não emitida: a SEFAZ rejeitou (${motivoRejeicao || 'motivo não informado'}).${original}`
+              : `${titulo} enviada para emissão, no valor de ${moeda(preparo.valorTotal)}; aguardando a SEFAZ.${original}`,
+          registroId: nova.id,
+          documentosRelacionados: [devolucao.id, pedido.id],
+          documentoTipo: 'nota_fiscal',
+          documentoNumero: numero ? `NF-e ${numero}` : `NF-e de devolução do ${pedidoDoHistorico}`,
+          ...(rejeitada && motivoRejeicao ? { motivo: motivoRejeicao } : {}),
+        });
+      }
+
       return res.json({
         ok: true,
         notaId: nova.id,

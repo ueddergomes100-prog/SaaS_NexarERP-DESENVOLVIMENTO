@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
+import { createAuditLog } from '../../services/logService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -322,6 +323,27 @@ const ImportarContasBase: React.FC<ImportarContasBaseProps> = ({
 
     setSalvando(true);
     let gravados = 0;
+    let valorGravado = 0;
+    /** Historico de alteracoes (09/11/2026): uma importacao = um registro. */
+    const registrarImportacao = (completa: boolean) => {
+      const contasDoTipo = tipo === 'entrada' ? 'conta(s) a receber' : 'conta(s) a pagar';
+      const total = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorGravado);
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'financeiro',
+        acao: 'importacao',
+        descricao: completa
+          ? `${gravados} ${contasDoTipo} importada(s) da planilha "${nomeArquivo}", total de ${total}.`
+            + `${jaImportadosLista.length ? ` ${jaImportadosLista.length} já existia(m) e ficou(aram) de fora.` : ''}`
+            + `${semCadastro.length ? ` ${semCadastro.length} sem ${rotuloParteMin} cadastrado.` : ''}`
+          : `Importação da planilha "${nomeArquivo}" interrompida por erro: ${gravados} de ${linhasAtivas.length} ${contasDoTipo} (${total}) entraram antes do erro.`,
+        documentoTipo: tipo === 'entrada' ? 'conta_receber' : 'conta_pagar',
+        documentoNumero: `Planilha ${nomeArquivo || 'sem nome'}`,
+        status: completa ? 'sucesso' : 'erro',
+      });
+    };
     try {
       const timestamp = serverTimestamp();
 
@@ -355,8 +377,10 @@ const ImportarContasBase: React.FC<ImportarContasBaseProps> = ({
 
         await batch.commit();
         gravados += lote.length;
+        valorGravado += somar(lote);
       }
 
+      registrarImportacao(true);
       setResultadoImportacao({
         criados: gravados,
         jaExistiam: jaImportadosLista.length,
@@ -368,6 +392,7 @@ const ImportarContasBase: React.FC<ImportarContasBaseProps> = ({
       showSuccess(`${gravados} título(s) importado(s) com sucesso!`);
     } catch (error) {
       console.error('Erro ao importar contas:', error);
+      if (gravados > 0) registrarImportacao(false);
       // A gravacao e' em lotes: os anteriores ao erro JA' estao no sistema.
       // Mandar "tentar de novo" sem dizer isso duplicava os titulos.
       const jaGravados = gravados > 0

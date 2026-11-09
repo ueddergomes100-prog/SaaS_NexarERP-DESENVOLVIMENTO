@@ -39,7 +39,12 @@ const responderErro = (res, erro, acao) => {
   return res.status(500).json({ error: `Não foi possível ${acao}. Nada foi alterado. Tente de novo em instantes.` });
 };
 
-const acao = (nome, operacao, descreverLog) => async (req, res) => {
+/**
+ * `montarRegistro(resultado)` devolve o registro do Historico de alteracoes
+ * ({ acao, descricao, ... }) ou null para nao registrar. O cancelamento NAO
+ * registra aqui: grava dentro da propria transacao (services/condicionais.js).
+ */
+const acao = (nome, operacao, montarRegistro) => async (req, res) => {
   try {
     if (!temPermissao(req.user)) {
       return res.status(403).json({ error: 'Você não tem permissão para usar o condicional. Peça a um responsável liberar "Vendas: Condicional" no seu usuário.' });
@@ -52,13 +57,14 @@ const acao = (nome, operacao, descreverLog) => async (req, res) => {
       corpo: req.body || {},
       hoje: getDateInputInTimeZone(),
     });
-    const descricao = descreverLog(resultado);
-    if (descricao) {
+    const registro = montarRegistro ? montarRegistro(resultado) : null;
+    if (registro) {
       registrarLog({ ...req.user, tenantId }, {
         modulo: 'condicional',
-        acao: 'edicao',
-        descricao,
         registroId: String(req.params.id || resultado.id || ''),
+        documentoTipo: 'condicional',
+        ...(resultado.numeroCondicional ? { documentoNumero: `Condicional ${resultado.numeroCondicional}` } : {}),
+        ...registro,
       });
     }
     return res.json({ ok: true, ...resultado });
@@ -68,21 +74,36 @@ const acao = (nome, operacao, descreverLog) => async (req, res) => {
 };
 
 /** POST /api/condicionais  { clienteId, itens:[{id,quantidade}], prazoDevolucao, observacao?, idDocumento?, tenantId? } */
+const reais = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 router.post('/', acao('criar o condicional', criarCondicional,
-  (r) => (r.jaEnviado ? '' : `Condicional nº ${r.numeroCondicional} criado (saída de mercadoria para o cliente).`)));
+  (r) => (r.jaEnviado ? null : {
+    acao: 'criacao',
+    descricao: `Condicional nº ${r.numeroCondicional} criado para ${r.clienteNome || 'o cliente'}: saída de ${r.pecasLevadas || 0} peça(s), ${reais(r.valorLevado)} (estoque reservado).`,
+  })));
 
 /** POST /api/condicionais/:id/devolucao  { itens:[{id,quantidade}] } */
 router.post('/:id/devolucao', acao('registrar a devolução', devolverItens,
-  (r) => `Condicional nº ${r.numeroCondicional} (${r.clienteNome}): devolução de ${r.pecasDevolvidas} peça(s)${r.tudoDevolvido ? ' — tudo devolvido' : ''}.`));
+  (r) => ({
+    acao: 'devolucao',
+    descricao: `Condicional nº ${r.numeroCondicional} (${r.clienteNome}): devolução de ${r.pecasDevolvidas} peça(s)${r.tudoDevolvido ? ' — tudo devolvido' : ''}.`,
+    ...(r.tudoDevolvido ? { alteracoes: [{ campo: 'Situação', valorAnterior: 'Aberto', valorNovo: 'Tudo devolvido' }] } : {}),
+  })));
 
 /** POST /api/condicionais/:id/fechar  { itens?:[{id,quantidade}] }  -- itens = devolução final */
 router.post('/:id/fechar', acao('fechar o condicional', fecharCondicional,
-  (r) => (r.numeroPedido
-    ? `Condicional nº ${r.numeroCondicional} (${r.clienteNome}) fechado: ${r.pecasVendidas} peça(s) viraram a pré-venda nº ${r.numeroPedido}.`
-    : `Condicional nº ${r.numeroCondicional} (${r.clienteNome}) fechado: tudo devolvido.`)));
+  (r) => ({
+    acao: 'fechamento',
+    descricao: r.numeroPedido
+      ? `Condicional nº ${r.numeroCondicional} (${r.clienteNome}) fechado: ${r.pecasVendidas} peça(s) viraram a pré-venda nº ${r.numeroPedido}.`
+      : `Condicional nº ${r.numeroCondicional} (${r.clienteNome}) fechado: tudo devolvido.`,
+    // A pre-venda gerada tambem mostra este registro no historico dela.
+    ...(r.pedidoId ? { documentosRelacionados: [r.pedidoId] } : {}),
+    alteracoes: [{ campo: 'Situação', valorAnterior: 'Aberto', valorNovo: r.numeroPedido ? `Finalizado (pré-venda nº ${r.numeroPedido})` : 'Tudo devolvido' }],
+  })));
 
 /** POST /api/condicionais/:id/cancelar  { motivo } */
-router.post('/:id/cancelar', acao('cancelar o condicional', cancelarCondicional,
-  (r) => `Condicional nº ${r.numeroCondicional} (${r.clienteNome}) cancelado: ${r.motivo}`));
+// O registro do cancelamento (critico, com motivo) e' gravado na transacao do servico.
+router.post('/:id/cancelar', acao('cancelar o condicional', cancelarCondicional, null));
 
 module.exports = router;

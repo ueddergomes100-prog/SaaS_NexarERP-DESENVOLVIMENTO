@@ -2,6 +2,7 @@ import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { spedyService, type SpedyInvoice } from './spedyService';
 import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
+import { numeroDaNota } from '../utils/nomeArquivoDomain';
 import {
   descricaoDaNota,
   ehErroDePrazo,
@@ -37,6 +38,8 @@ export const cancelarNotaDaVenda = async (a: {
   usuario: { uid: string; email?: string | null };
   tenantId: string;
   numeroPedido: string;
+  /** Pedido da nota (Historico de alteracoes); sem ele, usa o `pedidoId` gravado na nota. */
+  pedidoId?: string | null;
 }): Promise<ResultadoCancelamentoNota> => {
   const descricao = descricaoDaNota(a.nota);
   const spedyId = String(a.nota.spedyId || '');
@@ -105,6 +108,10 @@ export const cancelarNotaDaVenda = async (a: {
   });
   try {
     const { createAuditLog } = await import('./logService');
+    // Historico de alteracoes (09/11/2026): aparece na nota e no pedido, com o numero da nota.
+    const pedidoId = String(a.pedidoId || (a.nota as NotaDaVenda & { pedidoId?: unknown }).pedidoId || '');
+    const numeroNota = numeroDaNota(a.nota.number);
+    const tipoNota = String(a.nota.tipo || 'Nota');
     createAuditLog({
       tenantId: a.tenantId,
       usuarioId: a.usuario.uid,
@@ -113,6 +120,10 @@ export const cancelarNotaDaVenda = async (a: {
       acao: 'cancelamento',
       descricao: `${descricao} cancelada pela tela da venda #${a.numeroPedido}. Motivo: ${a.justificativa}`,
       registroRelacionadoId: a.nota.id,
+      ...(pedidoId ? { documentosRelacionados: [pedidoId] } : {}),
+      documentoTipo: 'nota_fiscal',
+      documentoNumero: numeroNota ? `${tipoNota} ${numeroNota}` : `${tipoNota} do Pedido ${a.numeroPedido}`,
+      motivo: a.justificativa,
       status: 'sucesso',
       critical: true,
     });

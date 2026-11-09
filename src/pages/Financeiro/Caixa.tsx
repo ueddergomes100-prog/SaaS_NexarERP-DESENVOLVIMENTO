@@ -198,11 +198,14 @@ const Caixa: React.FC = () => {
         createAuditLog({
           tenantId: tenantId || '',
           usuarioId: currentUser?.uid || '',
-          usuarioEmail: currentUser?.email || '',
+          usuarioEmail: currentUser?.email || currentUser?.uid || '',
           modulo: 'financeiro',
           acao: 'criacao',
-          descricao: `Transação de ${modalTipo === 'entrada' ? 'entrada' : 'saída'} lançada: ${formData.descricao}. Categoria: ${formData.categoria}. Valor: R$ ${fromCents(valueCents).toFixed(2)}.`,
+          descricao: `Lançamento manual de ${modalTipo === 'entrada' ? 'entrada' : 'saída'} no caixa físico (dinheiro): ${formData.descricao}. Categoria: ${formData.categoria}. `
+            + `Valor: R$ ${fromCents(valueCents).toFixed(2).replace('.', ',')}. Data: ${String(formData.data || '').split('-').reverse().join('/')}.`,
           registroRelacionadoId: docRef.id,
+          documentoTipo: modalTipo === 'entrada' ? 'conta_receber' : 'conta_pagar',
+          documentoNumero: `Caixa: ${String(formData.descricao || '').trim() || 'sem descrição'}`,
           status: 'sucesso'
         });
       } catch (logError) {

@@ -396,6 +396,11 @@ const EntradaNFSe: React.FC = () => {
           modulo: 'fiscal',
           acao: 'criacao',
           descricao: `Entrada da NFS-e ${numero} (${nomePrestador}): serviços R$ ${nota.valorServicos.toFixed(2)}, retenções R$ ${(retidoIss + retidoFederal).toFixed(2)}, líquido R$ ${totalDevido.toFixed(2)} em ${titulosRefs.length} título(s)${modoPagamentoEfetivo === 'avista' ? ', paga à vista' : ''}.`,
+          // Historico de alteracoes (09/11/2026): na nota de entrada e nos titulos a pagar gerados.
+          registroRelacionadoId: notaRef.id,
+          documentosRelacionados: titulosRefs.map((r) => r.id),
+          documentoTipo: 'nota_entrada',
+          documentoNumero: `NFS-e de entrada ${numero} — ${nomePrestador}`,
           status: 'sucesso',
         });
       } catch {

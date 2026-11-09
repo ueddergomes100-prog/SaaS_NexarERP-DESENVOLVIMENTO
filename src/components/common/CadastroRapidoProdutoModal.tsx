@@ -7,6 +7,7 @@ import { showError } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
+import { createAuditLog } from '../../services/logService';
 
 export interface ProdutoCadastradoRapido {
   id: string;
@@ -213,6 +214,19 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
         tenantId,
         createdAt: serverTimestamp(),
         ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+      });
+      // Historico de alteracoes (09/11/2026): produto criado pelo cadastro rapido (de dentro de outra tela).
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'estoque',
+        acao: 'criacao',
+        descricao: `Produto ${nomeLimpo} (cód. ${codigo}) cadastrado pelo cadastro rápido, sem preço e sem saldo. Unidade: ${unidadeEscolhida.sigla}.${embalagensParaSalvar.length ? ` ${embalagensParaSalvar.length} embalagem(ns).` : ''}`,
+        registroRelacionadoId: novoProdutoRef.id,
+        documentoTipo: 'produto',
+        documentoNumero: `Produto ${nomeLimpo} (cód. ${codigo})`,
+        status: 'sucesso',
       });
 
       onCriado({

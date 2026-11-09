@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
@@ -24,9 +24,54 @@ import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/fili
 import { formatarCashback, lerResumoCashback, parteDoSaldoVenceu, temDivida, textoDoSaldo, type ResumoCashbackDoCliente } from '../../utils/cashbackDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { PAISES, erroDoCadastroExterior, normalizarDocumentoEstrangeiro } from '../../utils/exportacaoNotaDomain';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
+
+const simNao = (valor: unknown) => (valor === true ? 'Sim' : 'Não');
+
+/** Campos comparados no Histórico de alterações, com o nome que aparece na tela. */
+const CAMPOS_CLIENTE_HISTORICO: CampoComparado[] = [
+  { campo: 'codigo', rotulo: 'Código' },
+  { campo: 'nome', rotulo: 'Nome' },
+  { campo: 'fantasia', rotulo: 'Nome fantasia' },
+  { campo: 'identidade', rotulo: 'Inscrição Estadual / RG' },
+  { campo: 'telefone', rotulo: 'Telefone fixo' },
+  { campo: 'celular', rotulo: 'Celular / WhatsApp' },
+  { campo: 'estrangeiro', rotulo: 'Cliente do exterior', formatar: simNao },
+  { campo: 'pais', rotulo: 'País' },
+  { campo: 'documentoEstrangeiro', rotulo: 'Documento no exterior' },
+  { campo: 'documento', rotulo: 'CPF / CNPJ' },
+  { campo: 'email', rotulo: 'E-mail' },
+  { campo: 'emailNfe', rotulo: 'E-mail para nota fiscal' },
+  { campo: 'cep', rotulo: 'CEP' },
+  { campo: 'endereco', rotulo: 'Rua / Logradouro' },
+  { campo: 'numero', rotulo: 'Número' },
+  { campo: 'bairro', rotulo: 'Bairro' },
+  { campo: 'cidade', rotulo: 'Cidade' },
+  { campo: 'estado', rotulo: 'UF' },
+  { campo: 'codigoIbge', rotulo: 'Código IBGE da cidade' },
+  { campo: 'referencia', rotulo: 'Ponto de referência' },
+  { campo: 'cepCobranca', rotulo: 'CEP de cobrança' },
+  { campo: 'enderecoCobranca', rotulo: 'Rua de cobrança' },
+  { campo: 'numeroCobranca', rotulo: 'Número de cobrança' },
+  { campo: 'bairroCobranca', rotulo: 'Bairro de cobrança' },
+  { campo: 'cidadeCobranca', rotulo: 'Cidade de cobrança' },
+  { campo: 'estadoCobranca', rotulo: 'UF de cobrança' },
+  { campo: 'cepEntrega', rotulo: 'CEP de entrega' },
+  { campo: 'enderecoEntrega', rotulo: 'Rua de entrega' },
+  { campo: 'numeroEntrega', rotulo: 'Número de entrega' },
+  { campo: 'bairroEntrega', rotulo: 'Bairro de entrega' },
+  { campo: 'cidadeEntrega', rotulo: 'Cidade de entrega' },
+  { campo: 'estadoEntrega', rotulo: 'UF de entrega' },
+  { campo: 'referenciaEntrega', rotulo: 'Ponto de referência da entrega' },
+  { campo: 'descontoPadraoPercentual', rotulo: 'Desconto padrão (%)', formatar: (v) => (Number(v) > 0 ? Number(v) : 0) },
+  { campo: 'limiteDeCredito', rotulo: 'Limite de crédito (R$)' },
+  { campo: 'alertaAtivo', rotulo: 'Alerta ativo', formatar: simNao },
+  { campo: 'alertaTexto', rotulo: 'Texto do alerta' },
+];
 
 const ClienteForm: React.FC = () => {
   const navigate = useNavigate();
@@ -97,6 +142,8 @@ const ClienteForm: React.FC = () => {
   /** Cliente que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
   const [inativo, setInativo] = useState(false);
   const { currentUser, tenantId, grupo, ehGestorDasFiliais, userPermissions, configCashback } = useAuth();
+  /** Cadastro como estava ao abrir: o "antes" do Histórico de alterações. */
+  const clienteOriginalRef = useRef<Record<string, unknown> | null>(null);
   // Cashback (20/10/2026): resumo gravado pelo servidor, so' para mostrar.
   const [resumoCashback, setResumoCashback] = useState<ResumoCashbackDoCliente | null>(null);
 
@@ -254,6 +301,7 @@ const ClienteForm: React.FC = () => {
           const docSnap = await getDoc(doc(db, 'clientes', id));
           if (docSnap.exists()) {
             const data = docSnap.data() as any;
+            clienteOriginalRef.current = data;
             if (data.isPadrao) {
               showError('Bloqueado', 'O Consumidor Final é um padrão do sistema e não pode ser editado.');
               navigate('/clientes');
@@ -426,12 +474,42 @@ const ClienteForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = diferencasEntre(clienteOriginalRef.current, dataToSave as Record<string, unknown>, CAMPOS_CLIENTE_HISTORICO);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Cliente ${dataToSave.nome} alterado: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'cliente',
+            documentoNumero: `Cliente ${dataToSave.nome}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
+        clienteOriginalRef.current = { ...(clienteOriginalRef.current || {}), ...dataToSave };
         showSuccess('Cliente atualizado!');
       } else {
-        await addDoc(collection(db, 'clientes'), {
+        const novo = await addDoc(collection(db, 'clientes'), {
           ...dataToSave,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Cliente ${dataToSave.nome} cadastrado${dataToSave.codigo ? ` (código ${dataToSave.codigo})` : ''}.`,
+          registroRelacionadoId: novo.id,
+          documentoTipo: 'cliente',
+          documentoNumero: `Cliente ${dataToSave.nome}`,
+          status: 'sucesso',
         });
         showSuccess('Cliente cadastrado!');
       }

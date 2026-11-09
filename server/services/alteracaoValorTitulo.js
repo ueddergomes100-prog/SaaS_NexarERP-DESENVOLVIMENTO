@@ -76,6 +76,9 @@ const alterarValorDoTitulo = async ({ user, tenantId, pedido }) => {
     resumo.descricao = String(dados.descricao || '');
     resumo.deCentavos = atualCentavos;
     resumo.paraCentavos = pedido.novoValorCentavos;
+    // Historico de alteracoes (09/11/2026): a mudanca aparece tambem na venda/OS da parcela.
+    resumo.pedidoId = dados.pedidoId ? String(dados.pedidoId) : '';
+    resumo.osId = dados.osId ? String(dados.osId) : '';
 
     tx.update(titulo.ref, {
       valorCentavos: pedido.novoValorCentavos,

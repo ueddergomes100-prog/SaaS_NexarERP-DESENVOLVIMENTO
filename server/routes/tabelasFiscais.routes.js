@@ -9,6 +9,8 @@ const {
   cadastrarCest,
   buscar,
 } = require('../services/tabelasFiscais');
+const { registrarLog } = require('../services/auditoria');
+const { cfopPorCodigo, formatarCodigoCfop } = require('../domain/cfopDomain');
 
 /**
  * TABELAS FISCAIS (20/10/2026): CFOP ativo/desativado na empresa e a base unica
@@ -49,6 +51,18 @@ router.get('/busca', async (req, res) => {
 router.post('/cfop/ativo', limiteDoCadastro, async (req, res) => {
   try {
     const r = await definirCfopAtivo({ user: req.user, codigo: req.body?.codigo, ativo: req.body?.ativo });
+    // Historico de alteracoes (09/11/2026): vale para a empresa inteira (todas as filiais).
+    const cfop = cfopPorCodigo(r.codigo);
+    const rotulo = `CFOP ${formatarCodigoCfop(String(r.codigo))}`;
+    registrarLog(req.user, {
+      modulo: 'configuracoes',
+      acao: 'edicao',
+      descricao: `${rotulo}${cfop && cfop.descricao ? ` (${cfop.descricao})` : ''} ${r.ativo ? 'ativado' : 'desativado'} na empresa${r.filiais > 1 ? ` (${r.filiais} filiais)` : ''}.`,
+      registroId: req.user.tenantId,
+      documentoTipo: 'configuracao',
+      documentoNumero: rotulo,
+      alteracoes: [{ campo: `${rotulo} ativo`, valorAnterior: r.ativo ? 'Não' : 'Sim', valorNovo: r.ativo ? 'Sim' : 'Não' }],
+    });
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'CFOP ativo');
@@ -58,6 +72,20 @@ router.post('/cfop/ativo', limiteDoCadastro, async (req, res) => {
 router.post('/uso', limiteDoUso, async (req, res) => {
   try {
     const r = await registrarUso({ itens: req.body?.itens });
+    // Historico de alteracoes (09/11/2026): so' quando um codigo NOVO entrou na base
+    // (repetir codigo ja' conhecido e' rotina de todo produto salvo: nao vira registro).
+    if (r.novosNcm > 0 || r.novosCest > 0) {
+      registrarLog(req.user, {
+        modulo: 'fiscal',
+        acao: 'criacao',
+        descricao: `Base de NCM/CEST completada automaticamente pelo uso: ${[
+          r.novosNcm ? `${r.novosNcm} NCM novo(s)` : '',
+          r.novosCest ? `${r.novosCest} CEST novo(s)` : '',
+        ].filter(Boolean).join(' e ')} (sem descrição).`,
+        documentoTipo: 'tabela_fiscal',
+        documentoNumero: 'Tabelas Fiscais',
+      });
+    }
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'registrar uso');
@@ -67,6 +95,14 @@ router.post('/uso', limiteDoUso, async (req, res) => {
 router.post('/ncm', limiteDoCadastro, async (req, res) => {
   try {
     const r = await cadastrarNcm({ user: req.user, corpo: req.body });
+    registrarLog(req.user, {
+      modulo: 'fiscal',
+      acao: r.novo ? 'criacao' : 'edicao',
+      descricao: `NCM ${r.codigo} ${r.novo ? 'cadastrado' : 'descrito'} na base: ${r.descricao}.`,
+      documentoTipo: 'tabela_fiscal',
+      documentoNumero: `NCM ${r.codigo}`,
+      ...(r.novo ? {} : { alteracoes: [{ campo: 'Descrição do NCM', valorAnterior: null, valorNovo: r.descricao }] }),
+    });
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'cadastrar NCM');
@@ -76,6 +112,14 @@ router.post('/ncm', limiteDoCadastro, async (req, res) => {
 router.post('/cest', limiteDoCadastro, async (req, res) => {
   try {
     const r = await cadastrarCest({ user: req.user, corpo: req.body });
+    registrarLog(req.user, {
+      modulo: 'fiscal',
+      acao: r.novo ? 'criacao' : 'edicao',
+      descricao: `CEST ${r.codigo} ${r.novo ? 'cadastrado' : 'descrito'} na base: ${r.descricao}.`,
+      documentoTipo: 'tabela_fiscal',
+      documentoNumero: `CEST ${r.codigo}`,
+      ...(r.novo ? {} : { alteracoes: [{ campo: 'Descrição do CEST', valorAnterior: null, valorNovo: r.descricao }] }),
+    });
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'cadastrar CEST');

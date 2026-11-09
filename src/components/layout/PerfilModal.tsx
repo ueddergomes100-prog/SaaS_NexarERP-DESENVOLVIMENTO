@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { createAuditLog } from '../../services/logService';
 
 interface PerfilModalProps {
   onClose: () => void;
@@ -34,6 +35,7 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData
     setIsLoading(true);
     setSuccess(false);
     try {
+      const nomeAnterior = String((isTenantManagerRole(userRole) ? configData?.nomeUsuario : userData?.nome) || '').trim();
       if (isTenantManagerRole(userRole) && tenantId) {
         await updateDoc(doc(db, 'configuracoes', tenantId), {
           nomeUsuario: nome.trim(),
@@ -43,6 +45,23 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData
         await updateDoc(doc(db, 'usuarios', currentUser.uid), {
           nome: nome.trim(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+        });
+      }
+      // Historico de alteracoes (09/11/2026): so' quando o nome mudou.
+      if (tenantId && nomeAnterior !== nome.trim()) {
+        const noTopo = isTenantManagerRole(userRole);
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: noTopo ? 'configuracoes' : 'usuarios',
+          acao: 'edicao',
+          descricao: `Nome no perfil alterado de "${nomeAnterior || '(vazio)'}" para "${nome.trim()}".`,
+          registroRelacionadoId: noTopo ? tenantId : currentUser.uid,
+          documentoTipo: noTopo ? 'configuracao' : 'usuario',
+          documentoNumero: `Usuário ${nome.trim()}`,
+          alteracoes: [{ campo: noTopo ? 'Nome de usuário (topo)' : 'Nome', valorAnterior: nomeAnterior, valorNovo: nome.trim() }],
+          status: 'sucesso',
         });
       }
       setSuccess(true);

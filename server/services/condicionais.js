@@ -27,6 +27,7 @@ const {
 } = require('../domain/condicionalDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { toCents } = require('../domain/financeDomain');
+const { registrarLogNaTransacao } = require('./auditoria');
 
 class ErroCondicional extends Error {
   constructor(status, message) {
@@ -186,7 +187,13 @@ const criarCondicional = async ({ user, tenantId, corpo, hoje }) => {
       createdAt: agora(),
       ...buildDocumentMetadata(user.uid, agora()),
     });
-    Object.assign(resultado, { id: ref.id, numeroCondicional, jaEnviado: false, semUnidade: montagem.semUnidade });
+    Object.assign(resultado, {
+      id: ref.id, numeroCondicional, jaEnviado: false, semUnidade: montagem.semUnidade,
+      // Para o Historico de alteracoes (a rota monta o texto).
+      clienteNome: String(cliente.nome || cliente.razaoSocial || 'Cliente'),
+      pecasLevadas: resumo.pecasLevadas,
+      valorLevado: resumo.valorLevado,
+    });
   });
   return resultado;
 };
@@ -341,9 +348,28 @@ const cancelarCondicional = async ({ user, tenantId, id, corpo }) => {
       status: 'cancelado',
       motivoCancelamento: motivo,
       fechadoEm: agora(),
+      // Quem cancelou e quando ficam no proprio condicional (aviso no topo, 09/11/2026).
+      canceladoPor: user.uid,
+      canceladoPorNome: nomeDoUsuario(user),
+      canceladoEm: agora(),
       historico: [...(condicional.historico || []), entradaDeHistorico('cancelamento', user, { motivo })],
       updatedAt: agora(),
       ...buildDocumentUpdateMetadata(user.uid, agora(), `Cancelado: ${motivo}`),
+    });
+    const pecasLiberadas = pendentes.reduce((s, p) => s + p.quantidade, 0);
+    // Historico de alteracoes (09/11/2026): na MESMA transacao do cancelamento
+    // (ou grava os dois, ou nenhum), como ultima escrita.
+    registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'condicional',
+      acao: 'cancelamento',
+      descricao: `Condicional nº ${condicional.numeroCondicional} (${condicional.clienteNome || 'cliente'}) cancelado. ${pecasLiberadas} peça(s) que estavam com o cliente voltaram a ficar livres no estoque. Motivo: ${motivo}.`,
+      registroId: ref.id,
+      documentoTipo: 'condicional',
+      documentoNumero: `Condicional ${condicional.numeroCondicional}`,
+      motivo,
+      alteracoes: [{ campo: 'Situação', valorAnterior: 'Aberto', valorNovo: 'Cancelado' }],
+      snapshotExcluido: condicional,
+      critico: true,
     });
     Object.assign(resultado, { numeroCondicional: condicional.numeroCondicional, clienteNome: condicional.clienteNome, motivo });
   });

@@ -4,6 +4,41 @@ const { registrarLog } = require('../services/auditoria');
 const { rotuloFilial } = require('../domain/filialDomain');
 const { ErroFilial, listarFiliais, ativarFilial, criarFilial, editarFilial, lerCadastroDaFilial, estoqueNasFiliais, saldoDoClienteNoGrupo, resumoDoGrupo, entrarNaFilialPadrao, definirFilialPadrao } = require('../services/filiais');
 const { ErroConfiguracoesGerais, salvarConfiguracoesGerais } = require('../services/configuracoesGerais');
+const { db } = require('../config/firebase');
+const { diferencasEntre } = require('../domain/historicoAlteracoesDomain');
+
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026): Configuracoes Gerais com antes e depois.
+// ---------------------------------------------------------------------------
+const simNao = (v) => (v === true ? 'Sim' : 'Não');
+const listaDeCategorias = (v) => {
+  if (Array.isArray(v)) return v.map(String).join(', ');
+  if (typeof v === 'string') return v.split('\n').map((c) => c.trim()).filter(Boolean).join(', ');
+  return '';
+};
+const CAMPOS_GERAIS_NO_HISTORICO = [
+  { campo: 'planoContasReceitas', rotulo: 'Categorias de receita', formatar: listaDeCategorias },
+  { campo: 'planoContasDespesas', rotulo: 'Categorias de despesa', formatar: listaDeCategorias },
+  { campo: 'validarCadastroProduto', rotulo: 'Validar cadastro de produto', formatar: simNao },
+  { campo: 'modoValidacaoCliente', rotulo: 'Validação do cadastro de cliente' },
+  { campo: 'trabalhaComLimiteCredito', rotulo: 'Trabalha com limite de crédito', formatar: simNao },
+  { campo: 'transferenciaSemNota', rotulo: 'Transferência entre filiais sem nota', formatar: simNao },
+  { campo: 'transferenciaNfeTributacao', rotulo: 'Tributação da NF-e de transferência' },
+  { campo: 'usaGradeDeProdutos', rotulo: 'Loja utiliza grade de produtos', formatar: simNao },
+  { campo: 'cashback', rotulo: 'Cashback' },
+];
+
+/** Configuracao como estava antes de gravar (so' para o historico; falha nao trava nada). */
+const lerConfiguracaoParaHistorico = async (tenantId) => {
+  try {
+    if (!db || !tenantId) return null;
+    const snap = await db.collection('configuracoes').doc(String(tenantId)).get();
+    return snap.exists ? snap.data() : {};
+  } catch (erro) {
+    console.error('[Filiais] historico: nao leu a configuracao:', erro.message);
+    return null;
+  }
+};
 
 /**
  * FILIAIS -- ver services/filiais.js e docs/PLANO_FILIAIS.md.
@@ -43,6 +78,9 @@ router.post('/ativar', async (req, res) => {
       modulo: 'filiais',
       acao: 'acesso',
       descricao: `Entrou na filial ${rotuloFilial(filial)}`,
+      registroId: filial.tenantId,
+      documentoTipo: 'filial',
+      documentoNumero: `Filial ${rotuloFilial(filial)}`,
     });
     return res.json({ ok: true, filial });
   } catch (erro) {
@@ -57,6 +95,9 @@ router.post('/', async (req, res) => {
       modulo: 'filiais',
       acao: 'criacao',
       descricao: `Cadastrou a filial ${rotuloFilial(resultado.filial)}`,
+      registroId: resultado.tenantId || (resultado.filial && resultado.filial.tenantId),
+      documentoTipo: 'filial',
+      documentoNumero: `Filial ${rotuloFilial(resultado.filial)}`,
     });
     return res.status(201).json(resultado);
   } catch (erro) {
@@ -78,10 +119,14 @@ router.put('/usuarios/:uid/filial-padrao', async (req, res) => {
   try {
     const r = await definirFilialPadrao({ user: req.user, usuarioId: req.params.uid, destino: req.body?.tenantId });
     registrarLog(req.user, {
-      modulo: 'filiais',
+      modulo: 'usuarios',
       acao: 'edicao',
       descricao: `Filial padrão de ${r.usuarioNome}: ${rotuloFilial(r.filial)}`,
       registroId: String(req.params.uid),
+      documentosRelacionados: r.filial && r.filial.tenantId ? [r.filial.tenantId] : [],
+      documentoTipo: 'usuario',
+      documentoNumero: `Usuário ${r.usuarioNome}`,
+      alteracoes: [{ campo: 'Filial padrão', valorAnterior: null, valorNovo: rotuloFilial(r.filial) }],
     });
     return res.json({ ok: true, filial: r.filial });
   } catch (erro) {
@@ -92,14 +137,27 @@ router.put('/usuarios/:uid/filial-padrao', async (req, res) => {
 // Configuracoes Gerais (15/10/2026): o mesmo valor gravado em todas as filiais.
 router.post('/configuracoes-gerais', async (req, res) => {
   try {
+    const antes = await lerConfiguracaoParaHistorico(req.user.tenantId);
     const r = await salvarConfiguracoesGerais({ user: req.user, corpo: req.body || {} });
-    registrarLog(req.user, {
-      modulo: 'configuracoes',
-      acao: 'edicao',
-      descricao: r.grupo
-        ? `Configurações gerais alteradas (plano de contas, cadastro, crédito e transferência), gravadas nas ${r.filiais} filiais de ${r.grupo}`
-        : 'Configurações gerais alteradas (plano de contas, cadastro e crédito)',
-    });
+    const valores = (r && r.valores) || {};
+    const alteracoes = antes
+      ? diferencasEntre(antes, valores, CAMPOS_GERAIS_NO_HISTORICO.filter((c) => Object.prototype.hasOwnProperty.call(valores, c.campo)))
+      : [];
+    // Sem o "antes" (leitura falhou) registra que salvou; com ele, so' quando algo mudou.
+    if (!antes || alteracoes.length > 0) {
+      registrarLog(req.user, {
+        modulo: 'configuracoes',
+        acao: 'edicao',
+        descricao: (r.grupo
+          ? `Configurações gerais alteradas, gravadas nas ${r.filiais} filiais de ${r.grupo}`
+          : 'Configurações gerais alteradas')
+          + (alteracoes.length ? `: ${alteracoes.map((a) => a.campo).join(', ')}.` : '.'),
+        registroId: req.user.tenantId,
+        documentoTipo: 'configuracao',
+        documentoNumero: 'Configurações gerais',
+        alteracoes,
+      });
+    }
     return res.json(r);
   } catch (erro) {
     if (erro instanceof ErroConfiguracoesGerais) return res.status(erro.status).json({ error: erro.message });
@@ -147,10 +205,25 @@ router.put('/:tenantId', async (req, res) => {
     if (antes.codigo !== filial.codigo) mudancas.push(`código ${antes.codigo} → ${filial.codigo}`);
     if (antes.ativa !== filial.ativa) mudancas.push(filial.ativa ? 'reativada' : 'inativada');
     if (antes.cidade !== filial.cidade || antes.uf !== filial.uf) mudancas.push(`cidade ${filial.cidade}/${filial.uf}`);
+    const situacaoMudou = antes.ativa !== filial.ativa;
     registrarLog(req.user, {
       modulo: 'filiais',
-      acao: 'edicao',
+      acao: situacaoMudou ? (filial.ativa ? 'reativacao' : 'inativacao') : 'edicao',
       descricao: `Filial ${rotuloFilial(filial)}: ${mudancas.join(', ') || 'sem mudanças'}`,
+      registroId: String(req.params.tenantId),
+      documentoTipo: 'filial',
+      documentoNumero: `Filial ${rotuloFilial(filial)}`,
+      alteracoes: diferencasEntre(
+        { ...antes, ativa: antes.ativa === false ? 'Inativa' : 'Ativa' },
+        { ...filial, ativa: filial.ativa === false ? 'Inativa' : 'Ativa' },
+        [
+          { campo: 'nome', rotulo: 'Nome' },
+          { campo: 'codigo', rotulo: 'Código' },
+          { campo: 'ativa', rotulo: 'Situação' },
+          { campo: 'cidade', rotulo: 'Cidade' },
+          { campo: 'uf', rotulo: 'UF' },
+        ],
+      ),
     });
     return res.json({ ok: true, filial });
   } catch (erro) {

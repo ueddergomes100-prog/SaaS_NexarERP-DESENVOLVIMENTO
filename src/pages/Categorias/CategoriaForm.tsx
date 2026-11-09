@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Tags, Loader2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp, query, where } from 'firebase/firestore';
@@ -7,6 +7,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre } from '../../utils/historicoAlteracoesDomain';
 
 const CategoriaForm: React.FC = () => {
   const navigate = useNavigate();
@@ -20,6 +22,8 @@ const CategoriaForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const { currentUser, tenantId } = useAuth();
+  /** Categoria como estava ao abrir: o "antes" do Histórico de alterações. */
+  const categoriaOriginalRef = useRef<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     if (isEditing && id) {
@@ -27,6 +31,7 @@ const CategoriaForm: React.FC = () => {
         try {
           const docSnap = await getDoc(doc(db, 'categorias', id));
           if (docSnap.exists()) {
+            categoriaOriginalRef.current = docSnap.data();
             setFormData(docSnap.data() as any);
           }
         } catch (error) {
@@ -64,13 +69,45 @@ const CategoriaForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = diferencasEntre(categoriaOriginalRef.current, dataToSave, [
+          { campo: 'nome', rotulo: 'Nome' },
+          { campo: 'tipo', rotulo: 'Tipo' },
+        ]);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Categoria ${dataToSave.nome} alterada: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'categoria',
+            documentoNumero: `Categoria ${dataToSave.nome}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Categoria atualizada!');
       } else {
-        await addDoc(collection(db, 'categorias'), {
+        const nova = await addDoc(collection(db, 'categorias'), {
           ...dataToSave,
           tenantId,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Categoria ${dataToSave.nome} cadastrada${dataToSave.tipo ? ` (tipo ${dataToSave.tipo})` : ''}.`,
+          registroRelacionadoId: nova.id,
+          documentoTipo: 'categoria',
+          documentoNumero: `Categoria ${dataToSave.nome}`,
+          status: 'sucesso',
         });
         showSuccess('Categoria cadastrada!');
       }

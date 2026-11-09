@@ -72,6 +72,7 @@ import {
 } from '../../utils/alteracaoValorTituloDomain';
 import { pedirNovoValorDaParcela } from '../../utils/alteracaoValorTituloUi';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
 import {
@@ -143,6 +144,12 @@ interface GrupoCliente {
 
 /** Regra compartilhada com o Dashboard -- ver transactionDueDateInput. */
 const dataReferenciaTransacao = (t: TransacaoData) => transactionDueDateInput(t) || undefined;
+
+/** Historico de alteracoes (09/11/2026): valor como o usuario le. */
+const reaisDoHistorico = (centavos: number): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(centavos) || 0) / 100);
+
+/** Como o usuario conhece o titulo no Historico de alteracoes. */
+const numeroDaContaAReceber = (descricao: unknown): string => `Conta a receber ${String(descricao || '').trim() || 'sem descrição'}`;
 
 // Formas que o "Dar Baixa" aceita; a filial escolhe quais usa (formasDeRecebimento).
 const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
@@ -338,11 +345,11 @@ const ContasReceber: React.FC = () => {
     if (!tenantId || !currentUser) return;
     const transactionRef = doc(db, 'transacoes', t.id);
 
-    await runTransaction(db, async (transaction) => {
+    const registrado = await runTransaction(db, async (transaction) => {
       const transactionSnap = await transaction.get(transactionRef);
       if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
       const transactionData = transactionSnap.data();
-      if (transactionData.status === 'Paga') return;
+      if (transactionData.status === 'Paga') return null;
       if (transactionData.status === 'Cancelada') {
         throw new Error('Uma conta cancelada não pode ser recebida.');
       }
@@ -395,7 +402,38 @@ const ContasReceber: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa registrada em cheque, aguardando compensação'),
         });
       }
+      return {
+        descricao: String(transactionData.descricao || t.descricao || ''),
+        valorCentavos: Number(transactionData.valorCentavos ?? toCents(Number(transactionData.valor ?? t.valor ?? 0))),
+        saleId: saleId ? String(saleId) : '',
+        serviceOrderId: serviceOrderId ? String(serviceOrderId) : '',
+        vendedorId: String(transactionData.vendedorId || ''),
+      };
     });
+
+    // Historico de alteracoes (09/11/2026): depois da transacao dar certo.
+    if (registrado) {
+      const numeroCheque = dadosCheque?.numeroCheque ? ` nº ${dadosCheque.numeroCheque}` : '';
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'financeiro',
+        acao: 'baixa',
+        descricao: `Recebimento "${registrado.descricao}" de ${reaisDoHistorico(registrado.valorCentavos)} registrado em cheque${numeroCheque}, aguardando compensação em ${dataBrasileira(dataCompensacao) || dataCompensacao}`
+          + `${bancoNome ? ` (banco ${bancoNome})` : ''}${dadosCheque ? '' : ' (sem os dados do cheque)'}. A conta continua em aberto até o cheque compensar.`,
+        registroRelacionadoId: t.id,
+        documentosRelacionados: [registrado.saleId, registrado.serviceOrderId],
+        documentoTipo: 'conta_receber',
+        documentoNumero: numeroDaContaAReceber(registrado.descricao),
+        alteracoes: [
+          { campo: 'Forma de pagamento', valorAnterior: t.formaPagamento || null, valorNovo: 'Cheque' },
+          { campo: 'Compensação prevista', valorAnterior: null, valorNovo: dataBrasileira(dataCompensacao) || dataCompensacao },
+        ],
+        ...(registrado.vendedorId ? { vendedorId: registrado.vendedorId } : {}),
+        status: 'sucesso',
+      });
+    }
   };
 
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
@@ -595,6 +633,8 @@ const ContasReceber: React.FC = () => {
       const paymentDate = dataBaixaCredito;
 
       let remainingCents = 0;
+      // Para o Historico de alteracoes: a venda/OS ligada e o que o titulo era.
+      let origemDoTitulo = { saleId: '', serviceOrderId: '', descricao: t.descricao || '', vendedorId: '' };
       await runTransaction(db, async (transaction) => {
         const transactionSnap = await transaction.get(transactionRef);
         if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
@@ -637,6 +677,12 @@ const ContasReceber: React.FC = () => {
         }
 
         remainingCents = currentTransactionCents - creditCents;
+        origemDoTitulo = {
+          saleId: saleId ? String(saleId) : '',
+          serviceOrderId: serviceOrderId ? String(serviceOrderId) : '',
+          descricao: String(transactionData.descricao || t.descricao || ''),
+          vendedorId: String(transactionData.vendedorId || ''),
+        };
         creditUpdates.forEach(({ ref, balanceCents }) => {
           transaction.update(ref, {
             saldoDisponivelCentavos: balanceCents,
@@ -733,6 +779,28 @@ const ContasReceber: React.FC = () => {
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa com crédito de devolução'),
           });
         }
+      });
+
+      // Historico de alteracoes (09/11/2026): depois da transacao dar certo.
+      const quitou = remainingCents === 0;
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'financeiro',
+        acao: 'baixa',
+        descricao: quitou
+          ? `Recebimento "${origemDoTitulo.descricao}" quitado com ${reaisDoHistorico(creditCents)} de crédito de devolução do cliente${t.clienteNome ? ` ${t.clienteNome}` : ''}, em ${dataBrasileira(paymentDate) || paymentDate}.`
+          : `Recebimento "${origemDoTitulo.descricao}" abatido em ${reaisDoHistorico(creditCents)} com crédito de devolução do cliente${t.clienteNome ? ` ${t.clienteNome}` : ''}, em ${dataBrasileira(paymentDate) || paymentDate}. Fica em aberto ${reaisDoHistorico(remainingCents)}.`,
+        registroRelacionadoId: t.id,
+        documentosRelacionados: [origemDoTitulo.saleId, origemDoTitulo.serviceOrderId, quitou ? '' : creditPaymentRef.id],
+        documentoTipo: 'conta_receber',
+        documentoNumero: numeroDaContaAReceber(origemDoTitulo.descricao),
+        alteracoes: quitou
+          ? [{ campo: 'Situação', valorAnterior: 'Pendente', valorNovo: 'Paga' }, { campo: 'Forma de pagamento', valorAnterior: t.formaPagamento || null, valorNovo: 'Crédito de Devolução' }]
+          : [{ campo: 'Valor em aberto', valorAnterior: reaisDoHistorico(expectedTransactionCents), valorNovo: reaisDoHistorico(remainingCents) }],
+        ...(origemDoTitulo.vendedorId ? { vendedorId: origemDoTitulo.vendedorId } : {}),
+        status: 'sucesso',
       });
 
       // Cashback (20/10/2026): titulo quitado pode ter deixado a venda toda paga -- o servidor confere e gera.

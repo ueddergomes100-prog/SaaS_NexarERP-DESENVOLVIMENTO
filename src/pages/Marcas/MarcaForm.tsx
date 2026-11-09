@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Award, Loader2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -7,6 +7,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre } from '../../utils/historicoAlteracoesDomain';
 
 const MarcaForm: React.FC = () => {
   const navigate = useNavigate();
@@ -17,6 +19,8 @@ const MarcaForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const { currentUser, tenantId } = useAuth();
+  /** Marca como estava ao abrir: o "antes" do Histórico de alterações. */
+  const marcaOriginalRef = useRef<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     if (isEditing && id) {
@@ -24,6 +28,7 @@ const MarcaForm: React.FC = () => {
         try {
           const docSnap = await getDoc(doc(db, 'marcas', id));
           if (docSnap.exists()) {
+            marcaOriginalRef.current = docSnap.data();
             setFormData(docSnap.data() as any);
           }
         } catch (error) {
@@ -58,13 +63,42 @@ const MarcaForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = diferencasEntre(marcaOriginalRef.current, dataToSave, [{ campo: 'nome', rotulo: 'Nome' }]);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Marca ${String(marcaOriginalRef.current?.nome || '')} renomeada para ${dataToSave.nome}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'marca',
+            documentoNumero: `Marca ${dataToSave.nome}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Marca atualizada!');
       } else {
-        await addDoc(collection(db, 'marcas'), {
+        const nova = await addDoc(collection(db, 'marcas'), {
           ...dataToSave,
           tenantId,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Marca ${dataToSave.nome} cadastrada.`,
+          registroRelacionadoId: nova.id,
+          documentoTipo: 'marca',
+          documentoNumero: `Marca ${dataToSave.nome}`,
+          status: 'sucesso',
         });
         showSuccess('Marca cadastrada!');
       }

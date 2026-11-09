@@ -1302,6 +1302,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
   onFechar: () => void;
   onSalvo: (motivos: string[], tipos: TipoAcerto[]) => void;
 }> = ({ tenantId, motivos: motivosIniciais, tipos: tiposIniciais, onFechar, onSalvo }) => {
+  const { currentUser } = useAuth();
   const [motivos, setMotivos] = useState<string[]>(motivosIniciais);
   const [tipos, setTipos] = useState<TipoAcerto[]>(tiposIniciais);
   const [novoMotivo, setNovoMotivo] = useState('');
@@ -1330,6 +1331,40 @@ const ConfiguracaoRomaneioModal: React.FC<{
     setSalvando(true);
     try {
       await updateDoc(doc(db, 'configuracoes', tenantId), { motivosNaoEntrega: motivos, tiposAcertoRomaneio: tipos });
+      // Historico de alteracoes (09/11/2026): so' quando a lista mudou.
+      void (async () => {
+        try {
+          const [{ createAuditLog }, { diferencasEntre }] = await Promise.all([
+            import('../../services/logService'),
+            import('../../utils/historicoAlteracoesDomain'),
+          ]);
+          const textoDosTipos = (v: unknown) => (Array.isArray(v) ? v.map((t: TipoAcerto) => `${t.nome} (${t.natureza})`).join(', ') : '');
+          const alteracoes = diferencasEntre(
+            { motivos: motivosIniciais, tipos: tiposIniciais },
+            { motivos, tipos },
+            [
+              { campo: 'motivos', rotulo: 'Motivos de não entrega', formatar: (v) => (Array.isArray(v) ? v.join(', ') : '') },
+              { campo: 'tipos', rotulo: 'Itens do acerto', formatar: textoDosTipos },
+            ],
+          );
+          if (alteracoes.length === 0 || !currentUser) return;
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'configuracoes',
+            acao: 'edicao',
+            descricao: `Configuração do romaneio alterada: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: tenantId,
+            documentoTipo: 'configuracao',
+            documentoNumero: 'Configuração do romaneio',
+            alteracoes,
+            status: 'sucesso',
+          });
+        } catch (erroHistorico) {
+          console.error('Falha ao registrar a configuração do romaneio no histórico de alterações:', erroHistorico);
+        }
+      })();
       showSuccess('Configuração do romaneio salva.');
       onSalvo(motivos, tipos);
     } catch (erro) {

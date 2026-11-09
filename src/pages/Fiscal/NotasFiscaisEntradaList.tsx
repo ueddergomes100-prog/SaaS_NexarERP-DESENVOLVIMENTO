@@ -420,7 +420,17 @@ const NotasFiscaisEntradaList: React.FC = () => {
           modulo: 'estoque',
           acao: 'exclusao',
           descricao: `Nota de entrada NF ${nota.numeroNF} (${nota.fornecedorNome}) excluída. Estoque revertido e ${nota.titulosPagarIds.length} título(s) de Contas a Pagar removido(s). Motivo: ${motivo}.`,
+          // Historico de alteracoes (09/11/2026): na nota e nos titulos cancelados, com a copia da nota.
+          registroRelacionadoId: nota.id,
+          documentosRelacionados: nota.titulosPagarIds,
+          documentoTipo: 'nota_entrada',
+          documentoNumero: `${nota.tipoDocumento === 'nfse' ? 'NFS-e' : 'NF-e'} de entrada ${nota.numeroNF}${nota.serie ? ` série ${nota.serie}` : ''} — ${nota.fornecedorNome}`,
+          motivo,
+          alteracoes: [{ campo: 'Situação', valorAnterior: 'Ativa', valorNovo: 'Excluída' }],
+          // Sem o XML compactado (grande; a nota continua gravada, so' marcada como excluida).
+          snapshotExcluido: Object.fromEntries(Object.entries(nota).filter(([campo]) => campo !== 'xmlGzipBase64')),
           status: 'sucesso',
+          critical: true,
         });
       } catch {
         // Ignora erros ao registrar auditoria

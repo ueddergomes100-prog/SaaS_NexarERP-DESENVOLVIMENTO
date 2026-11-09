@@ -9,6 +9,7 @@ import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao'
 import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
 import ValidarDocumentoButton from '../../components/common/ValidarDocumentoButton';
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
@@ -139,8 +140,8 @@ const ClientesList: React.FC = () => {
 
     if (isConfirmed.isConfirmed) {
       setLoading(true);
+      let count = 0;
       try {
-        let count = 0;
         for (const c of clientes) {
           const upName = c.nome.toUpperCase().trim();
           // registro inativo nao se edita (firestore.rules)
@@ -157,6 +158,20 @@ const ClientesList: React.FC = () => {
         showError('Erro', 'Ocorreu um erro na migração.');
       } finally {
         setLoading(false);
+        // Historico de alteracoes (09/11/2026): um registro com a quantidade
+        // (inclusive quando parou no meio -- os que ja' mudaram, mudaram).
+        if (count > 0 && tenantId) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Nomes de ${count} cliente(s) padronizados em letras maiúsculas.`,
+            documentoTipo: 'cliente',
+            status: 'sucesso',
+          });
+        }
       }
     }
   };

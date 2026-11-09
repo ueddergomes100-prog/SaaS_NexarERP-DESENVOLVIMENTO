@@ -65,14 +65,27 @@ const semPermissaoDeBaixa = (tipo) => (tipo === 'saida'
   ? 'Você não tem permissão para dar baixa em contas a pagar. Peça a um responsável liberar "Financeiro: Contas a Pagar" no seu usuário.'
   : 'Você não tem permissão para dar baixa em contas a receber. Peça a um responsável liberar "Financeiro: Contas a Receber" no seu usuário.');
 
+/** Como o usuario conhece o titulo no Historico de alteracoes. */
+const numeroDoTitulo = (tipo, descricao, transacaoId) => `${tipo === 'saida' ? 'Conta a pagar' : 'Conta a receber'} ${descricao || transacaoId}`;
+
 const registrarLogDaBaixa = (user, tenantId, pedido, resumo, sufixo = '') => {
   // Juros, multa e desconto (15/10/2026) entram no texto do log.
   const ajustes = resumo.ajustes ? descricaoDosAjustes(resumo.ajustes) : '';
   registrarLog({ ...user, tenantId }, {
     modulo: 'financeiro',
-    acao: 'edicao',
+    acao: 'baixa',
     descricao: `${pedido.tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de ${reais(resumo.valorCentavos)} baixado em ${pedido.dataPagamento.split('-').reverse().join('/')} (${pedido.formaPagamento}${resumo.bancoNome ? `, banco ${resumo.bancoNome}` : ''})${ajustes ? `, com ${ajustes}` : ''}${sufixo}.`,
     registroId: pedido.transacaoId,
+    // Titulo <-> venda/OS de origem e, no pagamento parcial, o lancamento do parcial.
+    documentosRelacionados: [resumo.pedidoId, resumo.osId, resumo.parcial && resumo.parcial.transacaoId].filter(Boolean),
+    documentoTipo: pedido.tipo === 'saida' ? 'conta_pagar' : 'conta_receber',
+    documentoNumero: numeroDoTitulo(pedido.tipo, resumo.descricao, pedido.transacaoId),
+    alteracoes: [{
+      campo: 'Situação',
+      valorAnterior: 'Pendente',
+      valorNovo: resumo.parcial ? `Pendente (pago ${reais(resumo.parcial.principalCentavos)}, falta ${reais(resumo.parcial.restanteCentavos)})` : 'Paga',
+    }],
+    ...(resumo.vendedorId ? { vendedorId: resumo.vendedorId } : {}),
   });
 };
 
@@ -154,15 +167,8 @@ router.post('/estorno', async (req, res) => {
     }
 
     const tenantId = empresaDaOperacao(req.user, req.body);
+    // O Historico de alteracoes do estorno e' gravado DENTRO da transacao (services/baixaFinanceira.js).
     const resumo = await registrarEstorno({ user: req.user, tenantId, pedido });
-
-    registrarLog({ ...req.user, tenantId }, {
-      modulo: 'financeiro',
-      acao: 'edicao',
-      descricao: `${pedido.tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de ${reais(resumo.valorCentavos)} estornado para Pendente. Motivo: ${pedido.motivo}`,
-      registroId: pedido.transacaoId,
-      critico: true,
-    });
     return res.json({ ok: true, ajusteBancoCentavos: resumo.ajusteBancoCentavos });
   } catch (erro) {
     return responderErro(res, erro, 'estornar');
@@ -195,6 +201,11 @@ router.post('/alterar-valor', async (req, res) => {
       acao: 'edicao',
       descricao: `Valor da parcela "${resumo.descricao}" alterado de ${reais(resumo.deCentavos)} para ${reais(resumo.paraCentavos)}. Motivo: ${pedido.motivo}`,
       registroId: pedido.transacaoId,
+      documentosRelacionados: [resumo.pedidoId, resumo.osId].filter(Boolean),
+      documentoTipo: 'conta_receber',
+      documentoNumero: numeroDoTitulo('entrada', resumo.descricao, pedido.transacaoId),
+      motivo: pedido.motivo,
+      alteracoes: [{ campo: 'Valor da parcela', valorAnterior: reais(resumo.deCentavos), valorNovo: reais(resumo.paraCentavos) }],
       critico: true,
     });
     return res.json({ ok: true });
@@ -222,6 +233,10 @@ router.post('/receber/lancar', async (req, res) => {
         acao: 'criacao',
         descricao: `Conta a receber lançada à mão por ${r.usuarioNome}: "${r.descricao}" do ${quem}, ${reais(r.totalCentavos)} em ${r.quantidade} parcela(s), forma prevista ${r.formaPrevista}.`,
         registroId: r.ids[0],
+        // As outras parcelas do mesmo lancamento (o registro aparece em cada uma).
+        documentosRelacionados: r.ids.slice(1),
+        documentoTipo: 'conta_receber',
+        documentoNumero: numeroDoTitulo('entrada', r.descricao, r.ids[0]),
         critico: true,
       });
     }
@@ -243,6 +258,8 @@ router.post('/receber/editar', async (req, res) => {
         acao: 'edicao',
         descricao: `Conta a receber "${r.descricao}" editada: ${r.alteracoes.map((a) => a.campo).join(', ')}.`,
         registroId: req.body.transacaoId,
+        documentoTipo: 'conta_receber',
+        documentoNumero: numeroDoTitulo('entrada', r.descricao, req.body.transacaoId),
         alteracoes: r.alteracoes,
       });
     }
@@ -257,15 +274,8 @@ router.post('/receber/cancelar', async (req, res) => {
   try {
     if (!temPermissao(req.user, PERMISSAO_DA_BAIXA.entrada)) return res.status(403).json({ error: SEM_PERMISSAO_RECEBER });
     const tenantId = empresaDaOperacao(req.user, req.body);
-    const r = await cancelarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
-    registrarLog({ ...req.user, tenantId }, {
-      modulo: 'financeiro',
-      acao: 'cancelamento',
-      descricao: `Conta a receber "${r.descricao}" de ${r.devedorNome || 'sem nome'} (${reais(r.valorCentavos)}) cancelada. Motivo: ${r.motivo}`,
-      registroId: req.body.transacaoId,
-      critico: true,
-      snapshotExcluido: r.snapshot,
-    });
+    // O Historico de alteracoes do cancelamento e' gravado DENTRO da transacao (services/lancamentoReceber.js).
+    await cancelarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
     return res.json({ ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'cancelar a conta a receber');
@@ -323,6 +333,14 @@ router.post('/renegociar', async (req, res) => {
       acao: 'criacao',
       descricao: `Renegociação de ${resumo.quantidadeAntigas} parcela(s) de ${resumo.clienteNome}: ${reais(resumo.totalOrigemCentavos)} viraram ${reais(resumo.totalNovoCentavos)} em ${resumo.quantidadeNovas} parcela(s) (${pedido.formaPagamento}). Motivo: ${pedido.motivo}`,
       registroId: resumo.renegociacaoId,
+      // As parcelas antigas (que viraram "Renegociada") e as novas.
+      documentosRelacionados: [
+        ...pedido.transacaoIds,
+        ...Array.from({ length: resumo.quantidadeNovas || 0 }, (_, i) => `${resumo.renegociacaoId}_p${i + 1}`),
+      ],
+      documentoTipo: 'renegociacao',
+      documentoNumero: `Renegociação de ${resumo.clienteNome}`,
+      motivo: pedido.motivo,
       critico: true,
     });
     return res.json({ ok: true, renegociacaoId: resumo.renegociacaoId });
@@ -339,15 +357,8 @@ router.post('/renegociacao/desfazer', async (req, res) => {
     if (!temPermissao(req.user, PERMISSAO_RENEGOCIAR)) return res.status(403).json({ error: SEM_PERMISSAO_RENEGOCIAR });
 
     const tenantId = empresaDaOperacao(req.user, req.body);
+    // O Historico de alteracoes e' gravado DENTRO da transacao (services/renegociacao.js).
     const resumo = await desfazerRenegociacao({ user: req.user, tenantId, pedido });
-
-    registrarLog({ ...req.user, tenantId }, {
-      modulo: 'financeiro',
-      acao: 'edicao',
-      descricao: `Renegociação de ${resumo.clienteNome} desfeita: ${resumo.quantidadeNovas} parcela(s) nova(s) cancelada(s)${resumo.estornadas ? ` (${resumo.estornadas} recebida(s) estornada(s), ${reais(resumo.retiradoDoBancoCentavos)} saíram do banco)` : ''} e ${resumo.quantidadeAntigas} parcela(s) antiga(s) de volta em aberto. Motivo: ${pedido.motivo}`,
-      registroId: resumo.renegociacaoId,
-      critico: true,
-    });
     return res.json({ ok: true, estornadas: resumo.estornadas });
   } catch (erro) {
     return responderErro(res, erro, 'desfazer a renegociação');

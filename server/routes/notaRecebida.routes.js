@@ -15,9 +15,46 @@ const {
   validarChaveAcesso,
 } = require('../services/notaRecebida');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
+const { registrarLog } = require('../services/auditoria');
+const { parseNfeXml } = require('../domain/nfeXmlDomain');
 
 const router = express.Router();
 router.use(authenticate);
+
+/**
+ * HISTORICO DE ALTERACOES (09/11/2026): a Ciencia da Operacao e' ato fiscal em
+ * nome da empresa, pedido pelo usuario -- fica registrada. O registro vai no
+ * id que a nota de entrada recebe ao ser lancada (`{tenantId}_nfe_{chave}`,
+ * ver idDaNotaDeEntrada em src/utils/entradaNfeDomain.ts): assim aparece no
+ * historico da nota depois de lancada. Baixar o XML so' para conferir nao
+ * vira registro (a entrada em si e' registrada quando a nota e' gravada).
+ */
+const registrarCiencia = (req, tenantId, nota, comoFoi) => {
+  const chave = String((nota && nota.chave) || '').replace(/\D/g, '');
+  const numero = String((nota && nota.numero) || '').replace(/^0+(?=\d)/, '');
+  const serie = String((nota && nota.serie) || '').replace(/^0+(?=\d)/, '');
+  const emitente = String((nota && nota.emitenteNome) || '').trim();
+  const documento = `NF-e de entrada${numero ? ` ${numero}` : ''}${serie ? ` série ${serie}` : ''}${emitente ? ` — ${emitente}` : ''}`;
+  return registrarLog({ ...req.user, tenantId }, {
+    modulo: 'fiscal',
+    // Parte da importacao da nota (o rotulo "Importou" ja' existe no historico).
+    acao: 'importacao',
+    descricao: `Ciência da operação registrada na SEFAZ ${comoFoi}: ${documento}${chave ? ` (chave ${chave})` : ''}.`,
+    ...(chave.length === 44 ? { registroId: `${tenantId}_nfe_${chave}` } : {}),
+    documentoTipo: 'nota_entrada',
+    documentoNumero: documento,
+  });
+};
+
+/** Dados da nota pelo XML (quando a SEFAZ ja' liberou); sem XML, null. */
+const notaDoXml = (xml) => {
+  try {
+    const n = parseNfeXml(xml);
+    return { chave: n.chave, numero: n.numero, serie: n.serie, emitenteNome: (n.emitente && n.emitente.nome) || '' };
+  } catch {
+    return null;
+  }
+};
 
 /**
  * BUSCAR NOTA DE ENTRADA PELA CHAVE DE ACESSO -- ver services/notaRecebida.js.
@@ -130,6 +167,11 @@ router.post('/manifestar', async (req, res) => {
 
     const respostaXml = await chamarSpedy(config, `/inbound-product-invoices/${id}/xml`);
     if (!respostaXml.ok) {
+      // Sem XML ainda: a chave vem dos dados da nota na Spedy (uma leitura, so' para o historico).
+      void chamarSpedy(config, `/inbound-product-invoices/${id}`)
+        .then(async (r) => (r.ok ? itemDaListaRecebida(await r.json(), 'nfe') : null))
+        .catch(() => null)
+        .then((nota) => registrarCiencia(req, tenantId, nota, 'pela busca da chave de acesso'));
       return res.status(202).json({
         situacao: 'aguardando',
         aviso: 'A ciência foi registrada na SEFAZ. O XML completo costuma chegar em alguns segundos — '
@@ -137,6 +179,7 @@ router.post('/manifestar', async (req, res) => {
       });
     }
     const xml = await respostaXml.text();
+    void registrarCiencia(req, tenantId, notaDoXml(xml), 'pela busca da chave de acesso');
     return res.json({ situacao: 'pronta', xml });
   } catch (erro) {
     console.error('[Nota recebida] manifestar:', erro);
@@ -212,7 +255,8 @@ router.post('/recebidas/importar', async (req, res) => {
     const id = String(req.body?.id || '').trim();
     if (!idSpedyValido(id)) return res.status(400).json({ error: 'Identificação da nota inválida. Recarregue a lista de notas recebidas.' });
 
-    const config = await loadSpedyConfig(resolveTenantId(req));
+    const tenantId = resolveTenantId(req);
+    const config = await loadSpedyConfig(tenantId);
     const base = `/${TIPOS_RECEBIDA[tipo]}/${id}`;
     const respostaNota = await chamarSpedy(config, base);
     if (respostaNota.status === 404) return res.status(404).json({ error: 'Esta nota não está mais na lista de notas recebidas. Recarregue a lista.' });
@@ -226,6 +270,7 @@ router.post('/recebidas/importar', async (req, res) => {
     if (item.situacao === 'ciencia') {
       const manifesto = await chamarSpedy(config, `${base}/manifest`, { method: 'POST', body: JSON.stringify({ status: 'acknowledged' }) });
       if (!manifesto.ok) return res.status(502).json({ error: mensagemDeFalha(manifesto.status, await lerCorpo(manifesto)) });
+      void registrarCiencia(req, tenantId, item, 'ao importar das notas recebidas');
     }
     const respostaXml = await chamarSpedy(config, `${base}/xml`);
     if (!respostaXml.ok) {

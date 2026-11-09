@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Wrench, Loader2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, deleteField } from 'firebase/firestore';
@@ -9,6 +9,17 @@ import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
+
+/** Campos comparados no Histórico de alterações, com o nome que aparece na tela. */
+const CAMPOS_SERVICO_HISTORICO: CampoComparado[] = [
+  { campo: 'codigo', rotulo: 'Código' },
+  { campo: 'nome', rotulo: 'Nome do serviço' },
+  { campo: 'categoria', rotulo: 'Categoria' },
+  { campo: 'preco', rotulo: 'Valor por hora (R$)', formatar: (v) => (v === undefined || v === null || v === '' ? null : Number(v)) },
+  { campo: 'comissaoPercentual', rotulo: 'Comissão (%)', formatar: (v) => (v === undefined || v === null || v === '' ? null : Number(v)) },
+];
 
 const ServicoForm: React.FC = () => {
   const navigate = useNavigate();
@@ -28,6 +39,8 @@ const ServicoForm: React.FC = () => {
   const [inativo, setInativo] = useState(false);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const { currentUser, tenantId } = useAuth();
+  /** Servico como estava ao abrir: o "antes" do Histórico de alterações. */
+  const servicoOriginalRef = useRef<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -47,6 +60,7 @@ const ServicoForm: React.FC = () => {
           const docSnap = await getDoc(doc(db, 'servicos', id));
           if (docSnap.exists()) {
             const dados = docSnap.data();
+            servicoOriginalRef.current = dados;
             setFormData({
               ...dados,
               comissaoPercentual: dados.comissaoPercentual != null ? String(dados.comissaoPercentual) : '',
@@ -109,13 +123,42 @@ const ServicoForm: React.FC = () => {
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = diferencasEntre(servicoOriginalRef.current, dataToSave, CAMPOS_SERVICO_HISTORICO);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Serviço ${String(dataToSave.nome)} alterado: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'servico',
+            documentoNumero: `Serviço ${String(dataToSave.nome)}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Serviço atualizado!');
       } else {
-        await addDoc(collection(db, 'servicos'), {
+        const novo = await addDoc(collection(db, 'servicos'), {
           ...dataToSave,
           tenantId,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Serviço ${String(dataToSave.nome)} cadastrado (valor por hora R$ ${Number(dataToSave.preco || 0).toFixed(2).replace('.', ',')}).`,
+          registroRelacionadoId: novo.id,
+          documentoTipo: 'servico',
+          documentoNumero: `Serviço ${String(dataToSave.nome)}`,
+          status: 'sucesso',
         });
         showSuccess('Serviço cadastrado!');
       }

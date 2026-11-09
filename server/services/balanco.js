@@ -555,7 +555,7 @@ const cancelar = async ({ user, tenantId, balancoId, corpo }) => {
   const balanco = await lerBalanco(tenantId, balancoId);
   if (balanco.status === bd.STATUS_BALANCO.fechando) throw new ErroBalanco(409, 'Este balanço começou a ser fechado e já ajustou parte do estoque: termine o fechamento.');
   exigirAberto(balanco);
-  await refBalanco(balancoId).update({ status: bd.STATUS_BALANCO.cancelado, motivoCancelamento: motivo, canceladoPor: user.uid, canceladoEm: agora(), updatedAt: agora() });
+  await refBalanco(balancoId).update({ status: bd.STATUS_BALANCO.cancelado, motivoCancelamento: motivo, canceladoPor: user.uid, canceladoPorNome: String(user.nome || user.email || ''), canceladoEm: agora(), updatedAt: agora() });
   await tirarTrava(tenantId, balancoId);
   return { nome: balanco.nome };
 };

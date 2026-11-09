@@ -41,15 +41,48 @@ router.post('/taras', podeMexerNaProducao, async (req, res) => {
     }));
     const tenantId = req.user.tenantId;
     const agora = admin.firestore.FieldValue.serverTimestamp();
+    // Caixas de antes, so' para o Historico de alteracoes: falha na leitura nao impede salvar.
+    let anteriores = null;
+    try {
+      const atual = await db.collection('configuracoes').doc(tenantId).get();
+      anteriores = atual.exists && Array.isArray(atual.data().tarasProducao) ? atual.data().tarasProducao : [];
+    } catch (erroLeitura) {
+      console.error('[Producao] taras: falha ao ler as caixas anteriores (Histórico de alterações):', erroLeitura.message);
+    }
     await db.collection('configuracoes').doc(tenantId).set({
       tarasProducao: taras,
       ...buildDocumentUpdateMetadata(req.user.uid, agora, 'Caixas (taras) da produção alteradas'),
     }, { merge: true });
-    registrarLog(req.user, {
-      modulo: 'producao',
-      acao: 'edicao',
-      descricao: `Caixas (taras) da produção: ${taras.map((t) => `${t.nome} ${t.pesoKg} kg`).join(', ') || 'nenhuma'}.`,
-    });
+    // Historico de alteracoes (09/11/2026): ligado a configuracao da filial, com o que entrou, saiu ou mudou de peso.
+    const kg = (v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} kg`;
+    const situacao = (t) => (t ? `${kg(t.pesoKg)}${t.ativa === false ? ' (inativa)' : ''}` : null);
+    const alteracoes = [];
+    if (anteriores) {
+      const chave = (t) => String((t && t.id) || (t && t.nome) || '');
+      const antes = new Map(anteriores.map((t) => [chave(t), t]));
+      const depois = new Map(taras.map((t) => [chave(t), t]));
+      taras.forEach((t) => {
+        const a = antes.get(chave(t));
+        const nomeMudou = a && String(a.nome || '') !== t.nome;
+        if (!a || situacao(a) !== situacao(t) || nomeMudou) {
+          alteracoes.push({ campo: `Caixa ${t.nome}${nomeMudou ? ` (antes ${a.nome})` : ''}`, valorAnterior: situacao(a), valorNovo: situacao(t) });
+        }
+      });
+      anteriores.forEach((t) => {
+        if (!depois.has(chave(t))) alteracoes.push({ campo: `Caixa ${String(t.nome || '')}`, valorAnterior: situacao(t), valorNovo: null });
+      });
+    }
+    if (!anteriores || alteracoes.length > 0) {
+      registrarLog(req.user, {
+        modulo: 'producao',
+        acao: 'edicao',
+        descricao: `Caixas (taras) da produção: ${taras.map((t) => `${t.nome} ${kg(t.pesoKg)}${t.ativa === false ? ' (inativa)' : ''}`).join(', ') || 'nenhuma'}.`,
+        registroId: tenantId,
+        documentoTipo: 'configuracao',
+        documentoNumero: 'Caixas (taras) da produção',
+        alteracoes,
+      });
+    }
     return res.json({ ok: true, taras });
   } catch (erro) {
     console.error('[Producao] taras:', erro);

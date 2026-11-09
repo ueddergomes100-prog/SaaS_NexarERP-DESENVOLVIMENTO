@@ -4473,7 +4473,7 @@ const PedidoVendaForm: React.FC = () => {
           }
 
           // Salva referência local no Firestore (com o status e número mais recente do polling)
-          await addDoc(collection(db, 'notas_fiscais'), {
+          const cupomDaVendaRef = await addDoc(collection(db, 'notas_fiscais'), {
             spedyId: finalNote.id,
             number: finalNote.number,
             accessKey: finalNote.accessKey || null,
@@ -4491,6 +4491,31 @@ const PedidoVendaForm: React.FC = () => {
             pedidoId: newPedidoId,
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
+
+          // Historico de alteracoes (09/11/2026): o cupom aparece na nota e no pedido.
+          {
+            const numeroCupom = numeroDaNota(finalNote.number);
+            const rejeitado = finalNote.status === 'rejected' || finalNote.status === 'denied';
+            const motivoRejeicao = `${finalNote.processingDetail?.code || ''} ${finalNote.processingDetail?.message || ''}`.trim();
+            registrarHistorico({
+              tenantId,
+              usuarioId: currentUser.uid,
+              usuarioEmail: currentUser.email || currentUser.uid,
+              modulo: 'fiscal',
+              acao: 'emissao',
+              descricao: finalNote.status === 'authorized'
+                ? `NFC-e ${numeroCupom} do Pedido ${finalNumeroPedido} emitida e autorizada pela SEFAZ.`
+                : rejeitado
+                  ? `NFC-e do Pedido ${finalNumeroPedido} não emitida: a SEFAZ rejeitou (${motivoRejeicao || 'motivo não informado'}).`
+                  : `NFC-e do Pedido ${finalNumeroPedido} enviada para emissão; aguardando a SEFAZ.`,
+              registroRelacionadoId: cupomDaVendaRef.id,
+              documentosRelacionados: [newPedidoId],
+              documentoTipo: 'nota_fiscal',
+              documentoNumero: numeroCupom ? `NFC-e ${numeroCupom}` : `NFC-e do Pedido ${finalNumeroPedido}`,
+              ...(rejeitado && motivoRejeicao ? { motivo: motivoRejeicao } : {}),
+              status: rejeitado ? 'erro' : 'sucesso',
+            });
+          }
 
           Swal.close();
 
@@ -4727,6 +4752,31 @@ const PedidoVendaForm: React.FC = () => {
         pedidoId: id,
         ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
+
+      // Historico de alteracoes (09/11/2026): o cupom aparece na nota e no pedido.
+      {
+        const numeroCupom = numeroDaNota(finalNote.number);
+        const rejeitado = finalNote.status === 'rejected' || finalNote.status === 'denied';
+        const motivoRejeicao = `${finalNote.processingDetail?.code || ''} ${finalNote.processingDetail?.message || ''}`.trim();
+        registrarHistorico({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'fiscal',
+          acao: 'emissao',
+          descricao: finalNote.status === 'authorized'
+            ? `NFC-e ${numeroCupom} do Pedido ${numeroPedido} emitida e autorizada pela SEFAZ.`
+            : rejeitado
+              ? `NFC-e do Pedido ${numeroPedido} não emitida: a SEFAZ rejeitou (${motivoRejeicao || 'motivo não informado'}).`
+              : `NFC-e do Pedido ${numeroPedido} enviada para emissão; aguardando a SEFAZ.`,
+          registroRelacionadoId: newDocRef.id,
+          documentosRelacionados: [id],
+          documentoTipo: 'nota_fiscal',
+          documentoNumero: numeroCupom ? `NFC-e ${numeroCupom}` : `NFC-e do Pedido ${numeroPedido}`,
+          ...(rejeitado && motivoRejeicao ? { motivo: motivoRejeicao } : {}),
+          status: rejeitado ? 'erro' : 'sucesso',
+        });
+      }
 
       // Atualiza o estado local
       setNfeDoc({
@@ -5351,6 +5401,10 @@ const PedidoVendaForm: React.FC = () => {
           acao: 'estorno_devolucao',
           descricao: `Devolução do pedido #${numeroPedido} estornada.`,
           registroRelacionadoId: devolucao.id,
+          // Historico de alteracoes (09/11/2026): aparece tambem no pedido.
+          ...(id ? { documentosRelacionados: [id] } : {}),
+          documentoTipo: 'devolucao',
+          documentoNumero: `Devolução do Pedido ${numeroPedido}`,
           status: 'sucesso',
           critical: true,
         });

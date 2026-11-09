@@ -73,6 +73,7 @@ const {
   reabrirOrigensSeRenegociacaoEstavaPaga,
 } = require('./renegociacaoOrigem');
 const cashback = require('./cashback');
+const auditoria = require('./auditoria');
 
 const { ErroBaixa, camposDoResumoDePagamentos, temPermissao } = regras;
 
@@ -174,6 +175,10 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     resumo.descricao = String(dados.descricao || '');
     resumo.valorCentavos = valorCentavos;
     resumo.bancoNome = bancoNome;
+    // Historico de alteracoes (09/11/2026): a baixa aparece tambem na venda/OS do titulo.
+    resumo.pedidoId = dados.pedidoId ? String(dados.pedidoId) : '';
+    resumo.osId = dados.osId ? String(dados.osId) : '';
+    resumo.vendedorId = dados.vendedorId ? String(dados.vendedorId) : '';
     resumo.acrescimoCentavos = acrescimoCentavos;
     resumo.descontoCentavos = descontoCentavos;
     const erroAjustes = erroDosAjustes(valorCentavos, ajustes, { podeDescontar: true });
@@ -624,6 +629,27 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
       });
     }
     reabrirOrigensSeRenegociacaoEstavaPaga(tx, user, renegociacao, motivo);
+
+    // Historico de alteracoes (09/11/2026): na MESMA transacao do estorno (ultima
+    // escrita) -- ou o estorno e o registro gravam juntos, ou nenhum dos dois.
+    auditoria.registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'estorno',
+      descricao: `${tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de R$ ${fromCents(valorCentavos).toFixed(2).replace('.', ',')} estornado para Pendente. Motivo: ${motivo}`,
+      registroId: pedido.transacaoId,
+      // A venda/OS do titulo e, no pagamento parcial, a conta que voltou a ficar em aberto.
+      documentosRelacionados: [dados.pedidoId, dados.osId, parcialDe].filter(Boolean).map(String),
+      documentoTipo: tipo === 'saida' ? 'conta_pagar' : 'conta_receber',
+      documentoNumero: `${tipo === 'saida' ? 'Conta a pagar' : 'Conta a receber'} ${resumo.descricao || pedido.transacaoId}`,
+      motivo,
+      alteracoes: [
+        { campo: 'Situação', valorAnterior: 'Paga', valorNovo: contaRef ? 'Cancelada (pagamento parcial estornado)' : 'Pendente' },
+        ...(dados.dataPagamento && !contaRef ? [{ campo: 'Data do pagamento', valorAnterior: String(dados.dataPagamento).split('-').reverse().join('/'), valorNovo: null }] : []),
+        ...(dados.formaPagamento ? [{ campo: 'Forma de pagamento', valorAnterior: String(dados.formaPagamento), valorNovo: contaRef || tipo === 'saida' ? String(dados.formaPagamento) : (plano.formaAnterior || null) }] : []),
+      ].filter((m) => m.valorAnterior !== m.valorNovo),
+      ...(dados.vendedorId ? { vendedorId: String(dados.vendedorId) } : {}),
+      critico: true,
+    });
   });
 
   // Cashback (20/10/2026): se a venda deixou de estar paga, o lote dela volta.

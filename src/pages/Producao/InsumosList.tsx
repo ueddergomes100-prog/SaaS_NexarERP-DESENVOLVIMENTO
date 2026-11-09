@@ -21,6 +21,8 @@ import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from 
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 
 /**
  * INSUMOS (2026-09-25): material de CONSUMO da empresa (caixa, fita, etiqueta,
@@ -38,6 +40,21 @@ const rotuloStyle: React.CSSProperties = { fontSize: '13px', color: 'var(--text-
 
 const quantidadeBr = (n: number | undefined): string => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(Number(n || 0));
 const moedaBr = (n: number | undefined): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(Number(n || 0));
+
+/** Campos do insumo no Histórico de alterações (o saldo nao muda pela edicao). */
+const CAMPOS_DO_HISTORICO: CampoComparado[] = [
+  { campo: 'codigo', rotulo: 'Código' },
+  { campo: 'nome', rotulo: 'Nome' },
+  { campo: 'unidade', rotulo: 'Unidade' },
+  { campo: 'estoqueMinimo', rotulo: 'Estoque mínimo', formatar: (v) => Number(v) || 0 },
+  { campo: 'precoCusto', rotulo: 'Custo', formatar: (v) => moedaBr(Number(v) || 0) },
+  { campo: 'fornecedor', rotulo: 'Fornecedor' },
+  { campo: 'observacao', rotulo: 'Observação' },
+];
+
+const rotuloDoInsumo = (nome: string | undefined, codigo: string | undefined): string => (
+  `Insumo ${String(nome || '').trim()}${codigo ? ` (cód. ${codigo})` : ''}`
+);
 
 const InsumosList: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
@@ -127,10 +144,31 @@ const InsumosList: React.FC = () => {
           ...(custoMudou ? { precoCusto: custo, ultimoCusto: custo, custoMedio: custo } : {}),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou, campo a campo.
+        const alteracoes = diferencasEntre(
+          (atual || {}) as unknown as Record<string, unknown>,
+          { ...dados, precoCusto: custoMudou ? custo : atual?.precoCusto },
+          CAMPOS_DO_HISTORICO,
+        );
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'estoque',
+            acao: 'edicao',
+            descricao: `${rotuloDoInsumo(dados.nome, dados.codigo)} alterado: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: editandoId,
+            documentoTipo: 'insumo',
+            documentoNumero: rotuloDoInsumo(dados.nome, dados.codigo),
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Insumo atualizado!');
       } else {
         const quantidade = numeroDoInsumo(form.quantidade);
-        await addDoc(collection(db, 'insumos'), {
+        const novaRef = await addDoc(collection(db, 'insumos'), {
           ...dados,
           categoria: 'DIVERSOS',
           quantidade,
@@ -140,6 +178,18 @@ const InsumosList: React.FC = () => {
           ativo: true,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'estoque',
+          acao: 'criacao',
+          descricao: `${rotuloDoInsumo(dados.nome, dados.codigo)} cadastrado: saldo inicial ${quantidadeBr(quantidade)} ${dados.unidade}, custo ${moedaBr(custo)}.`,
+          registroRelacionadoId: novaRef.id,
+          documentoTipo: 'insumo',
+          documentoNumero: rotuloDoInsumo(dados.nome, dados.codigo),
+          status: 'sucesso',
         });
         showSuccess('Insumo cadastrado!');
       }
@@ -156,6 +206,21 @@ const InsumosList: React.FC = () => {
     if (!currentUser) return;
     try {
       await updateDoc(doc(db, 'insumos', insumo.id), { ativo: insumo.ativo === false, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
+      // Historico de alteracoes (09/11/2026): inativar/reativar.
+      const reativou = insumo.ativo === false;
+      createAuditLog({
+        tenantId: tenantId || '',
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'estoque',
+        acao: reativou ? 'reativacao' : 'inativacao',
+        descricao: `${rotuloDoInsumo(insumo.nome, insumo.codigo)} ${reativou ? 'reativado' : 'inativado'} (saldo ${`${quantidadeBr(insumo.quantidade)} ${insumo.unidade || ''}`.trim()}).`,
+        registroRelacionadoId: insumo.id,
+        documentoTipo: 'insumo',
+        documentoNumero: rotuloDoInsumo(insumo.nome, insumo.codigo),
+        alteracoes: [{ campo: 'Situação', valorAnterior: reativou ? 'Inativo' : 'Ativo', valorNovo: reativou ? 'Ativo' : 'Inativo' }],
+        status: 'sucesso',
+      });
       showSuccess(insumo.ativo === false ? 'Insumo reativado!' : 'Insumo inativado!');
     } catch (erro) {
       console.error('Erro ao mudar a situação do insumo:', erro);

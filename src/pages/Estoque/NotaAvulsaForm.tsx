@@ -348,6 +348,9 @@ const NotaAvulsaForm: React.FC = () => {
 
     setIsSaving(true);
     let numeroFinal = '';
+    // Historico de alteracoes (09/11/2026): ids gravados na transacao, para ligar o registro.
+    let notaAvulsaIdGravada = '';
+    let titulosDaNotaIds: string[] = [];
     try {
       const currentMax = await getCurrentMaxSequence(db, 'notas_avulsas', tenantId, 'numero').catch(() => 0);
       const totalNota = Math.max(0, valorItensValidos + freteValor - descontoValor);
@@ -468,6 +471,8 @@ const NotaAvulsaForm: React.FC = () => {
               data: formaPagamento === 'pendente' ? dataVencimento : getDateInputInTimeZone(),
             }];
         const sufixoParcela = (index: number) => (numParcelasFinal > 1 ? ` (parcela ${index + 1}/${numParcelasFinal})` : '');
+        notaAvulsaIdGravada = notaRef.id;
+        titulosDaNotaIds = transacoesParaCriar.map(({ ref }) => ref.id);
 
         if (formaPagamento === 'a_vista') {
           const [{ ref: transacaoRef, valorCentavos, data }] = transacoesParaCriar;
@@ -553,6 +558,10 @@ const NotaAvulsaForm: React.FC = () => {
           modulo: 'nota_avulsa',
           acao: 'criacao',
           descricao: `Nota Avulsa #${numeroFinal} lançada para o fornecedor "${fornecedorSelecionado.nome}", valor R$ ${totalNota.toFixed(2)}.`,
+          ...(notaAvulsaIdGravada ? { registroRelacionadoId: notaAvulsaIdGravada } : {}),
+          documentosRelacionados: titulosDaNotaIds,
+          documentoTipo: 'nota_avulsa',
+          documentoNumero: `Nota Avulsa ${numeroFinal} — ${fornecedorSelecionado.nome}`,
           status: 'sucesso',
         });
       } catch (logError) {

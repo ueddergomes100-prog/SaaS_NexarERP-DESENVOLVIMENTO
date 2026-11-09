@@ -9,6 +9,7 @@ import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
 import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
 import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicadoCheck';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
+import { createAuditLog } from '../../services/logService';
 
 export interface ClienteCadastradoRapido {
   id: string;
@@ -103,6 +104,18 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
         tenantId,
         createdAt: serverTimestamp(),
         ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+      });
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'cadastros',
+        acao: 'criacao',
+        descricao: `Cliente ${nomeLimpo} cadastrado pelo cadastro rápido${codigo ? ` (código ${codigo})` : ''}.`,
+        registroRelacionadoId: novoClienteRef.id,
+        documentoTipo: 'cliente',
+        documentoNumero: `Cliente ${nomeLimpo}`,
+        status: 'sucesso',
       });
       onCriado({
         id: novoClienteRef.id,

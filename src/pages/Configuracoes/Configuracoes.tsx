@@ -28,7 +28,9 @@ import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintMode
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
-import { PERMISSION_CATALOG, desmarcarPermissoes, estadoDaSelecao, marcarPermissoes } from '../../utils/permissionCatalog';
+import { PERMISSION_CATALOG, desmarcarPermissoes, estadoDaSelecao, marcarPermissoes, permissionLabelMap } from '../../utils/permissionCatalog';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import { MENSAGEM_FORA_DO_PLANO, permissaoForaDoPlano } from '../../utils/permissaoModuloDomain';
 import {
   DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
@@ -167,6 +169,163 @@ const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
   )
 );
 
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026): o que o dono reconhece na tela, com o
+// nome que aparece nela. Chave da Spedy e senha do e-mail nunca entram com o
+// valor -- so' "alterada".
+// ---------------------------------------------------------------------------
+const simNaoHistorico = (v: unknown) => (v === true ? 'Sim' : 'Não');
+const numeroHistorico = (v: unknown): number | string | null => {
+  const t = String(v ?? '').trim();
+  if (!t) return null;
+  const n = Number(t.replace(',', '.'));
+  return Number.isFinite(n) ? n : t;
+};
+const listaHistorico = (v: unknown) => (Array.isArray(v) ? v.map(String).join(', ') : '');
+const limiteHistorico = (v: unknown) => {
+  const l = (v || {}) as { tipo?: unknown; valor?: unknown };
+  const n = Number(String(l.valor ?? '').trim().replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return 'Sem limite';
+  return l.tipo === 'valor' ? `R$ ${n.toFixed(2).replace('.', ',')}` : `${String(n).replace('.', ',')}%`;
+};
+const opcaoHistorico = (opcoes: ReadonlyArray<{ value: string; label: string }>) => (v: unknown) => (
+  opcoes.find((o) => o.value === v)?.label || (v === undefined || v === null ? '' : String(v))
+);
+
+/** Achata o formulario: um campo por coisa que o dono reconhece (taxa por parcela, parametro de venda...). */
+const configParaHistorico = (f: Record<string, unknown>): Record<string, unknown> => {
+  const pv = (f.parametrosVenda || {}) as Record<string, unknown>;
+  const taxas = (f.taxasCartaoCreditoPorParcela || {}) as Record<string, unknown>;
+  const bonificacao = (f.bonificacao || {}) as Record<string, unknown>;
+  return {
+    ...f,
+    ...Object.fromEntries(Object.entries(pv).map(([k, v]) => [`pv_${k}`, v])),
+    ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`credito${i + 1}x`, taxas[String(i + 1)]])),
+    bonificacaoAtiva: bonificacao.ativa === true,
+    bonificacaoLimite: bonificacao.limitePercentual,
+  };
+};
+
+const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
+  // Dados da empresa
+  { campo: 'nomeOficina', rotulo: 'Nome fantasia' },
+  { campo: 'razaoSocial', rotulo: 'Razão social' },
+  { campo: 'nomeUsuario', rotulo: 'Nome de usuário (topo)' },
+  { campo: 'cnpj', rotulo: 'CNPJ' },
+  { campo: 'inscricaoEstadual', rotulo: 'Inscrição estadual' },
+  { campo: 'regimeTributario', rotulo: 'Regime tributário', formatar: opcaoHistorico(REGIME_TRIBUTARIO_OPTIONS) },
+  { campo: 'telefone', rotulo: 'Telefone / WhatsApp' },
+  { campo: 'whatsapp', rotulo: 'WhatsApp' },
+  { campo: 'instagram', rotulo: 'Instagram' },
+  { campo: 'email', rotulo: 'E-mail da empresa' },
+  { campo: 'cep', rotulo: 'CEP' },
+  { campo: 'rua', rotulo: 'Rua' },
+  { campo: 'numero', rotulo: 'Número' },
+  { campo: 'bairro', rotulo: 'Bairro' },
+  { campo: 'nfseCidadeNome', rotulo: 'Cidade da empresa' },
+  { campo: 'nfseCidadeEstado', rotulo: 'UF da empresa' },
+  { campo: 'logo', rotulo: 'Logotipo' },
+  { campo: 'garantiaPadrao', rotulo: 'Termo de garantia padrão' },
+  { campo: 'observacoesPadraoPedido', rotulo: 'Observações padrão do pedido' },
+  { campo: 'diasNotificacaoLembrete', rotulo: 'Antecedência dos lembretes preventivos (dias)', formatar: numeroHistorico },
+  { campo: 'modeloImpressaoOS', rotulo: 'Modelo de impressão da OS' },
+  { campo: 'modeloImpressaoPedidoVenda', rotulo: 'Modelo de impressão do pedido' },
+  // Parametros de venda
+  { campo: 'venderSemEstoque', rotulo: 'Permitir venda sem estoque', formatar: simNaoHistorico },
+  { campo: 'venderPorEmbalagem', rotulo: 'Vender por embalagem', formatar: simNaoHistorico },
+  { campo: 'buscaProdutoModo', rotulo: 'Modo de busca de produto' },
+  { campo: 'momentoBaixaEstoque', rotulo: 'Momento da baixa de estoque', formatar: opcaoHistorico(MOMENTO_BAIXA_ESTOQUE_OPTIONS) },
+  { campo: 'trabalhaComPreVenda', rotulo: 'Trabalha com pré-venda', formatar: simNaoHistorico },
+  { campo: 'trabalhaComEntregaFutura', rotulo: 'Venda para entrega futura', formatar: simNaoHistorico },
+  { campo: 'entregaFuturaExigeEstoque', rotulo: 'Entrega futura exige estoque', formatar: simNaoHistorico },
+  { campo: 'rotaNaPreVenda', rotulo: 'Rota de entrega na pré-venda' },
+  { campo: 'trabalhaComCondicional', rotulo: 'Condicional', formatar: simNaoHistorico },
+  { campo: 'agenteDigitalAtivo', rotulo: 'Agente Digital', formatar: simNaoHistorico },
+  { campo: 'devolucaoBotaoSeparado', rotulo: 'Devolução de venda em botão separado', formatar: simNaoHistorico },
+  { campo: 'habilitarTelaPrecificacao', rotulo: 'Tela de Precificação', formatar: simNaoHistorico },
+  { campo: 'exigirIdentificacaoVendedor', rotulo: 'Exigir identificação do vendedor', formatar: simNaoHistorico },
+  { campo: 'liberacaoEscolherVendedor', rotulo: 'Liberação de desconto: escolher o vendedor', formatar: simNaoHistorico },
+  { campo: 'alterarPagamentoVendaFinalizada', rotulo: 'Alterar pagamento de venda finalizada', formatar: simNaoHistorico },
+  { campo: 'restringirVendasPorUsuario', rotulo: 'Cada usuário vê só as próprias vendas', formatar: simNaoHistorico },
+  { campo: 'permitirDescontoPorItem', rotulo: 'Permitir desconto por item', formatar: simNaoHistorico },
+  { campo: 'permitirDividirPagamento', rotulo: 'Permitir dividir o pagamento', formatar: simNaoHistorico },
+  { campo: 'tipoDescontoPadrao', rotulo: 'Desconto abre em', formatar: (v) => (v === 'percentual' ? 'Percentual (%)' : 'Valor (R$)') },
+  { campo: 'pv_validadeOrcamentoDias', rotulo: 'Validade padrão do orçamento (dias)', formatar: numeroHistorico },
+  { campo: 'pv_bloqueioAtrasoAtivo', rotulo: 'Bloquear venda para cliente em atraso', formatar: simNaoHistorico },
+  { campo: 'pv_diasAtraso', rotulo: 'Dias de atraso para bloquear', formatar: numeroHistorico },
+  { campo: 'pv_carenciaDias', rotulo: 'Carência do atraso (dias)', formatar: numeroHistorico },
+  { campo: 'pv_jurosAoMes', rotulo: 'Juros do crediário em atraso (% ao mês)', formatar: numeroHistorico },
+  { campo: 'pv_multa', rotulo: 'Multa do crediário em atraso (%)', formatar: numeroHistorico },
+  { campo: 'pv_prazoDevolucaoDias', rotulo: 'Prazo para devolução de venda (dias)', formatar: numeroHistorico },
+  { campo: 'pv_acaoDevolucao', rotulo: 'Devolução fora do prazo' },
+  // Expedicao, lote e minuta
+  { campo: 'conferenciaMercadoria', rotulo: 'Conferência de mercadoria', formatar: simNaoHistorico },
+  { campo: 'exigirBipagem', rotulo: 'Exigir bipagem na conferência', formatar: simNaoHistorico },
+  { campo: 'bloquearExcedente', rotulo: 'Bloquear excedente na conferência', formatar: simNaoHistorico },
+  { campo: 'imprimirMinutaAposVenda', rotulo: 'Imprimir minuta após a venda', formatar: simNaoHistorico },
+  { campo: 'ordenarMinutaPorLocal', rotulo: 'Minuta ordenada por local', formatar: simNaoHistorico },
+  { campo: 'minutaMostrarMarca', rotulo: 'Minuta mostra a marca', formatar: simNaoHistorico },
+  { campo: 'minutaMostrarLocal', rotulo: 'Minuta mostra o local', formatar: simNaoHistorico },
+  {
+    campo: 'appMinutaValores',
+    rotulo: 'Valores na minuta do App Vendas',
+    formatar: (v) => OPCOES_VALORES_NA_MINUTA_DO_APP.find((o) => o.valor === v)?.rotulo || (v === undefined || v === null ? '' : String(v)),
+  },
+  { campo: 'loteModoSaida', rotulo: 'Saída de produto com lote' },
+  { campo: 'loteAvisarVencido', rotulo: 'Avisar lote vencido', formatar: simNaoHistorico },
+  // Comissao, meta e descontos
+  { campo: 'comissaoPadraoPecas', rotulo: 'Comissão padrão de produtos (%)', formatar: numeroHistorico },
+  { campo: 'comissaoPadraoServicos', rotulo: 'Comissão padrão de serviços (%)', formatar: numeroHistorico },
+  { campo: 'metaFaturamentoMensal', rotulo: 'Meta de faturamento mensal (R$)', formatar: numeroHistorico },
+  {
+    campo: 'modoLimiteDesconto',
+    rotulo: 'Ao exceder o limite de desconto',
+    formatar: opcaoHistorico([
+      { value: 'bloquear', label: 'Bloquear' },
+      { value: 'avisar', label: 'Avisar mas não bloquear' },
+      { value: 'senha', label: 'Solicitar senha de aprovador' },
+    ]),
+  },
+  { campo: 'limiteDescontoOS', rotulo: 'Limite de desconto na Ordem de Serviço', formatar: limiteHistorico },
+  { campo: 'limiteDescontoPedido', rotulo: 'Limite de desconto no Pedido de Venda', formatar: limiteHistorico },
+  { campo: 'limiteDescontoOrcamento', rotulo: 'Limite de desconto no Orçamento', formatar: limiteHistorico },
+  { campo: 'limiteDescontoPdv', rotulo: 'Limite de desconto na Frente de Caixa (PDV)', formatar: limiteHistorico },
+  { campo: 'bonificacaoAtiva', rotulo: 'Bonificação no pedido', formatar: simNaoHistorico },
+  { campo: 'bonificacaoLimite', rotulo: 'Limite da bonificação (%)', formatar: numeroHistorico },
+  {
+    campo: 'tributacaoBonificacao',
+    rotulo: 'Tributação da bonificação',
+    formatar: (v) => {
+      const t = (v || {}) as Record<string, unknown>;
+      return `CSOSN ${t.csosn ?? ''}, CST ICMS ${t.cstIcms ?? ''}, CST PIS ${t.cstPis ?? ''}, CST COFINS ${t.cstCofins ?? ''}`;
+    },
+  },
+  // Formas de pagamento, cartao e crediario
+  { campo: 'diasCrediario', rotulo: 'Prazos padrão do crediário (dias)', formatar: (v) => parseCreditTerms(v).join(', ') },
+  { campo: 'maxParcelasCartao', rotulo: 'Máximo de parcelas no crédito', formatar: numeroHistorico },
+  { campo: 'taxaCartaoDebitoPercentual', rotulo: 'Taxa do cartão de débito (%)', formatar: numeroHistorico },
+  ...Array.from({ length: 12 }, (_, i): CampoComparado => ({ campo: `credito${i + 1}x`, rotulo: `Taxa do cartão de crédito em ${i + 1}x (%)`, formatar: numeroHistorico })),
+  { campo: 'prazoRecebimentoCartaoCreditoDias', rotulo: 'Prazo de recebimento do crédito (dias)', formatar: numeroHistorico },
+  { campo: 'prazoRecebimentoCartaoDebitoDias', rotulo: 'Prazo de recebimento do débito (dias)', formatar: numeroHistorico },
+  { campo: 'pagamentoCartaoSimplificadoAtivo', rotulo: 'Pagamento de cartão e cheque simplificado', formatar: simNaoHistorico },
+  { campo: 'exigirEscolhaFormaPagamento', rotulo: 'Exigir escolha da forma de pagamento', formatar: simNaoHistorico },
+  { campo: 'formasPrecoAVista', rotulo: 'Formas que usam o preço à vista', formatar: listaHistorico },
+  { campo: 'ordemFormasPagamento', rotulo: 'Ordem das formas de pagamento', formatar: listaHistorico },
+  { campo: 'formasPagamentoOcultas', rotulo: 'Formas de pagamento ocultas', formatar: listaHistorico },
+  { campo: 'lembrarBancoDoDia', rotulo: 'Lembrar o banco do dia', formatar: simNaoHistorico },
+  // Fiscal
+  { campo: 'controlaFiscal', rotulo: 'Controla a parte fiscal', formatar: simNaoHistorico },
+  { campo: 'emiteNFe', rotulo: 'Emite NF-e', formatar: simNaoHistorico },
+  { campo: 'emiteNFCe', rotulo: 'Emite NFC-e', formatar: simNaoHistorico },
+  { campo: 'emiteNFSe', rotulo: 'Emite NFS-e', formatar: simNaoHistorico },
+  { campo: 'spedyEnabled', rotulo: 'Emissão de notas fiscais (Spedy) habilitada', formatar: simNaoHistorico },
+  { campo: 'spedyEnvironment', rotulo: 'Ambiente da Spedy' },
+  { campo: 'nfseInscricaoMunicipal', rotulo: 'Inscrição municipal' },
+  { campo: 'nfseAliquotaIssPadrao', rotulo: 'Alíquota de ISS padrão (%)', formatar: numeroHistorico },
+  { campo: 'nfseCodigoServicoMunicipal', rotulo: 'Código de serviço municipal' },
+  { campo: 'nfseCodigoServicoFederal', rotulo: 'Código de serviço federal (LC 116/03)' },
+];
+
 /**
  * Configuracoes (15/10/2026, pedido do dono): duas telas a partir deste arquivo.
  *  - modo 'geral' (/configuracoes): o que vale para TODAS as filiais -- plano de
@@ -197,6 +356,14 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   // O que a Spedy tinha da empresa quando a tela abriu (ver dadosEmpresaParaSpedy).
   const dadosEmpresaSpedyRef = useRef('');
   const temCadastroNaSpedyRef = useRef(false);
+  /** Formulario como abriu (e depois de cada salvar): o "antes" do Histórico de alterações. */
+  const configOriginalRef = useRef<Record<string, unknown> | null>(null);
+  /** E-mail das notas como abriu (a senha nunca volta para a tela). */
+  const smtpOriginalRef = useRef<{ host: string; porta: string; seguro: boolean; usuario: string } | null>(null);
+  const guardarConfigOriginal = <T extends Record<string, unknown>>(form: T): T => {
+    configOriginalRef.current = form;
+    return form;
+  };
   const [showModulosSistema, setShowModulosSistema] = useState(true);
   const [showDadosOficina, setShowDadosOficina] = useState(false);
   // Abrem fechados como os demais blocos (pedido do dono, 15/10/2026).
@@ -449,13 +616,14 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               privateSpedyApiKey = privateSnap.data().spedyApiKey ?? privateSpedyApiKey;
               const privado = privateSnap.data();
               cscPrivado = privado.nfceCsc && typeof privado.nfceCsc === 'object' ? privado.nfceCsc : null;
-              setSmtp({
+              const smtpLido = {
                 host: String(privado.smtpHost ?? ''),
                 porta: String(privado.smtpPorta ?? '465'),
                 seguro: privado.smtpSeguro ?? Number(privado.smtpPorta ?? 465) === 465,
                 usuario: String(privado.smtpUsuario ?? ''),
-                senha: '',
-              });
+              };
+              smtpOriginalRef.current = smtpLido;
+              setSmtp({ ...smtpLido, senha: '' });
               setSmtpSenhaJaSalva(Boolean(privado.smtpSenha));
             }
             setSpedyPrivateConfigLoadFailed(false);
@@ -478,7 +646,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
           // sincronizar). Vazio = nunca sincronizou por aqui: o proximo salvar envia.
           dadosEmpresaSpedyRef.current = typeof data.spedyEmpresaSincronizadaCom === 'string' ? data.spedyEmpresaSincronizadaCom : '';
           temCadastroNaSpedyRef.current = Boolean(data.spedyCompanyId);
-          setFormData({
+          setFormData(guardarConfigOriginal({
             ...data,
             razaoSocial: data.razaoSocial || '',
             venderSemEstoque: data.venderSemEstoque ?? false,
@@ -584,7 +752,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             nfseCodigoServicoMunicipal: data.nfseCodigoServicoMunicipal ?? '',
             nfseCodigoServicoFederal: data.nfseCodigoServicoFederal ?? '',
             nfseAliquotaIssPadrao: String(data.nfseAliquotaIssPadrao ?? 0)
-          } as any);
+          } as any));
           const numeracao = data.spedyNumeracao || {};
           setNumeracaoNfe({
             serie: numeracao.productInvoice?.series ?? '',
@@ -1156,6 +1324,63 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
       }, { merge: true });
 
+      // Historico de alteracoes (09/11/2026): o que mudou, com o nome da tela.
+      // Chave da Spedy e senha do e-mail: so' "alterada", nunca o valor.
+      try {
+        const nomeDoBanco = (id: unknown) => (id ? bancosDaFilial.find((b) => b.id === id)?.nome || 'banco removido' : 'Nenhum');
+        const formDepois: Record<string, unknown> = {
+          ...formData,
+          diasCrediario: creditTerms.join(', '),
+          bonificacao: { ativa: formData.bonificacao.ativa, limitePercentual: formData.bonificacao.limitePercentual },
+          ...limitesDesconto,
+        };
+        const alteracoesConfig: MudancaDeCampo[] = diferencasEntre(
+          configOriginalRef.current ? configParaHistorico(configOriginalRef.current) : null,
+          configParaHistorico(formDepois),
+          [...CAMPOS_CONFIG_HISTORICO, { campo: 'bancoPadraoBoletoId', rotulo: 'Banco padrão do boleto', formatar: nomeDoBanco }],
+        );
+        if (podeAtualizarSpedyApiKey) {
+          const chaveAntes = String(configOriginalRef.current?.spedyApiKey ?? '').trim();
+          if (chaveAntes !== trimmedSpedyApiKey) {
+            alteracoesConfig.push({
+              campo: 'Chave da Spedy (API Key)',
+              valorAnterior: chaveAntes ? 'cadastrada' : 'sem chave',
+              valorNovo: trimmedSpedyApiKey ? 'alterada' : 'removida',
+            });
+          }
+          const smtpAntes = smtpOriginalRef.current || { host: '', porta: '465', seguro: true, usuario: '' };
+          alteracoesConfig.push(...diferencasEntre(smtpAntes, {
+            host: smtp.host.trim(), porta: String(Number(smtp.porta) || 465), seguro: smtp.seguro, usuario: smtp.usuario.trim(),
+          }, [
+            { campo: 'host', rotulo: 'Servidor SMTP do e-mail' },
+            { campo: 'porta', rotulo: 'Porta do SMTP', formatar: numeroHistorico },
+            { campo: 'seguro', rotulo: 'SMTP com conexão segura', formatar: simNaoHistorico },
+            { campo: 'usuario', rotulo: 'Usuário do e-mail (SMTP)' },
+          ]));
+          if (smtp.senha) alteracoesConfig.push({ campo: 'Senha do e-mail (SMTP)', valorAnterior: null, valorNovo: 'alterada' });
+          smtpOriginalRef.current = { host: smtp.host.trim(), porta: String(Number(smtp.porta) || 465), seguro: smtp.seguro, usuario: smtp.usuario.trim() };
+        }
+        if (alteracoesConfig.length > 0) {
+          const nomeDaEmpresa = String(formData.nomeOficina || formData.razaoSocial || '').trim();
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'configuracoes',
+            acao: 'edicao',
+            descricao: `Configurações${nomeDaEmpresa ? ` de ${nomeDaEmpresa}` : ''} alteradas: ${alteracoesConfig.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: tenantId,
+            documentoTipo: 'configuracao',
+            documentoNumero: `Configurações${nomeDaEmpresa ? ` ${nomeDaEmpresa}` : ''}`,
+            alteracoes: alteracoesConfig,
+            status: 'sucesso',
+          });
+        }
+        configOriginalRef.current = { ...formDepois, spedyApiKey: podeAtualizarSpedyApiKey ? trimmedSpedyApiKey : configOriginalRef.current?.spedyApiKey };
+      } catch (erroHistorico) {
+        console.error('Falha ao montar o histórico das configurações:', erroHistorico);
+      }
+
       // Pagamento de cartão simplificado precisa de um banco de destino fixo
       // pra nao pedir escolha na venda -- garante que "BANCO" existe assim
       // que a opcao e' ligada, em vez de deixar a venda descobrir isso na
@@ -1348,6 +1573,53 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       if (percentualServicosValor === undefined) updatePayload.comissaoPercentualServicos = deleteField();
       if (percentualPecasValor === undefined) updatePayload.comissaoPercentualPecas = deleteField();
       await updateDoc(doc(db, 'usuarios', selectedUserId), updatePayload);
+      // Historico de alteracoes (09/11/2026): permissoes que entraram e sairam
+      // (pelo nome da tela de permissoes), nivel de acesso e comissao.
+      const usuarioAntes = tenantUsers.find((u) => u.id === selectedUserId) || {};
+      const marcador = 'app.definido';
+      const permissoesAntes = new Set(permissoesEfetivas(usuarioAntes.permissoes || []).filter((p) => p !== marcador));
+      const permissoesDepois = new Set(permissoesEfetivas(permissoesParaGravar(selectedUserPermissions)).filter((p) => p !== marcador));
+      const rotuloPermissao = (id: string) => permissionLabelMap[id] || id;
+      const entraram = [...permissoesDepois].filter((p) => !permissoesAntes.has(p));
+      const sairam = [...permissoesAntes].filter((p) => !permissoesDepois.has(p));
+      const alteracoesUsuario: MudancaDeCampo[] = [
+        ...entraram.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
+        ...sairam.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),
+        ...diferencasEntre(usuarioAntes, {
+          nivelAcesso: selectedUserNivelAcesso,
+          recebeComissaoServicos,
+          comissaoPercentualServicos: percentualServicosValor ?? null,
+          recebeComissaoPecas,
+          comissaoPercentualPecas: percentualPecasValor ?? null,
+        }, [
+          { campo: 'nivelAcesso', rotulo: 'Nível de acesso', formatar: (v) => NIVEL_ACESSO_LABELS[parseNivelAcesso(v)] },
+          { campo: 'recebeComissaoServicos', rotulo: 'Recebe comissão de serviços', formatar: simNaoHistorico },
+          { campo: 'comissaoPercentualServicos', rotulo: 'Comissão de serviços (%)', formatar: numeroHistorico },
+          { campo: 'recebeComissaoPecas', rotulo: 'Recebe comissão de produtos', formatar: simNaoHistorico },
+          { campo: 'comissaoPercentualPecas', rotulo: 'Comissão de produtos (%)', formatar: numeroHistorico },
+        ]),
+      ];
+      if (alteracoesUsuario.length > 0 && tenantId) {
+        const nomeDoUsuario = String(usuarioAntes.nome || usuarioAntes.email || 'usuário');
+        const partes = [
+          entraram.length ? `${entraram.length} permissão(ões) liberada(s)` : '',
+          sairam.length ? `${sairam.length} retirada(s)` : '',
+          alteracoesUsuario.length > entraram.length + sairam.length ? 'nível de acesso/comissão alterados' : '',
+        ].filter(Boolean);
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'usuarios',
+          acao: 'edicao',
+          descricao: `Acessos de ${nomeDoUsuario} alterados: ${partes.join(', ')}.`,
+          registroRelacionadoId: selectedUserId,
+          documentoTipo: 'usuario',
+          documentoNumero: `Usuário ${nomeDoUsuario}`,
+          alteracoes: alteracoesUsuario,
+          status: 'sucesso',
+        });
+      }
       // Atualiza o estado local para não perder
       setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
         ...u,

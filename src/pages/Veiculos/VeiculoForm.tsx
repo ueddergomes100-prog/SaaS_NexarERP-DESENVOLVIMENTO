@@ -11,14 +11,35 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css'; // Reusing OS styles
 import { useModoOficina } from '../../hooks/useModoOficina';
 import { validarIdentificacaoEquipamento } from '../../utils/oficinaDomain';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
+
+const numeroOuZero = (v: unknown) => Number(v) || 0;
+
+/** Campos comparados no Histórico de alterações, com o nome que aparece na tela. */
+const CAMPOS_VEICULO_HISTORICO: CampoComparado[] = [
+  { campo: 'clienteNome', rotulo: 'Cliente / Dono' },
+  { campo: 'placa', rotulo: 'Placa' },
+  { campo: 'frota', rotulo: 'Nº de frota' },
+  { campo: 'serie', rotulo: 'Série / Chassi' },
+  { campo: 'tipoEquipamento', rotulo: 'Tipo de equipamento' },
+  { campo: 'marca', rotulo: 'Marca' },
+  { campo: 'modelo', rotulo: 'Modelo' },
+  { campo: 'ano', rotulo: 'Ano' },
+  { campo: 'cor', rotulo: 'Cor' },
+  { campo: 'kmAtual', rotulo: 'Quilometragem atual (KM)', formatar: numeroOuZero },
+  { campo: 'horimetro', rotulo: 'Horímetro atual (horas)', formatar: numeroOuZero },
+];
 
 const VeiculoForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
   const { tenantId, currentUser } = useAuth();
+  /** Cadastro como estava ao abrir: o "antes" do Histórico de alterações. */
+  const veiculoOriginalRef = useRef<Record<string, unknown> | null>(null);
 
   const [formData, setFormData] = useState({
     placa: '',
@@ -70,6 +91,7 @@ const VeiculoForm: React.FC = () => {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             const data = docSnap.data();
+            veiculoOriginalRef.current = data;
             setFormData({
               placa: data.placa || '',
               modelo: data.modelo || '',
@@ -138,12 +160,31 @@ const VeiculoForm: React.FC = () => {
         tenantId,
         updatedAt: serverTimestamp()
       };
+      // Como o usuario conhece: placa (ou frota/serie do equipamento) e modelo.
+      const identificacaoNoHistorico = [formData.placa || formData.frota || formData.serie, formData.modelo].filter(Boolean).join(' - ');
 
       if (isEditing && id) {
         await updateDoc(doc(db, 'veiculos', id), {
           ...dataToSave,
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const alteracoes = diferencasEntre(veiculoOriginalRef.current, dataToSave, CAMPOS_VEICULO_HISTORICO);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `${rotulos.veiculo} ${identificacaoNoHistorico} alterado: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'veiculo',
+            documentoNumero: `${rotulos.veiculo} ${identificacaoNoHistorico}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Veículo atualizado com sucesso!');
       } else {
         // Placa repetida na empresa (so' quando tem placa -- equipamento pode nao ter).
@@ -157,10 +198,23 @@ const VeiculoForm: React.FC = () => {
           }
         }
 
-        await addDoc(collection(db, 'veiculos'), {
+        const novo = await addDoc(collection(db, 'veiculos'), {
           ...dataToSave,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `${rotulos.veiculo} ${identificacaoNoHistorico} cadastrado para o cliente ${formData.clienteNome || 'sem nome'}.`,
+          registroRelacionadoId: novo.id,
+          documentosRelacionados: formData.clienteId ? [formData.clienteId] : [],
+          documentoTipo: 'veiculo',
+          documentoNumero: `${rotulos.veiculo} ${identificacaoNoHistorico}`,
+          status: 'sucesso',
         });
         showSuccess('Veículo cadastrado com sucesso!');
       }

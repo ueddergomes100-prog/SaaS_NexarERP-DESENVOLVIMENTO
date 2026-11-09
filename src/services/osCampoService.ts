@@ -2,6 +2,7 @@ import { addDoc, arrayRemove, arrayUnion, collection, doc, runTransaction, serve
 import { deleteObject, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { db, storage } from './firebase';
 import { createAuditLog } from './logService';
+import { diferencasEntre } from '../utils/historicoAlteracoesDomain';
 import {
   applyStockFieldDeltas,
   formatSequenceValue,
@@ -165,14 +166,18 @@ export const abrirOsNoCampo = async (p: AbrirOsNoCampoParams): Promise<{ id: str
         console.error('Equipamento nao entrou no cadastro (a OS foi aberta):', erro);
       }
     }
+    // Mesmo modulo da OS no sistema e no servidor ('mecanica'), para o historico da OS juntar tudo.
     createAuditLog({
       tenantId: p.tenantId,
       usuarioId: p.usuario.id,
       usuarioEmail: p.usuario.email,
-      modulo: 'Ordens de Serviço',
-      acao: 'Abrir no campo',
+      modulo: 'mecanica',
+      acao: 'criacao',
       descricao: `OS ${numeroOS === NUMERO_OS_PROVISORIO ? '(nº pendente)' : `#${numeroOS}`} aberta pelo app do técnico para ${p.cliente.nome}${online ? '' : ' (sem conexão)'}`,
       registroRelacionadoId: osRef.id,
+      ...(p.cliente.id ? { documentosRelacionados: [p.cliente.id] } : {}),
+      documentoTipo: 'os',
+      ...(numeroOS !== NUMERO_OS_PROVISORIO ? { documentoNumero: `OS ${numeroOS}` } : {}),
       status: 'sucesso',
     });
     return { id: osRef.id, numeroOS, numeroProvisorio: numeroOS === NUMERO_OS_PROVISORIO };
@@ -201,6 +206,34 @@ export interface SalvarAtendimentoParams {
   statusAtual?: string;
 }
 
+// Historico de alteracoes (09/11/2026): o atendimento visto pelo dono (pecas,
+// servicos, deslocamento, horimetro, relatorio, total). Foto, legenda e
+// assinatura NAO entram: sao rotina do campo e ja' ficam na propria OS.
+const listaDoAtendimento = (lista: unknown): string => (Array.isArray(lista) ? lista : [])
+  .map((x) => `${String(x?.nome || '').trim()} ×${(Number(x?.quantidade) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })}`)
+  .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  .join('; ');
+const reaisDoAtendimento = (v: unknown): string => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const atendimentoParaHistorico = (d: Record<string, unknown> | null | undefined) => {
+  const deslocamento = d?.deslocamento as Deslocamento | null | undefined;
+  return {
+    pecas: listaDoAtendimento(d?.pecas),
+    servicos: listaDoAtendimento(d?.servicos),
+    km: deslocamento && temDeslocamento(deslocamento) ? kmDoDeslocamento(deslocamento) : 0,
+    horimetro: String(d?.horimetro ?? '').trim(),
+    relatorioTecnico: String(d?.relatorioTecnico ?? '').trim(),
+    valorTotal: reaisDoAtendimento(d?.valorTotal),
+  };
+};
+const CAMPOS_DO_ATENDIMENTO = [
+  { campo: 'pecas', rotulo: 'Peças' },
+  { campo: 'servicos', rotulo: 'Serviços' },
+  { campo: 'km', rotulo: 'Deslocamento (km)' },
+  { campo: 'horimetro', rotulo: 'Horímetro' },
+  { campo: 'relatorioTecnico', rotulo: 'Relatório técnico' },
+  { campo: 'valorTotal', rotulo: 'Valor total' },
+];
+
 const camposDoAtendimento = (p: SalvarAtendimentoParams) => {
   const totalCentavos = totalDoAtendimentoCentavos(p.pecas, p.servicos);
   return {
@@ -219,19 +252,43 @@ const camposDoAtendimento = (p: SalvarAtendimentoParams) => {
 export const salvarAtendimento = async (p: SalvarAtendimentoParams): Promise<void> => {
   try {
     const osRef = doc(db, 'ordens_de_servico', p.osId);
+    const campos = camposDoAtendimento(p);
+    const depois = atendimentoParaHistorico(campos as unknown as Record<string, unknown>);
+    const registrar = (antes: Record<string, unknown> | null, numeroOS: string) => {
+      // Uma vez por gravacao, e so' quando algo mudou (sem conexao nao da para comparar: registra).
+      const alteracoes = antes ? diferencasEntre(atendimentoParaHistorico(antes), depois, CAMPOS_DO_ATENDIMENTO) : [];
+      if (antes && alteracoes.length === 0) return;
+      const rotulo = numeroOS && numeroOS !== NUMERO_OS_PROVISORIO ? `OS #${numeroOS}` : 'OS (nº pendente)';
+      createAuditLog({
+        tenantId: p.tenantId,
+        usuarioId: p.usuario.id,
+        usuarioEmail: p.usuario.email,
+        modulo: 'mecanica',
+        acao: 'edicao',
+        descricao: `${rotulo}: atendimento salvo pelo técnico no app${antes ? '' : ' (sem conexão)'} — ${p.pecas.length} peça(s), ${p.servicos.length} serviço(s), total ${depois.valorTotal}.${alteracoes.length ? ` Alterou: ${alteracoes.map((a) => a.campo).join(', ')}.` : ''}`,
+        registroRelacionadoId: p.osId,
+        documentoTipo: 'os',
+        ...(numeroOS && numeroOS !== NUMERO_OS_PROVISORIO ? { documentoNumero: `OS ${numeroOS}` } : {}),
+        ...(alteracoes.length ? { alteracoes } : {}),
+        status: 'sucesso',
+      });
+    };
     if (!estaOnline()) {
       if (osEncerrada(p.statusAtual)) throw new Error(`Esta OS já está ${String(p.statusAtual).toLowerCase()} e não pode ser alterada pelo app.`);
       const precisaReservar = p.momentoBaixaEstoque === 'pedido' && p.pecas.length > 0;
-      await gravar(updateDoc(osRef, { ...camposDoAtendimento(p), reservaPendente: precisaReservar }));
+      await gravar(updateDoc(osRef, { ...campos, reservaPendente: precisaReservar }));
       if (precisaReservar && !(await existePendencia(p.osId, 'reserva_os'))) {
         await adicionarPendencia(novaPendencia({ tenantId: p.tenantId, usuarioId: p.usuario.id, osId: p.osId }, { tipo: 'reserva_os' }));
       }
+      registrar(null, '');
       return;
     }
+    let antesDaGravacao: Record<string, unknown> | null = null;
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(osRef);
       if (!snap.exists()) throw new Error('Esta OS não existe mais. Volte para a lista e abra de novo.');
       const atual = snap.data();
+      antesDaGravacao = atual;
       if (atual.tenantId !== p.tenantId) throw new Error('Esta OS é de outra empresa.');
       if (osEncerrada(atual.status)) throw new Error(`Esta OS já está ${String(atual.status).toLowerCase()} e não pode ser alterada pelo app.`);
 
@@ -243,8 +300,10 @@ export const salvarAtendimento = async (p: SalvarAtendimentoParams): Promise<voi
         if (deltas.length > 0) await applyStockFieldDeltas(transaction, db, deltas, p.permitirVendaSemEstoque);
         estoqueReservado = p.pecas.length > 0;
       }
-      transaction.update(osRef, { ...camposDoAtendimento(p), estoqueReservado, reservaPendente: false });
+      transaction.update(osRef, { ...campos, estoqueReservado, reservaPendente: false });
     });
+    const antes = antesDaGravacao as Record<string, unknown> | null;
+    if (antes) registrar(antes, String(antes.numeroOS || ''));
   } catch (erro) {
     throw erroEmPortugues(erro, 'Não foi possível salvar o atendimento. Tente de novo.');
   }
@@ -389,10 +448,13 @@ export const concluirAtendimento = async (p: { tenantId: string; usuario: Usuari
       tenantId: p.tenantId,
       usuarioId: p.usuario.id,
       usuarioEmail: p.usuario.email,
-      modulo: 'Ordens de Serviço',
-      acao: 'Concluir atendimento no campo',
+      modulo: 'mecanica',
+      acao: 'edicao',
       descricao: `OS ${numeroOS && numeroOS !== NUMERO_OS_PROVISORIO ? `#${numeroOS}` : '(nº pendente)'} concluída pelo técnico no app; aguardando conferência da oficina`,
       registroRelacionadoId: p.osId,
+      documentoTipo: 'os',
+      ...(numeroOS && numeroOS !== NUMERO_OS_PROVISORIO ? { documentoNumero: `OS ${numeroOS}` } : {}),
+      alteracoes: [{ campo: 'Situação', valorAnterior: p.statusAtual || null, valorNovo: STATUS_OS_AGUARDANDO_CONFERENCIA }],
       status: 'sucesso',
     });
   } catch (erro) {

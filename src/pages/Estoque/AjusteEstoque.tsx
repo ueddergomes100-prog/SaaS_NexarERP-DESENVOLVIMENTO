@@ -22,6 +22,7 @@ import {
   type TipoAjusteEstoque,
 } from '../../utils/ajusteEstoqueDomain';
 import { applyAjusteEstoqueManual } from '../../utils/firestoreAtomic';
+import { createAuditLog } from '../../services/logService';
 import './Estoque.css';
 import './AjusteEstoque.css';
 
@@ -358,8 +359,8 @@ const AjusteEstoque: React.FC = () => {
       const usuarioNome = await resolveUsuarioNome();
 
       for (const item of itensPendentes) {
-        await runTransaction(db, async (transaction) => {
-          await applyAjusteEstoqueManual(transaction, db, {
+        const resultadoAjuste = await runTransaction(db, async (transaction) => (
+          applyAjusteEstoqueManual(transaction, db, {
             tenantId,
             produtoId: item.produtoId,
             produtoNome: item.produtoNome,
@@ -375,9 +376,35 @@ const AjusteEstoque: React.FC = () => {
             loteNovoValidade: item.loteNovoValidade,
             usuarioId: currentUser.uid,
             usuarioNome,
-          });
-        });
+          })
+        ));
         processados.push(item.key);
+        // Historico de alteracoes (09/11/2026): o rastro completo continua em
+        // `ajustes_estoque`; aqui fica o registro ligado ao produto, com o saldo
+        // antes -> depois e o motivo, para aparecer no historico dele.
+        {
+          const depois = resultadoAjuste.quantidadeDepois;
+          const antes = item.tipo === 'entrada' ? depois - item.quantidade : depois + item.quantidade;
+          const qtd = (v: number) => `${Number(v.toFixed(6)).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} ${item.unidadeMedidaSigla || ''}`.trim();
+          const tipoDoCadastro = item.origem === 'materia_prima' ? 'Matéria-prima' : (item.origem === 'insumo' ? 'Insumo' : 'Produto');
+          const rotulo = `${tipoDoCadastro} ${item.produtoNome}${item.produtoCodigo ? ` (cód. ${item.produtoCodigo})` : ''}`;
+          const motivoTexto = labelMotivoAjusteEstoque(item.tipo, item.motivo);
+          const loteTexto = item.loteLabel || item.loteNovoCodigo || '';
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'estoque',
+            acao: 'edicao',
+            descricao: `Ajuste manual de estoque (${item.tipo === 'entrada' ? 'entrada' : 'saída'}) em ${rotulo}: ${item.tipo === 'entrada' ? '+' : '−'}${qtd(item.quantidade)}. Saldo ${qtd(antes)} → ${qtd(depois)}.${loteTexto ? ` Lote ${loteTexto}.` : ''} Motivo: ${motivoTexto}.${item.observacao ? ` Observação: ${item.observacao}` : ''}`,
+            registroRelacionadoId: item.produtoId,
+            documentoTipo: item.origem === 'materia_prima' ? 'materia_prima' : (item.origem === 'insumo' ? 'insumo' : 'produto'),
+            documentoNumero: rotulo,
+            motivo: item.observacao ? `${motivoTexto} — ${item.observacao}` : motivoTexto,
+            alteracoes: [{ campo: 'Saldo em estoque', valorAnterior: qtd(antes), valorNovo: qtd(depois) }],
+            status: 'sucesso',
+          });
+        }
         setProdutos((prev) => prev.map((p) => (
           p.id === item.produtoId
             ? { ...p, quantidade: item.tipo === 'entrada' ? p.quantidade + item.quantidade : p.quantidade - item.quantidade }

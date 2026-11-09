@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import '../OS/OS.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
@@ -92,8 +93,8 @@ const CategoriasList: React.FC = () => {
 
     if (isConfirmed.isConfirmed) {
       setLoading(true);
+      let count = 0;
       try {
-        let count = 0;
         for (const c of categorias) {
           const upName = c.nome.toUpperCase().trim();
           // registro inativo nao se edita (firestore.rules)
@@ -110,6 +111,20 @@ const CategoriasList: React.FC = () => {
         showError('Erro', 'Ocorreu um erro na migração.');
       } finally {
         setLoading(false);
+        // Historico de alteracoes (09/11/2026): um registro com a quantidade
+        // (inclusive quando parou no meio -- os que ja' mudaram, mudaram).
+        if (count > 0 && tenantId) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Nomes de ${count} categoria(s) padronizados em letras maiúsculas.`,
+            documentoTipo: 'categoria',
+            status: 'sucesso',
+          });
+        }
       }
     }
   };

@@ -9,6 +9,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
 import { STATUS_FINALIZADA } from '../../utils/preVendaDomain';
 import { emitirNfceDoPedido, NfceEmissaoError, type PedidoParaEmissao } from '../../services/nfceEmissaoService';
 import { spedyService } from '../../services/spedyService';
@@ -236,7 +237,7 @@ const VendedorMeusPedidos: React.FC = () => {
       const { nota, itensFiscais } = await emitirNfceDoPedido(pedido);
 
       if (currentUser) {
-        await addDoc(collection(db, 'notas_fiscais'), {
+        const notaRef = await addDoc(collection(db, 'notas_fiscais'), {
           spedyId: nota.id,
           number: nota.number,
           accessKey: nota.accessKey || null,
@@ -252,6 +253,30 @@ const VendedorMeusPedidos: React.FC = () => {
           data: new Date().toISOString(),
           pedidoId: pedido.id,
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+
+        // Historico de alteracoes (09/11/2026): o cupom aparece na nota e no pedido.
+        const numeroPedido = String(pedidoData.numeroPedido || item.numero || '');
+        const numeroCupom = numeroDaNota(nota.number);
+        const rejeitado = nota.status === 'rejected' || nota.status === 'denied';
+        const motivoRejeicao = `${nota.processingDetail?.code || ''} ${nota.processingDetail?.message || ''}`.trim();
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'fiscal',
+          acao: 'emissao',
+          descricao: nota.status === 'authorized'
+            ? `NFC-e ${numeroCupom} do Pedido ${numeroPedido} emitida pelo app Vendas e autorizada pela SEFAZ.`
+            : rejeitado
+              ? `NFC-e do Pedido ${numeroPedido} não emitida pelo app Vendas: a SEFAZ rejeitou (${motivoRejeicao || 'motivo não informado'}).`
+              : `NFC-e do Pedido ${numeroPedido} enviada para emissão pelo app Vendas; aguardando a SEFAZ.`,
+          registroRelacionadoId: notaRef.id,
+          documentosRelacionados: [pedido.id],
+          documentoTipo: 'nota_fiscal',
+          documentoNumero: numeroCupom ? `NFC-e ${numeroCupom}` : `NFC-e do Pedido ${numeroPedido}`,
+          ...(rejeitado && motivoRejeicao ? { motivo: motivoRejeicao } : {}),
+          status: rejeitado ? 'erro' : 'sucesso',
         });
       }
 

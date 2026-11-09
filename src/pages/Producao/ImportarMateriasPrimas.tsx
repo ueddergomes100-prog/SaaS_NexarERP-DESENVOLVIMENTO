@@ -10,6 +10,7 @@ import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService'
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { getProximoCodigoMateriaPrima } from '../../utils/materiaPrimaCodigo';
 import { garantirMarcasCadastradas } from '../../utils/marcaDomain';
+import { createAuditLog } from '../../services/logService';
 import {
   decodificarArquivoTexto,
   detectarDelimitador,
@@ -142,6 +143,29 @@ const ImportarMateriasPrimas: React.FC = () => {
     }
 
     setSalvando(true);
+    // Historico de alteracoes (09/11/2026): uma importacao = um registro (nao um por linha).
+    let gravadas = 0;
+    let primeiroCodigo = '';
+    let ultimoCodigo = '';
+    let registrada = false;
+    const registrarImportacao = (concluida: boolean) => {
+      if (gravadas === 0 || registrada) return;
+      registrada = true;
+      const codigos = primeiroCodigo && ultimoCodigo ? ` (códigos ${primeiroCodigo} a ${ultimoCodigo})` : '';
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'producao',
+        acao: 'importacao',
+        descricao: concluida
+          ? `Importou ${gravadas} matéria(s)-prima(s) da planilha "${nomeArquivo}"${codigos}.`
+          : `Importação de matérias-primas da planilha "${nomeArquivo}" interrompida por erro: ${gravadas} de ${materiasPrimasValidas.length} foram gravadas${codigos}.`,
+        documentoTipo: 'materia_prima',
+        documentoNumero: `Planilha ${nomeArquivo}`,
+        status: concluida ? 'sucesso' : 'erro',
+      });
+    };
     try {
       let proximoCodigo = Number(await getProximoCodigoMateriaPrima(tenantId));
       const timestamp = serverTimestamp();
@@ -150,6 +174,7 @@ const ImportarMateriasPrimas: React.FC = () => {
       for (let inicio = 0; inicio < materiasPrimasValidas.length; inicio += LOTE_MAXIMO) {
         const lote = materiasPrimasValidas.slice(inicio, inicio + LOTE_MAXIMO);
         const batch = writeBatch(db);
+        const codigoInicialDoLote = String(proximoCodigo);
 
         lote.forEach((materiaPrima) => {
           const codigo = String(proximoCodigo);
@@ -174,7 +199,11 @@ const ImportarMateriasPrimas: React.FC = () => {
         });
 
         await batch.commit();
+        gravadas += lote.length;
+        if (!primeiroCodigo) primeiroCodigo = codigoInicialDoLote;
+        ultimoCodigo = String(proximoCodigo - 1);
       }
+      registrarImportacao(true);
 
       // Cadastro de Marcas ja nasce completo -- cria as que a planilha
       // trouxe e ainda nao existiam, sem o usuario ter que digitar cada
@@ -188,6 +217,8 @@ const ImportarMateriasPrimas: React.FC = () => {
       await sincronizarCustosSemFalhar({ tenantId, usuarioId: currentUser.uid, origemDaMudanca: 'Importação de matérias-primas', todos: true });
     } catch (error) {
       console.error('Erro ao importar matérias-primas:', error);
+      // Parte dos lotes ja' entrou: o registro diz quantas, para conferir antes de repetir.
+      registrarImportacao(false);
       showError(
         'Erro ao importar',
         `A importação parou antes de terminar. ${(error as Error)?.message || ''}

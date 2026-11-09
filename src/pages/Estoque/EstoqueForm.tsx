@@ -55,7 +55,189 @@ import {
   type LinhaDaGrade,
   type PlanoDasVariacoes,
 } from '../../utils/gradeProdutosDomain';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type CampoComparado, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import './Estoque.css';
+
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026): o que mudou no cadastro do produto.
+// Mesma leitura (com os mesmos padroes) da carga do formulario, para produto
+// antigo -- que guarda preco em `precos`, NCM em `fiscal`... -- nao gerar
+// "alteracao" que ninguem fez. O saldo NAO entra: nao muda pela edicao.
+// ---------------------------------------------------------------------------
+
+/** "Produto ARROZ 5KG (cód. 123)" -- como o dono acha o produto no Histórico de alterações. */
+const rotuloDoProduto = (nome: unknown, codigo: unknown): string => {
+  const n = String(nome || '').trim();
+  const c = String(codigo ?? '').trim();
+  return `Produto ${n || 'sem nome'}${c ? ` (cód. ${c})` : ''}`;
+};
+
+const vazio = (v: unknown): boolean => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+const numeroOuZero = (v: unknown): number => Number(v) || 0;
+const reais = (v: unknown): string => numeroOuZero(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+/** Preco opcional (a vista, a prazo, promocional): em branco/zero = "(vazio)". */
+const reaisOuVazio = (v: unknown): string => (vazio(v) || numeroOuZero(v) === 0 ? '' : reais(v));
+/** Comissao: em branco (usa a do vendedor/sistema) e' diferente de 0% (nao recebe). */
+const percentualOuVazio = (v: unknown): string => (vazio(v) ? '' : `${numeroOuZero(v).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`);
+const simOuNao = (v: unknown): string => (v ? 'Sim' : 'Não');
+
+/** Embalagens em uma linha legivel ("CX c/ 12 R$ 50,00 (789...)"). */
+const resumoDasEmbalagens = (lista: unknown): string => (Array.isArray(lista) ? lista : [])
+  .filter((e) => e && numeroOuZero(e.fatorConversao) > 0)
+  .map((e) => [
+    `${String(e.unidadeMedidaSigla || e.descricao || 'EMB')} c/ ${numeroOuZero(e.fatorConversao).toLocaleString('pt-BR')}`,
+    numeroOuZero(e.precoVenda) > 0 ? reais(e.precoVenda) : '',
+    e.codigoBarras ? `(${String(e.codigoBarras)})` : '',
+    e.ativo === false ? 'inativa' : '',
+  ].filter(Boolean).join(' '))
+  .join('; ');
+
+/** Faixas de atacado em uma linha ("10 a 49: R$ 9,00; 50 ou mais: R$ 8,50"). */
+const resumoDoAtacado = (faixas: unknown): string => (Array.isArray(faixas) ? faixas : [])
+  .filter((f) => f && numeroOuZero(f.preco) > 0)
+  .map((f) => `${numeroOuZero(f.quantidadeInicial)}${f.ilimitado || vazio(f.quantidadeFinal) ? ' ou mais' : ` a ${numeroOuZero(f.quantidadeFinal)}`}: ${reais(f.preco)}`)
+  .join('; ');
+
+/** O cadastro "achatado" para comparar (antes x depois), com os padroes da carga do formulario. */
+const produtoParaHistorico = (p: Record<string, any> | null | undefined): Record<string, unknown> => {
+  const d = p || {};
+  return {
+    nome: d.nome || '',
+    codigo: d.codigo ?? '',
+    codigoBarras: d.codigoBarras || '',
+    referencia: d.referencia || '',
+    categoria: d.categoria || '',
+    marca: d.marca || '',
+    fornecedor: d.fornecedor || d.compras?.ultimoFornecedor || '',
+    unidade: d.unidadeMedidaSigla || '',
+    precoVenda: d.precoVenda ?? d.precos?.venda ?? 0,
+    precoAVista: d.precoAVista ?? d.precos?.aVista ?? null,
+    precoAPrazo: d.precoAPrazo ?? d.precos?.aPrazo ?? null,
+    precoPromocional: d.precoPromocional ?? d.precos?.promocional ?? null,
+    precoCusto: d.precoCusto ?? d.precos?.custo ?? 0,
+    comissaoPercentual: d.comissaoPercentual ?? d.precos?.comissaoPercentual ?? null,
+    descontoMaximoPercentual: d.descontoMaximoPercentual ?? d.precos?.descontoMaximoPercentual ?? 0,
+    estoqueMinimo: d.estoqueMinimo ?? d.estoque?.minimo ?? 0,
+    estoqueMaximo: d.estoqueMaximo ?? d.estoque?.maximo ?? 0,
+    localizacaoEstoque: d.localizacaoEstoque || d.estoqueConfig?.localizacao || '',
+    ncm: d.ncm || d.fiscal?.ncm || '',
+    cest: d.cest || d.fiscal?.cest || '',
+    cfop: d.cfop || d.fiscal?.cfopPadraoSaida || '5102',
+    csosn: d.csosn || d.fiscal?.csosnCst || '',
+    origem: d.origem || d.fiscal?.origem || '0',
+    cfopInterestadual: d.cfopInterestadual || '',
+    csosnInterestadual: d.csosnInterestadual || '',
+    cstPis: d.cstPis || d.fiscal?.cstPis || '',
+    cstCofins: d.cstCofins || d.fiscal?.cstCofins || '',
+    cstIpi: d.cstIpi || d.fiscal?.cstIpi || '',
+    cstIbs: d.cstIbs || d.fiscal?.cstIbs || d.cstCbs || d.fiscal?.cstCbs || '',
+    classTribIbsCbs: d.classTribIbsCbs || d.fiscal?.classTribIbsCbs || '',
+    aliquotaIcms: d.aliquotaIcms ?? d.fiscal?.aliquotaIcms ?? 0,
+    pesoLiquidoUnitarioKg: d.pesoLiquidoUnitarioKg ?? 0,
+    pesoEmbalagemKg: d.pesoEmbalagemKg ?? 0,
+    controlarEstoque: Boolean(d.controlarEstoque ?? d.estoqueConfig?.controlarEstoque ?? true),
+    produtoFracionado: Boolean(d.produtoFracionado ?? d.estoqueConfig?.fracionado ?? false),
+    reservarEstoqueOrcamento: Boolean(d.reservarEstoqueOrcamento ?? d.estoqueConfig?.reservarEmOrcamento ?? true),
+    controlarLote: Boolean(d.controlarLote ?? d.avancado?.controlarLote ?? false),
+    bloquearVendaSemEstoque: Boolean(d.bloquearVendaSemEstoque ?? d.avancado?.bloquearVendaSemEstoque ?? false),
+    produtoRevenda: Boolean(d.produtoRevenda ?? d.avancado?.produtoRevenda ?? true),
+    produzidoInternamente: Boolean(d.produzidoInternamente ?? d.avancado?.produzidoInternamente ?? false),
+    permitirCashback: Boolean(d.permitirCashback ?? d.avancado?.permitirCashback ?? false),
+    cashbackProprio: d.cashbackTipo === 'percentual' || d.cashbackTipo === 'valor'
+      ? `${d.cashbackTipo === 'percentual' ? `${numeroOuZero(d.cashbackValor)}%` : reais(d.cashbackValor)}`
+      : '',
+    impedirVendaAbaixoCusto: Boolean(d.impedirVendaAbaixoCusto ?? d.precos?.impedirVendaAbaixoCusto ?? false),
+    ativarAtacado: Boolean(d.ativarAtacado ?? d.atacado?.ativo ?? false),
+    faixasAtacado: resumoDoAtacado(d.atacado?.faixas || d.atacadoFaixas),
+    embalagens: resumoDasEmbalagens(d.embalagens),
+    descricaoCurta: d.descricaoCurta || '',
+    descricaoCompleta: d.descricaoCompleta || '',
+    observacoesInternas: d.observacoesInternas || '',
+  };
+};
+
+const CAMPOS_DO_PRODUTO_NO_HISTORICO: CampoComparado[] = [
+  { campo: 'nome', rotulo: 'Nome' },
+  { campo: 'codigo', rotulo: 'Código' },
+  { campo: 'codigoBarras', rotulo: 'Código de barras' },
+  { campo: 'referencia', rotulo: 'Referência' },
+  { campo: 'categoria', rotulo: 'Categoria' },
+  { campo: 'marca', rotulo: 'Marca' },
+  { campo: 'fornecedor', rotulo: 'Fornecedor' },
+  { campo: 'unidade', rotulo: 'Unidade de medida' },
+  { campo: 'precoVenda', rotulo: 'Preço de venda', formatar: reais },
+  { campo: 'precoAVista', rotulo: 'Preço à vista', formatar: reaisOuVazio },
+  { campo: 'precoAPrazo', rotulo: 'Preço a prazo', formatar: reaisOuVazio },
+  { campo: 'precoPromocional', rotulo: 'Preço promocional', formatar: reaisOuVazio },
+  { campo: 'precoCusto', rotulo: 'Custo', formatar: reais },
+  { campo: 'comissaoPercentual', rotulo: 'Comissão', formatar: percentualOuVazio },
+  { campo: 'descontoMaximoPercentual', rotulo: 'Desconto máximo (%)', formatar: numeroOuZero },
+  { campo: 'estoqueMinimo', rotulo: 'Estoque mínimo', formatar: numeroOuZero },
+  { campo: 'estoqueMaximo', rotulo: 'Estoque máximo', formatar: numeroOuZero },
+  { campo: 'localizacaoEstoque', rotulo: 'Localização no estoque' },
+  { campo: 'ncm', rotulo: 'NCM' },
+  { campo: 'cest', rotulo: 'CEST' },
+  { campo: 'cfop', rotulo: 'CFOP' },
+  { campo: 'csosn', rotulo: 'CST/CSOSN do ICMS' },
+  { campo: 'origem', rotulo: 'Origem da mercadoria' },
+  { campo: 'cfopInterestadual', rotulo: 'CFOP interestadual' },
+  { campo: 'csosnInterestadual', rotulo: 'CST/CSOSN interestadual' },
+  { campo: 'cstPis', rotulo: 'CST do PIS' },
+  { campo: 'cstCofins', rotulo: 'CST do COFINS' },
+  { campo: 'cstIpi', rotulo: 'CST do IPI' },
+  { campo: 'cstIbs', rotulo: 'CST do IBS/CBS' },
+  { campo: 'classTribIbsCbs', rotulo: 'Classificação tributária IBS/CBS' },
+  { campo: 'aliquotaIcms', rotulo: 'Alíquota de ICMS (%)', formatar: numeroOuZero },
+  { campo: 'pesoLiquidoUnitarioKg', rotulo: 'Peso líquido por unidade (kg)', formatar: numeroOuZero },
+  { campo: 'pesoEmbalagemKg', rotulo: 'Peso da embalagem (kg)', formatar: numeroOuZero },
+  { campo: 'controlarEstoque', rotulo: 'Controlar estoque', formatar: simOuNao },
+  { campo: 'produtoFracionado', rotulo: 'Venda fracionada', formatar: simOuNao },
+  { campo: 'reservarEstoqueOrcamento', rotulo: 'Reservar estoque no orçamento', formatar: simOuNao },
+  { campo: 'controlarLote', rotulo: 'Controlar lote', formatar: simOuNao },
+  { campo: 'bloquearVendaSemEstoque', rotulo: 'Bloquear venda sem estoque', formatar: simOuNao },
+  { campo: 'produtoRevenda', rotulo: 'Produto de revenda', formatar: simOuNao },
+  { campo: 'produzidoInternamente', rotulo: 'Produzido internamente', formatar: simOuNao },
+  { campo: 'permitirCashback', rotulo: 'Gera cashback', formatar: simOuNao },
+  { campo: 'cashbackProprio', rotulo: 'Cashback próprio do produto' },
+  { campo: 'impedirVendaAbaixoCusto', rotulo: 'Impedir venda abaixo do custo', formatar: simOuNao },
+  { campo: 'ativarAtacado', rotulo: 'Preço de atacado', formatar: simOuNao },
+  { campo: 'faixasAtacado', rotulo: 'Faixas de atacado' },
+  { campo: 'embalagens', rotulo: 'Embalagens' },
+  { campo: 'descricaoCurta', rotulo: 'Descrição curta' },
+  { campo: 'descricaoCompleta', rotulo: 'Descrição completa' },
+  { campo: 'observacoesInternas', rotulo: 'Observações internas' },
+];
+
+/** Quantidade da receita no padrao brasileiro, com a unidade ("0,25 KG"). */
+const quantidadeDaReceita = (quantidade: unknown, unidade: unknown): string => (
+  `${numeroOuZero(quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} ${String(unidade || '')}`.trim()
+);
+
+/** O que entrou, saiu e mudou de quantidade na composicao (receita) do produto. */
+const mudancasDaComposicao = (antes: ComponenteComposicao[], depois: ComponenteComposicao[]): { alteracoes: MudancaDeCampo[]; resumo: string[] } => {
+  const chave = (c: ComponenteComposicao) => chaveComponente(c.origem, c.componenteId);
+  const mapaAntes = new Map(antes.map((c) => [chave(c), c]));
+  const mapaDepois = new Map(depois.map((c) => [chave(c), c]));
+  const alteracoes: MudancaDeCampo[] = [];
+  const resumo: string[] = [];
+  depois.forEach((c) => {
+    const anterior = mapaAntes.get(chave(c));
+    if (!anterior) {
+      alteracoes.push({ campo: `Composição: ${c.componenteNome}`, valorAnterior: null, valorNovo: quantidadeDaReceita(c.quantidade, c.unidade) });
+      resumo.push(`entrou ${c.componenteNome} (${quantidadeDaReceita(c.quantidade, c.unidade)})`);
+    } else if (numeroOuZero(anterior.quantidade) !== numeroOuZero(c.quantidade)) {
+      alteracoes.push({ campo: `Composição: ${c.componenteNome}`, valorAnterior: quantidadeDaReceita(anterior.quantidade, anterior.unidade), valorNovo: quantidadeDaReceita(c.quantidade, c.unidade) });
+      resumo.push(`${c.componenteNome} ${quantidadeDaReceita(anterior.quantidade, anterior.unidade)} → ${quantidadeDaReceita(c.quantidade, c.unidade)}`);
+    }
+  });
+  antes.forEach((c) => {
+    if (mapaDepois.has(chave(c))) return;
+    alteracoes.push({ campo: `Composição: ${c.componenteNome}`, valorAnterior: quantidadeDaReceita(c.quantidade, c.unidade), valorNovo: null });
+    resumo.push(`saiu ${c.componenteNome}`);
+  });
+  return { alteracoes, resumo };
+};
 
 interface UnidadeMedida {
   id: string;
@@ -1079,6 +1261,15 @@ const EstoqueForm: React.FC = () => {
     if (!id || !tenantId || !currentUser) return;
     setIsSavingComposicao(true);
     try {
+      // Receita de antes, lida do banco agora: base do Histórico de alterações.
+      // Falha nesta leitura nao impede salvar (so' o registro fica sem o "antes").
+      let composicaoAntes: ComponenteComposicao[] | null = null;
+      try {
+        const antesSnap = await getDoc(doc(db, 'produtos_composicao', id));
+        composicaoAntes = antesSnap.exists() && Array.isArray(antesSnap.data().itens) ? antesSnap.data().itens.map(normalizarComponente) : [];
+      } catch (erroLeitura) {
+        console.error('Erro ao ler a composição anterior (Histórico de alterações):', erroLeitura);
+      }
       await setDoc(doc(db, 'produtos_composicao', id), {
         produtoId: id,
         itens: composicaoItens,
@@ -1086,6 +1277,26 @@ const EstoqueForm: React.FC = () => {
         updatedAt: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
       }, { merge: true });
+      // Historico de alteracoes (09/11/2026): o que entrou, saiu e mudou de quantidade na receita.
+      if (composicaoAntes) {
+        const { alteracoes, resumo } = mudancasDaComposicao(composicaoAntes, composicaoItens);
+        if (alteracoes.length > 0) {
+          const rotulo = rotuloDoProduto(formData.nome, formData.codigo);
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'estoque',
+            acao: 'edicao',
+            descricao: `Composição (receita) do ${rotulo} alterada: ${resumo.slice(0, 20).join('; ')}${resumo.length > 20 ? `; e mais ${resumo.length - 20}` : ''}.`,
+            registroRelacionadoId: id,
+            documentoTipo: 'produto',
+            documentoNumero: rotulo,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
+      }
       // Receita mudou: o custo gravado do produto (e dos que o usam) precisa
       // acompanhar agora, sem esperar alguem abrir e salvar o produto.
       await sincronizarCustosSemFalhar({
@@ -1323,9 +1534,10 @@ const EstoqueForm: React.FC = () => {
       nome: v.nome, codigo, sku, codigoBarras: v.codigoBarras, opcoes: v.opcoes, rotulo: v.rotulo, produtoPaiChave, precoProprio: v.precoProprio, precoVenda: v.precoVenda,
     });
 
+    const idsCriados: string[] = [];
     for (const nova of plano.criar) {
       const campos = camposDaVariacao(dadosDoPai, identidade(nova, nova.codigo, nova.sku));
-      await addDoc(collection(db, 'estoque'), {
+      const novaRef = await addDoc(collection(db, 'estoque'), {
         ...campos,
         quantidade: nova.quantidadeInicial,
         estoqueConfig: { ...(campos.estoqueConfig as Record<string, unknown>), quantidadeAtual: nova.quantidadeInicial },
@@ -1336,6 +1548,7 @@ const EstoqueForm: React.FC = () => {
         createdAt: serverTimestamp(),
         ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
       });
+      idsCriados.push(novaRef.id);
     }
 
     let atualizadas = 0;
@@ -1376,21 +1589,22 @@ const EstoqueForm: React.FC = () => {
 
     const mexeu = plano.criar.length + atualizadas + plano.inativar.length + plano.reativar.length - naoMudaram.length;
     if (mexeu > 0) {
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'estoque',
-          acao: isEditing ? 'edicao' : 'criacao',
-          descricao: `Variações de ${String(dadosDoPai.nome || '')}: ${plano.criar.length} criada(s), ${atualizadas} atualizada(s), ${plano.inativar.length} inativada(s), ${plano.reativar.length} reativada(s).`,
-          registroRelacionadoId: idDoPai,
-          status: 'sucesso',
-        });
-      } catch {
-        // Ignorar erro de log de auditoria.
-      }
+      const rotuloDoPai = rotuloDoProduto(dadosDoPai.nome, dadosDoPai.codigo);
+      const nomesCriados = plano.criar.map((v) => v.rotulo).filter(Boolean);
+      createAuditLog({
+        tenantId: tenantId || '',
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'estoque',
+        acao: isEditing ? 'edicao' : 'criacao',
+        descricao: `Variações do ${rotuloDoPai}: ${plano.criar.length} criada(s), ${atualizadas} atualizada(s), ${plano.inativar.length} inativada(s), ${plano.reativar.length} reativada(s).${nomesCriados.length ? ` Novas: ${nomesCriados.slice(0, 15).join(', ')}${nomesCriados.length > 15 ? ` e mais ${nomesCriados.length - 15}` : ''}.` : ''}${plano.inativar.length ? ` Inativadas: ${plano.inativar.map((v) => v.rotulo).slice(0, 15).join(', ')}.` : ''}`,
+        registroRelacionadoId: idDoPai,
+        // As variacoes novas tambem mostram de onde vieram (ate' o limite do registro).
+        documentosRelacionados: [...idsCriados, ...plano.inativar.map((v) => v.id), ...plano.reativar.map((v) => v.id)].slice(0, 11),
+        documentoTipo: 'produto',
+        documentoNumero: rotuloDoPai,
+        status: 'sucesso',
+      });
     }
   };
 
@@ -1449,10 +1663,13 @@ const EstoqueForm: React.FC = () => {
       let historicoBase: HistoricoPreco[] = historicoPrecos;
       let custoOriginalBanco = Number(produtoOriginal?.precoCusto ?? produtoOriginal?.precos?.custo ?? 0);
       let custoParaSalvar = precoCusto;
+      // Cadastro como estava no banco antes desta edicao (base do Histórico de alteracoes).
+      let dadosAntesDaEdicao: Record<string, unknown> | null = null;
       if (isEditing && id) {
         const produtoFresco = await getDoc(doc(db, 'estoque', id));
         if (produtoFresco.exists()) {
           const dadosFrescos = produtoFresco.data();
+          dadosAntesDaEdicao = dadosFrescos;
           historicoBase = Array.isArray(dadosFrescos.historicoPrecos) ? dadosFrescos.historicoPrecos : historicoPrecos;
           custoOriginalBanco = Number(dadosFrescos.precoCusto ?? dadosFrescos.precos?.custo ?? 0);
         }
@@ -1793,20 +2010,35 @@ const EstoqueForm: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
         if (planoDaGrade) await aplicarPlanoDaGrade(planoDaGrade, id, produtoData);
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser?.uid || '',
-            usuarioEmail: currentUser?.email || currentUser?.uid || '',
-            modulo: 'estoque',
-            acao: 'edicao',
-            descricao: `Produto ${produtoData.nome} editado. Estoque: ${produtoData.quantidade} ${produtoData.unidadeMedidaSigla}. Preço de venda: R$ ${produtoData.precoVenda.toFixed(2)}.`,
-            registroRelacionadoId: id,
-            status: 'sucesso'
-          });
-        } catch {
-          // Ignorar erro de log de auditoria.
+        // Historico de alteracoes (09/11/2026): campo a campo, antes (banco) -> depois.
+        // So' registra quando algo mudou; o saldo fica de fora (nao muda pela edicao).
+        {
+          const alteracoes = diferencasEntre(
+            produtoParaHistorico(dadosAntesDaEdicao || (produtoOriginal as Record<string, unknown> | null)),
+            produtoParaHistorico({
+              ...produtoDataSemSaldo,
+              ...(comissaoPercentualValor === undefined ? { comissaoPercentual: null } : {}),
+              ...(precoAVistaValor === undefined ? { precoAVista: null } : {}),
+              ...(precoAPrazoValor === undefined ? { precoAPrazo: null } : {}),
+            }),
+            CAMPOS_DO_PRODUTO_NO_HISTORICO,
+          );
+          if (alteracoes.length > 0) {
+            const rotulo = rotuloDoProduto(produtoData.nome, produtoData.codigo);
+            createAuditLog({
+              tenantId: tenantId || '',
+              usuarioId: currentUser.uid,
+              usuarioEmail: currentUser.email || currentUser.uid,
+              modulo: 'estoque',
+              acao: 'edicao',
+              descricao: `${rotulo} alterado: ${alteracoes.map((a) => a.campo).slice(0, 12).join(', ')}${alteracoes.length > 12 ? ` e mais ${alteracoes.length - 12} campo(s)` : ''}.`,
+              registroRelacionadoId: id,
+              documentoTipo: 'produto',
+              documentoNumero: rotulo,
+              alteracoes,
+              status: 'sucesso',
+            });
+          }
         }
         // Este produto pode ser componente (semiacabado) de outros: se o
         // custo dele mudou, o custo de quem o usa acompanha.
@@ -1828,21 +2060,18 @@ const EstoqueForm: React.FC = () => {
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
         if (planoDaGrade) await aplicarPlanoDaGrade(planoDaGrade, newDocRef.id, produtoData);
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser.uid,
-            usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'estoque',
-            acao: 'criacao',
-            descricao: `Produto ${produtoData.nome} cadastrado. Estoque inicial: ${produtoData.quantidade} ${produtoData.unidadeMedidaSigla}. Preço de venda: R$ ${produtoData.precoVenda.toFixed(2)}.`,
-            registroRelacionadoId: newDocRef.id,
-            status: 'sucesso'
-          });
-        } catch {
-          // Ignorar erro de log de auditoria.
-        }
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'estoque',
+          acao: 'criacao',
+          descricao: `${rotuloDoProduto(produtoData.nome, produtoData.codigo)} cadastrado. Estoque inicial: ${produtoData.quantidade} ${produtoData.unidadeMedidaSigla}. Preço de venda: ${reais(produtoData.precoVenda)}. Custo: ${reais(produtoData.precoCusto)}.`,
+          registroRelacionadoId: newDocRef.id,
+          documentoTipo: 'produto',
+          documentoNumero: rotuloDoProduto(produtoData.nome, produtoData.codigo),
+          status: 'sucesso',
+        });
         if (avisoUnidadePadrao) showWarning('Produto cadastrado sem unidade escolhida', avisoUnidadePadrao);
         else showSuccess('Produto cadastrado!');
       }

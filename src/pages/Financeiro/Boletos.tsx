@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { createAuditLog } from '../../services/logService';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents, type BoletoDetails } from '../../utils/financeDomain';
 import { reserveTenantSequence } from '../../utils/firestoreAtomic';
@@ -334,11 +335,15 @@ const Boletos: React.FC = () => {
 
   const desfazerUm = async (titulo: TituloBoleto, destino: DestinoDesfazer, uid: string): Promise<boolean> => {
     let feito = false;
+    let remessaAnterior = '';
+    let nossoNumeroAnterior = '';
     await runTransaction(db, async (transaction) => {
       const ref = doc(db, 'transacoes', titulo.id);
       const snap = await transaction.get(ref);
       if (!snap.exists()) throw new Error('Título não encontrado. Atualize a página.');
       if (snap.data().status === 'Paga') throw new Error('Este título já foi pago — não é possível desfazer a emissão.');
+      remessaAnterior = String(snap.data().boleto?.numeroRemessa || '');
+      nossoNumeroAnterior = String(snap.data().boleto?.nossoNumero || '');
       if (destino === 'emitidos') {
         // Fora da remessa ja': nada a fazer (num lote misto, os "Emitido" ficam como estao).
         if (snap.data().boleto?.status !== 'em_remessa') return;
@@ -357,6 +362,32 @@ const Boletos: React.FC = () => {
       }
       feito = true;
     });
+    // Historico de alteracoes (09/11/2026): depois da transacao dar certo.
+    if (feito && tenantId) {
+      const nossoNumero = formatarNossoNumeroSicoobExibicao(nossoNumeroAnterior || titulo.boleto?.nossoNumero || '');
+      const pagador = titulo.clienteNome || titulo.fornecedorNome || '';
+      const tituloDoBoleto = `"${titulo.descricao}"${pagador ? ` (${pagador})` : ''}`;
+      createAuditLog({
+        tenantId,
+        usuarioId: uid,
+        usuarioEmail: currentUser?.email || uid,
+        modulo: 'financeiro',
+        acao: destino === 'emitidos' ? 'edicao' : 'cancelamento',
+        descricao: destino === 'emitidos'
+          ? `Boleto nosso número ${nossoNumero} de ${tituloDoBoleto} tirado da remessa ${remessaAnterior || ''}`.trim()
+            + '. Voltou para Emitidos com o mesmo código de barras e entra na próxima remessa.'
+          : `Emissão do boleto nosso número ${nossoNumero} de ${tituloDoBoleto} desfeita. O título voltou para Aguardando emissão; emitido de novo, sai com outro nosso número.`,
+        registroRelacionadoId: titulo.id,
+        documentosRelacionados: [titulo.pedidoId, titulo.osId],
+        documentoTipo: 'conta_receber',
+        documentoNumero: `Boleto ${nossoNumero}`,
+        alteracoes: destino === 'emitidos'
+          ? [{ campo: 'Boleto', valorAnterior: `Em remessa${remessaAnterior ? ` ${remessaAnterior}` : ''}`, valorNovo: 'Emitido' }]
+          : [{ campo: 'Boleto', valorAnterior: `Emitido (nosso número ${nossoNumero})`, valorNovo: 'Aguardando emissão' }],
+        status: 'sucesso',
+        critical: true,
+      });
+    }
     return feito;
   };
 
@@ -617,20 +648,41 @@ const Boletos: React.FC = () => {
       URL.revokeObjectURL(url);
 
       // Marca os titulos como enviados so' DEPOIS do arquivo sair.
+      const incluidos: string[] = [];
       for (const t of lista) {
-        await runTransaction(db, async (transaction) => {
+        const marcou = await runTransaction(db, async (transaction) => {
           const ref = doc(db, 'transacoes', t.id);
           const snap = await transaction.get(ref);
-          if (!snap.exists()) return;
+          if (!snap.exists()) return false;
           const atual = snap.data().boleto;
-          if (!atual || atual.status !== 'emitido') return;
+          if (!atual || atual.status !== 'emitido') return false;
           transaction.update(ref, {
             boleto: { ...atual, status: 'em_remessa', numeroRemessa },
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Incluído na remessa ${numeroRemessa}`),
           });
+          return true;
         });
+        if (marcou) incluidos.push(t.id);
       }
+
+      // Historico de alteracoes (09/11/2026): um registro pela remessa inteira,
+      // no banco e nos titulos que entraram (os primeiros, ate' o limite do registro).
+      const totalDaRemessa = lista.filter((t) => incluidos.includes(t.id)).reduce((soma, t) => soma + t.valorCentavos, 0);
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'financeiro',
+        acao: 'emissao',
+        descricao: `Remessa ${numeroRemessa} do banco ${banco.nome} gerada com ${incluidos.length} boleto(s), total de ${currency.format(fromCents(totalDaRemessa))}`
+          + `${incluidos.length < lista.length ? ` (o arquivo levou ${lista.length}; ${lista.length - incluidos.length} já não estava(m) em Emitidos e não mudou(aram) de situação)` : ''}.`,
+        registroRelacionadoId: banco.id,
+        documentosRelacionados: incluidos,
+        documentoTipo: 'remessa_boleto',
+        documentoNumero: `Remessa ${numeroRemessa}`,
+        status: 'sucesso',
+      });
 
       setSelecionados(new Set());
       showSuccess(`Remessa ${numeroRemessa} gerada com ${lista.length} boleto(s).`);

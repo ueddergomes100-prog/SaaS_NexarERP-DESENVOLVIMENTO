@@ -1,5 +1,6 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
+const { db } = require('../config/firebase');
 const { canUseFiscal, resolveTenantId } = require('../services/spedyAcesso');
 const { registrarLog } = require('../services/auditoria');
 const { ErroDevolucaoCompra, registrar, emitir, listar } = require('../services/devolucaoCompra');
@@ -25,6 +26,63 @@ const responderErro = (res, erro, oQue) => {
 };
 
 const reais = (centavos) => `R$ ${(Number(centavos || 0) / 100).toFixed(2).replace('.', ',')}`;
+
+/** Numero da nota para o historico; '' quando ainda nao tem (fila da SEFAZ, rejeitada, numero 0). */
+const numeroDaNotaNoHistorico = (numero) => {
+  const n = String(numero ?? '').trim().replace(/^0+(?=\d)/, '');
+  return n && n !== '0' ? n : '';
+};
+
+/**
+ * Historico de alteracoes (09/11/2026): envio da NF-e de devolucao ao
+ * fornecedor -- na nota, na devolucao e na nota de entrada. `nota` = o que a
+ * Spedy respondeu; `recusa` = mensagem quando a Spedy recusou o envio. Le a
+ * devolucao so' para o texto (fornecedor, NF de entrada); falha aqui nunca
+ * derruba a resposta.
+ */
+const registrarEnvioDaDevolucao = async (req, tenantId, { nota = null, recusa = '' }) => {
+  try {
+    const devolucaoId = String((req.body && req.body.devolucaoId) || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(devolucaoId)) return;
+    const snap = await db.collection('devolucoes_compra').doc(devolucaoId).get();
+    if (!snap.exists || snap.data().tenantId !== tenantId) return;
+    const d = snap.data();
+    const fornecedor = d.fornecedorNome || 'fornecedor não informado';
+    const deQual = `ao fornecedor ${fornecedor}${d.notaNumero ? ` (NF de entrada ${d.notaNumero})` : ''}`;
+    if (!nota) {
+      await registrarLog({ ...req.user, tenantId }, {
+        modulo: 'fiscal',
+        acao: 'emissao',
+        descricao: `NF-e de devolução ${deQual} não emitida: ${recusa}`,
+        registroId: devolucaoId,
+        documentosRelacionados: [d.notaEntradaId],
+        documentoTipo: 'devolucao_compra',
+        documentoNumero: `NF-e de devolução ${deQual}`,
+        motivo: recusa,
+      });
+      return;
+    }
+    const numero = numeroDaNotaNoHistorico(nota.numero);
+    const rejeitada = nota.status === 'rejected' || nota.status === 'denied';
+    const titulo = `NF-e de devolução${numero ? ` ${numero}` : ''} ${deQual}`;
+    await registrarLog({ ...req.user, tenantId }, {
+      modulo: 'fiscal',
+      acao: 'emissao',
+      descricao: nota.status === 'authorized'
+        ? `${titulo} emitida e autorizada pela SEFAZ, no valor de ${reais(d.totalCentavos)}.`
+        : rejeitada
+          ? `${titulo} não emitida: a SEFAZ rejeitou (${nota.mensagem || 'motivo não informado'}).`
+          : `${titulo} enviada para emissão, no valor de ${reais(d.totalCentavos)}; aguardando a SEFAZ.`,
+      registroId: nota.notaId,
+      documentosRelacionados: [devolucaoId, d.notaEntradaId],
+      documentoTipo: 'nota_fiscal',
+      documentoNumero: numero ? `NF-e ${numero}` : `NF-e de devolução ${deQual}`,
+      ...(rejeitada && nota.mensagem ? { motivo: nota.mensagem } : {}),
+    });
+  } catch (erro) {
+    console.error('[Devolucao compra] historico da emissao nao gravado:', erro.message);
+  }
+};
 
 /** GET /api/devolucao-compra?notaEntradaId=... -- devolucoes da nota. */
 router.get('/', async (req, res) => {
@@ -53,6 +111,11 @@ router.post('/', async (req, res) => {
         + `${r.itens.map((i) => `${i.quantidade} ${i.unidade} de ${i.nome}`).join('; ')}. `
         + `Abatido do a pagar: ${reais(r.abatidoCentavos)}${r.aReceberCentavos > 0 ? `; a receber do fornecedor: ${reais(r.aReceberCentavos)}` : ''}. Motivo: ${r.motivo}.`,
       registroId: r.id,
+      // Historico de alteracoes (09/11/2026): aparece tambem na nota de entrada e nos titulos mexidos.
+      documentosRelacionados: [r.notaEntradaId, r.contaReceberId, ...(r.titulosAbatidos || []).map((t) => t.id)],
+      documentoTipo: 'devolucao_compra',
+      documentoNumero: `Devolução ao fornecedor ${r.fornecedorNome}${r.notaNumero ? ` (NF ${r.notaNumero})` : ''}`,
+      ...(r.motivo ? { motivo: r.motivo } : {}),
       critico: true,
     });
     return res.json({ ok: true, devolucao: { id: r.id, totalCentavos: r.totalCentavos, abatidoCentavos: r.abatidoCentavos, aReceberCentavos: r.aReceberCentavos } });
@@ -63,14 +126,21 @@ router.post('/', async (req, res) => {
 
 /** POST /api/devolucao-compra/emitir -- { devolucaoId }. */
 router.post('/emitir', async (req, res) => {
+  let tenantId = '';
   try {
     if (!canUseFiscal(req.user, 'emit')) {
       return res.status(403).json({ error: 'Você não tem permissão para emitir nota fiscal. Peça a um responsável liberar "Fiscal: Emitir Nota Fiscal" no seu usuário.' });
     }
-    const tenantId = resolveTenantId(req);
+    tenantId = resolveTenantId(req);
     const r = await emitir({ user: req.user, tenantId, corpo: req.body || {} });
+    void registrarEnvioDaDevolucao(req, tenantId, { nota: r });
     return res.json({ ok: true, nota: r });
   } catch (erro) {
+    // Recusa da Spedy (o servico responde 400/429 com a mensagem dela; as outras
+    // travas -- 404, 409, 422 -- barram antes de enviar e nao viram registro).
+    if (tenantId && erro instanceof ErroDevolucaoCompra && (erro.status === 400 || erro.status === 429)) {
+      void registrarEnvioDaDevolucao(req, tenantId, { recusa: erro.message });
+    }
     return responderErro(res, erro, 'emitir a nota de devolução');
   }
 });

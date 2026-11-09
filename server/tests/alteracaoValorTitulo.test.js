@@ -45,7 +45,7 @@ test('altera so\' o titulo, grava quem/por que; a baixa depois quita a venda int
 
   const pedido = alteracao.validarPedidoDeAlteracaoDeValor({ transacaoId: 't1', novoValorCentavos: 9000, motivo: 'desconto combinado no boleto' }).pedido;
   const resumo = await alteracao.alterarValorDoTitulo({ user: USER, tenantId: 'emp1', pedido });
-  assert.deepEqual(resumo, { descricao: 'Venda Direta #12 - Boleto', deCentavos: 10000, paraCentavos: 9000 });
+  assert.deepEqual(resumo, { descricao: 'Venda Direta #12 - Boleto', deCentavos: 10000, paraCentavos: 9000, pedidoId: 'p12', osId: '' });
 
   const titulo = fake.ler('transacoes/t1');
   assert.equal(titulo.valorCentavos, 9000);
@@ -126,7 +126,8 @@ test('rota: sem a permissao recebe 403 em portugues; com ela, altera e registra 
   substituir('middleware/auth', {
     authenticate: (req, res, next) => { req.user = JSON.parse(req.headers['x-usuario-teste'] || '{}'); next(); },
   });
-  substituir('services/auditoria', { registrarLog: (usuario, dados) => logs.push(dados) });
+  // O estorno grava o historico dentro da transacao (registrarLogNaTransacao): o falso tem as duas.
+  substituir('services/auditoria', { registrarLog: (usuario, dados) => logs.push(dados), registrarLogNaTransacao: (tx, usuario, dados) => logs.push(dados) });
   const rotaCaminho = require.resolve(path.join(base, 'routes/financeiro.routes'));
   delete require.cache[rotaCaminho];
   const app = express();

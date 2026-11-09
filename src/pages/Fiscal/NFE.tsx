@@ -69,6 +69,8 @@ import { FINALIDADE_NOTA_FATURAMENTO, FINALIDADE_NOTA_REMESSA, cfopDoFaturamento
 import { pedidoEntraNaEmissao } from '../../utils/notaDoPedidoDomain';
 import { definirComNotaFiscalNoServidor } from '../../services/vendaServidorService';
 import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
+import { createAuditLog } from '../../services/logService';
+import { rotuloStatusNota } from '../../utils/notaTransferenciaDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -262,6 +264,32 @@ interface OrdemServicoParaImportar {
   clienteNome: string;
   servicos: OsServicoParaFatura[];
 }
+
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026): a nota como o usuario a conhece.
+// ---------------------------------------------------------------------------
+
+/** Numero da nota para o historico; '' quando ainda nao tem (fila da SEFAZ, rejeitada, numero 0). */
+const numeroDaNotaNoHistorico = (numero: unknown): string => {
+  const n = numeroDaNota(numero as string | number | null | undefined);
+  return n && n !== '0' ? n : '';
+};
+
+/** "Autorizada", "Na fila da SEFAZ"... */
+const rotuloDoStatusNoHistorico = (status: unknown): string => {
+  const rotulo = rotuloStatusNota(status);
+  return rotulo.charAt(0).toUpperCase() + rotulo.slice(1);
+};
+
+/** "Pedido 0375" -> "do Pedido 0375"; "OS 12" -> "da OS 12". */
+const comPreposicao = (origem: string): string => (origem ? `${origem.startsWith('OS') ? 'da' : 'do'} ${origem}` : '');
+
+/** "NF-e 1234"; sem numero, pelo documento de origem: "NF-e do Pedido 0375", "NFS-e da OS 12". */
+const documentoDaNotaNoHistorico = (tipo: string, numero: unknown, origem: string): string => {
+  const n = numeroDaNotaNoHistorico(numero);
+  if (n) return `${tipo} ${n}`;
+  return origem ? `${tipo} ${comPreposicao(origem)}` : tipo;
+};
 
 /** Documento de `notas_fiscais` -> nota da lista (usado pelas escutas e leituras desta tela). */
 const paraNotaLocal = (id: string, data: DocumentData): LocalInvoice => {
@@ -1843,6 +1871,60 @@ const NFE: React.FC = () => {
     window.open(`https://wa.me/${numeroFinal}?text=${mensagem}`, '_blank');
   };
 
+  /** "Pedido 0375" / "OS 12" da nota, quando a tela conhece o numero (Historico de alteracoes). */
+  const origemDaNota = (pedidoId?: string | null, osId?: string | null): string => {
+    const numeroPedido = pedidoId ? pedidosVenda.find((p) => p.id === pedidoId)?.numeroPedido : '';
+    if (numeroPedido) return `Pedido ${numeroPedido}`;
+    const numeroOS = osId ? ordensServico.find((o) => o.id === osId)?.numeroOS : '';
+    return numeroOS ? `OS ${numeroOS}` : '';
+  };
+
+  /**
+   * Historico de alteracoes (09/11/2026): envio de nota feito pelo usuario
+   * (emissao, retransmissao da rejeitada, lote, cupom). Registra o que a Spedy
+   * respondeu NA HORA; a autorizacao que chega depois (sincronizacao) nao vira
+   * registro. Aparece na nota e no pedido/OS.
+   */
+  const registrarEnvioDaNota = (a: {
+    notaId: string;
+    tipo: string;
+    nota: SpedyInvoice;
+    pedidoId?: string | null;
+    osId?: string | null;
+    /** "Pedido 0375" quando a tela ja' sabe (senao procura nas listas da tela). */
+    origem?: string;
+    reenvio?: boolean;
+    lote?: boolean;
+  }) => {
+    if (!tenantId || !currentUser) return;
+    const origem = a.origem || origemDaNota(a.pedidoId, a.osId);
+    const numero = numeroDaNotaNoHistorico(a.nota.number);
+    const titulo = numero ? `${a.tipo} ${numero}${origem ? ` ${comPreposicao(origem)}` : ''}` : documentoDaNotaNoHistorico(a.tipo, null, origem);
+    const rejeitada = a.nota.status === 'rejected' || a.nota.status === 'denied';
+    const motivoRejeicao = `${a.nota.processingDetail?.code || ''} ${a.nota.processingDetail?.message || ''}`.trim();
+    const comoFoi = `${a.reenvio ? 'retransmitida' : 'emitida'}${a.lote ? ' na emissão em lote' : ''}`;
+    const orgao = a.tipo === 'NFS-e' ? 'a prefeitura' : 'a SEFAZ';
+    const descricao = a.nota.status === 'authorized'
+      ? `${titulo} ${comoFoi} e autorizada pel${orgao}.`
+      : rejeitada
+        ? `${titulo} não emitida${a.reenvio ? ' (retransmissão)' : ''}${a.lote ? ' na emissão em lote' : ''}: ${orgao} rejeitou (${motivoRejeicao || 'motivo não informado'}).`
+        : `${titulo} ${a.reenvio ? 'retransmitida' : 'enviada para emissão'}${a.lote ? ' na emissão em lote' : ''}; aguardando ${orgao}.`;
+    createAuditLog({
+      tenantId,
+      usuarioId: currentUser.uid,
+      usuarioEmail: currentUser.email || currentUser.uid,
+      modulo: 'fiscal',
+      acao: 'emissao',
+      descricao,
+      registroRelacionadoId: a.notaId,
+      documentosRelacionados: [a.pedidoId, a.osId],
+      documentoTipo: 'nota_fiscal',
+      documentoNumero: documentoDaNotaNoHistorico(a.tipo, a.nota.number, origem),
+      ...(rejeitada && motivoRejeicao ? { motivo: motivoRejeicao } : {}),
+      status: rejeitada ? 'erro' : 'sucesso',
+    });
+  };
+
   // Solicita cancelamento
   const enviarCartaCorrecao = async (nota: LocalInvoice, texto: string) => {
     const confirmacao = await NexusSwal.fire({
@@ -1956,21 +2038,35 @@ const NFE: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Cancelamento solicitado: ${justification}`),
         });
 
-        try {
-          const { createAuditLog } = await import('../../services/logService');
+        // Historico de alteracoes (09/11/2026): na nota e no pedido/OS/devolucao/transferencia dela.
+        {
+          const origem = origemDaNota(note.pedidoId || note.pedidoOrigemId, note.osId);
+          const documento = documentoDaNotaNoHistorico(note.tipo, note.number, origem);
           createAuditLog({
             tenantId: tenantId || '',
-            usuarioId: currentUser?.uid || '',
-            usuarioEmail: currentUser?.email || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
             modulo: 'fiscal',
             acao: 'cancelamento',
-            descricao: `Nota Fiscal #${note.number || note.spedyId.substring(0, 6)} (${note.tipo}) cancelada. Motivo: ${justification}`,
+            descricao: `${documento}${numeroDaNotaNoHistorico(note.number) && origem ? ` ${comPreposicao(origem)}` : ''} cancelada (cliente ${note.clienteNome || 'não informado'}). Motivo: ${justification}`,
             registroRelacionadoId: note.id,
+            documentosRelacionados: [note.pedidoId, note.osId, note.pedidoOrigemId, note.devolucaoId, note.transferenciaId],
+            documentoTipo: 'nota_fiscal',
+            documentoNumero: documento,
+            motivo: justification,
+            alteracoes: [{ campo: 'Situação', valorAnterior: rotuloDoStatusNoHistorico(note.status), valorNovo: 'Cancelada' }],
+            snapshotExcluido: {
+              tipo: note.tipo,
+              numero: note.number ?? null,
+              chaveDeAcesso: note.accessKey || null,
+              cliente: note.clienteNome || '',
+              valor: note.valor,
+              data: note.data || '',
+              situacaoAnterior: note.status,
+            },
             status: 'sucesso',
-            critical: true
+            critical: true,
           });
-        } catch {
-          // ignore audit log error
         }
 
         Swal.close();
@@ -2402,11 +2498,32 @@ const NFE: React.FC = () => {
           const porProduto = new Map<string, Record<string, string>>();
           mudancas.forEach((m) => porProduto.set(m.produtoId, { ...(porProduto.get(m.produtoId) || {}), [m.campo]: m.depois }));
           try {
+            const origemDaEmissao = origemDaNota(importedPedidoId);
             for (const [produtoId, campos] of porProduto) {
               await updateDoc(doc(db, 'estoque', produtoId), {
                 ...campos,
                 updatedAt: serverTimestamp(),
                 ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Dados fiscais corrigidos na emissão da NF-e'),
+              });
+              // Historico de alteracoes (09/11/2026): antes -> depois de cada campo, no produto.
+              const nomeProduto = mudancas.find((m) => m.produtoId === produtoId)?.nome || 'sem nome';
+              const alteracoes = (Object.keys(campos) as CampoFiscalEditavel[]).map((campo) => ({
+                campo: ROTULO_CAMPO_FISCAL[campo],
+                valorAnterior: mudancas.find((m) => m.produtoId === produtoId && m.campo === campo)?.antes || '',
+                valorNovo: campos[campo],
+              }));
+              createAuditLog({
+                tenantId,
+                usuarioId: currentUser.uid,
+                usuarioEmail: currentUser.email || currentUser.uid,
+                modulo: 'estoque',
+                acao: 'edicao',
+                descricao: `Dados fiscais do produto ${nomeProduto} corrigidos na emissão da ${formData.tipo}${origemDaEmissao ? ` ${comPreposicao(origemDaEmissao)}` : ''}: ${alteracoes.map((m) => `${m.campo} ${m.valorAnterior || 'vazio'} → ${m.valorNovo}`).join('; ')}.`,
+                registroRelacionadoId: produtoId,
+                documentoTipo: 'produto',
+                documentoNumero: `Produto ${nomeProduto}`,
+                alteracoes,
+                status: 'sucesso',
               });
             }
             setFiscalDoCadastro(fotografiaFiscal(importedPedidoItens));
@@ -2653,6 +2770,15 @@ const NFE: React.FC = () => {
         });
         notaDocId = novaNotaRef.id;
       }
+
+      registrarEnvioDaNota({
+        notaId: notaDocId,
+        tipo: tipoNota,
+        nota: spedyNote,
+        pedidoId: importedPedidoId || null,
+        osId: importedOsId || null,
+        reenvio: Boolean(targetInvoiceId),
+      });
 
       handleCloseModal();
 
@@ -2935,6 +3061,17 @@ const NFE: React.FC = () => {
       return { resultado: { estado: 'erro', mensagem: 'A Spedy recebeu a nota, mas o sistema não conseguiu guardá-la na lista. Não emita de novo: avise o suporte.' } };
     }
 
+    // Um registro por nota (aparece na nota e no pedido de cada uma).
+    registrarEnvioDaNota({
+      notaId: docId,
+      tipo: 'NF-e',
+      nota,
+      pedidoId: pedido.id,
+      origem: pedido.numeroPedido ? `Pedido ${pedido.numeroPedido}` : '',
+      reenvio: Boolean(rejeitada),
+      lote: true,
+    });
+
     const aviso = avisosDaNota.length > 0 ? avisosDaNota.join(' ') : undefined;
     const final = resultadoDoStatusLote(nota);
     if (final) return { resultado: final, pendente: final.estado === 'autorizada' ? { docId, spedyId: nota.id } : undefined, aviso };
@@ -3134,6 +3271,14 @@ const NFE: React.FC = () => {
         updatedAt: serverTimestamp(),
         data: new Date().toISOString(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Cupom retransmitido na Spedy'),
+      });
+      registrarEnvioDaNota({
+        notaId: note.id,
+        tipo: 'NFC-e',
+        nota,
+        pedidoId: note.pedidoId,
+        origem: pedido.numeroPedido ? `Pedido ${pedido.numeroPedido}` : '',
+        reenvio: true,
       });
       Swal.close();
       loadLocalInvoices(false);

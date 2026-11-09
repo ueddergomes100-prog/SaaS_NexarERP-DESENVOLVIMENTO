@@ -8,7 +8,8 @@
  * boletoDomain/boletoCnabDomain/boletoRemessaSicoob (puro e testado).
  */
 import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where, type DocumentData } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
+import { createAuditLog } from './logService';
 import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 import { toCents, type BoletoDetails } from '../utils/financeDomain';
@@ -171,6 +172,30 @@ export const emitirUmTitulo = async (a: { tenantId: string; uid: string; titulo:
       ...buildDocumentUpdateMetadata(uid, serverTimestamp(), 'Boleto emitido'),
     });
   });
+
+  // Historico de alteracoes (09/11/2026): depois da transacao dar certo. Um
+  // caminho so' -- Boletos e o "Dar Baixa" do Contas a Receber passam aqui.
+  const gerado = dadosGerados as BoletoDetails | null;
+  if (gerado) {
+    const nossoNumero = formatarNossoNumeroSicoobExibicao(String(gerado.nossoNumero || ''));
+    const pagador = titulo.clienteNome || titulo.fornecedorNome || '';
+    createAuditLog({
+      tenantId,
+      usuarioId: uid,
+      usuarioEmail: auth.currentUser?.email || uid,
+      modulo: 'financeiro',
+      acao: 'emissao',
+      descricao: `Boleto nosso número ${nossoNumero} emitido para "${titulo.descricao}"${pagador ? ` (${pagador})` : ''}: `
+        + `${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(titulo.valorCentavos) || 0) / 100)}, `
+        + `vencimento ${String(gerado.vencimento || '').split('-').reverse().join('/')}, banco ${banco.nome}.`,
+      registroRelacionadoId: titulo.id,
+      documentosRelacionados: [titulo.pedidoId, titulo.osId],
+      documentoTipo: 'conta_receber',
+      documentoNumero: `Boleto ${nossoNumero}`,
+      alteracoes: [{ campo: 'Boleto', valorAnterior: 'Aguardando emissão', valorNovo: `Emitido (nosso número ${nossoNumero})` }],
+      status: 'sucesso',
+    });
+  }
 
   return dadosGerados!;
 };

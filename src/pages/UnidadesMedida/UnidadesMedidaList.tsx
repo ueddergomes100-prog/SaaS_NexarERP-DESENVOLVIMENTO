@@ -9,6 +9,8 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre } from '../../utils/historicoAlteracoesDomain';
 import {
   UNIDADES_MEDIDA_PADRAO,
   isSiglaPadrao,
@@ -110,6 +112,20 @@ const UnidadesMedidaList: React.FC = () => {
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
           })),
         ]);
+        // Historico de alteracoes (09/11/2026): so' as unidades criadas
+        // (marcar uma existente como padrao nao muda nada para o usuario).
+        if (faltando.length > 0) {
+          createAuditLog({
+            tenantId,
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'criacao',
+            descricao: `${faltando.length} unidade(s) de medida padrão criada(s) automaticamente ao abrir a tela: ${faltando.map((u) => u.sigla).join(', ')}.`,
+            documentoTipo: 'unidade_medida',
+            status: 'sucesso',
+          });
+        }
       } catch (error) {
         // Falha aqui nao pode quebrar a tela: o cadastro continua utilizavel
         // com o que ja existe, e a proxima abertura tenta de novo.
@@ -173,6 +189,16 @@ const UnidadesMedidaList: React.FC = () => {
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         })));
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `${faltando.length} unidade(s) de medida padrão restaurada(s): ${faltando.map((u) => u.sigla).join(', ')}.`,
+          documentoTipo: 'unidade_medida',
+          status: 'sucesso',
+        });
         showSuccess('Unidades de medida padrão adicionadas!');
       } catch (err) {
         showError('Erro', 'Ocorreu um erro ao carregar padrões.');
@@ -238,6 +264,29 @@ const UnidadesMedidaList: React.FC = () => {
           ...docData,
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
+        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
+        const anterior = unidades.find((u) => u.id === editingId);
+        const alteracoes = diferencasEntre(anterior as unknown as Record<string, unknown> | undefined, docData, [
+          { campo: 'sigla', rotulo: 'Sigla' },
+          { campo: 'nome', rotulo: 'Nome' },
+          { campo: 'casasDecimais', rotulo: 'Casas decimais', formatar: (v) => Number(v) || 0 },
+          { campo: 'permiteFracionado', rotulo: 'Permite venda fracionada', formatar: (v) => (v === true ? 'Sim' : 'Não') },
+        ]);
+        if (alteracoes.length > 0) {
+          createAuditLog({
+            tenantId: tenantId || '',
+            usuarioId: currentUser.uid,
+            usuarioEmail: currentUser.email || currentUser.uid,
+            modulo: 'cadastros',
+            acao: 'edicao',
+            descricao: `Unidade de medida ${docData.sigla} alterada: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+            registroRelacionadoId: editingId,
+            documentoTipo: 'unidade_medida',
+            documentoNumero: `Unidade ${docData.sigla}`,
+            alteracoes,
+            status: 'sucesso',
+          });
+        }
         showSuccess('Unidade de medida atualizada!');
       } else {
         // Verifica se a sigla já existe
@@ -248,10 +297,22 @@ const UnidadesMedidaList: React.FC = () => {
           return;
         }
 
-        await addDoc(collection(db, 'unidades_medida'), {
+        const nova = await addDoc(collection(db, 'unidades_medida'), {
           ...docData,
           createdAt: serverTimestamp(),
           ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+        });
+        createAuditLog({
+          tenantId: tenantId || '',
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Unidade de medida ${docData.sigla} (${docData.nome}) cadastrada: ${docData.casasDecimais} casa(s) decimal(is), ${docData.permiteFracionado ? 'permite' : 'não permite'} venda fracionada.`,
+          registroRelacionadoId: nova.id,
+          documentoTipo: 'unidade_medida',
+          documentoNumero: `Unidade ${docData.sigla}`,
+          status: 'sucesso',
         });
         showSuccess('Unidade de medida cadastrada!');
       }

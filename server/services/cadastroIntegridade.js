@@ -100,6 +100,30 @@ const nomeDoCadastro = (dados) => String(
   (dados && (dados.nome || dados.nomeResponsavel || dados.placa || dados.sigla || dados.descricao)) || '',
 ).trim() || 'este cadastro';
 
+// ---------------------------------------------------------------------------
+// Historico de alteracoes (09/11/2026): tipo e nome do cadastro como o usuario conhece.
+// ---------------------------------------------------------------------------
+const TIPO_NO_HISTORICO = {
+  clientes: 'cliente',
+  fornecedores: 'fornecedor',
+  estoque: 'produto',
+  materias_primas: 'materia_prima',
+  categorias: 'categoria',
+  marcas: 'marca',
+  servicos: 'servico',
+  veiculos: 'veiculo',
+  unidades_medida: 'unidade_medida',
+  bancos: 'banco',
+  bandeiras_cartao: 'bandeira_cartao',
+  grades: 'grade',
+};
+const MODULO_NO_HISTORICO = { estoque: 'estoque', materias_primas: 'producao' };
+const camposDoHistorico = (colecao, cfg, nome) => ({
+  modulo: MODULO_NO_HISTORICO[colecao] || 'cadastros',
+  documentoTipo: TIPO_NO_HISTORICO[colecao] || colecao,
+  documentoNumero: `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} ${nome}`,
+});
+
 const formatarMoeda = (centavos) => (Number(centavos || 0) / 100)
   .toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -522,8 +546,14 @@ async function alterarSituacao({ user, colecao, id, ativo }) {
       });
     }
     await lote.commit();
-    registrarLog(user, { modulo: colecao, acao: 'ativacao', descricao: `${nome} reativad${cfg.artigo}${reativadas.length ? ` com ${reativadas.length} variação(ões)` : ''}.`, registroId: id,
-      alteracoes: [{ campo: 'ativo', valorAnterior: false, valorNovo: true }] });
+    registrarLog(user, {
+      ...camposDoHistorico(colecao, cfg, nome),
+      acao: 'reativacao',
+      descricao: `${nome} reativad${cfg.artigo}${reativadas.length ? ` com ${reativadas.length} variação(ões)` : ''}.`,
+      registroId: id,
+      documentosRelacionados: reativadas.map((v) => v.id),
+      alteracoes: [{ campo: 'Situação', valorAnterior: 'Inativo', valorNovo: 'Ativo' }],
+    });
     return { ativo: true, saldoZerado: 0, variacoes: reativadas.length };
   }
 
@@ -554,15 +584,16 @@ async function alterarSituacao({ user, colecao, id, ativo }) {
   });
 
   registrarLog(user, {
-    modulo: colecao,
+    ...camposDoHistorico(colecao, cfg, nome),
     acao: 'inativacao',
     descricao: `${nome} inativad${cfg.artigo}${saldoZerado ? ` (estoque zerado de ${saldoZerado})` : ''}`
       + `${inativadas.length ? ` com ${inativadas.length} variação(ões)` : ''}.`,
     registroId: id,
+    documentosRelacionados: inativadas.map((v) => v.id),
     alteracoes: [
-      { campo: 'ativo', valorAnterior: true, valorNovo: false },
-      ...(saldoZerado ? [{ campo: 'quantidade', valorAnterior: saldoZerado, valorNovo: 0 }] : []),
-      ...saldosDasVariacoes.filter((s) => s.zerado).map((s) => ({ campo: `estoque de ${s.nome}`, valorAnterior: s.zerado, valorNovo: 0 })),
+      { campo: 'Situação', valorAnterior: 'Ativo', valorNovo: 'Inativo' },
+      ...(saldoZerado ? [{ campo: 'Estoque', valorAnterior: saldoZerado, valorNovo: 0 }] : []),
+      ...saldosDasVariacoes.filter((s) => s.zerado).map((s) => ({ campo: `Estoque de ${s.nome}`, valorAnterior: s.zerado, valorNovo: 0 })),
     ],
   });
   return { ativo: false, saldoZerado, variacoes: inativadas.length };
@@ -595,7 +626,19 @@ async function excluirCadastro({ user, colecao, id }) {
   }
   await lote.commit();
 
-  registrarLog(user, { modulo: colecao, acao: 'exclusao', descricao: `${nome} excluíd${cfg.artigo} (sem movimentação)${variacoes.length ? ` com ${variacoes.length} variação(ões)` : ''}.`, registroId: id });
+  // Historico de alteracoes (09/11/2026): a copia do que foi apagado vai junto --
+  // e' a unica prova do cadastro depois da exclusao.
+  registrarLog(user, {
+    ...camposDoHistorico(colecao, cfg, nome),
+    acao: 'exclusao',
+    descricao: `${nome} excluíd${cfg.artigo} (sem movimentação)${variacoes.length ? ` com ${variacoes.length} variação(ões)` : ''}.`,
+    registroId: id,
+    documentosRelacionados: variacoes.map((v) => v.id),
+    snapshotExcluido: {
+      ...dados,
+      ...(variacoes.length ? { variacoesExcluidas: variacoes.map((v) => ({ id: v.id, nome: nomeDoCadastro(v.dados) })) } : {}),
+    },
+  });
   return { excluido: true, variacoes: variacoes.length };
 }
 

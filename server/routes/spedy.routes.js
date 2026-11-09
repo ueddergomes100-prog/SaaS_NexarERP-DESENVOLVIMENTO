@@ -13,6 +13,44 @@ const { separarCscDaNumeracao } = require('../services/protegerSegredos');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 const { baixarArquivoDaSpedy, MENSAGEM_LIMITE_SPEDY } = require('../services/spedyArquivo');
 const { travarEmissao } = require('../services/notaDoPedido');
+const { registrarLog } = require('../services/auditoria');
+const { diferencasEntre } = require('../domain/historicoAlteracoesDomain');
+
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026)
+// ---------------------------------------------------------------------------
+
+/** Numero da nota para o historico; '' quando ainda nao tem (fila da SEFAZ, rejeitada, numero 0). */
+const numeroDaNotaNoHistorico = (numero) => {
+  const n = String(numero ?? '').trim().replace(/^0+(?=\d)/, '');
+  return n && n !== '0' ? n : '';
+};
+
+const rotuloDoAmbiente = (valor) => {
+  if (valor === 'production') return 'Produção';
+  if (valor === 'development') return 'Homologação';
+  return valor === undefined || valor === null ? '' : String(valor);
+};
+
+/**
+ * Campos da numeracao que entram no historico, por bloco. O CSC e o id dele
+ * (tokenId) ficam de fora de proposito: segredo nao vai para o historico.
+ */
+const CAMPOS_NUMERACAO_NO_HISTORICO = [
+  ['productInvoice', 'NF-e', [['environmentType', 'ambiente'], ['series', 'série'], ['nextNumber', 'próximo número']]],
+  ['consumerInvoice', 'NFC-e', [['environmentType', 'ambiente'], ['series', 'série'], ['currentNumber', 'número atual']]],
+  ['serviceInvoice', 'NFS-e', [['series', 'série'], ['nextNumber', 'próximo número']]],
+];
+
+const alteracoesDaNumeracao = (atual, enviado, final) => CAMPOS_NUMERACAO_NO_HISTORICO.flatMap(([bloco, nome, campos]) => (
+  enviado[bloco]
+    ? diferencasEntre((atual && atual[bloco]) || {}, (final && final[bloco]) || {}, campos.map(([campo, rotulo]) => ({
+      campo,
+      rotulo: `${nome}: ${rotulo}`,
+      ...(campo === 'environmentType' ? { formatar: rotuloDoAmbiente } : {}),
+    })))
+    : []
+));
 
 const TYPE_PATHS = {
   service: 'service-invoices',
@@ -402,6 +440,20 @@ router.put('/numbering', async (req, res) => {
       atualizadoEm: new Date().toISOString()
     }, { merge: true });
 
+    // Historico de alteracoes (09/11/2026): serie/numero/ambiente antes -> depois (sem o CSC).
+    const alteracoes = alteracoesDaNumeracao(atual, payload, payloadFinal);
+    if (alteracoes.length > 0) {
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'fiscal',
+        acao: 'edicao',
+        descricao: `Numeração fiscal alterada: ${alteracoes.map((a) => `${a.campo} ${a.valorAnterior ?? 'vazio'} → ${a.valorNovo ?? 'vazio'}`).join('; ')}.`,
+        registroId: tenantId,
+        documentoTipo: 'configuracoes',
+        documentoNumero: 'Numeração fiscal',
+        alteracoes,
+      });
+    }
+
     return res.json({ success: true });
   } catch (error) {
     console.error('[Spedy Numbering]', error);
@@ -606,6 +658,25 @@ router.post('/:type/:id/corrections', async (req, res) => {
       cartasCorrecao: admin.firestore.FieldValue.arrayUnion(evento),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     });
+
+    // Historico de alteracoes (09/11/2026): o texto da carta, na nota e no pedido dela.
+    {
+      const nota = notaDoc.data();
+      const numero = numeroDaNotaNoHistorico(nota.number);
+      const documento = numero ? `NF-e ${numero}` : 'NF-e';
+      const quantas = (Array.isArray(nota.cartasCorrecao) ? nota.cartasCorrecao.length : 0) + 1;
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'fiscal',
+        acao: 'emissao',
+        descricao: `Carta de correção nº ${quantas} enviada à SEFAZ para a ${documento}${nota.clienteNome ? ` (cliente ${nota.clienteNome})` : ''}. Texto: ${carta.texto}`,
+        registroId: notaDoc.id,
+        documentosRelacionados: [nota.pedidoId, nota.osId, nota.pedidoOrigemId, nota.devolucaoId],
+        documentoTipo: 'nota_fiscal',
+        documentoNumero: documento,
+        motivo: carta.texto,
+      });
+    }
+
     return res.json({ ok: true, evento });
   } catch (error) {
     console.error('[Spedy CC-e]', error);

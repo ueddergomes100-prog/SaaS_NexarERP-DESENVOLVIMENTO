@@ -4,6 +4,8 @@ const { definirPin, removerPin, validarPin } = require('../services/vendedorPin'
 const { emitirComprovante } = require('../services/comprovantes');
 const { TIPO_IDENTIFICACAO } = require('../domain/conferenciaDescontoDomain');
 const { gerentePodeGerir } = require('../middleware/gestaoEquipe');
+const { db } = require('../config/firebase');
+const { registrarLog } = require('../services/auditoria');
 
 const router = express.Router();
 
@@ -19,6 +21,37 @@ const router = express.Router();
  * de uma empresa de tocar em vendedor de outra.
  */
 router.use(authenticate);
+
+/**
+ * Historico de alteracoes (09/11/2026): quem definiu ou removeu a senha de
+ * qual vendedor. NUNCA o valor da senha. Nao segura a resposta: le' o nome do
+ * vendedor e grava em seguida (falha so' vai pro console).
+ */
+const registrarSenhaNoHistorico = (user, usuarioId, acao, texto) => {
+  void (async () => {
+    let nome = '';
+    let codigo = '';
+    try {
+      const snap = await db.collection('usuarios').doc(String(usuarioId || '')).get();
+      if (snap.exists) {
+        nome = String(snap.data().nome || '');
+        codigo = String(snap.data().codigoVendedor || '');
+      }
+    } catch (erro) {
+      console.error('[VendedorPin] historico: nao leu o vendedor:', erro.message);
+    }
+    const quem = `${nome || 'Vendedor'}${codigo ? ` (código ${codigo})` : ''}`;
+    await registrarLog(user, {
+      modulo: 'usuarios',
+      acao,
+      descricao: `Senha de identificação de ${quem} ${texto}.`,
+      registroId: String(usuarioId || ''),
+      documentoTipo: 'vendedor',
+      documentoNumero: `Vendedor ${quem}`,
+      alteracoes: [{ campo: 'Senha de identificação (PIN)', valorAnterior: null, valorNovo: texto }],
+    });
+  })();
+};
 
 const responderErro = (res, erro, contexto) => {
   if (erro && typeof erro.status === 'number') {
@@ -92,6 +125,7 @@ router.post('/definir', podeDefinirPin, async (req, res) => {
       autorId: req.user.uid,
       restrito: !ehGestor(req.user) && !req.gerenteDaEquipe,
     });
+    registrarSenhaNoHistorico(req.user, resultado.usuarioId, 'edicao', 'definida');
     return res.json({ ...resultado, ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'definir');
@@ -105,6 +139,7 @@ router.post('/remover', requireAdmin, async (req, res) => {
       tenantId: req.user.tenantId,
       usuarioId: req.body?.usuarioId,
     });
+    if (resultado.removido) registrarSenhaNoHistorico(req.user, req.body?.usuarioId, 'exclusao', 'removida');
     return res.json({ ...resultado, ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'remover');

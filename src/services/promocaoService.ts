@@ -1,5 +1,7 @@
-import { addDoc, collection, doc, getDocs, getDocsFromServer, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
-import { db } from './firebase';
+import { addDoc, collection, doc, getDoc, getDocs, getDocsFromServer, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { auth, db } from './firebase';
+import { createAuditLog } from './logService';
+import { diferencasEntre, type CampoComparado, type MudancaDeCampo } from '../utils/historicoAlteracoesDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 import {
@@ -8,6 +10,7 @@ import {
   lerPromocao,
   promocaoParaGravar,
   type Promocao,
+  type ItemPromocao,
   type PromocaoComId,
 } from '../utils/promocaoDomain';
 
@@ -19,6 +22,79 @@ import {
  */
 
 export const COLECAO_PROMOCOES = 'promocoes';
+
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026)
+// ---------------------------------------------------------------------------
+
+const DIAS_DA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const simNao = (v: unknown) => (v === true ? 'Sim' : 'Não');
+
+const CAMPOS_PROMOCAO_HISTORICO: CampoComparado[] = [
+  { campo: 'nome', rotulo: 'Nome' },
+  { campo: 'dataInicio', rotulo: 'Início' },
+  { campo: 'dataFim', rotulo: 'Fim' },
+  { campo: 'continua', rotulo: 'Sem data para acabar', formatar: simNao },
+  { campo: 'inativa', rotulo: 'Inativa', formatar: simNao },
+  {
+    campo: 'diasSemana',
+    rotulo: 'Dias da semana',
+    formatar: (v) => (Array.isArray(v) && v.length > 0 ? v.map((d) => DIAS_DA_SEMANA[Number(d)] || String(d)).join(', ') : 'Todos'),
+  },
+  { campo: 'formas', rotulo: 'Formas de pagamento', formatar: (v) => (v === 'vista' ? 'Só à vista' : 'Todas') },
+  { campo: 'limitePorVenda', rotulo: 'Limite por venda' },
+  { campo: 'observacao', rotulo: 'Observação' },
+];
+
+const precoDoItem = (item: ItemPromocao): string => {
+  const valor = Number(item.valor) || 0;
+  const preco = item.tipo === 'percentual'
+    ? `${String(valor).replace('.', ',')}% de desconto`
+    : `R$ ${valor.toFixed(2).replace('.', ',')}`;
+  return item.quota ? `${preco} (quota ${item.quota})` : preco;
+};
+
+/** Itens que entraram, sairam ou mudaram de preco/quota (um campo por produto). */
+const mudancasDosItens = (antes: ItemPromocao[], depois: ItemPromocao[]): MudancaDeCampo[] => {
+  const porId = (lista: ItemPromocao[]) => new Map(lista.map((i) => [i.produtoId, i]));
+  const a = porId(antes);
+  const d = porId(depois);
+  const mudancas: MudancaDeCampo[] = [];
+  new Set([...a.keys(), ...d.keys()]).forEach((produtoId) => {
+    const velho = a.get(produtoId);
+    const novo = d.get(produtoId);
+    const nome = (novo || velho)?.nome || produtoId;
+    const precoVelho = velho ? precoDoItem(velho) : null;
+    const precoNovo = novo ? precoDoItem(novo) : null;
+    if (precoVelho === precoNovo) return;
+    mudancas.push({ campo: `Produto ${nome}`, valorAnterior: precoVelho, valorNovo: precoNovo });
+  });
+  return mudancas;
+};
+
+const registrarPromocaoNoHistorico = (args: {
+  tenantId: string;
+  uid: string;
+  id: string;
+  acao: 'criacao' | 'edicao' | 'inativacao' | 'reativacao';
+  descricao: string;
+  nome: string;
+  alteracoes?: MudancaDeCampo[];
+}) => {
+  createAuditLog({
+    tenantId: args.tenantId,
+    usuarioId: args.uid,
+    usuarioEmail: auth.currentUser?.email || args.uid,
+    modulo: 'cadastros',
+    acao: args.acao,
+    descricao: args.descricao,
+    registroRelacionadoId: args.id,
+    documentoTipo: 'promocao',
+    documentoNumero: `Promoção ${args.nome}`,
+    ...(args.alteracoes && args.alteracoes.length > 0 ? { alteracoes: args.alteracoes } : {}),
+    status: 'sucesso',
+  });
+};
 
 const pedacos = <T>(lista: T[], tamanho = 30): T[][] => {
   const saida: T[][] = [];
@@ -63,16 +139,51 @@ export const salvarPromocao = async (args: {
     updatedAt: serverTimestamp(),
   };
   if (args.id) {
+    // "Antes" do Histórico de alterações: quase sempre ja' veio na consulta de
+    // conflitos (a promocao tem os mesmos produtos); senao, le' o documento.
+    let anterior: Promocao | null = outras.find((o) => o.id === args.id) || null;
+    if (!anterior) {
+      try {
+        const snap = await getDoc(doc(db, COLECAO_PROMOCOES, args.id));
+        anterior = snap.exists() ? lerPromocao(snap.data()) : null;
+      } catch {
+        anterior = null;
+      }
+    }
     await updateDoc(doc(db, COLECAO_PROMOCOES, args.id), {
       ...gravar,
       ...buildDocumentUpdateMetadata(args.uid, serverTimestamp(), dados.inativa ? 'Promoção inativada' : 'Promoção alterada'),
     });
+    const alteracoes = [
+      ...diferencasEntre(anterior as unknown as Record<string, unknown> | null, dados as unknown as Record<string, unknown>, CAMPOS_PROMOCAO_HISTORICO),
+      ...mudancasDosItens(anterior?.itens || [], dados.itens),
+    ];
+    if (alteracoes.length > 0) {
+      registrarPromocaoNoHistorico({
+        tenantId: args.tenantId,
+        uid: args.uid,
+        id: args.id,
+        acao: 'edicao',
+        descricao: `Promoção ${dados.nome} alterada: ${alteracoes.map((a) => a.campo).join(', ')}.`,
+        nome: dados.nome,
+        alteracoes,
+      });
+    }
     return args.id;
   }
   const ref = await addDoc(collection(db, COLECAO_PROMOCOES), {
     ...gravar,
     createdAt: serverTimestamp(),
     ...buildDocumentMetadata(args.uid, serverTimestamp()),
+  });
+  registrarPromocaoNoHistorico({
+    tenantId: args.tenantId,
+    uid: args.uid,
+    id: ref.id,
+    acao: 'criacao',
+    descricao: `Promoção ${dados.nome} cadastrada com ${dados.itens.length} produto(s), de ${dados.dataInicio || '(sem início)'}${dados.continua ? ' sem data para acabar' : ` até ${dados.dataFim || '(sem fim)'}`}.`,
+    nome: dados.nome,
+    alteracoes: mudancasDosItens([], dados.itens),
   });
   return ref.id;
 };
@@ -84,6 +195,27 @@ export const alterarSituacaoDaPromocao = async (uid: string, id: string, inativa
     updatedAt: serverTimestamp(),
     ...buildDocumentUpdateMetadata(uid, serverTimestamp(), inativa ? 'Promoção inativada' : 'Promoção reativada'),
   });
+  // Historico de alteracoes (09/11/2026): quem chama nao passa a empresa nem
+  // o nome; le' a promocao depois de gravar, sem segurar a tela.
+  void (async () => {
+    try {
+      const snap = await getDoc(doc(db, COLECAO_PROMOCOES, id));
+      if (!snap.exists()) return;
+      const dados = snap.data();
+      const nome = String(dados.nome || '');
+      registrarPromocaoNoHistorico({
+        tenantId: String(dados.tenantId || ''),
+        uid,
+        id,
+        acao: inativa ? 'inativacao' : 'reativacao',
+        descricao: `Promoção ${nome} ${inativa ? 'encerrada (inativada)' : 'reativada'}.`,
+        nome,
+        alteracoes: [{ campo: 'Inativa', valorAnterior: inativa ? 'Não' : 'Sim', valorNovo: inativa ? 'Sim' : 'Não' }],
+      });
+    } catch (erro) {
+      console.error('Falha ao registrar a promoção no histórico de alterações:', erro);
+    }
+  })();
 };
 
 /**

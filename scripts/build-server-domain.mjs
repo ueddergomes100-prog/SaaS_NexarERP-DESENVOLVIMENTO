@@ -139,6 +139,8 @@ const MODULOS = [
   // Historico de alteracoes (09/11/2026): o servidor monta o registro igual a tela.
   'src/utils/auditoriaSnapshotDomain.ts',
   'src/utils/historicoAlteracoesDomain.ts',
+  // Rotulo das permissoes no Historico de alteracoes, igual ao da tela.
+  'src/utils/permissionCatalog.ts',
 ];
 
 const DESTINO = resolve('server/domain');

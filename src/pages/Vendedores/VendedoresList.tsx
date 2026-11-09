@@ -23,7 +23,9 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
 import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
-import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO } from '../../utils/permissionCatalog';
+import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO, permissionLabelMap } from '../../utils/permissionCatalog';
+import { createAuditLog } from '../../services/logService';
+import { diferencasEntre, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { checarLimiteAcessoMobile, montarChaveVendedorMobileLogin } from '../../utils/acessoMobileDomain';
 import { MODULOS_MOBILE_EXTRAS } from '../../utils/vendedorModulosMobileDomain';
@@ -139,6 +141,22 @@ const lerMetaMensal = (texto: string): number | null => {
  *  nunca fecha venda direto -- entao a permissao concedida e' exatamente a
  *  que ele usa, nada a mais. */
 const PERMISSOES_MINIMAS_APP_MOBILE = ['vendas.pre_venda_criar', 'vendas.orcamentos', 'cadastros.clientes'];
+
+/** Historico de alteracoes (09/11/2026): "R$ 1.500,00" (0 = sem meta). */
+const metaNoHistorico = (valor: number) => (valor > 0 ? `R$ ${valor.toFixed(2).replace('.', ',')}` : 'Sem meta');
+
+/** Permissoes que entraram e sairam, pelo nome da tela de permissoes. */
+const mudancasDePermissoes = (antes: string[], depois: string[]): MudancaDeCampo[] => {
+  // O marcador interno do app (permissoesAppDomain) nao e' permissao que o dono veja.
+  const semMarcador = (lista: string[]) => new Set(lista.filter((p) => p !== 'app.definido'));
+  const a = semMarcador(antes);
+  const d = semMarcador(depois);
+  const rotulo = (id: string) => permissionLabelMap[id] || id;
+  return [
+    ...[...d].filter((p) => !a.has(p)).map((p) => ({ campo: `Permissão: ${rotulo(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
+    ...[...a].filter((p) => !d.has(p)).map((p) => ({ campo: `Permissão: ${rotulo(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),
+  ];
+};
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
@@ -411,6 +429,38 @@ const VendedoresList: React.FC = () => {
         vendedorId = novo.id;
       }
 
+      // Historico de alteracoes (09/11/2026): o que este salvar mudou. A senha
+      // (PIN) e o app ligar/desligar sao registrados pelo servidor.
+      const alteracoesVendedor: MudancaDeCampo[] = [];
+      if (editando) {
+        alteracoesVendedor.push(...diferencasEntre({
+          nome: editando.nome || '',
+          codigoVendedor: editando.codigoVendedor || '',
+          status: editando.status || 'Ativo',
+          recebeComissaoServicos: editando.recebeComissaoServicos === true,
+          comissaoPercentualServicos: editando.comissaoPercentualServicos ?? null,
+          recebeComissaoPecas: editando.recebeComissaoPecas === true,
+          comissaoPercentualPecas: editando.comissaoPercentualPecas ?? null,
+        }, {
+          nome,
+          codigoVendedor: codigo,
+          status: form.status,
+          recebeComissaoServicos: form.recebeComissaoServicos,
+          comissaoPercentualServicos: percentualServicos ?? null,
+          recebeComissaoPecas: form.recebeComissaoPecas,
+          comissaoPercentualPecas: percentualPecas ?? null,
+        }, [
+          { campo: 'nome', rotulo: 'Nome' },
+          { campo: 'codigoVendedor', rotulo: 'Código' },
+          { campo: 'status', rotulo: 'Situação' },
+          { campo: 'recebeComissaoServicos', rotulo: 'Recebe comissão de serviços', formatar: (v) => (v === true ? 'Sim' : 'Não') },
+          { campo: 'comissaoPercentualServicos', rotulo: 'Comissão de serviços (%)' },
+          { campo: 'recebeComissaoPecas', rotulo: 'Recebe comissão de produtos', formatar: (v) => (v === true ? 'Sim' : 'Não') },
+          { campo: 'comissaoPercentualPecas', rotulo: 'Comissão de produtos (%)' },
+        ]));
+        if (ehGestor) alteracoesVendedor.push(...mudancasDePermissoes(editando.permissoes || [], permissoes));
+      }
+
       // App mobile (19/10/2026): ligar, desligar e o indice de login do app
       // passam pelo servidor, que confere a vaga contratada. Codigo trocado com
       // o app ligado: a chave velha sai e o servidor grava a nova. Nao trava o
@@ -420,7 +470,14 @@ const VendedoresList: React.FC = () => {
         const codigoMudou = Boolean(editando) && editando?.codigoVendedor !== codigo;
         if (appEstavaLigado && (codigoMudou || !form.acessoAppMobile)) {
           const chaveAntiga = montarChaveVendedorMobileLogin(cnpjEmpresa, editando?.codigoVendedor);
-          if (chaveAntiga) await deleteDoc(doc(db, 'vendedores_mobile_login', chaveAntiga));
+          if (chaveAntiga) {
+            await deleteDoc(doc(db, 'vendedores_mobile_login', chaveAntiga));
+            alteracoesVendedor.push({
+              campo: 'Entrada no app Vendas pelo código',
+              valorAnterior: editando?.codigoVendedor || '',
+              valorNovo: form.acessoAppMobile ? codigo : 'apagada',
+            });
+          }
         }
         if (form.acessoAppMobile && (!appEstavaLigado || codigoMudou)) {
           if (appEstavaLigado) await alterarAcessoAppNoServidor(vendedorId, false);
@@ -445,10 +502,46 @@ const VendedoresList: React.FC = () => {
             if (metaMensal > 0) proximas[vendedorId] = metaMensal; else delete proximas[vendedorId];
             return proximas;
           });
+          alteracoesVendedor.push({ campo: 'Meta do mês', valorAnterior: metaNoHistorico(metaAnterior), valorNovo: metaNoHistorico(metaMensal) });
         } catch (error) {
           console.error('Erro ao gravar a meta do vendedor:', error);
           showWarning(`${nome} foi salvo, mas a meta do mês não. Abra a edição e salve de novo; se continuar, confira se você pode alterar as Configurações da empresa.`);
         }
+      }
+
+      if (!editando) {
+        const extras = [
+          permissoes.includes(PERMISSAO_LIBERAR_DESCONTO) ? 'libera desconto' : '',
+          form.recebeComissaoServicos ? `comissão de serviços${percentualServicos !== undefined ? ` ${percentualServicos}%` : ' padrão'}` : '',
+          form.recebeComissaoPecas ? `comissão de produtos${percentualPecas !== undefined ? ` ${percentualPecas}%` : ' padrão'}` : '',
+        ].filter(Boolean);
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'criacao',
+          descricao: `Vendedor ${nome} cadastrado com o código ${codigo}${extras.length ? ` (${extras.join(', ')})` : ''}.`,
+          registroRelacionadoId: vendedorId,
+          documentoTipo: 'vendedor',
+          documentoNumero: `Vendedor ${nome} (código ${codigo})`,
+          ...(alteracoesVendedor.length > 0 ? { alteracoes: alteracoesVendedor } : {}),
+          status: 'sucesso',
+        });
+      } else if (alteracoesVendedor.length > 0) {
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'edicao',
+          descricao: `Vendedor ${nome} alterado: ${alteracoesVendedor.map((a) => a.campo).join(', ')}.`,
+          registroRelacionadoId: vendedorId,
+          documentoTipo: 'vendedor',
+          documentoNumero: `Vendedor ${nome} (código ${codigo})`,
+          alteracoes: alteracoesVendedor,
+          status: 'sucesso',
+        });
       }
 
       if (definindoPin) {
@@ -506,13 +599,37 @@ const VendedoresList: React.FC = () => {
       // Inativou com o app mobile ligado: apaga o indice de login. O
       // backend ja recusaria (validarPin confere status Ativo), isto so
       // evita deixar a chave velha pendurada apontando pra alguem inativo.
+      let entradaNoAppApagada = false;
       if (novoStatus === 'Inativo' && vendedor.acessoAppMobile) {
         try {
           const chave = montarChaveVendedorMobileLogin(cnpjEmpresa, vendedor.codigoVendedor);
-          if (chave) await deleteDoc(doc(db, 'vendedores_mobile_login', chave));
+          if (chave) {
+            await deleteDoc(doc(db, 'vendedores_mobile_login', chave));
+            entradaNoAppApagada = true;
+          }
         } catch (error) {
           console.error('Erro ao limpar índice de login do app mobile:', error);
         }
+      }
+
+      // Historico de alteracoes (09/11/2026).
+      if (tenantId) {
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: novoStatus === 'Ativo' ? 'reativacao' : 'inativacao',
+          descricao: `Vendedor ${vendedor.nome} ${novoStatus === 'Ativo' ? 'reativado' : 'inativado'}${entradaNoAppApagada ? '; a entrada dele no app Vendas foi apagada' : ''}.`,
+          registroRelacionadoId: vendedor.id,
+          documentoTipo: 'vendedor',
+          documentoNumero: `Vendedor ${vendedor.nome}${vendedor.codigoVendedor ? ` (código ${vendedor.codigoVendedor})` : ''}`,
+          alteracoes: [
+            { campo: 'Situação', valorAnterior: statusAtual, valorNovo: novoStatus },
+            ...(entradaNoAppApagada ? [{ campo: 'Entrada no app Vendas pelo código', valorAnterior: vendedor.codigoVendedor || '', valorNovo: 'apagada' }] : []),
+          ],
+          status: 'sucesso',
+        });
       }
 
       showSuccess(novoStatus === 'Ativo' ? 'Vendedor ativado!' : 'Vendedor inativado!');

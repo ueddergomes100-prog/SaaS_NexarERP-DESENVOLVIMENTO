@@ -364,7 +364,7 @@ const Sidebar: React.FC = () => {
       items: [
         { label: 'Usuários', to: '/usuarios', icon: UserCog, module: 'cadastros.usuarios', permission: 'administrativo.equipe' },
         { label: 'Relatórios Diversos', to: '/relatorios-diversos', icon: FileText, module: 'logs.relatorios_diversos', permission: 'administrativo.relatorios' },
-        { label: 'Logs do Sistema', to: '/logs-sistema', icon: ShieldAlert, module: 'logs.sistema', permission: 'administrativo.logs' }
+        { label: 'Histórico de alterações', to: '/logs-sistema', icon: History, module: 'logs.sistema', permission: 'administrativo.logs' }
       ]
     },
     {

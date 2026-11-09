@@ -5,6 +5,7 @@ import {
   collection, query, where, getDocs, writeBatch, doc, serverTimestamp,
 } from 'firebase/firestore';
 import { getProximoCodigoFornecedor } from '../../utils/fornecedorCodigo';
+import { createAuditLog } from '../../services/logService';
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Truck, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -223,6 +224,7 @@ const ImportarFornecedores: React.FC = () => {
     }
 
     setSalvando(true);
+    let gravados = 0;
     try {
       let proximoCodigo = Number.parseInt(await getProximoCodigoFornecedor(tenantId), 10);
       if (!Number.isFinite(proximoCodigo)) proximoCodigo = 1;
@@ -267,6 +269,7 @@ const ImportarFornecedores: React.FC = () => {
         });
 
         await batch.commit();
+        gravados += lote.length;
       }
 
       setResultadoImportacao({ criados: linhasAtivas.length });
@@ -277,6 +280,22 @@ const ImportarFornecedores: React.FC = () => {
       showError('Erro ao importar', 'Não foi possível concluir a importação. Nenhum fornecedor foi gravado neste lote com erro -- tente novamente.');
     } finally {
       setSalvando(false);
+      // Historico de alteracoes (09/11/2026): um registro com a quantidade
+      // (se parou no meio, conta so' os lotes que foram gravados).
+      if (gravados > 0) {
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'cadastros',
+          acao: 'importacao',
+          descricao: gravados === linhasAtivas.length
+            ? `${gravados} fornecedor(es) importado(s) por planilha.`
+            : `${gravados} de ${linhasAtivas.length} fornecedor(es) importado(s) por planilha (a importação parou no meio).`,
+          documentoTipo: 'fornecedor',
+          status: 'sucesso',
+        });
+      }
     }
   };
 

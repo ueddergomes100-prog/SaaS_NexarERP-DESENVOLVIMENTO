@@ -28,6 +28,7 @@ import { somarLotesUsados, type PlanoDeLotes } from '../../utils/loteDomain';
 import { chaveComponente, colecaoDoComponente, normalizarComponente, type OrigemComponente } from '../../utils/producaoDomain';
 import { calcularPesagem, consumoDoComponente, ganhoDePeso, parseTaras, unidadeEmKg, type TaraProducao } from '../../utils/producaoPesagemDomain';
 import { salvarTarasNoServidor } from '../../services/producaoService';
+import { createAuditLog } from '../../services/logService';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -100,6 +101,16 @@ const formatDateTime = (value: any): string | null => {
 };
 
 interface OpcaoSimples { id: string; nome: string; }
+
+/** Como o dono conhece a ordem no Histórico de alterações: "OP 0012 — PÃO DE QUEIJO". */
+const rotuloDaOrdem = (numero: string | null | undefined, produtoNome: string | null | undefined): string => {
+  const n = String(numero || '').trim();
+  const p = String(produtoNome || '').trim();
+  return `OP ${n || 's/ número'}${p ? ` — ${p}` : ''}`;
+};
+
+/** Numero com ate' 3 casas, no padrao brasileiro (quantidade de producao/consumo). */
+const qtdTexto = (valor: number): string => (Number(valor) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 
 const STATUS_LABELS: Record<StatusOrdem, string> = {
   criada: 'Criada',
@@ -343,12 +354,14 @@ const OrdemProducaoForm: React.FC = () => {
     try {
       const currentMax = await getCurrentMaxSequence(db, 'ordens_producao', tenantId, 'numero').catch(() => 0);
       let novoId = '';
+      let numeroCriado = '';
 
       await runTransaction(db, async (transaction) => {
         const nextNum = await reserveTenantSequence(transaction, db, tenantId, 'ordens_producao', currentMax);
         const numero = formatSequenceValue(nextNum, 4);
         const ordemRef = doc(collection(db, 'ordens_producao'));
         novoId = ordemRef.id;
+        numeroCriado = numero;
 
         transaction.set(ordemRef, {
           numero,
@@ -369,6 +382,20 @@ const OrdemProducaoForm: React.FC = () => {
         });
       });
 
+      // Historico de alteracoes (09/11/2026): quem abriu a ordem, para qual produto e quanto.
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'producao',
+        acao: 'criacao',
+        descricao: `${rotuloDaOrdem(numeroCriado, formData.produtoNome)} criada: ${qtdTexto(quantidadeNum)} unidade(s) planejada(s). Responsável: ${formData.responsavelNome || 'N/A'}.`,
+        registroRelacionadoId: novoId,
+        documentosRelacionados: [formData.produtoId],
+        documentoTipo: 'ordem_producao',
+        documentoNumero: rotuloDaOrdem(numeroCriado, formData.produtoNome),
+        status: 'sucesso',
+      });
       showSuccess('Ordem de produção criada!');
       initialSnapshotRef.current = buildDirtySnapshot();
       setIsFormDirty(false);
@@ -383,16 +410,36 @@ const OrdemProducaoForm: React.FC = () => {
     }
   };
 
+  /** Historico de alteracoes (09/11/2026): iniciar, pausar e retomar mudam so' a situacao da ordem. */
+  const registrarMudancaDeSituacao = (de: StatusOrdem, para: StatusOrdem, frase: string) => {
+    if (!id || !currentUser || !tenantId) return;
+    createAuditLog({
+      tenantId,
+      usuarioId: currentUser.uid,
+      usuarioEmail: currentUser.email || currentUser.uid,
+      modulo: 'producao',
+      acao: 'edicao',
+      descricao: `${rotuloDaOrdem(ordem?.numero, ordem?.produtoNome)}: ${frase}.`,
+      registroRelacionadoId: id,
+      documentoTipo: 'ordem_producao',
+      documentoNumero: rotuloDaOrdem(ordem?.numero, ordem?.produtoNome),
+      alteracoes: [{ campo: 'Situação', valorAnterior: STATUS_LABELS[de] || de, valorNovo: STATUS_LABELS[para] || para }],
+      status: 'sucesso',
+    });
+  };
+
   const handleIniciar = async () => {
     if (!id || !currentUser) return;
     setIsProcessing(true);
     try {
+      const situacaoAntes: StatusOrdem = ordem?.status || 'criada';
       await updateDoc(doc(db, 'ordens_producao', id), {
         status: 'em_producao',
         dataInicio: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Produção iniciada'),
       });
       setOrdem(prev => prev ? { ...prev, status: 'em_producao', dataInicio: new Date() } : prev);
+      registrarMudancaDeSituacao(situacaoAntes, 'em_producao', 'produção iniciada');
       showSuccess('Produção iniciada!');
     } catch (error) {
       console.error('Erro ao iniciar produção:', error);
@@ -406,11 +453,13 @@ const OrdemProducaoForm: React.FC = () => {
     if (!id || !currentUser) return;
     setIsProcessing(true);
     try {
+      const situacaoAntes: StatusOrdem = ordem?.status || 'em_producao';
       await updateDoc(doc(db, 'ordens_producao', id), {
         status: 'pausada',
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Produção pausada'),
       });
       setOrdem(prev => prev ? { ...prev, status: 'pausada' } : prev);
+      registrarMudancaDeSituacao(situacaoAntes, 'pausada', 'produção pausada');
       showSuccess('Produção pausada.');
     } catch (error) {
       console.error('Erro ao pausar produção:', error);
@@ -424,11 +473,13 @@ const OrdemProducaoForm: React.FC = () => {
     if (!id || !currentUser) return;
     setIsProcessing(true);
     try {
+      const situacaoAntes: StatusOrdem = ordem?.status || 'pausada';
       await updateDoc(doc(db, 'ordens_producao', id), {
         status: 'em_producao',
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Produção retomada'),
       });
       setOrdem(prev => prev ? { ...prev, status: 'em_producao' } : prev);
+      registrarMudancaDeSituacao(situacaoAntes, 'em_producao', 'produção retomada');
       showSuccess('Produção retomada!');
     } catch (error) {
       console.error('Erro ao retomar produção:', error);
@@ -448,35 +499,41 @@ const OrdemProducaoForm: React.FC = () => {
       title: 'Cancelar ordem de produção?',
       text: 'Nenhum componente será debitado e nenhum estoque será creditado. Esta ação não pode ser desfeita.',
       icon: 'warning',
+      // Motivo opcional (09/11/2026): vai para o Histórico de alterações da ordem.
+      input: 'textarea',
+      inputLabel: 'Motivo (opcional)',
+      inputAttributes: { maxlength: '200' },
       showCancelButton: true,
       confirmButtonText: 'Sim, cancelar ordem',
       cancelButtonText: 'Voltar',
     });
     if (!confirm.isConfirmed) return;
+    const motivoCancelamento = typeof confirm.value === 'string' ? confirm.value.trim().slice(0, 200) : '';
 
     setIsProcessing(true);
     try {
+      const situacaoAntes: StatusOrdem = ordem?.status || 'criada';
       await updateDoc(doc(db, 'ordens_producao', id), {
         status: 'cancelada',
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Ordem cancelada'),
       });
       setOrdem(prev => prev ? { ...prev, status: 'cancelada' } : prev);
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'producao',
-          acao: 'cancelamento',
-          descricao: `Ordem de produção ${ordem?.numero || id} cancelada.`,
-          registroRelacionadoId: id,
-          status: 'sucesso',
-          critical: true,
-        });
-      } catch (logError) {
-        console.error('Erro ao registrar log de cancelamento da ordem:', logError);
-      }
+      createAuditLog({
+        tenantId: tenantId || '',
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'producao',
+        acao: 'cancelamento',
+        descricao: `${rotuloDaOrdem(ordem?.numero || id, ordem?.produtoNome)} cancelada (estava ${(STATUS_LABELS[situacaoAntes] || situacaoAntes).toLowerCase()}). Nenhum componente foi debitado.${motivoCancelamento ? ` Motivo: ${motivoCancelamento}.` : ''}`,
+        registroRelacionadoId: id,
+        ...(ordem?.produtoId ? { documentosRelacionados: [ordem.produtoId] } : {}),
+        documentoTipo: 'ordem_producao',
+        documentoNumero: rotuloDaOrdem(ordem?.numero || id, ordem?.produtoNome),
+        ...(motivoCancelamento ? { motivo: motivoCancelamento } : {}),
+        alteracoes: [{ campo: 'Situação', valorAnterior: STATUS_LABELS[situacaoAntes] || situacaoAntes, valorNovo: 'Cancelada' }],
+        status: 'sucesso',
+        critical: true,
+      });
       showSuccess('Ordem de produção cancelada.');
     } catch (error) {
       console.error('Erro ao cancelar ordem:', error);
@@ -500,15 +557,23 @@ const OrdemProducaoForm: React.FC = () => {
       title: 'Estornar produção?',
       text: `Os componentes debitados serão devolvidos ao estoque e ${ordem.quantidadeProduzida} unidade(s) de "${ordem.produtoNome}" serão retiradas do estoque de produtos. O registro da ordem é mantido, com status "Estornada". Esta ação não pode ser desfeita.`,
       icon: 'warning',
+      // Motivo opcional (09/11/2026): vai para o Histórico de alterações da ordem.
+      input: 'textarea',
+      inputLabel: 'Motivo (opcional)',
+      inputAttributes: { maxlength: '200' },
       showCancelButton: true,
       confirmButtonText: 'Sim, estornar produção',
       cancelButtonText: 'Voltar',
     });
     if (!confirm.isConfirmed) return;
+    const motivoEstorno = typeof confirm.value === 'string' ? confirm.value.trim().slice(0, 200) : '';
 
     setIsProcessing(true);
     try {
+      // Estoque antes -> depois, para o Histórico de alterações (lido dentro da transacao).
+      const saldosDoEstorno: Array<{ campo: string; valorAnterior: string; valorNovo: string }> = [];
       await runTransaction(db, async (transaction) => {
+        saldosDoEstorno.length = 0;
         const ordemRef = doc(db, 'ordens_producao', id);
         const produtoRef = doc(db, 'estoque', ordem.produtoId);
         // Devolve cada componente na colecao de onde ele foi debitado.
@@ -533,6 +598,7 @@ const OrdemProducaoForm: React.FC = () => {
             quantidade: quantidadeProdutoAtual - quantidadeProduzida,
             updatedAt: serverTimestamp(),
           });
+          saldosDoEstorno.push({ campo: `Estoque de ${ordem.produtoNome}`, valorAnterior: qtdTexto(quantidadeProdutoAtual), valorNovo: qtdTexto(quantidadeProdutoAtual - quantidadeProduzida) });
         }
 
         for (let i = 0; i < ordem.itensConsumidos.length; i++) {
@@ -544,6 +610,7 @@ const OrdemProducaoForm: React.FC = () => {
             quantidade: quantidadeAtual + item.quantidadeConsumida,
             updatedAt: serverTimestamp(),
           });
+          saldosDoEstorno.push({ campo: `Estoque de ${item.componenteNome}`, valorAnterior: `${qtdTexto(quantidadeAtual)} ${item.unidade}`.trim(), valorNovo: `${qtdTexto(quantidadeAtual + item.quantidadeConsumida)} ${item.unidade}`.trim() });
         }
 
         transaction.update(ordemRef, {
@@ -554,22 +621,22 @@ const OrdemProducaoForm: React.FC = () => {
       });
 
       setOrdem(prev => prev ? { ...prev, status: 'estornada', dataEstorno: new Date() } : prev);
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId,
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'producao',
-          acao: 'estorno',
-          descricao: `Ordem de produção ${ordem.numero} estornada.`,
-          registroRelacionadoId: id,
-          status: 'sucesso',
-          critical: true,
-        });
-      } catch (logError) {
-        console.error('Erro ao registrar log de estorno da ordem:', logError);
-      }
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'producao',
+        acao: 'estorno',
+        descricao: `${rotuloDaOrdem(ordem.numero, ordem.produtoNome)} estornada: ${qtdTexto(ordem.quantidadeProduzida || 0)} unidade(s) retiradas do estoque e ${ordem.itensConsumidos.length} componente(s) devolvido(s).${motivoEstorno ? ` Motivo: ${motivoEstorno}.` : ''}`,
+        registroRelacionadoId: id,
+        documentosRelacionados: [ordem.produtoId, ...ordem.itensConsumidos.map((item) => item.componenteId)].slice(0, 11),
+        documentoTipo: 'ordem_producao',
+        documentoNumero: rotuloDaOrdem(ordem.numero, ordem.produtoNome),
+        ...(motivoEstorno ? { motivo: motivoEstorno } : {}),
+        alteracoes: [{ campo: 'Situação', valorAnterior: 'Finalizada', valorNovo: 'Estornada' }, ...saldosDoEstorno],
+        status: 'sucesso',
+        critical: true,
+      });
       showSuccess('Produção estornada! Componentes devolvidos e estoque do produto atualizado.');
     } catch (error) {
       console.error('Erro ao estornar produção:', error);
@@ -713,7 +780,10 @@ const OrdemProducaoForm: React.FC = () => {
       const planoLotes: PlanoDeLotes | null = await prepararBaixaDeLotes({ db, tenantId, linhas: linhasDosComponentes, modo: loteModoSaida, avisarVencido: loteAvisarVencido });
       if (planoLotes === null) return false;
 
+      // Estoque antes -> depois, para o Histórico de alterações (lido dentro da transacao).
+      const saldosDaFinalizacao: Array<{ campo: string; valorAnterior: string; valorNovo: string }> = [];
       await runTransaction(db, async (transaction) => {
+        saldosDaFinalizacao.length = 0;
         const ordemRef = doc(db, 'ordens_producao', id);
         // Cada componente e' baixado na SUA colecao: matéria-prima em
         // `materias_primas`, semiacabado/granel em `estoque` (as duas
@@ -746,6 +816,7 @@ const OrdemProducaoForm: React.FC = () => {
             quantidade: quantidadeAtual - quantidadeConsumida,
             updatedAt: serverTimestamp(),
           });
+          saldosDaFinalizacao.push({ campo: `Estoque de ${itemPreview.componenteNome}`, valorAnterior: `${qtdTexto(quantidadeAtual)} ${itemPreview.unidade}`.trim(), valorNovo: `${qtdTexto(quantidadeAtual - quantidadeConsumida)} ${itemPreview.unidade}`.trim() });
           itensConsumidos.push({
             componenteId: itemPreview.componenteId,
             componenteNome: itemPreview.componenteNome,
@@ -770,6 +841,7 @@ const OrdemProducaoForm: React.FC = () => {
             ultimaProducaoData: getDateInputInTimeZone(),
             updatedAt: serverTimestamp(),
           });
+          saldosDaFinalizacao.unshift({ campo: `Estoque de ${ordem.produtoNome}`, valorAnterior: qtdTexto(quantidadeProdutoAtual), valorNovo: qtdTexto(quantidadeProdutoAtual + quantidadeProduzida) });
         }
 
         gravarEntradasEmLotesNaTransacao(transaction, db, tenantId, entradasDeLote, buildDocumentMetadata(currentUser.uid, serverTimestamp()), `Produção ${ordem.numero}`);
@@ -801,6 +873,40 @@ const OrdemProducaoForm: React.FC = () => {
         pesagem: pesagemParaGravar,
       } : prev);
       setShowRevisaoFinalizacao(false);
+      // Historico de alteracoes (09/11/2026): o que foi produzido, o refugo, o lote e o que saiu de cada componente.
+      {
+        const kg = (v: number) => `${(Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg`;
+        const consumos = itensConsumidosFinal.map((item) => `${item.componenteNome} ${qtdTexto(item.quantidadeConsumida)} ${item.unidade}`.trim());
+        const lotesProduzidos = entradasDeLote.map((e) => `${e.lote}${e.validade ? ` (validade ${e.validade.split('-').reverse().join('/')})` : ''}`);
+        const lotesUsados = planoLotes ? somarLotesUsados(Object.values(planoLotes.porLinha)).map((l) => l.lote).filter(Boolean) : [];
+        const partes = [
+          `${rotuloDaOrdem(ordem.numero, ordem.produtoNome)} finalizada: ${qtdTexto(quantidadeProduzida)} unidade(s) produzida(s) (planejadas ${qtdTexto(ordem.quantidadePlanejada)}).`,
+          refugo > 0 ? `Refugo: ${refugo} unid. — ${refugoMotivo.trim().slice(0, 200)}.` : '',
+          pesagemParaGravar ? `Pesagem: ${kg(pesagemParaGravar.liquidoKg)} líquidos, resíduo ${kg(pesagemParaGravar.residuoKg)}.` : '',
+          lotesProduzidos.length ? `Lote produzido: ${lotesProduzidos.join(', ')}.` : '',
+          consumos.length ? `Componentes baixados: ${consumos.slice(0, 15).join('; ')}${consumos.length > 15 ? `; e mais ${consumos.length - 15}` : ''}.` : '',
+          lotesUsados.length ? `Lotes de componentes usados: ${lotesUsados.slice(0, 10).join(', ')}.` : '',
+        ];
+        createAuditLog({
+          tenantId,
+          usuarioId: currentUser.uid,
+          usuarioEmail: currentUser.email || currentUser.uid,
+          modulo: 'producao',
+          acao: 'finalizacao',
+          descricao: partes.filter(Boolean).join(' '),
+          registroRelacionadoId: id,
+          documentosRelacionados: [ordem.produtoId, ...itensConsumidosFinal.map((item) => item.componenteId)].slice(0, 11),
+          documentoTipo: 'ordem_producao',
+          documentoNumero: rotuloDaOrdem(ordem.numero, ordem.produtoNome),
+          alteracoes: [
+            { campo: 'Situação', valorAnterior: STATUS_LABELS[ordem.status] || ordem.status, valorNovo: 'Finalizada' },
+            { campo: 'Quantidade produzida', valorAnterior: null, valorNovo: quantidadeProduzida },
+            ...(refugo > 0 ? [{ campo: 'Refugo (unidades)', valorAnterior: null, valorNovo: refugo }] : []),
+            ...saldosDaFinalizacao,
+          ],
+          status: 'sucesso',
+        });
+      }
       showSuccess('Produção finalizada! Componentes debitados e estoque do produto atualizado.');
       return true;
     } catch (error) {

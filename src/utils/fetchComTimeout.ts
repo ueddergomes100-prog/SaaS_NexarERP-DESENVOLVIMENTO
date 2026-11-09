@@ -73,6 +73,31 @@ const comCabecalhosAutomaticos = async (url: string, init: RequestInit): Promise
   return { ...init, headers };
 };
 
+/**
+ * Histórico de alterações (09/11/2026): toda GRAVACAO no NOSSO servidor leva
+ * o caminho da tela em `_tela` (ex.: /vendedor/entregas/abc), para o registro
+ * dizer de onde veio (sistema, app Vendas, app do motorista...). Vai na URL e
+ * nao num cabecalho de proposito: cabecalho novo exige liberar no CORS do
+ * servidor, e um front novo falando com um servidor velho quebraria tudo.
+ */
+let servidorQueRecebeTela = '';
+export const definirServidorQueRecebeTela = (base: string) => {
+  servidorQueRecebeTela = String(base || '').trim().replace(/\/$/, '');
+};
+
+const comTelaNaUrl = (url: string, init: RequestInit): string => {
+  const metodo = String(init.method || 'GET').toUpperCase();
+  if (!servidorQueRecebeTela || metodo === 'GET' || !url.startsWith(servidorQueRecebeTela) || /[?&]_tela=/.test(url)) return url;
+  let tela = '';
+  try {
+    tela = typeof window !== 'undefined' ? window.location.pathname : '';
+  } catch {
+    tela = '';
+  }
+  if (!tela) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}_tela=${encodeURIComponent(tela.slice(0, 200))}`;
+};
+
 export const fetchComTimeout = async (
   url: string,
   init: RequestInit = {},
@@ -82,7 +107,7 @@ export const fetchComTimeout = async (
   const controlador = new AbortController();
   const timer = window.setTimeout(() => controlador.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...pedido, signal: controlador.signal });
+    return await fetch(comTelaNaUrl(url, init), { ...pedido, signal: controlador.signal });
   } catch (erro) {
     if ((erro as { name?: string } | null)?.name === 'AbortError') {
       throw new TimeoutError(timeoutMs);

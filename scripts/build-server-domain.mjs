@@ -136,6 +136,9 @@ const MODULOS = [
   'src/utils/contasDinheiroDomain.ts',
   // Compras: cotacao e pedido de compra (22/10/2026).
   'src/utils/comprasDomain.ts',
+  // Historico de alteracoes (09/11/2026): o servidor monta o registro igual a tela.
+  'src/utils/auditoriaSnapshotDomain.ts',
+  'src/utils/historicoAlteracoesDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

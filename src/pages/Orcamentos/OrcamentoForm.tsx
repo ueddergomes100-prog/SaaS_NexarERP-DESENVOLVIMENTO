@@ -59,7 +59,9 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import '../OS/OS.css';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
-import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
+import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { hasModuleAccess } from '../../utils/roles';
 import { useModoOficina } from '../../hooks/useModoOficina';
 import {
@@ -205,6 +207,8 @@ const OrcamentoForm: React.FC = () => {
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
+  // Quem recusou e quando (aviso no topo do orcamento recusado, 09/11/2026).
+  const [recusaInfo, setRecusaInfo] = useState<{ nome: string; quando: unknown } | null>(null);
   // Oficina de maquinas pesadas: so' os rotulos mudam aqui (oficinaDomain.ts).
   const { rotulos: rotulosOficina } = useModoOficina();
   const { items: clientesDisponiveis } = useTenantCollection<ClienteBasico>('clientes', tenantId);
@@ -346,6 +350,9 @@ const OrcamentoForm: React.FC = () => {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             const data = docSnap.data();
+            setRecusaInfo(data.status === 'Recusado'
+              ? { nome: String(data.recusadoPorNome || ''), quando: data.recusadoEm || data.alteradoEm || data.updatedAt || null }
+              : null);
             setFormData({
               clienteId: data.clienteId || null,
               clienteNome: data.clienteNome || '',
@@ -890,6 +897,11 @@ const OrcamentoForm: React.FC = () => {
           <div>
             <h1 className="page-title">{isEditing ? 'Editar Orçamento' : 'Novo Orçamento'}</h1>
             <p className="page-subtitle">{isEditing ? `Orçamento #${formData.numeroOrcamento}` : 'Crie uma nova proposta comercial'}</p>
+            {recusaInfo && textoQuemEQuando('Recusado', recusaInfo.nome, recusaInfo.quando) && (
+              <p style={{ margin: '4px 0 0', fontSize: '13px', fontWeight: 600, color: '#ef4444' }}>
+                {textoQuemEQuando('Recusado', recusaInfo.nome, recusaInfo.quando)}
+              </p>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -902,9 +914,9 @@ const OrcamentoForm: React.FC = () => {
                 <Printer size={18} />
               </button>
               {canVerAuditoria && (
-                <button className="btn-secondary" onClick={() => setAuditoriaAberta(true)} title="Ver histórico de auditoria">
-                  <History size={18} />
-                </button>
+                <MenuMaisOpcoes itens={[
+                  { texto: 'Histórico de alterações', Icone: History, titulo: 'Quem criou, alterou, converteu e recusou este orçamento, com data e hora', onClick: () => setAuditoriaAberta(true) },
+                ]} />
               )}
               {/* handleConvertToOS/handleConvertToVenda gravam status
                   'Finalizado' (nao 'Convertido') -- sem checar o valor certo
@@ -1344,12 +1356,12 @@ const OrcamentoForm: React.FC = () => {
             onCriado={(cliente: ClienteCadastradoRapido) => setFormData({ ...formData, clienteId: cliente.id, clienteNome: cliente.nome, clienteTelefone: cliente.telefone || formData.clienteTelefone })}
           />
 
-          <HistoricoAuditoriaModal
+          <HistoricoAlteracoesModal
             open={auditoriaAberta}
             onClose={() => setAuditoriaAberta(false)}
             tenantId={tenantId}
             registroId={id || ''}
-            titulo={`Auditoria — Orçamento #${formData.numeroOrcamento}`}
+            titulo={`Orçamento ${formData.numeroOrcamento}`}
           />
 
           <div className="card form-section">

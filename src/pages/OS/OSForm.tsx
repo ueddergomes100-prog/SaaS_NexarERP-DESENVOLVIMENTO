@@ -20,7 +20,9 @@ import {
   type MomentoBaixaEstoque,
 } from '../../utils/estoqueReservaDomain';
 import { isPlatformAdminRole, isTenantManagerRole, hasModuleAccess } from '../../utils/roles';
-import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
+import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import {
   calcularDescontoCents,
@@ -365,7 +367,9 @@ const OSForm: React.FC = () => {
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido, grupo } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido, grupo, userNome } = useAuth();
+  // Quem cancelou e quando (aviso no topo da OS cancelada, 09/11/2026).
+  const [cancelamentoInfo, setCancelamentoInfo] = useState<{ nome: string; quando: unknown; motivo: string } | null>(null);
   // Veiculos da empresa (colecao frota) para o deslocamento -- so no modo maquinas.
   useEffect(() => {
     if (!tenantId || modoOficina !== 'maquinas_pesadas') return;
@@ -585,6 +589,9 @@ const OSForm: React.FC = () => {
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
             const os = docSnap.data();
+            setCancelamentoInfo(os.status === STATUS_OS_CANCELADA
+              ? { nome: String(os.canceladaPorNome || ''), quando: os.canceladaEm || os.alteradoEm || os.updatedAt || null, motivo: String(os.motivoCancelamento || '') }
+              : null);
             setFormData({
               clienteNome: os.clienteNome || '',
               clienteTelefone: os.clienteTelefone || '',
@@ -1287,7 +1294,7 @@ const OSForm: React.FC = () => {
       if (!confirmar.isConfirmed) return false;
     }
 
-    const ctx = { db, tenantId, usuarioId: currentUser.uid, usuarioNome: currentUser.displayName || currentUser.email || 'Usuário' };
+    const ctx = { db, tenantId, usuarioId: currentUser.uid, usuarioNome: userNome || currentUser.displayName || currentUser.email || 'Usuário' };
     /** Log do que a TELA gravou. Finalizar/reabrir/cancelar pelo servidor: o servidor grava o log. */
     const registrarLog = async (acao: 'criacao' | 'edicao' | 'cancelamento', descricao: string, registroId: string, critical = false) => {
       try {
@@ -1758,13 +1765,19 @@ const OSForm: React.FC = () => {
                 errou -- com varias pessoas emitindo ao mesmo tempo isso deixa
                 de ser raro. Ver getNextTenantSequenceValue. */}
             <p className="page-subtitle">{isEditing ? `Gerenciando OS #${formData.numeroOS || id?.substring(0,6).toUpperCase()}` : 'Preencha os dados — o número da OS é definido ao salvar'}</p>
+            {cancelamentoInfo && (
+              <p style={{ margin: '4px 0 0', fontSize: '13px', fontWeight: 600, color: '#ef4444' }}>
+                {textoQuemEQuando('Cancelada', cancelamentoInfo.nome, cancelamentoInfo.quando) || 'OS cancelada'}
+                {cancelamentoInfo.motivo ? `. Motivo: ${cancelamentoInfo.motivo}` : ''}
+              </p>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           {isEditing && canVerAuditoria && (
-            <button className="btn-secondary" onClick={() => setAuditoriaAberta(true)} title="Ver histórico de auditoria">
-              <History size={18} />
-            </button>
+            <MenuMaisOpcoes itens={[
+              { texto: 'Histórico de alterações', Icone: History, titulo: 'Quem criou, alterou, finalizou e cancelou esta OS, com data, hora e motivo', onClick: () => setAuditoriaAberta(true) },
+            ]} />
           )}
           <button className="btn-primary" onClick={handleSave} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center' }}>
             {isLoading ? <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} /> : <Save size={18} style={{ marginRight: 8 }} />}
@@ -1773,12 +1786,12 @@ const OSForm: React.FC = () => {
         </div>
       </div>
 
-      <HistoricoAuditoriaModal
+      <HistoricoAlteracoesModal
         open={auditoriaAberta}
         onClose={() => setAuditoriaAberta(false)}
         tenantId={tenantId}
         registroId={id || ''}
-        titulo={`Auditoria — OS #${formData.numeroOS || id?.substring(0, 6).toUpperCase() || ''}`}
+        titulo={`OS ${formData.numeroOS || id?.substring(0, 6).toUpperCase() || ''}`}
       />
 
       <div className="form-grid">

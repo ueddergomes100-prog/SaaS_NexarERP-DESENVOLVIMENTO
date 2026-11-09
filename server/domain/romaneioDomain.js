@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
-exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = void 0;
+exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = void 0;
 const preVendaDomain_1 = require("./preVendaDomain");
+const historicoAlteracoesDomain_1 = require("./historicoAlteracoesDomain");
 exports.ROTULO_STATUS_ROMANEIO = {
     montagem: 'Em montagem',
     em_rota: 'Em rota',
@@ -869,3 +870,87 @@ const alteracoesDesdeOFechamento = (antes, depois) => {
     return lista;
 };
 exports.alteracoesDesdeOFechamento = alteracoesDesdeOFechamento;
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026)
+// ---------------------------------------------------------------------------
+/**
+ * Como a rota aparece no Histórico de alterações: "Rota 02 DANIELA (saída
+ * 04/11/2026)". O numero recomeca todo mes, entao so' o numero nao identifica.
+ */
+const rotuloDoRomaneioNoHistorico = (numero, nome, dataSaida) => {
+    const titulo = (0, exports.tituloDoRomaneio)(numero, nome);
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(String(dataSaida || '')) ? String(dataSaida).split('-').reverse().join('/') : '';
+    return data ? `${titulo} (saída ${data})` : titulo;
+};
+exports.rotuloDoRomaneioNoHistorico = rotuloDoRomaneioNoHistorico;
+const dataBrDoHistorico = (valor) => (/^\d{4}-\d{2}-\d{2}$/.test(String(valor || '')) ? String(valor).split('-').reverse().join('/') : String(valor ?? ''));
+const veiculoDoHistorico = (r) => ([limpar(r.veiculoDescricao), limpar(r.veiculoPlaca)].filter(Boolean).join(' — '));
+const acertoDoHistorico = (acerto) => (Array.isArray(acerto)
+    ? acerto
+        .filter((l) => l && (Number(l.valorCentavos) || 0) !== 0)
+        .map((l) => `${limpar(l.descricao) || limpar(l.tipo)}: ${moeda(Number(l.valorCentavos) || 0)}`)
+        .join('; ')
+    : '');
+/** O que mudou nos dados da rota (montagem e retorno), com o nome que a loja usa. */
+const alteracoesDaRota = (antes, depois) => {
+    const plano = (r) => (r ? {
+        nome: limpar(r.nome).toUpperCase(),
+        motorista: limpar(r.motoristaNome),
+        veiculo: veiculoDoHistorico({ veiculoDescricao: r.veiculoDescricao || '', veiculoPlaca: r.veiculoPlaca || '' }),
+        dataSaida: dataBrDoHistorico(r.dataSaida),
+        horarioSaida: limpar(r.horarioSaida),
+        kmSaida: r.kmSaida ?? '',
+        kmChegada: r.kmChegada ?? '',
+        horarioChegada: limpar(r.horarioChegada),
+        observacao: limpar(r.observacao),
+        acerto: acertoDoHistorico(r.acerto),
+        observacaoAcerto: limpar(r.observacaoAcerto),
+    } : {});
+    return (0, historicoAlteracoesDomain_1.diferencasEntre)(plano(antes), plano(depois), [
+        { campo: 'nome', rotulo: 'Nome da rota' },
+        { campo: 'motorista', rotulo: 'Motorista' },
+        { campo: 'veiculo', rotulo: 'Veículo' },
+        { campo: 'dataSaida', rotulo: 'Data de saída' },
+        { campo: 'horarioSaida', rotulo: 'Horário de saída' },
+        { campo: 'kmSaida', rotulo: 'KM de saída' },
+        { campo: 'kmChegada', rotulo: 'KM de chegada' },
+        { campo: 'horarioChegada', rotulo: 'Horário de chegada' },
+        { campo: 'observacao', rotulo: 'Observação' },
+        { campo: 'acerto', rotulo: 'Acerto' },
+        { campo: 'observacaoAcerto', rotulo: 'Observação do acerto' },
+    ]);
+};
+exports.alteracoesDaRota = alteracoesDaRota;
+/** Pedidos que entraram e sairam da rota em montagem ("#0375"). */
+const pedidosQueMudaramNaRota = (antes, depois) => {
+    const idsAntes = new Set(antes.map((e) => e.pedidoId));
+    const idsDepois = new Set(depois.map((e) => e.pedidoId));
+    return {
+        entraram: depois.filter((e) => !idsAntes.has(e.pedidoId)).map((e) => `#${e.numeroPedido}`),
+        sairam: antes.filter((e) => !idsDepois.has(e.pedidoId)).map((e) => `#${e.numeroPedido}`),
+    };
+};
+exports.pedidosQueMudaramNaRota = pedidosQueMudaramNaRota;
+/** Frase do registro de montagem: "Rota 02 criada com 3 pedido(s): #0375, #0374, #0369." */
+const descricaoDaMontagem = (titulo, criada, mudancas, totalDePedidos) => {
+    const lista = (nums) => (nums.length > 15 ? `${nums.slice(0, 15).join(', ')} e mais ${nums.length - 15}` : nums.join(', '));
+    if (criada)
+        return `${titulo} criada com ${totalDePedidos} pedido(s)${mudancas.entraram.length ? `: ${lista(mudancas.entraram)}` : ''}.`;
+    const partes = [
+        mudancas.entraram.length ? `entraram ${lista(mudancas.entraram)}` : '',
+        mudancas.sairam.length ? `saíram ${lista(mudancas.sairam)}` : '',
+    ].filter(Boolean);
+    return `${titulo} alterada${partes.length ? `: ${partes.join('; ')}` : ''}. ${totalDePedidos} pedido(s) na rota.`;
+};
+exports.descricaoDaMontagem = descricaoDaMontagem;
+/** Frase do registro de uma entrega: "Pedido #0375 (MERCEARIA X): Entregue, recebeu JOAO." */
+const descricaoDaEntrega = (entrega, registro) => {
+    const partes = [
+        `Pedido #${entrega.numeroPedido}${limpar(entrega.clienteNome) ? ` (${limpar(entrega.clienteNome)})` : ''}: ${exports.ROTULO_STATUS_ENTREGA[registro.status] || registro.status}`,
+        registro.status === 'entregue' && limpar(registro.recebedorNome) ? `recebeu ${limpar(registro.recebedorNome)}` : '',
+        registro.status === 'nao_entregue' && limpar(registro.motivo) ? `motivo: ${limpar(registro.motivo)}` : '',
+        (Number(registro.recebidoCentavos) || 0) > 0 ? `motorista recebeu ${moeda(Number(registro.recebidoCentavos) || 0)}${limpar(registro.recebidoForma) ? ` em ${limpar(registro.recebidoForma)}` : ''}` : '',
+    ].filter(Boolean);
+    return `${partes.join(', ')}.`;
+};
+exports.descricaoDaEntrega = descricaoDaEntrega;

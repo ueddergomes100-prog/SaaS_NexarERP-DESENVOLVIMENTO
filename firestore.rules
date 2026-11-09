@@ -918,28 +918,24 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // HISTORICO DE ALTERACOES (09/11/2026): prova de quem fez o que. So' CRIA:
+    // - sempre no nome de quem esta' logado (2026-09-29: antes dava para
+    //   gravar com o usuarioId de um colega e acusar outra pessoa);
+    // - com a hora do SERVIDOR (dataHora == request.time): ninguem grava com
+    //   data atrasada ou adiantada;
+    // - ninguem altera nem apaga, nem o dono nem o suporte (decisao do dono:
+    //   guardar tudo para sempre; acabou a limpeza de 6 meses).
+    // O servidor grava pelo Admin SDK, que nao passa por estas regras.
     match /empresas/{tenantId}/logs/{logId} {
-      // Log sai sempre no nome de quem esta logado (2026-09-29): antes qualquer
-      // usuario gravava log com o usuarioId de um colega e a auditoria passava
-      // a acusar outra pessoa. O servidor grava pelos proprios meios (Admin SDK).
-      allow create: if canAccessTenant(tenantId) &&
-        (isSuperAdmin() || request.resource.data.usuarioId == request.auth.uid);
+      allow create: if request.resource.data.usuarioId == request.auth.uid &&
+        request.resource.data.dataHora == request.time &&
+        canAccessTenant(tenantId);
       allow read: if isSuperAdmin() ||
         (
           canAccessTenant(tenantId) &&
           (isTenantAdmin() || hasPermission('administrativo.logs'))
         );
-      // Apagar so' o que a limpeza automatica apaga (runLogsCleanup: log comum
-      // com mais de 6 meses). Antes, quem via os logs apagava QUALQUER um --
-      // inclusive o registro critico de uma exclusao, logo depois de fazer.
-      allow delete: if isSuperAdmin() ||
-        (
-          canAccessTenant(tenantId) &&
-          (isTenantAdmin() || hasPermission('administrativo.logs')) &&
-          resource.data.critical == false &&
-          resource.data.dataHora < request.time - duration.value(170, 'd')
-        );
-      allow update: if false;
+      allow update, delete: if false;
     }
 
     // Kardex do Ajuste Manual de Estoque. Registro imutavel (sem update/delete)

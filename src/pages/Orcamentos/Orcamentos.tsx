@@ -8,6 +8,7 @@ import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, 
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
@@ -48,7 +49,7 @@ const Orcamentos: React.FC = () => {
     if (avisarSeEmEdicao(travasOrcamentos, 'orcamento', id)) return;
     void openTab(`/orcamentos/editar/${id}`);
   };
-  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, userNome } = useAuth();
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
   const canEditOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
@@ -187,22 +188,32 @@ const Orcamentos: React.FC = () => {
 
     if (confirm.isConfirmed) {
       try {
+        // Quem recusou e quando ficam no proprio orcamento (aviso no topo, 09/11/2026).
+        const quem = currentUser?.uid || '';
+        const quemNome = userNome || currentUser?.email || 'Usuário';
+        const recusa = {
+          status: 'Recusado',
+          recusadoPor: quem,
+          recusadoPorNome: quemNome,
+          recusadoEm: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          ...buildDocumentUpdateMetadata(quem, serverTimestamp(), 'Orçamento recusado'),
+        };
         if (cancelarOsJunto && orcamento.geradoId) {
           await runTransaction(db, async (transaction) => {
-            transaction.update(doc(db, 'orcamentos', orcamento.id), {
-              status: 'Recusado',
-              updatedAt: serverTimestamp(),
-            });
+            transaction.update(doc(db, 'orcamentos', orcamento.id), recusa);
             transaction.update(doc(db, 'ordens_de_servico', orcamento.geradoId as string), {
               status: 'Cancelada',
+              motivoCancelamento: `Orçamento #${orcamento.numeroOrcamento} recusado`,
+              canceladaPor: quem,
+              canceladaPorNome: quemNome,
+              canceladaEm: serverTimestamp(),
               updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(quem, serverTimestamp(), `Cancelada: orçamento #${orcamento.numeroOrcamento} recusado`),
             });
           });
         } else {
-          await updateDoc(doc(db, 'orcamentos', orcamento.id), {
-            status: 'Recusado',
-            updatedAt: serverTimestamp(),
-          });
+          await updateDoc(doc(db, 'orcamentos', orcamento.id), recusa);
         }
         try {
           const { createAuditLog } = await import('../../services/logService');
@@ -211,9 +222,13 @@ const Orcamentos: React.FC = () => {
             usuarioId: currentUser?.uid || '',
             usuarioEmail: currentUser?.email || '',
             modulo: 'vendas',
-            acao: 'cancelamento',
+            acao: 'recusa',
             descricao: `Orçamento #${orcamento.numeroOrcamento} recusado.${cancelarOsJunto ? ' OS gerada cancelada junto (ainda não estava finalizada).' : ''}`,
             registroRelacionadoId: orcamento.id,
+            documentosRelacionados: cancelarOsJunto && orcamento.geradoId ? [orcamento.geradoId] : [],
+            documentoTipo: 'orcamento',
+            documentoNumero: `Orçamento ${orcamento.numeroOrcamento}`,
+            alteracoes: [{ campo: 'Situação', valorAnterior: orcamento.status || '', valorNovo: 'Recusado' }],
             status: 'sucesso',
             critical: true,
           });
@@ -226,6 +241,8 @@ const Orcamentos: React.FC = () => {
               acao: 'cancelamento',
               descricao: `OS cancelada automaticamente: o Orçamento #${orcamento.numeroOrcamento} que a gerou foi recusado antes de ela ser finalizada.`,
               registroRelacionadoId: orcamento.geradoId,
+              documentoTipo: 'os',
+              motivo: `Orçamento #${orcamento.numeroOrcamento} recusado`,
               status: 'sucesso',
               critical: true,
             });

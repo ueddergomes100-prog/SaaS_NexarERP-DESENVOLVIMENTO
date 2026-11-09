@@ -267,7 +267,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     itens: [
       { id: 'administrativo.config', label: 'Admin: Configurações', color: '#6b7280' },
       { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' },
-      { id: 'administrativo.logs', label: 'Admin: Logs do Sistema', color: '#6b7280' },
+      { id: 'administrativo.logs', label: 'Admin: Histórico de alterações', color: '#6b7280' },
       { id: 'administrativo.relatorios', label: 'Admin: Relatórios Diversos', color: '#6b7280' },
     ],
   },

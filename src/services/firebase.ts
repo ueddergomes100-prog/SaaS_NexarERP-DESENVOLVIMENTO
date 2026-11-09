@@ -4,7 +4,7 @@ import { getFirestore, initializeFirestore, persistentLocalCache, persistentMult
 import { browserLocalPersistence, browserSessionPersistence, indexedDBLocalPersistence, initializeAuth, setPersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { getToken, initializeAppCheck, ReCaptchaEnterpriseProvider, type AppCheck } from 'firebase/app-check';
-import { definirCabecalhosAutomaticos } from '../utils/fetchComTimeout';
+import { definirCabecalhosAutomaticos, definirServidorQueRecebeTela } from '../utils/fetchComTimeout';
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -48,6 +48,8 @@ export const appCheck: AppCheck | null = (() => {
 
 // O comprovante vai junto em toda chamada ao NOSSO servidor (fetchComTimeout).
 const urlDoServidor = String(import.meta.env.VITE_BACKEND_API_URL || (import.meta.env.DEV ? 'http://localhost:3001' : '')).trim().replace(/\/$/, '');
+// Histórico de alterações: as gravacoes no servidor levam a tela de origem.
+if (urlDoServidor) definirServidorQueRecebeTela(urlDoServidor);
 if (appCheck && urlDoServidor) {
   const verificador = appCheck;
   definirCabecalhosAutomaticos(async (url): Promise<Record<string, string>> => {

@@ -1,513 +1,266 @@
-import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, getDocs, startAfter, where, Timestamp } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FileText, History, Loader2, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { createAuditLog, runLogsCleanup } from '../../services/logService';
-import { ShieldAlert, Search, Calendar, Filter, Loader2, Info } from 'lucide-react';
-import { showError, showSuccess } from '../../utils/alerts';
+import { createAuditLog } from '../../services/logService';
+import { lerHistoricoDoPeriodo, LIMITE_REGISTROS_PERIODO } from '../../services/historicoService';
 import { isPlatformAdminRole } from '../../utils/roles';
+import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
+import {
+  corDaAcao,
+  dataHoraBrasil,
+  filtrarRegistros,
+  nomeDeQuemFez,
+  opcoesDosFiltros,
+  rotuloDaAcao,
+  rotuloDaOrigem,
+  telaDoRegistro,
+  valorParaHistorico,
+  type RegistroLido,
+} from '../../utils/historicoAlteracoesDomain';
+import { montarDocumentoHistorico } from '../../utils/relatorioHistoricoDomain';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 
-interface LogFieldChange {
-  campo: string;
-  valorAnterior: unknown;
-  valorNovo: unknown;
-}
+/*
+ * HISTORICO DE ALTERACOES (tela geral, 09/11/2026; antes "Logs do Sistema").
+ *
+ * Quem criou, alterou, cancelou, excluiu, reabriu ou estornou, em todas as
+ * telas e aplicativos. Le' o periodo do banco (do mais novo ao mais antigo) e
+ * filtra na tela por usuario, tela, documento e acao. Relatorio em PDF (com
+ * colunas por caixa de marcar e Excel separado) em "Mais opções".
+ *
+ * Os registros nao se alteram nem se apagam (firestore.rules). So' dono,
+ * administrador e quem tem a permissao "Histórico de alterações" veem.
+ */
 
-interface LogDocument {
-  id: string;
-  dataHora: any;
-  usuario: string;
-  usuarioId: string;
-  modulo: string;
-  acao: string;
-  descricao: string;
-  registroRelacionadoId?: string;
-  valorAnterior?: string;
-  valorNovo?: string;
-  vendedorId?: string;
-  vendedorNome?: string;
-  alteracoes?: LogFieldChange[];
-  snapshotExcluido?: Record<string, unknown>;
-  status: 'sucesso' | 'erro' | 'negado';
-  critical?: boolean;
-}
+const estiloCampo: React.CSSProperties = {
+  width: '100%',
+  padding: '9px 10px',
+  backgroundColor: 'var(--bg-primary)',
+  border: '1px solid var(--border-color)',
+  borderRadius: 'var(--radius-md)',
+  color: 'var(--text-primary)',
+  fontSize: '13px',
+};
+
+const estiloRotulo: React.CSSProperties = { fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' };
+
+const mostrarValor = (valor: unknown): string => {
+  const v = valorParaHistorico(valor);
+  if (v === null || v === '') return '(vazio)';
+  if (typeof v === 'boolean') return v ? 'Sim' : 'Não';
+  return String(v);
+};
 
 const LogsSistema: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  const hoje = getDateInputInTimeZone();
 
-  const [hasPermission, setHasPermission] = useState(true);
+  const permitido = userRole === null
+    ? null
+    : Boolean(isOwner || isPlatformAdminRole(userRole) || userRole === 'Master' || userRole === 'Admin' || userPermissions?.includes('administrativo.logs'));
 
-  // States dos Logs
-  const [logs, setLogs] = useState<LogDocument[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [lastVisibleDoc, setLastVisibleDoc] = useState<any>(null);
-  const [hasMore, setHasMore] = useState(true);
+  const [inicio, setInicio] = useState(addDaysToDateInput(hoje, -6));
+  const [fim, setFim] = useState(hoje);
+  const [usuario, setUsuario] = useState('');
+  const [tela, setTela] = useState('');
+  const [documento, setDocumento] = useState('');
+  const [acao, setAcao] = useState('');
 
-  // Filtros
-  const [moduloFilter, setModuloFilter] = useState('todos');
-  const [acaoFilter, setAcaoFilter] = useState('todos');
-  const [statusFilter, setStatusFilter] = useState('todos');
-  const [searchUser, setSearchUser] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [registros, setRegistros] = useState<RegistroLido[]>([]);
+  const [cortado, setCortado] = useState(false);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState('');
+  const [recarregar, setRecarregar] = useState(0);
+  const [selecionado, setSelecionado] = useState<RegistroLido | null>(null);
+  const [relatorio, setRelatorio] = useState(false);
 
-  // Modal de Detalhes
-  const [selectedLog, setSelectedLog] = useState<LogDocument | null>(null);
-
-  // Verificar permissão geral do módulo
+  // Tentativa de abrir sem permissao tambem fica registrada.
   useEffect(() => {
-    if (userRole === null) return; // Aguarda o carregamento da role
+    if (permitido !== false || !currentUser || !tenantId) return;
+    createAuditLog({
+      tenantId,
+      usuarioId: currentUser.uid,
+      usuarioEmail: currentUser.email || currentUser.uid,
+      modulo: 'logs',
+      acao: 'acesso_negado',
+      descricao: 'Tentou abrir o Histórico de alterações sem permissão.',
+      status: 'negado',
+      critical: true,
+    });
+  }, [permitido, currentUser, tenantId]);
 
-    const allowed = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('administrativo.logs');
-    if (!allowed) {
-      setHasPermission(false);
-      if (currentUser && tenantId) {
-        // Gravar tentativa de intrusão sem permissão
-        createAuditLog({
-          tenantId,
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'logs',
-          acao: 'acesso_negado',
-          descricao: `Tentativa de acesso à rota de logs do sistema sem permissão administrativa.`,
-          status: 'negado',
-          critical: true
-        });
-      }
-    } else {
-      setHasPermission(true);
-    }
-  }, [userRole, userPermissions, currentUser, tenantId]);
+  const periodoInvalido = !inicio || !fim || inicio > fim;
 
-  // Limpeza automática dos logs em background após liberar a tela
   useEffect(() => {
-    if (hasPermission && tenantId) {
-      runLogsCleanup(tenantId);
-    }
-  }, [hasPermission, tenantId]);
+    if (!permitido || !tenantId || periodoInvalido) return undefined;
+    let cancelado = false;
+    setCarregando(true);
+    setErro('');
+    lerHistoricoDoPeriodo(tenantId, dateInputToUtcStart(inicio) as Date, dateInputToUtcEnd(fim) as Date)
+      .then((r) => {
+        if (cancelado) return;
+        setRegistros(r.registros);
+        setCortado(r.cortado);
+      })
+      .catch((err) => {
+        console.error('Erro ao ler o histórico de alterações:', err);
+        if (!cancelado) setErro('Não foi possível carregar o histórico. Confira a internet e tente de novo em instantes.');
+      })
+      .finally(() => { if (!cancelado) setCarregando(false); });
+    return () => { cancelado = true; };
+  }, [permitido, tenantId, inicio, fim, periodoInvalido, recarregar]);
 
-  // Carregar dados iniciais
-  useEffect(() => {
-    if (hasPermission && tenantId) {
-      fetchLogs(true);
-    }
-  }, [hasPermission, tenantId, moduloFilter, acaoFilter, statusFilter, startDate, endDate]);
+  const opcoes = useMemo(() => opcoesDosFiltros(registros), [registros]);
+  const filtrados = useMemo(
+    () => filtrarRegistros(registros, { usuario, tela, documento, acao }),
+    [registros, usuario, tela, documento, acao],
+  );
 
-  const fetchLogs = async (isInitial = true) => {
-    if (!tenantId) return;
-    
-    if (isInitial) {
-      setLoading(true);
-      setLogs([]);
-    } else {
-      setLoadingMore(true);
-    }
+  const frasesDosFiltros = (): string[] => [
+    usuario ? `Usuário: ${usuario}` : '',
+    tela ? `Tela: ${tela}` : '',
+    documento ? `Documento: ${documento}` : '',
+    acao ? `Ação: ${rotuloDaAcao(acao)}` : '',
+  ].filter(Boolean);
 
-    try {
-      const logsRef = collection(db, 'empresas', tenantId, 'logs');
-      
-      // Montagem da query
-      let q = query(logsRef, orderBy('dataHora', 'desc'));
-
-      // Filtros a nível de banco
-      if (moduloFilter !== 'todos') {
-        q = query(q, where('modulo', '==', moduloFilter));
-      }
-      if (statusFilter !== 'todos') {
-        q = query(q, where('status', '==', statusFilter));
-      }
-      if (acaoFilter !== 'todos') {
-        q = query(q, where('acao', '==', acaoFilter));
-      }
-
-      // Filtros de datas a nível de banco
-      if (startDate) {
-        const sTimestamp = Timestamp.fromDate(new Date(startDate + 'T00:00:00'));
-        q = query(q, where('dataHora', '>=', sTimestamp));
-      }
-      if (endDate) {
-        const eTimestamp = Timestamp.fromDate(new Date(endDate + 'T23:59:59'));
-        q = query(q, where('dataHora', '<=', eTimestamp));
-      }
-
-      // Paginação
-      q = query(q, limit(50));
-
-      if (!isInitial && lastVisibleDoc) {
-        q = query(q, startAfter(lastVisibleDoc));
-      }
-
-      const querySnapshot = await getDocs(q);
-      const fetchedLogs: LogDocument[] = [];
-      
-      querySnapshot.forEach(docSnap => {
-        fetchedLogs.push({
-          id: docSnap.id,
-          ...docSnap.data()
-        } as LogDocument);
-      });
-
-      // Salva o último documento para paginação posterior
-      const lastVisible = querySnapshot.docs[querySnapshot.docs.length - 1] || null;
-      setLastVisibleDoc(lastVisible);
-      setHasMore(querySnapshot.docs.length === 50);
-
-      if (isInitial) {
-        setLogs(fetchedLogs);
-      } else {
-        setLogs(prev => [...prev, ...fetchedLogs]);
-      }
-    } catch (err: any) {
-      console.error('Erro ao buscar logs:', err);
-      // Se houver erro de index composto no firestore, avisa e cai de volta para query básica
-      if (err.code === 'failed-precondition') {
-        showError(
-          'Índice Necessário',
-          'Esta combinação de filtros requer que você crie um índice composto no painel do Firebase.'
-        );
-      } else {
-        showError('Erro ao Carregar', 'Não foi possível recuperar os logs de auditoria.');
-      }
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  };
-
-  // Filtro de Busca de Usuário (executado no cliente por flexibilidade e performance)
-  const filteredLogs = logs.filter(log => {
-    if (!searchUser) return true;
-    return log.usuario.toLowerCase().includes(searchUser.toLowerCase());
-  });
-
-  const formatTimestamp = (ts: any) => {
-    if (!ts) return 'N/A';
-    const date = ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
-    return date.toLocaleString('pt-BR');
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'sucesso': return '#10b981';
-      case 'erro': return '#ef4444';
-      case 'negado': return '#f59e0b';
-      default: return '#6b7280';
-    }
-  };
-
-  const getModuloBadgeColor = (modulo: string) => {
-    switch (modulo) {
-      case 'autenticacao': return 'rgba(59, 130, 246, 0.15)';
-      case 'vendas': return 'rgba(245, 158, 11, 0.15)';
-      case 'estoque': return 'rgba(139, 92, 246, 0.15)';
-      case 'financeiro': return 'rgba(16, 185, 129, 0.15)';
-      case 'logs': return 'rgba(239, 68, 68, 0.15)';
-      default: return 'rgba(107, 114, 128, 0.15)';
-    }
-  };
-
-  if (!hasPermission) {
+  if (permitido === false) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: 'var(--text-primary)', textAlign: 'center', padding: '20px' }}>
-        <ShieldAlert size={64} color="#ef4444" style={{ marginBottom: '16px', filter: 'drop-shadow(0 0 10px rgba(239,68,68,0.3))' }} />
-        <h2 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px' }}>Acesso Negado</h2>
-        <p style={{ color: 'var(--text-muted)', maxWidth: '400px' }}>Você não tem permissão para visualizar a tela de auditoria e logs do sistema.</p>
+        <ShieldAlert size={56} color="#ef4444" style={{ marginBottom: '16px' }} />
+        <h2 style={{ fontSize: '22px', fontWeight: 600, marginBottom: '8px' }}>Sem acesso ao Histórico de alterações</h2>
+        <p style={{ color: 'var(--text-muted)', maxWidth: '440px' }}>
+          Peça ao dono ou ao administrador da empresa para liberar a permissão "Histórico de alterações" no seu usuário (Administração › Usuários).
+        </p>
       </div>
     );
   }
 
+  if (relatorio) {
+    return (
+      <RelatorioPreview
+        relatorioId="historico-alteracoes"
+        documento={montarDocumentoHistorico(filtrados, {
+          periodo: `Período: ${formatDateInputPtBr(inicio)} a ${formatDateInputPtBr(fim)}`,
+          filtros: frasesDosFiltros(),
+        })}
+        nomeArquivo={nomeArquivoRelatorio('Histórico de alterações', inicio, fim)}
+        onFechar={() => setRelatorio(false)}
+        rotuloFechar="Voltar ao histórico"
+      />
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', color: 'var(--text-primary)' }}>
-      {/* Cabeçalho */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', color: 'var(--text-primary)' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ShieldAlert size={28} color="var(--accent-purple)" />
-            Logs de Auditoria do Sistema
+          <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <History size={26} color="var(--accent-purple)" />
+            Histórico de alterações
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Auditoria, segurança e rastreabilidade de ações importantes realizadas no sistema.</p>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>
+            Quem criou, alterou, cancelou, excluiu, reabriu ou estornou, em cada tela do sistema e dos aplicativos. Nada aqui pode ser alterado ou apagado.
+          </p>
         </div>
+        <MenuMaisOpcoes itens={[
+          { texto: 'Relatório em PDF', Icone: FileText, titulo: 'Os registros filtrados, em PDF, para imprimir ou salvar (Excel em botão separado)', onClick: () => setRelatorio(true), desabilitado: carregando || filtrados.length === 0 },
+          { texto: 'Atualizar', Icone: RefreshCw, titulo: 'Lê o período de novo', onClick: () => setRecarregar((n) => n + 1) },
+        ]} />
       </div>
 
-      {/* Painel de Filtros */}
-      <div style={{
-        backgroundColor: 'var(--bg-secondary)',
-        borderRadius: 'var(--radius-md)',
-        padding: '20px',
-        border: '1px solid var(--border-color)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px'
-      }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-          {/* Busca por Usuário */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Buscar por Usuário</label>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                placeholder="E-mail ou ID do usuário..."
-                value={searchUser}
-                onChange={(e) => setSearchUser(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 10px 10px 36px',
-                  backgroundColor: 'var(--bg-primary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)',
-                  color: 'white',
-                  fontSize: '13px'
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Filtro Módulo */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Módulo</label>
-            <select
-              value={moduloFilter}
-              onChange={(e) => setModuloFilter(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                backgroundColor: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md)',
-                color: 'white',
-                fontSize: '13px',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="todos">Todos Módulos</option>
-              <option value="autenticacao">Autenticação (Acesso)</option>
-              <option value="vendas">Vendas e Orçamentos</option>
-              <option value="estoque">Estoque de Peças</option>
-              <option value="financeiro">Financeiro / Caixa</option>
-              <option value="romaneios">Romaneio de Entrega</option>
-              <option value="logs">Painel de Logs</option>
-            </select>
-          </div>
-
-          {/* Filtro Ação */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Ação</label>
-            <select
-              value={acaoFilter}
-              onChange={(e) => setAcaoFilter(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                backgroundColor: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md)',
-                color: 'white',
-                fontSize: '13px',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="todos">Todas Ações</option>
-              <option value="login">Login</option>
-              <option value="logout">Logout</option>
-              <option value="criacao">Criação (Adicionar)</option>
-              <option value="edicao">Edição (Editar)</option>
-              <option value="exclusao">Exclusão (Apagar)</option>
-              <option value="cancelamento">Cancelamento</option>
-              <option value="fechamento">Fechamento (acerto)</option>
-              <option value="reabertura">Reabertura</option>
-              <option value="devolucao">Devolução</option>
-              <option value="acesso_negado">Acesso Negado</option>
-              <option value="senha_incorreta">Senha Incorreta</option>
-            </select>
-          </div>
-
-          {/* Filtro Status */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                backgroundColor: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md)',
-                color: 'white',
-                fontSize: '13px',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="todos">Todos Status</option>
-              <option value="sucesso">Sucesso</option>
-              <option value="erro">Erro</option>
-              <option value="negado">Negado / Bloqueado</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Datas */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>De (Data Inicial)</label>
-            <div style={{ position: 'relative' }}>
-              <Calendar size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 10px 10px 36px',
-                  backgroundColor: 'var(--bg-primary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)',
-                  color: 'white',
-                  fontSize: '13px',
-                  cursor: 'pointer'
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>Até (Data Final)</label>
-            <div style={{ position: 'relative' }}>
-              <Calendar size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 10px 10px 36px',
-                  backgroundColor: 'var(--bg-primary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)',
-                  color: 'white',
-                  fontSize: '13px',
-                  cursor: 'pointer'
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', gridColumn: 'span 2' }}>
-            <button
-              onClick={() => {
-                setModuloFilter('todos');
-                setAcaoFilter('todos');
-                setStatusFilter('todos');
-                setSearchUser('');
-                setStartDate('');
-                setEndDate('');
-              }}
-              style={{
-                padding: '10px 16px',
-                backgroundColor: 'rgba(255,255,255,0.05)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'background-color 0.2s'
-              }}
-              onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'}
-              onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'}
-            >
-              Limpar Filtros
-            </button>
-          </div>
-        </div>
+      <div className="card" style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px', alignItems: 'end' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span style={estiloRotulo}>De</span>
+          <input type="date" value={inicio} max={fim || undefined} onChange={(e) => setInicio(e.target.value)} style={estiloCampo} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span style={estiloRotulo}>Até</span>
+          <input type="date" value={fim} min={inicio || undefined} onChange={(e) => setFim(e.target.value)} style={estiloCampo} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span style={estiloRotulo}>Usuário</span>
+          <input type="search" value={usuario} placeholder="Buscar…" onChange={(e) => setUsuario(e.target.value)} style={estiloCampo} title="Nome ou e-mail de quem fez" />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span style={estiloRotulo}>Documento</span>
+          <input type="search" value={documento} placeholder="Buscar…" onChange={(e) => setDocumento(e.target.value)} style={estiloCampo} title="Número ou nome: Rota 02, 0375, nome do cliente..." />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span style={estiloRotulo}>Tela</span>
+          <select value={tela} onChange={(e) => setTela(e.target.value)} style={estiloCampo}>
+            <option value="">Todas as telas</option>
+            {opcoes.telas.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <span style={estiloRotulo}>Ação</span>
+          <select value={acao} onChange={(e) => setAcao(e.target.value)} style={estiloCampo}>
+            <option value="">Todas as ações</option>
+            {opcoes.acoes.map((a) => <option key={a.valor} value={a.valor}>{a.rotulo}</option>)}
+          </select>
+        </label>
       </div>
 
-      {/* Tabela de Logs */}
-      <div style={{
-        backgroundColor: 'var(--bg-secondary)',
-        borderRadius: 'var(--radius-lg)',
-        border: '1px solid var(--border-color)',
-        overflow: 'hidden'
-      }}>
-        {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px', gap: '12px' }}>
-            <Loader2 className="spin-icon" size={32} color="var(--accent-purple)" />
-            <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Consultando logs de auditoria...</span>
+      {periodoInvalido && (
+        <div style={{ color: '#f59e0b', fontSize: '13px' }}>Escolha um período válido: a data "De" precisa ser igual ou anterior à data "Até".</div>
+      )}
+      {cortado && (
+        <div style={{ color: '#f59e0b', fontSize: '13px' }}>
+          O período tem mais de {LIMITE_REGISTROS_PERIODO} registros: aparecem só os {LIMITE_REGISTROS_PERIODO} mais recentes. Escolha um período menor para ver todos.
+        </div>
+      )}
+
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {carregando ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '48px', color: 'var(--text-muted)' }}>
+            <Loader2 size={20} className="spin-icon" /> Carregando o histórico...
           </div>
-        ) : filteredLogs.length === 0 ? (
-          <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            Nenhum registro de log encontrado para os filtros selecionados.
+        ) : erro ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#ef4444' }}>{erro}</div>
+        ) : filtrados.length === 0 ? (
+          <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            Nenhum registro encontrado com esses filtros. Aumente o período ou limpe os filtros.
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
+          <div className="table-wrapper">
+            <table className="data-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
-                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Data/Hora</th>
-                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Usuário</th>
-                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Vendedor</th>
-                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Módulo</th>
-                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Ação</th>
-                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>Descrição</th>
-                  <th style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600, width: '110px' }}>Status</th>
+                <tr>
+                  <th>Data e hora</th>
+                  <th>Quem fez</th>
+                  <th>Ação</th>
+                  <th>Documento</th>
+                  <th>O que aconteceu</th>
+                  <th>Tela</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredLogs.map((log) => (
-                  <tr
-                    key={log.id}
-                    onClick={() => setSelectedLog(log)}
-                    style={{
-                      borderBottom: '1px solid var(--border-color)',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s',
-                    }}
-                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.01)'}
-                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-                      {formatTimestamp(log.dataHora)}
+                {filtrados.map((r) => (
+                  <tr key={r.id} onClick={() => setSelecionado(r)} style={{ cursor: 'pointer' }} title="Ver detalhes">
+                    <td style={{ whiteSpace: 'nowrap' }}>{dataHoraBrasil(r.dataHora)}</td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{nomeDeQuemFez(r)}</div>
+                      {(r.usuarioPapel || r.vendedorNome) && (
+                        <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                          {[r.usuarioPapel, r.vendedorNome ? `vendedor: ${r.vendedorNome}` : ''].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
                     </td>
-                    <td style={{ padding: '16px 20px', fontSize: '13px', color: 'white', fontWeight: 500 }}>
-                      {log.usuario}
-                    </td>
-                    <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      {log.vendedorNome || '-'}
-                    </td>
-                    <td style={{ padding: '16px 20px', fontSize: '12px' }}>
-                      <span style={{
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        backgroundColor: getModuloBadgeColor(log.modulo),
-                        color: log.modulo === 'logs' ? '#ef4444' : 'var(--text-primary)'
-                      }}>
-                        {log.modulo}
+                    <td>
+                      <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, color: 'white', backgroundColor: corDaAcao(r.acao), whiteSpace: 'nowrap' }}>
+                        {rotuloDaAcao(r.acao)}
                       </span>
                     </td>
-                    <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                      {log.acao}
+                    <td style={{ whiteSpace: 'nowrap' }}>{r.documentoNumero || ''}</td>
+                    <td style={{ maxWidth: '420px' }}>
+                      <div>{r.descricao}</div>
+                      {r.motivo && <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Motivo: {r.motivo}</div>}
                     </td>
-                    <td style={{ padding: '16px 20px', fontSize: '13px', color: 'var(--text-muted)', maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {log.descricao}
-                    </td>
-                    <td style={{ padding: '16px 20px', fontSize: '13px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{
-                          display: 'inline-block',
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          backgroundColor: getStatusColor(log.status)
-                        }} />
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: getStatusColor(log.status), textTransform: 'capitalize' }}>
-                          {log.status}
-                        </span>
-                      </div>
+                    <td>
+                      <div>{telaDoRegistro(r)}</div>
+                      {r.origem && r.origem !== 'sistema' && <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>{rotuloDaOrigem(r.origem)}</div>}
                     </td>
                   </tr>
                 ))}
@@ -515,244 +268,70 @@ const LogsSistema: React.FC = () => {
             </table>
           </div>
         )}
-
-        {/* Paginação */}
-        {hasMore && !loading && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '20px', borderTop: '1px solid var(--border-color)' }}>
-            <button
-              onClick={() => fetchLogs(false)}
-              disabled={loadingMore}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 24px',
-                backgroundColor: 'var(--accent-purple)',
-                color: 'white',
-                border: 'none',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
-              onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
-            >
-              {loadingMore ? (
-                <>
-                  <Loader2 className="spin-icon" size={16} />
-                  <span>Carregando...</span>
-                </>
-              ) : (
-                <span>Carregar Mais Logs</span>
-              )}
-            </button>
-          </div>
-        )}
       </div>
+      {!carregando && filtrados.length > 0 && (
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+          {filtrados.length} de {registros.length} registro(s) do período.
+        </div>
+      )}
 
-      {/* Modal de Detalhes do Log (Apenas Leitura) */}
-      {selectedLog && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.75)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '20px'
-        }}
-        onClick={() => setSelectedLog(null)}
+      {selecionado && (
+        <div
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}
+          onClick={() => setSelecionado(null)}
         >
-          <div style={{
-            width: '100%',
-            maxWidth: '650px',
-            backgroundColor: 'var(--bg-secondary)',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--border-color)',
-            boxShadow: '0 12px 48px rgba(0,0,0,0.5)',
-            overflow: 'hidden'
-          }}
-          onClick={(e) => e.stopPropagation()}
+          <div
+            role="dialog"
+            aria-label="Detalhes do registro"
+            style={{ width: '100%', maxWidth: '720px', maxHeight: '88vh', overflowY: 'auto', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', padding: '20px' }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <div style={{
-              background: 'linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary))',
-              padding: '20px 24px',
-              borderBottom: '1px solid var(--border-color)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <ShieldAlert size={20} color="var(--accent-purple)" />
-                Detalhes da Auditoria
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ margin: 0, fontSize: '17px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, color: 'white', backgroundColor: corDaAcao(selecionado.acao) }}>{rotuloDaAcao(selecionado.acao)}</span>
+                {selecionado.documentoNumero || telaDoRegistro(selecionado)}
               </h3>
-              <button
-                onClick={() => setSelectedLog(null)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '20px',
-                  cursor: 'pointer',
-                  padding: '4px'
-                }}
-              >
-                &times;
-              </button>
+              <button type="button" onClick={() => setSelecionado(null)} aria-label="Fechar" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={22} /></button>
             </div>
-
-            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Data / Hora</label>
-                  <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>{formatTimestamp(selectedLog.dataHora)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Usuário (estação)</label>
-                  <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>{selectedLog.usuario}</span>
-                </div>
-                {selectedLog.vendedorNome && (
-                  <div>
-                    <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Vendedor</label>
-                    <span style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: 500 }}>{selectedLog.vendedorNome}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', fontSize: '13px', marginBottom: '14px' }}>
+              <div><div style={estiloRotulo}>Data e hora</div>{dataHoraBrasil(selecionado.dataHora)}</div>
+              <div><div style={estiloRotulo}>Quem fez</div>{nomeDeQuemFez(selecionado)}{selecionado.usuarioPapel ? ` (${selecionado.usuarioPapel})` : ''}</div>
+              <div><div style={estiloRotulo}>Login</div>{selecionado.usuario || selecionado.usuarioId}</div>
+              <div><div style={estiloRotulo}>Tela</div>{telaDoRegistro(selecionado)}</div>
+              <div><div style={estiloRotulo}>Origem</div>{rotuloDaOrigem(selecionado.origem) || '—'}</div>
+              <div><div style={estiloRotulo}>Filial</div>{selecionado.filialNome || '—'}</div>
+              {selecionado.vendedorNome && <div><div style={estiloRotulo}>Vendedor</div>{selecionado.vendedorNome}</div>}
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={estiloRotulo}>O que aconteceu</div>
+              <div style={{ fontSize: '14px' }}>{selecionado.descricao}</div>
+              {selecionado.motivo && <div style={{ fontSize: '13px', marginTop: '4px' }}><strong>Motivo:</strong> {selecionado.motivo}</div>}
+            </div>
+            {selecionado.alteracoes && selecionado.alteracoes.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={estiloRotulo}>O que mudou</div>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden', marginTop: '4px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', padding: '6px 10px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 700 }}>
+                    <span>Campo</span><span>Antes</span><span>Depois</span>
                   </div>
-                )}
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Módulo</label>
-                  <span style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    backgroundColor: getModuloBadgeColor(selectedLog.modulo),
-                    color: 'white',
-                    display: 'inline-block'
-                  }}>{selectedLog.modulo}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Ação</label>
-                  <span style={{ fontSize: '14px', color: 'white', fontWeight: 600 }}>{selectedLog.acao}</span>
+                  {selecionado.alteracoes.map((m, i) => (
+                    <div key={`${m.campo}-${i}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', padding: '7px 10px', fontSize: '12px', borderTop: '1px solid var(--border-color)', wordBreak: 'break-word' }}>
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{m.campo}</span>
+                      <span style={{ color: '#ef4444' }}>{mostrarValor(m.valorAnterior)}</span>
+                      <span style={{ color: '#10b981' }}>{mostrarValor(m.valorNovo)}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-
+            )}
+            {selecionado.snapshotExcluido && (
               <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Descrição da Ocorrência</label>
-                <div style={{
-                  padding: '12px',
-                  backgroundColor: 'var(--bg-primary)',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-secondary)',
-                  fontSize: '13px',
-                  lineHeight: '1.5'
-                }}>
-                  {selectedLog.descricao}
-                </div>
+                <div style={estiloRotulo}>Como o documento estava antes</div>
+                <pre style={{ margin: '4px 0 0', padding: '10px', backgroundColor: 'var(--bg-primary)', borderRadius: '6px', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '11px', maxHeight: '240px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {JSON.stringify(selecionado.snapshotExcluido, null, 2)}
+                </pre>
               </div>
-
-              {selectedLog.alteracoes && selectedLog.alteracoes.length > 0 && (
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>O Que Mudou</label>
-                  <div style={{ border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
-                    {selectedLog.alteracoes.map((mudanca, index) => (
-                      <div
-                        key={`${mudanca.campo}-${index}`}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr 1fr',
-                          gap: '8px',
-                          padding: '10px 12px',
-                          fontSize: '12px',
-                          borderTop: index === 0 ? 'none' : '1px solid var(--border-color)',
-                          backgroundColor: 'var(--bg-primary)',
-                        }}
-                      >
-                        <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{mudanca.campo}</span>
-                        <span style={{ color: '#ef4444', textDecoration: 'line-through' }}>{String(mudanca.valorAnterior ?? '-')}</span>
-                        <span style={{ color: '#10b981' }}>{String(mudanca.valorNovo ?? '-')}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selectedLog.snapshotExcluido && (
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>Registro no Momento da Exclusão/Cancelamento</label>
-                  <pre style={{
-                    padding: '12px',
-                    backgroundColor: 'var(--bg-primary)',
-                    borderRadius: '6px',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-secondary)',
-                    fontSize: '11px',
-                    lineHeight: '1.5',
-                    maxHeight: '240px',
-                    overflow: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                  }}>
-                    {JSON.stringify(selectedLog.snapshotExcluido, null, 2)}
-                  </pre>
-                </div>
-              )}
-
-              {selectedLog.registroRelacionadoId && (
-                <div>
-                  <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>ID do Registro Relacionado</label>
-                  <span style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-primary)' }}>{selectedLog.registroRelacionadoId}</span>
-                </div>
-              )}
-
-              {selectedLog.critical && (
-                <div style={{
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  fontSize: '12px',
-                  color: '#ef4444',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}>
-                  <Info size={16} />
-                  <span>Este é um registro crítico de segurança e auditoria (mantido permanentemente).</span>
-                </div>
-              )}
-            </div>
-
-            <div style={{
-              padding: '16px 24px',
-              backgroundColor: 'rgba(255,255,255,0.01)',
-              borderTop: '1px solid var(--border-color)',
-              display: 'flex',
-              justifyContent: 'flex-end'
-            }}>
-              <button
-                onClick={() => setSelectedLog(null)}
-                style={{
-                  padding: '8px 20px',
-                  backgroundColor: 'var(--accent-purple)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                Fechar Detalhes
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}

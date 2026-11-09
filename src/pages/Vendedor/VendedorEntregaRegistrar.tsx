@@ -161,6 +161,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
         romaneioId: id,
         entrega,
         registro: { status, recebedorNome, recebedorDocumento, motivo, recebidoCentavos, recebidoForma, observacao, justificativaValor: justificativa },
+        ...(rotaLida ? { rota: { numero: rotaLida.numero, nome: rotaLida.nome, dataSaida: rotaLida.dataSaida } } : {}),
       });
       showSuccess(status === 'entregue' ? 'Entrega registrada.' : status === 'nao_entregue' ? 'Tentativa registrada.' : 'Entrega voltou para "falta entregar".');
       voltar();

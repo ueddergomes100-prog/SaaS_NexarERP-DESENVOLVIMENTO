@@ -12,6 +12,7 @@ import {
 import { auth, db } from './firebase';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import { reserveTenantSequence } from '../utils/firestoreAtomic';
+import { createAuditLog, type AuditLogFieldChange } from './logService';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../utils/dateTime';
 import { LOTE_IN_POR_CAMPO, LOTE_IN_POR_ID } from '../utils/firestoreLimites';
@@ -30,6 +31,12 @@ import {
   registroParaGravar,
   romaneioDoDocumento,
   tituloDoRomaneio,
+  alteracoesDaRota,
+  descricaoDaEntrega,
+  descricaoDaMontagem,
+  pedidosQueMudaramNaRota,
+  rotuloDoRomaneioNoHistorico,
+  ROTULO_STATUS_ENTREGA,
   type AlteracaoDoRomaneio,
   type DadosDoRegistro,
   type EntregaRomaneio,
@@ -156,6 +163,37 @@ const camposDaRota = camposEditaveisDaRota;
 const travaRef = (pedidoId: string) => doc(db, COLECAO_TRAVAS, pedidoId);
 
 /**
+ * Historico de alteracoes da rota (09/11/2026). Grava logo depois da
+ * transacao (o registro entra na fila do Firestore na hora, mesmo sem sinal);
+ * fechar, reabrir e cancelar sao do servidor, que grava dentro da transacao.
+ */
+const registrarNaRota = (p: {
+  tenantId: string;
+  uid: string;
+  romaneioId: string;
+  rotulo: string;
+  acao: string;
+  descricao: string;
+  pedidoIds?: string[];
+  alteracoes?: AuditLogFieldChange[];
+  motivo?: string;
+}) => createAuditLog({
+  tenantId: p.tenantId,
+  usuarioId: p.uid,
+  usuarioEmail: auth.currentUser?.email || '',
+  modulo: 'romaneios',
+  acao: p.acao,
+  descricao: p.descricao,
+  registroRelacionadoId: p.romaneioId,
+  documentosRelacionados: p.pedidoIds,
+  documentoTipo: 'romaneio',
+  documentoNumero: p.rotulo,
+  ...(p.alteracoes && p.alteracoes.length ? { alteracoes: p.alteracoes } : {}),
+  ...(p.motivo ? { motivo: p.motivo } : {}),
+  status: 'sucesso',
+});
+
+/**
  * Cria ou regrava um romaneio EM MONTAGEM. Trava os pedidos que entraram e
  * libera os que sairam, tudo na mesma transacao. Devolve o id.
  */
@@ -181,9 +219,10 @@ export const salvarRomaneioEmMontagem = async (args: {
     pisoDoMes = doMes.docs.reduce((maior, d) => Math.max(maior, Number(d.data().numero) || 0), 0);
   }
 
-  return runTransaction(db, async (transaction) => {
+  const gravado = await runTransaction(db, async (transaction) => {
     let numero = romaneio.numero;
     let anteriores: string[] = [];
+    let antes: Romaneio | null = null;
     if (args.id) {
       const snap = await transaction.get(ref);
       if (!snap.exists() || snap.data().tenantId !== tenantId) throw new Error('Este romaneio não existe mais. Atualize a página.');
@@ -191,6 +230,7 @@ export const salvarRomaneioEmMontagem = async (args: {
       if (atual.status !== 'montagem') throw new Error(`Esta rota já está "${atual.status === 'em_rota' ? 'em rota' : atual.status}" e não pode mais ter pedidos trocados.`);
       numero = atual.numero;
       anteriores = atual.entregas.map((e) => e.pedidoId);
+      antes = atual;
     }
 
     const novos = romaneio.entregas.map((e) => e.pedidoId);
@@ -252,8 +292,21 @@ export const salvarRomaneioEmMontagem = async (args: {
         ...buildDocumentMetadata(uid, agora),
       });
     }
-    return { id: ref.id, numero };
+    return { id: ref.id, numero, antes };
   });
+
+  const rotulo = rotuloDoRomaneioNoHistorico(gravado.numero, romaneio.nome, romaneio.dataSaida);
+  const mudancas = pedidosQueMudaramNaRota(gravado.antes ? gravado.antes.entregas : [], romaneio.entregas);
+  const alteracoes = gravado.antes ? alteracoesDaRota(gravado.antes, romaneio) : [];
+  if (!gravado.antes || mudancas.entraram.length || mudancas.sairam.length || alteracoes.length) {
+    registrarNaRota({
+      tenantId, uid, romaneioId: gravado.id, rotulo,
+      acao: gravado.antes ? 'edicao' : 'criacao',
+      descricao: descricaoDaMontagem(tituloDoRomaneio(gravado.numero, romaneio.nome), !gravado.antes, mudancas, romaneio.entregas.length),
+      alteracoes,
+    });
+  }
+  return { id: gravado.id, numero: gravado.numero };
 };
 
 const lerNaTransacao = async (transaction: Parameters<Parameters<typeof runTransaction>[1]>[0], tenantId: string, id: string) => {
@@ -278,7 +331,7 @@ export const statusDosPedidos = async (tenantId: string, pedidoIds: string[]): P
 
 /** Libera a rota pro motorista: a lista de pedidos fica fechada. */
 export const liberarRomaneio = async (tenantId: string, uid: string, id: string): Promise<void> => {
-  await runTransaction(db, async (transaction) => {
+  const liberado = await runTransaction(db, async (transaction) => {
     const { ref, romaneio } = await lerNaTransacao(transaction, tenantId, id);
     const erro = erroParaLiberar(romaneio);
     if (erro) throw new Error(erro);
@@ -296,6 +349,14 @@ export const liberarRomaneio = async (tenantId: string, uid: string, id: string)
       updatedAt: serverTimestamp(),
       ...buildDocumentUpdateMetadata(uid, serverTimestamp(), 'Rota liberada para entrega'),
     });
+    return romaneio;
+  });
+  registrarNaRota({
+    tenantId, uid, romaneioId: id,
+    rotulo: rotuloDoRomaneioNoHistorico(liberado.numero, liberado.nome, liberado.dataSaida),
+    acao: 'liberacao',
+    descricao: `${tituloDoRomaneio(liberado.numero, liberado.nome)} liberada para entrega com ${liberado.entregas.length} pedido(s). Motorista: ${liberado.motoristaNome || 'não informado'}.`,
+    alteracoes: [{ campo: 'Situação', valorAnterior: 'Em montagem', valorNovo: 'Em rota' }],
   });
 };
 
@@ -303,7 +364,7 @@ export const liberarRomaneio = async (tenantId: string, uid: string, id: string)
 export const salvarDadosEmRota = async (tenantId: string, uid: string, id: string, romaneio: Romaneio): Promise<void> => {
   const erroAcerto = erroDoAcerto(romaneio.acerto);
   if (erroAcerto) throw new Error(erroAcerto);
-  await runTransaction(db, async (transaction) => {
+  const anterior = await runTransaction(db, async (transaction) => {
     const { ref, romaneio: atual } = await lerNaTransacao(transaction, tenantId, id);
     if (atual.status !== 'em_rota') throw new Error('Esta rota não está mais em andamento. Atualize a página.');
     transaction.update(ref, {
@@ -315,7 +376,18 @@ export const salvarDadosEmRota = async (tenantId: string, uid: string, id: strin
       updatedAt: serverTimestamp(),
       ...buildDocumentUpdateMetadata(uid, serverTimestamp(), 'Dados da rota alterados'),
     });
+    return atual;
   });
+  const alteracoes = alteracoesDaRota(anterior, { ...romaneio, acerto: acertoParaGravar(romaneio.acerto) });
+  if (alteracoes.length) {
+    registrarNaRota({
+      tenantId, uid, romaneioId: id,
+      rotulo: rotuloDoRomaneioNoHistorico(anterior.numero, anterior.nome, anterior.dataSaida),
+      acao: 'edicao',
+      descricao: `${tituloDoRomaneio(anterior.numero, anterior.nome)}: dados da rota alterados (${alteracoes.map((a) => a.campo).join(', ')}).`,
+      alteracoes,
+    });
+  }
 };
 
 export type RegistroDeEntrega = DadosDoRegistro;
@@ -329,7 +401,7 @@ export const registrarEntrega = async (args: {
   pedidoId: string;
   registro: RegistroDeEntrega;
 }): Promise<void> => {
-  await runTransaction(db, async (transaction) => {
+  const { romaneio, atual } = await runTransaction(db, async (transaction) => {
     const { ref, romaneio } = await lerNaTransacao(transaction, args.tenantId, args.id);
     if (romaneio.status !== 'em_rota') throw new Error('Só dá para registrar entrega numa rota que já saiu e ainda não foi fechada.');
     const indice = romaneio.entregas.findIndex((e) => e.pedidoId === args.pedidoId);
@@ -348,6 +420,18 @@ export const registrarEntrega = async (args: {
       updatedAt: serverTimestamp(),
       ...buildDocumentUpdateMetadata(args.uid, serverTimestamp(), `Entrega do pedido #${atual.numeroPedido}: ${args.registro.status}`),
     });
+    return { romaneio, atual };
+  });
+  registrarNaRota({
+    tenantId: args.tenantId, uid: args.uid, romaneioId: args.id,
+    rotulo: rotuloDoRomaneioNoHistorico(romaneio.numero, romaneio.nome, romaneio.dataSaida),
+    acao: 'entrega',
+    descricao: `${tituloDoRomaneio(romaneio.numero, romaneio.nome)}: ${descricaoDaEntrega(atual, args.registro)}`,
+    pedidoIds: [args.pedidoId],
+    alteracoes: atual.status !== args.registro.status
+      ? [{ campo: `Pedido #${atual.numeroPedido}`, valorAnterior: ROTULO_STATUS_ENTREGA[atual.status], valorNovo: ROTULO_STATUS_ENTREGA[args.registro.status] }]
+      : [],
+    ...(args.registro.status === 'nao_entregue' && args.registro.motivo ? { motivo: args.registro.motivo } : {}),
   });
 };
 

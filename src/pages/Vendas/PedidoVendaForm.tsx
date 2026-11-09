@@ -224,7 +224,9 @@ import DescontoInput, { type DescontoInputValue } from '../../components/finance
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import Swal from 'sweetalert2';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
-import HistoricoAuditoriaModal from '../../components/common/HistoricoAuditoriaModal';
+import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDomain';
 import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
@@ -507,6 +509,8 @@ const PedidoVendaForm: React.FC = () => {
   // Endereco e aba com o numero do pedido (/pedidos-venda/0035, 22/10/2026).
   useEnderecoComNumero({ ativo: isViewing, colecao: 'pedidos_venda', base: '/pedidos-venda', numero: numeroPedido, id });
   const [status, setStatus] = useState('Aberta');
+  // Quem cancelou e quando (aviso no topo do pedido cancelado, 09/11/2026).
+  const [cancelamentoInfo, setCancelamentoInfo] = useState<{ nome: string; quando: unknown; motivo: string } | null>(null);
   const [itens, setItens] = useState<ItemVenda[]>([]);
   const [orcamentoId, setOrcamentoId] = useState('');
   const [showDevolucaoModal, setShowDevolucaoModal] = useState(false);
@@ -653,7 +657,7 @@ const PedidoVendaForm: React.FC = () => {
   // (gravar/finalizar/cancelar). State aqui seria uma segunda copia da
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback, modoRotaPreVenda, configBonificacao } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback, modoRotaPreVenda, configBonificacao, userNome } = useAuth();
   // Bonificacao (30/10/2026): a empresa ligou e a pessoa pode bonificar (dono/gestor sempre).
   const podeBonificar = configBonificacao.ativa && (hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_BONIFICAR));
   // Rota na pre-venda (21/10/2026): pergunta "Rota 1 ou 2?" ao gravar a pre-venda (rotaPreVendaDomain.ts).
@@ -1223,6 +1227,9 @@ const PedidoVendaForm: React.FC = () => {
             dataVendaEscolhidaPeloUsuario.current = true;
             setNumeroPedido(p.numeroPedido || '');
             setStatus(p.status || 'Finalizada');
+            setCancelamentoInfo(p.status === 'Cancelada'
+              ? { nome: String(p.canceladaPorNome || ''), quando: p.canceladaEm || p.alteradoEm || p.updatedAt || null, motivo: String(p.motivoCancelamento || p.motivoRecusa || '') }
+              : null);
             setOrigemPedido(resolveOrigemPedido(p));
             setStatusConferencia((p.statusConferencia as StatusConferencia) || '');
             setConferidoPorNome(p.conferidoPorNome || '');
@@ -5012,7 +5019,7 @@ const PedidoVendaForm: React.FC = () => {
           ...(saleSnap.data().comissao ? { comissao: cancelCommissionSnapshot(saleSnap.data().comissao) } : {}),
           motivoCancelamento: motivoDoCancelamento,
           canceladaPor: currentUser.uid,
-          canceladaPorNome: currentUser.displayName || currentUser.email || 'Usuário',
+          canceladaPorNome: userNome || currentUser.displayName || currentUser.email || 'Usuário',
           canceladaEm: serverTimestamp(),
           updatedAt: serverTimestamp(),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Venda cancelada'),
@@ -5384,7 +5391,9 @@ const PedidoVendaForm: React.FC = () => {
             <p className="page-subtitle">
               {isViewing
                 ? (status === 'Cancelada'
-                  ? 'Esta venda foi CANCELADA'
+                  ? (textoQuemEQuando('Cancelado', cancelamentoInfo?.nome, cancelamentoInfo?.quando)
+                    ? `${textoQuemEQuando('Cancelado', cancelamentoInfo?.nome, cancelamentoInfo?.quando)}${cancelamentoInfo?.motivo ? `. Motivo: ${cancelamentoInfo.motivo}` : ''}`
+                    : 'Este pedido foi CANCELADO')
                   : bonificacaoAberta
                     ? `Pedido de bonificação — só brindes, sem cobrança${bonificacaoAberta.origemNumero ? `, ligado à venda #${bonificacaoAberta.origemNumero}` : ''}. Nota própria (CFOP de bonificação).`
                     : isPreVendaAberta
@@ -5487,10 +5496,13 @@ const PedidoVendaForm: React.FC = () => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          {isViewing && canVerAuditoria && (
-            <button className="btn-secondary" onClick={() => setAuditoriaAberta(true)} title="Ver histórico de auditoria">
-              <History size={18} />
-            </button>
+          {/* Historico de alteracoes (09/11/2026): em "Mais acoes" na venda e
+              na pre-venda; nos outros estados (cancelada, pedido do agente)
+              num "Mais opcoes" so' com ele. Nunca solto no topo. */}
+          {isViewing && canVerAuditoria && status !== 'Finalizada' && !isPreVendaAberta && (
+            <MenuMaisOpcoes itens={[
+              { texto: 'Histórico de alterações', Icone: History, titulo: 'Quem criou, alterou e cancelou este pedido, com data, hora e motivo', onClick: () => setAuditoriaAberta(true) },
+            ]} />
           )}
           {/* Pre-venda em aberto tambem imprime. Ate aqui, papel nenhum
               saia enquanto o pedido nao fosse faturado -- e' o inverso do
@@ -5617,6 +5629,10 @@ const PedidoVendaForm: React.FC = () => {
                         desabilitado={isLoading || itens.every(item => (item.quantidade - (item.quantidadeJaDevolvida || 0)) <= 0)}
                         onClick={() => { setMaisAcoesAberto(false); setShowDevolucaoModal(true); }} />
                     )}
+                    {canVerAuditoria && (
+                      <ItemMaisAcoes Icone={History} texto="Histórico de alterações" titulo="Quem criou, alterou e cancelou este pedido, com data, hora e motivo"
+                        onClick={() => { setMaisAcoesAberto(false); setAuditoriaAberta(true); }} />
+                    )}
                     {canEditVenda && (
                       <>
                         <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '6px 0' }} />
@@ -5677,6 +5693,10 @@ const PedidoVendaForm: React.FC = () => {
                       titulo="Cancela a pré-venda e registra uma troca sem cobrança com os mesmos itens"
                       onClick={() => { setMaisAcoesAberto(false); void handleConverterEmTroca(); }} />
                   )}
+                  {canVerAuditoria && (
+                    <ItemMaisAcoes Icone={History} texto="Histórico de alterações" titulo="Quem criou, alterou e cancelou esta pré-venda, com data, hora e motivo"
+                      onClick={() => { setMaisAcoesAberto(false); setAuditoriaAberta(true); }} />
+                  )}
                   {canCancelarPreVenda && (
                     <>
                       <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '6px 0' }} />
@@ -5713,12 +5733,12 @@ const PedidoVendaForm: React.FC = () => {
         </div>
       </div>
 
-      <HistoricoAuditoriaModal
+      <HistoricoAlteracoesModal
         open={auditoriaAberta}
         onClose={() => setAuditoriaAberta(false)}
         tenantId={tenantId}
         registroId={id || ''}
-        titulo={`Auditoria — ${isPreVendaAberta ? 'Pré-venda' : 'Pedido de Venda'} #${numeroPedido}`}
+        titulo={`${isPreVendaAberta ? 'Pré-venda' : 'Pedido'} ${numeroPedido}`}
       />
 
       {/* Identificacao do vendedor. Fechar ou errar aqui NAO mexe na venda:

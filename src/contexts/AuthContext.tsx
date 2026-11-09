@@ -43,7 +43,8 @@ import { DEFAULT_MODO_ROTA_PRE_VENDA, parseModoRotaPreVenda, type ModoRotaPreVen
 import { DEFAULT_VALORES_NA_MINUTA_DO_APP, parseValoresNaMinutaDoApp, type ValoresNaMinutaDoApp } from '../utils/minutaDomain';
 import { DEFAULT_CONFIG_BONIFICACAO, parseConfigBonificacao, type ConfigBonificacao } from '../utils/bonificacaoDomain';
 import { DEFAULT_CONFERENCIA_MERCADORIA } from '../utils/conferenciaDomain';
-import { ehGestorDoGrupo, filiaisDoUsuario, lerGrupo, podeUsarOutrasFiliais, type FilialDoGrupo, type GrupoEmpresarial, lerLimiteFiliais } from '../utils/filialDomain';
+import { ehGestorDoGrupo, filiaisDoUsuario, lerGrupo, podeUsarOutrasFiliais, rotuloFilial, type FilialDoGrupo, type GrupoEmpresarial, lerLimiteFiliais } from '../utils/filialDomain';
+import { definirContextoDoHistorico } from '../services/historicoContexto';
 import { entrarNaFilial } from '../services/filialService';
 import { DEFAULT_TRABALHA_COM_CONDICIONAL, parseTrabalhaComCondicional } from '../utils/condicionalDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../utils/loteDomain';
@@ -836,6 +837,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     identificacaoVendedorAtiva: exigirIdentificacaoVendedor,
   });
   const vendasVisiveisDeUsuarioId = restrictedToOwnSales ? (currentUser?.uid ?? null) : null;
+
+  // Histórico de alterações (09/11/2026): todo registro gravado pela tela leva
+  // o nome do cadastro, o papel, a empresa e a filial de quem esta' logado.
+  useEffect(() => {
+    definirContextoDoHistorico(currentUser ? {
+      usuarioId: currentUser.uid,
+      usuarioEmail: currentUser.email,
+      usuarioNome: userNome || null,
+      papel: userRole,
+      nivelAcesso,
+      dono: isOwner,
+      empresaId: homeTenantId,
+      filialId: tenantId,
+      filialNome: filialAtual ? rotuloFilial(filialAtual) : (selectedTenant?.nomeOficina || null),
+    } : null);
+  }, [currentUser, userNome, userRole, nivelAcesso, isOwner, homeTenantId, tenantId, filialAtual, selectedTenant]);
 
   return (
     <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome }}>

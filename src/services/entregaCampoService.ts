@@ -7,11 +7,17 @@ import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
 import { LADO_MAXIMO_FOTO_PX, TAMANHO_MAXIMO_FOTO_BYTES } from '../utils/osCampoDomain';
 import {
   caminhosDoRegistro,
+  descricaoDaEntrega,
   erroDoRegistroDeEntrega,
   registroParaGravar,
+  rotuloDoRomaneioNoHistorico,
+  tituloDoRomaneio,
+  ROTULO_STATUS_ENTREGA,
   type DadosDoRegistro,
   type EntregaRomaneio,
+  type Romaneio,
 } from '../utils/romaneioDomain';
+import { createAuditLog } from './logService';
 import { adicionarPendencia, novoIdPendencia } from '../utils/filaOffline';
 import type { PendenciaCanhoto } from '../utils/offlineDomain';
 
@@ -59,6 +65,8 @@ export const registrarEntregaNoApp = async (p: {
   romaneioId: string;
   entrega: EntregaRomaneio;
   registro: DadosDoRegistro;
+  /** Para o Historico de alteracoes dizer "Rota 02" (numero, nome e data de saida). */
+  rota?: Pick<Romaneio, 'numero' | 'nome' | 'dataSaida'>;
 }): Promise<void> => {
   const erro = erroDoRegistroDeEntrega({ ...p.registro, valorTotalCentavos: p.entrega.valorTotalCentavos });
   if (erro) throw new Error(erro);
@@ -72,6 +80,25 @@ export const registrarEntregaNoApp = async (p: {
   } catch (e) {
     throw erroEmPortugues(e, 'Não foi possível gravar a entrega. Tente de novo.');
   }
+  // Historico de alteracoes (09/11/2026): sem sinal, entra na fila junto com o registro.
+  const titulo = p.rota ? tituloDoRomaneio(p.rota.numero, p.rota.nome) : 'Rota';
+  createAuditLog({
+    tenantId: p.tenantId,
+    usuarioId: p.usuario.id,
+    usuarioEmail: p.usuario.email,
+    modulo: 'romaneios',
+    acao: 'entrega',
+    descricao: `${titulo}: ${descricaoDaEntrega(p.entrega, p.registro)} (pelo app do motorista)`,
+    registroRelacionadoId: p.romaneioId,
+    documentosRelacionados: [p.entrega.pedidoId],
+    documentoTipo: 'romaneio',
+    ...(p.rota ? { documentoNumero: rotuloDoRomaneioNoHistorico(p.rota.numero, p.rota.nome, p.rota.dataSaida) } : {}),
+    ...(p.entrega.status !== p.registro.status
+      ? { alteracoes: [{ campo: `Pedido #${p.entrega.numeroPedido}`, valorAnterior: ROTULO_STATUS_ENTREGA[p.entrega.status], valorNovo: ROTULO_STATUS_ENTREGA[p.registro.status] }] }
+      : {}),
+    ...(p.registro.status === 'nao_entregue' && p.registro.motivo ? { motivo: p.registro.motivo } : {}),
+    status: 'sucesso',
+  });
 };
 
 /** Sobe a foto (ja' reduzida) e aponta o registro para ela. Usado online e pela sincronizacao. */

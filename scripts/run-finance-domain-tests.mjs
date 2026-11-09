@@ -187,6 +187,7 @@ const testFiles = [
   join(temporaryDirectory, 'tests', 'cashbackDomain.test.js'),
   join(temporaryDirectory, 'tests', 'desempenhoVendedorDomain.test.js'),
   join(temporaryDirectory, 'tests', 'bonificacaoDomain.test.js'),
+  join(temporaryDirectory, 'tests', 'historicoAlteracoesDomain.test.js'),
 ];
 
 try {
@@ -194,6 +195,7 @@ try {
     resolve('node_modules/typescript/bin/tsc'),
     'tests/financeDomain.test.ts',
     'tests/romaneioDomain.test.ts',
+    'tests/historicoAlteracoesDomain.test.ts',
     'tests/temaDomain.test.ts',
     'tests/avatarDomain.test.ts',
     'tests/chipStatusDomain.test.ts',

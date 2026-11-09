@@ -11,6 +11,9 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { montarDocumentoListaSeparacao, type DocumentoListaSeparacao } from '../../utils/listaSeparacaoDomain';
 import { lerItensDosPedidos } from '../../services/listaSeparacaoService';
 import { FiltroColuna, OpcoesFiltro, OpcoesFiltroMultiplo, opcoesDaColuna } from '../../components/common/FiltroColuna';
@@ -133,6 +136,9 @@ const RomaneioForm: React.FC = () => {
   const podeConfigurar = hasTenantFullAccess(userRole, isOwner);
   // Reabrir/cancelar rota ja' fechada (15/10/2026): permissao propria; dono e administrador ja' tem.
   const podeMexerEncerrado = podeConfigurar || Boolean(userPermissions?.includes(PERMISSAO_ROMANEIO_ENCERRADO));
+  // Historico de alteracoes (09/11/2026): dono, administrador e quem tem a permissao.
+  const podeVerHistorico = podeConfigurar || Boolean(userPermissions?.includes('administrativo.logs'));
+  const [historicoAberto, setHistoricoAberto] = useState(false);
   const { items: motoristas } = useTenantCollection<MotoristaBasico>('motoristas', tenantId);
   const { items: frota } = useTenantCollection<VeiculoDaFrota & { id: string }>('frota', tenantId);
 
@@ -563,9 +569,28 @@ const RomaneioForm: React.FC = () => {
               {romaneio.status === 'fechado' && podeMexerEncerrado && ' Esqueceu algo? Use "Reabrir".'}
               {romaneio.status === 'cancelado' && 'Romaneio cancelado. Os pedidos voltaram a ficar livres.'}
             </p>
+            {/* Quem encerrou e quando, a vista (09/11/2026): o cliente achou
+                que o sistema "bugou" numa rota que ele mesmo cancelou. */}
+            {(() => {
+              const acao = romaneio.status === 'cancelado' ? 'cancelado' : romaneio.status === 'fechado' ? 'fechado' : '';
+              if (!acao) return null;
+              const evento = [...(romaneio.historico || [])].reverse().find((e) => e.acao === acao);
+              const texto = evento ? textoQuemEQuando(acao === 'cancelado' ? 'Cancelado' : 'Fechado', evento.usuarioNome, evento.emIso) : '';
+              if (!texto && !(acao === 'cancelado' && podeVerHistorico)) return null;
+              return (
+                <p style={{ margin: '6px 0 0', fontSize: '13.5px', fontWeight: 700, color: acao === 'cancelado' ? '#ef4444' : '#10b981' }}>
+                  {texto ? `${texto}${evento?.motivo ? `. Motivo: ${evento.motivo}` : ''}` : 'Quem cancelou está em Mais opções › Histórico de alterações.'}
+                </p>
+              );
+            })()}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {id && podeVerHistorico && (
+            <MenuMaisOpcoes itens={[
+              { texto: 'Histórico de alterações', Icone: History, titulo: 'Quem montou, liberou, registrou entregas, fechou, reabriu e cancelou esta rota, com data, hora e motivo', onClick: () => setHistoricoAberto(true) },
+            ]} />
+          )}
           {podeConfigurar && !encerrado && botao('Configurar', <Settings2 size={17} />, () => setConfigAberta(true))}
           {botao('Imprimir', <Printer size={17} />, () => setImprimindo(true))}
           {botao(montandoLista ? 'Montando a lista...' : 'Lista de separação', <PackageCheck size={17} />, () => { if (!montandoLista) void abrirListaSeparacao(); })}
@@ -865,6 +890,16 @@ const RomaneioForm: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {id && (
+        <HistoricoAlteracoesModal
+          open={historicoAberto}
+          onClose={() => setHistoricoAberto(false)}
+          tenantId={tenantId}
+          registroId={id}
+          titulo={titulo}
+        />
       )}
 
       {adicionarAberto && tenantId && (

@@ -113,7 +113,7 @@ export const MODULE_GROUPS: ModuleCatalogGroup[] = [
     { id: 'admin.config', label: 'Configurações Gerais' },
     { id: 'admin.backup', label: 'Backup e Restauração' },
     { id: 'logs.relatorios_diversos', label: 'Relatórios Diversos' },
-    { id: 'logs.sistema', label: 'Logs do Sistema' }
+    { id: 'logs.sistema', label: 'Histórico de alterações' }
   ]}
 ];
 

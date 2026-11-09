@@ -50,6 +50,8 @@ async function authenticate(req, res, next) {
     let permissoes = [];
     // Nivel de acesso (funcionario/supervisor/gerente): o gerente cria login (26/10/2026).
     let nivelAcesso = 'funcionario';
+    // Historico de alteracoes (09/11/2026): o nome do cadastro vai em cada registro.
+    let nome = '';
 
     if (userDoc.exists) {
       const userData = userDoc.data();
@@ -63,6 +65,7 @@ async function authenticate(req, res, next) {
       homeTenantId = userData.tenantId || uid;
       permissoes = Array.isArray(userData.permissoes) ? userData.permissoes : [];
       nivelAcesso = parseNivelAcesso(userData.nivelAcesso);
+      nome = String(userData.nome || userData.nomeResponsavel || '').trim();
 
       // Funcionario inativado perde o acesso ao servidor tambem, nao so' a
       // tela (mesma regra de perfilAtivo() nas firestore.rules, 2026-09-29).
@@ -92,6 +95,12 @@ async function authenticate(req, res, next) {
       homeTenantId,
       permissoes,
       nivelAcesso,
+      nome: nome || email || uid,
+      // Dono da empresa: o Master da empresa casa (mesma regra do AuthContext).
+      dono: role === 'Master' && homeTenantId === uid,
+      // Caminho da tela que chamou (fetchComTimeout manda em `_tela`): diz no
+      // historico se veio do sistema, do app Vendas, do app do motorista...
+      telaCliente: typeof req.query?._tela === 'string' ? req.query._tela.slice(0, 200) : '',
       isPlatformAdmin: isPlatformAdminRole(role),
       isTenantManager: isTenantManagerRole(role)
     };

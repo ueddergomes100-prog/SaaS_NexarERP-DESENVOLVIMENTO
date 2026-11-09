@@ -4,7 +4,6 @@ const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { ErroRomaneio, fecharRomaneio, reabrirRomaneio, cancelarRomaneio } = require('../services/romaneios');
 const { rotasAbertas, colocarPedidoNaRota } = require('../services/rotaPreVenda');
-const { textoDoPlano } = require('../domain/romaneioDomain');
 
 /**
  * ROMANEIO DE ENTREGA (15/10/2026) -- ver services/romaneios.js.
@@ -39,7 +38,8 @@ const nomeDoUsuario = async (user) => {
 const contexto = async (req) => ({
   user: req.user,
   id: req.body?.id,
-  usuarioNome: await nomeDoUsuario(req.user),
+  // O middleware ja' traz o nome do cadastro (09/11/2026); a leitura fica de reserva.
+  usuarioNome: req.user.nome && req.user.nome !== req.user.email ? req.user.nome : await nomeDoUsuario(req.user),
   agoraIso: new Date().toISOString(),
 });
 
@@ -67,6 +67,9 @@ router.post('/colocar-pedido', async (req, res) => {
           ? `Pedido colocado na ${r.rota.titulo} ao gravar a pré-venda.`
           : `Pré-venda anotada para a ${r.rota.titulo} (entra na rota ao faturar).`,
         registroId: String(req.body?.pedidoId || ''),
+        // Aparece tambem no historico da rota (09/11/2026).
+        documentosRelacionados: [r.rota.id],
+        documentoTipo: 'pedido',
       });
     }
     return res.json(r);
@@ -75,20 +78,11 @@ router.post('/colocar-pedido', async (req, res) => {
   }
 });
 
+// Fechar, reabrir e cancelar gravam o Historico de alteracoes DENTRO da
+// transacao (services/romaneios.js, 09/11/2026): ou grava os dois, ou nenhum.
 router.post('/fechar', async (req, res) => {
   try {
     const r = await fecharRomaneio({ ...(await contexto(req)), corpo: req.body || {} });
-    const financeiro = textoDoPlano(r.contagem);
-    registrarLog(req.user, {
-      modulo: 'romaneios',
-      acao: 'fechamento',
-      descricao: r.refechamento
-        ? `${r.titulo}: acerto fechado de novo depois de reaberto${r.alteracoes.length ? ` (${r.alteracoes.length} alteração(ões))` : ' (sem alteração)'}${financeiro ? `. Financeiro: ${financeiro}` : ''}`
-        : `${r.titulo}: acerto fechado${financeiro ? `. Financeiro: ${financeiro}` : ''}`,
-      registroId: String(req.body.id),
-      alteracoes: r.alteracoes.length ? r.alteracoes : null,
-      critico: r.refechamento,
-    });
     return res.json(r);
   } catch (erro) {
     return responderErro(res, erro, 'fechar o acerto');
@@ -98,14 +92,6 @@ router.post('/fechar', async (req, res) => {
 router.post('/reabrir', async (req, res) => {
   try {
     const r = await reabrirRomaneio({ ...(await contexto(req)), motivo: req.body?.motivo });
-    const fora = r.saem.length ? ` Ficaram de fora (já estão em outra rota): ${r.saem.map((s) => `#${s.numeroPedido} na ${s.outraRota}`).join(', ')}.` : '';
-    registrarLog(req.user, {
-      modulo: 'romaneios',
-      acao: 'reabertura',
-      descricao: `${r.titulo} reaberta. Motivo: ${String(req.body.motivo).trim()}.${fora}`,
-      registroId: String(req.body.id),
-      critico: true,
-    });
     return res.json(r);
   } catch (erro) {
     return responderErro(res, erro, 'reabrir o romaneio');
@@ -115,19 +101,6 @@ router.post('/reabrir', async (req, res) => {
 router.post('/cancelar', async (req, res) => {
   try {
     const r = await cancelarRomaneio({ ...(await contexto(req)), motivo: req.body?.motivo });
-    const motivo = String(req.body?.motivo || '').trim();
-    registrarLog(req.user, {
-      modulo: 'romaneios',
-      acao: 'cancelamento',
-      descricao: [
-        `${r.titulo} cancelada${r.statusAnterior === 'fechado' ? ' depois de fechada' : ''}.`,
-        motivo ? `Motivo: ${motivo}.` : '',
-        r.desfez ? `${r.liberados} pedido(s) liberado(s) para outra rota.` : '',
-        r.despesasCanceladas ? `${r.despesasCanceladas} despesa(s) cancelada(s) no financeiro.` : '',
-      ].filter(Boolean).join(' '),
-      registroId: String(req.body.id),
-      critico: true,
-    });
     return res.json(r);
   } catch (erro) {
     return responderErro(res, erro, 'cancelar o romaneio');

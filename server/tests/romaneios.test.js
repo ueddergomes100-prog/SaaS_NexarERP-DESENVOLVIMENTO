@@ -193,6 +193,37 @@ test('cancelar antes de qualquer entrega continua simples: sem motivo e sem perm
   );
 });
 
+test('cancelar grava quem cancelou na rota e no Histórico de alterações, na mesma transação', async () => {
+  const fake = criarBancoFalso({
+    'romaneios/R3': { tenantId: 'emp', numero: 2, nome: '', status: 'montagem', dataSaida: '2026-11-04', entregas: [entrega(375, 'pendente')] },
+    'romaneio_pedidos/p375': { tenantId: 'emp', romaneioId: 'R3', situacao: 'em_romaneio' },
+  });
+  const s = carregar(fake.db);
+  const usuario = { ...LOGISTICA, nome: 'MARIA DA LOJA', role: 'Funcionario', homeTenantId: 'emp', telaCliente: '/operacoes/romaneios/R3' };
+  await s.cancelarRomaneio({ user: usuario, id: 'R3', motivo: 'cancelei por engano', usuarioNome: 'MARIA DA LOJA', agoraIso: AGORA });
+
+  const romaneio = fake.ler('romaneios/R3');
+  assert.equal(romaneio.canceladoPor, 'log');
+  assert.equal(romaneio.canceladoPorNome, 'MARIA DA LOJA');
+
+  const registros = fake.listar('empresas/emp/logs/');
+  assert.equal(registros.length, 1);
+  const [r] = registros;
+  assert.equal(r.acao, 'cancelamento');
+  assert.equal(r.usuarioId, 'log');
+  assert.equal(r.usuarioNome, 'MARIA DA LOJA');
+  assert.equal(r.usuarioPapel, 'Funcionário');
+  assert.equal(r.registroRelacionadoId, 'R3');
+  assert.deepEqual(r.documentosRelacionados, ['R3', 'p375']);
+  assert.equal(r.documentoNumero, 'Rota 02 (saída 04/11/2026)');
+  assert.equal(r.motivo, 'cancelei por engano');
+  assert.equal(r.tela, 'Romaneio de Entrega');
+  assert.equal(r.origem, 'sistema');
+  assert.equal(r.critical, true);
+  assert.ok(r.dataHora && r.dataHora.__timestamp, 'hora do servidor');
+  assert.deepEqual(r.alteracoes, [{ campo: 'Situação', valorAnterior: 'Em montagem', valorNovo: 'Cancelado' }]);
+});
+
 test('romaneio de outra empresa não existe para quem chama', async () => {
   const fake = banco();
   const s = carregar(fake.db);

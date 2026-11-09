@@ -22,7 +22,10 @@ const {
   situacaoDoPedidoAoEncerrar,
   tituloDoRomaneio,
   travaLivreOuDestaRota,
+  rotuloDoRomaneioNoHistorico,
+  textoDoPlano,
 } = require('../domain/romaneioDomain');
+const { registrarLogNaTransacao } = require('./auditoria');
 const { CATEGORIA_DESPESA_ROTA, descricaoDaDespesaNoFinanceiro } = require('../domain/rotaDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 
@@ -105,6 +108,8 @@ const lerDespesasLancadas = async (tx, user, romaneio) => {
 };
 
 const historicoCom = (romaneio, evento) => [...(romaneio.historico || []), evento];
+
+const ROTULO_SITUACAO = { montagem: 'Em montagem', em_rota: 'Em rota', fechado: 'Fechado', cancelado: 'Cancelado' };
 
 // O que o lancamento da despesa diz sobre a rota -- muda quando o acerto e' refeito.
 const CAMPOS_COMPARADOS = ['descricao', 'data', 'dataPagamento', 'valorCentavos', 'motoristaId', 'motoristaNome', 'tipoDespesaRota', 'veiculoId', 'veiculoNome', 'veiculoPlaca'];
@@ -287,6 +292,7 @@ const fecharRomaneio = async ({ user, id: idBruto, corpo, usuarioNome, agoraIso 
       status: 'fechado',
       fechadoEm: agora,
       fechadoPor: user.uid,
+      fechadoPorNome: usuarioNome || '',
       despesasRotaId,
       historico: historicoCom(gravado, eventoDoHistorico('fechado', usuarioNome, agoraIso)),
       ...(reabertura ? { fechamentoAnterior: APAGAR() } : {}),
@@ -294,13 +300,31 @@ const fecharRomaneio = async ({ user, id: idBruto, corpo, usuarioNome, agoraIso 
       ...buildDocumentUpdateMetadata(user.uid, agora, reabertura ? 'Acerto fechado de novo, depois de reaberto' : 'Acerto fechado'),
     });
 
-    return {
+    const resultado = {
       titulo,
       despesasLancadas: contagem.novas,
       contagem: { ...contagem, alteradas: atualizacoes.length },
       refechamento: Boolean(reabertura),
       alteracoes: reabertura ? alteracoesDesdeOFechamento(reabertura, final) : [],
     };
+    // Historico de alteracoes (09/11/2026): na MESMA transacao -- ou grava os dois, ou nenhum.
+    const financeiro = textoDoPlano(resultado.contagem);
+    registrarLogNaTransacao(tx, user, {
+      modulo: 'romaneios',
+      acao: 'fechamento',
+      descricao: resultado.refechamento
+        ? `${titulo}: acerto fechado de novo depois de reaberto${resultado.alteracoes.length ? ` (${resultado.alteracoes.length} alteração(ões))` : ' (sem alteração)'}${financeiro ? `. Financeiro: ${financeiro}` : ''}`
+        : `${titulo}: acerto fechado${financeiro ? `. Financeiro: ${financeiro}` : ''}`,
+      registroId: id,
+      documentoTipo: 'romaneio',
+      documentoNumero: rotuloDoRomaneioNoHistorico(final.numero, final.nome, final.dataSaida),
+      alteracoes: [
+        { campo: 'Situação', valorAnterior: 'Em rota', valorNovo: 'Fechado' },
+        ...resultado.alteracoes,
+      ],
+      critico: resultado.refechamento,
+    });
+    return resultado;
   });
 };
 
@@ -342,15 +366,30 @@ const reabrirRomaneio = async ({ user, id: idBruto, motivo, usuarioNome, agoraIs
       fechamentoAnterior: fotoDoFechamento(romaneio),
       reabertoEm: agora,
       reabertoPor: user.uid,
+      reabertoPorNome: usuarioNome || '',
       motivoReabertura: String(motivo).trim(),
       historico: historicoCom(romaneio, eventoDoHistorico('reaberto', usuarioNome, agoraIso, motivo)),
       updatedAt: agora,
       ...buildDocumentUpdateMetadata(user.uid, agora, `Romaneio reaberto: ${String(motivo).trim()}`),
     });
-    return {
+    const resultado = {
       titulo,
       saem: saem.map((s) => ({ pedidoId: s.entrega.pedidoId, numeroPedido: s.entrega.numeroPedido, outraRota: s.outraRota })),
     };
+    const fora = resultado.saem.length ? ` Ficaram de fora (já estão em outra rota): ${resultado.saem.map((s) => `#${s.numeroPedido} na ${s.outraRota}`).join(', ')}.` : '';
+    registrarLogNaTransacao(tx, user, {
+      modulo: 'romaneios',
+      acao: 'reabertura',
+      descricao: `${titulo} reaberta. Motivo: ${String(motivo).trim()}.${fora}`,
+      registroId: id,
+      documentosRelacionados: resultado.saem.map((s) => s.pedidoId),
+      documentoTipo: 'romaneio',
+      documentoNumero: rotuloDoRomaneioNoHistorico(romaneio.numero, romaneio.nome, romaneio.dataSaida),
+      motivo: String(motivo).trim(),
+      alteracoes: [{ campo: 'Situação', valorAnterior: 'Fechado', valorNovo: 'Em rota' }],
+      critico: true,
+    });
+    return resultado;
   });
 };
 
@@ -412,13 +451,34 @@ const cancelarRomaneio = async ({ user, id: idBruto, motivo, usuarioNome, agoraI
       status: 'cancelado',
       canceladoEm: agora,
       canceladoPor: user.uid,
+      canceladoPorNome: usuarioNome || '',
       ...(motivoLimpo ? { motivoCancelamento: motivoLimpo } : {}),
       ...(dados.fechamentoAnterior ? { fechamentoAnterior: APAGAR() } : {}),
       historico: historicoCom(romaneio, eventoDoHistorico('cancelado', usuarioNome, agoraIso, motivoLimpo)),
       updatedAt: agora,
       ...buildDocumentUpdateMetadata(user.uid, agora, motivoLimpo ? `Romaneio cancelado: ${motivoLimpo}` : 'Romaneio cancelado'),
     });
-    return { titulo, desfez: desfaz, statusAnterior: romaneio.status, liberados, despesasCanceladas: ativas.length };
+    const resultado = { titulo, desfez: desfaz, statusAnterior: romaneio.status, liberados, despesasCanceladas: ativas.length };
+    // Historico de alteracoes (09/11/2026): na MESMA transacao do cancelamento.
+    // E' este registro que prova quem cancelou a rota (caso da "Rota 02").
+    registrarLogNaTransacao(tx, user, {
+      modulo: 'romaneios',
+      acao: 'cancelamento',
+      descricao: [
+        `${titulo} cancelada${romaneio.status === 'fechado' ? ' depois de fechada' : ''}.`,
+        motivoLimpo ? `Motivo: ${motivoLimpo}.` : '',
+        desfaz ? `${liberados} pedido(s) liberado(s) para outra rota.` : `${romaneio.entregas.length} pedido(s) voltaram a ficar livres.`,
+        ativas.length ? `${ativas.length} despesa(s) cancelada(s) no financeiro.` : '',
+      ].filter(Boolean).join(' '),
+      registroId: id,
+      documentosRelacionados: romaneio.entregas.map((e) => e.pedidoId).slice(0, 11),
+      documentoTipo: 'romaneio',
+      documentoNumero: rotuloDoRomaneioNoHistorico(romaneio.numero, romaneio.nome, romaneio.dataSaida),
+      ...(motivoLimpo ? { motivo: motivoLimpo } : {}),
+      alteracoes: [{ campo: 'Situação', valorAnterior: ROTULO_SITUACAO[romaneio.status] || romaneio.status, valorNovo: 'Cancelado' }],
+      critico: true,
+    });
+    return resultado;
   });
 };
 

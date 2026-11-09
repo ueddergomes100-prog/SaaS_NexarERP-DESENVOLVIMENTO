@@ -27,6 +27,7 @@
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
 import type { DespesaRota } from './rotaDomain';
 import { STATUS_PRE_VENDA } from './preVendaDomain';
+import { diferencasEntre, type MudancaDeCampo } from './historicoAlteracoesDomain';
 
 export type StatusRomaneio = 'montagem' | 'em_rota' | 'fechado' | 'cancelado';
 export type StatusEntrega = 'pendente' | 'entregue' | 'nao_entregue';
@@ -1190,4 +1191,108 @@ export const alteracoesDesdeOFechamento = (antes: FotoDoFechamento, depois: Roma
     comparar(`Pedido #${a.numeroPedido}`, situacao(a), situacao(b ? { status: b.status, recebidoCentavos: Number(b.recebidoCentavos) || 0 } : undefined));
   });
   return lista;
+};
+
+// ---------------------------------------------------------------------------
+// HISTORICO DE ALTERACOES (09/11/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Como a rota aparece no Histórico de alterações: "Rota 02 DANIELA (saída
+ * 04/11/2026)". O numero recomeca todo mes, entao so' o numero nao identifica.
+ */
+export const rotuloDoRomaneioNoHistorico = (numero: number, nome: string, dataSaida: string): string => {
+  const titulo = tituloDoRomaneio(numero, nome);
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(String(dataSaida || '')) ? String(dataSaida).split('-').reverse().join('/') : '';
+  return data ? `${titulo} (saída ${data})` : titulo;
+};
+
+const dataBrDoHistorico = (valor: unknown): string => (
+  /^\d{4}-\d{2}-\d{2}$/.test(String(valor || '')) ? String(valor).split('-').reverse().join('/') : String(valor ?? '')
+);
+
+const veiculoDoHistorico = (r: Pick<Romaneio, 'veiculoDescricao' | 'veiculoPlaca'>): string => (
+  [limpar(r.veiculoDescricao), limpar(r.veiculoPlaca)].filter(Boolean).join(' — ')
+);
+
+const acertoDoHistorico = (acerto: unknown): string => (
+  Array.isArray(acerto)
+    ? (acerto as LancamentoAcerto[])
+      .filter((l) => l && (Number(l.valorCentavos) || 0) !== 0)
+      .map((l) => `${limpar(l.descricao) || limpar(l.tipo)}: ${moeda(Number(l.valorCentavos) || 0)}`)
+      .join('; ')
+    : ''
+);
+
+/** O que mudou nos dados da rota (montagem e retorno), com o nome que a loja usa. */
+export const alteracoesDaRota = (antes: Partial<Romaneio> | null, depois: Partial<Romaneio>): MudancaDeCampo[] => {
+  const plano = (r: Partial<Romaneio> | null) => (r ? {
+    nome: limpar(r.nome).toUpperCase(),
+    motorista: limpar(r.motoristaNome),
+    veiculo: veiculoDoHistorico({ veiculoDescricao: r.veiculoDescricao || '', veiculoPlaca: r.veiculoPlaca || '' }),
+    dataSaida: dataBrDoHistorico(r.dataSaida),
+    horarioSaida: limpar(r.horarioSaida),
+    kmSaida: r.kmSaida ?? '',
+    kmChegada: r.kmChegada ?? '',
+    horarioChegada: limpar(r.horarioChegada),
+    observacao: limpar(r.observacao),
+    acerto: acertoDoHistorico(r.acerto),
+    observacaoAcerto: limpar(r.observacaoAcerto),
+  } : {});
+  return diferencasEntre(plano(antes), plano(depois), [
+    { campo: 'nome', rotulo: 'Nome da rota' },
+    { campo: 'motorista', rotulo: 'Motorista' },
+    { campo: 'veiculo', rotulo: 'Veículo' },
+    { campo: 'dataSaida', rotulo: 'Data de saída' },
+    { campo: 'horarioSaida', rotulo: 'Horário de saída' },
+    { campo: 'kmSaida', rotulo: 'KM de saída' },
+    { campo: 'kmChegada', rotulo: 'KM de chegada' },
+    { campo: 'horarioChegada', rotulo: 'Horário de chegada' },
+    { campo: 'observacao', rotulo: 'Observação' },
+    { campo: 'acerto', rotulo: 'Acerto' },
+    { campo: 'observacaoAcerto', rotulo: 'Observação do acerto' },
+  ]);
+};
+
+/** Pedidos que entraram e sairam da rota em montagem ("#0375"). */
+export const pedidosQueMudaramNaRota = (
+  antes: Array<Pick<EntregaRomaneio, 'pedidoId' | 'numeroPedido'>>,
+  depois: Array<Pick<EntregaRomaneio, 'pedidoId' | 'numeroPedido'>>,
+): { entraram: string[]; sairam: string[] } => {
+  const idsAntes = new Set(antes.map((e) => e.pedidoId));
+  const idsDepois = new Set(depois.map((e) => e.pedidoId));
+  return {
+    entraram: depois.filter((e) => !idsAntes.has(e.pedidoId)).map((e) => `#${e.numeroPedido}`),
+    sairam: antes.filter((e) => !idsDepois.has(e.pedidoId)).map((e) => `#${e.numeroPedido}`),
+  };
+};
+
+/** Frase do registro de montagem: "Rota 02 criada com 3 pedido(s): #0375, #0374, #0369." */
+export const descricaoDaMontagem = (
+  titulo: string,
+  criada: boolean,
+  mudancas: { entraram: string[]; sairam: string[] },
+  totalDePedidos: number,
+): string => {
+  const lista = (nums: string[]) => (nums.length > 15 ? `${nums.slice(0, 15).join(', ')} e mais ${nums.length - 15}` : nums.join(', '));
+  if (criada) return `${titulo} criada com ${totalDePedidos} pedido(s)${mudancas.entraram.length ? `: ${lista(mudancas.entraram)}` : ''}.`;
+  const partes = [
+    mudancas.entraram.length ? `entraram ${lista(mudancas.entraram)}` : '',
+    mudancas.sairam.length ? `saíram ${lista(mudancas.sairam)}` : '',
+  ].filter(Boolean);
+  return `${titulo} alterada${partes.length ? `: ${partes.join('; ')}` : ''}. ${totalDePedidos} pedido(s) na rota.`;
+};
+
+/** Frase do registro de uma entrega: "Pedido #0375 (MERCEARIA X): Entregue, recebeu JOAO." */
+export const descricaoDaEntrega = (
+  entrega: Pick<EntregaRomaneio, 'numeroPedido' | 'clienteNome'>,
+  registro: { status: StatusEntrega; recebedorNome?: string; motivo?: string; recebidoCentavos?: number; recebidoForma?: string },
+): string => {
+  const partes = [
+    `Pedido #${entrega.numeroPedido}${limpar(entrega.clienteNome) ? ` (${limpar(entrega.clienteNome)})` : ''}: ${ROTULO_STATUS_ENTREGA[registro.status] || registro.status}`,
+    registro.status === 'entregue' && limpar(registro.recebedorNome) ? `recebeu ${limpar(registro.recebedorNome)}` : '',
+    registro.status === 'nao_entregue' && limpar(registro.motivo) ? `motivo: ${limpar(registro.motivo)}` : '',
+    (Number(registro.recebidoCentavos) || 0) > 0 ? `motorista recebeu ${moeda(Number(registro.recebidoCentavos) || 0)}${limpar(registro.recebidoForma) ? ` em ${limpar(registro.recebidoForma)}` : ''}` : '',
+  ].filter(Boolean);
+  return `${partes.join(', ')}.`;
 };

@@ -1,5 +1,6 @@
 import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
+import { createAuditLog } from './logService';
 import {
   applyStockFieldDeltas,
   formatSequenceValue,
@@ -117,15 +118,18 @@ export const criarPreVendaExterna = async (
 
   let novoId = '';
   let numeroGravado = '';
+  let jaExistia = false;
 
   await runTransaction(db, async (transaction) => {
     const novoRef = idDocumento ? doc(db, 'pedidos_venda', idDocumento) : doc(collection(db, 'pedidos_venda'));
     novoId = novoRef.id;
+    jaExistia = false;
 
     if (idDocumento) {
       const existente = await transaction.get(novoRef);
       if (existente.exists()) {
         numeroGravado = existente.data().numeroPedido || '';
+        jaExistia = true;
         return;
       }
     }
@@ -183,6 +187,25 @@ export const criarPreVendaExterna = async (
     });
   });
 
+  // Historico de alteracoes (09/11/2026). Reenvio do mesmo rascunho nao registra de novo.
+  if (!jaExistia) {
+    const bonificacao = params.tipoPedido === 'bonificacao';
+    createAuditLog({
+      tenantId,
+      usuarioId,
+      usuarioEmail: auth.currentUser?.email || '',
+      modulo: 'vendas',
+      acao: 'criacao',
+      descricao: `${bonificacao ? 'Bonificação' : 'Pré-venda'} #${numeroGravado} enviada pelo app Vendas. Cliente: ${clienteNome || 'CONSUMIDOR FINAL'}. ${itens.length} item(ns).`,
+      registroRelacionadoId: novoId,
+      ...(params.pedidoVendaOrigemId ? { documentosRelacionados: [params.pedidoVendaOrigemId] } : {}),
+      documentoTipo: 'pedido',
+      documentoNumero: `${bonificacao ? 'Bonificação' : 'Pré-venda'} ${numeroGravado}`,
+      ...(vendedorId ? { vendedorId } : {}),
+      ...(vendedorNome ? { vendedorNome } : {}),
+      status: 'sucesso',
+    });
+  }
   return { id: novoId, numeroPedido: numeroGravado };
 };
 
@@ -207,15 +230,18 @@ export const criarOrcamentoExterno = async (
 
   let novoId = '';
   let numeroGravado = '';
+  let jaExistia = false;
 
   await runTransaction(db, async (transaction) => {
     const novoRef = idDocumento ? doc(db, 'orcamentos', idDocumento) : doc(collection(db, 'orcamentos'));
     novoId = novoRef.id;
+    jaExistia = false;
 
     if (idDocumento) {
       const existente = await transaction.get(novoRef);
       if (existente.exists()) {
         numeroGravado = existente.data().numeroOrcamento || '';
+        jaExistia = true;
         return;
       }
     }
@@ -250,6 +276,20 @@ export const criarOrcamentoExterno = async (
     });
   });
 
+  if (!jaExistia) {
+    createAuditLog({
+      tenantId,
+      usuarioId,
+      usuarioEmail: auth.currentUser?.email || '',
+      modulo: 'vendas',
+      acao: 'criacao',
+      descricao: `Orçamento #${numeroGravado} enviado pelo app Vendas. Cliente: ${clienteNome || 'CONSUMIDOR FINAL'}. ${itens.length} item(ns).`,
+      registroRelacionadoId: novoId,
+      documentoTipo: 'orcamento',
+      documentoNumero: `Orçamento ${numeroGravado}`,
+      status: 'sucesso',
+    });
+  }
   return { id: novoId, numeroOrcamento: numeroGravado };
 };
 

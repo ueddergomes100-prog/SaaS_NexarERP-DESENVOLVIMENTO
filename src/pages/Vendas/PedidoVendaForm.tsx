@@ -225,6 +225,7 @@ import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../c
 import Swal from 'sweetalert2';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
+import { createAuditLog as registrarHistorico } from '../../services/logService';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { motivoPedidoNaoEmiteNota } from '../../utils/notaFiscalVisibilidadeDomain';
@@ -1500,6 +1501,22 @@ const PedidoVendaForm: React.FC = () => {
       await updateDoc(doc(db, 'orcamentos', idOrcamento), {
         ...dados,
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), nota),
+      });
+      // Historico de alteracoes do orcamento (09/11/2026): a venda mexeu nele.
+      const numeroOrc = numeroOrcamentoOrigemRef.current;
+      registrarHistorico({
+        tenantId: tenantId || '',
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'vendas',
+        acao: 'edicao',
+        descricao: `Orçamento${numeroOrc ? ` #${numeroOrc}` : ''}: ${nota}.`,
+        registroRelacionadoId: idOrcamento,
+        ...(id ? { documentosRelacionados: [id] } : {}),
+        documentoTipo: 'orcamento',
+        ...(numeroOrc ? { documentoNumero: `Orçamento ${numeroOrc}` } : {}),
+        ...(typeof dados.status === 'string' ? { alteracoes: [{ campo: 'Situação', valorAnterior: '', valorNovo: dados.status }] } : {}),
+        status: 'sucesso',
       });
     } catch (erro) {
       console.error('Erro ao atualizar o orçamento de origem:', erro);
@@ -3066,9 +3083,30 @@ const PedidoVendaForm: React.FC = () => {
         transaction.update(preVendaRef, {
           status: STATUS_CANCELADA,
           estoqueReservado: false,
+          canceladaPor: currentUser.uid,
+          canceladaPorNome: userNome || currentUser.email || 'Usuário',
+          canceladaEm: serverTimestamp(),
+          ...(nota !== 'Pré-venda cancelada' ? { motivoCancelamento: nota } : {}),
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), nota),
         });
       });
+    // Historico de alteracoes (09/11/2026): cancelar e converter em troca.
+    registrarHistorico({
+      tenantId: tenantId || '',
+      usuarioId: currentUser.uid,
+      usuarioEmail: currentUser.email || currentUser.uid,
+      modulo: 'vendas',
+      acao: 'cancelamento',
+      descricao: `Pré-venda #${numeroPedido} cancelada. Estoque reservado liberado.${nota !== 'Pré-venda cancelada' ? ` ${nota}.` : ''}`,
+      registroRelacionadoId: id,
+      documentoTipo: 'pedido',
+      documentoNumero: `Pré-venda ${numeroPedido}`,
+      ...(nota !== 'Pré-venda cancelada' ? { motivo: nota } : {}),
+      ...(vendedorId ? { vendedorId } : {}),
+      alteracoes: [{ campo: 'Situação', valorAnterior: 'Pré-venda', valorNovo: STATUS_CANCELADA }],
+      status: 'sucesso',
+      critical: true,
+    });
     return false;
   };
 
@@ -3182,23 +3220,7 @@ const PedidoVendaForm: React.FC = () => {
         if (orcamentoId) {
           void atualizarOrcamentoDeOrigem(orcamentoId, { status: 'Pendente' }, 'Reaberto pelo cancelamento da pré-venda');
         }
-
-        try {
-          const { createAuditLog } = await import('../../services/logService');
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser.uid,
-            usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'vendas',
-            acao: 'cancelamento',
-            descricao: `Pré-venda #${numeroPedido} cancelada. Estoque reservado liberado.`,
-            registroRelacionadoId: id,
-            vendedorId: vendedorId || undefined,
-            status: 'sucesso',
-          });
-        } catch (err) {
-          console.error('Erro ao registrar log de cancelamento da pré-venda:', err);
-        }
+        // O Historico de alteracoes sai de cancelarPreVendaNoBanco.
       }
 
       setIsDirty(false);
@@ -4582,7 +4604,25 @@ const PedidoVendaForm: React.FC = () => {
       await updateDoc(doc(db, 'pedidos_venda', id), {
         status: 'Cancelada',
         motivoRecusa: motivo,
+        canceladaPor: currentUser.uid,
+        canceladaPorNome: userNome || currentUser.email || 'Usuário',
+        canceladaEm: serverTimestamp(),
         ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Pedido pendente recusado: ${motivo}`),
+      });
+      registrarHistorico({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || currentUser.uid,
+        modulo: 'vendas',
+        acao: 'recusa_pedido_pendente',
+        descricao: `Pedido pendente #${numeroPedido} recusado.`,
+        registroRelacionadoId: id,
+        documentoTipo: 'pedido',
+        documentoNumero: `Pedido ${numeroPedido}`,
+        motivo,
+        alteracoes: [{ campo: 'Situação', valorAnterior: status, valorNovo: 'Cancelada' }],
+        status: 'sucesso',
+        critical: true,
       });
       showSuccess('Pedido recusado.');
       navigate('/pedidos-venda');

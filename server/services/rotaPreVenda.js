@@ -10,6 +10,7 @@ const {
 } = require('../domain/rotaPreVendaDomain');
 const { STATUS_PRE_VENDA } = require('../domain/preVendaDomain');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
+const { registrarLog } = require('./auditoria');
 
 /**
  * ROTA NA PRE-VENDA (21/10/2026) -- regra em src/utils/rotaPreVendaDomain.ts.
@@ -185,7 +186,19 @@ const colocarPedidoNaRota = async ({ user, tenantId, pedidoId, romaneioId, aoFat
  */
 const colocarAoFaturarSemFalhar = async ({ user, tenantId, pedidoId }) => {
   try {
-    return await colocarPedidoNaRota({ user, tenantId, pedidoId, aoFaturar: true, semConferirPermissao: true });
+    const r = await colocarPedidoNaRota({ user, tenantId, pedidoId, aoFaturar: true, semConferirPermissao: true });
+    // Historico de alteracoes (09/11/2026): aparece no pedido e na rota.
+    if (r && (r.acao === 'colocado' || r.acao === 'anotada') && r.rota) {
+      registrarLog({ ...user, tenantId }, {
+        modulo: 'romaneios',
+        acao: 'pedido_na_rota',
+        descricao: `Pedido colocado na ${r.rota.titulo} ao faturar a pré-venda.`,
+        registroId: String(pedidoId),
+        documentosRelacionados: [r.rota.id],
+        documentoTipo: 'pedido',
+      });
+    }
+    return r;
   } catch (erro) {
     console.error('[Rota na pré-venda] não foi possível colocar o pedido na rota ao faturar:', erro);
     return { acao: 'falhou', erro: erro instanceof ErroRomaneio ? erro.message : '' };

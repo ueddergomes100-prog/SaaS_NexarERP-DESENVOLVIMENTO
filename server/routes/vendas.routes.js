@@ -81,17 +81,7 @@ router.post('/cancelar', async (req, res) => {
     const r = await cancelarVenda({ user: req.user, tenantId, corpo: req.body || {} });
     // Cashback (20/10/2026): o que a venda gerou volta (se ja' foi usado, vira saldo negativo).
     await cashback.estornarVendaSemFalhar({ user: req.user, tenantId, pedidoId: r.pedidoId });
-    registrarLog({ ...req.user, tenantId }, {
-      modulo: 'vendas',
-      acao: 'cancelamento',
-      descricao: `Venda Direta #${r.numeroPedido} CANCELADA e estoque estornado. Motivo: ${String(req.body.motivo).trim()}.`
-        + (r.creditoDevolvidoCentavos > 0 ? ` Crédito de devolução de ${reais(r.creditoDevolvidoCentavos)} devolvido ao cliente.` : ''),
-      registroId: r.pedidoId,
-      vendedorId: r.vendedorId,
-      vendedorNome: r.vendedorNome,
-      snapshotExcluido: r.snapshot,
-      critico: true,
-    });
+    // O Historico de alteracoes sai de dentro da transacao (services/vendaCancelamento.js, 09/11/2026).
     const { snapshot, ...resposta } = r;
     return res.json({ ok: true, ...resposta });
   } catch (erro) {
@@ -109,16 +99,8 @@ router.post('/cancelar-pre-venda', async (req, res) => {
     if (!temPermissao(req.user, 'vendas.pre_venda_cancelar')) {
       return res.status(403).json({ error: 'Você não tem permissão para cancelar pré-venda. Peça a um responsável liberar "Cancelar pré-venda" no seu usuário.' });
     }
+    // O Historico de alteracoes sai de dentro da transacao (services/vendaCancelamento.js, 09/11/2026).
     const r = await cancelarPreVenda({ user: req.user, tenantId, corpo: req.body || {} });
-    registrarLog({ ...req.user, tenantId }, {
-      modulo: 'vendas',
-      acao: 'cancelamento',
-      descricao: `Pré-venda #${r.numeroPedido} cancelada${r.peloApp ? ' pelo aplicativo do vendedor externo' : ''}.${r.reservaLiberada ? ' Estoque reservado liberado.' : ''}`,
-      registroId: r.pedidoId,
-      vendedorId: r.vendedorId,
-      vendedorNome: r.vendedorNome,
-      critico: false,
-    });
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'cancelar a pré-venda');

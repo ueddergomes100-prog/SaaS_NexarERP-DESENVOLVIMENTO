@@ -18,7 +18,7 @@
  * Na interface a palavra e' "Histórico de alterações", nunca "log".
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDasAlteracoes = exports.opcoesDosFiltros = exports.filtrarRegistros = exports.rotuloDoModulo = exports.telaDoRegistro = exports.juntarRegistros = exports.nomeDeQuemFez = exports.textoQuemEQuando = exports.dataHoraBrasil = exports.dataDoRegistro = exports.montarRegistroHistorico = exports.semUndefined = exports.diferencasEntre = exports.valorParaHistorico = exports.corDaAcao = exports.rotuloDaAcao = exports.ehAcaoCritica = exports.rotuloDaOrigem = exports.origemDaRota = exports.telaDaRota = exports.rotuloDoPapel = exports.ROTULO_ORIGEM = void 0;
+exports.resumoDasAlteracoes = exports.opcoesDosFiltros = exports.filtrarRegistros = exports.rotuloDoModulo = exports.telaDoRegistro = exports.juntarRegistros = exports.nomeDeQuemFez = exports.textoQuemEQuando = exports.dataHoraBrasil = exports.dataDoRegistro = exports.montarRegistroHistorico = exports.documentoDaDescricao = exports.semUndefined = exports.diferencasEntre = exports.valorParaHistorico = exports.corDaAcao = exports.rotuloDaAcao = exports.ehAcaoCritica = exports.rotuloDaOrigem = exports.origemDaRota = exports.telaDaRota = exports.rotuloDoPapel = exports.ROTULO_ORIGEM = void 0;
 exports.ROTULO_ORIGEM = {
     sistema: 'Sistema',
     app_vendas: 'App Vendas',
@@ -346,6 +346,17 @@ exports.semUndefined = semUndefined;
 // ---------------------------------------------------------------------------
 // MONTAGEM DO REGISTRO
 // ---------------------------------------------------------------------------
+const PADRAO_DOCUMENTO = /(?:^|[^\p{L}])(Pr[ée]-venda|Venda(?: Direta| PDV)?|Pedido(?: de Venda| de Compra)?|OS|Ordem de Servi[çc]o|Or[çc]amento|Troca|Condicional|Romaneio|Rota|NF-e|NFC-e|NFS-e|Nota(?: Avulsa| Fiscal)?|Cota[çc][ãa]o|Transfer[êe]ncia|OP|Ordem de Produ[çc][ãa]o)\s*(?:n[ºo°]\s*)?#?\s*(\d{1,10})(?!\d)/iu;
+/**
+ * Numero do documento tirado da frase ("Venda Direta #375 finalizada" ->
+ * "Venda Direta #375"). Serve para os registros que nao informam
+ * `documentoNumero` (os antigos e os ~200 pontos que ja' gravavam frase).
+ */
+const documentoDaDescricao = (descricao) => {
+    const achado = texto(descricao).match(PADRAO_DOCUMENTO);
+    return achado ? `${achado[1]} #${achado[2]}` : null;
+};
+exports.documentoDaDescricao = documentoDaDescricao;
 const montarRegistroHistorico = (entrada, quem) => {
     const rota = textoOuNulo(entrada.rota, 300);
     const origem = ehOrigem(entrada.origem) ? entrada.origem : (0, exports.origemDaRota)(rota);
@@ -373,7 +384,7 @@ const montarRegistroHistorico = (entrada, quem) => {
         registroRelacionadoId: registroId,
         documentosRelacionados: documentos,
         documentoTipo: textoOuNulo(entrada.documentoTipo, 60),
-        documentoNumero: textoOuNulo(entrada.documentoNumero, 120),
+        documentoNumero: textoOuNulo(entrada.documentoNumero, 120) || (0, exports.documentoDaDescricao)(entrada.descricao),
         motivo: textoOuNulo(entrada.motivo),
         valorAnterior: textoOuNulo(entrada.valorAnterior, LIMITE_VALOR),
         valorNovo: textoOuNulo(entrada.valorNovo, LIMITE_VALOR),

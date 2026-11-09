@@ -435,6 +435,18 @@ export const semUndefined = <T>(valor: T): T | null => {
 // MONTAGEM DO REGISTRO
 // ---------------------------------------------------------------------------
 
+const PADRAO_DOCUMENTO = /(?:^|[^\p{L}])(Pr[ée]-venda|Venda(?: Direta| PDV)?|Pedido(?: de Venda| de Compra)?|OS|Ordem de Servi[çc]o|Or[çc]amento|Troca|Condicional|Romaneio|Rota|NF-e|NFC-e|NFS-e|Nota(?: Avulsa| Fiscal)?|Cota[çc][ãa]o|Transfer[êe]ncia|OP|Ordem de Produ[çc][ãa]o)\s*(?:n[ºo°]\s*)?#?\s*(\d{1,10})(?!\d)/iu;
+
+/**
+ * Numero do documento tirado da frase ("Venda Direta #375 finalizada" ->
+ * "Venda Direta #375"). Serve para os registros que nao informam
+ * `documentoNumero` (os antigos e os ~200 pontos que ja' gravavam frase).
+ */
+export const documentoDaDescricao = (descricao: unknown): string | null => {
+  const achado = texto(descricao).match(PADRAO_DOCUMENTO);
+  return achado ? `${achado[1]} #${achado[2]}` : null;
+};
+
 export const montarRegistroHistorico = (entrada: EntradaHistorico, quem: ContextoDoUsuario): RegistroHistorico => {
   const rota = textoOuNulo(entrada.rota, 300);
   const origem: OrigemHistorico = ehOrigem(entrada.origem) ? entrada.origem : origemDaRota(rota);
@@ -464,7 +476,7 @@ export const montarRegistroHistorico = (entrada: EntradaHistorico, quem: Context
     registroRelacionadoId: registroId,
     documentosRelacionados: documentos,
     documentoTipo: textoOuNulo(entrada.documentoTipo, 60),
-    documentoNumero: textoOuNulo(entrada.documentoNumero, 120),
+    documentoNumero: textoOuNulo(entrada.documentoNumero, 120) || documentoDaDescricao(entrada.descricao),
     motivo: textoOuNulo(entrada.motivo),
     valorAnterior: textoOuNulo(entrada.valorAnterior, LIMITE_VALOR),
     valorNovo: textoOuNulo(entrada.valorNovo, LIMITE_VALOR),

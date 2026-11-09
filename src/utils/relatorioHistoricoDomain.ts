@@ -1,6 +1,7 @@
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
 import {
   dataDoRegistro,
+  documentoDaDescricao,
   ehAcaoCritica,
   nomeDeQuemFez,
   resumoDasAlteracoes,
@@ -25,10 +26,7 @@ export interface DocumentoRelatorioHistorico {
   secoes: SecaoRelatorio[];
 }
 
-const textoDoDocumento = (r: RegistroLido): string => {
-  const numero = (r.documentoNumero || '').trim();
-  return numero;
-};
+const textoDoDocumento = (r: RegistroLido): string => (r.documentoNumero || '').trim() || documentoDaDescricao(r.descricao) || '';
 
 const colunas: ColunaRelatorio<RegistroLido>[] = [
   { id: 'dataHora', titulo: 'Data e hora', tipo: 'dataHora', largura: 28, valor: (r) => dataDoRegistro(r.dataHora) },

@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const s = require('../services/entregaFutura');
+const { registrarLog } = require('../services/auditoria');
 const { PERMISSAO_ENTREGAS_FUTURAS } = require('../domain/entregaFuturaDomain');
 
 /*
@@ -29,8 +30,47 @@ const rota = (oQue, fn) => async (req, res) => {
 
 router.get('/pendentes', rota('carregar as entregas pendentes', async (req) => ({ pedidos: await s.listarPendentes({ tenantId: req.user.tenantId }) })));
 router.get('/:pedidoId', rota('carregar o pedido', async (req) => s.detalhe({ tenantId: req.user.tenantId, pedidoId: req.params.pedidoId })));
-router.post('/:pedidoId/entregar', rota('registrar a entrega', async (req) => s.entregar({ user: req.user, tenantId: req.user.tenantId, pedidoId: req.params.pedidoId, corpo: req.body || {} })));
-router.post('/entregas/:entregaId/emitir-nota', rota('emitir a nota de remessa', async (req) => s.emitirRemessa({ user: req.user, tenantId: req.user.tenantId, entregaId: req.params.entregaId })));
-router.post('/entregas/:entregaId/rota', rota('colocar a entrega na rota', async (req) => s.colocarEntregaNaRota({ user: req.user, tenantId: req.user.tenantId, entregaId: req.params.entregaId, romaneioId: String((req.body || {}).romaneioId || '') })));
+// Historico de alteracoes (09/11/2026): registrar entrega, emitir remessa e colocar na rota.
+router.post('/:pedidoId/entregar', rota('registrar a entrega', async (req) => {
+  const r = await s.entregar({ user: req.user, tenantId: req.user.tenantId, pedidoId: req.params.pedidoId, corpo: req.body || {} });
+  const naRota = r.rota && r.rota.rota ? r.rota.rota : null;
+  registrarLog(req.user, {
+    modulo: 'vendas',
+    acao: 'entrega',
+    descricao: `${r.titulo} registrada${r.nota && r.nota.ok ? ', com nota de remessa' : ''}${naRota ? ` e colocada na ${naRota.titulo}` : ''}.${r.avisos && r.avisos.length ? ` ${r.avisos.join(' ')}` : ''}`,
+    registroId: req.params.pedidoId,
+    documentosRelacionados: [r.entregaId, naRota ? naRota.id : ''],
+    documentoTipo: 'pedido',
+    tela: 'Entregas Futuras',
+  });
+  return r;
+}));
+router.post('/entregas/:entregaId/emitir-nota', rota('emitir a nota de remessa', async (req) => {
+  const r = await s.emitirRemessa({ user: req.user, tenantId: req.user.tenantId, entregaId: req.params.entregaId });
+  registrarLog(req.user, {
+    modulo: 'fiscal',
+    acao: 'emissao',
+    descricao: r && r.ok === false ? `Nota de remessa da entrega futura não emitida: ${r.mensagem || 'sem resposta'}` : 'Nota de remessa da entrega futura enviada para emissão.',
+    registroId: req.params.entregaId,
+    documentoTipo: 'entrega_futura',
+    tela: 'Entregas Futuras',
+  });
+  return r;
+}));
+router.post('/entregas/:entregaId/rota', rota('colocar a entrega na rota', async (req) => {
+  const r = await s.colocarEntregaNaRota({ user: req.user, tenantId: req.user.tenantId, entregaId: req.params.entregaId, romaneioId: String((req.body || {}).romaneioId || '') });
+  if (r && r.acao === 'colocado' && r.rota) {
+    registrarLog(req.user, {
+      modulo: 'romaneios',
+      acao: 'pedido_na_rota',
+      descricao: `Entrega futura colocada na ${r.rota.titulo}.`,
+      registroId: req.params.entregaId,
+      documentosRelacionados: [r.rota.id],
+      documentoTipo: 'entrega_futura',
+      tela: 'Entregas Futuras',
+    });
+  }
+  return r;
+}));
 
 module.exports = router;

@@ -8,6 +8,7 @@ import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, formatDateI
 import {
   corDaAcao,
   dataHoraBrasil,
+  documentoDaDescricao,
   filtrarRegistros,
   nomeDeQuemFez,
   opcoesDosFiltros,
@@ -253,7 +254,7 @@ const LogsSistema: React.FC = () => {
                         {rotuloDaAcao(r.acao)}
                       </span>
                     </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{r.documentoNumero || ''}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{r.documentoNumero || documentoDaDescricao(r.descricao) || ''}</td>
                     <td style={{ maxWidth: '420px' }}>
                       <div>{r.descricao}</div>
                       {r.motivo && <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Motivo: {r.motivo}</div>}
@@ -289,7 +290,7 @@ const LogsSistema: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <h3 style={{ margin: 0, fontSize: '17px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, color: 'white', backgroundColor: corDaAcao(selecionado.acao) }}>{rotuloDaAcao(selecionado.acao)}</span>
-                {selecionado.documentoNumero || telaDoRegistro(selecionado)}
+                {selecionado.documentoNumero || documentoDaDescricao(selecionado.descricao) || telaDoRegistro(selecionado)}
               </h3>
               <button type="button" onClick={() => setSelecionado(null)} aria-label="Fechar" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={22} /></button>
             </div>

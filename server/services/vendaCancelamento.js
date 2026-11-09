@@ -27,6 +27,9 @@ const { isPedidoAberto, parseAlterarPagamentoVendaFinalizada, STATUS_CANCELADA }
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { ErroVenda, temPermissao } = require('./vendaFechamento');
+const { registrarLogNaTransacao } = require('./auditoria');
+
+const reaisDoHistorico = (centavos) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(centavos) || 0) / 100);
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
 const incremento = (n) => admin.firestore.FieldValue.increment(n);
@@ -198,13 +201,33 @@ const cancelarVenda = async ({ user, tenantId, corpo }) => {
       tx.update(orcamentoRef, { status: 'Pendente', ...buildDocumentUpdateMetadata(user.uid, agora(), 'Reaberto pelo cancelamento da venda') });
     }
 
+    const creditoDevolvidoCentavos = creditoRef && !creditoJaDevolvido ? creditoCentavos : 0;
+    // Historico de alteracoes (09/11/2026): na MESMA transacao do cancelamento.
+    registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'vendas',
+      acao: 'cancelamento',
+      descricao: `Venda #${numeroPedido} CANCELADA e estoque estornado. Motivo: ${motivo}.`
+        + (creditoDevolvidoCentavos > 0 ? ` Crédito de devolução de ${reaisDoHistorico(creditoDevolvidoCentavos)} devolvido ao cliente.` : '')
+        + (reabrirOrcamento ? ' Orçamento de origem voltou para Pendente.' : ''),
+      registroId: pedidoId,
+      documentosRelacionados: reabrirOrcamento ? [String(venda.orcamentoId)] : [],
+      documentoTipo: 'pedido',
+      documentoNumero: `Pedido ${numeroPedido}`,
+      motivo,
+      vendedorId: venda.vendedorId || '',
+      vendedorNome: venda.vendedorNome || '',
+      alteracoes: [{ campo: 'Situação', valorAnterior: venda.status || 'Finalizada', valorNovo: 'Cancelada' }],
+      snapshotExcluido: venda,
+      critico: true,
+    });
+
     return {
       pedidoId,
       numeroPedido,
       vendedorId: venda.vendedorId || '',
       vendedorNome: venda.vendedorNome || '',
       totalCentavos: Number(venda.valorTotalCentavos ?? fin.toCents(Number(venda.valorTotal || 0))),
-      creditoDevolvidoCentavos: creditoRef && !creditoJaDevolvido ? creditoCentavos : 0,
+      creditoDevolvidoCentavos,
       snapshot: venda,
     };
   });
@@ -258,14 +281,33 @@ const cancelarPreVenda = async ({ user, tenantId, corpo }) => {
         updatedAt: agora(),
       });
     });
+    // Quem cancelou e quando ficam no pedido (aviso no topo, 09/11/2026).
     tx.update(pedidoRef, {
       status: STATUS_CANCELADA,
       estoqueReservado: false,
+      canceladaPor: user.uid,
+      canceladaPorNome: user.nome || user.email || 'Usuário',
+      canceladaEm: agora(),
+      ...(nota && nota !== 'Pré-venda cancelada' ? { motivoCancelamento: nota } : {}),
       ...buildDocumentUpdateMetadata(user.uid, agora(), nota),
     });
     if (reabrirOrcamento) {
       tx.update(orcamentoRef, { status: 'Pendente', ...buildDocumentUpdateMetadata(user.uid, agora(), 'Reaberto pelo cancelamento da pré-venda') });
     }
+    registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'vendas',
+      acao: 'cancelamento',
+      descricao: `Pré-venda #${numeroPedido} cancelada${soDoVendedor ? ' pelo aplicativo do vendedor externo' : ''}.${deltas.length > 0 ? ' Estoque reservado liberado.' : ''}${reabrirOrcamento ? ' Orçamento de origem voltou para Pendente.' : ''}`,
+      registroId: pedidoId,
+      documentosRelacionados: reabrirOrcamento ? [String(pedido.orcamentoId)] : [],
+      documentoTipo: 'pedido',
+      documentoNumero: `Pré-venda ${numeroPedido}`,
+      ...(nota && nota !== 'Pré-venda cancelada' ? { motivo: nota } : {}),
+      vendedorId: pedido.vendedorId || '',
+      vendedorNome: pedido.vendedorNome || '',
+      alteracoes: [{ campo: 'Situação', valorAnterior: pedido.status || 'Pré-venda', valorNovo: STATUS_CANCELADA }],
+      critico: true,
+    });
     return { pedidoId, numeroPedido, vendedorId: pedido.vendedorId || '', vendedorNome: pedido.vendedorNome || '', reservaLiberada: deltas.length > 0, peloApp: soDoVendedor };
   });
 };

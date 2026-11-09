@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   dataHoraBrasil,
   diferencasEntre,
+  documentoDaDescricao,
   ehAcaoCritica,
   filtrarRegistros,
   montarRegistroHistorico,
@@ -202,4 +203,16 @@ test('romaneio no historico: rotulo com a data, pedidos que entraram e sairam, o
     descricaoDaEntrega({ numeroPedido: '0375', clienteNome: 'MERCEARIA' }, { status: 'nao_entregue', motivo: 'Fechado' }),
     'Pedido #0375 (MERCEARIA): Não entregue, motivo: Fechado.',
   );
+});
+
+test('numero do documento tirado da frase, para registros que nao informam', () => {
+  assert.equal(documentoDaDescricao('Venda Direta #375 CANCELADA e estoque estornado.'), 'Venda Direta #375');
+  assert.equal(documentoDaDescricao('Pré-venda #0375 cancelada.'), 'Pré-venda #0375');
+  assert.equal(documentoDaDescricao('OS #12 cancelada'), 'OS #12');
+  assert.equal(documentoDaDescricao('Orçamento #0012 recusado.'), 'Orçamento #0012');
+  assert.equal(documentoDaDescricao('Rota 02 DANIELA cancelada.'), 'Rota #02');
+  assert.equal(documentoDaDescricao('Caixa BALCAO criado.'), null);
+  assert.equal(documentoDaDescricao('POSTO 4 abastecido'), null, 'OS dentro de outra palavra nao conta');
+  const r = montarRegistroHistorico({ modulo: 'vendas', acao: 'criacao', descricao: 'Venda #0375 finalizada' }, { usuarioId: 'u' });
+  assert.equal(r.documentoNumero, 'Venda #0375');
 });

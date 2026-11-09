@@ -1341,6 +1341,10 @@ const PDV: React.FC = () => {
         modulo: 'vendas',
         acao: 'criar_pdv',
         descricao: `Venda PDV #${finalNumeroPedido} finalizada no valor de ${toCurrencyInput(totals.totalCentavos)}.`,
+        // Ligado ao pedido (09/11/2026): aparece no Historico de alteracoes da venda.
+        ...(newPedidoId ? { registroRelacionadoId: newPedidoId } : {}),
+        documentoTipo: 'pedido',
+        documentoNumero: `Pedido ${finalNumeroPedido}`,
         status: 'sucesso',
       });
 

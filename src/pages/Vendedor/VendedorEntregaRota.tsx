@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { Camera, CheckCircle, CloudOff, MapPin, Phone, XCircle } from 'lucide-react';
+import { Camera, CheckCircle, CloudOff, MapPin, Phone, Search, X, XCircle } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +11,7 @@ import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entr
 import {
   ROTULO_STATUS_ENTREGA,
   diferencaDoRecebido,
+  entregasDaBusca,
   linkDoMapa,
   precisaJustificarValor,
   resumoDoRomaneio,
@@ -29,6 +30,12 @@ import { comOrigem, useVoltarPara } from './navegacaoApp';
  * mapa, o telefone pra ligar, o valor do pedido (o motorista precisa saber
  * quanto cobrar) e o botao Registrar/Alterar. O canhoto que ainda esta' no
  * aparelho aparece como pendente.
+ *
+ * 09/11/2026 (dono): barra de busca pelo numero do pedido ou cliente. Usa a
+ * mesma busca do acerto da loja (entregasDaBusca): numero do pedido com ou sem
+ * # e sem os zeros da frente, numero da nota, ou parte do nome do cliente. A
+ * contagem das abas acompanha a busca e, se o que foi buscado estiver na outra
+ * aba, aparece o atalho para ela.
  */
 
 const formatarMoeda = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -156,6 +163,7 @@ const VendedorEntregaRota: React.FC = () => {
   const carregando = carregandoRota || (!veTodas && !vinculoCarregado);
   const erro = rotaDeOutro ? 'Esta rota é de outro motorista. Em Entregas aparecem só as suas rotas.' : erroDaRota;
   const [aba, setAba] = useState<'faltam' | 'feitas'>('faltam');
+  const [busca, setBusca] = useState('');
   const [pendencias, setPendencias] = useState<PendenciaGuardada[]>([]);
 
   useEffect(() => {
@@ -191,10 +199,14 @@ const VendedorEntregaRota: React.FC = () => {
   if (!pode) return <Navigate to="/vendedor" replace />;
 
   const canhotosPendentes = canhotosPendentesDaRota(pendencias, id || '');
-  const { faltam, feitas } = separarEntregas(rota?.entregas || []);
+  const { faltam: todasFaltam, feitas: todasFeitas } = separarEntregas(rota?.entregas || []);
+  const buscando = busca.trim() !== '';
+  const faltam = entregasDaBusca(todasFaltam, busca);
+  const feitas = entregasDaBusca(todasFeitas, busca);
   const resumo = rota ? resumoDoRomaneio(rota) : null;
   const emRota = rota?.status === 'em_rota';
   const lista = aba === 'faltam' ? faltam : feitas;
+  const outraAba = aba === 'faltam' ? { chave: 'feitas' as const, rotulo: 'Feitas', quantidade: feitas.length } : { chave: 'faltam' as const, rotulo: 'Faltam entregar', quantidade: faltam.length };
   const ordemDe = (entrega: EntregaRomaneio) => (rota ? rota.entregas.findIndex((e) => e.pedidoId === entrega.pedidoId) + 1 : 0);
 
   const abaBotao = (chave: 'faltam' | 'feitas', rotulo: string, quantidade: number) => (
@@ -241,12 +253,58 @@ const VendedorEntregaRota: React.FC = () => {
               )}
             </div>
 
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <Search size={17} color="var(--text-muted)" style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+              <input
+                type="text"
+                inputMode="search"
+                enterKeyHint="search"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                placeholder="Buscar pelo nº do pedido ou cliente"
+                aria-label="Buscar entrega pelo número do pedido, da nota ou pelo cliente"
+                style={{
+                  width: '100%', height: '46px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)',
+                  padding: buscando ? '0 44px 0 38px' : '0 14px 0 38px', boxSizing: 'border-box', fontSize: '15px', textTransform: 'none',
+                }}
+              />
+              {buscando && (
+                <button
+                  type="button"
+                  onClick={() => setBusca('')}
+                  aria-label="Limpar a busca"
+                  style={{
+                    position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', width: '34px', height: '34px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '999px', border: 'none',
+                    backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+
             <div style={{ display: 'flex', gap: '8px' }}>
               {abaBotao('faltam', 'Faltam entregar', faltam.length)}
               {abaBotao('feitas', 'Feitas', feitas.length)}
             </div>
 
-            {lista.length === 0 ? (
+            {lista.length === 0 && buscando ? (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.5 }}>
+                Nada encontrado para "{busca.trim()}" em {aba === 'faltam' ? 'Faltam entregar' : 'Feitas'}.
+                {outraAba.quantidade > 0 ? (
+                  <div style={{ marginTop: '12px' }}>
+                    <button type="button" className="btn-secondary" onClick={() => setAba(outraAba.chave)} style={{ height: '40px', padding: '0 16px', fontWeight: 700 }}>
+                      Ver em {outraAba.rotulo} ({outraAba.quantidade})
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '6px' }}>Confira o número do pedido ou digite parte do nome do cliente.</div>
+                )}
+              </div>
+            ) : lista.length === 0 ? (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.5 }}>
                 {aba === 'faltam' ? 'Nenhuma entrega pendente. Rota concluída!' : 'Nenhuma entrega registrada ainda.'}
               </div>

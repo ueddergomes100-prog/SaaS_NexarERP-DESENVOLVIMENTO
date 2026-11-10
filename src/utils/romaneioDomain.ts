@@ -104,19 +104,23 @@ export interface EntregaRomaneio {
  * A CONTA DO ACERTO (10/11/2026, decisao do dono depois de visitar o cliente):
  * fecha como a planilha -- PEDIDOS + VALE - DESPESAS - PENDENCIAS - DEVOLUCOES.
  *
- *  - 'pedidos'      soma: o total dos pedidos que o motorista levou (a linha ja'
- *                   vem preenchida com o total da rota). E' a BASE da conta.
+ *  - 'pedidos'      soma: o que o motorista RECEBEU EM MAOS nas entregas. A
+ *                   linha e' calculada sozinha (nao se digita): soma o
+ *                   "Recebeu R$" das entregas cuja forma ("Como") esta' entre
+ *                   as que a empresa marcou (`formasNoSaldoRomaneio`; padrao
+ *                   so' Dinheiro). Boleto, Pix e cartao nao passam pela mao do
+ *                   motorista -- a primeira versao somava o total da rota e o
+ *                   usuario do cliente apontou no mesmo dia que a maioria era
+ *                   boleto. E' a BASE da conta.
  *  - 'adiantamento' soma: o vale que a loja deu.
  *  - 'despesa'      desconta e, ao fechar, vai para o financeiro como paga.
  *  - 'abatimento'   desconta SEM ser despesa (pendencia, devolucao): nao vai
  *                   para o financeiro nem para o custo do veiculo.
  *  - 'informativo'  so' anotacao.
  *
- * O "recebido nas entregas" (o que foi marcado pedido a pedido) NAO entra junto
- * com a linha de pedidos: seria o mesmo dinheiro duas vezes. Ele fica ao lado,
- * para conferencia. Acerto SEM linha de pedidos (rota fechada antes desta data,
- * empresa que tirou a linha) continua na conta antiga: recebido + vale - despesas
- * (- abatimentos, se houver).
+ * Acerto SEM linha de pedidos (rota fechada antes desta data, empresa que tirou
+ * a linha) continua na conta antiga: recebido em qualquer forma + vale -
+ * despesas (- abatimentos, se houver).
  */
 export type NaturezaAcerto = 'pedidos' | 'adiantamento' | 'despesa' | 'abatimento' | 'informativo';
 
@@ -130,7 +134,7 @@ export interface TipoAcerto {
 }
 
 export const ROTULO_NATUREZA_ACERTO: Record<NaturezaAcerto, string> = {
-  pedidos: 'Pedidos da rota (soma na conta)',
+  pedidos: 'Recebido em mãos nas entregas (soma na conta)',
   adiantamento: 'Adiantamento (a loja deu ao motorista; soma)',
   despesa: 'Despesa (o motorista pagou; desconta)',
   abatimento: 'Desconto (sai da conta, não é despesa)',
@@ -150,6 +154,7 @@ export const TIPOS_ACERTO_PADRAO: TipoAcerto[] = [
   { nome: 'PENDÊNCIAS', natureza: 'abatimento' },
   { nome: 'DEVOLUÇÃO', natureza: 'abatimento' },
   { nome: 'PEDÁGIO', natureza: 'despesa' },
+  { nome: 'OUTROS', natureza: 'despesa' },
 ];
 
 export const MOTIVOS_NAO_ENTREGA_PADRAO: string[] = [
@@ -310,7 +315,35 @@ export const parseTiposAcerto = (raw: unknown, versao?: unknown): TipoAcerto[] =
     vistos.add(semAcento(nome));
     lista.push({ nome, natureza });
   });
+  // Lista antiga tambem ganha o item OUTROS (pedido do usuario do cliente, 10/11/2026).
+  if (listaAntiga && lista.length > 0 && !vistos.has('OUTROS')) lista.push({ nome: 'OUTROS', natureza: 'despesa' });
   return lista.length > 0 ? lista : TIPOS_ACERTO_PADRAO.map((t) => ({ ...t }));
+};
+
+// ---------------------------------------------------------------------------
+// O QUE O MOTORISTA TRAZ NA MAO (10/11/2026)
+// ---------------------------------------------------------------------------
+
+/** Formas de recebimento que entram no saldo a prestar quando a empresa nunca escolheu. */
+export const FORMAS_NO_SALDO_PADRAO: readonly string[] = ['Dinheiro'];
+
+/** `configuracoes.formasNoSaldoRomaneio`: so' formas conhecidas; vazio/ausente = padrao. */
+export const parseFormasNoSaldo = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return [...FORMAS_NO_SALDO_PADRAO];
+  const pedidas = new Set(raw.map((f) => semAcento(String(f ?? '').trim())));
+  const lista = FORMAS_RECEBIDAS_NA_ENTREGA.filter((f) => pedidas.has(semAcento(f)));
+  return lista.length > 0 ? lista : [...FORMAS_NO_SALDO_PADRAO];
+};
+
+/** Soma do "Recebeu R$" das entregas marcadas numa das formas que passam pela mao do motorista. */
+export const recebidoEmMaosCentavos = (
+  entregas: Array<Pick<EntregaRomaneio, 'recebidoCentavos' | 'recebidoForma'>>,
+  formas: readonly string[],
+): number => {
+  const aceitas = new Set(formas.map((f) => semAcento(f)));
+  return entregas.reduce((t, e) => (
+    (Number(e.recebidoCentavos) || 0) > 0 && aceitas.has(semAcento(String(e.recebidoForma || ''))) ? t + Number(e.recebidoCentavos) : t
+  ), 0);
 };
 
 // ---------------------------------------------------------------------------
@@ -714,13 +747,8 @@ export interface ResumoRomaneio {
   pedidosDoAcertoCentavos: number;
   /** Pendencias, devolucoes: descontam sem ser despesa. */
   abatimentosCentavos: number;
-  /** De onde a conta parte: os pedidos do acerto ou, na conta antiga, o recebido nas entregas. */
+  /** De onde a conta parte: a linha de pedidos do acerto ou, na conta antiga, o recebido nas entregas. */
   baseDoSaldoCentavos: number;
-  /**
-   * Conferencia da conta pelos pedidos: recebido nas entregas - (pedidos - abatimentos).
-   * Zero = o que foi marcado pedido a pedido bate com a planilha. Sempre 0 na conta antiga.
-   */
-  diferencaDoRecebidoCentavos: number;
   /** Quanto o motorista tem de devolver a loja: base + vale - despesas - abatimentos. */
   saldoAPrestarCentavos: number;
 }
@@ -728,7 +756,7 @@ export interface ResumoRomaneio {
 /** A formula do saldo por extenso, para a tela e a impressao. */
 export const formulaDoSaldo = (resumo: Pick<ResumoRomaneio, 'contaPelosPedidos' | 'abatimentosCentavos'>): string => (
   resumo.contaPelosPedidos
-    ? 'pedidos + vale − despesas − descontos'
+    ? 'recebido em mãos + vale − despesas − descontos'
     : resumo.abatimentosCentavos > 0 ? 'recebido + vale − despesas − descontos' : 'recebido + vale − despesas'
 );
 
@@ -772,7 +800,6 @@ export const resumoDoRomaneio = (romaneio: Pick<Romaneio, 'entregas' | 'acerto' 
     pedidosDoAcertoCentavos: pedidosDoAcerto,
     abatimentosCentavos: abatimentos,
     baseDoSaldoCentavos: base,
-    diferencaDoRecebidoCentavos: contaPelosPedidos ? recebido - (pedidosDoAcerto - abatimentos) : 0,
     saldoAPrestarCentavos: base + adiantamento - despesas - abatimentos,
   };
 };
@@ -783,16 +810,21 @@ export const erroDoAcerto = (acerto: LancamentoAcerto[]): string | null => {
   return negativo ? `O valor de "${negativo.tipo}" está negativo. Confira o que foi digitado.` : null;
 };
 
-/** Linhas com valor, limpas, sem campo a mais (o Firestore recusa `undefined`). */
+/**
+ * Linhas com valor, limpas, sem campo a mais (o Firestore recusa `undefined`).
+ * A linha de pedidos fica mesmo zerada: e' ela que diz que a rota fechou pela
+ * conta nova (motorista que nao recebeu nada em maos tem saldo sem recebido).
+ */
 export const acertoParaGravar = (acerto: LancamentoAcerto[]): LancamentoAcerto[] => acerto
-  .filter((l) => (Number(l.valorCentavos) || 0) > 0)
+  .filter((l) => (Number(l.valorCentavos) || 0) > 0 || l.natureza === 'pedidos')
   .map((l) => ({ tipo: l.tipo, natureza: l.natureza, descricao: limpar(l.descricao), valorCentavos: Math.round(Number(l.valorCentavos)) }));
 
 /**
  * Uma linha por tipo configurado, com o valor ja' lancado (se houver).
  *
- *  - `totalDosPedidosCentavos`: a linha de pedidos ainda sem valor vem com o
- *    total dos pedidos da rota (como na planilha; a pessoa pode trocar).
+ *  - `recebidoEmMaosCentavos`: rota aberta -- a linha de pedidos e' SEMPRE esse
+ *    valor, calculado das entregas (nao se digita; muda quando o motorista
+ *    registra mais uma entrega). Rota fechada nao passa: vale o valor gravado.
  *  - `tipoDaConfiguracao`: rota ainda aberta segue o tipo de HOJE da
  *    configuracao (linha digitada quando PEDIDOS era "so' informacao" passa a
  *    somar). Rota fechada fica com o tipo gravado: a conta dela nao muda.
@@ -800,9 +832,9 @@ export const acertoParaGravar = (acerto: LancamentoAcerto[]): LancamentoAcerto[]
 export const linhasDoAcerto = (
   tipos: TipoAcerto[],
   gravado: LancamentoAcerto[],
-  opcoes: { totalDosPedidosCentavos?: number; tipoDaConfiguracao?: boolean } = {},
+  opcoes: { recebidoEmMaosCentavos?: number; tipoDaConfiguracao?: boolean } = {},
 ): LancamentoAcerto[] => {
-  const total = Math.max(0, Math.round(Number(opcoes.totalDosPedidosCentavos) || 0));
+  const emMaos = opcoes.recebidoEmMaosCentavos === undefined ? null : Math.max(0, Math.round(Number(opcoes.recebidoEmMaosCentavos) || 0));
   const linhas = tipos.map((t) => {
     const existente = gravado.find((l) => semAcento(l.tipo) === semAcento(t.nome));
     const natureza = existente && !opcoes.tipoDaConfiguracao ? existente.natureza : t.natureza;
@@ -811,7 +843,7 @@ export const linhasDoAcerto = (
       tipo: existente ? existente.tipo : t.nome,
       natureza,
       descricao: existente ? existente.descricao : '',
-      valorCentavos: natureza === 'pedidos' && valorGravado === 0 ? total : valorGravado,
+      valorCentavos: natureza === 'pedidos' && emMaos !== null ? emMaos : valorGravado,
     };
   });
   // Tipo que saiu da configuracao mas tem valor gravado continua aparecendo.
@@ -872,7 +904,7 @@ export const montarDocumentoRomaneio = (romaneio: Romaneio): DocumentoRomaneio =
   ];
   if (romaneio.status === 'fechado' || romaneio.acerto.length > 0) {
     linhasAcerto.push(
-      { item: resumo.contaPelosPedidos ? 'Recebido nas entregas (conferência)' : 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) },
+      { item: resumo.contaPelosPedidos ? 'Recebido nas entregas (todas as formas)' : 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) },
       { item: 'Total de despesas', valor: moeda(resumo.despesasCentavos) },
       ...(resumo.abatimentosCentavos > 0 ? [{ item: 'Total de descontos (pendências, devoluções)', valor: moeda(resumo.abatimentosCentavos) }] : []),
       { item: `Saldo a prestar (${formulaDoSaldo(resumo)})`, valor: moeda(resumo.saldoAPrestarCentavos) },

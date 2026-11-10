@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.formulaDoSaldo = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.erroDaDataDaEntrega = exports.dataDaEntrega = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.VERSAO_TIPOS_ACERTO = exports.ROTULO_NATUREZA_ACERTO = exports.ehNaturezaAcerto = exports.NATUREZAS_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
-exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = void 0;
+exports.resumoDoRomaneio = exports.formulaDoSaldo = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.erroDaDataDaEntrega = exports.dataDaEntrega = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.recebidoEmMaosCentavos = exports.parseFormasNoSaldo = exports.FORMAS_NO_SALDO_PADRAO = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.VERSAO_TIPOS_ACERTO = exports.ROTULO_NATUREZA_ACERTO = exports.ehNaturezaAcerto = exports.NATUREZAS_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
+exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = void 0;
 const preVendaDomain_1 = require("./preVendaDomain");
 const historicoAlteracoesDomain_1 = require("./historicoAlteracoesDomain");
 const dateTime_1 = require("./dateTime");
@@ -22,7 +22,7 @@ exports.NATUREZAS_ACERTO = ['pedidos', 'adiantamento', 'despesa', 'abatimento', 
 const ehNaturezaAcerto = (valor) => exports.NATUREZAS_ACERTO.includes(valor);
 exports.ehNaturezaAcerto = ehNaturezaAcerto;
 exports.ROTULO_NATUREZA_ACERTO = {
-    pedidos: 'Pedidos da rota (soma na conta)',
+    pedidos: 'Recebido em mãos nas entregas (soma na conta)',
     adiantamento: 'Adiantamento (a loja deu ao motorista; soma)',
     despesa: 'Despesa (o motorista pagou; desconta)',
     abatimento: 'Desconto (sai da conta, não é despesa)',
@@ -40,6 +40,7 @@ exports.TIPOS_ACERTO_PADRAO = [
     { nome: 'PENDÊNCIAS', natureza: 'abatimento' },
     { nome: 'DEVOLUÇÃO', natureza: 'abatimento' },
     { nome: 'PEDÁGIO', natureza: 'despesa' },
+    { nome: 'OUTROS', natureza: 'despesa' },
 ];
 exports.MOTIVOS_NAO_ENTREGA_PADRAO = [
     'CLIENTE AUSENTE / FECHADO',
@@ -171,9 +172,32 @@ const parseTiposAcerto = (raw, versao) => {
         vistos.add(semAcento(nome));
         lista.push({ nome, natureza });
     });
+    // Lista antiga tambem ganha o item OUTROS (pedido do usuario do cliente, 10/11/2026).
+    if (listaAntiga && lista.length > 0 && !vistos.has('OUTROS'))
+        lista.push({ nome: 'OUTROS', natureza: 'despesa' });
     return lista.length > 0 ? lista : exports.TIPOS_ACERTO_PADRAO.map((t) => ({ ...t }));
 };
 exports.parseTiposAcerto = parseTiposAcerto;
+// ---------------------------------------------------------------------------
+// O QUE O MOTORISTA TRAZ NA MAO (10/11/2026)
+// ---------------------------------------------------------------------------
+/** Formas de recebimento que entram no saldo a prestar quando a empresa nunca escolheu. */
+exports.FORMAS_NO_SALDO_PADRAO = ['Dinheiro'];
+/** `configuracoes.formasNoSaldoRomaneio`: so' formas conhecidas; vazio/ausente = padrao. */
+const parseFormasNoSaldo = (raw) => {
+    if (!Array.isArray(raw))
+        return [...exports.FORMAS_NO_SALDO_PADRAO];
+    const pedidas = new Set(raw.map((f) => semAcento(String(f ?? '').trim())));
+    const lista = exports.FORMAS_RECEBIDAS_NA_ENTREGA.filter((f) => pedidas.has(semAcento(f)));
+    return lista.length > 0 ? lista : [...exports.FORMAS_NO_SALDO_PADRAO];
+};
+exports.parseFormasNoSaldo = parseFormasNoSaldo;
+/** Soma do "Recebeu R$" das entregas marcadas numa das formas que passam pela mao do motorista. */
+const recebidoEmMaosCentavos = (entregas, formas) => {
+    const aceitas = new Set(formas.map((f) => semAcento(f)));
+    return entregas.reduce((t, e) => ((Number(e.recebidoCentavos) || 0) > 0 && aceitas.has(semAcento(String(e.recebidoForma || ''))) ? t + Number(e.recebidoCentavos) : t), 0);
+};
+exports.recebidoEmMaosCentavos = recebidoEmMaosCentavos;
 const centavosDe = (centavos, reais) => {
     const c = Number(centavos);
     if (Number.isFinite(c))
@@ -474,7 +498,7 @@ const situacaoDoPedidoAoEncerrar = (entrega, cancelando) => (!cancelando && entr
 exports.situacaoDoPedidoAoEncerrar = situacaoDoPedidoAoEncerrar;
 /** A formula do saldo por extenso, para a tela e a impressao. */
 const formulaDoSaldo = (resumo) => (resumo.contaPelosPedidos
-    ? 'pedidos + vale − despesas − descontos'
+    ? 'recebido em mãos + vale − despesas − descontos'
     : resumo.abatimentosCentavos > 0 ? 'recebido + vale − despesas − descontos' : 'recebido + vale − despesas');
 exports.formulaDoSaldo = formulaDoSaldo;
 const resumoDoRomaneio = (romaneio) => {
@@ -518,7 +542,6 @@ const resumoDoRomaneio = (romaneio) => {
         pedidosDoAcertoCentavos: pedidosDoAcerto,
         abatimentosCentavos: abatimentos,
         baseDoSaldoCentavos: base,
-        diferencaDoRecebidoCentavos: contaPelosPedidos ? recebido - (pedidosDoAcerto - abatimentos) : 0,
         saldoAPrestarCentavos: base + adiantamento - despesas - abatimentos,
     };
 };
@@ -529,22 +552,27 @@ const erroDoAcerto = (acerto) => {
     return negativo ? `O valor de "${negativo.tipo}" está negativo. Confira o que foi digitado.` : null;
 };
 exports.erroDoAcerto = erroDoAcerto;
-/** Linhas com valor, limpas, sem campo a mais (o Firestore recusa `undefined`). */
+/**
+ * Linhas com valor, limpas, sem campo a mais (o Firestore recusa `undefined`).
+ * A linha de pedidos fica mesmo zerada: e' ela que diz que a rota fechou pela
+ * conta nova (motorista que nao recebeu nada em maos tem saldo sem recebido).
+ */
 const acertoParaGravar = (acerto) => acerto
-    .filter((l) => (Number(l.valorCentavos) || 0) > 0)
+    .filter((l) => (Number(l.valorCentavos) || 0) > 0 || l.natureza === 'pedidos')
     .map((l) => ({ tipo: l.tipo, natureza: l.natureza, descricao: limpar(l.descricao), valorCentavos: Math.round(Number(l.valorCentavos)) }));
 exports.acertoParaGravar = acertoParaGravar;
 /**
  * Uma linha por tipo configurado, com o valor ja' lancado (se houver).
  *
- *  - `totalDosPedidosCentavos`: a linha de pedidos ainda sem valor vem com o
- *    total dos pedidos da rota (como na planilha; a pessoa pode trocar).
+ *  - `recebidoEmMaosCentavos`: rota aberta -- a linha de pedidos e' SEMPRE esse
+ *    valor, calculado das entregas (nao se digita; muda quando o motorista
+ *    registra mais uma entrega). Rota fechada nao passa: vale o valor gravado.
  *  - `tipoDaConfiguracao`: rota ainda aberta segue o tipo de HOJE da
  *    configuracao (linha digitada quando PEDIDOS era "so' informacao" passa a
  *    somar). Rota fechada fica com o tipo gravado: a conta dela nao muda.
  */
 const linhasDoAcerto = (tipos, gravado, opcoes = {}) => {
-    const total = Math.max(0, Math.round(Number(opcoes.totalDosPedidosCentavos) || 0));
+    const emMaos = opcoes.recebidoEmMaosCentavos === undefined ? null : Math.max(0, Math.round(Number(opcoes.recebidoEmMaosCentavos) || 0));
     const linhas = tipos.map((t) => {
         const existente = gravado.find((l) => semAcento(l.tipo) === semAcento(t.nome));
         const natureza = existente && !opcoes.tipoDaConfiguracao ? existente.natureza : t.natureza;
@@ -553,7 +581,7 @@ const linhasDoAcerto = (tipos, gravado, opcoes = {}) => {
             tipo: existente ? existente.tipo : t.nome,
             natureza,
             descricao: existente ? existente.descricao : '',
-            valorCentavos: natureza === 'pedidos' && valorGravado === 0 ? total : valorGravado,
+            valorCentavos: natureza === 'pedidos' && emMaos !== null ? emMaos : valorGravado,
         };
     });
     // Tipo que saiu da configuracao mas tem valor gravado continua aparecendo.
@@ -601,7 +629,7 @@ const montarDocumentoRomaneio = (romaneio) => {
         ...romaneio.acerto.map((l) => ({ item: l.descricao ? `${l.tipo} — ${l.descricao}` : l.tipo, valor: moeda(l.valorCentavos) })),
     ];
     if (romaneio.status === 'fechado' || romaneio.acerto.length > 0) {
-        linhasAcerto.push({ item: resumo.contaPelosPedidos ? 'Recebido nas entregas (conferência)' : 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) }, { item: 'Total de despesas', valor: moeda(resumo.despesasCentavos) }, ...(resumo.abatimentosCentavos > 0 ? [{ item: 'Total de descontos (pendências, devoluções)', valor: moeda(resumo.abatimentosCentavos) }] : []), { item: `Saldo a prestar (${(0, exports.formulaDoSaldo)(resumo)})`, valor: moeda(resumo.saldoAPrestarCentavos) });
+        linhasAcerto.push({ item: resumo.contaPelosPedidos ? 'Recebido nas entregas (todas as formas)' : 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) }, { item: 'Total de despesas', valor: moeda(resumo.despesasCentavos) }, ...(resumo.abatimentosCentavos > 0 ? [{ item: 'Total de descontos (pendências, devoluções)', valor: moeda(resumo.abatimentosCentavos) }] : []), { item: `Saldo a prestar (${(0, exports.formulaDoSaldo)(resumo)})`, valor: moeda(resumo.saldoAPrestarCentavos) });
     }
     else {
         // Romaneio que vai sair: o quadro vai em branco pra preencher a mao, como na planilha.

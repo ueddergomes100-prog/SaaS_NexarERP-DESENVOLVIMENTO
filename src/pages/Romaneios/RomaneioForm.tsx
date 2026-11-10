@@ -62,8 +62,10 @@ import {
   moverEntrega,
   normalizarNomeCadastro,
   ordenarPorCidade,
+  parseFormasNoSaldo,
   parseMotivosNaoEntrega,
   parseTiposAcerto,
+  recebidoEmMaosCentavos,
   precisaJustificarValor,
   resumoDoRomaneio,
   ROTULO_NATUREZA_ACERTO,
@@ -154,6 +156,8 @@ const RomaneioForm: React.FC = () => {
   const [montandoLista, setMontandoLista] = useState(false);
   const [motivos, setMotivos] = useState<string[]>(parseMotivosNaoEntrega(null));
   const [tiposAcerto, setTiposAcerto] = useState<TipoAcerto[]>(parseTiposAcerto(null));
+  // Formas de recebimento que passam pela mao do motorista e entram no saldo (10/11/2026).
+  const [formasNoSaldo, setFormasNoSaldo] = useState<string[]>(parseFormasNoSaldo(null));
   // Rota na pre-venda (21/10/2026): com o modo "na pre-venda", a pre-venda
   // entra na rota em montagem; a tela marca quais ainda nao foram faturadas.
   const [aceitaPreVenda, setAceitaPreVenda] = useState(false);
@@ -175,6 +179,7 @@ const RomaneioForm: React.FC = () => {
         const dados = snap.exists() ? snap.data() : {};
         setMotivos(parseMotivosNaoEntrega(dados.motivosNaoEntrega));
         setTiposAcerto(parseTiposAcerto(dados.tiposAcertoRomaneio, dados.tiposAcertoRomaneioVersao));
+        setFormasNoSaldo(parseFormasNoSaldo(dados.formasNoSaldoRomaneio));
         setAceitaPreVenda(preVendaEntraNaRota(parseModoRotaPreVenda(dados.rotaNaPreVenda)));
       })
       .catch((erro) => console.error('Erro ao carregar a configuração do romaneio:', erro));
@@ -235,12 +240,16 @@ const RomaneioForm: React.FC = () => {
   }, [id, tenantId, navigate]);
 
   const resumo = useMemo(() => resumoDoRomaneio(romaneio), [romaneio]);
-  // Conta do acerto pela planilha (10/11/2026): a linha de pedidos vem com o total
-  // da rota e rota ainda aberta segue o tipo de hoje da configuracao.
-  const acertoNaTela = useMemo(() => linhasDoAcerto(tiposAcerto, romaneio.acerto, {
-    totalDosPedidosCentavos: resumo.valorTotalCentavos,
-    tipoDaConfiguracao: romaneio.status !== 'fechado' && romaneio.status !== 'cancelado',
-  }), [tiposAcerto, romaneio.acerto, romaneio.status, resumo.valorTotalCentavos]);
+  // Conta do acerto pela planilha (10/11/2026): em rota aberta a linha de pedidos e'
+  // calculada das entregas (so' o que o motorista recebeu em maos) e os itens seguem
+  // o tipo de hoje da configuracao. Rota fechada mostra o que foi gravado.
+  const acertoNaTela = useMemo(() => {
+    const aberta = romaneio.status !== 'fechado' && romaneio.status !== 'cancelado';
+    return linhasDoAcerto(tiposAcerto, romaneio.acerto, {
+      ...(aberta ? { recebidoEmMaosCentavos: recebidoEmMaosCentavos(romaneio.entregas, formasNoSaldo) } : {}),
+      tipoDaConfiguracao: aberta,
+    });
+  }, [tiposAcerto, romaneio.acerto, romaneio.status, romaneio.entregas, formasNoSaldo]);
   const resumoDoAcerto = useMemo(() => resumoDoRomaneio({ ...romaneio, acerto: acertoNaTela }), [romaneio, acertoNaTela]);
   const motoristasAtivos = motoristas.filter((m) => m.ativo !== false || m.id === romaneio.motoristaId);
   const veiculosAtivos = frota.filter((v) => v.ativo !== false || v.id === romaneio.veiculoId);
@@ -817,11 +826,13 @@ const RomaneioForm: React.FC = () => {
                       <td style={{ padding: '8px' }}>
                         <input
                           inputMode="decimal"
-                          defaultValue={textoDosCentavos(l.valorCentavos)}
+                          defaultValue={l.natureza === 'pedidos' ? (l.valorCentavos / 100).toFixed(2).replace('.', ',') : textoDosCentavos(l.valorCentavos)}
                           key={`${l.tipo}-${l.valorCentavos}`}
-                          title={l.natureza === 'pedidos' ? 'Vem com o total dos pedidos da rota. Pode alterar.' : undefined}
+                          readOnly={l.natureza === 'pedidos'}
+                          tabIndex={l.natureza === 'pedidos' ? -1 : undefined}
+                          title={l.natureza === 'pedidos' ? `Calculado sozinho: soma do que foi marcado como recebido em ${formasNoSaldo.join(', ')} nas entregas desta rota. Para mudar, altere o registro da entrega.` : undefined}
                           onBlur={(e) => mudarAcerto(l.tipo, 'valorCentavos', centavosDoTexto(e.target.value))}
-                          style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}
+                          style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600, ...(l.natureza === 'pedidos' ? { opacity: 0.75, cursor: 'default' } : {}) }}
                         />
                       </td>
                     </tr>
@@ -833,8 +844,9 @@ const RomaneioForm: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
               {resumoDoAcerto.contaPelosPedidos ? (
                 <div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pedidos</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recebido em mãos</div>
                   <div style={{ fontSize: '18px', fontWeight: 700 }}>{moeda(resumoDoAcerto.pedidosDoAcertoCentavos)}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{encerrado ? 'gravado no fechamento' : `só ${formasNoSaldo.join(', ')}`}</div>
                 </div>
               ) : (
                 <div>
@@ -856,6 +868,9 @@ const RomaneioForm: React.FC = () => {
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Descontos</div>
                   <div style={{ fontSize: '18px', fontWeight: 700, color: '#ef4444' }}>{moeda(resumoDoAcerto.abatimentosCentavos)}</div>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>pendências, devoluções</div>
+                  {resumoDoAcerto.abatimentosCentavos > 0 && resumoDoAcerto.despesasCentavos > 0 && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>com as despesas: {moeda(resumoDoAcerto.despesasCentavos + resumoDoAcerto.abatimentosCentavos)}</div>
+                  )}
                 </div>
               )}
               <div>
@@ -867,12 +882,14 @@ const RomaneioForm: React.FC = () => {
 
             {resumoDoAcerto.contaPelosPedidos && (
               <div style={{ marginTop: '14px', padding: '10px 12px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                <strong>Conferência:</strong> recebido nas entregas {moeda(resumo.recebidoCentavos)}
-                {resumo.recebidoPorForma.length > 0 && <> ({resumo.recebidoPorForma.map((f) => `${f.forma} ${moeda(f.centavos)}`).join(' · ')})</>}
-                {' · '}pedidos − descontos {moeda(resumoDoAcerto.pedidosDoAcertoCentavos - resumoDoAcerto.abatimentosCentavos)}.{' '}
-                {resumoDoAcerto.diferencaDoRecebidoCentavos === 0
-                  ? 'Os dois batem.'
-                  : <span style={{ color: '#f59e0b', fontWeight: 600 }}>Diferença de {moeda(Math.abs(resumoDoAcerto.diferencaDoRecebidoCentavos))}: confira as pendências, as devoluções e o que foi marcado como recebido em cada entrega.</span>}
+                <strong>Recebido nas entregas:</strong>{' '}
+                {resumo.recebidoPorForma.length > 0
+                  ? resumo.recebidoPorForma.map((f) => `${f.forma} ${moeda(f.centavos)}`).join(' · ')
+                  : 'nada marcado como recebido ainda'}
+                .{' '}
+                {encerrado
+                  ? 'No saldo entrou o valor gravado no fechamento.'
+                  : `No saldo entra só o que o motorista traz na mão: ${formasNoSaldo.join(', ')}. O restante (boleto, Pix, cartão) não passa por ele.`}
               </div>
             )}
 
@@ -977,8 +994,9 @@ const RomaneioForm: React.FC = () => {
           tenantId={tenantId}
           motivos={motivos}
           tipos={tiposAcerto}
+          formas={formasNoSaldo}
           onFechar={() => setConfigAberta(false)}
-          onSalvo={(m, t) => { setMotivos(m); setTiposAcerto(t); setConfigAberta(false); }}
+          onSalvo={(m, t, f) => { setMotivos(m); setTiposAcerto(t); setFormasNoSaldo(f); setConfigAberta(false); }}
         />
       )}
     </div>
@@ -1359,12 +1377,14 @@ const ConfiguracaoRomaneioModal: React.FC<{
   tenantId: string;
   motivos: string[];
   tipos: TipoAcerto[];
+  formas: string[];
   onFechar: () => void;
-  onSalvo: (motivos: string[], tipos: TipoAcerto[]) => void;
-}> = ({ tenantId, motivos: motivosIniciais, tipos: tiposIniciais, onFechar, onSalvo }) => {
+  onSalvo: (motivos: string[], tipos: TipoAcerto[], formas: string[]) => void;
+}> = ({ tenantId, motivos: motivosIniciais, tipos: tiposIniciais, formas: formasIniciais, onFechar, onSalvo }) => {
   const { currentUser } = useAuth();
   const [motivos, setMotivos] = useState<string[]>(motivosIniciais);
   const [tipos, setTipos] = useState<TipoAcerto[]>(tiposIniciais);
+  const [formas, setFormas] = useState<string[]>(formasIniciais);
   const [novoMotivo, setNovoMotivo] = useState('');
   const [novoTipo, setNovoTipo] = useState('');
   const [novaNatureza, setNovaNatureza] = useState<NaturezaAcerto>('despesa');
@@ -1388,9 +1408,10 @@ const ConfiguracaoRomaneioModal: React.FC<{
   const salvar = async () => {
     if (motivos.length === 0) { showError('Motivos', 'Deixe pelo menos um motivo de não entrega.'); return; }
     if (tipos.length === 0) { showError('Acerto', 'Deixe pelo menos um item no acerto.'); return; }
+    if (formas.length === 0) { showError('Acerto', 'Marque pelo menos uma forma de recebimento que entra no saldo do motorista (normalmente Dinheiro).'); return; }
     setSalvando(true);
     try {
-      await updateDoc(doc(db, 'configuracoes', tenantId), { motivosNaoEntrega: motivos, tiposAcertoRomaneio: tipos, tiposAcertoRomaneioVersao: VERSAO_TIPOS_ACERTO });
+      await updateDoc(doc(db, 'configuracoes', tenantId), { motivosNaoEntrega: motivos, tiposAcertoRomaneio: tipos, tiposAcertoRomaneioVersao: VERSAO_TIPOS_ACERTO, formasNoSaldoRomaneio: formas });
       // Historico de alteracoes (09/11/2026): so' quando a lista mudou.
       void (async () => {
         try {
@@ -1400,11 +1421,12 @@ const ConfiguracaoRomaneioModal: React.FC<{
           ]);
           const textoDosTipos = (v: unknown) => (Array.isArray(v) ? v.map((t: TipoAcerto) => `${t.nome} (${t.natureza})`).join(', ') : '');
           const alteracoes = diferencasEntre(
-            { motivos: motivosIniciais, tipos: tiposIniciais },
-            { motivos, tipos },
+            { motivos: motivosIniciais, tipos: tiposIniciais, formas: formasIniciais },
+            { motivos, tipos, formas },
             [
               { campo: 'motivos', rotulo: 'Motivos de não entrega', formatar: (v) => (Array.isArray(v) ? v.join(', ') : '') },
               { campo: 'tipos', rotulo: 'Itens do acerto', formatar: textoDosTipos },
+              { campo: 'formas', rotulo: 'Formas que entram no saldo do motorista', formatar: (v) => (Array.isArray(v) ? v.join(', ') : '') },
             ],
           );
           if (alteracoes.length === 0 || !currentUser) return;
@@ -1426,7 +1448,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
         }
       })();
       showSuccess('Configuração do romaneio salva.');
-      onSalvo(motivos, tipos);
+      onSalvo(motivos, tipos, formas);
     } catch (erro) {
       console.error('Erro ao salvar a configuração do romaneio:', erro);
       showError('Não foi possível salvar', mensagemDoErro(erro, 'Confira sua conexão e se você pode alterar as Configurações.'));
@@ -1459,9 +1481,26 @@ const ConfiguracaoRomaneioModal: React.FC<{
           ))}
         </div>
 
+        <h4 style={{ margin: '0 0 4px', fontSize: '14px' }}>O que entra no saldo do motorista</h4>
+        <p style={{ margin: '0 0 8px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
+          O saldo a prestar soma só o que foi marcado como recebido nestas formas, porque é o que o motorista traz na mão. O que ficar desmarcado (boleto, Pix...) não entra na conta dele.
+        </p>
+        <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
+          {FORMAS_RECEBIDAS_NA_ENTREGA.map((f) => (
+            <label key={f} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formas.includes(f)}
+                onChange={(e) => setFormas(FORMAS_RECEBIDAS_NA_ENTREGA.filter((x) => (x === f ? e.target.checked : formas.includes(x))))}
+              />
+              {f}
+            </label>
+          ))}
+        </div>
+
         <h4 style={{ margin: '0 0 4px', fontSize: '14px' }}>Itens do acerto</h4>
         <p style={{ margin: '0 0 8px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-          O tipo decide a conta do saldo: pedidos e adiantamento somam; despesa desconta e vai para o financeiro ao fechar; desconto (pendência, devolução) sai da conta sem virar despesa; informação não entra na conta.
+          O tipo decide a conta do saldo: o recebido em mãos (calculado das entregas) e o adiantamento somam; despesa desconta e vai para o financeiro ao fechar; desconto (pendência, devolução) sai da conta sem virar despesa; informação não entra na conta.
         </p>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
           <input value={novoTipo} maxLength={40} onChange={(e) => setNovoTipo(e.target.value.toUpperCase())} title="Novo item" style={{ ...estiloCampo, flex: 1, minWidth: '160px' }} />

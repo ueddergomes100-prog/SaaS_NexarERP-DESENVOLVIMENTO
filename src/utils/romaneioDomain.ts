@@ -100,7 +100,29 @@ export interface EntregaRomaneio {
   registradoVia: string;
 }
 
-export type NaturezaAcerto = 'adiantamento' | 'despesa' | 'informativo';
+/*
+ * A CONTA DO ACERTO (10/11/2026, decisao do dono depois de visitar o cliente):
+ * fecha como a planilha -- PEDIDOS + VALE - DESPESAS - PENDENCIAS - DEVOLUCOES.
+ *
+ *  - 'pedidos'      soma: o total dos pedidos que o motorista levou (a linha ja'
+ *                   vem preenchida com o total da rota). E' a BASE da conta.
+ *  - 'adiantamento' soma: o vale que a loja deu.
+ *  - 'despesa'      desconta e, ao fechar, vai para o financeiro como paga.
+ *  - 'abatimento'   desconta SEM ser despesa (pendencia, devolucao): nao vai
+ *                   para o financeiro nem para o custo do veiculo.
+ *  - 'informativo'  so' anotacao.
+ *
+ * O "recebido nas entregas" (o que foi marcado pedido a pedido) NAO entra junto
+ * com a linha de pedidos: seria o mesmo dinheiro duas vezes. Ele fica ao lado,
+ * para conferencia. Acerto SEM linha de pedidos (rota fechada antes desta data,
+ * empresa que tirou a linha) continua na conta antiga: recebido + vale - despesas
+ * (- abatimentos, se houver).
+ */
+export type NaturezaAcerto = 'pedidos' | 'adiantamento' | 'despesa' | 'abatimento' | 'informativo';
+
+export const NATUREZAS_ACERTO: readonly NaturezaAcerto[] = ['pedidos', 'adiantamento', 'despesa', 'abatimento', 'informativo'];
+
+export const ehNaturezaAcerto = (valor: unknown): valor is NaturezaAcerto => NATUREZAS_ACERTO.includes(valor as NaturezaAcerto);
 
 export interface TipoAcerto {
   nome: string;
@@ -108,20 +130,25 @@ export interface TipoAcerto {
 }
 
 export const ROTULO_NATUREZA_ACERTO: Record<NaturezaAcerto, string> = {
-  adiantamento: 'Adiantamento (a loja deu ao motorista)',
-  despesa: 'Despesa (o motorista pagou)',
+  pedidos: 'Pedidos da rota (soma na conta)',
+  adiantamento: 'Adiantamento (a loja deu ao motorista; soma)',
+  despesa: 'Despesa (o motorista pagou; desconta)',
+  abatimento: 'Desconto (sai da conta, não é despesa)',
   informativo: 'Só informação (não entra na conta)',
 };
+
+/** Versao da lista de itens do acerto gravada em `configuracoes.tiposAcertoRomaneioVersao`. */
+export const VERSAO_TIPOS_ACERTO = 2;
 
 /** As linhas da planilha do cliente, na mesma ordem. A empresa pode trocar. */
 export const TIPOS_ACERTO_PADRAO: TipoAcerto[] = [
   { nome: 'VALE/ADIANTAMENTO', natureza: 'adiantamento' },
-  { nome: 'PEDIDOS', natureza: 'informativo' },
+  { nome: 'PEDIDOS', natureza: 'pedidos' },
   { nome: 'COMBUSTÍVEL', natureza: 'despesa' },
   { nome: 'HOTEL', natureza: 'despesa' },
   { nome: 'DIÁRIA', natureza: 'despesa' },
-  { nome: 'PENDÊNCIAS', natureza: 'informativo' },
-  { nome: 'DEVOLUÇÃO', natureza: 'informativo' },
+  { nome: 'PENDÊNCIAS', natureza: 'abatimento' },
+  { nome: 'DEVOLUÇÃO', natureza: 'abatimento' },
   { nome: 'PEDÁGIO', natureza: 'despesa' },
 ];
 
@@ -255,15 +282,31 @@ export const parseMotivosNaoEntrega = (raw: unknown): string[] => {
   return lista.length > 0 ? lista : [...MOTIVOS_NAO_ENTREGA_PADRAO];
 };
 
-export const parseTiposAcerto = (raw: unknown): TipoAcerto[] => {
+/**
+ * Lista gravada ANTES de 10/11/2026 (sem `tiposAcertoRomaneioVersao`): so' havia
+ * adiantamento, despesa e informacao, entao PEDIDOS, PENDENCIAS e DEVOLUCAO da
+ * planilha estavam como "so' informacao" por falta de opcao. Essas tres linhas
+ * passam para o tipo novo; qualquer outra linha fica como a empresa deixou.
+ * Lista gravada na versao nova e' respeitada inteira.
+ */
+const NATUREZA_NOVA_DAS_LINHAS_DA_PLANILHA: Record<string, NaturezaAcerto> = {
+  PEDIDOS: 'pedidos',
+  PENDENCIAS: 'abatimento',
+  DEVOLUCAO: 'abatimento',
+};
+
+export const parseTiposAcerto = (raw: unknown, versao?: unknown): TipoAcerto[] => {
   if (!Array.isArray(raw)) return TIPOS_ACERTO_PADRAO.map((t) => ({ ...t }));
+  const listaAntiga = (Number(versao) || 0) < VERSAO_TIPOS_ACERTO;
   const vistos = new Set<string>();
   const lista: TipoAcerto[] = [];
   raw.forEach((item) => {
     const nome = normalizarNomeCadastro((item as TipoAcerto)?.nome);
-    const natureza = (item as TipoAcerto)?.natureza;
+    const gravada = (item as TipoAcerto)?.natureza;
     if (!nome || vistos.has(semAcento(nome))) return;
-    if (natureza !== 'adiantamento' && natureza !== 'despesa' && natureza !== 'informativo') return;
+    if (!ehNaturezaAcerto(gravada)) return;
+    const nova = NATUREZA_NOVA_DAS_LINHAS_DA_PLANILHA[semAcento(nome)];
+    const natureza = listaAntiga && gravada === 'informativo' && nova ? nova : gravada;
     vistos.add(semAcento(nome));
     lista.push({ nome, natureza });
   });
@@ -665,9 +708,29 @@ export interface ResumoRomaneio {
   kmRodados: number | null;
   adiantamentoCentavos: number;
   despesasCentavos: number;
-  /** Quanto o motorista tem de devolver a loja: recebido + vale - despesas que ele pagou. */
+  /** O acerto tem linha de pedidos: a conta parte dela (planilha), nao do recebido nas entregas. */
+  contaPelosPedidos: boolean;
+  /** Soma das linhas de pedidos do acerto (0 na conta antiga). */
+  pedidosDoAcertoCentavos: number;
+  /** Pendencias, devolucoes: descontam sem ser despesa. */
+  abatimentosCentavos: number;
+  /** De onde a conta parte: os pedidos do acerto ou, na conta antiga, o recebido nas entregas. */
+  baseDoSaldoCentavos: number;
+  /**
+   * Conferencia da conta pelos pedidos: recebido nas entregas - (pedidos - abatimentos).
+   * Zero = o que foi marcado pedido a pedido bate com a planilha. Sempre 0 na conta antiga.
+   */
+  diferencaDoRecebidoCentavos: number;
+  /** Quanto o motorista tem de devolver a loja: base + vale - despesas - abatimentos. */
   saldoAPrestarCentavos: number;
 }
+
+/** A formula do saldo por extenso, para a tela e a impressao. */
+export const formulaDoSaldo = (resumo: Pick<ResumoRomaneio, 'contaPelosPedidos' | 'abatimentosCentavos'>): string => (
+  resumo.contaPelosPedidos
+    ? 'pedidos + vale − despesas − descontos'
+    : resumo.abatimentosCentavos > 0 ? 'recebido + vale − despesas − descontos' : 'recebido + vale − despesas'
+);
 
 export const resumoDoRomaneio = (romaneio: Pick<Romaneio, 'entregas' | 'acerto' | 'kmSaida' | 'kmChegada'>): ResumoRomaneio => {
   const soma = (lista: EntregaRomaneio[], campo: 'valorTotalCentavos' | 'recebidoCentavos') => lista.reduce((t, e) => t + (Number(e[campo]) || 0), 0);
@@ -684,6 +747,10 @@ export const resumoDoRomaneio = (romaneio: Pick<Romaneio, 'entregas' | 'acerto' 
     .reduce((t, l) => t + (Number(l.valorCentavos) || 0), 0);
   const adiantamento = porNatureza('adiantamento');
   const despesas = porNatureza('despesa');
+  const abatimentos = porNatureza('abatimento');
+  const pedidosDoAcerto = porNatureza('pedidos');
+  const contaPelosPedidos = romaneio.acerto.some((l) => l.natureza === 'pedidos');
+  const base = contaPelosPedidos ? pedidosDoAcerto : recebido;
   const kmRodados = romaneio.kmSaida !== null && romaneio.kmChegada !== null && romaneio.kmChegada >= romaneio.kmSaida
     ? romaneio.kmChegada - romaneio.kmSaida
     : null;
@@ -701,7 +768,12 @@ export const resumoDoRomaneio = (romaneio: Pick<Romaneio, 'entregas' | 'acerto' 
     kmRodados,
     adiantamentoCentavos: adiantamento,
     despesasCentavos: despesas,
-    saldoAPrestarCentavos: recebido + adiantamento - despesas,
+    contaPelosPedidos,
+    pedidosDoAcertoCentavos: pedidosDoAcerto,
+    abatimentosCentavos: abatimentos,
+    baseDoSaldoCentavos: base,
+    diferencaDoRecebidoCentavos: contaPelosPedidos ? recebido - (pedidosDoAcerto - abatimentos) : 0,
+    saldoAPrestarCentavos: base + adiantamento - despesas - abatimentos,
   };
 };
 
@@ -716,11 +788,31 @@ export const acertoParaGravar = (acerto: LancamentoAcerto[]): LancamentoAcerto[]
   .filter((l) => (Number(l.valorCentavos) || 0) > 0)
   .map((l) => ({ tipo: l.tipo, natureza: l.natureza, descricao: limpar(l.descricao), valorCentavos: Math.round(Number(l.valorCentavos)) }));
 
-/** Uma linha por tipo configurado, com o valor ja' lancado (se houver). */
-export const linhasDoAcerto = (tipos: TipoAcerto[], gravado: LancamentoAcerto[]): LancamentoAcerto[] => {
+/**
+ * Uma linha por tipo configurado, com o valor ja' lancado (se houver).
+ *
+ *  - `totalDosPedidosCentavos`: a linha de pedidos ainda sem valor vem com o
+ *    total dos pedidos da rota (como na planilha; a pessoa pode trocar).
+ *  - `tipoDaConfiguracao`: rota ainda aberta segue o tipo de HOJE da
+ *    configuracao (linha digitada quando PEDIDOS era "so' informacao" passa a
+ *    somar). Rota fechada fica com o tipo gravado: a conta dela nao muda.
+ */
+export const linhasDoAcerto = (
+  tipos: TipoAcerto[],
+  gravado: LancamentoAcerto[],
+  opcoes: { totalDosPedidosCentavos?: number; tipoDaConfiguracao?: boolean } = {},
+): LancamentoAcerto[] => {
+  const total = Math.max(0, Math.round(Number(opcoes.totalDosPedidosCentavos) || 0));
   const linhas = tipos.map((t) => {
     const existente = gravado.find((l) => semAcento(l.tipo) === semAcento(t.nome));
-    return existente ? { ...existente, natureza: existente.natureza } : { tipo: t.nome, natureza: t.natureza, descricao: '', valorCentavos: 0 };
+    const natureza = existente && !opcoes.tipoDaConfiguracao ? existente.natureza : t.natureza;
+    const valorGravado = existente ? Number(existente.valorCentavos) || 0 : 0;
+    return {
+      tipo: existente ? existente.tipo : t.nome,
+      natureza,
+      descricao: existente ? existente.descricao : '',
+      valorCentavos: natureza === 'pedidos' && valorGravado === 0 ? total : valorGravado,
+    };
   });
   // Tipo que saiu da configuracao mas tem valor gravado continua aparecendo.
   gravado.forEach((l) => {
@@ -780,9 +872,10 @@ export const montarDocumentoRomaneio = (romaneio: Romaneio): DocumentoRomaneio =
   ];
   if (romaneio.status === 'fechado' || romaneio.acerto.length > 0) {
     linhasAcerto.push(
-      { item: 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) },
+      { item: resumo.contaPelosPedidos ? 'Recebido nas entregas (conferência)' : 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) },
       { item: 'Total de despesas', valor: moeda(resumo.despesasCentavos) },
-      { item: 'Saldo a prestar (recebido + vale − despesas)', valor: moeda(resumo.saldoAPrestarCentavos) },
+      ...(resumo.abatimentosCentavos > 0 ? [{ item: 'Total de descontos (pendências, devoluções)', valor: moeda(resumo.abatimentosCentavos) }] : []),
+      { item: `Saldo a prestar (${formulaDoSaldo(resumo)})`, valor: moeda(resumo.saldoAPrestarCentavos) },
     );
   } else {
     // Romaneio que vai sair: o quadro vai em branco pra preencher a mao, como na planilha.

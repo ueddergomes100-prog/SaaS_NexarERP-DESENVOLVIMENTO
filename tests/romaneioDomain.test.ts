@@ -9,6 +9,8 @@ import {
   dataDaEntrega,
   descricaoDaEntrega,
   erroDaDataDaEntrega,
+  formulaDoSaldo,
+  VERSAO_TIPOS_ACERTO,
   despesasDoAcerto,
   despesasJaLancadas,
   erroDoMotivo,
@@ -270,7 +272,7 @@ test('ao encerrar: entregue fica preso à rota, o resto volta a ficar livre', ()
   assert.equal(situacaoDoPedidoAoEncerrar({ status: 'entregue' }, true), 'liberado');
 });
 
-test('resumo: KM rodados, valores e saldo a prestar = recebido + vale − despesas', () => {
+test('resumo: KM rodados, valores e saldo a prestar = recebido + vale − despesas (acerto sem linha de pedidos)', () => {
   const r = resumoDoRomaneio(romaneio({
     kmSaida: 1000,
     kmChegada: 1350,
@@ -288,7 +290,57 @@ test('resumo: KM rodados, valores e saldo a prestar = recebido + vale − despes
   assert.equal(r.entregues, 1);
   assert.equal(r.valorNaoEntregueCentavos, 10000);
   assert.equal(r.saldoAPrestarCentavos, 20000 + 30000 - 15000);
+  assert.equal(r.contaPelosPedidos, false);
+  assert.equal(r.diferencaDoRecebidoCentavos, 0);
+  assert.equal(formulaDoSaldo(r), 'recebido + vale − despesas');
   assert.deepEqual(r.recebidoPorForma, [{ forma: 'Dinheiro', centavos: 20000 }]);
+});
+
+test('acerto pela planilha (10/11/2026): pedidos + vale − despesas − pendências − devoluções; recebido só confere', () => {
+  const base = {
+    entregas: [
+      entrega('1', { status: 'entregue', valorTotalCentavos: 60000, recebidoCentavos: 60000, recebidoForma: 'Dinheiro' }),
+      entrega('2', { status: 'entregue', valorTotalCentavos: 30000 }), // a prazo: pendência
+      entrega('3', { status: 'nao_entregue', motivo: 'X', valorTotalCentavos: 10000 }), // voltou: devolução
+    ],
+  };
+  const acerto = [
+    { tipo: 'VALE/ADIANTAMENTO', natureza: 'adiantamento' as const, descricao: '', valorCentavos: 20000 },
+    { tipo: 'PEDIDOS', natureza: 'pedidos' as const, descricao: '', valorCentavos: 100000 },
+    { tipo: 'COMBUSTÍVEL', natureza: 'despesa' as const, descricao: '', valorCentavos: 15000 },
+    { tipo: 'PENDÊNCIAS', natureza: 'abatimento' as const, descricao: '', valorCentavos: 30000 },
+    { tipo: 'DEVOLUÇÃO', natureza: 'abatimento' as const, descricao: '', valorCentavos: 10000 },
+    { tipo: 'RECADO', natureza: 'informativo' as const, descricao: '', valorCentavos: 99900 },
+  ];
+  const r = resumoDoRomaneio(romaneio({ ...base, acerto }));
+  assert.equal(r.contaPelosPedidos, true);
+  assert.equal(r.pedidosDoAcertoCentavos, 100000);
+  assert.equal(r.abatimentosCentavos, 40000);
+  assert.equal(r.despesasCentavos, 15000);
+  // 1000 + 200 − 150 − 300 − 100 = 650; o recebido (600) NAO soma junto com os pedidos.
+  assert.equal(r.saldoAPrestarCentavos, 100000 + 20000 - 15000 - 30000 - 10000);
+  assert.equal(r.baseDoSaldoCentavos, 100000);
+  assert.equal(r.recebidoCentavos, 60000);
+  // recebido 600 = pedidos 1000 − descontos 400: bate.
+  assert.equal(r.diferencaDoRecebidoCentavos, 0);
+  assert.equal(formulaDoSaldo(r), 'pedidos + vale − despesas − descontos');
+
+  // Esqueceu a pendência: a conferência mostra 300 de diferença.
+  const semPendencia = resumoDoRomaneio(romaneio({ ...base, acerto: acerto.filter((l) => l.tipo !== 'PENDÊNCIAS') }));
+  assert.equal(semPendencia.diferencaDoRecebidoCentavos, 60000 - (100000 - 10000));
+
+  // Sem linha de pedidos, desconto ainda desconta da conta antiga (recebido).
+  const antiga = resumoDoRomaneio(romaneio({ ...base, acerto: acerto.filter((l) => l.natureza !== 'pedidos') }));
+  assert.equal(antiga.contaPelosPedidos, false);
+  assert.equal(antiga.saldoAPrestarCentavos, 60000 + 20000 - 15000 - 40000);
+  assert.equal(formulaDoSaldo(antiga), 'recebido + vale − despesas − descontos');
+
+  // Impressao: a formula e os descontos aparecem; o recebido vira conferencia.
+  const doc = montarDocumentoRomaneio(romaneio({ ...base, status: 'fechado', acerto }));
+  const itens = doc.secoes[1].linhas.map((l: { item: string }) => l.item);
+  assert.ok(itens.includes('Recebido nas entregas (conferência)'));
+  assert.ok(itens.includes('Total de descontos (pendências, devoluções)'));
+  assert.ok(itens.includes('Saldo a prestar (pedidos + vale − despesas − descontos)'));
 });
 
 test('configuração: motivos e tipos de acerto lidos sem lixo; vazio volta ao padrão', () => {
@@ -296,6 +348,24 @@ test('configuração: motivos e tipos de acerto lidos sem lixo; vazio volta ao p
   assert.ok(parseMotivosNaoEntrega(null).length > 3);
   assert.deepEqual(parseTiposAcerto([{ nome: 'lavagem', natureza: 'despesa' }, { nome: 'x', natureza: 'errada' }]), [{ nome: 'LAVAGEM', natureza: 'despesa' }]);
   assert.equal(parseTiposAcerto(undefined).length, TIPOS_ACERTO_PADRAO.length);
+  // Padrao novo: pedidos soma; pendencias e devolucao descontam sem ser despesa.
+  const padrao = Object.fromEntries(parseTiposAcerto(undefined).map((t) => [t.nome, t.natureza]));
+  assert.equal(padrao.PEDIDOS, 'pedidos');
+  assert.equal(padrao['PENDÊNCIAS'], 'abatimento');
+  assert.equal(padrao['DEVOLUÇÃO'], 'abatimento');
+  assert.equal(padrao['COMBUSTÍVEL'], 'despesa');
+  // Lista gravada antes de 10/11/2026 (sem versao): as tres linhas da planilha sobem de tipo; o resto fica.
+  const antiga = [
+    { nome: 'PEDIDOS', natureza: 'informativo' },
+    { nome: 'Pendencias', natureza: 'informativo' },
+    { nome: 'DEVOLUÇÃO', natureza: 'informativo' },
+    { nome: 'RECADO', natureza: 'informativo' },
+    { nome: 'LAVAGEM', natureza: 'despesa' },
+  ];
+  assert.deepEqual(parseTiposAcerto(antiga).map((t) => t.natureza), ['pedidos', 'abatimento', 'abatimento', 'informativo', 'despesa']);
+  // Gravada na versao nova: respeitada inteira (a empresa quis PEDIDOS so' como informacao).
+  assert.deepEqual(parseTiposAcerto(antiga, VERSAO_TIPOS_ACERTO).map((t) => t.natureza), ['informativo', 'informativo', 'informativo', 'informativo', 'despesa']);
+  assert.deepEqual(parseTiposAcerto([{ nome: 'QUEBRA', natureza: 'abatimento' }], VERSAO_TIPOS_ACERTO), [{ nome: 'QUEBRA', natureza: 'abatimento' }]);
 });
 
 test('linhas do acerto: uma por tipo, com o valor gravado; tipo antigo com valor não some', () => {
@@ -306,6 +376,16 @@ test('linhas do acerto: uma por tipo, com o valor gravado; tipo antigo com valor
   assert.equal(linhas.length, 2);
   assert.equal(linhas[0].valorCentavos, 100);
   assert.equal(linhas[1].tipo, 'LAVAGEM');
+
+  // Linha de pedidos sem valor vem com o total da rota; com valor digitado, fica o digitado.
+  const tipos = [{ nome: 'PEDIDOS', natureza: 'pedidos' as const }, { nome: 'PENDÊNCIAS', natureza: 'abatimento' as const }];
+  assert.deepEqual(linhasDoAcerto(tipos, [], { totalDosPedidosCentavos: 123456 }).map((l) => l.valorCentavos), [123456, 0]);
+  assert.equal(linhasDoAcerto(tipos, [{ tipo: 'PEDIDOS', natureza: 'pedidos', descricao: 'x', valorCentavos: 500 }], { totalDosPedidosCentavos: 123456 })[0].valorCentavos, 500);
+  // Rota aberta segue o tipo de hoje da configuracao; rota fechada fica com o tipo gravado.
+  const digitadoAntes = [{ tipo: 'PEDIDOS', natureza: 'informativo' as const, descricao: '', valorCentavos: 700 }];
+  assert.equal(linhasDoAcerto(tipos, digitadoAntes, { tipoDaConfiguracao: true })[0].natureza, 'pedidos');
+  assert.equal(linhasDoAcerto(tipos, digitadoAntes, { tipoDaConfiguracao: true })[0].valorCentavos, 700);
+  assert.equal(linhasDoAcerto(tipos, digitadoAntes)[0].natureza, 'informativo');
 });
 
 test('PDF do romaneio: rota a sair leva o quadro do acerto em branco; o relatório soma o período', () => {

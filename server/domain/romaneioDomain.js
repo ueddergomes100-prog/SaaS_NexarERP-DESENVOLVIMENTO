@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.erroDaDataDaEntrega = exports.dataDaEntrega = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.ROTULO_NATUREZA_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
-exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = void 0;
+exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.formulaDoSaldo = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.erroDaDataDaEntrega = exports.dataDaEntrega = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.VERSAO_TIPOS_ACERTO = exports.ROTULO_NATUREZA_ACERTO = exports.ehNaturezaAcerto = exports.NATUREZAS_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
+exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = void 0;
 const preVendaDomain_1 = require("./preVendaDomain");
 const historicoAlteracoesDomain_1 = require("./historicoAlteracoesDomain");
 const dateTime_1 = require("./dateTime");
@@ -18,20 +18,27 @@ exports.ROTULO_STATUS_ENTREGA = {
 };
 /** Romaneio que ainda "segura" os pedidos (nao podem entrar em outra rota). */
 exports.STATUS_ROMANEIO_ATIVO = ['montagem', 'em_rota'];
+exports.NATUREZAS_ACERTO = ['pedidos', 'adiantamento', 'despesa', 'abatimento', 'informativo'];
+const ehNaturezaAcerto = (valor) => exports.NATUREZAS_ACERTO.includes(valor);
+exports.ehNaturezaAcerto = ehNaturezaAcerto;
 exports.ROTULO_NATUREZA_ACERTO = {
-    adiantamento: 'Adiantamento (a loja deu ao motorista)',
-    despesa: 'Despesa (o motorista pagou)',
+    pedidos: 'Pedidos da rota (soma na conta)',
+    adiantamento: 'Adiantamento (a loja deu ao motorista; soma)',
+    despesa: 'Despesa (o motorista pagou; desconta)',
+    abatimento: 'Desconto (sai da conta, não é despesa)',
     informativo: 'Só informação (não entra na conta)',
 };
+/** Versao da lista de itens do acerto gravada em `configuracoes.tiposAcertoRomaneioVersao`. */
+exports.VERSAO_TIPOS_ACERTO = 2;
 /** As linhas da planilha do cliente, na mesma ordem. A empresa pode trocar. */
 exports.TIPOS_ACERTO_PADRAO = [
     { nome: 'VALE/ADIANTAMENTO', natureza: 'adiantamento' },
-    { nome: 'PEDIDOS', natureza: 'informativo' },
+    { nome: 'PEDIDOS', natureza: 'pedidos' },
     { nome: 'COMBUSTÍVEL', natureza: 'despesa' },
     { nome: 'HOTEL', natureza: 'despesa' },
     { nome: 'DIÁRIA', natureza: 'despesa' },
-    { nome: 'PENDÊNCIAS', natureza: 'informativo' },
-    { nome: 'DEVOLUÇÃO', natureza: 'informativo' },
+    { nome: 'PENDÊNCIAS', natureza: 'abatimento' },
+    { nome: 'DEVOLUÇÃO', natureza: 'abatimento' },
     { nome: 'PEDÁGIO', natureza: 'despesa' },
 ];
 exports.MOTIVOS_NAO_ENTREGA_PADRAO = [
@@ -134,18 +141,33 @@ const parseMotivosNaoEntrega = (raw) => {
     return lista.length > 0 ? lista : [...exports.MOTIVOS_NAO_ENTREGA_PADRAO];
 };
 exports.parseMotivosNaoEntrega = parseMotivosNaoEntrega;
-const parseTiposAcerto = (raw) => {
+/**
+ * Lista gravada ANTES de 10/11/2026 (sem `tiposAcertoRomaneioVersao`): so' havia
+ * adiantamento, despesa e informacao, entao PEDIDOS, PENDENCIAS e DEVOLUCAO da
+ * planilha estavam como "so' informacao" por falta de opcao. Essas tres linhas
+ * passam para o tipo novo; qualquer outra linha fica como a empresa deixou.
+ * Lista gravada na versao nova e' respeitada inteira.
+ */
+const NATUREZA_NOVA_DAS_LINHAS_DA_PLANILHA = {
+    PEDIDOS: 'pedidos',
+    PENDENCIAS: 'abatimento',
+    DEVOLUCAO: 'abatimento',
+};
+const parseTiposAcerto = (raw, versao) => {
     if (!Array.isArray(raw))
         return exports.TIPOS_ACERTO_PADRAO.map((t) => ({ ...t }));
+    const listaAntiga = (Number(versao) || 0) < exports.VERSAO_TIPOS_ACERTO;
     const vistos = new Set();
     const lista = [];
     raw.forEach((item) => {
         const nome = (0, exports.normalizarNomeCadastro)(item?.nome);
-        const natureza = item?.natureza;
+        const gravada = item?.natureza;
         if (!nome || vistos.has(semAcento(nome)))
             return;
-        if (natureza !== 'adiantamento' && natureza !== 'despesa' && natureza !== 'informativo')
+        if (!(0, exports.ehNaturezaAcerto)(gravada))
             return;
+        const nova = NATUREZA_NOVA_DAS_LINHAS_DA_PLANILHA[semAcento(nome)];
+        const natureza = listaAntiga && gravada === 'informativo' && nova ? nova : gravada;
         vistos.add(semAcento(nome));
         lista.push({ nome, natureza });
     });
@@ -450,6 +472,11 @@ exports.erroParaCancelar = erroParaCancelar;
  */
 const situacaoDoPedidoAoEncerrar = (entrega, cancelando) => (!cancelando && entrega.status === 'entregue' ? 'entregue' : 'liberado');
 exports.situacaoDoPedidoAoEncerrar = situacaoDoPedidoAoEncerrar;
+/** A formula do saldo por extenso, para a tela e a impressao. */
+const formulaDoSaldo = (resumo) => (resumo.contaPelosPedidos
+    ? 'pedidos + vale − despesas − descontos'
+    : resumo.abatimentosCentavos > 0 ? 'recebido + vale − despesas − descontos' : 'recebido + vale − despesas');
+exports.formulaDoSaldo = formulaDoSaldo;
 const resumoDoRomaneio = (romaneio) => {
     const soma = (lista, campo) => lista.reduce((t, e) => t + (Number(e[campo]) || 0), 0);
     const entregues = romaneio.entregas.filter((e) => e.status === 'entregue');
@@ -466,6 +493,10 @@ const resumoDoRomaneio = (romaneio) => {
         .reduce((t, l) => t + (Number(l.valorCentavos) || 0), 0);
     const adiantamento = porNatureza('adiantamento');
     const despesas = porNatureza('despesa');
+    const abatimentos = porNatureza('abatimento');
+    const pedidosDoAcerto = porNatureza('pedidos');
+    const contaPelosPedidos = romaneio.acerto.some((l) => l.natureza === 'pedidos');
+    const base = contaPelosPedidos ? pedidosDoAcerto : recebido;
     const kmRodados = romaneio.kmSaida !== null && romaneio.kmChegada !== null && romaneio.kmChegada >= romaneio.kmSaida
         ? romaneio.kmChegada - romaneio.kmSaida
         : null;
@@ -483,7 +514,12 @@ const resumoDoRomaneio = (romaneio) => {
         kmRodados,
         adiantamentoCentavos: adiantamento,
         despesasCentavos: despesas,
-        saldoAPrestarCentavos: recebido + adiantamento - despesas,
+        contaPelosPedidos,
+        pedidosDoAcertoCentavos: pedidosDoAcerto,
+        abatimentosCentavos: abatimentos,
+        baseDoSaldoCentavos: base,
+        diferencaDoRecebidoCentavos: contaPelosPedidos ? recebido - (pedidosDoAcerto - abatimentos) : 0,
+        saldoAPrestarCentavos: base + adiantamento - despesas - abatimentos,
     };
 };
 exports.resumoDoRomaneio = resumoDoRomaneio;
@@ -498,11 +534,27 @@ const acertoParaGravar = (acerto) => acerto
     .filter((l) => (Number(l.valorCentavos) || 0) > 0)
     .map((l) => ({ tipo: l.tipo, natureza: l.natureza, descricao: limpar(l.descricao), valorCentavos: Math.round(Number(l.valorCentavos)) }));
 exports.acertoParaGravar = acertoParaGravar;
-/** Uma linha por tipo configurado, com o valor ja' lancado (se houver). */
-const linhasDoAcerto = (tipos, gravado) => {
+/**
+ * Uma linha por tipo configurado, com o valor ja' lancado (se houver).
+ *
+ *  - `totalDosPedidosCentavos`: a linha de pedidos ainda sem valor vem com o
+ *    total dos pedidos da rota (como na planilha; a pessoa pode trocar).
+ *  - `tipoDaConfiguracao`: rota ainda aberta segue o tipo de HOJE da
+ *    configuracao (linha digitada quando PEDIDOS era "so' informacao" passa a
+ *    somar). Rota fechada fica com o tipo gravado: a conta dela nao muda.
+ */
+const linhasDoAcerto = (tipos, gravado, opcoes = {}) => {
+    const total = Math.max(0, Math.round(Number(opcoes.totalDosPedidosCentavos) || 0));
     const linhas = tipos.map((t) => {
         const existente = gravado.find((l) => semAcento(l.tipo) === semAcento(t.nome));
-        return existente ? { ...existente, natureza: existente.natureza } : { tipo: t.nome, natureza: t.natureza, descricao: '', valorCentavos: 0 };
+        const natureza = existente && !opcoes.tipoDaConfiguracao ? existente.natureza : t.natureza;
+        const valorGravado = existente ? Number(existente.valorCentavos) || 0 : 0;
+        return {
+            tipo: existente ? existente.tipo : t.nome,
+            natureza,
+            descricao: existente ? existente.descricao : '',
+            valorCentavos: natureza === 'pedidos' && valorGravado === 0 ? total : valorGravado,
+        };
     });
     // Tipo que saiu da configuracao mas tem valor gravado continua aparecendo.
     gravado.forEach((l) => {
@@ -549,7 +601,7 @@ const montarDocumentoRomaneio = (romaneio) => {
         ...romaneio.acerto.map((l) => ({ item: l.descricao ? `${l.tipo} — ${l.descricao}` : l.tipo, valor: moeda(l.valorCentavos) })),
     ];
     if (romaneio.status === 'fechado' || romaneio.acerto.length > 0) {
-        linhasAcerto.push({ item: 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) }, { item: 'Total de despesas', valor: moeda(resumo.despesasCentavos) }, { item: 'Saldo a prestar (recebido + vale − despesas)', valor: moeda(resumo.saldoAPrestarCentavos) });
+        linhasAcerto.push({ item: resumo.contaPelosPedidos ? 'Recebido nas entregas (conferência)' : 'Recebido nas entregas', valor: moeda(resumo.recebidoCentavos) }, { item: 'Total de despesas', valor: moeda(resumo.despesasCentavos) }, ...(resumo.abatimentosCentavos > 0 ? [{ item: 'Total de descontos (pendências, devoluções)', valor: moeda(resumo.abatimentosCentavos) }] : []), { item: `Saldo a prestar (${(0, exports.formulaDoSaldo)(resumo)})`, valor: moeda(resumo.saldoAPrestarCentavos) });
     }
     else {
         // Romaneio que vai sair: o quadro vai em branco pra preencher a mao, como na planilha.

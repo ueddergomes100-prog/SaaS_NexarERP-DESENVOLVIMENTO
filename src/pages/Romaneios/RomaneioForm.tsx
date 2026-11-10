@@ -55,7 +55,9 @@ import {
   diferencaDoRecebido,
   entregasDaBusca,
   formaRecebidaPadrao,
+  formulaDoSaldo,
   linhasDoAcerto,
+  VERSAO_TIPOS_ACERTO,
   montarDocumentoRomaneio,
   moverEntrega,
   normalizarNomeCadastro,
@@ -172,7 +174,7 @@ const RomaneioForm: React.FC = () => {
       .then((snap) => {
         const dados = snap.exists() ? snap.data() : {};
         setMotivos(parseMotivosNaoEntrega(dados.motivosNaoEntrega));
-        setTiposAcerto(parseTiposAcerto(dados.tiposAcertoRomaneio));
+        setTiposAcerto(parseTiposAcerto(dados.tiposAcertoRomaneio, dados.tiposAcertoRomaneioVersao));
         setAceitaPreVenda(preVendaEntraNaRota(parseModoRotaPreVenda(dados.rotaNaPreVenda)));
       })
       .catch((erro) => console.error('Erro ao carregar a configuração do romaneio:', erro));
@@ -233,7 +235,13 @@ const RomaneioForm: React.FC = () => {
   }, [id, tenantId, navigate]);
 
   const resumo = useMemo(() => resumoDoRomaneio(romaneio), [romaneio]);
-  const acertoNaTela = useMemo(() => linhasDoAcerto(tiposAcerto, romaneio.acerto), [tiposAcerto, romaneio.acerto]);
+  // Conta do acerto pela planilha (10/11/2026): a linha de pedidos vem com o total
+  // da rota e rota ainda aberta segue o tipo de hoje da configuracao.
+  const acertoNaTela = useMemo(() => linhasDoAcerto(tiposAcerto, romaneio.acerto, {
+    totalDosPedidosCentavos: resumo.valorTotalCentavos,
+    tipoDaConfiguracao: romaneio.status !== 'fechado' && romaneio.status !== 'cancelado',
+  }), [tiposAcerto, romaneio.acerto, romaneio.status, resumo.valorTotalCentavos]);
+  const resumoDoAcerto = useMemo(() => resumoDoRomaneio({ ...romaneio, acerto: acertoNaTela }), [romaneio, acertoNaTela]);
   const motoristasAtivos = motoristas.filter((m) => m.ativo !== false || m.id === romaneio.motoristaId);
   const veiculosAtivos = frota.filter((v) => v.ativo !== false || v.id === romaneio.veiculoId);
   const emMontagem = romaneio.status === 'montagem';
@@ -811,6 +819,7 @@ const RomaneioForm: React.FC = () => {
                           inputMode="decimal"
                           defaultValue={textoDosCentavos(l.valorCentavos)}
                           key={`${l.tipo}-${l.valorCentavos}`}
+                          title={l.natureza === 'pedidos' ? 'Vem com o total dos pedidos da rota. Pode alterar.' : undefined}
                           onBlur={(e) => mudarAcerto(l.tipo, 'valorCentavos', centavosDoTexto(e.target.value))}
                           style={{ ...estiloCampo, padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}
                         />
@@ -822,25 +831,50 @@ const RomaneioForm: React.FC = () => {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-              <div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recebido nas entregas</div>
-                <div style={{ fontSize: '18px', fontWeight: 700 }}>{moeda(resumo.recebidoCentavos)}</div>
-                {resumo.recebidoPorForma.map((f) => <div key={f.forma} style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>{f.forma}: {moeda(f.centavos)}</div>)}
-              </div>
+              {resumoDoAcerto.contaPelosPedidos ? (
+                <div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pedidos</div>
+                  <div style={{ fontSize: '18px', fontWeight: 700 }}>{moeda(resumoDoAcerto.pedidosDoAcertoCentavos)}</div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Recebido nas entregas</div>
+                  <div style={{ fontSize: '18px', fontWeight: 700 }}>{moeda(resumo.recebidoCentavos)}</div>
+                  {resumo.recebidoPorForma.map((f) => <div key={f.forma} style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>{f.forma}: {moeda(f.centavos)}</div>)}
+                </div>
+              )}
               <div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Vale / adiantamento</div>
-                <div style={{ fontSize: '18px', fontWeight: 700 }}>{moeda(resumoDoRomaneio({ ...romaneio, acerto: acertoNaTela }).adiantamentoCentavos)}</div>
+                <div style={{ fontSize: '18px', fontWeight: 700 }}>{moeda(resumoDoAcerto.adiantamentoCentavos)}</div>
               </div>
               <div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Despesas do motorista</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#ef4444' }}>{moeda(resumoDoRomaneio({ ...romaneio, acerto: acertoNaTela }).despesasCentavos)}</div>
+                <div style={{ fontSize: '18px', fontWeight: 700, color: '#ef4444' }}>{moeda(resumoDoAcerto.despesasCentavos)}</div>
               </div>
+              {(resumoDoAcerto.contaPelosPedidos || resumoDoAcerto.abatimentosCentavos > 0) && (
+                <div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Descontos</div>
+                  <div style={{ fontSize: '18px', fontWeight: 700, color: '#ef4444' }}>{moeda(resumoDoAcerto.abatimentosCentavos)}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>pendências, devoluções</div>
+                </div>
+              )}
               <div>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Saldo a prestar</div>
-                <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--accent-purple)' }}>{moeda(resumoDoRomaneio({ ...romaneio, acerto: acertoNaTela }).saldoAPrestarCentavos)}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>recebido + vale − despesas</div>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--accent-purple)' }}>{moeda(resumoDoAcerto.saldoAPrestarCentavos)}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formulaDoSaldo(resumoDoAcerto)}</div>
               </div>
             </div>
+
+            {resumoDoAcerto.contaPelosPedidos && (
+              <div style={{ marginTop: '14px', padding: '10px 12px', borderRadius: '8px', backgroundColor: 'var(--bg-tertiary)', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                <strong>Conferência:</strong> recebido nas entregas {moeda(resumo.recebidoCentavos)}
+                {resumo.recebidoPorForma.length > 0 && <> ({resumo.recebidoPorForma.map((f) => `${f.forma} ${moeda(f.centavos)}`).join(' · ')})</>}
+                {' · '}pedidos − descontos {moeda(resumoDoAcerto.pedidosDoAcertoCentavos - resumoDoAcerto.abatimentosCentavos)}.{' '}
+                {resumoDoAcerto.diferencaDoRecebidoCentavos === 0
+                  ? 'Os dois batem.'
+                  : <span style={{ color: '#f59e0b', fontWeight: 600 }}>Diferença de {moeda(Math.abs(resumoDoAcerto.diferencaDoRecebidoCentavos))}: confira as pendências, as devoluções e o que foi marcado como recebido em cada entrega.</span>}
+              </div>
+            )}
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '16px' }}>
               <span style={estiloRotulo}>Observação do acerto</span>
@@ -1356,7 +1390,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
     if (tipos.length === 0) { showError('Acerto', 'Deixe pelo menos um item no acerto.'); return; }
     setSalvando(true);
     try {
-      await updateDoc(doc(db, 'configuracoes', tenantId), { motivosNaoEntrega: motivos, tiposAcertoRomaneio: tipos });
+      await updateDoc(doc(db, 'configuracoes', tenantId), { motivosNaoEntrega: motivos, tiposAcertoRomaneio: tipos, tiposAcertoRomaneioVersao: VERSAO_TIPOS_ACERTO });
       // Historico de alteracoes (09/11/2026): so' quando a lista mudou.
       void (async () => {
         try {
@@ -1427,7 +1461,7 @@ const ConfiguracaoRomaneioModal: React.FC<{
 
         <h4 style={{ margin: '0 0 4px', fontSize: '14px' }}>Itens do acerto</h4>
         <p style={{ margin: '0 0 8px', fontSize: '12.5px', color: 'var(--text-muted)' }}>
-          O tipo decide a conta do saldo: adiantamento soma (a loja deu), despesa subtrai (o motorista pagou), informação não entra na conta.
+          O tipo decide a conta do saldo: pedidos e adiantamento somam; despesa desconta e vai para o financeiro ao fechar; desconto (pendência, devolução) sai da conta sem virar despesa; informação não entra na conta.
         </p>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
           <input value={novoTipo} maxLength={40} onChange={(e) => setNovoTipo(e.target.value.toUpperCase())} title="Novo item" style={{ ...estiloCampo, flex: 1, minWidth: '160px' }} />
@@ -1439,7 +1473,15 @@ const ConfiguracaoRomaneioModal: React.FC<{
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '20px' }}>
           {tipos.map((t) => (
             <div key={t.nome} style={linhaLista}>
-              <span>{t.nome} <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>· {ROTULO_NATUREZA_ACERTO[t.natureza]}</span></span>
+              <span style={{ flex: 1, minWidth: 0 }}>{t.nome}</span>
+              <select
+                value={t.natureza}
+                onChange={(e) => setTipos(tipos.map((x) => (x.nome === t.nome ? { ...x, natureza: e.target.value as NaturezaAcerto } : x)))}
+                title={`Tipo do item ${t.nome}`}
+                style={{ ...estiloCampo, width: 'auto', maxWidth: '300px', padding: '6px 8px', fontSize: '12.5px' }}
+              >
+                {(Object.keys(ROTULO_NATUREZA_ACERTO) as NaturezaAcerto[]).map((n) => <option key={n} value={n}>{ROTULO_NATUREZA_ACERTO[n]}</option>)}
+              </select>
               <button type="button" onClick={() => setTipos(tipos.filter((x) => x.nome !== t.nome))} title="Remover" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex' }}><Trash2 size={15} /></button>
             </div>
           ))}

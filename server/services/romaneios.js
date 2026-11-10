@@ -18,6 +18,7 @@ const {
   fotoDoFechamento,
   planoDeDespesas,
   planoDeReabertura,
+  ehNaturezaAcerto,
   romaneioDoDocumento,
   situacaoDoPedidoAoEncerrar,
   tituloDoRomaneio,
@@ -147,7 +148,7 @@ const romaneioDoCorpo = (gravado, corpo) => {
   const acerto = Array.isArray(r.acerto)
     ? r.acerto.filter((l) => l && typeof l === 'object').map((l) => ({
       tipo: texto(l.tipo, ''),
-      natureza: ['adiantamento', 'despesa', 'informativo'].includes(l.natureza) ? l.natureza : 'informativo',
+      natureza: ehNaturezaAcerto(l.natureza) ? l.natureza : 'informativo',
       descricao: texto(l.descricao, ''),
       valorCentavos: Number(l.valorCentavos) || 0,
     })).filter((l) => l.tipo)

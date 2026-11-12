@@ -37,15 +37,35 @@ test('valor por extenso em portugues', () => {
   assert.equal(valorPorExtenso(40890), 'quatrocentos e oito reais e noventa centavos');
 });
 
-test('configuracao de emissao: padrao e\' nunca; lixo vira padrao; momentos separam sempre e perguntar', () => {
+test('configuracao de emissao: recibo pergunta por padrao, o resto nao emite; lixo vira padrao; momentos separam sempre e perguntar', () => {
   assert.deepEqual(parseEmissaoDocumentos(undefined), EMISSAO_DOCUMENTOS_PADRAO);
+  assert.equal(EMISSAO_DOCUMENTOS_PADRAO.recibo.modo, 'perguntar');
+  assert.equal(EMISSAO_DOCUMENTOS_PADRAO.promissoria.modo, 'nunca');
   const c = parseEmissaoDocumentos({ promissoria: { modo: 'sempre', vias: 2 }, carne: { modo: 'perguntar', vias: 9 }, recibo: { modo: 'x' }, duplicata: { modo: 'perguntar', vias: 1 } });
   assert.deepEqual(c.promissoria, { modo: 'sempre', vias: 2 });
   assert.deepEqual(c.carne, { modo: 'perguntar', vias: 1 }, 'vias fora do limite voltam para 1');
-  assert.deepEqual(c.recibo, { modo: 'nunca', vias: 1 });
+  assert.deepEqual(c.recibo, { modo: 'perguntar', vias: 1 }, 'lixo vira o padrao do recibo');
   assert.deepEqual(documentosParaMomento(c, 'venda_a_prazo'), { sempre: ['promissoria'], perguntar: ['carne', 'duplicata'] });
-  assert.deepEqual(documentosParaMomento(c, 'recebimento'), { sempre: [], perguntar: [] });
+  assert.deepEqual(documentosParaMomento(c, 'recebimento'), { sempre: [], perguntar: ['recibo'] });
   assert.deepEqual(documentosParaMomento(EMISSAO_DOCUMENTOS_PADRAO, 'venda_a_prazo'), { sempre: [], perguntar: [] });
+  assert.deepEqual(documentosParaMomento(EMISSAO_DOCUMENTOS_PADRAO, 'recebimento'), { sempre: [], perguntar: ['recibo'] });
+});
+
+test('recibo: "nao emitir" gravado so\' vale quando a empresa escolheu na tela (marca definido)', () => {
+  // A tela gravava a regra inteira a cada Salvar: 'nunca' sem a marca e' quem nunca escolheu.
+  assert.deepEqual(parseEmissaoDocumentos({ recibo: { modo: 'nunca', vias: 2 } }).recibo, { modo: 'perguntar', vias: 2 });
+  // Escolheu "Nao emitir" depois de 12/11/2026: fica sem perguntar.
+  assert.deepEqual(parseEmissaoDocumentos({ recibo: { modo: 'nunca', vias: 1, definido: true } }).recibo, { modo: 'nunca', vias: 1, definido: true });
+  // "Emitir sempre" e "Perguntar" gravados valem com ou sem a marca.
+  assert.deepEqual(parseEmissaoDocumentos({ recibo: { modo: 'sempre', vias: 1 } }).recibo, { modo: 'sempre', vias: 1 });
+  assert.deepEqual(parseEmissaoDocumentos({ recibo: { modo: 'perguntar', vias: 1, definido: true } }).recibo, { modo: 'perguntar', vias: 1, definido: true });
+  // Promissoria, carne e duplicata nao mudaram: 'nunca' continua 'nunca'.
+  assert.deepEqual(parseEmissaoDocumentos({ carne: { modo: 'nunca', vias: 1 } }).carne, { modo: 'nunca', vias: 1 });
+  // A marca nunca vira chave com undefined (o Firestore recusa).
+  assert.equal('definido' in parseEmissaoDocumentos({ recibo: { modo: 'nunca', definido: 'sim' } }).recibo, false);
+  // Ida e volta: o que a tela grava e' lido igual.
+  const escolhido = parseEmissaoDocumentos({ recibo: { modo: 'nunca', vias: 1, definido: true } });
+  assert.deepEqual(parseEmissaoDocumentos(JSON.parse(JSON.stringify(escolhido))), escolhido);
 });
 
 test('partes: empresa pela configuracao, cliente pelo cadastro, documentos formatados', () => {

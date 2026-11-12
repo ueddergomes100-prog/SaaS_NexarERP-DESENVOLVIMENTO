@@ -3069,7 +3069,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   <select
                     value={formData.emissaoDocumentos[docInfo.chave].modo}
                     disabled={!isEditingMode}
-                    onChange={(e) => { const modo = e.target.value as ModoEmissao; setFormData((atual) => ({ ...atual, emissaoDocumentos: { ...atual.emissaoDocumentos, [docInfo.chave]: { ...atual.emissaoDocumentos[docInfo.chave], modo } } })); }}
+                    onChange={(e) => { const modo = e.target.value as ModoEmissao; setFormData((atual) => ({ ...atual, emissaoDocumentos: { ...atual.emissaoDocumentos, [docInfo.chave]: { ...atual.emissaoDocumentos[docInfo.chave], modo, definido: true } } })); }}
                     style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 10px', color: 'var(--text-primary)' }}
                   >
                     {MODOS_DE_EMISSAO.map((m) => <option key={m.valor} value={m.valor}>{m.rotulo}</option>)}

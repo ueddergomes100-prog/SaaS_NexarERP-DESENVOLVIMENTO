@@ -20,14 +20,36 @@ export type MomentoDeEmissao = 'venda_a_prazo' | 'recebimento';
 export interface RegraEmissao {
   modo: ModoEmissao;
   vias: number;
+  /** A empresa ESCOLHEU este modo na tela de Configuracoes (12/11/2026). So' existe quando true. */
+  definido?: true;
 }
 
 export type EmissaoDocumentos = Record<DocumentoDeCobranca, RegraEmissao>;
 
 export const VIAS_MAXIMAS = 3;
 
+/**
+ * RECIBO PERGUNTA POR PADRAO (decisao do dono, 12/11/2026).
+ *
+ * O recibo nascia em "Nao emitir", entao ninguem via a pergunta ao dar baixa
+ * e o dono concluiu que o sistema nao tinha recibo. Agora, empresa que nunca
+ * escolheu comeca em "Perguntar na hora".
+ *
+ * A tela de Configuracoes grava a regra inteira a cada "Salvar", entao muita
+ * empresa tem `modo: 'nunca'` gravado sem nunca ter escolhido. Por isso o
+ * "nunca" do recibo so' vale com a marca `definido` (gravada quando a pessoa
+ * mexe no seletor); sem a marca, e' o padrao. "Perguntar" e "Emitir sempre"
+ * gravados valem sempre. Promissoria, carne e duplicata seguem em "nunca".
+ */
+const MODO_PADRAO: Record<DocumentoDeCobranca, ModoEmissao> = {
+  recibo: 'perguntar',
+  promissoria: 'nunca',
+  carne: 'nunca',
+  duplicata: 'nunca',
+};
+
 export const EMISSAO_DOCUMENTOS_PADRAO: EmissaoDocumentos = {
-  recibo: { modo: 'nunca', vias: 1 },
+  recibo: { modo: 'perguntar', vias: 1 },
   promissoria: { modo: 'nunca', vias: 1 },
   carne: { modo: 'nunca', vias: 1 },
   duplicata: { modo: 'nunca', vias: 1 },
@@ -46,7 +68,6 @@ export const MODOS_DE_EMISSAO: Array<{ valor: ModoEmissao; rotulo: string }> = [
   { valor: 'sempre', rotulo: 'Emitir sempre' },
 ];
 
-const modoValido = (valor: unknown): ModoEmissao => (valor === 'sempre' || valor === 'perguntar' ? valor : 'nunca');
 const viasValidas = (valor: unknown): number => {
   const n = Math.floor(Number(valor));
   return Number.isFinite(n) && n >= 1 && n <= VIAS_MAXIMAS ? n : 1;
@@ -56,7 +77,11 @@ export const parseEmissaoDocumentos = (raw: unknown): EmissaoDocumentos => {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const regra = (chave: DocumentoDeCobranca): RegraEmissao => {
     const v = (r[chave] && typeof r[chave] === 'object' ? r[chave] : {}) as Record<string, unknown>;
-    return { modo: modoValido(v.modo), vias: viasValidas(v.vias) };
+    const definido = v.definido === true;
+    const modo: ModoEmissao = v.modo === 'sempre' || v.modo === 'perguntar'
+      ? v.modo
+      : (v.modo === 'nunca' && definido ? 'nunca' : MODO_PADRAO[chave]);
+    return { modo, vias: viasValidas(v.vias), ...(definido ? { definido: true as const } : {}) };
   };
   return { recibo: regra('recibo'), promissoria: regra('promissoria'), carne: regra('carne'), duplicata: regra('duplicata') };
 };

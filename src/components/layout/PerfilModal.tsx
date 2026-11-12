@@ -3,72 +3,75 @@ import { X, User, Lock } from 'lucide-react';
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { isTenantManagerRole } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { createAuditLog } from '../../services/logService';
+import { showError } from '../../utils/alerts';
 
 interface PerfilModalProps {
   onClose: () => void;
   userData: any;
-  configData: any;
 }
 
-const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData, configData }) => {
-  const { currentUser, userRole, tenantId } = useAuth();
+/**
+ * O NOME DO PERFIL E' O DO PROPRIO USUARIO, PARA TODO MUNDO (11/11/2026).
+ *
+ * Antes, o dono/administrador gravava o nome em `configuracoes.nomeUsuario`,
+ * que e' o responsavel/contato da EMPRESA (e, numa filial, o contato dela).
+ * So' que o topo, o historico e as impressoes mostram o nome do cadastro do
+ * usuario (`usuarios/{uid}.nome`), e esse o administrador nao tinha onde
+ * alterar: ele trocava o nome e nada mudava no topo (o dono viu isso numa
+ * conta nova, que ficou com o nome digitado errado no cadastro da empresa).
+ *
+ * Agora "Meu Perfil" grava sempre em `usuarios/{uid}.nome` e avisa o
+ * AuthContext, entao o topo muda na hora. O contato da empresa continua em
+ * Configuracoes.
+ */
+const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData }) => {
+  const { currentUser, tenantId, userNome, atualizarNomeDoUsuario } = useAuth();
   const [nome, setNome] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  const nomeAtual = String(userNome || userData?.nome || '').trim();
   useEffect(() => {
-    if (isTenantManagerRole(userRole)) {
-      setNome(configData?.nomeUsuario || '');
-    } else {
-      setNome(userData?.nome || '');
-    }
-  }, [userRole, configData, userData]);
+    setNome(nomeAtual);
+  }, [nomeAtual]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser || !nome.trim()) return;
-    
+    const nomeNovo = nome.trim();
+    if (!currentUser || !nomeNovo) return;
+
     setIsLoading(true);
     setSuccess(false);
     try {
-      const nomeAnterior = String((isTenantManagerRole(userRole) ? configData?.nomeUsuario : userData?.nome) || '').trim();
-      if (isTenantManagerRole(userRole) && tenantId) {
-        await updateDoc(doc(db, 'configuracoes', tenantId), {
-          nomeUsuario: nome.trim(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-        });
-      } else {
-        await updateDoc(doc(db, 'usuarios', currentUser.uid), {
-          nome: nome.trim(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-        });
-      }
+      await updateDoc(doc(db, 'usuarios', currentUser.uid), {
+        nome: nomeNovo,
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
+      });
       // Historico de alteracoes (09/11/2026): so' quando o nome mudou.
-      if (tenantId && nomeAnterior !== nome.trim()) {
-        const noTopo = isTenantManagerRole(userRole);
+      if (tenantId && nomeAtual !== nomeNovo) {
         createAuditLog({
           tenantId,
           usuarioId: currentUser.uid,
           usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: noTopo ? 'configuracoes' : 'usuarios',
+          modulo: 'usuarios',
           acao: 'edicao',
-          descricao: `Nome no perfil alterado de "${nomeAnterior || '(vazio)'}" para "${nome.trim()}".`,
-          registroRelacionadoId: noTopo ? tenantId : currentUser.uid,
-          documentoTipo: noTopo ? 'configuracao' : 'usuario',
-          documentoNumero: `Usuário ${nome.trim()}`,
-          alteracoes: [{ campo: noTopo ? 'Nome de usuário (topo)' : 'Nome', valorAnterior: nomeAnterior, valorNovo: nome.trim() }],
+          descricao: `Nome no perfil alterado de "${nomeAtual || '(vazio)'}" para "${nomeNovo}".`,
+          registroRelacionadoId: currentUser.uid,
+          documentoTipo: 'usuario',
+          documentoNumero: `Usuário ${nomeNovo}`,
+          alteracoes: [{ campo: 'Nome', valorAnterior: nomeAtual, valorNovo: nomeNovo }],
           status: 'sucesso',
         });
       }
+      atualizarNomeDoUsuario(nomeNovo);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (error) {
       console.error('Erro ao atualizar perfil', error);
-      alert('Erro ao atualizar perfil.');
+      showError('Não foi possível salvar o seu nome', 'Confira a internet e tente de novo. Se continuar, saia do sistema e entre outra vez antes de tentar.');
     } finally {
       setIsLoading(false);
     }

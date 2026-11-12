@@ -647,8 +647,7 @@ const TopBar: React.FC = () => {
       {showPerfilModal && (
         <PerfilModal 
           onClose={() => setShowPerfilModal(false)} 
-          userData={userData} 
-          configData={configData} 
+          userData={userData}
         />
       )}
     </header>

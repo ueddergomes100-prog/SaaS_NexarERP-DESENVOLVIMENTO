@@ -210,7 +210,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   // Dados da empresa
   { campo: 'nomeOficina', rotulo: 'Nome fantasia' },
   { campo: 'razaoSocial', rotulo: 'Razão social' },
-  { campo: 'nomeUsuario', rotulo: 'Nome de usuário (topo)' },
+  { campo: 'nomeUsuario', rotulo: 'Responsável (contato da empresa)' },
   { campo: 'cnpj', rotulo: 'CNPJ' },
   { campo: 'inscricaoEstadual', rotulo: 'Inscrição estadual' },
   { campo: 'regimeTributario', rotulo: 'Regime tributário', formatar: opcaoHistorico(REGIME_TRIBUTARIO_OPTIONS) },
@@ -1953,10 +1953,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               />
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Nome de Usuário (Aparecerá no Topo)</label>
+              {/* 11/11/2026: este campo e' o contato da EMPRESA. O nome do topo e' o do usuario logado (Meu Perfil). */}
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Responsável (contato da empresa)</label>
               <input
                 type="text"
                 name="nomeUsuario"
+                title="Pessoa de contato desta empresa. Para mudar o nome que aparece no topo, clique no seu nome, no canto de cima à direita, e abra Meu Perfil."
                 value={formData.nomeUsuario}
                 onChange={handleChange}
                 disabled={!isEditingMode}

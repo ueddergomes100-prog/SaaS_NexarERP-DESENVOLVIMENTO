@@ -93,18 +93,21 @@ const montarEnvio = (config, caminhoNoBucket, corpo, agora = new Date()) => {
   const caminho = `/${codificarCaminho(`${config.bucket}/${caminhoNoBucket}`)}`;
   const hashDoCorpo = sha256Hex(corpo);
   const quando = dataAmz(agora);
-  const cabecalhos = {
-    host: url.host,
+  // Content-MD5: alguns provedores exigem quando o bucket tem trava contra
+  // exclusao (Object Lock) -- e' a recomendacao para o bucket de backup.
+  const enviados = {
+    'content-md5': crypto.createHash('md5').update(corpo).digest('base64'),
     'x-amz-content-sha256': hashDoCorpo,
     'x-amz-date': quando,
   };
+  // O `host` entra na assinatura, mas quem o envia e' o proprio fetch (pela URL).
   const { authorization } = assinarV4({
-    metodo: 'PUT', caminhoCodificado: caminho, cabecalhos, hashDoCorpo,
+    metodo: 'PUT', caminhoCodificado: caminho, cabecalhos: { host: url.host, ...enviados }, hashDoCorpo,
     regiao: config.regiao, chaveId: config.chaveId, chaveSecreta: config.chaveSecreta, quando,
   });
   return {
     url: `${url.origin}${caminho}`,
-    headers: { ...cabecalhos, Authorization: authorization, 'Content-Type': 'application/octet-stream' },
+    headers: { ...enviados, Authorization: authorization, 'Content-Type': 'application/octet-stream' },
   };
 };
 

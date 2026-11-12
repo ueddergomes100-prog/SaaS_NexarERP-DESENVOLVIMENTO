@@ -1,11 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const http = require('node:http');
 const {
   assinarV4,
   caminhoExterno,
   codificarCaminho,
   configuracaoDoExterno,
   copiarParaOExterno,
+  enviarParaOExterno,
   montarEnvio,
   sha256Hex,
 } = require('../services/backupExterno');
@@ -94,11 +97,65 @@ test('envio: PUT no estilo endpoint/bucket/caminho, com o hash do arquivo e a as
   const corpo = Buffer.from('arquivo cifrado');
   const envio = montarEnvio(configuracaoDoExterno(ENV), 'backups/empresa_x/backup.json.gz', corpo, new Date('2026-11-12T05:00:00.000Z'));
   assert.equal(envio.url, 'https://s3.us-west-004.backblazeb2.com/hennder-backups/backups/empresa_x/backup.json.gz');
-  assert.equal(envio.headers.host, 's3.us-west-004.backblazeb2.com');
+  // O host e' assinado, mas quem o envia e' o fetch (pela URL): nao vai na lista de cabecalhos.
+  assert.equal('host' in envio.headers, false);
   assert.equal(envio.headers['x-amz-date'], '20261112T050000Z');
   assert.equal(envio.headers['x-amz-content-sha256'], sha256Hex(corpo));
-  assert.match(envio.headers.Authorization, /^AWS4-HMAC-SHA256 Credential=id\/20261112\/us-west-004\/s3\/aws4_request,SignedHeaders=host;x-amz-content-sha256;x-amz-date,Signature=[0-9a-f]{64}$/);
+  assert.equal(envio.headers['content-md5'], crypto.createHash('md5').update(corpo).digest('base64'));
+  assert.match(envio.headers.Authorization, /^AWS4-HMAC-SHA256 Credential=id\/20261112\/us-west-004\/s3\/aws4_request,SignedHeaders=content-md5;host;x-amz-content-sha256;x-amz-date,Signature=[0-9a-f]{64}$/);
   assert.equal(JSON.stringify(envio).includes('segredo'), false);
+});
+
+/**
+ * Armazenamento de mentira, na propria maquina: recebe o PUT de verdade e
+ * confere a assinatura como um provedor S3 confere -- refazendo a conta com o
+ * que CHEGOU (cabecalhos e arquivo). Prova que o que o servidor envia bate com
+ * o que ele assinou.
+ */
+const armazenamentoFalso = (segredo) => new Promise((resolve) => {
+  const recebidos = [];
+  const servidor = http.createServer((req, res) => {
+    const pedacos = [];
+    req.on('data', (p) => pedacos.push(p));
+    req.on('end', () => {
+      const corpo = Buffer.concat(pedacos);
+      const m = /^AWS4-HMAC-SHA256 Credential=([^/]+)\/(\d{8})\/([^/]+)\/s3\/aws4_request,SignedHeaders=([^,]+),Signature=([0-9a-f]{64})$/.exec(req.headers.authorization || '');
+      const assinados = m ? Object.fromEntries(m[4].split(';').map((n) => [n, req.headers[n]])) : {};
+      const refeita = m && assinarV4({
+        metodo: req.method, caminhoCodificado: req.url, cabecalhos: assinados, hashDoCorpo: sha256Hex(corpo),
+        regiao: m[3], chaveId: m[1], chaveSecreta: segredo, quando: req.headers['x-amz-date'],
+      }).assinatura;
+      const confere = Boolean(m) && refeita === m[5]
+        && req.headers['x-amz-content-sha256'] === sha256Hex(corpo)
+        && req.headers['content-md5'] === crypto.createHash('md5').update(corpo).digest('base64');
+      recebidos.push({ metodo: req.method, caminho: req.url, corpo, confere });
+      res.statusCode = confere ? 200 : 403;
+      res.end(confere ? '' : '<Error><Code>SignatureDoesNotMatch</Code></Error>');
+    });
+  });
+  servidor.listen(0, '127.0.0.1', () => resolve({ servidor, recebidos, endpoint: `http://127.0.0.1:${servidor.address().port}` }));
+});
+
+test('envio de verdade: o armazenamento refaz a assinatura com o que chegou e aceita; com o segredo errado, recusa em portugues', async () => {
+  const { servidor, recebidos, endpoint } = await armazenamentoFalso('segredo');
+  try {
+    const config = { endpoint, regiao: 'us-west-004', bucket: 'hennder-backups', chaveId: 'id', chaveSecreta: 'segredo', prefixo: 'producao' };
+    const arquivo = crypto.randomBytes(64 * 1024);
+    const caminho = await enviarParaOExterno(config, 'backups/empresa_x_loja/backup_2026-11-12_02-00.json.gz', arquivo);
+    assert.equal(caminho, 'producao/backups/empresa_x_loja/backup_2026-11-12_02-00.json.gz');
+    assert.equal(recebidos.length, 1);
+    assert.equal(recebidos[0].metodo, 'PUT');
+    assert.equal(recebidos[0].caminho, '/hennder-backups/producao/backups/empresa_x_loja/backup_2026-11-12_02-00.json.gz');
+    assert.equal(recebidos[0].confere, true, 'assinatura refeita pelo armazenamento bate');
+    assert.equal(recebidos[0].corpo.equals(arquivo), true, 'o arquivo chegou inteiro');
+
+    await assert.rejects(
+      () => enviarParaOExterno({ ...config, chaveSecreta: 'outro' }, 'backups/x/arq.gz', arquivo),
+      /recusou o arquivo \(HTTP 403, SignatureDoesNotMatch\).*BACKUP_EXTERNO_/,
+    );
+  } finally {
+    servidor.close();
+  }
 });
 
 test('copia externa: sem configuracao nao tenta nada e nao e erro', async () => {

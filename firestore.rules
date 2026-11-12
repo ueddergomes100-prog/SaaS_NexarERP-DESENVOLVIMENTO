@@ -346,7 +346,10 @@ service cloud.firestore {
         // (a reserva e' gravada junto, na mesma transacao). Sem ela o vendedor
         // que so' tem permissao de venda recebia "Missing or insufficient
         // permissions" ao criar/cancelar pre-venda -- so' dono/gestor passava.
-        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt']) &&
+        // affectedKeys (12/11/2026), nao changedKeys: campo ACRESCENTADO ou
+        // REMOVIDO tambem conta. Com changedKeys quem so' vende conseguia tirar
+        // o preco do produto ou criar campo novo nele pelo SDK.
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantidade', 'quantidadeReservada', 'updatedAt']) &&
         (operaFrenteDeCaixa() || hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
           // App do tecnico (2026-10-08): a OS atendida no campo reserva as pecas ("Reservar no Pedido e na OS").
@@ -438,7 +441,7 @@ service cloud.firestore {
       return hasProfile() &&
         resource.data.tenantId == currentTenantId() &&
         request.resource.data.tenantId == resource.data.tenantId &&
-        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantidade', 'updatedAt']) &&
         (operaFrenteDeCaixa() || hasAnyPermission([
           'vendas.pedidos', 'vendas.alterar', 'vendas.orcamentos', 'mecanica.os', 'mecanica.os_alterar', 'estoque.ajusteManual',
           'mecanica.os_app', 'mecanica.os_app_abrir',
@@ -454,7 +457,7 @@ service cloud.firestore {
       return hasProfile() &&
         resource.data.tenantId == currentTenantId() &&
         request.resource.data.tenantId == resource.data.tenantId &&
-        request.resource.data.diff(resource.data).changedKeys().hasOnly(['quantidade', 'updatedAt']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['quantidade', 'updatedAt']) &&
         hasPermission('estoque.ajusteManual');
     }
 
@@ -468,7 +471,7 @@ service cloud.firestore {
       return hasProfile() &&
         resource.data.tenantId == currentTenantId() &&
         request.resource.data.tenantId == resource.data.tenantId &&
-        request.resource.data.diff(resource.data).changedKeys()
+        request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['statusConferencia', 'conferidoPor', 'conferidoPorNome', 'conferidoEm', 'alteradoPor', 'alteradoEm']) &&
         hasPermission('operacoes.expedicao');
     }

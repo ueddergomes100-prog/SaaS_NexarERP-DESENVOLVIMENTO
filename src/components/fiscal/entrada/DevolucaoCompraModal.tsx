@@ -3,6 +3,7 @@ import { FileText, Loader2, RotateCcw, X } from 'lucide-react';
 import { NexusSwal, escaparHtml, showSuccess, showWarning } from '../../../utils/alerts';
 import {
   MOTIVO_MINIMO_DEVOLUCAO,
+  bloqueioDaNotaParaDevolver,
   cfopDaDevolucaoDeCompra,
   lerPedidoDeDevolucaoCompra,
   planejarItensDaDevolucao,
@@ -31,6 +32,9 @@ interface Props {
     fornecedorNome: string;
     itens: ItemDaEntrada[];
     devolvidoPorItem?: Record<string, number>;
+    /** Chave e XML da nota do fornecedor: sem eles a NF-e de devolucao nao sai (12/11/2026). */
+    chaveAcesso?: string;
+    xmlGzipBase64?: string;
   } | null;
   podeEmitir: boolean;
   onFechar: () => void;
@@ -102,7 +106,12 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
 
   if (!aberto || !nota) return null;
 
+  // Nota sem chave ou sem o XML guardado: a NF-e de devolucao nao sai. Avisa
+  // ja' na abertura e nao deixa registrar (o servidor confere de novo).
+  const bloqueioDaNota = bloqueioDaNotaParaDevolver(nota);
+
   const registrar = async () => {
+    if (bloqueioDaNota) { setErro(bloqueioDaNota); return; }
     const lido = lerPedidoDeDevolucaoCompra({ notaEntradaId: nota.id, itens: pedidoItens, motivo });
     if ('erro' in lido) { setErro(lido.erro); return; }
     if (previa && 'erro' in previa) { setErro(previa.erro); return; }
@@ -176,6 +185,11 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
         </div>
 
         <div style={{ padding: '16px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {bloqueioDaNota && (
+            <div role="alert" style={{ padding: '10px 14px', borderRadius: 'var(--radius-md)', border: '1px solid #f59e0b', color: 'var(--text-primary)', fontSize: '13px', lineHeight: 1.5 }}>
+              {bloqueioDaNota} Para acertar só a quantidade, use Estoque › Ajuste Manual.
+            </div>
+          )}
           <div className="table-wrapper">
             <table className="data-table" data-sem-ajuste>
               <thead>
@@ -185,7 +199,7 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
                 {nota.itens.map((item, indice) => {
                   const saldo = saldoParaDevolver(item, (nota.devolvidoPorItem || {})[String(indice)] || 0);
                   const cfop = cfopDaDevolucaoDeCompra(item.cfopEntrada, item.cfop);
-                  const bloqueado = item.tipo === 'registro' || saldo <= 0 || !cfop;
+                  const bloqueado = Boolean(bloqueioDaNota) || item.tipo === 'registro' || saldo <= 0 || !cfop;
                   const porque = item.tipo === 'registro' ? 'Entrou só como registro (sem estoque)'
                     : saldo <= 0 ? 'Já devolvido por inteiro'
                       : !cfop ? `CFOP ${item.cfopEntrada || item.cfop || '-'} não é de compra para revenda/industrialização` : '';
@@ -271,7 +285,7 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
 
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
           <button type="button" className="btn-secondary" onClick={onFechar} disabled={gravando || Boolean(emitindoId)}>Fechar</button>
-          <button type="button" className="btn-primary" onClick={registrar} disabled={gravando || pedidoItens.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button type="button" className="btn-primary" onClick={registrar} disabled={gravando || pedidoItens.length === 0 || Boolean(bloqueioDaNota)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {gravando ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={16} />}
             {gravando ? 'Registrando...' : 'Registrar devolução'}
           </button>

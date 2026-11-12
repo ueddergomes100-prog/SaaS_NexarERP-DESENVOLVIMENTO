@@ -57,6 +57,11 @@ const registrar = async ({ user, tenantId, corpo }) => {
   return db.runTransaction(async (tx) => {
     // ---------------- LEITURAS ----------------
     const nota = lerNota(await tx.get(notaRef), tenantId);
+    // 12/11/2026: nota sem chave ou sem o XML guardado nao gera a NF-e de devolucao.
+    // Confere ANTES de mexer em estoque e financeiro (antes so' a emissao conferia,
+    // e a devolucao ficava registrada sem nota e sem estorno).
+    const bloqueio = dc.bloqueioDaNotaParaDevolver(nota);
+    if (bloqueio) throw new ErroDevolucaoCompra(422, `${bloqueio} Nada foi alterado no estoque nem no financeiro.`);
     const itensEntrada = Array.isArray(nota.itens) ? nota.itens : [];
     const plano = dc.planejarItensDaDevolucao({ itens: itensEntrada, pedido: pedido.itens, jaDevolvido: nota.devolvidoPorItem || {} });
     if ('erro' in plano) throw new ErroDevolucaoCompra(409, plano.erro);
@@ -193,12 +198,9 @@ const prepararNota = async ({ tenantId, devolucao }) => {
   const notaSnap = await db.collection('notas_fiscais_entrada').doc(devolucao.notaEntradaId).get();
   if (!notaSnap.exists || notaSnap.data().tenantId !== tenantId) throw new ErroDevolucaoCompra(404, 'A nota de entrada desta devolução não foi encontrada.');
   const nota = notaSnap.data();
-  if (String(nota.chaveAcesso || '').replace(/\D/g, '').length !== 44) {
-    throw new ErroDevolucaoCompra(422, `A nota de entrada nº ${nota.numeroNF || ''} não tem a chave de acesso gravada. A NF-e de devolução precisa referenciar a nota do fornecedor.`);
-  }
-  if (!nota.xmlGzipBase64) {
-    throw new ErroDevolucaoCompra(422, `A nota de entrada nº ${nota.numeroNF || ''} não tem o XML guardado (era grande demais ou é de antes deste recurso). Sem ele não dá para referenciar cada item da nota do fornecedor.`);
-  }
+  // Mesma conferencia do registrar (devolucao antiga, registrada antes de 12/11/2026, ainda cai aqui).
+  const bloqueio = dc.bloqueioDaNotaParaDevolver(nota);
+  if (bloqueio) throw new ErroDevolucaoCompra(422, bloqueio);
   let xml;
   try {
     xml = parseNfeXml(await descompactarXml(nota.xmlGzipBase64));

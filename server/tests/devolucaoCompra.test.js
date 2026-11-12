@@ -128,10 +128,32 @@ test('emitir: Spedy recusa libera a reserva; nota sem XML nao emite', async () =
   await assert.rejects(() => s.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev.id } }), (e) => /Destinatário inválido/.test(e.message));
   assert.equal(fake.ler(`devolucoes_compra/${dev.id}`).notaFiscal, null);
 
-  const semXml = base();
+  // Devolucao registrada antes de 12/11/2026 numa nota sem XML: a emissao continua barrada.
+  const semXml = base({ 'devolucoes_compra/antiga': { tenantId: 'loja', notaEntradaId: 'n1', itens: [], motivo: 'Mercadoria com defeito', notaFiscal: null } });
   delete semXml['notas_fiscais_entrada/n1'].xmlGzipBase64;
   const fake2 = criarBancoFalso(semXml, { consultas: true });
-  const s2 = carregar(fake2.db);
-  const dev2 = await s2.registrar({ user: USER, tenantId: 'loja', corpo: pedido() });
-  await assert.rejects(() => s2.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev2.id } }), (e) => e.status === 422 && /não tem o XML guardado/.test(e.message));
+  await assert.rejects(() => carregar(fake2.db).emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: 'antiga' } }), (e) => e.status === 422 && /não tem o XML guardado/.test(e.message));
+});
+
+test('registrar: nota sem o XML guardado ou sem a chave e barrada ANTES de mexer em estoque e financeiro', async () => {
+  const semXml = base();
+  delete semXml['notas_fiscais_entrada/n1'].xmlGzipBase64;
+  const fake = criarBancoFalso(semXml, { consultas: true });
+  await assert.rejects(
+    () => carregar(fake.db).registrar({ user: USER, tenantId: 'loja', corpo: pedido() }),
+    (e) => e.status === 422 && /nº 123 não tem o XML guardado/.test(e.message) && /Nada foi alterado/.test(e.message),
+  );
+  assert.equal(fake.ler('estoque/p1').quantidade, 150, 'estoque intacto');
+  assert.equal(fake.ler('estoque_lotes/l1').quantidade, 150, 'lote intacto');
+  assert.equal(fake.ler('transacoes/t2').valorCentavos, 54400, 'parcela intacta');
+  assert.equal(fake.ler('notas_fiscais_entrada/n1').devolvidoPorItem, undefined, 'nota sem devolucao marcada');
+
+  const semChave = base();
+  semChave['notas_fiscais_entrada/n1'].chaveAcesso = '';
+  const fake2 = criarBancoFalso(semChave, { consultas: true });
+  await assert.rejects(
+    () => carregar(fake2.db).registrar({ user: USER, tenantId: 'loja', corpo: pedido() }),
+    (e) => e.status === 422 && /não tem a chave de acesso gravada/.test(e.message),
+  );
+  assert.equal(fake2.ler('estoque/p1').quantidade, 150);
 });

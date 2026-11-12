@@ -102,6 +102,31 @@ export const lerPedidoDeDevolucaoCompra = (corpo: unknown): { erro: string } | {
 };
 
 // ---------------------------------------------------------------------------
+// A nota de entrada serve para devolver?
+// ---------------------------------------------------------------------------
+
+/**
+ * A NF-e de devolucao referencia a nota do fornecedor (chave de acesso) e cada
+ * item dela (numero do item no XML). Nota sem a chave ou sem o XML guardado nao
+ * gera a NF-e -- e isso so' era conferido na hora de EMITIR, depois de a
+ * devolucao ja' ter tirado o estoque e mexido no financeiro, sem ter como
+ * estornar (12/11/2026). Agora confere ANTES de registrar: tela e servidor.
+ *
+ * null = pode devolver. Texto = por que nao, ja' para mostrar ao usuario.
+ */
+export const bloqueioDaNotaParaDevolver = (nota: { numeroNF?: unknown; chaveAcesso?: unknown; xmlGzipBase64?: unknown } | null | undefined): string | null => {
+  const numero = String(nota?.numeroNF ?? '').trim();
+  const qual = numero ? `A nota de entrada nº ${numero}` : 'Esta nota de entrada';
+  if (digitos(nota?.chaveAcesso).length !== 44) {
+    return `${qual} não tem a chave de acesso gravada, e a NF-e de devolução precisa referenciar a nota do fornecedor. Não dá para devolver esta nota pelo sistema.`;
+  }
+  if (!nota?.xmlGzipBase64) {
+    return `${qual} não tem o XML guardado (foi lançada antes de o sistema guardar o XML, ou o arquivo era grande demais). Sem ele não dá para referenciar cada item da nota do fornecedor na NF-e de devolução, então não dá para devolver esta nota pelo sistema.`;
+  }
+  return null;
+};
+
+// ---------------------------------------------------------------------------
 // Itens: quanto ainda da' para devolver e quanto vale
 // ---------------------------------------------------------------------------
 

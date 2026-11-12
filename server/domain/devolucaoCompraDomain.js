@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notaVigenteDaDevolucaoDeCompra = exports.montarPayloadDaDevolucaoDeCompra = exports.destinatarioDaDevolucao = exports.montarItensDaNotaDeDevolucao = exports.itemDoXml = exports.planoFinanceiroDaDevolucao = exports.saidaDosLotes = exports.planejarItensDaDevolucao = exports.saldoParaDevolver = exports.lerPedidoDeDevolucaoCompra = exports.cfopDaDevolucaoDeCompra = exports.COLECAO_DO_TIPO = exports.FINALIDADE_NOTA_DEVOLUCAO_COMPRA = exports.MOTIVO_MINIMO_DEVOLUCAO = exports.STATUS_DEVOLUCAO_COMPRA = void 0;
+exports.notaVigenteDaDevolucaoDeCompra = exports.montarPayloadDaDevolucaoDeCompra = exports.destinatarioDaDevolucao = exports.montarItensDaNotaDeDevolucao = exports.itemDoXml = exports.planoFinanceiroDaDevolucao = exports.saidaDosLotes = exports.planejarItensDaDevolucao = exports.saldoParaDevolver = exports.bloqueioDaNotaParaDevolver = exports.lerPedidoDeDevolucaoCompra = exports.cfopDaDevolucaoDeCompra = exports.COLECAO_DO_TIPO = exports.FINALIDADE_NOTA_DEVOLUCAO_COMPRA = exports.MOTIVO_MINIMO_DEVOLUCAO = exports.STATUS_DEVOLUCAO_COMPRA = void 0;
 /*
  * DEVOLUCAO DE COMPRA AO FORNECEDOR (pendencia fiscal, 21/10/2026).
  *
@@ -93,6 +93,30 @@ const lerPedidoDeDevolucaoCompra = (corpo) => {
     return { pedido: { notaEntradaId, itens, motivo } };
 };
 exports.lerPedidoDeDevolucaoCompra = lerPedidoDeDevolucaoCompra;
+// ---------------------------------------------------------------------------
+// A nota de entrada serve para devolver?
+// ---------------------------------------------------------------------------
+/**
+ * A NF-e de devolucao referencia a nota do fornecedor (chave de acesso) e cada
+ * item dela (numero do item no XML). Nota sem a chave ou sem o XML guardado nao
+ * gera a NF-e -- e isso so' era conferido na hora de EMITIR, depois de a
+ * devolucao ja' ter tirado o estoque e mexido no financeiro, sem ter como
+ * estornar (12/11/2026). Agora confere ANTES de registrar: tela e servidor.
+ *
+ * null = pode devolver. Texto = por que nao, ja' para mostrar ao usuario.
+ */
+const bloqueioDaNotaParaDevolver = (nota) => {
+    const numero = String(nota?.numeroNF ?? '').trim();
+    const qual = numero ? `A nota de entrada nº ${numero}` : 'Esta nota de entrada';
+    if (digitos(nota?.chaveAcesso).length !== 44) {
+        return `${qual} não tem a chave de acesso gravada, e a NF-e de devolução precisa referenciar a nota do fornecedor. Não dá para devolver esta nota pelo sistema.`;
+    }
+    if (!nota?.xmlGzipBase64) {
+        return `${qual} não tem o XML guardado (foi lançada antes de o sistema guardar o XML, ou o arquivo era grande demais). Sem ele não dá para referenciar cada item da nota do fornecedor na NF-e de devolução, então não dá para devolver esta nota pelo sistema.`;
+    }
+    return null;
+};
+exports.bloqueioDaNotaParaDevolver = bloqueioDaNotaParaDevolver;
 /** Quanto de cada item ainda pode ser devolvido (o original menos o ja devolvido). */
 const saldoParaDevolver = (item, jaDevolvido) => (arred(Math.max(0, num(item.quantidade) - num(jaDevolvido)), 6));
 exports.saldoParaDevolver = saldoParaDevolver;

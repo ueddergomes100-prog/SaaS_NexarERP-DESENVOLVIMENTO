@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  bloqueioDaNotaParaDevolver,
   cfopDaDevolucaoDeCompra,
   destinatarioDaDevolucao,
   lerPedidoDeDevolucaoCompra,
@@ -13,6 +14,17 @@ import {
   type ItemDaEntrada,
 } from '../src/utils/devolucaoCompraDomain';
 import type { ItemDaNota, ParteDaNota } from '../src/utils/nfeXmlDomain';
+
+test('nota de entrada serve para devolver so com a chave de 44 digitos e o XML guardado', () => {
+  const chave = '3'.repeat(44);
+  assert.equal(bloqueioDaNotaParaDevolver({ numeroNF: '123', chaveAcesso: chave, xmlGzipBase64: 'H4sI' }), null);
+  // Chave com mascara (espacos/pontos) vale: so' os digitos contam.
+  assert.equal(bloqueioDaNotaParaDevolver({ numeroNF: '123', chaveAcesso: chave.replace(/(\d{4})/g, '$1 '), xmlGzipBase64: 'H4sI' }), null);
+  assert.match(String(bloqueioDaNotaParaDevolver({ numeroNF: '123', chaveAcesso: chave })), /nº 123 não tem o XML guardado/);
+  assert.match(String(bloqueioDaNotaParaDevolver({ numeroNF: '123', chaveAcesso: '', xmlGzipBase64: 'H4sI' })), /nº 123 não tem a chave de acesso gravada/);
+  assert.match(String(bloqueioDaNotaParaDevolver({ chaveAcesso: chave })), /^Esta nota de entrada não tem o XML guardado/);
+  assert.match(String(bloqueioDaNotaParaDevolver(null)), /chave de acesso/);
+});
 
 const racao: ItemDaEntrada = {
   itemId: 'p1', tipo: 'revenda', codigoXml: 'R15', descricaoXml: 'RACAO 15KG', quantidade: 10, valorUnitario: 100, unidadeNota: 'SC', fator: 15,

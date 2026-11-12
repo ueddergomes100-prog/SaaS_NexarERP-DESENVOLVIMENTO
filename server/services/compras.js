@@ -254,12 +254,48 @@ const responderPublica = async ({ token, codigo, corpo, hoje }) => {
     const lida = cd.lerRespostaDoFornecedor(corpo, dados.itens || []);
     if ('erro' in lida) throw new ErroCompras(400, lida.erro);
     const fornecedores = (dados.fornecedores || []).map((f) => (f.token === token
-      ? { ...f, ...lida.resposta, status: 'respondida', respondidoEmIso: agoraIso() }
+      ? { ...f, ...lida.resposta, status: 'respondida', respondidoEmIso: agoraIso(), origemResposta: 'link', lancadoPorNome: '' }
       : f));
     resumo.itensCotados = Object.keys(lida.resposta.precos).length;
     tx.update(achada.ref, { fornecedores, updatedAt: TS() });
   });
   return { ok: true, ...resumo, empresa: await nomeDaEmpresa(achada.dados.tenantId) };
+};
+
+// ---------------------------------------------------------------------------
+// PROPOSTA LANCADA A MAO PELA LOJA (12/11/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * A loja digita os precos que o fornecedor passou por fora do link (telefone,
+ * WhatsApp, planilha). Vem so' os fornecedores que mudaram; sem nenhum preco,
+ * o fornecedor volta para "Aguardando". O prazo "responder ate'" e' do link e
+ * nao trava o lancamento a mao.
+ */
+const lancarPropostasManuais = async ({ user, tenantId, id, corpo }) => {
+  const resumo = { numero: 0, lancados: [], limpos: [] };
+  const quem = String((user && (user.nome || user.email)) || '').trim();
+  await db.runTransaction(async (tx) => {
+    const { ref, dados } = await lerCotacao(tx, tenantId, id);
+    const bloqueio = cd.erroParaLancarPropostaManual(dados.status);
+    if (bloqueio) throw new ErroCompras(409, bloqueio);
+    const lidas = cd.lerPropostasManuais(corpo, { itens: dados.itens || [], fornecedores: dados.fornecedores || [] });
+    if ('erro' in lidas) throw new ErroCompras(400, lidas.erro);
+    const porFornecedor = new Map(lidas.propostas.map((p) => [p.fornecedorId, p]));
+    const fornecedores = (dados.fornecedores || []).map((f) => {
+      const proposta = porFornecedor.get(f.fornecedorId);
+      if (!proposta) return f;
+      if (!proposta.resposta) {
+        resumo.limpos.push(f.nome);
+        return { ...f, status: 'aguardando', respondidoEmIso: '', precos: {}, prazoEntregaDias: null, condicaoPagamento: '', observacao: '', origemResposta: '', lancadoPorNome: '' };
+      }
+      resumo.lancados.push(f.nome);
+      return { ...f, ...proposta.resposta, status: 'respondida', respondidoEmIso: agoraIso(), origemResposta: 'manual', lancadoPorNome: quem };
+    });
+    resumo.numero = Number(dados.numero) || 0;
+    tx.update(ref, { fornecedores, updatedAt: TS(), ...buildDocumentUpdateMetadata(user.uid, TS(), 'Preços lançados à mão na cotação') });
+  });
+  return { id, ...resumo };
 };
 
 // ---------------------------------------------------------------------------
@@ -339,6 +375,7 @@ module.exports = {
   gerarPedidosDaCotacao,
   abrirPublica,
   responderPublica,
+  lancarPropostasManuais,
   criarPedido,
   editarPedido,
   mudarStatusPedido,

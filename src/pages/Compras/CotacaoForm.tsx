@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { ArrowLeft, Check, ClipboardList, Copy, FileText, MessageCircle, Pencil, Send, X } from 'lucide-react';
+import { ArrowLeft, Check, ClipboardList, Copy, FileText, MessageCircle, Pencil, Printer, Send, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -18,15 +18,18 @@ import {
   formatarReais,
   linkDaCotacao,
   montarComparativo,
+  pedidosDasEscolhas,
   responderAtePadrao,
   textoDoConvite,
   type Cotacao,
+  type DadosDoPedidoCompra,
   type FornecedorDaCotacao,
 } from '../../utils/comprasDomain';
-import { gerarPdfCotacao, linkDoWhatsApp, nomeDoArquivoPdf } from '../../utils/comprasPdf';
+import { gerarPdfCotacao, gerarPdfItensGanhos, linkDoWhatsApp, nomeDoArquivoPdf } from '../../utils/comprasPdf';
 import { cancelarCotacao, criarCotacao, editarCotacao, fecharCotacao, gerarPedidosDaCotacao } from '../../services/comprasService';
 import { carregarEmpresaResumo } from '../../services/empresaResumoService';
 import { GradeDeItens, estiloCampo, estiloRotulo, useProdutosParaCompra, type LinhaDeItem } from './comprasUi';
+import PrecosManuaisDaCotacao from './PrecosManuaisDaCotacao';
 
 /**
  * COTACAO DE COMPRA (22/10/2026): nova/edicao (itens, fornecedores, responder
@@ -83,7 +86,12 @@ const CotacaoForm: React.FC = () => {
   const [buscaFornecedor, setBuscaFornecedor] = useState('');
   const [escolhas, setEscolhas] = useState<Record<string, string>>({});
   const [empresaNome, setEmpresaNome] = useState('');
-  const [pdf, setPdf] = useState<{ blob: Blob; nome: string } | null>(null);
+  const [pdf, setPdf] = useState<{ blob: Blob; nome: string; titulo: string } | null>(null);
+  // "Preencher à mão" (12/11/2026): a grade do comparativo vira campos para a
+  // loja digitar os precos do fornecedor que respondeu por fora do link.
+  const [modoManual, setModoManual] = useState(false);
+  const [manualComAlteracao, setManualComAlteracao] = useState(false);
+  const aoMudarManual = useCallback((tem: boolean) => setManualComAlteracao(tem), []);
 
   useEffect(() => { if (tenantId) void carregarEmpresaResumo(tenantId).then((e) => setEmpresaNome(e.nome)); }, [tenantId]);
 
@@ -200,10 +208,37 @@ const CotacaoForm: React.FC = () => {
   };
   const abrirPdf = (f: FornecedorDaCotacao) => {
     if (!cotacao) return;
-    setPdf({ blob: gerarPdfCotacao({ empresa: empresaNome || 'Empresa', cotacao, fornecedor: f, link: linkDe(f) }), nome: nomeDoArquivoPdf('cotacao', cotacao.numero, f.nome) });
+    setPdf({ blob: gerarPdfCotacao({ empresa: empresaNome || 'Empresa', cotacao, fornecedor: f, link: linkDe(f) }), nome: nomeDoArquivoPdf('cotacao', cotacao.numero, f.nome), titulo: 'Cotação para o fornecedor' });
   };
 
-  if (pdf) return <PdfVisualizador titulo="Cotação para o fornecedor" nomeArquivo={pdf.nome} pdf={pdf.blob} onFechar={() => setPdf(null)} />;
+  // Itens que cada fornecedor ganhou: a escolha da tela (cotacao aberta) ou a gravada (fechada).
+  const escolhasValendo = cotacao && cotacao.status !== 'aberta' ? cotacao.escolhas : escolhas;
+  const ganhos: DadosDoPedidoCompra[] = cotacao ? pedidosDasEscolhas(cotacao, escolhasValendo) : [];
+  const abrirItensGanhos = (ganho: DadosDoPedidoCompra) => {
+    if (!cotacao) return;
+    setPdf({
+      blob: gerarPdfItensGanhos({ empresa: empresaNome || 'Empresa', cotacao, ganho }),
+      nome: nomeDoArquivoPdf('itens-ganhos-cotacao', cotacao.numero, ganho.fornecedorNome),
+      titulo: `Itens ganhos — ${ganho.fornecedorNome}`,
+    });
+  };
+
+  const alternarModoManual = async () => {
+    if (modoManual && manualComAlteracao) {
+      const confirma = await NexusSwal.fire({
+        icon: 'warning',
+        title: 'Sair sem salvar os preços?',
+        text: 'Os preços que você digitou e ainda não salvou serão descartados.',
+        showCancelButton: true,
+        confirmButtonText: 'Sim, descartar',
+        cancelButtonText: 'Voltar',
+        confirmButtonColor: '#ef4444',
+      });
+      if (!confirma.isConfirmed) return;
+    }
+    setManualComAlteracao(false);
+    setModoManual(!modoManual);
+  };
 
   const fornecedoresAtivos = fornecedoresCadastro.filter((f) => f.ativo !== false && !fornecedores.some((x) => x.fornecedorId === f.id));
   const cabecalhoTitulo = cotacao ? `Cotação nº ${String(cotacao.numero).padStart(4, '0')}` : 'Nova cotação de compra';
@@ -268,8 +303,12 @@ const CotacaoForm: React.FC = () => {
                 value={buscaFornecedor}
                 onChange={setBuscaFornecedor}
                 clients={fornecedoresAtivos}
+                selecaoMultipla
                 onSelect={(f) => {
-                  setFornecedores([...fornecedores, { fornecedorId: f.id, nome: String(f.nome || '').trim(), email: String(f.email || '').trim(), celular: String(f.celular || f.telefone || '').trim() }]);
+                  // Atualizacao pela lista ATUAL (e sem repetir): da' para escolher varios em seguida.
+                  setFornecedores((atuais) => (atuais.some((x) => x.fornecedorId === f.id)
+                    ? atuais
+                    : [...atuais, { fornecedorId: f.id, nome: String(f.nome || '').trim(), email: String(f.email || '').trim(), celular: String(f.celular || f.telefone || '').trim() }]));
                   setBuscaFornecedor('');
                 }}
                 renderItem={(f) => <span>{f.codigo ? `${f.codigo} · ${f.nome}` : f.nome}</span>}
@@ -322,7 +361,11 @@ const CotacaoForm: React.FC = () => {
                         <td style={{ fontFamily: 'monospace', fontSize: '15px', letterSpacing: '0.15em' }}>{f.codigoAcesso}</td>
                         <td>
                           {f.status === 'respondida'
-                            ? <span style={{ color: '#10b981', fontWeight: 700 }}>Respondeu{f.respondidoEmIso ? ` em ${dataBr(f.respondidoEmIso)}` : ''}{total && !total.completo ? ` (${total.itensCotados} de ${cotacao.itens.length} itens)` : ''}</span>
+                            ? (
+                              <span style={{ color: '#10b981', fontWeight: 700 }} title={f.origemResposta === 'manual' ? `Preços digitados pela loja${f.lancadoPorNome ? ` (${f.lancadoPorNome})` : ''}` : 'Respondeu pelo link'}>
+                                {f.origemResposta === 'manual' ? 'Lançado à mão' : 'Respondeu'}{f.respondidoEmIso ? ` em ${dataBr(f.respondidoEmIso)}` : ''}{total && !total.completo ? ` (${total.itensCotados} de ${cotacao.itens.length} itens)` : ''}
+                              </span>
+                            )
                             : <span style={{ color: '#f59e0b', fontWeight: 600 }}>Aguardando</span>}
                         </td>
                         <td style={{ fontSize: '13px' }}>{f.status === 'respondida' ? `${f.prazoEntregaDias !== null ? `${f.prazoEntregaDias} dia(s)` : '—'} / ${f.condicaoPagamento || '—'}` : '—'}</td>
@@ -344,7 +387,29 @@ const CotacaoForm: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Comparativo {temResposta ? '(menor preço em destaque; escolha o fornecedor de cada item)' : '(aparece quando alguém responder)'}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {modoManual ? 'Preços de cada fornecedor (digitados por você)' : `Comparativo ${temResposta ? '(menor preço em destaque; escolha o fornecedor de cada item)' : '(aparece quando alguém responder, ou preencha à mão)'}`}
+            </div>
+            {cotacao.status === 'aberta' && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={modoManual}
+                onClick={() => void alternarModoManual()}
+                title="Para o fornecedor que passou o preço por telefone, WhatsApp ou planilha: você digita os preços dele aqui, em vez de esperar o link"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600 }}
+              >
+                <span aria-hidden="true" style={{ position: 'relative', width: '38px', height: '22px', borderRadius: '999px', backgroundColor: modoManual ? 'var(--accent-purple)' : 'var(--border-color)', transition: 'background-color 0.15s' }}>
+                  <span style={{ position: 'absolute', top: '3px', left: modoManual ? '19px' : '3px', width: '16px', height: '16px', borderRadius: '50%', backgroundColor: '#fff', transition: 'left 0.15s' }} />
+                </span>
+                Preencher à mão
+              </button>
+            )}
+          </div>
+          {modoManual && cotacao.status === 'aberta' ? (
+            <PrecosManuaisDaCotacao cotacao={cotacao} onMudou={aoMudarManual} onSalvo={() => { setManualComAlteracao(false); setModoManual(false); }} />
+          ) : (
           <div className="card list-container">
             <div className="table-wrapper">
               <table className="data-table" style={{ width: '100%' }}>
@@ -402,6 +467,44 @@ const CotacaoForm: React.FC = () => {
             </div>
             {temResposta && comparativo.totais.some((t) => t.itensCotados > 0 && !t.completo) && <p style={{ margin: 0, padding: '10px 16px', fontSize: '12px', color: 'var(--text-muted)' }}>* fornecedor que não cotou todos os itens: o total dele não compara com o dos outros.</p>}
           </div>
+          )}
+
+          {/* Itens que cada fornecedor ganhou (12/11/2026): um PDF por fornecedor, so' com os itens dele. */}
+          {!modoManual && ganhos.length > 0 && (
+            <>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Itens ganhos por fornecedor {cotacao.status === 'aberta' ? '(pela escolha de cada item acima)' : ''}
+              </div>
+              <div className="card list-container">
+                <div className="table-wrapper">
+                  <table className="data-table" data-sem-ajuste style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Fornecedor</th>
+                        <th style={{ textAlign: 'right' }}>Itens ganhos</th>
+                        <th style={{ textAlign: 'right' }}>Total</th>
+                        <th>Imprimir</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ganhos.map((g) => (
+                        <tr key={g.fornecedorId}>
+                          <td style={{ fontWeight: 600 }}>{g.fornecedorNome}</td>
+                          <td style={{ textAlign: 'right' }}>{g.itens.length} de {cotacao.itens.length}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatarReais(g.totalCentavos)}</td>
+                          <td>
+                            <button type="button" className="btn-secondary" onClick={() => abrirItensGanhos(g)} title={`PDF só com os itens que ${g.fornecedorNome} ganhou, para mandar a ele`} style={{ padding: '6px 10px', fontSize: '12px', display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                              <Printer size={14} /> Itens ganhos
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
 
           {cotacao.pedidosGerados.length > 0 && (
             <div className="card" style={{ padding: '14px 18px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--bg-secondary)', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -415,6 +518,9 @@ const CotacaoForm: React.FC = () => {
           )}
         </>
       )}
+
+      {/* Por cima da tela (nao no lugar dela): fechar o PDF nao perde o que estava sendo digitado. */}
+      {pdf && <PdfVisualizador titulo={pdf.titulo} nomeArquivo={pdf.nome} pdf={pdf.blob} onFechar={() => setPdf(null)} />}
     </div>
   );
 };

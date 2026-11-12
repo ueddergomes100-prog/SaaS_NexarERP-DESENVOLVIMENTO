@@ -78,6 +78,10 @@ export interface FornecedorDaCotacao {
   prazoEntregaDias: number | null;
   condicaoPagamento: string;
   observacao: string;
+  /** Como a proposta chegou (12/11/2026): pelo link do fornecedor ou lancada a mao pela loja. Vazio = ainda nao respondeu (ou cotacao antiga, pelo link). */
+  origemResposta?: 'link' | 'manual' | '';
+  /** Quem da loja lancou a proposta a mao. */
+  lancadoPorNome?: string;
 }
 
 export interface Cotacao {
@@ -200,6 +204,54 @@ export const lerRespostaDoFornecedor = (corpo: unknown, itens: ItemDaCotacao[]):
     prazoEntregaDias = p;
   }
   return { resposta: { precos, prazoEntregaDias, condicaoPagamento: texto(c.condicaoPagamento, TEXTO_CURTO_MAX), observacao: texto(c.observacao, OBSERVACAO_MAX) } };
+};
+
+// ---------------------------------------------------------------------------
+// PROPOSTA LANCADA A MAO PELA LOJA (pedido de cliente, 12/11/2026)
+// ---------------------------------------------------------------------------
+//
+// Nem todo fornecedor responde pelo link: manda o preco por telefone, WhatsApp
+// ou planilha. A loja liga "Preencher a mao" na cotacao e digita os precos de
+// cada fornecedor na propria grade do comparativo. Vale a mesma regra da
+// resposta pelo link (preco por item, prazo, condicao), mas quem grava e' o
+// usuario logado, e o prazo "responder ate'" nao trava (ele e' do link).
+
+export interface PropostaManual {
+  fornecedorId: string;
+  /** null = a loja apagou todos os precos: o fornecedor volta para "Aguardando". */
+  resposta: RespostaDoFornecedor | null;
+}
+
+/** So' cotacao aberta recebe preco a mao; null = pode. */
+export const erroParaLancarPropostaManual = (status: StatusCotacao): string | null => {
+  if (status === 'cancelada') return 'Esta cotação está cancelada: não dá mais para lançar preços.';
+  if (status === 'fechada') return 'Esta cotação já foi fechada: não dá mais para lançar preços. Abra uma cotação nova.';
+  return null;
+};
+
+/**
+ * Le as propostas que a tela mandou: `propostas[fornecedorId] = { precos,
+ * prazoEntregaDias, condicaoPagamento, observacao }`. So' entra fornecedor da
+ * cotacao; a tela manda so' os que mudaram.
+ */
+export const lerPropostasManuais = (corpo: unknown, cotacao: Pick<Cotacao, 'itens' | 'fornecedores'>): { erro: string } | { propostas: PropostaManual[] } => {
+  const c = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
+  const brutas = (c.propostas && typeof c.propostas === 'object' && !Array.isArray(c.propostas) ? c.propostas : {}) as Record<string, unknown>;
+  const desconhecido = Object.keys(brutas).find((id) => !cotacao.fornecedores.some((f) => f.fornecedorId === id));
+  if (desconhecido) return { erro: 'Um dos fornecedores não está mais nesta cotação. Atualize a tela e lance os preços de novo.' };
+  const propostas: PropostaManual[] = [];
+  for (const f of cotacao.fornecedores) {
+    if (!(f.fornecedorId in brutas)) continue;
+    const b = (brutas[f.fornecedorId] && typeof brutas[f.fornecedorId] === 'object' ? brutas[f.fornecedorId] : {}) as Record<string, unknown>;
+    const precos = (b.precos && typeof b.precos === 'object' ? b.precos : {}) as Record<string, unknown>;
+    const temPreco = cotacao.itens.some((i) => { const v = precos[i.produtoId]; return v !== undefined && v !== null && v !== '' && Number(v) !== 0; });
+    if (!temPreco) { propostas.push({ fornecedorId: f.fornecedorId, resposta: null }); continue; }
+    const lida = lerRespostaDoFornecedor(b, cotacao.itens);
+    if ('erro' in lida) return { erro: `${f.nome}: ${lida.erro}` };
+    propostas.push({ fornecedorId: f.fornecedorId, resposta: lida.resposta });
+  }
+  if (propostas.length === 0) return { erro: 'Nenhum preço foi alterado.' };
+  return { propostas };
 };
 
 /** Por que o fornecedor nao pode (mais) responder; null = pode. */

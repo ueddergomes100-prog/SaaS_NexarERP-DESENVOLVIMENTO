@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
-import { formatarReais, type Cotacao, type FornecedorDaCotacao, type PedidoCompra } from './comprasDomain';
+import { formatarReais, type Cotacao, type DadosDoPedidoCompra, type FornecedorDaCotacao, type PedidoCompra } from './comprasDomain';
 
 /**
  * PDFs de Compras (22/10/2026): a cotacao para um fornecedor (lista de itens
@@ -92,6 +92,38 @@ export const gerarPdfPedidoCompra = (args: { empresa: string; pedido: PedidoComp
     columnStyles: { 0: { cellWidth: 20 }, 2: { halign: 'right', cellWidth: 18 }, 3: { cellWidth: 14 }, 4: { halign: 'right', cellWidth: 26 }, 5: { halign: 'right', cellWidth: 28 } },
   });
   rodape(pdf, `Pedido de compra de ${empresa}`);
+  return pdf.output('blob');
+};
+
+/**
+ * ITENS QUE O FORNECEDOR GANHOU NA COTACAO (pedido de cliente, 12/11/2026):
+ * so' os itens em que ele foi o escolhido, com o preco que ele passou, para a
+ * loja mandar a ele ("quero comprar de voce estes aqui"). `ganho` vem de
+ * pedidosDasEscolhas (comprasDomain) -- e' a mesma conta do pedido de compra.
+ */
+export const gerarPdfItensGanhos = (args: { empresa: string; cotacao: Pick<Cotacao, 'numero' | 'titulo' | 'itens'>; ganho: DadosDoPedidoCompra }): Blob => {
+  const { empresa, cotacao, ganho } = args;
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  cabecalho(pdf, `COTAÇÃO DE COMPRA Nº ${String(cotacao.numero).padStart(4, '0')} — ITENS GANHOS`, cotacao.titulo, empresa);
+  const y = linhasDeTexto(pdf, [
+    `Fornecedor: ${ganho.fornecedorNome}`,
+    `Sua proposta foi a escolhida em ${ganho.itens.length} de ${cotacao.itens.length} ${cotacao.itens.length === 1 ? 'item' : 'itens'} desta cotação.`,
+    ganho.prazoEntregaDias !== null ? `Prazo de entrega informado: ${ganho.prazoEntregaDias} dia(s)` : '',
+    ganho.condicaoPagamento ? `Condição de pagamento informada: ${ganho.condicaoPagamento}` : '',
+  ], 37);
+  autoTable(pdf, {
+    startY: y + 2,
+    margin: { left: 12, right: 12 },
+    head: [['Código', 'Produto', 'Qtd.', 'Und.', 'Preço unit.', 'Subtotal']],
+    body: ganho.itens.map((i) => [i.codigo, i.nome, quantidade(i.quantidade), i.unidade, formatarReais(i.precoUnitarioCentavos), formatarReais(i.subtotalCentavos)]),
+    foot: [[{ content: 'TOTAL', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } }, { content: formatarReais(ganho.totalCentavos), styles: { fontStyle: 'bold', halign: 'right' } }]],
+    theme: 'grid',
+    styles: { font: 'helvetica', fontSize: 9, textColor: PRETO, cellPadding: 1.8 },
+    headStyles: { fontStyle: 'bold', fillColor: [235, 235, 235], textColor: PRETO },
+    footStyles: { fillColor: [245, 245, 245], textColor: PRETO },
+    columnStyles: { 0: { cellWidth: 20 }, 2: { halign: 'right', cellWidth: 18 }, 3: { cellWidth: 14 }, 4: { halign: 'right', cellWidth: 26 }, 5: { halign: 'right', cellWidth: 28 } },
+  });
+  rodape(pdf, `Itens ganhos na cotação de ${empresa} — ${dataBr(new Date().toISOString())}`);
   return pdf.output('blob');
 };
 

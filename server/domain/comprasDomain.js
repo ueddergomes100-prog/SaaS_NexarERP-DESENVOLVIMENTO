@@ -16,7 +16,7 @@
  * Regra pura: sem tela, sem Firestore. Compilada para o servidor.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.podeEditarPedido = exports.erroParaMudarStatus = exports.pedidosDasEscolhas = exports.lerPedidoDeCompra = exports.subtotalDoItem = exports.ROTULO_STATUS_PEDIDO_COMPRA = exports.lerEscolhas = exports.escolhasSugeridas = exports.montarComparativo = exports.codigoAcessoValido = exports.erroParaResponder = exports.lerRespostaDoFornecedor = exports.textoDoConvite = exports.linkDaCotacao = exports.cotacaoVencida = exports.responderAtePadrao = exports.lerPedidoDeCotacao = exports.ROTULO_STATUS_COTACAO = exports.formatarReais = exports.CODIGO_ACESSO_TAMANHO = exports.OBSERVACAO_MAX = exports.TEXTO_CURTO_MAX = exports.FORNECEDORES_MAXIMO = exports.ITENS_MAXIMO = exports.DIAS_PADRAO_PARA_RESPONDER = void 0;
+exports.podeEditarPedido = exports.erroParaMudarStatus = exports.pedidosDasEscolhas = exports.lerPedidoDeCompra = exports.subtotalDoItem = exports.ROTULO_STATUS_PEDIDO_COMPRA = exports.lerEscolhas = exports.escolhasSugeridas = exports.montarComparativo = exports.codigoAcessoValido = exports.erroParaResponder = exports.lerPropostasManuais = exports.erroParaLancarPropostaManual = exports.lerRespostaDoFornecedor = exports.textoDoConvite = exports.linkDaCotacao = exports.cotacaoVencida = exports.responderAtePadrao = exports.lerPedidoDeCotacao = exports.ROTULO_STATUS_COTACAO = exports.formatarReais = exports.CODIGO_ACESSO_TAMANHO = exports.OBSERVACAO_MAX = exports.TEXTO_CURTO_MAX = exports.FORNECEDORES_MAXIMO = exports.ITENS_MAXIMO = exports.DIAS_PADRAO_PARA_RESPONDER = void 0;
 exports.DIAS_PADRAO_PARA_RESPONDER = 7;
 exports.ITENS_MAXIMO = 200;
 exports.FORNECEDORES_MAXIMO = 20;
@@ -142,6 +142,47 @@ const lerRespostaDoFornecedor = (corpo, itens) => {
     return { resposta: { precos, prazoEntregaDias, condicaoPagamento: texto(c.condicaoPagamento, exports.TEXTO_CURTO_MAX), observacao: texto(c.observacao, exports.OBSERVACAO_MAX) } };
 };
 exports.lerRespostaDoFornecedor = lerRespostaDoFornecedor;
+/** So' cotacao aberta recebe preco a mao; null = pode. */
+const erroParaLancarPropostaManual = (status) => {
+    if (status === 'cancelada')
+        return 'Esta cotação está cancelada: não dá mais para lançar preços.';
+    if (status === 'fechada')
+        return 'Esta cotação já foi fechada: não dá mais para lançar preços. Abra uma cotação nova.';
+    return null;
+};
+exports.erroParaLancarPropostaManual = erroParaLancarPropostaManual;
+/**
+ * Le as propostas que a tela mandou: `propostas[fornecedorId] = { precos,
+ * prazoEntregaDias, condicaoPagamento, observacao }`. So' entra fornecedor da
+ * cotacao; a tela manda so' os que mudaram.
+ */
+const lerPropostasManuais = (corpo, cotacao) => {
+    const c = (corpo && typeof corpo === 'object' ? corpo : {});
+    const brutas = (c.propostas && typeof c.propostas === 'object' && !Array.isArray(c.propostas) ? c.propostas : {});
+    const desconhecido = Object.keys(brutas).find((id) => !cotacao.fornecedores.some((f) => f.fornecedorId === id));
+    if (desconhecido)
+        return { erro: 'Um dos fornecedores não está mais nesta cotação. Atualize a tela e lance os preços de novo.' };
+    const propostas = [];
+    for (const f of cotacao.fornecedores) {
+        if (!(f.fornecedorId in brutas))
+            continue;
+        const b = (brutas[f.fornecedorId] && typeof brutas[f.fornecedorId] === 'object' ? brutas[f.fornecedorId] : {});
+        const precos = (b.precos && typeof b.precos === 'object' ? b.precos : {});
+        const temPreco = cotacao.itens.some((i) => { const v = precos[i.produtoId]; return v !== undefined && v !== null && v !== '' && Number(v) !== 0; });
+        if (!temPreco) {
+            propostas.push({ fornecedorId: f.fornecedorId, resposta: null });
+            continue;
+        }
+        const lida = (0, exports.lerRespostaDoFornecedor)(b, cotacao.itens);
+        if ('erro' in lida)
+            return { erro: `${f.nome}: ${lida.erro}` };
+        propostas.push({ fornecedorId: f.fornecedorId, resposta: lida.resposta });
+    }
+    if (propostas.length === 0)
+        return { erro: 'Nenhum preço foi alterado.' };
+    return { propostas };
+};
+exports.lerPropostasManuais = lerPropostasManuais;
 /** Por que o fornecedor nao pode (mais) responder; null = pode. */
 const erroParaResponder = (cotacao, hojeIso) => {
     if (cotacao.status === 'cancelada')

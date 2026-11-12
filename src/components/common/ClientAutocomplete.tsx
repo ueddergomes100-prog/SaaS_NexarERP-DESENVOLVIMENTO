@@ -41,6 +41,18 @@ export interface ClientAutocompleteProps<T extends SearchableClient & { id: stri
    * Desligado nas buscas de fornecedor/transportadora que reusam o componente.
    */
   buscaDeCliente?: boolean;
+  /**
+   * Campo de ACRESCENTAR VARIOS (12/11/2026, fornecedores da cotacao): a tela
+   * guarda os escolhidos numa lista e limpa o campo a cada escolha. O campo
+   * NAO trava depois de escolher e a lista continua aberta para o proximo.
+   *
+   * Sem isto o campo travava vazio quando a pessoa escolhia direto da lista,
+   * sem digitar: o valor ja' era '' e continuava '', entao o efeito que
+   * destrava (ele olha a MUDANCA do valor) nao rodava. Quem digitava antes de
+   * escolher nao sentia o problema -- por isso "tem hora que aparece, tem hora
+   * que nao".
+   */
+  selecaoMultipla?: boolean;
 }
 
 /**
@@ -65,6 +77,7 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
   className,
   onBlur,
   buscaDeCliente = false,
+  selecaoMultipla = false,
 }: ClientAutocompleteProps<T>) {
   const internalRef = useRef<HTMLInputElement | null>(null);
   const resolvedInputRef = inputRef || internalRef;
@@ -125,6 +138,13 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
 
   const confirmSelect = (client: T) => {
     onSelect(client);
+    if (selecaoMultipla) {
+      // Fica pronto para o proximo: sem travar, lista aberta, foco no campo.
+      setHighlightedIndex(0);
+      setIsOpen(true);
+      resolvedInputRef.current?.focus();
+      return;
+    }
     setLocked(true);
     setIsOpen(false);
     if (buscaDeCliente) mostrarAlertaDoCliente(client as unknown as ClienteComAlerta);
@@ -178,7 +198,9 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
       event.preventDefault();
       selectHighlighted();
     } else if (event.key === 'Tab') {
-      if (isOpen && results.length > 0) selectHighlighted();
+      // No campo de acrescentar varios a lista fica aberta com o campo vazio:
+      // Tab so' escolhe quando a pessoa digitou (senao sair do campo acrescentaria um sem querer).
+      if (isOpen && results.length > 0 && (!selecaoMultipla || value.trim())) selectHighlighted();
     }
   };
 
@@ -224,6 +246,8 @@ function ClientAutocompleteInner<T extends SearchableClient & { id: string }>({
           setIsOpen(true);
         }}
         onFocus={() => { if (!locked) setIsOpen(true); }}
+        // Clicar no campo que ja' esta' com o foco reabre a lista (o onFocus nao dispara de novo).
+        onClick={() => { if (selecaoMultipla && !locked) setIsOpen(true); }}
         onKeyDown={handleKeyDown}
         style={{
           textTransform: 'uppercase',

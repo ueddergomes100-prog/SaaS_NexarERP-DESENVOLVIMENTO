@@ -83,6 +83,44 @@ test('link publico: abre com token + codigo, responde, e o comparativo gera os p
   await assert.rejects(() => s.gerarPedidosDaCotacao({ user: USER, tenantId: 'loja', id, corpo: { escolhas: { p1: 'f2' } } }), (e) => e.status === 409);
 });
 
+test('precos lancados a mao: grava so o fornecedor que veio, marca a origem, limpa e gera pedido; so cotacao aberta', async () => {
+  const fake = criarBancoFalso(base(), { consultas: true });
+  const s = carregar(fake.db);
+  const QUEM = { ...USER, nome: 'COMPRADOR' };
+  const { id } = await s.criarCotacao({ user: USER, tenantId: 'loja', corpo: PEDIDO });
+  const [acme, beta] = fake.ler(`cotacoes_compra/${id}`).fornecedores;
+  // BETA respondeu pelo link; ACME passou o preco por telefone.
+  await s.responderPublica({ token: beta.token, codigo: beta.codigoAcesso, corpo: { precos: { p1: 900 }, prazoEntregaDias: 2 }, hoje: HOJE });
+  const r = await s.lancarPropostasManuais({ user: QUEM, tenantId: 'loja', id, corpo: { propostas: { f1: { precos: { p1: 1000, p2: 5000 }, prazoEntregaDias: 5, condicaoPagamento: '28 dias' } } } });
+  assert.deepEqual(r.lancados, ['ACME']);
+  assert.deepEqual(r.limpos, []);
+  let cot = fake.ler(`cotacoes_compra/${id}`);
+  assert.equal(cot.fornecedores[0].status, 'respondida');
+  assert.equal(cot.fornecedores[0].origemResposta, 'manual');
+  assert.equal(cot.fornecedores[0].lancadoPorNome, 'COMPRADOR');
+  assert.deepEqual(cot.fornecedores[0].precos, { p1: 1000, p2: 5000 });
+  assert.equal(cot.fornecedores[0].token, acme.token, 'o link do fornecedor continua o mesmo');
+  assert.equal(cot.fornecedores[1].origemResposta, 'link', 'quem nao veio no lancamento nao e tocado');
+  assert.deepEqual(cot.fornecedores[1].precos, { p1: 900 });
+
+  // O prazo "responder ate" e' do link: a mao lanca mesmo depois dele. Apagar todos os precos devolve para Aguardando.
+  const limpa = await s.lancarPropostasManuais({ user: QUEM, tenantId: 'loja', id, corpo: { propostas: { f2: { precos: { p1: '' } } } } });
+  assert.deepEqual(limpa.limpos, ['BETA']);
+  cot = fake.ler(`cotacoes_compra/${id}`);
+  assert.equal(cot.fornecedores[1].status, 'aguardando');
+  assert.deepEqual(cot.fornecedores[1].precos, {});
+
+  await assert.rejects(() => s.lancarPropostasManuais({ user: QUEM, tenantId: 'loja', id, corpo: { propostas: { fX: { precos: { p1: 1 } } } } }), (e) => e.status === 400 && /não está mais nesta cotação/.test(e.message));
+  await assert.rejects(() => s.lancarPropostasManuais({ user: QUEM, tenantId: 'outra', id, corpo: { propostas: { f1: { precos: { p1: 1 } } } } }), (e) => e.status === 404);
+
+  // Proposta lancada a mao vale como resposta: gera o pedido de compra.
+  const gerados = await s.gerarPedidosDaCotacao({ user: QUEM, tenantId: 'loja', id, corpo: { escolhas: { p1: 'f1', p2: 'f1' } } });
+  assert.equal(gerados.pedidos.length, 1);
+  assert.equal(gerados.pedidos[0].totalCentavos, 100 * 1000 + 20 * 5000);
+  // Fechada: nao lanca mais.
+  await assert.rejects(() => s.lancarPropostasManuais({ user: QUEM, tenantId: 'loja', id, corpo: { propostas: { f1: { precos: { p1: 1 } } } } }), (e) => e.status === 409 && /já foi fechada/.test(e.message));
+});
+
 test('pedido de compra a mao: cria, altera so aberto, status enviado -> recebido; cancelar', async () => {
   const fake = criarBancoFalso(base(), { consultas: true });
   const s = carregar(fake.db);

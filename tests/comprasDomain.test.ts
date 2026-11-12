@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   cotacaoVencida,
+  erroParaLancarPropostaManual,
   erroParaMudarStatus,
   erroParaResponder,
   escolhasSugeridas,
   lerEscolhas,
   lerPedidoDeCompra,
   lerPedidoDeCotacao,
+  lerPropostasManuais,
   lerRespostaDoFornecedor,
   montarComparativo,
   pedidosDasEscolhas,
@@ -30,6 +32,47 @@ const ITENS = [
 
 const fornecedor = (id: string, nome: string, extra: Partial<Cotacao['fornecedores'][number]> = {}): Cotacao['fornecedores'][number] => ({
   fornecedorId: id, nome, email: '', celular: '', token: 't', codigoAcesso: '123456', status: 'aguardando', respondidoEmIso: '', precos: {}, prazoEntregaDias: null, condicaoPagamento: '', observacao: '', ...extra,
+});
+
+test('proposta lancada a mao: so os fornecedores que vieram; sem preco volta a aguardando; so cotacao aberta', () => {
+  const cotacao = { itens: ITENS, fornecedores: [fornecedor('f1', 'ACME'), fornecedor('f2', 'BETA', { status: 'respondida', precos: { p1: 900 } }), fornecedor('f3', 'GAMA')] };
+  const lidas = lerPropostasManuais({ propostas: {
+    f1: { precos: { p1: 1000, p2: '' }, prazoEntregaDias: 5, condicaoPagamento: ' 28 dias ' },
+    f2: { precos: { p1: 0, p2: '' }, prazoEntregaDias: '', condicaoPagamento: '' },
+  } }, cotacao);
+  assert.ok('propostas' in lidas);
+  if (!('propostas' in lidas)) return;
+  // f3 nao veio: nao e' tocado.
+  assert.deepEqual(lidas.propostas.map((p) => p.fornecedorId), ['f1', 'f2']);
+  assert.deepEqual(lidas.propostas[0].resposta, { precos: { p1: 1000 }, prazoEntregaDias: 5, condicaoPagamento: '28 dias', observacao: '' });
+  assert.equal(lidas.propostas[1].resposta, null, 'todos os precos apagados = limpar a proposta');
+
+  assert.match(erroDe(lerPropostasManuais({ propostas: { f1: { precos: { p1: 10.5 } } } }, cotacao)), /^ACME: Preço inválido em ÓLEO 1L/);
+  assert.match(erroDe(lerPropostasManuais({ propostas: { f1: { precos: { p1: 1000 }, prazoEntregaDias: 999 } } }, cotacao)), /^ACME: Prazo de entrega inválido/);
+  assert.match(erroDe(lerPropostasManuais({ propostas: { fX: { precos: { p1: 1000 } } } }, cotacao)), /não está mais nesta cotação/);
+  assert.match(erroDe(lerPropostasManuais({ propostas: {} }, cotacao)), /Nenhum preço foi alterado/);
+  assert.match(erroDe(lerPropostasManuais(null, cotacao)), /Nenhum preço foi alterado/);
+
+  assert.equal(erroParaLancarPropostaManual('aberta'), null);
+  assert.match(erroParaLancarPropostaManual('fechada')!, /já foi fechada/);
+  assert.match(erroParaLancarPropostaManual('cancelada')!, /cancelada/);
+});
+
+test('itens ganhos por fornecedor: so os itens em que ele foi o escolhido, com o preco dele', () => {
+  const cotacao = {
+    itens: ITENS,
+    fornecedores: [
+      fornecedor('f1', 'ACME', { status: 'respondida', precos: { p1: 1000, p2: 5000 }, prazoEntregaDias: 5, condicaoPagamento: '28 dias' }),
+      fornecedor('f2', 'BETA', { status: 'respondida', precos: { p1: 900 }, prazoEntregaDias: 2 }),
+    ],
+  };
+  const ganhos = pedidosDasEscolhas(cotacao, { p1: 'f2', p2: 'f1' });
+  assert.deepEqual(ganhos.map((g) => [g.fornecedorNome, g.itens.map((i) => i.nome), g.totalCentavos]), [
+    ['BETA', ['ÓLEO 1L'], 90000],
+    ['ACME', ['FILTRO'], 100000],
+  ]);
+  // Item sem fornecedor escolhido ("Nao comprar agora") nao entra em ninguem.
+  assert.deepEqual(pedidosDasEscolhas(cotacao, { p2: 'f1' }).map((g) => g.itens.length), [1]);
 });
 
 test('pedido de cotacao: titulo, itens sem repetir, fornecedores e data', () => {

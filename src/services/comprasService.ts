@@ -18,6 +18,14 @@ export const gerarPedidosDaCotacao = (id: string, escolhas: Record<string, strin
   )
 );
 
+/** Precos que o fornecedor passou por fora do link, digitados pela loja. So' os fornecedores que mudaram. */
+export const lancarPropostasManuais = (
+  id: string,
+  propostas: Record<string, { precos: Record<string, number>; prazoEntregaDias: number | null; condicaoPagamento: string; observacao: string }>,
+) => (
+  chamarServidor<{ ok: true; numero: number; lancados: string[]; limpos: string[] }>('POST', `compras/cotacoes/${encodeURIComponent(id)}/propostas-manuais`, { propostas })
+);
+
 export const criarPedidoCompra = (corpo: Omit<DadosDoPedidoCompra, 'totalCentavos' | 'itens'> & { itens: Array<Partial<ItemDaCotacao> & { produtoId: string; nome: string; quantidade: number; precoUnitarioCentavos: number }> }) => (
   chamarServidor<{ ok: true; id: string; numero: number; totalCentavos: number }>('POST', 'compras/pedidos', { ...corpo })
 );

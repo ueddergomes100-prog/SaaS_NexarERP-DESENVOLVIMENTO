@@ -79,6 +79,21 @@ router.post('/cotacoes/:id/gerar-pedidos', cotacoes, async (req, res) => {
   }
 });
 
+// Precos lancados a mao pela loja (12/11/2026): fornecedor que respondeu por fora do link.
+router.post('/cotacoes/:id/propostas-manuais', cotacoes, async (req, res) => {
+  try {
+    const r = await compras.lancarPropostasManuais({ user: req.user, tenantId: req.user.tenantId, id: req.params.id, corpo: req.body || {} });
+    const partes = [
+      r.lancados.length ? `preços lançados à mão de ${r.lancados.join(', ')}` : '',
+      r.limpos.length ? `preços apagados de ${r.limpos.join(', ')}` : '',
+    ].filter(Boolean).join('; ');
+    log(req, 'edicao', `Cotação de compra nº ${r.numero}: ${partes}.`, r.id);
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErro(res, erro, 'lançar os preços');
+  }
+});
+
 router.post('/cotacoes/:id', cotacoes, async (req, res) => {
   try {
     const r = await compras.editarCotacao({ user: req.user, tenantId: req.user.tenantId, id: req.params.id, corpo: req.body || {} });

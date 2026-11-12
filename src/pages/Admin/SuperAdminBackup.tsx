@@ -1,22 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Database, 
-  Play, 
-  Settings, 
-  Download, 
-  RefreshCw, 
-  Trash2, 
-  Clock, 
-  Cloud, 
-  Server, 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Database,
+  Play,
+  Settings,
+  Download,
+  RefreshCw,
+  Trash2,
+  Clock,
+  Cloud,
+  Server,
   Search,
   Building,
-  HardDrive
+  HardDrive,
+  Upload
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../../utils/fetchComTimeout';
 import Swal from 'sweetalert2';
+import SituacaoDosBackups from './SituacaoDosBackups';
 
 interface BackupRecord {
   id: string;
@@ -30,6 +32,8 @@ interface BackupRecord {
   restauradoEm?: string;
   restauradoPor?: string;
   error?: string;
+  /** Copia externa deste backup (12/11/2026): outro provedor, outra conta. */
+  externo?: { status: 'nao_configurado' | 'enviado' | 'erro'; erro?: string };
 }
 
 interface TenantInfo {
@@ -53,6 +57,11 @@ const SuperAdminBackup: React.FC = () => {
   const [autoFrequency, setAutoFrequency] = useState<'diario' | 'semanal' | 'mensal'>('diario');
   const [autoTime, setAutoTime] = useState<string>('02:00');
   const [autoKeepCount, setAutoKeepCount] = useState<number>(7);
+  // A empresa nunca gravou configuracao: vale o padrao do servidor (ligado, diario, 02:00).
+  const [autoPadrao, setAutoPadrao] = useState<boolean>(false);
+  // Sobe a cada acao do painel para o quadro "Situacao dos backups" recarregar.
+  const [versaoDoResumo, setVersaoDoResumo] = useState<number>(0);
+  const arquivoRef = useRef<HTMLInputElement | null>(null);
 
   const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
   const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -148,11 +157,84 @@ const SuperAdminBackup: React.FC = () => {
         setAutoFrequency(settingsData.frequency);
         setAutoTime(settingsData.time);
         setAutoKeepCount(settingsData.keepCount);
+        setAutoPadrao(settingsData.padrao === true);
       }
     } catch (err) {
       console.error('Erro ao carregar dados:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /** Depois de uma acao do painel: recarrega a empresa aberta e o quadro de todas. */
+  const recarregarTudo = () => {
+    fetchBackupsAndSettings();
+    setVersaoDoResumo((v) => v + 1);
+  };
+
+  /**
+   * Restaurar a partir de um arquivo do computador (12/11/2026): a copia
+   * externa, ou um arquivo baixado antes, quando o backup nao esta' mais na
+   * lista. O servidor confere chave, empresa e integridade antes de mexer em
+   * qualquer dado.
+   */
+  const handleRestoreFromFile = async (arquivo: File | null) => {
+    if (arquivoRef.current) arquivoRef.current.value = '';
+    if (!arquivo || !selectedTenant) return;
+    const tenantName = tenants.find(t => t.id === selectedTenant)?.nomeOficina || 'a empresa selecionada';
+
+    const result = await Swal.fire({
+      title: 'ATENÇÃO CRÍTICA!',
+      html: `<div style="text-align: left;">
+              <p>Você está prestes a restaurar <strong>${tenantName.replace(/[<>&"]/g, '')}</strong> a partir do arquivo <strong>${arquivo.name.replace(/[<>&"]/g, '')}</strong>, enviado do seu computador.</p>
+              <p style="color: #ef4444; font-weight: bold;">⚠️ Isso irá SUBSTITUIR COMPLETAMENTE os dados atuais desta empresa no sistema!</p>
+              <p>O servidor confere antes se o arquivo é desta empresa, se a chave é a certa e se ele não foi alterado. Depois faz um <strong>backup de emergência</strong> do estado atual e só então restaura.</p>
+             </div>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#3b82f6',
+      confirmButtonText: 'Sim, restaurar deste arquivo',
+      cancelButtonText: 'Cancelar'
+    });
+    if (!result.isConfirmed) return;
+    if (!ensureApiUrl()) return;
+
+    setActionLoading(true);
+    Swal.fire({
+      title: 'Restaurando Base de Dados...',
+      text: 'Aguarde. O sistema está enviando o arquivo, conferindo a chave e a integridade, gerando o backup de emergência e restaurando.',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+    try {
+      const { Authorization } = await getAuthHeaders();
+      const res = await fetchComTimeout(
+        `${API_URL}/api/backups/restore-file?tenantId=${encodeURIComponent(selectedTenant)}&nomeArquivo=${encodeURIComponent(arquivo.name)}`,
+        { method: 'POST', headers: { Authorization, 'Content-Type': 'application/octet-stream' }, body: arquivo },
+        TEMPO_LIMITE.backup,
+      );
+      Swal.close();
+      if (res.ok) {
+        const resData = await res.json();
+        Swal.fire({
+          title: 'Restauração Concluída!',
+          html: `<div style="text-align: left; font-size: 14px;">
+                  <p>Os dados foram restaurados a partir do arquivo enviado.</p>
+                  <p>🟢 Um backup de segurança com o estado anterior foi salvo automaticamente como: <strong>${resData.safetyBackup}</strong>.</p>
+                 </div>`,
+          icon: 'success',
+          confirmButtonColor: '#8b5cf6'
+        });
+        recarregarTudo();
+      } else {
+        Swal.fire('Não foi possível restaurar', await getApiError(res, 'O servidor recusou o arquivo.'), 'error');
+      }
+    } catch (err) {
+      Swal.close();
+      Swal.fire('Erro de Conexão', mensagemDeFalhaDeRede(err, 'O servidor não respondeu. Confira na lista se a restauração continuou em segundo plano antes de tentar de novo.'), 'error');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -194,7 +276,7 @@ const SuperAdminBackup: React.FC = () => {
             confirmButtonColor: '#8b5cf6'
           });
           // Recarrega a tabela após 3 segundos
-          setTimeout(fetchBackupsAndSettings, 3000);
+          setTimeout(recarregarTudo, 3000);
         } else {
           Swal.fire('Erro', await getApiError(res, 'Não foi possível disparar o backup.'), 'error');
         }
@@ -234,7 +316,7 @@ const SuperAdminBackup: React.FC = () => {
           icon: 'success',
           confirmButtonColor: '#8b5cf6'
         });
-        fetchBackupsAndSettings();
+        recarregarTudo();
       } else {
         Swal.fire('Erro', await getApiError(res, 'Erro ao salvar configurações.'), 'error');
       }
@@ -329,7 +411,7 @@ const SuperAdminBackup: React.FC = () => {
             icon: 'success',
             confirmButtonColor: '#8b5cf6'
           });
-          fetchBackupsAndSettings();
+          recarregarTudo();
         } else {
           Swal.fire('Erro na Restauração', await getApiError(res, 'Erro crítico durante o processo.'), 'error');
         }
@@ -368,7 +450,7 @@ const SuperAdminBackup: React.FC = () => {
 
         if (res.ok) {
           Swal.fire('Excluído!', 'O arquivo de backup foi removido da nuvem com sucesso.', 'success');
-          fetchBackupsAndSettings();
+          recarregarTudo();
         } else {
           Swal.fire('Erro', await getApiError(res, 'Erro ao remover backup.'), 'error');
         }
@@ -405,13 +487,13 @@ const SuperAdminBackup: React.FC = () => {
             Backup e Restauração Segura
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '16px' }}>
-            Central de segurança de dados do SaaS. Backups automatizados, criptografados (AES-256) e armazenados no Google Cloud.
+            Central de segurança de dados do SaaS. Toda empresa e filial tem backup automático, criptografado (AES-256), guardado no Google Cloud e copiado para um segundo armazenamento.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button 
             className="btn-secondary" 
-            onClick={fetchBackupsAndSettings}
+            onClick={recarregarTudo}
             disabled={loading || actionLoading}
             style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
           >
@@ -429,6 +511,17 @@ const SuperAdminBackup: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Situação de todas as empresas e filiais (12/11/2026) -- só a equipe da plataforma */}
+      {isSuperAdmin && API_URL && (
+        <SituacaoDosBackups
+          apiUrl={API_URL}
+          obterCabecalhos={getAuthHeaders}
+          empresaSelecionada={selectedTenant}
+          onEscolherEmpresa={setSelectedTenant}
+          versao={versaoDoResumo}
+        />
+      )}
 
       {/* Seleção de Empresa para SuperAdmin */}
       {isSuperAdmin && (
@@ -517,6 +610,11 @@ const SuperAdminBackup: React.FC = () => {
                 Ativar rotina de backup recorrente automático
               </label>
             </div>
+            {autoPadrao && (
+              <p style={{ margin: '-8px 0 0', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                Esta empresa nunca foi configurada: vale o padrão do sistema, <strong style={{ color: 'var(--text-primary)' }}>ligado, todo dia às 02:00</strong>. Só salve se quiser outro horário, outra frequência ou desligar.
+              </p>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
               <div>
@@ -545,16 +643,12 @@ const SuperAdminBackup: React.FC = () => {
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 500 }}>Retenção (backups a manter)</label>
-                <input 
-                  type="number" 
-                  min={2} 
-                  max={30} 
-                  value={autoKeepCount}
-                  disabled={!autoEnabled}
-                  onChange={(e) => setAutoKeepCount(parseInt(e.target.value, 10))}
-                  style={{ width: '100%', padding: '9px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
-                />
+                {/* 12/11/2026: o campo "Retenção (backups a manter)" nunca valeu -- a limpeza segue a regra
+                    do servidor (cloudStorage.js), igual para todas as empresas. Agora a tela diz a regra. */}
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', color: 'var(--text-muted)', fontWeight: 500 }}>Quanto tempo fica guardado</label>
+                <div style={{ padding: '9px 10px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.4 }} title="Regra do servidor, igual para todas as empresas: o mais novo de cada um dos últimos 7 dias, 4 semanas e 6 meses">
+                  7 diários, 4 semanais e 6 mensais
+                </div>
               </div>
             </div>
 
@@ -581,7 +675,31 @@ const SuperAdminBackup: React.FC = () => {
             <Database size={24} color="#8b5cf6" />
             Histórico e Gerenciamento de Arquivos
           </h3>
-          
+
+          {/* Restaurar a partir de um arquivo do computador (12/11/2026) -- só a equipe da plataforma */}
+          {isSuperAdmin && (
+            <>
+              <input
+                ref={arquivoRef}
+                type="file"
+                accept=".gz,.json.gz,application/gzip,application/octet-stream"
+                aria-label="Arquivo de backup para restaurar"
+                style={{ display: 'none' }}
+                onChange={(e) => void handleRestoreFromFile(e.target.files?.[0] || null)}
+              />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => arquivoRef.current?.click()}
+                disabled={actionLoading || !selectedTenant}
+                title="Restaura esta empresa a partir de um arquivo de backup do seu computador (a cópia externa, ou um arquivo baixado antes)"
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', marginRight: '12px' }}
+              >
+                <Upload size={16} /> Restaurar de um arquivo
+              </button>
+            </>
+          )}
+
           <div style={{ position: 'relative', width: '320px' }}>
             <Search size={16} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
             <input 
@@ -677,6 +795,17 @@ const SuperAdminBackup: React.FC = () => {
                             <RefreshCw size={12} className="animate-spin" /> Extraindo...
                           </span>
                         )}
+                        {/* Cópia externa deste arquivo (12/11/2026): outro provedor, outra conta. */}
+                        {backup.externo?.status === 'enviado' && (
+                          <div style={{ marginTop: '6px', fontSize: '12px', fontWeight: 600, color: '#10b981' }} title="Este arquivo também foi gravado no armazenamento externo">
+                            + cópia externa
+                          </div>
+                        )}
+                        {backup.externo?.status === 'erro' && (
+                          <div style={{ marginTop: '6px', fontSize: '12px', fontWeight: 600, color: '#ef4444' }} title={`${backup.externo.erro || 'O armazenamento externo recusou o arquivo.'} O servidor tenta de novo a cada hora, por 3 dias.`}>
+                            cópia externa falhou
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '16px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -686,7 +815,7 @@ const SuperAdminBackup: React.FC = () => {
                             onClick={() => handleDownload(backup)}
                             disabled={actionLoading || backup.status === 'gerando' || backup.status === 'erro'}
                             style={{ padding: '6px 10px', fontSize: '12px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            title="Baixar Backup Decriptografado"
+                            title="Baixa o arquivo do backup, ainda cifrado: só abre com a chave dos backups (dá para restaurar por ele em Restaurar de um arquivo)"
                           >
                             <Download size={14} /> Baixar
                           </button>

@@ -202,5 +202,6 @@ module.exports = {
   listBackups,
   deleteBackup,
   applyRetentionPolicy,
-  getCleanCompanyName
+  getCleanCompanyName,
+  getCompanyFolderPath
 };

@@ -208,14 +208,56 @@ async function writeRestoredData(companyId, arquivo) {
 }
 
 /**
- * Orquestra todo o processo de restauração segura.
+ * Abre um arquivo de backup: decifra, descompacta e confere que e' desta
+ * empresa e que nao foi alterado (checksum). Devolve { metadata, data }.
  */
-async function restoreCompanyBackup(companyId, companyName, filename, userEmail) {
+async function abrirArquivoDeBackup(encryptedBuffer, companyId, companyName) {
+  let decryptedJson;
+  try {
+    const decryptedBuffer = decryptBuffer(encryptedBuffer);
+    const gunzippedBuffer = await gunzip(decryptedBuffer);
+    decryptedJson = JSON.parse(gunzippedBuffer.toString('utf8'));
+  } catch (err) {
+    throw new Error(`Falha ao descriptografar ou descompactar o arquivo. Chave inválida ou arquivo corrompido: ${err.message}`);
+  }
+
+  const metadata = decryptedJson.metadata;
+  const data = decryptedJson.data;
+
+  if (!metadata || !data) {
+    throw new Error('Estrutura de arquivo de backup inválida ou incompleta.');
+  }
+
+  // Confere se o backup pertence a esta empresa (Prevenção de cruzamento de tenants)
+  if (metadata.companyId !== companyId) {
+    throw new Error(`Falha de Segurança: O arquivo de backup pertence à empresa ID (${metadata.companyId} - ${metadata.companyName}), mas você está tentando restaurar na empresa ID (${companyId} - ${companyName}). Operação bloqueada.`);
+  }
+
+  // Recalcula o Checksum SHA-256 dos dados e compara com os metadados do arquivo
+  const recalculatedChecksum = crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
+  if (recalculatedChecksum !== metadata.checksum) {
+    throw new Error('Erro de Integridade: O Checksum SHA-256 calculado não confere com o original do backup. Os dados podem ter sido adulterados ou corrompidos.');
+  }
+
+  return { metadata, data };
+}
+
+/**
+ * Orquestra todo o processo de restauração segura.
+ *
+ * `arquivoEnviado` (12/11/2026): o arquivo cifrado veio do computador de quem
+ * esta' restaurando (copia externa ou baixada antes), em vez do bucket. E'
+ * conferido ANTES de qualquer coisa: arquivo errado nem gera o backup de
+ * emergencia.
+ */
+async function restoreCompanyBackup(companyId, companyName, filename, userEmail, arquivoEnviado = null) {
   if (!db) {
     throw new Error('Banco de dados Firestore não inicializado ou inacessível.');
   }
 
-  console.log(`[Restauração] Iniciando restauração para ${companyName} (${companyId}) a partir do arquivo: ${filename}`);
+  console.log(`[Restauração] Iniciando restauração para ${companyName} (${companyId}) a partir do arquivo: ${filename}${arquivoEnviado ? ' (enviado pelo painel)' : ''}`);
+
+  let aberto = arquivoEnviado ? await abrirArquivoDeBackup(arquivoEnviado, companyId, companyName) : null;
 
   // Passo 1: Disparar Backup de Emergência (Segurança) do estado atual do cliente
   let safetyBackup = null;
@@ -228,44 +270,18 @@ async function restoreCompanyBackup(companyId, companyName, filename, userEmail)
     throw new Error(`Restauração cancelada por segurança: não foi possível gerar o backup de emergência da base de dados atual. Detalhes: ${err.message}`);
   }
 
-  // Passo 2: Baixar o arquivo de backup do Cloud Storage
-  let encryptedBuffer;
-  try {
-    encryptedBuffer = await downloadBackup(companyId, companyName, filename);
-  } catch (err) {
-    throw new Error(`Erro ao baixar o arquivo de backup do Cloud Storage: ${err.message}`);
+  // Passos 2 a 4: baixar do Cloud Storage (quando nao veio do painel), decifrar,
+  // descompactar e validar integridade e pertencimento.
+  if (!aberto) {
+    let encryptedBuffer;
+    try {
+      encryptedBuffer = await downloadBackup(companyId, companyName, filename);
+    } catch (err) {
+      throw new Error(`Erro ao baixar o arquivo de backup do Cloud Storage: ${err.message}`);
+    }
+    aberto = await abrirArquivoDeBackup(encryptedBuffer, companyId, companyName);
   }
-
-  // Passo 3: Descriptografar e Descompactar
-  let decryptedJson;
-  try {
-    const decryptedBuffer = decryptBuffer(encryptedBuffer);
-    const gunzippedBuffer = await gunzip(decryptedBuffer);
-    decryptedJson = JSON.parse(gunzippedBuffer.toString('utf8'));
-  } catch (err) {
-    throw new Error(`Falha ao descriptografar ou descompactar o arquivo. Chave inválida ou arquivo corrompido: ${err.message}`);
-  }
-
-  // Passo 4: Validar Integridade e Pertencimento
-  const metadata = decryptedJson.metadata;
-  const data = decryptedJson.data;
-
-  if (!metadata || !data) {
-    throw new Error('Estrutura de arquivo de backup inválida ou incompleta.');
-  }
-
-  // Validação 4.1: Confere se o backup pertence a esta empresa (Prevenção de cruzamento de tenants)
-  if (metadata.companyId !== companyId) {
-    throw new Error(`Falha de Segurança: O arquivo de backup pertence à empresa ID (${metadata.companyId} - ${metadata.companyName}), mas você está tentando restaurar na empresa ID (${companyId} - ${companyName}). Operação bloqueada.`);
-  }
-
-  // Validação 4.2: Recalcular o Checksum SHA-256 dos dados e comparar com os metadados do arquivo
-  const dataString = JSON.stringify(data);
-  const recalculatedChecksum = crypto.createHash('sha256').update(dataString).digest('hex');
-
-  if (recalculatedChecksum !== metadata.checksum) {
-    throw new Error('Erro de Integridade: O Checksum SHA-256 calculado não confere com o original do backup. Os dados podem ter sido adulterados ou corrompidos.');
-  }
+  const { data } = aberto;
 
   // Plano, modulos, limites e Spedy de HOJE -- voltam por cima no fim (5.3).
   // Lido antes de apagar qualquer coisa: se falhar aqui, nada mudou.
@@ -288,6 +304,7 @@ async function restoreCompanyBackup(companyId, companyName, filename, userEmail)
       companyName,
       filename,
       restoredBy: userEmail,
+      origem: arquivoEnviado ? 'arquivo_enviado' : 'bucket',
       timestamp: new Date().toISOString(),
       safetyBackupFilename: safetyBackup.filename,
       status: 'sucesso'
@@ -311,6 +328,7 @@ async function restoreCompanyBackup(companyId, companyName, filename, userEmail)
       companyName,
       filename,
       restoredBy: userEmail,
+      origem: arquivoEnviado ? 'arquivo_enviado' : 'bucket',
       timestamp: new Date().toISOString(),
       safetyBackupFilename: safetyBackup.filename,
       status: 'erro',
@@ -322,5 +340,6 @@ async function restoreCompanyBackup(companyId, companyName, filename, userEmail)
 }
 
 module.exports = {
-  restoreCompanyBackup
+  restoreCompanyBackup,
+  abrirArquivoDeBackup
 };

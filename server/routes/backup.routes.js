@@ -8,7 +8,9 @@ const {
   removeBackup, 
   getBackupSettings, 
   saveBackupSettings,
-  downloadBackup
+  downloadBackup,
+  getResumo,
+  restoreFromFile
 } = require('../controllers/backup.controller');
 const { authenticate, requireAdmin, authorizeTenant } = require('../middleware/auth');
 const { limitadorPorChave, MINUTO_MS } = require('../middleware/rateLimit');
@@ -34,6 +36,13 @@ const limiteRestaurar = limitadorPorChave('backup-restaurar', porUsuario, {
 
 // Rota exclusiva para o SuperAdmin do SaaS para listar as empresas clientes
 router.get('/tenants', getTenants);
+// Situacao dos backups de todas as empresas e filiais (12/11/2026). So' a plataforma.
+router.get('/resumo', getResumo);
+// Restaurar a partir de um arquivo enviado (12/11/2026). So' a plataforma; o
+// corpo e' o arquivo cifrado inteiro, por isso o leitor proprio (o json global
+// do servidor ignora este tipo de conteudo).
+const arquivoDeBackup = express.raw({ type: 'application/octet-stream', limit: '300mb' });
+router.post('/restore-file', limiteRestaurar, arquivoDeBackup, restoreFromFile);
 
 // Rotas de backups por empresa (validam automaticamente o isolamento de tenantId)
 router.get('/history', authorizeTenant, getBackupsHistory);

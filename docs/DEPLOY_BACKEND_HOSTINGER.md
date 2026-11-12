@@ -70,7 +70,8 @@ Obrigatórias para o backend subir e funcionar:
 | `FIREBASE_PRIVATE_KEY` | service account — quebras de linha como `\n` |
 | `FIREBASE_STORAGE_BUCKET` | bucket dos backups |
 | `CORS_ORIGINS` | `https://accounts.nexarcompany.com.br` — só este. `gestao.nexarcompany.com.br` é outro sistema, separado, e não fala com este backend |
-| `BACKUP_ENCRYPTION_KEY` | **obrigatória em produção** — sem ela o serviço de backup lança erro, e sem guardar o valor os backups já criados ficam irrecuperáveis |
+| `BACKUP_ENCRYPTION_KEY` | **obrigatória em produção** — sem ela o serviço de backup lança erro, e sem guardar o valor os backups já criados ficam irrecuperáveis. **Guarde uma cópia fora deste painel** |
+| `BACKUP_EXTERNO_ENDPOINT`, `_REGIAO`, `_BUCKET`, `_CHAVE_ID`, `_CHAVE_SECRETA` | cópia externa do backup (12/11/2026): armazenamento compatível com S3 em **outra conta e outro provedor**, com chave **só de gravação**. Sem as cinco, a cópia externa fica desligada e o `/health` lista a pendência. `BACKUP_EXTERNO_PREFIXO` é opcional. Ver `server/services/backupExterno.js` |
 | `ONBOARDING_CODE_SECRET` | obrigatório em produção |
 | `SPEDY_WEBHOOK_SECRET` | precisa ser o **mesmo** já registrado na Spedy |
 

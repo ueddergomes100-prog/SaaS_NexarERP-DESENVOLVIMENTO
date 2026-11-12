@@ -3,11 +3,13 @@ const fs = require('fs');
 const { generateCompanyBackup } = require('../services/backup');
 const { restoreCompanyBackup } = require('../services/restore');
 const { deleteBackup } = require('../services/cloudStorage');
-const { reloadCompanyJob } = require('../services/scheduler');
+const { reloadCompanyJob, listarEmpresas, resumoDosBackups } = require('../services/scheduler');
+const { CONFIG_PADRAO } = require('../services/backupAgenda');
 
 /**
- * Retorna todos os tenants (empresas) cadastrados no ERP.
- * Apenas acessível por SuperAdmin.
+ * Retorna todas as empresas E FILIAIS do ERP (12/11/2026: antes vinha do
+ * cadastro dos usuarios -- as filiais ficavam de fora e administradores
+ * apareciam como se fossem empresas). Apenas acessível por SuperAdmin.
  */
 async function getTenants(req, res) {
   try {
@@ -15,29 +17,67 @@ async function getTenants(req, res) {
       return res.status(403).json({ error: 'Acesso negado. Apenas a equipe Hennder pode listar as empresas.' });
     }
 
-    const snap = await db.collection('usuarios').get();
-    const listOfTenants = [];
-    
-    snap.forEach(doc => {
-      const data = doc.data();
-      // Filtra contas SuperAdmin para não poluir a lista de empresas clientes
-      if (data.role === 'NexarAdmin' || data.role === 'SuperAdmin') {
-        return;
-      }
-
-      if (data.role === 'Master' || data.role === 'Admin' || doc.id === data.tenantId) {
-        listOfTenants.push({
-          id: doc.id,
-          nomeOficina: data.nomeOficina || 'Sem Nome',
-          email: data.email || 'N/A'
-        });
-      }
-    });
-
-    return res.json(listOfTenants);
+    const empresas = await listarEmpresas();
+    return res.json(empresas.map((e) => ({ id: e.id, nomeOficina: e.nome, email: e.email || 'N/A' })));
   } catch (error) {
     console.error('[Controller] Erro ao listar empresas:', error.message);
     return res.status(500).json({ error: 'Erro interno ao obter lista de empresas.' });
+  }
+}
+
+/**
+ * Situacao dos backups de todas as empresas e filiais (12/11/2026): ultimo
+ * backup, se esta' em dia e se a copia externa esta' ligada. So' a plataforma.
+ */
+async function getResumo(req, res) {
+  try {
+    if (!req.user.isPlatformAdmin) {
+      return res.status(403).json({ error: 'Acesso negado. Apenas a equipe Hennder vê a situação dos backups de todas as empresas.' });
+    }
+    return res.json(await resumoDosBackups());
+  } catch (error) {
+    console.error('[Controller] Erro ao montar a situação dos backups:', error.message);
+    return res.status(500).json({ error: 'Não foi possível carregar a situação dos backups. Tente de novo em instantes.' });
+  }
+}
+
+/**
+ * Restaura a partir de um ARQUIVO enviado pelo painel (12/11/2026): a copia
+ * externa, ou um arquivo baixado antes, quando o bucket principal nao tem mais
+ * o backup. O corpo e' o arquivo cifrado, como foi baixado. So' a plataforma.
+ */
+async function restoreFromFile(req, res) {
+  try {
+    if (!req.user.isPlatformAdmin) {
+      return res.status(403).json({ error: 'Só a equipe Hennder pode restaurar um backup. Fale com o suporte.' });
+    }
+    const tenantId = String(req.query.tenantId || '').trim();
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(tenantId)) {
+      return res.status(400).json({ error: 'Escolha a empresa que vai receber a restauração.' });
+    }
+    const arquivo = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!arquivo || arquivo.length === 0) {
+      return res.status(400).json({ error: 'O arquivo de backup chegou vazio. Escolha o arquivo .json.gz e envie de novo.' });
+    }
+    const nomeArquivo = String(req.query.nomeArquivo || 'arquivo-enviado.json.gz').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+
+    const configSnap = await db.collection('configuracoes').doc(tenantId).get();
+    const donoSnap = configSnap.exists ? null : await db.collection('usuarios').doc(tenantId).get();
+    if (!configSnap.exists && !(donoSnap && donoSnap.exists)) {
+      return res.status(404).json({ error: 'Empresa não encontrada. Atualize a lista e escolha de novo.' });
+    }
+    const dados = configSnap.exists ? configSnap.data() : donoSnap.data();
+    const companyName = dados.nomeOficina || dados.razaoSocial || 'Empresa';
+
+    const result = await restoreCompanyBackup(tenantId, companyName, nomeArquivo, req.user.email, arquivo);
+    return res.json({
+      message: 'Restauração concluída com sucesso!',
+      safetyBackup: result.safetyBackupFilename,
+      timestamp: result.timestamp
+    });
+  } catch (error) {
+    console.error('[Controller] Erro ao restaurar a partir de arquivo:', error.message);
+    return res.status(500).json({ error: error.message || 'Erro crítico interno durante a restauração.' });
   }
 }
 
@@ -245,13 +285,9 @@ async function getBackupSettings(req, res) {
     if (docSnap.exists) {
       return res.json(docSnap.data());
     } else {
-      // Retorna objeto padrão caso a empresa nunca tenha configurado
-      return res.json({
-        enabled: false,
-        frequency: 'diario',
-        time: '02:00',
-        keepCount: 7
-      });
+      // Empresa que nunca configurou: o backup automatico vale LIGADO, diario,
+      // as 02:00 (12/11/2026 -- services/backupAgenda.js). `padrao` avisa a tela.
+      return res.json({ ...CONFIG_PADRAO, keepCount: 7, padrao: true });
     }
   } catch (error) {
     console.error('[Controller] Erro ao buscar configurações:', error.message);
@@ -354,6 +390,8 @@ async function downloadBackup(req, res) {
 
 module.exports = {
   getTenants,
+  getResumo,
+  restoreFromFile,
   getBackupsHistory,
   generateBackup,
   restoreBackup,

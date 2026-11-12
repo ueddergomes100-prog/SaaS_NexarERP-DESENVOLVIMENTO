@@ -10,6 +10,8 @@
  * causa de um aviso e' pior que a API no ar avisando.
  */
 
+const { externoConfigurado } = require('./backupExterno');
+
 const presente = (env, nome) => Boolean(String(env[nome] || '').trim());
 
 const emProducao = (env = process.env) => env.NODE_ENV === 'production';
@@ -28,6 +30,8 @@ const diagnosticoConfiguracao = (env = process.env) => ({
     || (presente(env, 'FIREBASE_CLIENT_EMAIL') && presente(env, 'FIREBASE_PRIVATE_KEY'))
     || presente(env, 'GOOGLE_APPLICATION_CREDENTIALS'),
   backupCriptografado: presente(env, 'BACKUP_ENCRYPTION_KEY'),
+  // Copia externa do backup (12/11/2026): so' conta com TODAS as BACKUP_EXTERNO_* -- ver services/backupExterno.js.
+  backupExterno: externoConfigurado(env),
   onboardingSecret: presente(env, 'ONBOARDING_CODE_SECRET'),
   emailOnboarding: (presente(env, 'RESEND_API_KEY') || presente(env, 'SENDGRID_API_KEY')) && presente(env, 'EMAIL_FROM'),
   webhookSpedy: presente(env, 'SPEDY_WEBHOOK_SECRET'),
@@ -42,6 +46,7 @@ const pendenciasDeProducao = (diagnostico) => {
   const pendencias = [];
   if (!diagnostico.credencialFirebase) pendencias.push('Credencial do Firebase Admin ausente (FIREBASE_SERVICE_ACCOUNT_BASE64): toda rota que toca o banco vai falhar.');
   if (!diagnostico.backupCriptografado) pendencias.push('BACKUP_ENCRYPTION_KEY ausente: todo backup falha em produção.');
+  if (!diagnostico.backupExterno) pendencias.push('Cópia externa do backup não configurada (BACKUP_EXTERNO_ENDPOINT, _REGIAO, _BUCKET, _CHAVE_ID e _CHAVE_SECRETA): os backups ficam só no mesmo projeto do banco.');
   if (!diagnostico.onboardingSecret) pendencias.push('ONBOARDING_CODE_SECRET ausente: o cadastro de empresa nova falha.');
   if (!diagnostico.emailOnboarding) pendencias.push('E-mail do cadastro não configurado (RESEND_API_KEY ou SENDGRID_API_KEY + EMAIL_FROM): o código de verificação não é enviado.');
   if (!diagnostico.webhookSpedy) pendencias.push('SPEDY_WEBHOOK_SECRET ausente: o webhook da Spedy responde 404 e o status das notas só atualiza por consulta.');

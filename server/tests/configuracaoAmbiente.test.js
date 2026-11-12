@@ -7,6 +7,11 @@ test('diagnostico so diz presenca, nunca o valor', () => {
     NODE_ENV: 'production',
     FIREBASE_SERVICE_ACCOUNT_BASE64: 'eyJ...',
     BACKUP_ENCRYPTION_KEY: 'segredo-longo',
+    BACKUP_EXTERNO_ENDPOINT: 'https://s3.exemplo.com',
+    BACKUP_EXTERNO_REGIAO: 'us-west-004',
+    BACKUP_EXTERNO_BUCKET: 'copias',
+    BACKUP_EXTERNO_CHAVE_ID: 'id-da-chave',
+    BACKUP_EXTERNO_CHAVE_SECRETA: 'segredo-do-externo',
     ONBOARDING_CODE_SECRET: 'x',
     RESEND_API_KEY: 're_123',
     EMAIL_FROM: 'Hennder <cadastro@exemplo.com>',
@@ -20,6 +25,7 @@ test('diagnostico so diz presenca, nunca o valor', () => {
     ambiente: 'production',
     credencialFirebase: true,
     backupCriptografado: true,
+    backupExterno: true,
     onboardingSecret: true,
     emailOnboarding: true,
     webhookSpedy: true,
@@ -28,7 +34,14 @@ test('diagnostico so diz presenca, nunca o valor', () => {
     proxyHops: 1,
   });
   assert.ok(!JSON.stringify(diag).includes('segredo-longo'));
+  assert.ok(!JSON.stringify(diag).includes('segredo-do-externo'));
   assert.deepEqual(pendenciasDeProducao(diag), []);
+});
+
+test('copia externa do backup: faltando qualquer variavel, vira pendencia', () => {
+  const diag = diagnosticoConfiguracao({ NODE_ENV: 'production', BACKUP_EXTERNO_ENDPOINT: 'https://s3.exemplo.com', BACKUP_EXTERNO_BUCKET: 'copias' });
+  assert.equal(diag.backupExterno, false);
+  assert.ok(pendenciasDeProducao(diag).some((p) => p.includes('Cópia externa do backup')));
 });
 
 test('variavel em branco conta como ausente; pendencias saem em portugues, backup primeiro depois da credencial', () => {

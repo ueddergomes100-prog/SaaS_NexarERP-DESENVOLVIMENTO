@@ -5,9 +5,10 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { format } = require('date-fns');
-const { uploadBackup, applyRetentionPolicy } = require('./cloudStorage');
+const { uploadBackup, applyRetentionPolicy, getCompanyFolderPath } = require('./cloudStorage');
 const { COLECOES_DA_EMPRESA } = require('./backupColecoes');
 const { cifrar } = require('./backupCripto');
+const { copiarParaOExterno } = require('./backupExterno');
 
 const gzip = promisify(zlib.gzip);
 
@@ -168,6 +169,15 @@ async function gerarBackupDaEmpresa(companyId) {
   } catch (err) {
     console.error(`[Backup] Erro no upload para o Cloud Storage:`, err.message);
   }
+
+  // 10.1 Copia externa (12/11/2026): o MESMO arquivo cifrado vai para um segundo
+  // lugar, em outra conta e outro provedor -- ver backupExterno.js. Independe do
+  // envio principal (se o Firebase estiver fora, a copia externa ainda sai) e
+  // nunca derruba o backup: o que deu errado fica gravado no historico e a fila
+  // (queue.js) tenta de novo.
+  const externo = await copiarParaOExterno(`${getCompanyFolderPath(companyId, companyName)}${filename}`, encryptedBuffer);
+  await backupDocRef.update({ externo });
+  backupRecord.externo = externo;
 
   const localBackupPath = path.join(
     __dirname,

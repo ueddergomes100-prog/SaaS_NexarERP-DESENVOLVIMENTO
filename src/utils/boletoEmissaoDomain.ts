@@ -11,6 +11,66 @@ import { differenceInCalendarDays, getDateInputInTimeZone } from './dateTime';
  * leitura do arquivo de retorno do banco.
  */
 
+// --- Numero do documento do boleto: a NOTA FISCAL da venda -----------------
+
+/**
+ * O BOLETO SAI COM O NUMERO DA NOTA FISCAL (12/11/2026).
+ *
+ * "Nº do documento" e "Ref. NF." saiam com o numero do PEDIDO (0397) -- e a
+ * linha ainda dizia "Ref. NF.". O cliente de um cliente recusou o boleto
+ * porque a nota era a 232 e o boleto nao citava a nota. Quem paga confere o
+ * boleto pela nota fiscal, nao pelo numero interno do pedido.
+ *
+ * Regra: com nota de venda AUTORIZADA do pedido, o documento e a referencia
+ * sao o numero dela (NF-e vale mais que cupom). Sem nota (venda sem nota, ou
+ * boleto tirado antes de emitir a nota), fica o numero do pedido e a linha
+ * diz "Ref. Pedido". Sem pedido, o nosso numero, como sempre foi.
+ *
+ * O codigo de barras e a linha digitavel NAO dependem disto (saem do nosso
+ * numero): reimprimir um boleto ja' emitido so' troca o que esta' escrito.
+ */
+export interface NotaParaOBoleto {
+  tipo?: string | null;
+  status?: string | null;
+  finalidade?: string | null;
+  number?: number | string | null;
+}
+
+const FINALIDADES_QUE_NAO_SAO_A_VENDA = ['devolucao', 'devolucao_compra', 'remessa_entrega_futura', 'transferencia'];
+
+/** Numero da nota de venda autorizada do pedido ('' = nao tem). */
+export const numeroDaNotaParaOBoleto = (notas: NotaParaOBoleto[]): string => {
+  const valendo = notas.filter((n) => (
+    (n.tipo === 'NF-e' || n.tipo === 'NFC-e')
+    && n.status === 'authorized'
+    && !FINALIDADES_QUE_NAO_SAO_A_VENDA.includes(String(n.finalidade || ''))
+    && Number(n.number) > 0
+  ));
+  if (valendo.length === 0) return '';
+  // NF-e vale mais que cupom (e' ela que acompanha a mercadoria); entre iguais, a mais nova.
+  const escolhida = valendo.sort((a, b) => (
+    Number(b.tipo === 'NF-e') - Number(a.tipo === 'NF-e') || Number(b.number) - Number(a.number)
+  ))[0];
+  return String(Math.trunc(Number(escolhida.number)));
+};
+
+export interface DocumentoDoBoleto {
+  /** Vai em "Nº do documento" e no arquivo de remessa. */
+  numeroDocumento: string;
+  /** Vai na linha "Ref." das instrucoes ('' = sem linha). */
+  referencia: string;
+  /** A referencia e' o numero do pedido (a venda nao tem nota autorizada). */
+  referenciaEhPedido: boolean;
+}
+
+export const documentoDoBoleto = (a: { numeroNota?: string | null; numeroPedido?: string | null; nossoNumero: string | number }): DocumentoDoBoleto => {
+  const nota = String(a.numeroNota || '').trim();
+  const pedido = String(a.numeroPedido || '').trim();
+  if (nota) return { numeroDocumento: nota, referencia: nota, referenciaEhPedido: false };
+  if (pedido) return { numeroDocumento: pedido, referencia: pedido, referenciaEhPedido: true };
+  return { numeroDocumento: String(a.nossoNumero), referencia: '', referenciaEhPedido: false };
+};
+
 // --- Status efetivo (vencido e calculado, nunca gravado) -------------------
 
 export type StatusBoletoEfetivo = StatusBoleto | 'vencido';

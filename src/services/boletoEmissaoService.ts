@@ -19,7 +19,7 @@ import { linhaDigitavelDoCodigoBarras } from '../utils/boletoDomain';
 import { gerarPdfBoletos, type DadosPdfBoleto } from '../utils/boletoPdf';
 import { nomeArquivoDocumento } from '../utils/nomeArquivoDomain';
 import { formatCompanyAddress } from '../utils/companyAddress';
-import { erroDoConvenioBoleto } from '../utils/boletoEmissaoDomain';
+import { documentoDoBoleto, erroDoConvenioBoleto, numeroDaNotaParaOBoleto, type NotaParaOBoleto } from '../utils/boletoEmissaoDomain';
 import { mensagensDoBoleto } from '../utils/boletoRemessaSicoobDomain';
 import { pagadorDoCadastro } from '../utils/cobrancaEmBoletoDomain';
 
@@ -245,6 +245,23 @@ export const cadastroDoPagador = async (tenantId: string, a: { clienteId?: strin
 };
 
 /**
+ * Numero da nota fiscal de venda AUTORIZADA do pedido ('' = nao tem), para o
+ * boleto sair citando a nota (12/11/2026 -- regra em boletoEmissaoDomain.ts).
+ * Falha de leitura nao derruba o boleto: ele sai com o numero do pedido.
+ * Usado pelo PDF do boleto e pela remessa.
+ */
+export const numeroDaNotaDoPedido = async (tenantId: string, pedidoId: string | null | undefined): Promise<string> => {
+  if (!tenantId || !pedidoId) return '';
+  try {
+    const snap = await getDocs(query(collection(db, 'notas_fiscais'), where('tenantId', '==', tenantId), where('pedidoId', '==', pedidoId)));
+    return numeroDaNotaParaOBoleto(snap.docs.map((d) => d.data() as NotaParaOBoleto));
+  } catch (erro) {
+    console.error('Não foi possível ler a nota fiscal do pedido para o boleto:', erro);
+    return '';
+  }
+};
+
+/**
  * Dados do PDF do boleto (recibo do pagador + ficha de compensacao) a partir do titulo. Lanca erro
  * (mensagem em portugues) em vez de mostrar popup, pra cada chamador decidir como reagir.
  */
@@ -267,6 +284,8 @@ export const dadosPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBole
       clienteId = clienteId || String(pedidoSnap.data().clienteId || '');
     }
   }
+  // "Nº do documento" e "Ref.": a nota fiscal da venda; sem nota autorizada, o pedido.
+  const documentoBoleto = documentoDoBoleto({ numeroNota: await numeroDaNotaDoPedido(tenantId, titulo.pedidoId), numeroPedido, nossoNumero: calc.nossoNumeroBase });
   const pagadorCadastro = await cadastroDoPagador(tenantId, { clienteId, fornecedorId: titulo.fornecedorId });
   // Fornecedor grava o CNPJ em `cnpj`; o PDF le `documento`.
   if (pagadorCadastro.dados) cliente = { ...pagadorCadastro.dados, documento: pagadorDoCadastro(pagadorCadastro.dados).documento };
@@ -295,8 +314,8 @@ export const dadosPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBole
     },
     {
       nossoNumero: calc.nossoNumeroBase,
-      numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
-      referencia: numeroPedido || undefined,
+      numeroDocumento: documentoBoleto.numeroDocumento,
+      ...(documentoBoleto.referencia ? { referencia: documentoBoleto.referencia, referenciaEhPedido: documentoBoleto.referenciaEhPedido } : {}),
       vencimento: calc.vencimento,
       valorCentavos: titulo.valorCentavos,
       sacado: { tipoDocumento: 'CPF', documento: '', nome: '' },
@@ -320,7 +339,7 @@ export const dadosPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBole
     pagadorCep: cliente?.cep ? formatarCep(String(cliente.cep).replace(/\D/g, '')) : '',
     pagadorCidade: cliente?.cidade || '',
     pagadorUf: cliente?.estado || '',
-    numeroDocumento: numeroPedido || String(calc.nossoNumeroBase),
+    numeroDocumento: documentoBoleto.numeroDocumento,
     nossoNumero: formatarNossoNumeroSicoobExibicao(String(titulo.boleto?.nossoNumero || '')),
     vencimento: calc.vencimento,
     dataEmissao: titulo.boleto?.dataEmissao || getDateInputInTimeZone(),

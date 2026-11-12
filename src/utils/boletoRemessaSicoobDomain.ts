@@ -152,8 +152,10 @@ export interface TituloRemessaSicoob {
   /** "Seu numero" (18 digitos) que o banco devolve no retorno. Padrao:
    *  derivado do documento, do nosso numero e da parcela. */
   seuNumero?: string;
-  /** Vai em "Ref. NF.: ..." no Segmento S (numero da nota/pedido). */
+  /** Vai em "Ref. NF.: ..." no Segmento S: o numero da NOTA FISCAL da venda. */
   referencia?: string;
+  /** A venda ainda nao tem nota autorizada: `referencia` e' o numero do PEDIDO e a linha sai "Ref. Pedido" (12/11/2026). */
+  referenciaEhPedido?: boolean;
   /** AAAA-MM-DD. */
   vencimento: string;
   valorCentavos: number;
@@ -286,7 +288,7 @@ export const mensagensDoBoleto = (convenio: ConvenioBoletoSicoob, titulo: Titulo
   return [
     `Apos o Vencimento Multa de RS ${reaisNaMensagem(multa)}.`,
     `Apos o Vencimento Mora Diaria de RS ${reaisNaMensagem(moraDiaria)}.`,
-    titulo.referencia ? `- Ref. NF.: ${titulo.referencia}` : '',
+    titulo.referencia ? `- Ref. ${titulo.referenciaEhPedido ? 'Pedido' : 'NF.'}: ${titulo.referencia}` : '',
     convenio.instrucoes || INSTRUCAO_PADRAO_SICOOB,
   ];
 };

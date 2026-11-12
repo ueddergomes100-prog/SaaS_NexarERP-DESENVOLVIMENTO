@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  mensagensDoBoleto,
   montarRemessaSicoob,
   nomeArquivoRemessaSicoob,
   type ConvenioBoletoSicoob,
@@ -26,6 +27,16 @@ const CONVENIO_SOL_LIFE: ConvenioBoletoSicoob = {
   // mensagens saem do valor do titulo, nao de texto digitado.
   numeroRemessa: 1763,
 };
+
+test('mensagens do boleto: a referencia e a NOTA FISCAL; sem nota, diz que e o pedido; sem nada, nao sai a linha', () => {
+  const titulo = (extra: Partial<TituloRemessaSicoob>): TituloRemessaSicoob => ({
+    nossoNumero: 4471, numeroDocumento: '232', vencimento: '2026-12-11', valorCentavos: 121850,
+    sacado: { tipoDocumento: 'CNPJ', documento: '42960849000742', nome: 'JACARE' }, ...extra,
+  });
+  assert.equal(mensagensDoBoleto(CONVENIO_SOL_LIFE, titulo({ referencia: '232' }))[2], '- Ref. NF.: 232');
+  assert.equal(mensagensDoBoleto(CONVENIO_SOL_LIFE, titulo({ referencia: '0397', referenciaEhPedido: true }))[2], '- Ref. Pedido: 0397');
+  assert.equal(mensagensDoBoleto(CONVENIO_SOL_LIFE, titulo({}))[2], '');
+});
 
 // Documento do sacado tal como grava no arquivo real -- ver a ressalva no
 // topo de boletoRemessaSicoobDomain.ts sobre a incerteza do tipo (CPF/CNPJ)

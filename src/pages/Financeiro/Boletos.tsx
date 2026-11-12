@@ -22,6 +22,7 @@ import {
   emitirUmTitulo as emitirUmTituloComum,
   gerarPdfDoBoleto as gerarPdfDoBoletoComum,
   nomePdfBoleto,
+  numeroDaNotaDoPedido,
   paraTituloBoleto,
   recalcularBoleto as recalcularBoletoComum,
   validarTituloParaEmissao as validarTituloParaEmissaoComum,
@@ -31,6 +32,7 @@ import {
 import { faltandoNoPagador, pagadorDoCadastro } from '../../utils/cobrancaEmBoletoDomain';
 import {
   contarFiltrosExtras,
+  documentoDoBoleto,
   lerArquivoRetornoSicoob,
   faturadoNoPeriodo,
   FILTROS_EXTRAS_VAZIOS,
@@ -599,9 +601,14 @@ const Boletos: React.FC = () => {
           continue;
         }
         const nossoNumero = Number(String(t.boleto?.nossoNumero || '0').slice(0, -1)) || indice + 1;
+        // O documento do titulo no banco e' o mesmo do boleto impresso: a nota fiscal da venda;
+        // sem nota autorizada, o pedido (12/11/2026 -- boletoEmissaoDomain.ts).
+        const documentoBoleto = documentoDoBoleto({ numeroNota: await numeroDaNotaDoPedido(tenantId, t.pedidoId), numeroPedido, nossoNumero });
         titulosRemessa.push({
           nossoNumero,
-          numeroDocumento: numeroPedido || String(nossoNumero),
+          numeroDocumento: documentoBoleto.numeroDocumento,
+          // Mesma linha "Ref." do boleto impresso (o arquivo real aceito pelo Sicoob ja' levava "Ref. NF.").
+          ...(documentoBoleto.referencia ? { referencia: documentoBoleto.referencia, referenciaEhPedido: documentoBoleto.referenciaEhPedido } : {}),
           parcela: parcelaDoBoletoSicoob(t),
           vencimento: t.boleto?.vencimento || t.dataVencimento || hoje,
           valorCentavos: t.valorCentavos,

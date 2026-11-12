@@ -3,10 +3,12 @@ import { test } from 'node:test';
 import {
   centavosDoFiltroDeValor,
   contarFiltrosExtras,
+  documentoDoBoleto,
   erroDoConvenioBoleto,
   faturadoNoPeriodo,
   FILTROS_EXTRAS_VAZIOS,
   lerArquivoRetornoSicoob,
+  numeroDaNotaParaOBoleto,
   parseLinhaRetornoSicoob,
   ROTULO_STATUS_BOLETO,
   statusBoletoEfetivo,
@@ -15,6 +17,33 @@ import {
   vencimentoNoPeriodo,
 } from '../src/utils/boletoEmissaoDomain';
 import type { BoletoDetails } from '../src/utils/financeDomain';
+
+// --- o boleto cita a NOTA FISCAL da venda (12/11/2026) -------------------
+
+test('boleto: numero do documento e referencia sao a nota fiscal autorizada do pedido', () => {
+  // Caso real: pedido 0397, NF-e 232. O boleto saia com 0397 e "Ref. NF.: 0397".
+  const notas = [{ tipo: 'NF-e', status: 'authorized', number: 232 }];
+  assert.equal(numeroDaNotaParaOBoleto(notas), '232');
+  assert.deepEqual(documentoDoBoleto({ numeroNota: '232', numeroPedido: '0397', nossoNumero: 4471 }), { numeroDocumento: '232', referencia: '232', referenciaEhPedido: false });
+});
+
+test('boleto: sem nota autorizada fica o pedido (e diz que e pedido); sem pedido, o nosso numero', () => {
+  assert.deepEqual(documentoDoBoleto({ numeroNota: '', numeroPedido: '0397', nossoNumero: 4471 }), { numeroDocumento: '0397', referencia: '0397', referenciaEhPedido: true });
+  assert.deepEqual(documentoDoBoleto({ numeroPedido: '', nossoNumero: 4471 }), { numeroDocumento: '4471', referencia: '', referenciaEhPedido: false });
+});
+
+test('boleto: so nota de venda autorizada conta; NF-e vale mais que cupom; cancelada, rejeitada e devolucao ficam de fora', () => {
+  assert.equal(numeroDaNotaParaOBoleto([]), '');
+  assert.equal(numeroDaNotaParaOBoleto([{ tipo: 'NF-e', status: 'rejected', number: 10 }, { tipo: 'NF-e', status: 'canceled', number: 11 }, { tipo: 'NF-e', status: 'enqueued', number: 0 }]), '');
+  assert.equal(numeroDaNotaParaOBoleto([{ tipo: 'NF-e', status: 'authorized', finalidade: 'devolucao', number: 50 }]), '');
+  assert.equal(numeroDaNotaParaOBoleto([{ tipo: 'NFS-e', status: 'authorized', number: 7 }]), '');
+  // Cupom e NF-e do mesmo pedido: a NF-e.
+  assert.equal(numeroDaNotaParaOBoleto([{ tipo: 'NFC-e', status: 'authorized', number: 900 }, { tipo: 'NF-e', status: 'authorized', number: 232 }]), '232');
+  // Nota cancelada e reemitida: a autorizada (a mais nova entre as que valem).
+  assert.equal(numeroDaNotaParaOBoleto([{ tipo: 'NF-e', status: 'canceled', number: 232 }, { tipo: 'NF-e', status: 'authorized', number: 233 }]), '233');
+  // Numero vindo como texto com zeros.
+  assert.equal(numeroDaNotaParaOBoleto([{ tipo: 'NF-e', status: 'authorized', number: '000000232' }]), '232');
+});
 
 // --- filtros de vencimento, emissao, banco e valor (23/10/2026) ----------
 

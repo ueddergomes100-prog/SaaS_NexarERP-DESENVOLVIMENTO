@@ -673,11 +673,17 @@ service cloud.firestore {
           ].concat(documentAuditFields()))
         ) ||
         (
+          // Autoedicao: o usuario so' mexe na propria sessao, no proprio nome
+          // e na auditoria. 11/11/2026: era changedKeys(), que so' enxerga
+          // campo ALTERADO -- acrescentar ou remover campo passava sem
+          // conferencia (dava para gravar `filialAtiva` de outra empresa,
+          // `nivelAcesso`, tirar `modulosBloqueados` ou o `status` Inativo).
+          // affectedKeys() cobre acrescentado, removido e alterado.
           signedIn() &&
           request.auth.uid == userId &&
           request.resource.data.tenantId == resource.data.tenantId &&
           request.resource.data.role == resource.data.role &&
-          request.resource.data.diff(resource.data).changedKeys()
+          request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['activeSessionId', 'activeSession', 'lastSessionEndedAt', 'nome'].concat(documentAuditFields()))
         );
 

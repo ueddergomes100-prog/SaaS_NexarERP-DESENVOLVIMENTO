@@ -4,6 +4,7 @@ import { db } from '../../services/firebase';
 import { Building2, Megaphone, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { TabsProvider } from '../../contexts/TabsContext';
+import { donoDasAbas } from '../../utils/abasSalvasDomain';
 import { useGlobalEscapeKey } from '../../hooks/useKeyboardFlow';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
@@ -18,7 +19,7 @@ import './visualDesktop.css';
 const AppLayout: React.FC = () => {
   const [globalAlert, setGlobalAlert] = useState<{message: string} | null>(null);
   const [hideAlert, setHideAlert] = useState(false);
-  const { tenantOptions, setActiveTenantId, needsTenantSelection } = useAuth();
+  const { tenantOptions, setActiveTenantId, needsTenantSelection, currentUser, tenantId } = useAuth();
 
   useGlobalEscapeKey();
   useFaixaDoTopo();
@@ -114,7 +115,7 @@ const AppLayout: React.FC = () => {
             </div>
           </>
         ) : (
-          <TabsProvider>
+          <TabsProvider dono={donoDasAbas(currentUser?.uid, tenantId)}>
             <Sidebar />
             <div className="main-content">
               <TopBar />

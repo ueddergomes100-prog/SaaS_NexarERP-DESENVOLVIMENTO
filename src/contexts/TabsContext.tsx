@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { showError, confirmUnsavedChanges, warnBlockedTabClose } from '../utils/alerts';
+import { abasParaSalvar, lerAbasSalvas } from '../utils/abasSalvasDomain';
 
 export interface Tab {
   /** Identificador estavel da aba (nao muda mesmo que o usuario navegue
@@ -253,20 +254,22 @@ const reconciliarRotulos = (tabs: Tab[]): Tab[] => tabs.map((tab) => (
   tab.labelExplicito ? tab : { ...tab, label: resolveTabLabel(tab.path) }
 ));
 
-const loadStoredTabs = (): { tabs: Tab[]; activeTabId: string } | null => {
+/**
+ * So' restaura as abas de quem as abriu (11/11/2026): `dono` = usuario +
+ * empresa. Abas de outra conta no mesmo navegador nao voltam -- ver
+ * abasSalvasDomain.ts.
+ */
+const loadStoredTabs = (dono: string): { tabs: Tab[]; activeTabId: string } | null => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0) return null;
-    return { ...parsed, tabs: reconciliarRotulos(parsed.tabs) };
+    const salvas = lerAbasSalvas<Tab>(localStorage.getItem(STORAGE_KEY), dono);
+    return salvas ? { ...salvas, tabs: reconciliarRotulos(salvas.tabs) } : null;
   } catch {
     return null;
   }
 };
 
-const initialTabsState = (): { tabs: Tab[]; activeTabId: string } => {
-  const stored = loadStoredTabs();
+const initialTabsState = (dono: string): { tabs: Tab[]; activeTabId: string } => {
+  const stored = loadStoredTabs(dono);
   const initialPath = window.location.pathname && window.location.pathname !== '/'
     ? window.location.pathname
     : '/dashboard';
@@ -299,18 +302,20 @@ interface TabsState {
   activeTabId: string;
 }
 
-export const TabsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const TabsProvider: React.FC<{ children: React.ReactNode; dono: string }> = ({ children, dono }) => {
   // tabs + activeTabId vivem num unico useState (em vez de dois separados)
   // porque o calculo inicial (initialTabsState) pode CRIAR uma aba nova --
   // precisam nascer consistentes um com o outro. O inicializador passado
   // pro useState so roda uma vez, no mount, garantido pelo proprio React.
-  const [state, setState] = useState<TabsState>(initialTabsState);
+  const [state, setState] = useState<TabsState>(() => initialTabsState(dono));
   const { tabs, activeTabId } = state;
   const navigate = useNavigate();
 
+  // As abas sao gravadas com o dono (usuario + empresa) para nao reabrirem
+  // em outra conta no mesmo navegador.
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    try { localStorage.setItem(STORAGE_KEY, abasParaSalvar(state, dono)); } catch { /* navegador sem espaco: as abas so' nao voltam no F5 */ }
+  }, [state, dono]);
 
   // Espelha `tabs` num ref pra openTab poder ler o valor mais recente sem
   // precisar depender de `[tabs]` -- isso manteria a identidade da funcao

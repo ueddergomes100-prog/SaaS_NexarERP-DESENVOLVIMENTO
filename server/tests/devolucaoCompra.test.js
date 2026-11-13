@@ -120,6 +120,55 @@ test('emitir: NF-e de saida, finalidade devolucao, item referenciando a nota do 
   await assert.rejects(() => s.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev.id } }), (e) => e.status === 409);
 });
 
+test('emitir com transporte: transportadora lida do CADASTRO, placa, volumes e pesos na nota; fica guardado; o total nao muda', async () => {
+  chamadas.length = 0;
+  resposta = { ok: false, status: 400, corpo: { errors: [{ message: 'Rejeitada para o teste.' }] } };
+  const TRANSPORTADORA = { tenantId: 'loja', nome: 'RAPIDO SUL TRANSPORTES LTDA', cnpj: '12.345.678/0001-99', identidade: '123456789', endereco: 'RUA DAS CARGAS', numero: '100', bairro: 'CENTRO', cep: '35500000', cidade: 'DIVINOPOLIS', estado: 'MG', codigoIbge: '3122306' };
+  const fake = criarBancoFalso(base({ 'fornecedores/t1': TRANSPORTADORA, 'fornecedores/alheia': { ...TRANSPORTADORA, tenantId: 'outra' } }), { consultas: true });
+  const s = carregar(fake.db);
+  const dev = await s.registrar({ user: USER, tenantId: 'loja', corpo: pedido() });
+  const transporte = {
+    modalidade: 'byReceiver', transportadoraId: 't1', transportadoraNome: 'NOME QUE A TELA MANDOU', placa: 'abc1d23', placaUf: 'mg',
+    volumes: { quantidade: 5, especie: 'CAIXA', numeracao: '1 a 5', pesoBrutoKg: 82.5, pesoLiquidoKg: 80 },
+  };
+  // A Spedy recusa de proposito: o transporte tem de ficar guardado para a proxima tentativa.
+  await assert.rejects(() => s.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev.id, transporte } }), /Rejeitada para o teste/);
+  const p = chamadas[0].corpo;
+  assert.equal(p.transport.freightModality, 'byReceiver');
+  assert.equal(p.transport.carrier.name, 'RAPIDO SUL TRANSPORTES LTDA', 'nome do cadastro, nao o da tela');
+  assert.equal(p.transport.carrier.federalTaxNumber, '12345678000199');
+  assert.deepEqual(p.transport.vehicle, { plate: 'ABC1D23', state: 'mg' });
+  assert.deepEqual(p.transport.volume, { quantity: 5, species: 'CAIXA', volumeNumeration: '1 a 5', netWeight: 80, grossWeight: 82.5 });
+  assert.equal(p.total.invoiceAmount, 217.6, 'o transporte nao mexe no total');
+  const guardado = fake.ler(`devolucoes_compra/${dev.id}`).transporte;
+  assert.equal(guardado.transportadoraNome, 'RAPIDO SUL TRANSPORTES LTDA');
+  assert.equal(guardado.volumes.pesoBrutoKg, 82.5);
+  assert.equal((await s.listar({ tenantId: 'loja', notaEntradaId: 'n1' }))[0].transporte.placa, 'ABC1D23');
+
+  // "Emitir de novo" sem mandar transporte (tela antiga): usa o guardado.
+  chamadas.length = 0;
+  await assert.rejects(() => s.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev.id } }), /Rejeitada para o teste/);
+  assert.equal(chamadas[0].corpo.transport.vehicle.plate, 'ABC1D23');
+
+  // Transporte limpo de proposito (null): a nota sai sem o bloco e o guardado some.
+  chamadas.length = 0;
+  await assert.rejects(() => s.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev.id, transporte: null } }), /Rejeitada para o teste/);
+  assert.equal('transport' in chamadas[0].corpo, false);
+  assert.equal(fake.ler(`devolucoes_compra/${dev.id}`).transporte, null);
+
+  // Transportadora de OUTRA empresa ou placa errada: barra antes de falar com a Spedy, com a mensagem de onde corrigir.
+  chamadas.length = 0;
+  await assert.rejects(
+    () => s.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev.id, transporte: { transportadoraId: 'alheia', transportadoraNome: 'X' } } }),
+    (e) => e.status === 422 && /não foi encontrada no cadastro/.test(e.message) && /na janela da nota de devolução/.test(e.message),
+  );
+  await assert.rejects(
+    () => s.emitir({ user: USER, tenantId: 'loja', corpo: { devolucaoId: dev.id, transporte: { placa: 'AB12', placaUf: 'MG' } } }),
+    (e) => e.status === 422 && /placa "AB12" não é válida/.test(e.message),
+  );
+  assert.equal(chamadas.length, 0);
+});
+
 test('emitir: Spedy recusa libera a reserva; nota sem XML nao emite', async () => {
   resposta = { ok: false, status: 400, corpo: { errors: [{ message: 'Destinatário inválido.' }] } };
   const fake = criarBancoFalso(base(), { consultas: true });

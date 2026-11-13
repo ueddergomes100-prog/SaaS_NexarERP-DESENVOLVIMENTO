@@ -317,8 +317,12 @@ const dataCurta = (iso) => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 };
 
-/** Corpo do POST /product-invoices da Spedy. */
-const montarPayloadDevolucao = ({ integrationId, receiver, itens, notaOriginal }) => {
+/**
+ * Corpo do POST /product-invoices da Spedy. `transport` (13/11/2026) e' o grupo de
+ * transporte ja' montado (services/transporteDaDevolucao.js); sem ele a nota sai
+ * sem o bloco, como sempre saiu.
+ */
+const montarPayloadDevolucao = ({ integrationId, receiver, itens, notaOriginal, transport = null }) => {
   const bruto = arredondar(itens.reduce((soma, i) => soma + i.totalAmount, 0), 2);
   const desconto = arredondar(itens.reduce((soma, i) => soma + Number(i.discountAmount || 0), 0), 2);
   const total = arredondar(bruto - desconto, 2);
@@ -336,6 +340,7 @@ const montarPayloadDevolucao = ({ integrationId, receiver, itens, notaOriginal }
     sendEmailToCustomer: Boolean(receiver.email),
     receiver,
     items: itens,
+    ...(transport ? { transport } : {}),
     payments: [{ method: 'noPayment', amount: 0 }],
     total: { invoiceAmount: total, productAmount: bruto, ...(desconto > 0 ? { discountAmount: desconto } : {}) },
   };

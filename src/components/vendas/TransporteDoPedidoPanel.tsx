@@ -30,6 +30,10 @@ interface Props {
   /** Abre o bloco (ex.: "Ajustar transporte" da venda finalizada). */
   abrir?: boolean;
   onChange: (t: TransporteDoPedido) => void;
+  /** Textos de "quem paga o frete" (13/11/2026): a nota de devolucao usa os que nao falam em loja/cliente. */
+  rotulos?: Record<ModalidadeFrete, string>;
+  /** Titulo do bloco; padrao "Transporte (nota fiscal)". */
+  titulo?: string;
 }
 
 const campo: React.CSSProperties = {
@@ -38,8 +42,8 @@ const campo: React.CSSProperties = {
 };
 const rotulo: React.CSSProperties = { fontSize: '12px', color: 'var(--text-secondary)' };
 
-const TransporteDoPedidoPanel: React.FC<Props> = ({ tenantId, transporte, frete, disabled, abrir, onChange }) => {
-  const [aberto, setAberto] = useState(() => temTransporte(transporte));
+const TransporteDoPedidoPanel: React.FC<Props> = ({ tenantId, transporte, frete, disabled, abrir, onChange, rotulos = ROTULO_MODALIDADE_FRETE, titulo = 'Transporte (nota fiscal)' }) => {
+  const [aberto, setAberto] = useState(() => Boolean(abrir) || temTransporte(transporte));
   const [busca, setBusca] = useState(transporte.transportadoraNome);
   useEffect(() => {
     if (abrir) setAberto(true);
@@ -66,8 +70,8 @@ const TransporteDoPedidoPanel: React.FC<Props> = ({ tenantId, transporte, frete,
         title="Modalidade do frete, transportadora, placa e volumes que vão para a nota fiscal"
       >
         {aberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        Transporte (nota fiscal)
-        {!aberto && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>· {ROTULO_MODALIDADE_FRETE[efetiva]}{transporte.transportadoraNome ? ` · ${transporte.transportadoraNome}` : ''}</span>}
+        {titulo}
+        {!aberto && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>· {rotulos[efetiva]}{transporte.transportadoraNome ? ` · ${transporte.transportadoraNome}` : ''}</span>}
       </button>
 
       {aberto && (
@@ -80,8 +84,8 @@ const TransporteDoPedidoPanel: React.FC<Props> = ({ tenantId, transporte, frete,
               onChange={(e) => mudar({ modalidade: e.target.value as ModalidadeFrete | '' })}
               style={campo}
             >
-              <option value="">Automático — {ROTULO_MODALIDADE_FRETE[modalidadeEfetiva({ ...transporte, modalidade: '' }, frete)]}</option>
-              {MODALIDADES_FRETE.map((m) => <option key={m} value={m}>{ROTULO_MODALIDADE_FRETE[m]}</option>)}
+              <option value="">Automático — {rotulos[modalidadeEfetiva({ ...transporte, modalidade: '' }, frete)]}</option>
+              {MODALIDADES_FRETE.map((m) => <option key={m} value={m}>{rotulos[m]}</option>)}
             </select>
           </label>
 

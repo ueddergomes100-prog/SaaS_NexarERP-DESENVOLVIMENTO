@@ -354,6 +354,7 @@ const montarPayloadDaDevolucaoDeCompra = (args) => {
         sendEmailToCustomer: Boolean(args.receiver.email),
         receiver: args.receiver,
         items: args.itens,
+        ...(args.transport ? { transport: args.transport } : {}),
         payments: [{ method: 'noPayment', amount: 0 }],
         total: {
             invoiceAmount: arred(produtos - desconto + st + ipi),

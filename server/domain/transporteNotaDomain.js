@@ -19,7 +19,7 @@
  * corrigir (CLAUDE.md, regra 1) -- a nota nao sai com dado inventado.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDoTransporte = exports.ratearPorPeso = exports.montarTransporteDaNota = exports.modalidadeEfetiva = exports.diferencasDoTransporte = exports.notaTravaOTransporte = exports.STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE = exports.transporteParaGravar = exports.temTransporte = exports.lerTransporte = exports.valorDigitado = exports.UFS_BRASIL = exports.placaValida = exports.normalizarPlaca = exports.NUMERO_DO_ENDERECO_MAX = exports.TRANSPORTE_VAZIO = exports.VOLUMES_VAZIOS = exports.ROTULO_MODALIDADE_FRETE = exports.MODALIDADES_FRETE = void 0;
+exports.resumoDoTransporte = exports.ratearPorPeso = exports.montarTransporteDaNota = exports.modalidadeEfetiva = exports.diferencasDoTransporte = exports.notaTravaOTransporte = exports.STATUS_DE_NOTA_QUE_TRAVA_O_TRANSPORTE = exports.transporteParaGravar = exports.temTransporte = exports.lerTransporte = exports.valorDigitado = exports.UFS_BRASIL = exports.placaValida = exports.normalizarPlaca = exports.NUMERO_DO_ENDERECO_MAX = exports.TRANSPORTE_VAZIO = exports.VOLUMES_VAZIOS = exports.ROTULO_MODALIDADE_FRETE_DEVOLUCAO = exports.ROTULO_MODALIDADE_FRETE = exports.MODALIDADES_FRETE = void 0;
 exports.MODALIDADES_FRETE = ['byIssuer', 'byReceiver', 'byThirdParties', 'byIssuerOwnTransport', 'byReceiverOwnTransport', 'free'];
 /** Texto da tela (com o codigo modFrete da SEFAZ entre parenteses, que o contador conhece). */
 exports.ROTULO_MODALIDADE_FRETE = {
@@ -28,6 +28,20 @@ exports.ROTULO_MODALIDADE_FRETE = {
     byThirdParties: 'Por conta de terceiros (2)',
     byIssuerOwnTransport: 'Transporte próprio da loja (3)',
     byReceiverOwnTransport: 'Transporte próprio do cliente (4)',
+    free: 'Sem frete / sem transporte (9)',
+};
+/**
+ * Os mesmos codigos, sem falar em "loja" e "cliente": na NOTA DE DEVOLUCAO
+ * (13/11/2026) quem emite e quem recebe mudam de papel -- na devolucao ao
+ * fornecedor quem recebe e' o fornecedor; na devolucao de venda a nota e' de
+ * entrada da propria loja.
+ */
+exports.ROTULO_MODALIDADE_FRETE_DEVOLUCAO = {
+    byIssuer: 'Por conta de quem emite a nota — CIF (0)',
+    byReceiver: 'Por conta de quem recebe — FOB (1)',
+    byThirdParties: 'Por conta de terceiros (2)',
+    byIssuerOwnTransport: 'Transporte próprio de quem emite (3)',
+    byReceiverOwnTransport: 'Transporte próprio de quem recebe (4)',
     free: 'Sem frete / sem transporte (9)',
 };
 exports.VOLUMES_VAZIOS = { quantidade: 0, especie: '', marca: '', numeracao: '', pesoBrutoKg: 0, pesoLiquidoKg: 0 };
@@ -144,6 +158,7 @@ exports.modalidadeEfetiva = modalidadeEfetiva;
  */
 const montarTransporteDaNota = (a) => {
     const t = a.transporte;
+    const onde = a.onde || 'no Pedido de Venda';
     const avisos = [];
     const modalidade = (0, exports.modalidadeEfetiva)(t, a.frete);
     if (a.frete > 0 && modalidade === 'free') {
@@ -154,7 +169,7 @@ const montarTransporteDaNota = (a) => {
         const c = a.transportadora;
         const nome = t.transportadoraNome || 'escolhida no pedido';
         if (!c)
-            return { ok: false, erro: `A transportadora ${nome} não foi encontrada no cadastro. Confira em Cadastros › Fornecedores ou escolha outra no Pedido de Venda.` };
+            return { ok: false, erro: `A transportadora ${nome} não foi encontrada no cadastro. Confira em Cadastros › Fornecedores ou escolha outra ${onde}.` };
         const doc = soDigitos(c.documento);
         if (doc.length !== 11 && doc.length !== 14) {
             return { ok: false, erro: `A transportadora ${c.nome || nome} está sem CNPJ/CPF válido. Edite em Cadastros › Fornecedores e informe o documento.` };
@@ -188,9 +203,9 @@ const montarTransporteDaNota = (a) => {
     }
     if (t.placa) {
         if (!(0, exports.placaValida)(t.placa))
-            return { ok: false, erro: `A placa "${t.placa}" não é válida. Use o formato ABC1234 ou ABC1D23 no Pedido de Venda, em Transporte.` };
+            return { ok: false, erro: `A placa "${t.placa}" não é válida. Use o formato ABC1234 ou ABC1D23 ${onde}, em Transporte.` };
         if (!t.placaUf)
-            return { ok: false, erro: `Informe a UF da placa ${t.placa} no Pedido de Venda, em Transporte.` };
+            return { ok: false, erro: `Informe a UF da placa ${t.placa} ${onde}, em Transporte.` };
         transport.vehicle = { plate: t.placa, state: t.placaUf.toLowerCase() };
     }
     const v = t.volumes;

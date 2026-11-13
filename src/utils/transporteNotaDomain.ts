@@ -38,6 +38,21 @@ export const ROTULO_MODALIDADE_FRETE: Record<ModalidadeFrete, string> = {
   free: 'Sem frete / sem transporte (9)',
 };
 
+/**
+ * Os mesmos codigos, sem falar em "loja" e "cliente": na NOTA DE DEVOLUCAO
+ * (13/11/2026) quem emite e quem recebe mudam de papel -- na devolucao ao
+ * fornecedor quem recebe e' o fornecedor; na devolucao de venda a nota e' de
+ * entrada da propria loja.
+ */
+export const ROTULO_MODALIDADE_FRETE_DEVOLUCAO: Record<ModalidadeFrete, string> = {
+  byIssuer: 'Por conta de quem emite a nota — CIF (0)',
+  byReceiver: 'Por conta de quem recebe — FOB (1)',
+  byThirdParties: 'Por conta de terceiros (2)',
+  byIssuerOwnTransport: 'Transporte próprio de quem emite (3)',
+  byReceiverOwnTransport: 'Transporte próprio de quem recebe (4)',
+  free: 'Sem frete / sem transporte (9)',
+};
+
 export interface VolumesDoTransporte {
   quantidade: number;
   especie: string;
@@ -206,8 +221,11 @@ export const montarTransporteDaNota = (a: {
   transporte: TransporteDoPedido;
   frete: number;
   transportadora: CadastroTransportadora | null;
+  /** Onde o usuario corrige o transporte, para as mensagens (padrao: no Pedido de Venda). */
+  onde?: string;
 }): ResultadoTransporteNota => {
   const t = a.transporte;
+  const onde = a.onde || 'no Pedido de Venda';
   const avisos: string[] = [];
   const modalidade = modalidadeEfetiva(t, a.frete);
   if (a.frete > 0 && modalidade === 'free') {
@@ -218,7 +236,7 @@ export const montarTransporteDaNota = (a: {
   if (t.transportadoraId) {
     const c = a.transportadora;
     const nome = t.transportadoraNome || 'escolhida no pedido';
-    if (!c) return { ok: false, erro: `A transportadora ${nome} não foi encontrada no cadastro. Confira em Cadastros › Fornecedores ou escolha outra no Pedido de Venda.` };
+    if (!c) return { ok: false, erro: `A transportadora ${nome} não foi encontrada no cadastro. Confira em Cadastros › Fornecedores ou escolha outra ${onde}.` };
     const doc = soDigitos(c.documento);
     if (doc.length !== 11 && doc.length !== 14) {
       return { ok: false, erro: `A transportadora ${c.nome || nome} está sem CNPJ/CPF válido. Edite em Cadastros › Fornecedores e informe o documento.` };
@@ -251,8 +269,8 @@ export const montarTransporteDaNota = (a: {
   }
 
   if (t.placa) {
-    if (!placaValida(t.placa)) return { ok: false, erro: `A placa "${t.placa}" não é válida. Use o formato ABC1234 ou ABC1D23 no Pedido de Venda, em Transporte.` };
-    if (!t.placaUf) return { ok: false, erro: `Informe a UF da placa ${t.placa} no Pedido de Venda, em Transporte.` };
+    if (!placaValida(t.placa)) return { ok: false, erro: `A placa "${t.placa}" não é válida. Use o formato ABC1234 ou ABC1D23 ${onde}, em Transporte.` };
+    if (!t.placaUf) return { ok: false, erro: `Informe a UF da placa ${t.placa} ${onde}, em Transporte.` };
     transport.vehicle = { plate: t.placa, state: t.placaUf.toLowerCase() };
   }
 

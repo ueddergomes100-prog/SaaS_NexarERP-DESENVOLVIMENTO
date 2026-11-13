@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { spedyService } from '../../services/spedyService';
 import {
@@ -8,6 +8,9 @@ import {
 import { useEmissaoAcompanhamento } from '../../hooks/useEmissaoAcompanhamento';
 import { desfechoDoStatus } from '../../utils/emissaoProgressoDomain';
 import EmissaoProgressoModal from './EmissaoProgressoModal';
+import { useAuth } from '../../contexts/AuthContext';
+import TransporteDoPedidoPanel from '../vendas/TransporteDoPedidoPanel';
+import { ROTULO_MODALIDADE_FRETE_DEVOLUCAO, TRANSPORTE_VAZIO, lerTransporte, transporteParaGravar, type TransporteDoPedido } from '../../utils/transporteNotaDomain';
 
 /**
  * NF-e de devolucao de venda: mostra o que vai sair (itens, valores, CFOP, nota
@@ -48,6 +51,16 @@ const DevolucaoNfeModal: React.FC<DevolucaoNfeModalProps> = ({ devolucaoId, nume
   const [emitindo, setEmitindo] = useState(false);
   const [erroEmissao, setErroEmissao] = useState<string | null>(null);
   const { progresso, setProgresso, segundosEsperando, abrindoDanfe, fechar: fecharProgresso, abrirDanfe, acompanhar } = useEmissaoAcompanhamento();
+  // Transporte da nota de devolucao (13/11/2026): quem paga o frete, transportadora,
+  // placa, volumes e pesos. Comeca com o que ficou guardado da ultima tentativa.
+  const { tenantId } = useAuth();
+  const [transporte, setTransporte] = useState<TransporteDoPedido>(TRANSPORTE_VAZIO);
+  const transporteCarregado = useRef(false);
+  useEffect(() => {
+    if (!previa || transporteCarregado.current) return;
+    transporteCarregado.current = true;
+    setTransporte(lerTransporte(previa.transporte));
+  }, [previa]);
 
   const chaveCfop = useMemo(() => JSON.stringify(cfopEscolhido), [cfopEscolhido]);
 
@@ -85,7 +98,7 @@ const DevolucaoNfeModal: React.FC<DevolucaoNfeModalProps> = ({ devolucaoId, nume
 
     setProgresso({ tipo: 'NF-e', clienteNome, etapa: 'enviando', desfecho: null });
     try {
-      const resultado = await devolucaoNfeService.emitir({ devolucaoId, notaOriginalId: notaOriginalId || undefined, cfopEscolhido });
+      const resultado = await devolucaoNfeService.emitir({ devolucaoId, notaOriginalId: notaOriginalId || undefined, cfopEscolhido, transporte: transporteParaGravar(transporte) });
       const desfechoImediato = desfechoDoStatus(resultado.nota.status);
       setProgresso({
         tipo: 'NF-e',
@@ -265,6 +278,21 @@ const DevolucaoNfeModal: React.FC<DevolucaoNfeModalProps> = ({ devolucaoId, nume
                       <p style={{ margin: '8px 0 0', fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                         A tributação espelha a da nota original, proporcional à quantidade devolvida (mesmos CST e alíquotas). Se seu contador usa outro tratamento de PIS/COFINS na devolução, confirme com ele antes da primeira emissão.
                       </p>
+                    </div>
+                  )}
+
+                  {/* Transporte da nota de devolução (13/11/2026): opcional; vai no bloco de transporte da NF-e. */}
+                  {previa.ok && (
+                    <div style={{ padding: '12px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)' }}>
+                      <TransporteDoPedidoPanel
+                        tenantId={tenantId}
+                        transporte={transporte}
+                        frete={0}
+                        disabled={emitindo}
+                        onChange={setTransporte}
+                        rotulos={ROTULO_MODALIDADE_FRETE_DEVOLUCAO}
+                        titulo="Transporte da nota de devolução (opcional)"
+                      />
                     </div>
                   )}
 

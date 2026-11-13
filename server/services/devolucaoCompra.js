@@ -18,6 +18,7 @@ const { admin, db } = require('../config/firebase');
 const { loadSpedyConfig } = require('./spedyAcesso');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 const dc = require('../domain/devolucaoCompraDomain');
+const { prepararTransporteDaDevolucao } = require('./transporteDaDevolucao');
 const { parseNfeXml } = require('../domain/nfeXmlDomain');
 const { descompactarXml } = require('../domain/xmlCompactoDomain');
 const { usesCsosn, DEFAULT_REGIME_TRIBUTARIO } = require('../domain/fiscalDomain');
@@ -238,6 +239,10 @@ const emitir = async ({ user, tenantId, corpo }) => {
     throw new ErroDevolucaoCompra(409, 'Esta devolução já tem uma NF-e em andamento ou autorizada. Confira em Notas Fiscais.');
   }
   const { nota, receiver, itens } = await prepararNota({ tenantId, devolucao });
+  // Transporte (13/11/2026): o que a tela mandou agora; sem nada no corpo (tela antiga
+  // ou "Emitir de novo" sem mexer), o que ficou guardado da tentativa anterior.
+  const transporteInformado = corpo && Object.prototype.hasOwnProperty.call(corpo, 'transporte') ? corpo.transporte : devolucao.transporte;
+  const transporte = await prepararTransporteDaDevolucao({ tenantId, bruto: transporteInformado, Erro: ErroDevolucaoCompra });
   const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
 
   // Reserva (uma nota por vez): duplo clique ou duas telas nao geram nota dupla.
@@ -247,14 +252,19 @@ const emitir = async ({ user, tenantId, corpo }) => {
       throw new ErroDevolucaoCompra(409, 'Esta devolução já tem uma NF-e em andamento ou autorizada. Confira em Notas Fiscais.');
     }
     const proxima = Number(atual.tentativasNotaFiscal || 0) + 1;
-    tx.update(devolucaoRef, { notaFiscal: { status: 'reservada', tentativa: proxima, reservadoEmMs: Date.now(), reservadoPor: user.uid }, tentativasNotaFiscal: proxima });
+    tx.update(devolucaoRef, {
+      notaFiscal: { status: 'reservada', tentativa: proxima, reservadoEmMs: Date.now(), reservadoPor: user.uid },
+      tentativasNotaFiscal: proxima,
+      // Guardado para a proxima tentativa ja' vir preenchida (null = nada informado).
+      transporte: transporte.transporte,
+    });
     return proxima;
   });
 
   let reservou = true;
   try {
     const integrationId = tentativa === 1 ? `dc-${devolucaoId}` : `dc-${devolucaoId}-t${tentativa}`;
-    const payload = dc.montarPayloadDaDevolucaoDeCompra({ integrationId, receiver, itens, notaEntrada: nota, motivo: devolucao.motivo || '' });
+    const payload = dc.montarPayloadDaDevolucaoDeCompra({ integrationId, receiver, itens, notaEntrada: nota, motivo: devolucao.motivo || '', transport: transporte.transport });
     const resposta = await fetchComTimeout(`${baseUrl}/product-invoices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
@@ -337,6 +347,8 @@ const listar = async ({ tenantId, notaEntradaId }) => {
         abatidoCentavos: d.abatidoCentavos,
         aReceberCentavos: d.aReceberCentavos,
         motivo: d.motivo,
+        // Transporte da ultima tentativa de emitir (13/11/2026), para a janela ja' abrir preenchida.
+        transporte: d.transporte || null,
         registradoPorNome: d.registradoPorNome || '',
         notaFiscal: n
           ? { status: n.status, numero: n.number ?? null, mensagem: n.processingMessage || null, codigo: n.processingCode || null }

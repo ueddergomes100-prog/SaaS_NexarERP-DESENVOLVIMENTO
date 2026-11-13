@@ -298,6 +298,11 @@ test('payload final: finalidade devolucao, entrada, sem pagamento, referencia po
   assert.deepEqual(payload.payments, [{ method: 'noPayment', amount: 0 }]);
   assert.deepEqual(payload.total, { invoiceAmount: 80, productAmount: 80 });
   assert.equal(payload.referencedDocuments, undefined); // nao e' mais aceito na devolucao
+  // Transporte (13/11/2026): sem informar, a nota sai sem o bloco; informado, vai como veio montado.
+  assert.equal('transport' in payload, false);
+  const comTransporte = montarPayloadDevolucao({ integrationId: 'dev-abc', receiver: r.receiver, itens: r.itens, notaOriginal: NOTA, transport: { freightModality: 'byReceiver', volume: { quantity: 3 } } });
+  assert.deepEqual(comTransporte.transport, { freightModality: 'byReceiver', volume: { quantity: 3 } });
+  assert.deepEqual(comTransporte.total, payload.total, 'o transporte nao mexe no total');
   assert.equal(payload.items[0].sourceDocument.accessKey, CHAVE);
   assert.match(payload.additionalInformation, /NF-e Nº 5/);
   assert.match(payload.additionalInformation, new RegExp(CHAVE));

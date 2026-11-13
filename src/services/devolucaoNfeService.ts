@@ -39,6 +39,8 @@ export interface PreviaDevolucaoNfe {
   precisaCfop: { itemNumber: number; nome: string; cfopOriginal: number | null }[];
   cfopsPermitidos: number[];
   valorTotal: number | null;
+  /** Transporte guardado da ultima tentativa de emitir (13/11/2026); null = nunca informado. */
+  transporte?: unknown;
   destinatario: { nome: string; documento: string } | null;
   itens: ItemPreviaDevolucao[];
   /** Presente quando a devolucao ja tem nota valendo. */
@@ -64,6 +66,8 @@ export interface ParametrosDevolucaoNfe {
   notaOriginalId?: string;
   /** itemNumber -> CFOP, pros itens sem mapa automatico. */
   cfopEscolhido?: Record<number, number>;
+  /** So' na emissao: quem paga o frete, transportadora, placa, volumes e pesos (13/11/2026). */
+  transporte?: Record<string, unknown> | null;
 }
 
 export class DevolucaoNfeError extends Error {

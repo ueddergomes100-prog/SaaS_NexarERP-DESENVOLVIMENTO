@@ -10,6 +10,7 @@ const {
 } = require('../services/devolucaoNfe');
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 const { registrarLog } = require('../services/auditoria');
+const { prepararTransporteDaDevolucao } = require('../services/transporteDaDevolucao');
 
 const router = express.Router();
 
@@ -141,6 +142,8 @@ router.post('/previa', async (req, res) => {
       precisaCfop: preparo.precisaCfop ?? [],
       cfopsPermitidos: CFOPS_DEVOLUCAO_PERMITIDOS,
       valorTotal: preparo.valorTotal ?? null,
+      // Transporte da ultima tentativa de emitir (13/11/2026): a janela ja' abre preenchida.
+      transporte: devolucao.transporteDaNota || null,
       destinatario: preparo.receiver ? { nome: preparo.receiver.name, documento: preparo.receiver.federalTaxNumber } : null,
       itens: (preparo.itens || []).map((i) => ({
         itemNumber: i.sourceDocument.itemNumber,
@@ -172,6 +175,11 @@ router.post('/emitir', async (req, res) => {
         || (preparo.precisaCfop?.length ? 'Escolha o CFOP da devolução dos itens indicados antes de emitir.' : 'A devolução não pode ser emitida.');
       throw new ErroDevolucao(422, motivo);
     }
+    // Transporte (13/11/2026): quem paga o frete, transportadora, placa, volumes e pesos.
+    // Vem da tela; sem nada no corpo, vale o guardado da tentativa anterior. A
+    // transportadora e' lida do cadastro -- ver services/transporteDaDevolucao.js.
+    const transporteInformado = Object.prototype.hasOwnProperty.call(req.body || {}, 'transporte') ? req.body.transporte : devolucao.transporteDaNota;
+    const transporte = await prepararTransporteDaDevolucao({ tenantId, bruto: transporteInformado, Erro: ErroDevolucao });
     const { apiKey, baseUrl } = await loadSpedyConfig(tenantId);
 
     devolucaoRef = db.collection('devolucoes_venda').doc(devolucao.id);
@@ -192,6 +200,8 @@ router.post('/emitir', async (req, res) => {
       tx.update(devolucaoRef, {
         notaFiscalDevolucao: { status: 'reservada', tentativa: proxima, reservadoPor: req.user.uid, reservadoEmMs: Date.now() },
         tentativasNotaFiscal: proxima,
+        // Guardado para a proxima tentativa ja' vir preenchida (null = nada informado).
+        transporteDaNota: transporte.transporte,
       });
       return proxima;
     });
@@ -203,6 +213,7 @@ router.post('/emitir', async (req, res) => {
       receiver: preparo.receiver,
       itens: preparo.itens,
       notaOriginal: preparo.notaOriginalCompleta,
+      transport: transporte.transport,
     });
 
     const response = await fetchComTimeout(`${baseUrl}/product-invoices`, {

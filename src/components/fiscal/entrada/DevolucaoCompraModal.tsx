@@ -16,6 +16,9 @@ import {
   registrarDevolucaoCompra,
   type DevolucaoCompraResumo,
 } from '../../../services/devolucaoCompraService';
+import { useAuth } from '../../../contexts/AuthContext';
+import TransporteDoPedidoPanel from '../../vendas/TransporteDoPedidoPanel';
+import { ROTULO_MODALIDADE_FRETE_DEVOLUCAO, TRANSPORTE_VAZIO, lerTransporte, transporteParaGravar, type TransporteDoPedido } from '../../../utils/transporteNotaDomain';
 
 /**
  * Devolucao de compra ao fornecedor (21/10/2026): escolhe os itens e as
@@ -68,6 +71,11 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
   const [emitindoId, setEmitindoId] = useState<string | null>(null);
   const [devolucoes, setDevolucoes] = useState<DevolucaoCompraResumo[]>([]);
   const [carregando, setCarregando] = useState(false);
+  // Transporte da nota de devolucao (13/11/2026): "Emitir NF-e" abre este bloco
+  // na devolucao escolhida -- quem paga o frete, transportadora, placa, volumes e pesos.
+  const { tenantId } = useAuth();
+  const [transporteDeId, setTransporteDeId] = useState<string | null>(null);
+  const [transporte, setTransporte] = useState<TransporteDoPedido>(TRANSPORTE_VAZIO);
 
   const carregar = useCallback(async () => {
     if (!nota) return;
@@ -86,6 +94,7 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
     setQuantidades({});
     setMotivo('');
     setErro(null);
+    setTransporteDeId(null);
     void carregar();
   }, [aberto, carregar]);
 
@@ -157,9 +166,10 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
     setErro(null);
     setEmitindoId(d.id);
     try {
-      const r = await emitirNotaDaDevolucaoCompra(d.id);
+      const r = await emitirNotaDaDevolucaoCompra(d.id, transporteParaGravar(transporte));
       if (r.status === 'rejected' || r.status === 'denied') showWarning(`A SEFAZ recusou a nota: ${r.mensagem || 'motivo não informado'}. Corrija e emita de novo.`);
       else showSuccess(`NF-e de devolução enviada${r.numero ? ` (nº ${r.numero})` : ''}. Acompanhe em Notas Fiscais.`);
+      setTransporteDeId(null);
       await carregar();
     } catch (e) {
       setErro((e as Error).message);
@@ -261,10 +271,12 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
                           <span style={{ fontSize: '12px', fontWeight: 700, color: rotulo.cor }}>
                             {rotulo.texto}{d.notaFiscal?.numero ? ` nº ${d.notaFiscal.numero}` : ''}
                           </span>
-                          {podeEmitirEsta && (
-                            <button type="button" className="btn-primary" onClick={() => emitir(d)} disabled={Boolean(emitindoId)}
+                          {podeEmitirEsta && transporteDeId !== d.id && (
+                            <button type="button" className="btn-primary" disabled={Boolean(emitindoId)}
+                              title="Abre o transporte da nota (frete, transportadora, volumes e pesos) antes de emitir"
+                              onClick={() => { setErro(null); setTransporte(lerTransporte(d.transporte)); setTransporteDeId(d.id); }}
                               style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', fontSize: '12px' }}>
-                              {emitindoId === d.id ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <FileText size={13} />}
+                              <FileText size={13} />
                               {d.notaFiscal ? 'Emitir de novo' : 'Emitir NF-e'}
                             </button>
                           )}
@@ -275,6 +287,29 @@ const DevolucaoCompraModal: React.FC<Props> = ({ aberto, nota, podeEmitir, onFec
                         {d.aReceberCentavos > 0 ? ` · ${reais(d.aReceberCentavos)} a receber do fornecedor` : ''}
                         {d.notaFiscal?.mensagem && ['rejected', 'denied'].includes(d.notaFiscal.status) ? ` · ${d.notaFiscal.mensagem}` : ''}
                       </p>
+                      {/* Transporte da NF-e de devolução (13/11/2026): preenche o que for o caso e emite. */}
+                      {podeEmitirEsta && transporteDeId === d.id && (
+                        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <TransporteDoPedidoPanel
+                            tenantId={tenantId}
+                            transporte={transporte}
+                            frete={0}
+                            abrir
+                            disabled={emitindoId === d.id}
+                            onChange={setTransporte}
+                            rotulos={ROTULO_MODALIDADE_FRETE_DEVOLUCAO}
+                            titulo="Transporte da nota de devolução (opcional)"
+                          />
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button type="button" className="btn-secondary" onClick={() => setTransporteDeId(null)} disabled={Boolean(emitindoId)} style={{ padding: '6px 12px', fontSize: '12px' }}>Voltar</button>
+                            <button type="button" className="btn-primary" onClick={() => emitir(d)} disabled={Boolean(emitindoId)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '12px' }}>
+                              {emitindoId === d.id ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <FileText size={13} />}
+                              Emitir NF-e
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   );
                 })}

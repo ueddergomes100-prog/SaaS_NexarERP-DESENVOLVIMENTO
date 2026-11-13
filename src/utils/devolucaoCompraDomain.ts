@@ -433,6 +433,8 @@ export const montarPayloadDaDevolucaoDeCompra = (args: {
   itens: Array<Record<string, unknown>>;
   notaEntrada: { numeroNF?: string; serie?: string; dataEmissao?: string; chaveAcesso?: string };
   motivo: string;
+  /** Grupo de transporte ja' montado (13/11/2026: quem paga o frete, transportadora, placa, volumes e pesos). */
+  transport?: Record<string, unknown> | null;
 }) => {
   const produtos = arred(args.itens.reduce((s, i) => s + num(i.totalAmount), 0));
   const desconto = arred(args.itens.reduce((s, i) => s + num(i.discountAmount), 0));
@@ -452,6 +454,7 @@ export const montarPayloadDaDevolucaoDeCompra = (args: {
     sendEmailToCustomer: Boolean(args.receiver.email),
     receiver: args.receiver,
     items: args.itens,
+    ...(args.transport ? { transport: args.transport } : {}),
     payments: [{ method: 'noPayment', amount: 0 }],
     total: {
       invoiceAmount: arred(produtos - desconto + st + ipi),

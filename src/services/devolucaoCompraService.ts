@@ -30,6 +30,8 @@ export interface DevolucaoCompraResumo {
   motivo: string;
   registradoPorNome: string;
   notaFiscal: { status: string; numero: number | null; mensagem: string | null; codigo: string | null } | null;
+  /** Transporte guardado da ultima tentativa de emitir (13/11/2026); null = nunca informado. */
+  transporte?: unknown;
 }
 
 const chamar = async <T>(rota: string, opcoes: { metodo: 'GET' | 'POST'; corpo?: unknown; tempo?: number }): Promise<T> => {
@@ -59,6 +61,7 @@ export const registrarDevolucaoCompra = (pedido: { notaEntradaId: string; itens:
   chamar<{ devolucao: { id: string; totalCentavos: number; abatidoCentavos: number; aReceberCentavos: number } }>('', { metodo: 'POST', corpo: pedido }).then((r) => r.devolucao)
 );
 
-export const emitirNotaDaDevolucaoCompra = (devolucaoId: string) => (
-  chamar<{ nota: { notaId: string; status: string; numero: number | null; mensagem: string | null } }>('/emitir', { metodo: 'POST', corpo: { devolucaoId }, tempo: TEMPO_LIMITE.emissaoNota }).then((r) => r.nota)
+/** `transporte` (13/11/2026): quem paga o frete, transportadora, placa, volumes e pesos; null = sem bloco de transporte. */
+export const emitirNotaDaDevolucaoCompra = (devolucaoId: string, transporte: Record<string, unknown> | null) => (
+  chamar<{ nota: { notaId: string; status: string; numero: number | null; mensagem: string | null } }>('/emitir', { metodo: 'POST', corpo: { devolucaoId, transporte }, tempo: TEMPO_LIMITE.emissaoNota }).then((r) => r.nota)
 );

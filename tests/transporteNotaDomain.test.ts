@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  MODALIDADES_FRETE,
+  ROTULO_MODALIDADE_FRETE_DEVOLUCAO,
   TRANSPORTE_VAZIO,
   lerTransporte,
   modalidadeEfetiva,
@@ -20,6 +22,38 @@ const TRANSPORTADORA = {
   nome: 'RAPIDO SUL TRANSPORTES LTDA', documento: '12.345.678/0001-99', inscricaoEstadual: '123.456.789',
   endereco: 'RUA DAS CARGAS', numero: '100', bairro: 'CENTRO', cep: '35500-000', cidade: 'DIVINOPOLIS', estado: 'MG', codigoIbge: '3122306',
 };
+
+test('nota de devolucao: transporte sem frete leva transportadora, placa, volumes e pesos; mensagens apontam a janela da devolucao', () => {
+  const t = lerTransporte({
+    modalidade: 'byReceiver', transportadoraId: 't1', transportadoraNome: 'RAPIDO SUL', placa: 'abc1d23', placaUf: 'mg',
+    volumes: { quantidade: 5, especie: 'CAIXA', marca: '', numeracao: '1 a 5', pesoBrutoKg: 82.5, pesoLiquidoKg: 80 },
+  });
+  const r = montarTransporteDaNota({ transporte: t, frete: 0, transportadora: TRANSPORTADORA, onde: 'na janela da nota de devolução' });
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.equal(r.transport.freightModality, 'byReceiver');
+  assert.equal((r.transport.carrier as { federalTaxNumber: string }).federalTaxNumber, '12345678000199');
+  assert.deepEqual(r.transport.vehicle, { plate: 'ABC1D23', state: 'mg' });
+  assert.deepEqual(r.transport.volume, { quantity: 5, species: 'CAIXA', volumeNumeration: '1 a 5', netWeight: 80, grossWeight: 82.5 });
+
+  // So' volumes e pesos, sem escolher quem paga: sai "sem frete" com os volumes.
+  const soVolumes = montarTransporteDaNota({ transporte: lerTransporte({ volumes: { quantidade: 2, pesoBrutoKg: 10 } }), frete: 0, transportadora: null });
+  assert.equal(soVolumes.ok && soVolumes.transport.freightModality, 'free');
+  assert.deepEqual(soVolumes.ok && soVolumes.transport.volume, { quantity: 2, grossWeight: 10 });
+
+  // As mensagens dizem onde corrigir NA DEVOLUCAO, nao "no Pedido de Venda".
+  const onde = 'na janela da nota de devolução';
+  const placaRuim = montarTransporteDaNota({ transporte: lerTransporte({ placa: 'AB12', placaUf: 'MG' }), frete: 0, transportadora: null, onde });
+  assert.match(placaRuim.ok ? '' : placaRuim.erro, /na janela da nota de devolução, em Transporte/);
+  const naoAchou = montarTransporteDaNota({ transporte: t, frete: 0, transportadora: null, onde });
+  assert.match(naoAchou.ok ? '' : naoAchou.erro, /escolha outra na janela da nota de devolução/);
+  // Sem o `onde`, continua apontando o Pedido de Venda (nota de venda).
+  const padrao = montarTransporteDaNota({ transporte: t, frete: 0, transportadora: null });
+  assert.match(padrao.ok ? '' : padrao.erro, /no Pedido de Venda/);
+
+  // Os textos da devolucao nao falam em loja nem em cliente.
+  MODALIDADES_FRETE.forEach((m) => assert.doesNotMatch(ROTULO_MODALIDADE_FRETE_DEVOLUCAO[m], /loja|cliente/i));
+});
 
 test('frete digitado com virgula, milhar e ponto decimal (o campo so aceitava inteiro)', () => {
   assert.equal(valorDigitado('180,50'), 180.5);

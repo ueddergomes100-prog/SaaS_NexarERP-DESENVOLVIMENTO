@@ -200,7 +200,7 @@ const ImportarProdutos: React.FC = () => {
       return;
     }
     const itensValidos = itens.filter((item) => !itensExcluidos.has(item.linhaId));
-    setGrupos(detectarGruposEmbalagem(itensValidos));
+    setGrupos(detectarGruposEmbalagem(itensValidos, { unidadeVeioDaPlanilha: mapeamento.unidade !== null }));
     setPasso('embalagens');
   };
 

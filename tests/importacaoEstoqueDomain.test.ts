@@ -346,3 +346,29 @@ test('montarProdutoImportado grava custo medio e custo comercial so quando maior
   assert.equal('custoComercial' in ausentes, false);
   assert.equal(Object.values(ausentes).includes(undefined), false);
 });
+
+test('detectarGruposEmbalagem nao junta produtos na MESMA unidade quando a planilha traz a coluna Unidade', () => {
+  const mapeamento = { codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: 3, valorVenda: null, marca: null, referencia: null };
+  // Dois produtos diferentes (20 kg e 15 kg), os dois vendidos em saco: nao e' par solto x embalagem.
+  const mesmaUnidade = processarLinhas([
+    ['1', 'ARGAMASSA AC1 20KG', '10', 'SC'],
+    ['2', 'ARGAMASSA AC1 15KG', '4', 'SC'],
+  ], mapeamento);
+  assert.equal(detectarGruposEmbalagem(mesmaUnidade, { unidadeVeioDaPlanilha: true }).length, 0);
+  // Sem a opcao (planilha de contagem, sem coluna de unidade) continua agrupando como antes.
+  assert.equal(detectarGruposEmbalagem(mesmaUnidade).length, 1);
+
+  // Unidades diferentes: continua sendo o par quilo x saco de sempre.
+  const unidadesDiferentes = processarLinhas([
+    ['1', 'ADUBO UREIA 50KG QUILO', '45.18', 'KG'],
+    ['2', 'ADUBO UREIA 50KG SACO', '44', 'SC'],
+  ], mapeamento);
+  assert.equal(detectarGruposEmbalagem(unidadesDiferentes, { unidadeVeioDaPlanilha: true }).length, 1);
+
+  // Item sem unidade no grupo: nao da para afirmar que e' a mesma, continua agrupando.
+  const umSemUnidade = processarLinhas([
+    ['1', 'ARGAMASSA AC1 20KG', '10', 'SC'],
+    ['2', 'ARGAMASSA AC1 15KG', '4', ''],
+  ], mapeamento);
+  assert.equal(detectarGruposEmbalagem(umSemUnidade, { unidadeVeioDaPlanilha: true }).length, 1);
+});

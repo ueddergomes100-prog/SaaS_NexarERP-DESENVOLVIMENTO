@@ -602,8 +602,18 @@ export interface GrupoCandidatoEmbalagem {
 }
 
 /** Agrupa itens que parecem ser o MESMO produto em unidades diferentes.
- * So devolve grupos com 2+ itens -- produto sem par fica de fora. */
-export const detectarGruposEmbalagem = (itens: ItemImportado[]): GrupoCandidatoEmbalagem[] => {
+ * So devolve grupos com 2+ itens -- produto sem par fica de fora.
+ *
+ * `unidadeVeioDaPlanilha` (15/11/2026): quando a planilha traz a coluna
+ * "Unidade" e todos os itens do grupo estao na MESMA unidade, nao e' "o mesmo
+ * produto em duas unidades" -- sao produtos diferentes cuja descricao so muda
+ * no peso ("ARGAMASSA 20KG" e "ARGAMASSA 15KG", os dois em SC). O export de
+ * um sistema de material de construcao tinha dezenas desses falsos pares, e
+ * cada um ja vinha marcado para mesclar. */
+export const detectarGruposEmbalagem = (
+  itens: ItemImportado[],
+  opcoes: { unidadeVeioDaPlanilha?: boolean } = {},
+): GrupoCandidatoEmbalagem[] => {
   const porBase = new Map<string, ItemImportado[]>();
   itens.forEach((item) => {
     const base = normalizarDescricaoBase(item.descricao);
@@ -615,6 +625,10 @@ export const detectarGruposEmbalagem = (itens: ItemImportado[]): GrupoCandidatoE
   const grupos: GrupoCandidatoEmbalagem[] = [];
   porBase.forEach((itensDoGrupo, base) => {
     if (itensDoGrupo.length < 2) return;
+    if (opcoes.unidadeVeioDaPlanilha) {
+      const unidades = new Set(itensDoGrupo.map((item) => item.unidadeSugerida.trim().toUpperCase()));
+      if (unidades.size === 1 && !unidades.has('')) return;
+    }
     grupos.push({
       descricaoBase: base,
       itens: itensDoGrupo,

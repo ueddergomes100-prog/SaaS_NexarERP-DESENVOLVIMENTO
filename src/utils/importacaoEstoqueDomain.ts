@@ -101,7 +101,7 @@ export const parseDelimitedText = (texto: string, delimitador: string): string[]
 // Mapeamento de colunas
 // ---------------------------------------------------------------------------
 
-export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'precoAVista' | 'precoAPrazo' | 'valorVenda' | 'codigoBarras' | 'unidade' | 'marca' | 'referencia';
+export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'custoMedio' | 'custoComercial' | 'precoAVista' | 'precoAPrazo' | 'valorVenda' | 'codigoBarras' | 'unidade' | 'marca' | 'referencia';
 
 /** codigo/descricao/quantidade sempre tem uma coluna (mesmo que seja um
  * chute errado); os outros sao realmente opcionais -- planilha de
@@ -115,6 +115,11 @@ export interface MapeamentoColunas {
   quantidade: number;
   observacao: number | null;
   custo: number | null;
+  /** Custo medio e custo comercial (15/11/2026): colunas opcionais do export
+   * do sistema antigo. O custo medio e' o mesmo campo que a entrada de nota
+   * recalcula; o custo comercial e' o custo com as despesas de compra. */
+  custoMedio: number | null;
+  custoComercial: number | null;
   precoAVista: number | null;
   precoAPrazo: number | null;
   valorVenda: number | null;
@@ -136,6 +141,8 @@ const SINONIMOS: Record<CampoColuna, string[]> = {
   // "vr custo" tem que vir ANTES de "valor custo" nao colidir -- ver
   // encontrar(), que testa sinonimo por ORDEM dentro do campo.
   custo: ['vr custo', 'valor custo', 'custo'],
+  custoMedio: ['custo medio', 'vr custo medio', 'valor custo medio'],
+  custoComercial: ['custo comercial', 'vr custo comercial', 'valor custo comercial'],
   precoAVista: ['vista', 'avista'],
   precoAPrazo: ['prazo', 'aprazo'],
   valorVenda: ['valor venda', 'vr venda', 'preco venda'],
@@ -185,7 +192,12 @@ export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas
   const descricao = encontrar('descricao');
   const quantidade = encontrar('quantidade');
   const observacao = encontrar('observacao');
-  const custo = encontrar('custo');
+  // Custo medio e custo comercial sao resolvidos ANTES do custo: os dois
+  // cabecalhos contem a palavra "custo" e, numa planilha sem a coluna "Custo"
+  // pura, seriam tomados por ela.
+  const custoMedio = encontrar('custoMedio');
+  const custoComercial = encontrar('custoComercial');
+  const custo = encontrar('custo', [custoMedio, custoComercial].filter((idx) => idx >= 0));
   const precoAVista = encontrar('precoAVista');
   const precoAPrazo = encontrar('precoAPrazo');
   const valorVenda = encontrar('valorVenda');
@@ -210,6 +222,8 @@ export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas
     // marca/referencia/etc.) esse index 3 quase certamente e' outra coisa.
     observacao: observacao >= 0 ? observacao : (cabecalho.length === 4 ? 3 : null),
     custo: custo >= 0 ? custo : null,
+    custoMedio: custoMedio >= 0 ? custoMedio : null,
+    custoComercial: custoComercial >= 0 ? custoComercial : null,
     precoAVista: precoAVista >= 0 ? precoAVista : null,
     precoAPrazo: precoAPrazo >= 0 ? precoAPrazo : null,
     valorVenda: valorVenda >= 0 ? valorVenda : null,
@@ -447,6 +461,8 @@ export interface ItemImportado {
   /** null = coluna nao mapeada OU celula vazia/ilegivel -- os 3 sao
    * sempre opcionais, planilha de contagem pura nao traz nenhum. */
   custo: number | null;
+  custoMedio: number | null;
+  custoComercial: number | null;
   precoAVista: number | null;
   precoAPrazo: number | null;
   /** Preco de venda PRONTO vindo do export do sistema antigo (coluna
@@ -540,6 +556,8 @@ export const processarLinhas = (
       observacao,
       codigoBarras: mapeamento.codigoBarras !== null ? (linha[mapeamento.codigoBarras] || '').trim() : '',
       custo: mapeamento.custo !== null ? parseNumeroOuMonetario(linha[mapeamento.custo]) : null,
+      custoMedio: mapeamento.custoMedio !== null ? parseNumeroOuMonetario(linha[mapeamento.custoMedio]) : null,
+      custoComercial: mapeamento.custoComercial !== null ? parseNumeroOuMonetario(linha[mapeamento.custoComercial]) : null,
       precoAVista: mapeamento.precoAVista !== null ? parseNumeroOuMonetario(linha[mapeamento.precoAVista]) : null,
       precoAPrazo: mapeamento.precoAPrazo !== null ? parseNumeroOuMonetario(linha[mapeamento.precoAPrazo]) : null,
       valorVenda: mapeamento.valorVenda !== null ? parseNumeroOuMonetario(linha[mapeamento.valorVenda]) : null,
@@ -668,6 +686,11 @@ export interface ProdutoParaImportar {
    * colunas -- ausentes = a chave nem entra no documento (nunca grava
    * undefined nem inventa 0, que pareceria "de graca"/"sem custo"). */
   precoCusto?: number;
+  /** Custo medio e custo comercial do sistema antigo. So entram no documento
+   * quando maiores que zero: custo medio 0 gravado faria a proxima entrada de
+   * nota calcular a media a partir de zero (ela le `custoMedio ?? precoCusto`). */
+  custoMedio?: number;
+  custoComercial?: number;
   precoAVista?: number;
   precoAPrazo?: number;
   codigoBarras?: string;
@@ -717,6 +740,8 @@ export const montarProdutoImportado = (
   // entao ficam de fora do documento quando a planilha nao trouxer).
   const precoCustoFinal = produto.precoCusto ?? 0;
   const permitirEstoqueNegativoFinal = produto.permitirEstoqueNegativo ?? false;
+  const custoMedioFinal = Number(produto.custoMedio) > 0 ? Number(produto.custoMedio) : undefined;
+  const custoComercialFinal = Number(produto.custoComercial) > 0 ? Number(produto.custoComercial) : undefined;
 
   return {
     codigo: produto.codigo,
@@ -733,6 +758,8 @@ export const montarProdutoImportado = (
     quantidade: produto.quantidade,
     precoVenda: produto.precoVenda,
     precoCusto: precoCustoFinal,
+    ...(custoMedioFinal !== undefined ? { custoMedio: custoMedioFinal } : {}),
+    ...(custoComercialFinal !== undefined ? { custoComercial: custoComercialFinal } : {}),
     ...(produto.precoAVista !== undefined ? { precoAVista: produto.precoAVista } : {}),
     ...(produto.precoAPrazo !== undefined ? { precoAPrazo: produto.precoAPrazo } : {}),
     margemLucro: 0,

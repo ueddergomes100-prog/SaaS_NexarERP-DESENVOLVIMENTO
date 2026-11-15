@@ -336,7 +336,7 @@ const CAMPOS_SO_DO_PAI = new Set([
  * combinada com o dono.
  */
 const CAMPOS_SO_NA_CRIACAO = new Set([
-    'precoCusto', 'ultimoCusto', 'dataUltimaCompra', 'fornecedor', 'fornecedorId', 'codigoProdutoFornecedor', 'compras',
+    'precoCusto', 'custoComercial', 'ultimoCusto', 'dataUltimaCompra', 'fornecedor', 'fornecedorId', 'codigoProdutoFornecedor', 'compras',
     'estoqueMinimo', 'estoqueMaximo', 'localizacaoEstoque', 'estoqueConfig', 'lote', 'validade',
 ]);
 const slug = (valor) => valor.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');

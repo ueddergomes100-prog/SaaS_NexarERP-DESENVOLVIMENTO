@@ -88,7 +88,7 @@ test('decodificarArquivoTexto recupera texto Windows-1252 (cp1252) mal lido como
 
 test('inferirMapeamentoColunas reconhece o cabecalho real da planilha do cliente', () => {
   const mapeamento = inferirMapeamentoColunas(['Cód.', 'Descrição', 'Quantidade contada', 'Observação']);
-  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
 });
 
 test('processarLinhas ignora linhas vazias e devolve item por linha com descricao', () => {
@@ -97,7 +97,7 @@ test('processarLinhas ignora linhas vazias e devolve item por linha com descrica
     ['', '', '', ''],
     ['113', 'ADUBO 04-14-08 50KG SACO', '8', ''],
   ];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
   assert.equal(itens.length, 2);
   assert.equal(itens[1].quantidadeCalculada, 8);
   assert.equal(itens[1].status, 'OK');
@@ -116,7 +116,7 @@ test('detectarGruposEmbalagem acha o par kg/saco e sugere o fator pelo peso na d
       ['84', 'ADUBO UREIA 45-00-00 50KG SACO', '44', ''],
       ['999', 'PRODUTO SEM PAR', '1', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -130,7 +130,7 @@ test('detectarGruposEmbalagem nao sugere fator quando a descricao nao informa o 
       ['92', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC METRO', '0', ''],
       ['39', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC ROLO', '0', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -182,7 +182,7 @@ test('inferirMapeamentoColunas acha custo/preco a vista/preco a prazo quando pre
 
 test('processarLinhas le custo/preco a vista/preco a prazo das colunas mapeadas', () => {
   const linhas = [['1', 'PRODUTO X', '10', '', '25,50', '39,90', '45,00']];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, precoAVista: 5, precoAPrazo: 6, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, custoMedio: null, custoComercial: null, precoAVista: 5, precoAPrazo: 6, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
   assert.equal(itens[0].custo, 25.5);
   assert.equal(itens[0].precoAVista, 39.9);
   assert.equal(itens[0].precoAPrazo, 45);
@@ -239,7 +239,7 @@ test('resolverSiglaUnidade traduz nome por extenso pra sigla do sistema, mantem 
 test('processarLinhas usa a coluna Unidade explicita, mesmo com preco em formato "R$ 14,00"', () => {
   const linhas = [['136', '000001', '100 PS SUPLEMENTO PARA PÁSSARO 10ML', '11,', 'UNID', 'R$ 14,00', 'R$ 14,00']];
   const itens = processarLinhas(linhas, {
-    codigo: 0, codigoBarras: 1, descricao: 2, quantidade: 3, unidade: 4, precoAVista: 5, precoAPrazo: 6, observacao: null, custo: null,
+    codigo: 0, codigoBarras: 1, descricao: 2, quantidade: 3, unidade: 4, precoAVista: 5, precoAPrazo: 6, observacao: null, custo: null, custoMedio: null, custoComercial: null,
     valorVenda: null, marca: null, referencia: null,
   });
   assert.equal(itens[0].quantidadeCalculada, 11);
@@ -290,4 +290,59 @@ test('numero limpo sem observacao contraditoria segue OK, inclusive "0."', () =>
   assert.equal(interpretarQuantidade('0.').status, 'OK');
   assert.equal(interpretarQuantidade('0.').valor, 0);
   assert.equal(interpretarQuantidade('4138.56', 'Conferido no depósito').status, 'OK');
+});
+
+// Custo medio e custo comercial (15/11/2026): colunas opcionais do export do sistema antigo.
+test('inferirMapeamentoColunas separa Custo, Custo medio e Custo comercial, em qualquer ordem', () => {
+  const m = inferirMapeamentoColunas(['Código', 'Descrição', 'Quantidade', 'Custo médio', 'Custo comercial', 'Custo', 'Preço de venda']);
+  assert.equal(m.custoMedio, 3);
+  assert.equal(m.custoComercial, 4);
+  assert.equal(m.custo, 5);
+
+  // Sem a coluna "Custo" pura, as duas novas nao sao tomadas por ela.
+  const semCusto = inferirMapeamentoColunas(['Código', 'Descrição', 'Quantidade', 'Custo médio', 'Custo comercial']);
+  assert.equal(semCusto.custo, null);
+  assert.equal(semCusto.custoMedio, 3);
+  assert.equal(semCusto.custoComercial, 4);
+
+  const semNovas = inferirMapeamentoColunas(['Código', 'Descrição', 'Quantidade', 'Custo']);
+  assert.equal(semNovas.custo, 3);
+  assert.equal(semNovas.custoMedio, null);
+  assert.equal(semNovas.custoComercial, null);
+});
+
+test('processarLinhas le custo medio e custo comercial das colunas mapeadas', () => {
+  const linhas = [['1', 'PRODUTO X', '10', '14,34', '5,51897', '15,92']];
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: 3, custoMedio: 4, custoComercial: 5, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  assert.equal(itens[0].custo, 14.34);
+  assert.equal(itens[0].custoMedio, 5.51897);
+  assert.equal(itens[0].custoComercial, 15.92);
+});
+
+test('montarProdutoImportado grava custo medio e custo comercial so quando maiores que zero (nunca undefined nem zero)', () => {
+  const unidadeUn = { id: 'un-un', sigla: 'UN', casasDecimais: 0, fracionado: false };
+
+  const com = montarProdutoImportado(
+    { codigo: '1', nome: 'produto', categoria: '', unidadeBase: unidadeUn, quantidade: 1, precoVenda: 24.5, precoCusto: 14.34, custoMedio: 5.52, custoComercial: 15.92 },
+    'tenant-1', 'user-1', 'TIMESTAMP',
+  );
+  assert.equal(com.precoCusto, 14.34);
+  assert.equal(com.custoMedio, 5.52);
+  assert.equal(com.custoComercial, 15.92);
+
+  // Zero = nao informado: custo medio 0 gravado faria a entrada de nota tirar a media a partir de zero.
+  const zerados = montarProdutoImportado(
+    { codigo: '2', nome: 'produto', categoria: '', unidadeBase: unidadeUn, quantidade: 1, precoVenda: 10, custoMedio: 0, custoComercial: 0 },
+    'tenant-1', 'user-1', 'TIMESTAMP',
+  );
+  assert.equal('custoMedio' in zerados, false);
+  assert.equal('custoComercial' in zerados, false);
+
+  const ausentes = montarProdutoImportado(
+    { codigo: '3', nome: 'produto', categoria: '', unidadeBase: unidadeUn, quantidade: 1, precoVenda: 10 },
+    'tenant-1', 'user-1', 'TIMESTAMP',
+  );
+  assert.equal('custoMedio' in ausentes, false);
+  assert.equal('custoComercial' in ausentes, false);
+  assert.equal(Object.values(ausentes).includes(undefined), false);
 });

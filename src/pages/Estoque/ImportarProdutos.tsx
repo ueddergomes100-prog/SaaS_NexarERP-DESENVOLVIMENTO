@@ -63,6 +63,10 @@ interface ProdutoConfirmar {
   /** Vindos das colunas opcionais da planilha (custo/preço à vista/preço a
    * prazo), quando mapeadas -- string vazia = a planilha não trouxe. */
   custo: string;
+  /** Custo médio e custo comercial do sistema antigo (15/11/2026) -- string
+   * vazia = a planilha não trouxe; a chave fica fora do documento. */
+  custoMedio: string;
+  custoComercial: string;
   precoAVista: string;
   precoAPrazo: string;
   codigoBarras: string;
@@ -91,7 +95,7 @@ const ImportarProdutos: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasDados, setLinhasDados] = useState<string[][]>([]);
-  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, precoAVista: null, precoAPrazo: null, valorVenda: null, codigoBarras: null, unidade: null, marca: null, referencia: null });
+  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, valorVenda: null, codigoBarras: null, unidade: null, marca: null, referencia: null });
 
   const [itens, setItens] = useState<ItemImportado[]>([]);
   const [itensExcluidos, setItensExcluidos] = useState<Set<number>>(new Set());
@@ -277,6 +281,8 @@ const ImportarProdutos: React.FC = () => {
         // "A prazo" da planilha = preco de venda (2026-10-01: o preco de venda E' o a prazo).
         precoVenda: paraTexto(itemBase.valorVenda ?? itemBase.precoAPrazo ?? itemBase.precoAVista),
         custo: paraTexto(itemBase.custo),
+        custoMedio: paraTexto(itemBase.custoMedio),
+        custoComercial: paraTexto(itemBase.custoComercial),
         precoAVista: paraTexto(itemBase.precoAVista),
         precoAPrazo: paraTexto(itemBase.precoAPrazo),
         codigoBarras: itemBase.codigoBarras,
@@ -298,6 +304,8 @@ const ImportarProdutos: React.FC = () => {
         quantidade: String(quantidadeFinalDoItem(item)),
         precoVenda: paraTexto(item.valorVenda ?? item.precoAPrazo ?? item.precoAVista),
         custo: paraTexto(item.custo),
+        custoMedio: paraTexto(item.custoMedio),
+        custoComercial: paraTexto(item.custoComercial),
         precoAVista: paraTexto(item.precoAVista),
         precoAPrazo: paraTexto(item.precoAPrazo),
         codigoBarras: item.codigoBarras,
@@ -404,6 +412,8 @@ const ImportarProdutos: React.FC = () => {
               quantidade: Number(produto.quantidade.replace(',', '.')) || 0,
               precoVenda: Number(produto.precoVenda.replace(',', '.')) || 0,
               precoCusto: paraNumeroOpcional(produto.custo),
+              custoMedio: paraNumeroOpcional(produto.custoMedio),
+              custoComercial: paraNumeroOpcional(produto.custoComercial),
               precoAVista: paraNumeroOpcional(produto.precoAVista),
               codigoBarras: produto.codigoBarras,
               marca: produto.marca,
@@ -518,13 +528,14 @@ const ImportarProdutos: React.FC = () => {
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} — {linhasDados.length} linha(s) de dado encontrada(s).</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {(['codigo', 'descricao', 'quantidade', 'unidade', 'marca', 'referencia', 'observacao', 'codigoBarras', 'custo', 'precoAVista', 'precoAPrazo', 'valorVenda'] as const).map((campo) => {
+            {(['codigo', 'descricao', 'quantidade', 'unidade', 'marca', 'referencia', 'observacao', 'codigoBarras', 'custo', 'custoMedio', 'custoComercial', 'precoAVista', 'precoAPrazo', 'valorVenda'] as const).map((campo) => {
               const obrigatorio = campo === 'codigo' || campo === 'descricao' || campo === 'quantidade';
               const rotulos: Record<typeof campo, string> = {
                 codigo: 'Código interno (referência)', descricao: 'Descrição', quantidade: 'Quantidade',
                 unidade: 'Unidade (opcional)', marca: 'Marca (opcional)', referencia: 'Referência (opcional)',
                 observacao: 'Observação (opcional)',
                 codigoBarras: 'Código de barras (opcional)', custo: 'Custo (opcional)',
+                custoMedio: 'Custo médio (opcional)', custoComercial: 'Custo comercial (opcional)',
                 precoAVista: 'Preço à vista (opcional)', precoAPrazo: 'Preço a prazo / de venda (opcional)',
                 valorVenda: 'Preço de venda pronto (opcional)',
               };
@@ -544,7 +555,7 @@ const ImportarProdutos: React.FC = () => {
             })}
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
-            Unidade, marca, referência, código de barras, custo, preço à vista e preço de venda (ou a prazo, que agora é o mesmo) são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis). O código interno da planilha é só referência: o código do produto no sistema é sempre gerado automaticamente (1, 2, 3...).
+            Unidade, marca, referência, código de barras, custo, custo médio, custo comercial, preço à vista e preço de venda (ou a prazo, que agora é o mesmo) são opcionais — se o export do sistema antigo trouxer essas colunas, elas já vêm pré-preenchidas na tela de confirmação (ainda editáveis). O código interno da planilha é só referência: o código do produto no sistema é sempre gerado automaticamente (1, 2, 3...).
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
             <button className="btn-secondary" onClick={() => setPasso('upload')}>Voltar</button>
@@ -710,6 +721,8 @@ const ImportarProdutos: React.FC = () => {
                   <th style={{ padding: '8px' }}>Unidade</th>
                   <th style={{ padding: '8px' }}>Quantidade</th>
                   <th style={{ padding: '8px' }}>Custo</th>
+                  <th style={{ padding: '8px' }}>Custo médio</th>
+                  <th style={{ padding: '8px' }}>Custo comercial</th>
                   <th style={{ padding: '8px' }}>Preço à vista</th>
                   <th style={{ padding: '8px' }}>Preço de venda *</th>
                   <th style={{ padding: '8px', textAlign: 'center' }}>Uso interno<br />(não vender)</th>
@@ -743,6 +756,12 @@ const ImportarProdutos: React.FC = () => {
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" value={produto.custo} onChange={(e) => atualizarProduto(produto.chave, { custo: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input type="text" value={produto.custoMedio} onChange={(e) => atualizarProduto(produto.chave, { custoMedio: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input type="text" value={produto.custoComercial} onChange={(e) => atualizarProduto(produto.chave, { custoComercial: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" value={produto.precoAVista} onChange={(e) => atualizarProduto(produto.chave, { precoAVista: e.target.value })} style={{ width: '90px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)' }} />

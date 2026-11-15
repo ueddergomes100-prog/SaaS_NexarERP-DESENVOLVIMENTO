@@ -116,6 +116,7 @@ const produtoParaHistorico = (p: Record<string, any> | null | undefined): Record
     precoAPrazo: d.precoAPrazo ?? d.precos?.aPrazo ?? null,
     precoPromocional: d.precoPromocional ?? d.precos?.promocional ?? null,
     precoCusto: d.precoCusto ?? d.precos?.custo ?? 0,
+    custoComercial: d.custoComercial ?? null,
     comissaoPercentual: d.comissaoPercentual ?? d.precos?.comissaoPercentual ?? null,
     descontoMaximoPercentual: d.descontoMaximoPercentual ?? d.precos?.descontoMaximoPercentual ?? 0,
     estoqueMinimo: d.estoqueMinimo ?? d.estoque?.minimo ?? 0,
@@ -171,6 +172,7 @@ const CAMPOS_DO_PRODUTO_NO_HISTORICO: CampoComparado[] = [
   { campo: 'precoAPrazo', rotulo: 'Preço a prazo', formatar: reaisOuVazio },
   { campo: 'precoPromocional', rotulo: 'Preço promocional', formatar: reaisOuVazio },
   { campo: 'precoCusto', rotulo: 'Custo', formatar: reais },
+  { campo: 'custoComercial', rotulo: 'Custo comercial', formatar: reaisOuVazio },
   { campo: 'comissaoPercentual', rotulo: 'Comissão', formatar: percentualOuVazio },
   { campo: 'descontoMaximoPercentual', rotulo: 'Desconto máximo (%)', formatar: numeroOuZero },
   { campo: 'estoqueMinimo', rotulo: 'Estoque mínimo', formatar: numeroOuZero },
@@ -327,6 +329,9 @@ interface ProdutoOriginalData {
    * definido. Base da comparacao de margem (ver precificacaoDomain.ts) --
    * ausente em produto precificado antes deste recurso existir. */
   custoNaUltimaPrecificacao?: number | null;
+  /** Custo medio ponderado: recalculado a cada entrada de nota (EntradaNFE)
+   * ou trazido pela importacao. So' leitura neste formulario. */
+  custoMedio?: number | null;
   quantidadeReservada?: number;
   /** Estado no banco ANTES desta edicao -- usado pra detectar que esta
    * edicao e' que esta inativando o produto (ver handleSave). Os dois campos
@@ -360,6 +365,10 @@ interface ProdutoFormData {
    * usar em cada forma de pagamento ser desenhada numa fatia futura. */
   precoAVista: string;
   precoAPrazo: string;
+  /** Custo comercial (15/11/2026): custo de compra mais as despesas (frete,
+   * impostos...). Informativo: a margem continua sobre o "Custo do produto".
+   * Em branco = nao informado (a chave fica fora do documento). */
+  custoComercial: string;
   comissaoPercentual: string;
   descontoMaximoPercentual: string;
   fornecedor: string;
@@ -518,6 +527,7 @@ const emptyFormData: ProdutoFormData = {
   precoPromocional: '',
   precoAVista: '',
   precoAPrazo: '',
+  custoComercial: '',
   comissaoPercentual: '',
   descontoMaximoPercentual: '',
   fornecedor: '',
@@ -1035,6 +1045,7 @@ const EstoqueForm: React.FC = () => {
               precoPromocional: String(data.precoPromocional ?? data.precos?.promocional ?? ''),
               precoAVista: data.precoAVista != null ? String(data.precoAVista) : (data.precos?.aVista != null ? String(data.precos.aVista) : ''),
               precoAPrazo: data.precoAPrazo != null ? String(data.precoAPrazo) : (data.precos?.aPrazo != null ? String(data.precos.aPrazo) : ''),
+              custoComercial: data.custoComercial != null ? String(data.custoComercial) : '',
               comissaoPercentual: String(data.comissaoPercentual ?? data.precos?.comissaoPercentual ?? ''),
               descontoMaximoPercentual: String(data.descontoMaximoPercentual ?? data.precos?.descontoMaximoPercentual ?? ''),
               fornecedor: data.fornecedor || data.compras?.ultimoFornecedor || '',
@@ -1727,6 +1738,9 @@ const EstoqueForm: React.FC = () => {
       // prazo em branco significa "nao preenchido ainda", nao "gratis".
       const precoAVistaValor = parseComissaoPercentualInput(formData.precoAVista);
       const precoAPrazoValor = parseComissaoPercentualInput(formData.precoAPrazo);
+      // Custo comercial em branco ou zero = nao informado: a chave sai do documento.
+      const custoComercialDigitado = parseComissaoPercentualInput(formData.custoComercial);
+      const custoComercialValor = custoComercialDigitado !== undefined && custoComercialDigitado > 0 ? custoComercialDigitado : undefined;
 
       const produtoData = {
         ...formData,
@@ -1745,6 +1759,7 @@ const EstoqueForm: React.FC = () => {
         precoPromocional,
         precoAVista: precoAVistaValor,
         precoAPrazo: precoAPrazoValor,
+        custoComercial: custoComercialValor,
         custoNaUltimaPrecificacao,
         margemLucro: margemParaSalvar,
         lucroEstimado: lucroParaSalvar,
@@ -1929,6 +1944,7 @@ const EstoqueForm: React.FC = () => {
       if (comissaoPercentualValor === undefined) delete (produtoData as Record<string, unknown>).comissaoPercentual;
       if (precoAVistaValor === undefined) delete (produtoData as Record<string, unknown>).precoAVista;
       if (precoAPrazoValor === undefined) delete (produtoData as Record<string, unknown>).precoAPrazo;
+      if (custoComercialValor === undefined) delete (produtoData as Record<string, unknown>).custoComercial;
       // Cashback proprio do produto (so' no modelo em R$): sem tipo, vale o padrao da empresa e as chaves somem.
       const cashbackProprio = formData.permitirCashback && formData.cashbackTipo !== '' && toNumber(formData.cashbackValor) > 0;
       if (cashbackProprio) {
@@ -2002,6 +2018,7 @@ const EstoqueForm: React.FC = () => {
           ...(comissaoPercentualValor === undefined ? { comissaoPercentual: deleteField() } : {}),
           ...(precoAVistaValor === undefined ? { precoAVista: deleteField() } : {}),
           ...(precoAPrazoValor === undefined ? { precoAPrazo: deleteField() } : {}),
+          ...(custoComercialValor === undefined ? { custoComercial: deleteField() } : {}),
           ...(!cashbackProprio ? { cashbackTipo: deleteField(), cashbackValor: deleteField() } : {}),
           // Grade desligada (so' sem variacoes): as marcas de principal saem de vez.
           ...(!temGrade && produtoOriginal?.temGrade === true ? { temGrade: deleteField(), gradeNomes: deleteField() } : {}),
@@ -2020,6 +2037,7 @@ const EstoqueForm: React.FC = () => {
               ...(comissaoPercentualValor === undefined ? { comissaoPercentual: null } : {}),
               ...(precoAVistaValor === undefined ? { precoAVista: null } : {}),
               ...(precoAPrazoValor === undefined ? { precoAPrazo: null } : {}),
+              ...(custoComercialValor === undefined ? { custoComercial: null } : {}),
             }),
             CAMPOS_DO_PRODUTO_NO_HISTORICO,
           );
@@ -2326,6 +2344,22 @@ const EstoqueForm: React.FC = () => {
                   {custoCalculadoPelaComposicao && (
                     <span className="field-hint">Calculado automaticamente pela composição (aba "Composição"), não editável aqui.</span>
                   )}
+                </div>
+                <div className="input-group">
+                  <label>Custo médio</label>
+                  <input
+                    type="text"
+                    value={Number(produtoOriginal?.custoMedio) > 0 ? formatCurrency(Number(produtoOriginal?.custoMedio)) : 'Sem entrada de nota'}
+                    readOnly
+                    disabled
+                    title="Média ponderada do custo, recalculada a cada entrada de nota fiscal"
+                  />
+                  <span className="field-hint">Recalculado sozinho a cada entrada de nota. Não é digitado aqui.</span>
+                </div>
+                <div className="input-group">
+                  <label>Custo comercial</label>
+                  <input type="number" name="custoComercial" step="0.01" min="0" title="Custo de compra mais as despesas (frete, impostos e outras)" value={formData.custoComercial} onChange={handleChange} />
+                  <span className="field-hint">Custo de compra somado às despesas (frete, impostos e outras). Informativo: a margem é calculada sobre o "Custo do produto".</span>
                 </div>
                 <div className="input-group">
                   <label>Última alteração</label>

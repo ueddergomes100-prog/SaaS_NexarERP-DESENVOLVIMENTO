@@ -112,3 +112,12 @@
     page-break-inside: avoid;
   }
 }
+
+/* Pre-venda simplificada (Jomarly, 17/11/2026): nome do cliente em destaque,
+   pode quebrar linha em vez de empurrar o fone e o documento para fora. */
+.pv-linha > span.pv-cliente-destaque {
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: normal;
+  flex: 1;
+}

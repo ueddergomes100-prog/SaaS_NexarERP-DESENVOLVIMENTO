@@ -29,6 +29,9 @@ const PedidoPrintModelo: React.FC<PedidoPrintModeloProps> = ({ pedidoData: pedid
   if (modelo === 'pre-venda') {
     return <PedidoPrintPreVenda pedidoData={pedidoData} clientData={clientData} configData={configData} />;
   }
+  if (modelo === 'pre-venda-simples') {
+    return <PedidoPrintPreVenda pedidoData={pedidoData} clientData={clientData} configData={configData} simplificado />;
+  }
   return <PedidoPrintDocument pedidoData={pedidoData} clientData={clientData} configData={configData} />;
 };
 

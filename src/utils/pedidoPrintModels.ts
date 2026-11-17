@@ -16,6 +16,11 @@ export const PEDIDO_PRINT_MODELS = [
     name: 'Pré-venda (modelo Sol Natus)',
     description: 'Folha A4 no formato da pré-venda do sistema antigo: quadro da empresa, dados do cliente, itens com matrícula e marca, totais e rodapé com usuário e hora.',
   },
+  {
+    id: 'pre-venda-simples',
+    name: 'Pré-venda simplificada (modelo Jomarly)',
+    description: 'O mesmo formato da pré-venda, sem marca, contrato e total de peças, com o nome do cliente em destaque e "Cód." no lugar de "Matric.".',
+  },
 ] as const;
 
 export type PedidoPrintModelId = (typeof PEDIDO_PRINT_MODELS)[number]['id'];

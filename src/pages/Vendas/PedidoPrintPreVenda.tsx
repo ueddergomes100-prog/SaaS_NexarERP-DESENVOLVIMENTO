@@ -19,6 +19,11 @@ interface PedidoPrintPreVendaProps {
   pedidoData: any;
   clientData: any;
   configData: any;
+  /**
+   * Modelo "Pre-venda simplificada" (Jomarly, 17/11/2026): sem Marca, Contrato
+   * e total de pecas; nome do cliente em destaque; "Cod." no lugar de "Matric.".
+   */
+  simplificado?: boolean;
 }
 
 const numero = (valor: number, casas = 2) =>
@@ -43,7 +48,7 @@ const totalOuVazio = (valor: number) => (Number(valor || 0) !== 0 ? numero(valor
  * Serve pra pre-venda e pra pedido de venda: so' o titulo muda. Nao declara
  * `@page { size }` (regra do projeto).
  */
-const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, clientData, configData }) => {
+const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, clientData, configData, simplificado = false }) => {
   const extras = usePedidoPrintExtras(pedidoData);
   // Fixo enquanto a folha esta montada: o "Gerado em" nao pode andar a cada render.
   const [geradoEm] = useState(() => new Date());
@@ -79,10 +84,10 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
           <span><span className="pv-rotulo">Dt Emissão:</span> {formatarDataCurtaMinuta(criadoEm)}</span>
           <span><span className="pv-rotulo">Hora:</span> {formatarHoraMinuta(criadoEm)}</span>
           <span><span className="pv-rotulo">Operação:</span> VENDAS</span>
-          <span><span className="pv-rotulo">Contrato:</span></span>
+          {!simplificado && <span><span className="pv-rotulo">Contrato:</span></span>}
         </div>
         <div className="pv-linha">
-          <span><span className="pv-rotulo">Cliente:</span> {codigoENomeMinuta(clientData?.codigo, pedidoData.clienteNome || 'Consumidor Final')}</span>
+          <span className={simplificado ? 'pv-cliente-destaque' : undefined}><span className="pv-rotulo">Cliente:</span> {codigoENomeMinuta(clientData?.codigo, pedidoData.clienteNome || 'Consumidor Final')}</span>
           <span><span className="pv-rotulo">Fone:</span> {foneCliente}</span>
           <span><span className="pv-rotulo">CNPJ/CPF:</span> {formatarDocumentoMinuta(clientData?.documento)}</span>
         </div>
@@ -102,7 +107,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
         <div className="pv-linha">
           <span><span className="pv-rotulo">Vendedor:</span> {vendedorMinuta(extras.vendedorCodigo, pedidoData.vendedorNome)}</span>
           <span><span className="pv-rotulo">Cond.Pagto:</span> {condicao}</span>
-          <span>{formatarTotalPecasMinuta(itens)} Pcs</span>
+          {!simplificado && <span>{formatarTotalPecasMinuta(itens)} Pcs</span>}
         </div>
         <div className="pv-linha">
           <span><span className="pv-rotulo">Observação:</span> {String(pedidoData.observacao || '')}</span>
@@ -113,7 +118,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
         <colgroup>
           <col style={{ width: '9%' }} />
           <col />
-          <col style={{ width: '14%' }} />
+          {!simplificado && <col style={{ width: '14%' }} />}
           <col style={{ width: '6%' }} />
           <col style={{ width: '9%' }} />
           <col style={{ width: '11%' }} />
@@ -121,9 +126,9 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
         </colgroup>
         <thead>
           <tr>
-            <th>Matric.</th>
+            <th>{simplificado ? 'Cód.' : 'Matric.'}</th>
             <th>Descrição</th>
-            <th>Marca</th>
+            {!simplificado && <th>Marca</th>}
             <th>Und.</th>
             <th className="pv-num">Quantid.</th>
             <th className="pv-num">Vr Unit.</th>
@@ -138,7 +143,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
                 <tr key={`${item.id}-${i}`}>
                   <td>{item.codigo || extra.codigo}</td>
                   <td>{item.nome}</td>
-                  <td>{item.marca || extra.marca}</td>
+                  {!simplificado && <td>{item.marca || extra.marca}</td>}
                   <td>{item.unidadeMedidaSigla || 'UN'}</td>
                   <td className="pv-num">{numero(item.quantidade, item.unidadeMedidaCasasDecimais ?? 0)}</td>
                   <td className="pv-num">{numero(item.precoUnitario)}</td>
@@ -148,7 +153,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
             })
           ) : (
             <tr>
-              <td colSpan={7} style={{ textAlign: 'center', padding: '8px' }}>Nenhum item adicionado.</td>
+              <td colSpan={simplificado ? 6 : 7} style={{ textAlign: 'center', padding: '8px' }}>Nenhum item adicionado.</td>
             </tr>
           )}
         </tbody>

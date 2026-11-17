@@ -29,7 +29,25 @@ export interface OpcoesListaPaginada {
   camposExatos?: string[];
   tamanhoPagina?: number;
   habilitado?: boolean;
+  /**
+   * Busca so' de numero (CPF/CNPJ, telefone, codigo -- com ou sem pontos,
+   * inteiro ou um pedaco) vai ao cadastro inteiro: o banco so' acharia o
+   * documento completo e escrito igual ao gravado (17/11/2026, "busca o CPF
+   * esta sem funcionar"). Quem chama compara pelos digitos.
+   */
+  buscaNumericaNoCadastroInteiro?: boolean;
 }
+
+/** O texto e' so' numero (digitos com pontos, traco, barra, parenteses ou espaco)? */
+export const ehBuscaNumerica = (termo: string): boolean => /\d/.test(termo) && /^[\d\s.\-/()]+$/.test(termo.trim());
+
+/** Campo contem os digitos procurados? (CPF gravado sem pontos x digitado com pontos, e vice-versa) */
+export const contemDigitos = (campo: unknown, termo: string): boolean => {
+  // So' quando o texto e' numero: "rua 12" nao pode achar todo CPF com "12".
+  if (!ehBuscaNumerica(termo)) return false;
+  const procurado = termo.replace(/\D/g, '');
+  return procurado !== '' && String(campo ?? '').replace(/\D/g, '').includes(procurado);
+};
 
 interface Pagina<T> { itens: T[]; ultimoDoc: QueryDocumentSnapshot<DocumentData> | null; cheia: boolean }
 
@@ -37,13 +55,15 @@ const FIM_DO_PREFIXO = '';
 
 export function useListaPaginada<T extends { id: string }>({
   colecao, tenantId, completo, termoBusca, campoOrdem = 'nome', camposExatos = [], tamanhoPagina = 50, habilitado = true,
+  buscaNumericaNoCadastroInteiro = false,
 }: OpcoesListaPaginada) {
   const termo = termoBusca.trim();
   const [buscaCompleta, setBuscaCompleta] = useState(false);
   const [semIndice, setSemIndice] = useState(false);
   useEffect(() => { if (termo === '') setBuscaCompleta(false); }, [termo]);
 
-  const modoCompleto = completo || semIndice || (termo !== '' && (buscaCompleta || catalogoJaCarregado(colecao, tenantId)));
+  const numerica = buscaNumericaNoCadastroInteiro && ehBuscaNumerica(termo);
+  const modoCompleto = completo || semIndice || (termo !== '' && (buscaCompleta || numerica || catalogoJaCarregado(colecao, tenantId)));
   const modoBusca = !modoCompleto && termo !== '';
   const modoPaginado = !modoCompleto && !modoBusca;
   const [carregando, setCarregando] = useState(true);

@@ -3,7 +3,7 @@ import { LINHAS_POR_VEZ, useTermoAdiado } from '../../hooks/useTermoAdiado';
 import { Search, Plus, Edit, Power, Trash2, Upload, CaseUpper, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { useListaPaginada } from '../../hooks/useListaPaginada';
+import { contemDigitos, useListaPaginada } from '../../hooks/useListaPaginada';
 import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
 import { obterCatalogo } from '../../services/catalogoEstoqueService';
 import { db } from '../../services/firebase';
@@ -94,6 +94,7 @@ const ClientesList: React.FC = () => {
     habilitado: Boolean(currentUser),
     completo: situacao !== SITUACAO_PADRAO || filtrosAbertos || filtrosAtivosAgora > 0 || previewAberto,
     termoBusca: termoAdiado,
+    buscaNumericaNoCadastroInteiro: true,
     camposExatos: ['codigo', 'documento', 'telefone', 'celular'],
   });
   const loading = lista.carregando || padronizando;
@@ -186,8 +187,10 @@ const ClientesList: React.FC = () => {
     return (
       (cliente.codigo && cliente.codigo.toLowerCase().includes(term)) ||
       (cliente.nome && cliente.nome.toLowerCase().includes(term)) ||
-      (cliente.documento && cliente.documento.includes(termoAdiado)) ||
-      (cliente.telefone && cliente.telefone.includes(termoAdiado))
+      // CPF/CNPJ e telefone pelos digitos: gravado sem pontos, digitado com ou sem.
+      contemDigitos(cliente.documento, termoAdiado) ||
+      contemDigitos(cliente.telefone, termoAdiado) ||
+      contemDigitos(cliente.celular, termoAdiado)
     );
   })
     .filter((cliente) => passaNoFiltroLocal(cliente, filtroLocal))

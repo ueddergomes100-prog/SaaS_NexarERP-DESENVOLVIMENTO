@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { LINHAS_POR_VEZ, useTermoAdiado } from '../../hooks/useTermoAdiado';
-import { useListaPaginada } from '../../hooks/useListaPaginada';
+import { contemDigitos, useListaPaginada } from '../../hooks/useListaPaginada';
 import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
 import { Search, Plus, Edit, Power, Trash2, Upload, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -87,6 +87,7 @@ const FornecedoresList: React.FC = () => {
     completo: situacao !== SITUACAO_PADRAO || filtrosAbertos || Boolean(filtroLocal.uf || filtroLocal.cidade || tipoCadastro)
       || quantosFiltrosExtras(filtroExtra) > 0 || previewAberto,
     termoBusca: termoAdiado,
+    buscaNumericaNoCadastroInteiro: true,
     camposExatos: ['codigo', 'cnpj', 'telefone', 'celular'],
   });
   const loading = lista.carregando;
@@ -128,8 +129,11 @@ const FornecedoresList: React.FC = () => {
     const term = termoAdiado.toLowerCase();
     return (
       (fornecedor.nome && fornecedor.nome.toLowerCase().includes(term)) ||
-      (fornecedor.cnpj && fornecedor.cnpj.includes(termoAdiado)) ||
-      (fornecedor.telefone && fornecedor.telefone.includes(termoAdiado))
+      // CNPJ/CPF e telefone pelos digitos: gravado sem pontos, digitado com ou sem.
+      contemDigitos(fornecedor.cnpj, termoAdiado) ||
+      contemDigitos(fornecedor.telefone, termoAdiado) ||
+      contemDigitos(fornecedor.celular, termoAdiado) ||
+      Boolean(fornecedor.codigo && String(fornecedor.codigo).toLowerCase().includes(term))
     );
   })
     .filter((fornecedor) => passaNoFiltroLocal(fornecedor, filtroLocal))

@@ -24,7 +24,7 @@ import {
   type LinhaComposicaoImportada,
   type MapeamentoColunasComposicao,
 } from '../../utils/importacaoComposicaoDomain';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /**
  * Importacao em massa de composicao (receita de producao) a partir de uma
@@ -134,8 +134,8 @@ const ImportarComposicao: React.FC = () => {
       // cadastro que o usuario ja tirou de circulacao.
       const [snapEstoque, snapMp, snapComposicoes] = await Promise.all([
         obterCatalogoEstoque(tenantId),
-        getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId))),
-        getDocs(query(collection(db, 'produtos_composicao'), where('tenantId', '==', tenantId))),
+        obterCatalogo('materias_primas', tenantId),
+        obterCatalogo('produtos_composicao', tenantId),
       ]);
 
       const produtos: ItemCatalogo[] = [];

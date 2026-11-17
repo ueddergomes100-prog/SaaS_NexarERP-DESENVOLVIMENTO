@@ -16,6 +16,7 @@ import { separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 /** Numero sem valor (cadastro antigo sem o campo) conta como 0: nao vira "alteracao" falsa. */
 const numeroOuZero = (v: unknown): number => Number(v) || 0;
@@ -94,8 +95,7 @@ const MateriaPrimaForm: React.FC = () => {
     const fetchInitialData = async () => {
       if (!tenantId) return;
       try {
-        const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
-        const snapCat = await getDocs(qCat);
+        const snapCat = await obterCatalogo('categorias', tenantId);
         // So' sugere categoria ativa (categoriaDomain.ts). O campo e' texto livre,
         // entao a categoria atual da materia-prima nunca some da tela.
         setCategoriasDB(separarCategoriasPorSituacao(
@@ -118,14 +118,14 @@ const MateriaPrimaForm: React.FC = () => {
         // Unidades e fornecedores tambem sao so' sugestao: cada consulta no
         // seu try, pra uma falha nao derrubar o formulario.
         try {
-          const snapUni = await getDocs(query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId)));
+          const snapUni = await obterCatalogo('unidades_medida', tenantId);
           setUnidadesDB(snapUni.docs.filter(d => d.data().ativo !== false).map(d => d.data().sigla).filter(Boolean));
         } catch (unidadeError) {
           console.error('Erro ao carregar as unidades (sugestão do campo Unidade):', unidadeError);
           setUnidadesDB([]);
         }
         try {
-          const snapForn = await getDocs(query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)));
+          const snapForn = await obterCatalogo('fornecedores', tenantId);
           setFornecedoresDB(snapForn.docs.filter(d => d.data().ativo !== false).map(d => d.data().nome).filter(Boolean));
         } catch (fornecedorError) {
           console.error('Erro ao carregar os fornecedores (sugestão do campo Fornecedor):', fornecedorError);

@@ -14,6 +14,7 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
 
 interface CategoriaData {
   id: string;
@@ -46,8 +47,7 @@ const CategoriasList: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = acompanharCatalogo('categorias', tenantId || '', (snapshot) => {
       const data: CategoriaData[] = [];
       snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as CategoriaData));
       data.sort((a, b) => a.nome.localeCompare(b.nome));

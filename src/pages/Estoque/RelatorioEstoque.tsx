@@ -22,7 +22,7 @@ import {
   format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, parseISO,
 } from 'date-fns';
 import './Estoque.css';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 type ProdutoRelatorio = ProdutoDoRelatorioEstoque;
 
@@ -132,8 +132,8 @@ const RelatorioEstoque: React.FC = () => {
     try {
       const [snapProdutos, snapCategorias, snapComposicoes] = await Promise.all([
         obterCatalogoEstoque(tenantId),
-        getDocs(query(collection(db, 'categorias'), where('tenantId', '==', tenantId))),
-        getDocs(query(collection(db, 'produtos_composicao'), where('tenantId', '==', tenantId))),
+        obterCatalogo('categorias', tenantId),
+        obterCatalogo('produtos_composicao', tenantId),
       ]);
 
       // O principal de uma grade nao tem saldo: as linhas sao as variacoes.

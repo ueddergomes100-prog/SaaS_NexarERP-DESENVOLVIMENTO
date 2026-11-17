@@ -78,7 +78,7 @@ import {
 } from '../../utils/orcamentoModeloDomain';
 import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; descontoPadraoPercentual?: number | null; }
 interface ServicoData { id: string; nome: string; preco: number; }
@@ -252,8 +252,7 @@ const OrcamentoForm: React.FC = () => {
       if (!currentUser || !tenantId) return;
 
       try {
-        const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
-        const snapV = await getDocs(qV);
+        const snapV = await obterCatalogo('veiculos', tenantId);
         const dataV: VeiculoBasico[] = [];
         // Campos opcionais no cadastro de veiculo (Ano, Cor) podem faltar no
         // documento -- sem o fallback, o autofill do orcamento copiava
@@ -269,8 +268,7 @@ const OrcamentoForm: React.FC = () => {
         }));
         setVeiculosDisponiveis(dataV);
 
-        const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
-        const snapS = await getDocs(qS);
+        const snapS = await obterCatalogo('servicos', tenantId);
         const dataS: ServicoData[] = [];
         snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco }));
         setServicosCatalogo(dataS);

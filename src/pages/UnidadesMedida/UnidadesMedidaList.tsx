@@ -21,6 +21,7 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
 
 interface UnidadeData {
   id: string;
@@ -67,8 +68,7 @@ const UnidadesMedidaList: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser || !tenantId || !canAccess) return;
-    const q = query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = acompanharCatalogo('unidades_medida', tenantId || '', (snapshot) => {
       const data: UnidadeData[] = [];
       snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as UnidadeData));
       data.sort((a, b) => a.nome.localeCompare(b.nome));

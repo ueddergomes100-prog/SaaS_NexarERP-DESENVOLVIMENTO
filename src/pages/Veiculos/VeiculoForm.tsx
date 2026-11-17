@@ -13,6 +13,7 @@ import { useModoOficina } from '../../hooks/useModoOficina';
 import { validarIdentificacaoEquipamento } from '../../utils/oficinaDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; }
 
@@ -80,8 +81,7 @@ const VeiculoForm: React.FC = () => {
 
       try {
         // Fetch Clientes
-        const qC = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-        const snapC = await getDocs(qC);
+        const snapC = await obterCatalogo('clientes', tenantId);
         const dataC: ClienteBasico[] = [];
         snapC.forEach((d) => dataC.push({ id: d.id, nome: d.data().nome, telefone: d.data().telefone }));
         setClientesDisponiveis(dataC);

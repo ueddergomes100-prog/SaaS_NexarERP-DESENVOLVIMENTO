@@ -28,6 +28,7 @@ import {
   type MapeamentoColunas,
   type UnidadeMedidaRef,
 } from '../../utils/importacaoEstoqueDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 /**
  * Importacao em massa de produtos, a partir da contagem fisica de estoque
@@ -117,7 +118,7 @@ const ImportarProdutos: React.FC = () => {
     if (!tenantId || dadosCarregados) return;
     try {
       const [unidadesSnap, configSnap] = await Promise.all([
-        getDocs(query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId))),
+        obterCatalogo('unidades_medida', tenantId),
         getDoc(doc(db, 'configuracoes', tenantId)),
       ]);
       setUnidadesDisponiveis(unidadesSnap.docs.map((d) => ({

@@ -35,6 +35,7 @@ import {
   type FiltroEstoqueMateriaPrima,
   type FiltroMateriasPrimas,
 } from '../../utils/relatorioMateriasPrimasDomain';
+import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
 
 interface MateriaPrimaData {
   id: string;
@@ -90,9 +91,7 @@ const MateriasPrimasList: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    const q = query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId));
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    const unsubscribe = acompanharCatalogo('materias_primas', tenantId || '', (querySnapshot) => {
       const data: MateriaPrimaData[] = [];
       querySnapshot.forEach((doc) => {
         data.push({ id: doc.id, ...doc.data() } as MateriaPrimaData);

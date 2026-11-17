@@ -23,7 +23,7 @@ import { getDateInputInTimeZone, addDaysToDateInput, addMonthsToDateInput } from
 import { toCents, splitCents } from '../../utils/financeDomain';
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
-import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { acompanharCatalogo, acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface FornecedorBasico {
   id: string;
@@ -96,8 +96,8 @@ const NotaAvulsaForm: React.FC = () => {
 
   useEffect(() => {
     if (!tenantId) return;
-    const unsubscribe = onSnapshot(
-      query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)),
+    const unsubscribe = acompanharCatalogo(
+      'fornecedores', tenantId,
       (snap) => setFornecedores(snap.docs.map((d) => ({ id: d.id, nome: d.data().nome || '', codigo: d.data().codigo }))),
       (error) => console.error('Erro ao carregar fornecedores:', error),
     );

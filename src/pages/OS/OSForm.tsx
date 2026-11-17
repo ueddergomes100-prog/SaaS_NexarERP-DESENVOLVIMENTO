@@ -130,7 +130,7 @@ import { cancelarOsNoServidor, finalizarOsNoServidor, reabrirOsNoServidor, OsSer
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
 import { AVISO_OS_EM_ATENDIMENTO_NO_CAMPO, STATUS_OS_AGUARDANDO_CONFERENCIA, STATUS_OS_EM_ATENDIMENTO, osEmAtendimentoNoCampo, type AssinaturaOS, type FotoOS } from '../../utils/osCampoDomain';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null; }
 interface Banco { id: string; nome: string; ativo: boolean; }
@@ -426,8 +426,7 @@ const OSForm: React.FC = () => {
 
 
       // Fetch Veículos
-      const qV = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
-      const snapV = await getDocs(qV);
+      const snapV = await obterCatalogo('veiculos', tenantId);
       const dataV: VeiculoBasico[] = [];
       snapV.forEach((doc) => dataV.push({
         id: doc.id,
@@ -452,8 +451,7 @@ const OSForm: React.FC = () => {
       setVeiculosDisponiveis(dataV);
 
       // Fetch Serviços
-      const qS = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
-      const snapS = await getDocs(qS);
+      const snapS = await obterCatalogo('servicos', tenantId);
       const dataS: ServicoData[] = [];
       snapS.forEach((doc) => {
         const dataDoc = doc.data();

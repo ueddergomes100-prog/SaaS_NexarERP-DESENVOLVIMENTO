@@ -13,7 +13,7 @@ import {
 } from '../utils/custoProducaoDomain';
 import { showWarning } from '../utils/alerts';
 import { mostrarImpactoDeCusto } from '../utils/impactoCustoAlert';
-import { obterCatalogoEstoque } from './catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from './catalogoEstoqueService';
 
 /*
  * Grava o custo recalculado dos produtos acabados. A regra esta em
@@ -58,9 +58,9 @@ export const sincronizarCustosDaProducao = async (opcoes: OpcoesDeSincronizacao)
   if (mudancas.length === 0 && receitasAlteradas.length === 0 && !opcoes.todos) return vazio;
 
   const [snapReceitas, snapEstoque, snapMateriasPrimas] = await Promise.all([
-    getDocs(query(collection(db, 'produtos_composicao'), where('tenantId', '==', tenantId))),
+    obterCatalogo('produtos_composicao', tenantId),
     obterCatalogoEstoque(tenantId),
-    getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId))),
+    obterCatalogo('materias_primas', tenantId),
   ]);
 
   const receitas: ReceitaDoProduto[] = [];

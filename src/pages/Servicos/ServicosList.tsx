@@ -18,6 +18,7 @@ import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { categoriasDosServicos, montarDocumentoServicos, passaNaCategoria } from '../../utils/relatorioServicosDomain';
+import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
 
 interface ServicoData {
   id: string;
@@ -46,8 +47,7 @@ const ServicosList: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'servicos'), where('tenantId', '==', tenantId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = acompanharCatalogo('servicos', tenantId || '', (snapshot) => {
       const data: ServicoData[] = [];
       snapshot.forEach(doc => data.push({ id: doc.id, ...doc.data() } as ServicoData));
       // Por codigo (numerico, nao alfabetico) -- sequencia que o usuario

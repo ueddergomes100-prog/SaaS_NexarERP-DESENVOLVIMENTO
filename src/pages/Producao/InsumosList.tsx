@@ -23,6 +23,7 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
+import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
 
 /**
  * INSUMOS (2026-09-25): material de CONSUMO da empresa (caixa, fita, etiqueta,
@@ -72,7 +73,7 @@ const InsumosList: React.FC = () => {
 
   useEffect(() => {
     if (!tenantId) return undefined;
-    return onSnapshot(query(collection(db, 'insumos'), where('tenantId', '==', tenantId)), (snap) => {
+    return acompanharCatalogo('insumos', tenantId, (snap) => {
       const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() } as InsumoDoCadastro));
       lista.sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
       setInsumos(lista);

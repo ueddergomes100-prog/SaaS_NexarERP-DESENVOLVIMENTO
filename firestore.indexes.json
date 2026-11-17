@@ -127,6 +127,14 @@
       ]
     },
     {
+      "collectionGroup": "fornecedores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "nome", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "ordens_de_servico",
       "queryScope": "COLLECTION",
       "fields": [

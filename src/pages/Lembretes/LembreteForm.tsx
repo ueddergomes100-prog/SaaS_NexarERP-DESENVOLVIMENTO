@@ -8,6 +8,7 @@ import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 interface ClienteBasico {
   id: string;
@@ -61,16 +62,14 @@ const LembreteForm: React.FC = () => {
   useEffect(() => {
     const fetchClientes = async () => {
       if (!currentUser) return;
-      const q = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await obterCatalogo('clientes', tenantId);
       const data: ClienteBasico[] = [];
       querySnapshot.forEach((doc) => {
         data.push({ id: doc.id, nome: doc.data().nome, telefone: doc.data().telefone });
       });
       setClientesDisponiveis(data);
 
-      const qVeic = query(collection(db, 'veiculos'), where('tenantId', '==', tenantId));
-      const snapVeic = await getDocs(qVeic);
+      const snapVeic = await obterCatalogo('veiculos', tenantId);
       const veicData: VeiculoBasico[] = [];
       snapVeic.forEach((doc) => veicData.push({ id: doc.id, placa: doc.data().placa, modelo: doc.data().modelo, clienteId: doc.data().clienteId }));
       setVeiculosDisponiveis(veicData);

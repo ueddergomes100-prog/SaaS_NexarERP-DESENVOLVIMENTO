@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Search, Plus, Edit, Power, Trash2, Upload, CaseUpper, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
-import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { useListaPaginada } from '../../hooks/useListaPaginada';
+import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -64,9 +67,8 @@ const ClientesList: React.FC = () => {
     if (avisarSeEmEdicao(travasClientes, 'cliente', id)) return;
     void openTab(`/clientes/editar/${id}`);
   };
-  const [clientes, setClientes] = useState<ClienteData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [padronizando, setPadronizando] = useState(false);
   const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
   // Filtros e relatorio (16/10/2026): o relatorio sai com o que esta filtrado aqui.
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
@@ -79,28 +81,23 @@ const ClientesList: React.FC = () => {
 
   const { currentUser, tenantId } = useAuth();
 
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const q = query(collection(db, 'clientes'), where('tenantId', '==', tenantId));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: ClienteData[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as ClienteData);
-      });
-      // Por codigo (numerico, nao alfabetico) -- e' a sequencia que o
-      // usuario reconhece do sistema antigo/papel, nao a ordem do nome.
-      data.sort((a, b) => (Number(a.codigo) || 0) - (Number(b.codigo) || 0));
-      setClientes(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar clientes:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+  // Com limite (17/11/2026): 50 por vez pela ordem do nome, busca no banco;
+  // situacao diferente de "Ativos", filtros e relatorio usam o cadastro inteiro
+  // (catalogo compartilhado). Ver useListaPaginada.
+  const filtrosAtivosAgora = (filtroLocal.uf || filtroLocal.cidade ? 1 : 0) + quantosFiltrosExtras(filtroExtra);
+  const lista = useListaPaginada<ClienteData>({
+    colecao: 'clientes',
+    tenantId,
+    habilitado: Boolean(currentUser),
+    completo: situacao !== SITUACAO_PADRAO || filtrosAbertos || filtrosAtivosAgora > 0 || previewAberto,
+    termoBusca: searchTerm,
+    camposExatos: ['codigo', 'documento', 'telefone', 'celular'],
+  });
+  const loading = lista.carregando || padronizando;
+  const clientes = useMemo(
+    () => [...lista.itens].sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR')),
+    [lista.itens],
+  );
 
   const handleToggleAtivo = async (cliente: ClienteData) => {
     if (!currentUser) return;
@@ -139,10 +136,12 @@ const ClientesList: React.FC = () => {
     });
 
     if (isConfirmed.isConfirmed) {
-      setLoading(true);
+      setPadronizando(true);
       let count = 0;
       try {
-        for (const c of clientes) {
+        // A lista mostra so' uma parte: a padronizacao pega o cadastro inteiro.
+        const todos = (await obterCatalogo('clientes', tenantId)).docs.map((d) => ({ id: d.id, ...d.data() } as ClienteData));
+        for (const c of todos) {
           const upName = c.nome.toUpperCase().trim();
           // registro inativo nao se edita (firestore.rules)
           if (c.ativo !== false && c.nome !== upName) {
@@ -157,7 +156,7 @@ const ClientesList: React.FC = () => {
       } catch(err) {
         showError('Erro', 'Ocorreu um erro na migração.');
       } finally {
-        setLoading(false);
+        setPadronizando(false);
         // Historico de alteracoes (09/11/2026): um registro com a quantidade
         // (inclusive quando parou no meio -- os que ja' mudaram, mudaram).
         if (count > 0 && tenantId) {
@@ -367,6 +366,15 @@ const ClientesList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <RodapeListaPaginada
+          carregando={loading}
+          temMais={lista.temMais}
+          onVerMais={lista.verMais}
+          buscaNoBanco={lista.buscaNoBanco}
+          termoBusca={searchTerm}
+          onBuscarEmTudo={lista.buscarEmTudo}
+          oQueMais="clientes"
+        />
       </div>
     </div>
   );

@@ -25,6 +25,7 @@ import {
   type FornecedorImportado,
   type MapeamentoColunasFornecedor,
 } from '../../utils/importacaoFornecedoresDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 /**
  * Importacao em massa de fornecedores a partir do cadastro do sistema
@@ -121,7 +122,7 @@ const ImportarFornecedores: React.FC = () => {
     setCarregandoArquivo(true);
     try {
       if (tenantId) {
-        const existentesSnap = await getDocs(query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)));
+        const existentesSnap = await obterCatalogo('fornecedores', tenantId);
         const docs = new Set<string>();
         existentesSnap.forEach((d) => {
           const documento = String(d.data().cnpj || '').replace(/\D/g, '');

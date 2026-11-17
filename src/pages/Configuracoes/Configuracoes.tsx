@@ -144,6 +144,7 @@ import {
   type ConfigOrcamento,
   type ModeloOrcamento,
 } from '../../utils/orcamentoModeloDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -1387,7 +1388,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       // hora de finalizar. Nao mexe se ja existir (mesmo inativo -- respeita
       // uma desativacao deliberada em vez de recriar por baixo).
       if (formData.pagamentoCartaoSimplificadoAtivo) {
-        const bancosSnap = await getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId)));
+        const bancosSnap = await obterCatalogo('bancos', tenantId);
         const bancoPadraoJaExiste = bancosSnap.docs.some((bancoDoc) => (
           String(bancoDoc.data().nome || '').trim().toLowerCase() === SIMPLIFIED_CARD_BANK_NAME.toLowerCase()
         ));

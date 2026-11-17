@@ -99,7 +99,7 @@ import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../c
 import type { CaixaSangria, PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
 import hennderIcon from '../../assets/hennder-icon.webp';
 import './PDV.css';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface BandeiraCartao {
   id: string;
@@ -320,7 +320,7 @@ const PDV: React.FC = () => {
       try {
         const [productsSnap, clientsSnap, configSnap] = await Promise.all([
           obterCatalogoEstoque(tenantId),
-          getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId))),
+          obterCatalogo('clientes', tenantId),
           getDoc(doc(db, 'configuracoes', tenantId)),
         ]);
 

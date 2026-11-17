@@ -10,6 +10,7 @@ import {
   type VeiculoDoRelatorio,
 } from '../../utils/relatorioVeiculosDomain';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 /*
  * Relatorios Diversos > Veiculos dos clientes. Abre no padrao de relatorio
@@ -33,7 +34,7 @@ const PrintRelatorioVeiculos: React.FC = () => {
       setLoading(true);
       setError('');
       try {
-        const snapshot = await getDocs(query(collection(db, 'veiculos'), where('tenantId', '==', tenantId)));
+        const snapshot = await obterCatalogo('veiculos', tenantId);
         if (cancelado) return;
         setVeiculos(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as VeiculoDoRelatorio));
       } catch (erro) {

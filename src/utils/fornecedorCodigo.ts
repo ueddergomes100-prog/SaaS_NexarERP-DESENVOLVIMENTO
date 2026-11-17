@@ -1,5 +1,6 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { obterCatalogo } from '../services/catalogoEstoqueService';
 
 /**
  * Proximo codigo de fornecedor: maior codigo numerico ja usado + 1 (nao a
@@ -11,8 +12,7 @@ import { db } from '../services/firebase';
  * comecar do 4 em vez de preencher 1, 2, 3.
  */
 export const getProximoCodigoFornecedor = async (tenantId: string): Promise<string> => {
-  const q = query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId));
-  const snap = await getDocs(q);
+  const snap = await obterCatalogo('fornecedores', tenantId);
   const maxCodigo = snap.docs.reduce((max, docSnap) => {
     const parsed = Number.parseInt(String(docSnap.data().codigo || '').replace(/\D/g, ''), 10);
     return Number.isFinite(parsed) ? Math.max(max, parsed) : max;

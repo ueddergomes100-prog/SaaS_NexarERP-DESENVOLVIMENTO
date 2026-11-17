@@ -8,6 +8,7 @@ import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
 import { createAuditLog } from '../../services/logService';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 export interface ProdutoCadastradoRapido {
   id: string;
@@ -95,7 +96,7 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
 
   useEffect(() => {
     if (!open || !tenantId) return;
-    getDocs(query(collection(db, 'categorias'), where('tenantId', '==', tenantId)))
+    obterCatalogo('categorias', tenantId)
       .then((snap) => {
         // Mesmo filtro de EstoqueForm.tsx: categoria de servico nao entra
         // na lista de um cadastro rapido que so cria produto.
@@ -112,7 +113,7 @@ const CadastroRapidoProdutoModal: React.FC<CadastroRapidoProdutoModalProps> = ({
 
   useEffect(() => {
     if (!open || !tenantId) return;
-    getDocs(query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId)))
+    obterCatalogo('unidades_medida', tenantId)
       .then((snap) => {
         const lista = snap.docs.map((d) => ({
           id: d.id,

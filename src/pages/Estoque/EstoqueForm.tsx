@@ -58,7 +58,7 @@ import {
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import './Estoque.css';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 // ---------------------------------------------------------------------------
 // HISTORICO DE ALTERACOES (09/11/2026): o que mudou no cadastro do produto.
@@ -934,8 +934,7 @@ const EstoqueForm: React.FC = () => {
           setGradesDB([]);
         }
 
-        const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
-        const snapCat = await getDocs(qCat);
+        const snapCat = await obterCatalogo('categorias', tenantId);
         // Categoria inativa nao aparece pra escolha (ver categoriaDomain.ts);
         // a do proprio produto continua visivel, marcada como inativa.
         const { ativas, inativas } = separarCategoriasPorSituacao(
@@ -962,15 +961,14 @@ const EstoqueForm: React.FC = () => {
         }
         // Mesma regra: fornecedor aqui e' so' sugestao do campo.
         try {
-          const snapForn = await getDocs(query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId)));
+          const snapForn = await obterCatalogo('fornecedores', tenantId);
           setFornecedoresDB(snapForn.docs.filter(d => d.data().ativo !== false).map(d => d.data().nome).filter(Boolean));
         } catch (fornecedorError) {
           console.error('Erro ao carregar os fornecedores (sugestão do campo Fornecedor):', fornecedorError);
           setFornecedoresDB([]);
         }
 
-        const qUni = query(collection(db, 'unidades_medida'), where('tenantId', '==', tenantId));
-        const snapUni = await getDocs(qUni);
+        const snapUni = await obterCatalogo('unidades_medida', tenantId);
         const unis: UnidadeMedida[] = [];
         snapUni.forEach(d => {
           const uData = d.data();
@@ -1184,7 +1182,7 @@ const EstoqueForm: React.FC = () => {
       setComposicaoLoading(true);
       try {
         const [snapMp, snapEstoque] = await Promise.all([
-          getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId))),
+          obterCatalogo('materias_primas', tenantId),
           obterCatalogoEstoque(tenantId),
         ]);
 

@@ -28,6 +28,7 @@ import {
   type ClienteImportado,
   type MapeamentoColunasCliente,
 } from '../../utils/importacaoClientesDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 /**
  * Importacao em massa de clientes a partir do cadastro do sistema antigo
@@ -196,7 +197,7 @@ const ImportarClientes: React.FC = () => {
     setCarregandoArquivo(true);
     try {
       if (tenantId) {
-        const existentesSnap = await getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId)));
+        const existentesSnap = await obterCatalogo('clientes', tenantId);
         const docs = new Set<string>();
         existentesSnap.forEach((d) => {
           const documento = String(d.data().documento || '').replace(/\D/g, '');

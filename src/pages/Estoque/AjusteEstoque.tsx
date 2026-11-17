@@ -25,7 +25,7 @@ import { applyAjusteEstoqueManual } from '../../utils/firestoreAtomic';
 import { createAuditLog } from '../../services/logService';
 import './Estoque.css';
 import './AjusteEstoque.css';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface ProdutoAjuste extends SearchableProduct {
   id: string;
@@ -125,7 +125,7 @@ const AjusteEstoque: React.FC = () => {
       // no cadastro, so' por aqui (ou producao/nota de entrada).
       let materiasPrimas: ProdutoAjuste[] = [];
       try {
-        const snapMp = await getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId)));
+        const snapMp = await obterCatalogo('materias_primas', tenantId);
         materiasPrimas = snapMp.docs
           .filter((d) => d.data().ativo !== false)
           .map((d) => {
@@ -151,7 +151,7 @@ const AjusteEstoque: React.FC = () => {
       // Insumo (material de consumo) tambem: saldo so muda por nota de entrada ou por aqui.
       let insumos: ProdutoAjuste[] = [];
       try {
-        const snapInsumos = await getDocs(query(collection(db, 'insumos'), where('tenantId', '==', tenantId)));
+        const snapInsumos = await obterCatalogo('insumos', tenantId);
         insumos = snapInsumos.docs
           .filter((d) => d.data().ativo !== false)
           .map((d) => {

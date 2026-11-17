@@ -11,6 +11,7 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { apenasDigitos } from './documentoValidacao';
+import { obterCatalogo } from '../services/catalogoEstoqueService';
 
 export interface ClienteDocumentoDuplicado {
   id: string;
@@ -25,7 +26,7 @@ export const buscarClienteDuplicadoPorDocumento = async (
   const digitos = apenasDigitos(documentoBruto);
   if (!digitos) return null;
 
-  const snap = await getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId)));
+  const snap = await obterCatalogo('clientes', tenantId);
   for (const docSnap of snap.docs) {
     if (docSnap.id === idParaIgnorar) continue;
     const data = docSnap.data() as { documento?: string; nome?: string };

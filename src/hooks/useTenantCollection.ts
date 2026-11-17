@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, where, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
-import { db } from '../services/firebase';
-import { acompanharCatalogoEstoque } from '../services/catalogoEstoqueService';
+import { type DocumentData, type QuerySnapshot } from 'firebase/firestore';
+import { acompanharCatalogo } from '../services/catalogoEstoqueService';
 
 export interface TenantCollectionItem {
   id: string;
@@ -43,12 +42,12 @@ export function useTenantCollection<T extends TenantCollectionItem>(
     }
 
     setLoading(true);
-    // Produtos: uma escuta so' para todas as telas abertas (catalogoEstoqueService.ts).
-    const assinar = collectionName === 'estoque'
-      ? (aoMudar: (snapshot: QuerySnapshot<DocumentData>) => void, aoFalhar: (err: unknown) => void) => acompanharCatalogoEstoque(tenantId, aoMudar, aoFalhar)
-      : (aoMudar: (snapshot: QuerySnapshot<DocumentData>) => void, aoFalhar: (err: unknown) => void) => onSnapshot(query(collection(db, collectionName), where('tenantId', '==', tenantId)), aoMudar, aoFalhar);
-    const unsubscribe = assinar(
-      (snapshot) => {
+    // Uma escuta so' por colecao para todas as telas abertas (catalogoEstoqueService.ts):
+    // produtos, clientes, fornecedores, bancos... nao sao relidos a cada tela.
+    const unsubscribe = acompanharCatalogo(
+      collectionName,
+      tenantId,
+      (snapshot: QuerySnapshot<DocumentData>) => {
         const data = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as T);
         if (sortField) {
           data.sort((a, b) => (

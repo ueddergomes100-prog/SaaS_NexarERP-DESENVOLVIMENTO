@@ -11,6 +11,7 @@ import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 /** Campos comparados no Histórico de alterações, com o nome que aparece na tela. */
 const CAMPOS_SERVICO_HISTORICO: CampoComparado[] = [
@@ -48,8 +49,7 @@ const ServicoForm: React.FC = () => {
         if (!currentUser) return;
 
         // Fetch Categorias
-        const qCat = query(collection(db, 'categorias'), where('tenantId', '==', tenantId));
-        const snapCat = await getDocs(qCat);
+        const snapCat = await obterCatalogo('categorias', tenantId);
         const cats: string[] = [];
         snapCat.forEach(d => {
           if (d.data().tipo === 'Serviço') cats.push(d.data().nome);

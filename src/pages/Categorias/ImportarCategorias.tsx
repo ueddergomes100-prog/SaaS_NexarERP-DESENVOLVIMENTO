@@ -24,6 +24,7 @@ import {
   type MapeamentoColunasCategoria,
   type TipoCategoria,
 } from '../../utils/importacaoCategoriasDomain';
+import { obterCatalogo } from '../../services/catalogoEstoqueService';
 
 /**
  * Importacao em massa de categorias (grupos, no vocabulario do sistema
@@ -57,7 +58,7 @@ const ImportarCategorias: React.FC = () => {
     setCarregandoArquivo(true);
     try {
       if (tenantId) {
-        const existentesSnap = await getDocs(query(collection(db, 'categorias'), where('tenantId', '==', tenantId)));
+        const existentesSnap = await obterCatalogo('categorias', tenantId);
         const nomes = new Set<string>();
         existentesSnap.forEach((d) => {
           const nome = String(d.data().nome || '').trim().toUpperCase();

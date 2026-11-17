@@ -105,7 +105,7 @@ import { compactarXml } from '../../utils/xmlCompactoDomain';
 import { lerNfseXml } from '../../utils/nfseEntradaDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
 import Swal from 'sweetalert2';
-import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /** Item da nota: tudo que o XML trouxe + o total do produto com o nome que a tela ja usava. */
 interface ParsedItem extends ItemDaNota {
@@ -355,8 +355,7 @@ const EntradaNFE: React.FC = () => {
     const fetchMateriasPrimas = async () => {
       if (!tenantId) return;
       try {
-        const q = query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId));
-        const snap = await getDocs(q);
+        const snap = await obterCatalogo('materias_primas', tenantId);
         const list: MateriaPrimaItem[] = [];
         snap.forEach(d => {
           const data = d.data();
@@ -379,7 +378,7 @@ const EntradaNFE: React.FC = () => {
     const fetchInsumos = async () => {
       if (!tenantId) return;
       try {
-        const snap = await getDocs(query(collection(db, 'insumos'), where('tenantId', '==', tenantId)));
+        const snap = await obterCatalogo('insumos', tenantId);
         setInsumosAtuais(snap.docs.map((d) => {
           const data = d.data();
           return {

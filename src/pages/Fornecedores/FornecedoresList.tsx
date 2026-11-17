@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useListaPaginada } from '../../hooks/useListaPaginada';
+import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
 import { Search, Plus, Edit, Power, Trash2, Upload, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
-import { collection, query, onSnapshot, where } from 'firebase/firestore';
-import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
@@ -64,8 +64,6 @@ const FornecedoresList: React.FC = () => {
     if (avisarSeEmEdicao(travasFornecedores, 'fornecedor', id)) return;
     void openTab(`/fornecedores/editar/${id}`);
   };
-  const [fornecedores, setFornecedores] = useState<FornecedorData[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   // Filtros e relatorio (16/10/2026): o relatorio sai com o que esta filtrado aqui.
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
@@ -76,28 +74,23 @@ const FornecedoresList: React.FC = () => {
 
   const { currentUser, tenantId } = useAuth();
 
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const q = query(collection(db, 'fornecedores'), where('tenantId', '==', tenantId));
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const data: FornecedorData[] = [];
-      querySnapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as FornecedorData);
-      });
-      // Por codigo (numerico, nao alfabetico) -- e' a sequencia que o
-      // usuario reconhece do sistema antigo/papel, nao a ordem do nome.
-      data.sort((a, b) => (Number(a.codigo) || 0) - (Number(b.codigo) || 0));
-      setFornecedores(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar fornecedores:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [currentUser, tenantId]);
+  // Com limite (17/11/2026): 50 por vez pela ordem do nome, busca no banco;
+  // situacao diferente de "Ativos", filtros e relatorio usam o cadastro inteiro
+  // (catalogo compartilhado). Sem o indice tenantId+nome, usa o cadastro inteiro.
+  const lista = useListaPaginada<FornecedorData>({
+    colecao: 'fornecedores',
+    tenantId,
+    habilitado: Boolean(currentUser),
+    completo: situacao !== SITUACAO_PADRAO || filtrosAbertos || Boolean(filtroLocal.uf || filtroLocal.cidade || tipoCadastro)
+      || quantosFiltrosExtras(filtroExtra) > 0 || previewAberto,
+    termoBusca: searchTerm,
+    camposExatos: ['codigo', 'cnpj', 'telefone', 'celular'],
+  });
+  const loading = lista.carregando;
+  const fornecedores = useMemo(
+    () => [...lista.itens].sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR')),
+    [lista.itens],
+  );
 
   const handleToggleAtivo = async (fornecedor: FornecedorData) => {
     if (!currentUser) return;
@@ -307,6 +300,15 @@ const FornecedoresList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <RodapeListaPaginada
+          carregando={loading}
+          temMais={lista.temMais}
+          onVerMais={lista.verMais}
+          buscaNoBanco={lista.buscaNoBanco}
+          termoBusca={searchTerm}
+          onBuscarEmTudo={lista.buscarEmTudo}
+          oQueMais="fornecedores"
+        />
       </div>
     </div>
   );

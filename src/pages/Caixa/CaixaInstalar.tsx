@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
+import { acompanharPedidoDeInstalacao, pedirInstalacao, podeInstalarAgora } from '../../utils/pedidoDeInstalacao';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ArrowRight, MonitorDown, MoreVertical } from 'lucide-react';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
@@ -9,10 +10,12 @@ import { CAMINHO_APP_CAIXA } from '../../utils/frenteDeCaixaDomain';
 import '../Auth/Auth.css';
 
 /**
- * Porta de entrada da INSTALACAO da Frente de Caixa (`/caixa.html`), pelo
- * mesmo motivo de VendedorInstalar.tsx: a hospedagem de producao nao
- * reescreve caminhos, entao o unico HTML com o manifest e o icone do caixa
- * e' o arquivo real `caixa.html`. O manifest aponta o start_url para ele.
+ * Porta de entrada da INSTALACAO da Frente de Caixa (`/caixa.html`): o HTML
+ * com o manifest e o icone do caixa (id proprio e escopo /caixa, para instalar
+ * separado do sistema completo -- 17/11/2026). O manifest aponta o start_url
+ * para ele; o .htaccess da producao manda /caixa/** para o mesmo arquivo. Com
+ * o navegador oferecendo (Chrome/Edge), mostra o botao Instalar
+ * (pedidoDeInstalacao.ts); sem isso, o passo a passo.
  *
  *  - aberto pelo atalho instalado: vai direto para o caixa;
  *  - aberto no navegador: mostra como instalar e deixa seguir sem instalar.
@@ -24,6 +27,12 @@ const passoStyle: React.CSSProperties = {
 
 const CaixaInstalar: React.FC = () => {
   const navigate = useNavigate();
+  // Botao "Instalar" de verdade quando o navegador oferece (Chrome/Edge).
+  const podeInstalar = useSyncExternalStore(acompanharPedidoDeInstalacao, podeInstalarAgora);
+  const [instalou, setInstalou] = useState(false);
+  const instalar = async () => {
+    if (await pedirInstalacao()) setInstalou(true);
+  };
 
   if (estaInstalado()) {
     return <Navigate to={CAMINHO_APP_CAIXA} replace />;
@@ -44,7 +53,23 @@ const CaixaInstalar: React.FC = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {instalou && (
+          <p style={{ fontSize: '14.5px', color: 'var(--text-primary)', margin: 0 }}>
+            Pronto! A Frente de Caixa foi instalada. Abra pelo ícone &quot;Caixa&quot; na área de trabalho ou no menu Iniciar.
+          </p>
+        )}
+        {podeInstalar && !instalou && (
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => void instalar()}
+            style={{ height: '52px', justifyContent: 'center', gap: '8px', fontSize: '16px' }}
+          >
+            <MonitorDown size={20} /> Instalar a Frente de Caixa
+          </button>
+        )}
+
+        <div style={{ display: podeInstalar || instalou ? 'none' : 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={passoStyle}>
             <MonitorDown size={20} color="var(--brand-400)" style={{ flexShrink: 0 }} />
             <span style={{ fontSize: '14.5px', color: 'var(--text-secondary)' }}>
@@ -60,12 +85,12 @@ const CaixaInstalar: React.FC = () => {
         </div>
 
         <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
-          Instale por esta página. Instalando a partir de outra tela do sistema, o atalho abre o sistema completo em vez do caixa.
+          A Frente de Caixa é um app separado do sistema completo: pode instalar os dois no mesmo computador. Instale por esta página — instalando a partir de outra tela, o atalho abre o sistema completo.
         </p>
 
         <button
           type="button"
-          className="btn-primary"
+          className={podeInstalar && !instalou ? 'btn-secondary' : 'btn-primary'}
           onClick={() => navigate(CAMINHO_APP_CAIXA)}
           style={{ height: '48px', justifyContent: 'center', gap: '8px' }}
         >

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Banknote, Loader2, LockKeyhole, Maximize2, PackageSearch, Store, X } from 'lucide-react';
+import { Banknote, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -22,7 +22,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
-import { CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, nomeDoOperador, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
+import { CAMINHO_INSTALACAO_CAIXA, CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, nomeDoOperador, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
+import { estaInstalado } from '../../utils/pwaInstalado';
 import {
   applyStockAdjustments,
   describeTransactionError,
@@ -1461,6 +1462,19 @@ const PDV: React.FC = () => {
           ) : (
             <button type="button" className="pdv-topbar-button pdv-topbar-button--primary" onClick={openSession} disabled={loading}>
               Abrir caixa
+            </button>
+          )}
+          {!estaInstalado() && (
+            // App separado do sistema completo (17/11/2026): a pagina propria
+            // (caixa.html) tem o manifest do "Hennder Caixa" e o botao Instalar.
+            <button
+              type="button"
+              className="pdv-topbar-icon"
+              title="Instalar a Frente de Caixa como app no computador (separado do sistema)"
+              aria-label="Instalar a Frente de Caixa como app"
+              onClick={() => window.open(CAMINHO_INSTALACAO_CAIXA, '_blank', 'noopener')}
+            >
+              <MonitorDown size={18} />
             </button>
           )}
           <button type="button" className="pdv-topbar-icon" title="Tela cheia" aria-label="Tela cheia" onClick={() => document.documentElement.requestFullscreen?.()}>

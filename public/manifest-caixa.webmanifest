@@ -1,9 +1,10 @@
 {
+  "id": "/caixa.html",
   "name": "Hennder Caixa",
   "short_name": "Caixa",
   "description": "Frente de Caixa do Hennder ERP",
   "start_url": "/caixa.html",
-  "scope": "/",
+  "scope": "/caixa",
   "display": "standalone",
   "background_color": "#0c0616",
   "theme_color": "#7c3aed",

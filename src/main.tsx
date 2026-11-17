@@ -6,6 +6,8 @@ import './styles/seletor.css'
 import './styles/seletorDeData.css'
 import App from './App.tsx'
 import { registerServiceWorker } from './registerServiceWorker'
+// Guarda o "pode instalar" do navegador antes de qualquer tela montar.
+import './utils/pedidoDeInstalacao'
 import { iniciarTema } from './utils/tema'
 import { iniciarSeletorDeData } from './utils/seletorDeDataUi'
 

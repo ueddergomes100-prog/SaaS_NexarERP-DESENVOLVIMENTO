@@ -2,6 +2,13 @@
   RewriteEngine On
   RewriteBase /
   RewriteRule ^index\.html$ - [L]
+  # Apps instalaveis com manifest proprio (17/11/2026): /caixa/** e
+  # /vendedor/** abrem o HTML deles, nao o index.html do sistema -- senao o
+  # navegador ve o manifest do sistema completo e "instalar" instala o sistema
+  # inteiro. Mesmas regras de firebase.json/vercel.json. /vendedores (tela do
+  # sistema) nao casa.
+  RewriteRule ^caixa(/.*)?$ /caixa.html [L]
+  RewriteRule ^vendedor(/.*)?$ /vendedor.html [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteCond %{REQUEST_FILENAME} !-l

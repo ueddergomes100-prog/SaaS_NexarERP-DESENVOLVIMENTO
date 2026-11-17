@@ -6,6 +6,7 @@ const { preencherDatasFaltantes } = require('../services/datasFaltantes');
 const { unificarConfiguracoesGerais } = require('../services/configuracoesGerais');
 const { registrarLog } = require('../services/auditoria');
 const { protegerSegredos } = require('../services/protegerSegredos');
+const { zerarEstoqueECustosDaMigracao } = require('../services/zerarEstoqueMigracao');
 
 /**
  * MANUTENCAO DO BANCO, pelo Painel da Plataforma (2026-10-15).
@@ -161,6 +162,65 @@ router.post('/proteger-segredos', limite, async (req, res) => {
       error: modo === 'aplicar'
         ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe em quem ainda tem segredo no documento comum).'
         : 'Não foi possível ler as configurações agora. Tente de novo em alguns minutos.',
+    });
+  } finally {
+    emAndamento = false;
+  }
+});
+
+// Migracao de cliente (17/11/2026): zera saldo e custos dos produtos de UMA
+// empresa, mantendo o preco de venda, com um unico registro no historico dela.
+router.post('/zerar-estoque-migracao', limite, async (req, res) => {
+  if (!req.user?.isPlatformAdmin) {
+    return res.status(403).json({ error: 'Só o administrador da plataforma pode rodar a manutenção do banco.' });
+  }
+  const modo = typeof req.body?.modo === 'string' ? req.body.modo : 'simular';
+  if (modo !== 'simular' && modo !== 'aplicar') {
+    return res.status(400).json({ error: 'Esta tarefa só tem Simular e Aplicar.' });
+  }
+  const tenantId = typeof req.body?.tenantId === 'string' ? req.body.tenantId.trim() : '';
+  if (!tenantId) {
+    return res.status(400).json({ error: 'Informe o código da empresa (tenant) cujo estoque será zerado.' });
+  }
+  if (emAndamento) {
+    return res.status(409).json({ error: 'Já tem uma tarefa de manutenção rodando. Espere ela terminar e tente de novo.' });
+  }
+  emAndamento = true;
+  const projeto = projectId || admin.app().options.projectId || null;
+  try {
+    const resultado = await zerarEstoqueECustosDaMigracao({
+      db,
+      apagar: () => admin.firestore.FieldValue.delete(),
+      agora: () => admin.firestore.FieldValue.serverTimestamp(),
+      tenantId,
+      aplicar: modo === 'aplicar',
+      usuarioId: req.user.uid,
+    });
+    console.log(`[Manutencao] zerar estoque da migracao: ${modo} por ${req.user.email || req.user.uid} no projeto ${projeto} -- empresa ${tenantId}: ${resultado.alterados} de ${resultado.produtos} produtos`);
+    if (modo === 'aplicar' && resultado.alterados > 0) {
+      // UM registro, no historico DA EMPRESA migrada (nao no da plataforma).
+      await registrarLog({ ...req.user, tenantId, filialNome: resultado.empresa }, {
+        modulo: 'estoque',
+        acao: 'migracao_importacao',
+        descricao: `Migração de sistema, importação de dados: estoque zerado e custos apagados em ${resultado.alterados} produto(s) (saldo anterior somado: ${resultado.somaSaldo}). O preço de venda foi mantido; preço à vista, custo, custo médio e custo comercial ficam para preencher no cadastro.`,
+        documentoTipo: 'produto',
+        alteracoes: [
+          { campo: 'Produtos alterados', valorAnterior: '', valorNovo: String(resultado.alterados) },
+          { campo: 'Produtos com saldo', valorAnterior: String(resultado.comSaldo), valorNovo: '0' },
+          { campo: 'Soma dos saldos', valorAnterior: String(resultado.somaSaldo), valorNovo: '0' },
+        ],
+        critico: true,
+      });
+    }
+    return res.json({ projeto, modo, ...resultado });
+  } catch (erro) {
+    console.error(`[Manutencao] zerar estoque da migracao (${modo}) falhou:`, erro.message);
+    return res.status(erro.status || 500).json({
+      error: erro.status === 404
+        ? erro.message
+        : modo === 'aplicar'
+          ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que ainda não foi zerado).'
+          : 'Não foi possível ler os produtos da empresa agora. Tente de novo em alguns minutos.',
     });
   } finally {
     emAndamento = false;

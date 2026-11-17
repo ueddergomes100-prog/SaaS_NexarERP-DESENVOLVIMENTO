@@ -114,3 +114,37 @@ export const rodarUnificacaoConfiguracoesGerais = async (modo: ModoDatasFaltante
   if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
   return dados as ResultadoConfiguracoesGerais;
 };
+
+export interface ResultadoZerarEstoqueMigracao {
+  projeto: string | null;
+  modo: 'simular' | 'aplicar';
+  tenantId: string;
+  empresa: string;
+  cnpj: string;
+  produtos: number;
+  comSaldo: number;
+  somaSaldo: number;
+  comCustos: number;
+  alterados: number;
+  pedidosDeVenda: number;
+}
+
+/** Migracao de cliente (17/11/2026): zera saldo e custos de UMA empresa, mantendo o preco de venda. */
+export const rodarZerarEstoqueMigracao = async (modo: 'simular' | 'aplicar', tenantId: string): Promise<ResultadoZerarEstoqueMigracao> => {
+  if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new ManutencaoError('Sua sessão expirou. Entre novamente para continuar.', 401);
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/manutencao/zerar-estoque-migracao`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo, tenantId }),
+    }, TEMPO_LIMITE.manutencao);
+  } catch (erro) {
+    throw new ManutencaoError(mensagemDeFalhaDeRede(erro), 0);
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
+  return dados as ResultadoZerarEstoqueMigracao;
+};

@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Building2, CalendarCheck, KeyRound, Loader2, RotateCcw, Search, Wrench } from 'lucide-react';
+import { Building2, CalendarCheck, KeyRound, Loader2, PackageX, RotateCcw, Search, Wrench } from 'lucide-react';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import {
   rodarDatasFaltantes,
   rodarProtecaoDeSegredos,
   rodarUnificacaoConfiguracoesGerais,
+  rodarZerarEstoqueMigracao,
   type ModoDatasFaltantes,
   type ResultadoConfiguracoesGerais,
   type ResultadoDatasFaltantes,
   type ResultadoProtecaoDeSegredos,
+  type ResultadoZerarEstoqueMigracao,
 } from '../../services/manutencaoService';
 
 /**
@@ -259,6 +261,113 @@ const CartaoProtegerSegredos: React.FC = () => {
   );
 };
 
+/**
+ * Migracao de cliente (17/11/2026): zera saldo e custos dos produtos de UMA
+ * empresa, mantendo o preco de venda (server/services/zerarEstoqueMigracao.js).
+ */
+const CartaoZerarEstoqueMigracao: React.FC = () => {
+  const [tenantId, setTenantId] = useState('');
+  const [rodando, setRodando] = useState<'simular' | 'aplicar' | null>(null);
+  const [resultado, setResultado] = useState<ResultadoZerarEstoqueMigracao | null>(null);
+  const simulado = resultado?.modo === 'simular' && resultado.tenantId === tenantId.trim() && Boolean(resultado.projeto) && resultado.alterados > 0;
+  const fmt = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+
+  const rodar = async (modo: 'simular' | 'aplicar') => {
+    const alvo = tenantId.trim();
+    if (!alvo) { showError('Informe a empresa', 'Cole o código da empresa (tenant) que vai ter o estoque zerado.'); return; }
+    if (modo === 'aplicar' && resultado) {
+      const confirmacao = await NexusSwal.fire({
+        title: `Zerar o estoque de ${resultado.empresa}?`,
+        html: `Ambiente: <strong>${rotuloDoProjeto(resultado.projeto)}</strong>${resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}.<br/>`
+          + `${fmt(resultado.alterados)} produto(s): saldo vai a zero (soma hoje ${fmt(resultado.somaSaldo)}) e preço à vista, custo, custo médio e custo comercial ficam vazios. O preço de venda continua.`
+          + `${resultado.pedidosDeVenda > 0 ? `<br/><strong style="color:#ef4444">Esta empresa já tem ${resultado.pedidosDeVenda} pedido(s) de venda.</strong>` : ''}`
+          + '<br/>Fica um único registro no histórico: "Migração de sistema, importação de dados". Não tem desfazer.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Zerar agora',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirmacao.isConfirmed) return;
+    }
+    setRodando(modo);
+    try {
+      const novo = await rodarZerarEstoqueMigracao(modo, alvo);
+      setResultado(novo);
+      if (modo === 'aplicar') showSuccess(`Estoque e custos zerados em ${fmt(novo.alterados)} produto(s) de ${novo.empresa}.`);
+    } catch (erro) {
+      showError('Não foi possível rodar a tarefa', erro instanceof Error ? erro.message : undefined);
+    } finally {
+      setRodando(null);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+        <span style={{ width: '42px', height: '42px', borderRadius: '13px', backgroundColor: 'rgba(124, 58, 237, 0.12)', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          <PackageX size={21} />
+        </span>
+        <div>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 4px' }}>Zerar estoque e custos de uma empresa migrada</h2>
+          <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+            Para depois da importação de um cliente novo: zera o saldo de todos os produtos e apaga preço à vista, custo, custo médio e custo comercial.
+            O preço de venda continua. Grava um único registro no histórico da empresa (&quot;Migração de sistema, importação de dados&quot;).
+            <strong> Comece por Simular: nada é gravado.</strong>
+          </p>
+        </div>
+      </div>
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '420px' }}>
+        Código da empresa (tenant)
+        <input
+          type="text"
+          value={tenantId}
+          onChange={(e) => { setTenantId(e.target.value); setResultado(null); }}
+          title="O código aparece no Painel da Plataforma, na lista de empresas"
+          style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+        />
+      </label>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+        <button type="button" className="btn-secondary" onClick={() => rodar('simular')} disabled={rodando !== null} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {rodando === 'simular' ? <Loader2 size={18} className="spin-icon" /> : <Search size={18} />}
+          {rodando === 'simular' ? 'Simulando...' : 'Simular'}
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => rodar('aplicar')}
+          disabled={rodando !== null || !simulado}
+          title={simulado ? undefined : 'Rode Simular primeiro, para esta empresa; Aplicar libera quando houver produto a zerar.'}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: rodando !== null || !simulado ? 0.6 : 1 }}
+        >
+          {rodando === 'aplicar' ? <Loader2 size={18} className="spin-icon" /> : <PackageX size={18} />}
+          {rodando === 'aplicar' ? 'Gravando...' : `Aplicar${simulado ? ` (${fmt(resultado?.alterados ?? 0)})` : ''}`}
+        </button>
+      </div>
+
+      {resultado && !rodando && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Ambiente: <strong style={{ color: 'var(--text-primary)' }}>{rotuloDoProjeto(resultado.projeto)}</strong>
+            {' · '}
+            {resultado.modo === 'simular' ? 'Simulação (nada foi gravado)' : 'Gravado'}
+          </div>
+          <div><strong style={{ color: 'var(--text-primary)' }}>{resultado.empresa}</strong>{resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}</div>
+          <div>{fmt(resultado.produtos)} produto(s) · {fmt(resultado.comSaldo)} com saldo (soma {fmt(resultado.somaSaldo)}) · {fmt(resultado.comCustos)} com custo ou preço à vista</div>
+          <div>{resultado.modo === 'simular' ? 'Vão mudar' : 'Mudaram'}: <strong style={{ color: 'var(--text-primary)' }}>{fmt(resultado.alterados)}</strong> produto(s)</div>
+          {resultado.pedidosDeVenda > 0 && (
+            <div style={{ color: '#ef4444', fontWeight: 600 }}>Atenção: esta empresa já tem {fmt(resultado.pedidosDeVenda)} pedido(s) de venda.</div>
+          )}
+          {!resultado.projeto && (
+            <div style={{ color: '#ef4444', fontWeight: 600 }}>O servidor não informou em qual banco está ligado, então o Aplicar fica bloqueado. Avise o suporte.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SuperAdminManutencao: React.FC = () => {
   const [rodando, setRodando] = useState<ModoDatasFaltantes | null>(null);
   const [resultado, setResultado] = useState<ResultadoDatasFaltantes | null>(null);
@@ -404,6 +513,7 @@ const SuperAdminManutencao: React.FC = () => {
 
       <CartaoConfiguracoesGerais />
       <CartaoProtegerSegredos />
+      <CartaoZerarEstoqueMigracao />
     </div>
   );
 };

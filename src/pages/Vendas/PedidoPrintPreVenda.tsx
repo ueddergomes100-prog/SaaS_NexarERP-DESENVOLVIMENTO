@@ -24,7 +24,8 @@ interface PedidoPrintPreVendaProps {
    * e total de pecas; nome do cliente em destaque; "Cod." no lugar de "Matric.";
    * logo dentro do quadro da empresa, com fone e CNPJ na mesma linha do nome
    * (sem "'PEDIDO 0001'" e "Pagina"); "Dt Pedido" em negrito; sem o cabecalho
-   * do navegador.
+   * do navegador; sem o rodape (estacao/usuario/gerado em); totais presos no
+   * pe da folha (meia folha deitada), com OBS. e assinatura centralizada.
    */
   simplificado?: boolean;
 }
@@ -145,9 +146,11 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
           <span><span className="pv-rotulo">Cond.Pagto:</span> {condicao}</span>
           {!simplificado && <span>{formatarTotalPecasMinuta(itens)} Pcs</span>}
         </div>
-        <div className="pv-linha">
-          <span><span className="pv-rotulo">Observação:</span> {String(pedidoData.observacao || '')}</span>
-        </div>
+        {!simplificado && (
+          <div className="pv-linha">
+            <span><span className="pv-rotulo">Observação:</span> {String(pedidoData.observacao || '')}</span>
+          </div>
+        )}
       </div>
 
       <table className="pv-tabela">
@@ -195,6 +198,8 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
         </tbody>
       </table>
 
+      {/* Jomarly: totais, OBS. e assinatura presos no pe da folha (margin-top auto). */}
+      <div className={simplificado ? 'pv-fim' : undefined}>
       <div className="pv-totais">
         <span><span className="pv-rotulo">Vr Produto:</span> <strong>{numero(pedidoData.valorTotalItens)}</strong></span>
         <span><span className="pv-rotulo">Vr Desconto:</span> {totalOuVazio(pedidoData.valorTotalDescontos)}</span>
@@ -204,10 +209,23 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
         <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
       </div>
 
-      <div className="pv-rodape">
-        <span>{preVenda ? 'Pré-Venda' : 'Pedido'}: {numeroPedido}/UN</span>
-        <span>Estação: {nomeEmpresa.replace(/\s+/g, '').toUpperCase().slice(0, 20)} - Usuário: {extras.usuarioNome.toUpperCase()}</span>
-        <span>Gerado em {formatarGeradoEmMinuta(geradoEm)}</span>
+      {simplificado ? (
+        <>
+          <div className="pv-obs">
+            <span className="pv-rotulo">Obs.:</span> {String(pedidoData.observacao || '')}
+          </div>
+          <div className="pv-assinatura">
+            <div className="pv-assinatura-linha" />
+            <span>Assinatura do cliente</span>
+          </div>
+        </>
+      ) : (
+        <div className="pv-rodape">
+          <span>{preVenda ? 'Pré-Venda' : 'Pedido'}: {numeroPedido}/UN</span>
+          <span>Estação: {nomeEmpresa.replace(/\s+/g, '').toUpperCase().slice(0, 20)} - Usuário: {extras.usuarioNome.toUpperCase()}</span>
+          <span>Gerado em {formatarGeradoEmMinuta(geradoEm)}</span>
+        </div>
+      )}
       </div>
     </div>
   );

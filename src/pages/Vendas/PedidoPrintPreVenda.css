@@ -154,3 +154,44 @@
     padding: 2mm 3mm;
   }
 }
+
+/* Modelo Jomarly: a folha e' meia folha deitada (A5 paisagem, 148mm de altura;
+   com a margem de 4mm do @page sobram ~140mm). O bloco final (linha dos
+   totais, totais, OBS. e assinatura) fica sempre no pe da folha; com muitos
+   itens a folha cresce e ele vai junto. Nao declara o tamanho do papel. */
+.pv-page--simples {
+  display: flex;
+  flex-direction: column;
+  min-height: 140mm;
+}
+
+.pv-fim {
+  margin-top: auto;
+  page-break-inside: avoid;
+}
+
+.pv-obs {
+  margin-top: 8px;
+  min-height: 16px;
+}
+
+.pv-assinatura {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 26px;
+  font-size: 9.5px;
+  text-transform: uppercase;
+}
+
+.pv-assinatura-linha {
+  width: 90mm;
+  border-top: 1px solid #000;
+  margin-bottom: 3px;
+}
+
+@media print {
+  .pv-page--simples {
+    min-height: 138mm;
+  }
+}

@@ -578,9 +578,10 @@ const PedidoVendas: React.FC = () => {
       cancelButtonText: 'Cancelar',
     });
     if (escolha.isConfirmed) {
-      navigate(`/pedidos-venda/print-lote?ids=${ids}`);
+      // Aba propria (17/11/2026): imprimir nao pode fechar a aba da lista.
+      void openTab(`/pedidos-venda/print-lote?ids=${ids}`, 'Imprimir pedidos');
     } else if (escolha.isDenied) {
-      navigate(`/operacoes/expedicao/minuta-lote?ids=${ids}`);
+      void openTab(`/operacoes/expedicao/minuta-lote?ids=${ids}`, 'Imprimir minutas');
     }
   };
 
@@ -1082,7 +1083,7 @@ const PedidoVendas: React.FC = () => {
                             <Printer size={18} />
                           </button>
                         ) : (
-                          <button onClick={() => navigate(`/pedidos-venda/print/${p.id}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
+                          <button onClick={() => void openTab(`/pedidos-venda/print/${p.id}`, `Imprimir ${p.numeroPedido || 'pedido'}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
                             <Printer size={18} />
                           </button>
                         )}

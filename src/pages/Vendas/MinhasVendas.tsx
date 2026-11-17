@@ -4,7 +4,7 @@ import { ChevronDown, Loader2, Printer, UserCheck } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { TabActiveContext } from '../../contexts/TabsContext';
+import { TabActiveContext, useTabs } from '../../contexts/TabsContext';
 import IdentificarVendedorModal from '../../components/common/IdentificarVendedorModal';
 import type { VendedorIdentificado } from '../../utils/vendedorPinDomain';
 import { contaComoFaturamento } from '../../utils/preVendaDomain';
@@ -88,6 +88,8 @@ const PAGE_STEP = 10;
 
 const MinhasVendas: React.FC = () => {
   const navigate = useNavigate();
+  // Imprimir abre aba propria (17/11/2026): nao fecha a aba de Minhas Vendas.
+  const { openTab } = useTabs();
   const { tenantId } = useAuth();
   const isTabActive = useContext(TabActiveContext);
 
@@ -298,7 +300,7 @@ const MinhasVendas: React.FC = () => {
                             type="button"
                             className="icon-btn"
                             title="Reimprimir"
-                            onClick={() => navigate(`/pedidos-venda/print/${venda.id}`)}
+                            onClick={() => void openTab(`/pedidos-venda/print/${venda.id}`, 'Imprimir pedido')}
                           >
                             <Printer size={18} />
                           </button>

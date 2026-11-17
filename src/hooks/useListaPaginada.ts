@@ -3,6 +3,9 @@ import { and, collection, getDocs, limit, onSnapshot, orderBy, query, startAfter
 import { db } from '../services/firebase';
 import { acompanharCatalogo, catalogoJaCarregado } from '../services/catalogoEstoqueService';
 import { splitSearchTerms } from '../utils/textSearch';
+import { ehBuscaNumerica } from '../utils/buscaNumerica';
+
+export { contemDigitos, ehBuscaNumerica } from '../utils/buscaNumerica';
 
 /**
  * LISTA DE CADASTRO COM LIMITE (17/11/2026, fase 4 da otimizacao de leituras;
@@ -38,16 +41,6 @@ export interface OpcoesListaPaginada {
   buscaNumericaNoCadastroInteiro?: boolean;
 }
 
-/** O texto e' so' numero (digitos com pontos, traco, barra, parenteses ou espaco)? */
-export const ehBuscaNumerica = (termo: string): boolean => /\d/.test(termo) && /^[\d\s.\-/()]+$/.test(termo.trim());
-
-/** Campo contem os digitos procurados? (CPF gravado sem pontos x digitado com pontos, e vice-versa) */
-export const contemDigitos = (campo: unknown, termo: string): boolean => {
-  // So' quando o texto e' numero: "rua 12" nao pode achar todo CPF com "12".
-  if (!ehBuscaNumerica(termo)) return false;
-  const procurado = termo.replace(/\D/g, '');
-  return procurado !== '' && String(campo ?? '').replace(/\D/g, '').includes(procurado);
-};
 
 interface Pagina<T> { itens: T[]; ultimoDoc: QueryDocumentSnapshot<DocumentData> | null; cheia: boolean }
 
@@ -103,7 +96,7 @@ export function useListaPaginada<T extends { id: string }>({
       else console.error(`Erro ao carregar ${colecao}:`, erro);
       setCarregando(false);
     });
-  }, [tenantId, colecao, campoOrdem, tamanhoPagina]);
+  }, [tenantId, colecao, campoOrdem, tamanhoPagina, setSemIndice]);
   useEffect(() => {
     if (!habilitado || !tenantId || !modoPaginado) return;
     setCarregando(true);

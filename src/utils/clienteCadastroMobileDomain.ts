@@ -50,6 +50,18 @@ export const mascaraTelefone = (valor: string): string => {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 };
 
+/**
+ * Telefone gravado mostrado no padrao "(DD) NNNNN-NNNN" (17/11/2026, dono: "tudo
+ * formatado certinho, DDD, espaco, numero e traco"). So' formata quando tem
+ * DDD + numero (10 ou 11 digitos); o resto (sem DDD, dois numeros juntos)
+ * aparece como foi gravado, para nao inventar DDD.
+ */
+export const formatarTelefoneGravado = (valor: unknown): string => {
+  const texto = String(valor ?? '').trim();
+  const d = apenasDigitos(texto);
+  return d.length === 10 || d.length === 11 ? mascaraTelefone(d) : texto;
+};
+
 export const emailValido = (email: string): boolean => (
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())
 );

@@ -4,6 +4,7 @@ import { Search, Plus, Edit, Power, Trash2, Upload, CaseUpper, FileText } from '
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { contemDigitos, useListaPaginada } from '../../hooks/useListaPaginada';
+import { formatarTelefoneGravado } from '../../utils/clienteCadastroMobileDomain';
 import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
 import { obterCatalogo } from '../../services/catalogoEstoqueService';
 import { db } from '../../services/firebase';
@@ -288,7 +289,7 @@ const ClientesList: React.FC = () => {
               <tr>
                 <th>Código</th>
                 <th>Nome</th>
-                <th>Telefone</th>
+                <th>WhatsApp</th>
                 <th>CPF / CNPJ</th>
                 <th>E-mail</th>
                 <th>Status</th>
@@ -330,7 +331,7 @@ const ClientesList: React.FC = () => {
                       {cliente.nome}
                       <MarcaEmEdicao trava={travasClientes.get(cliente.id)} />
                     </td>
-                    <td>{cliente.telefone || '-'}</td>
+                    <td>{formatarTelefoneGravado(cliente.celular) || '-'}</td>
                     <td>{cliente.documento || '-'}</td>
                     <td>{cliente.email || '-'}</td>
                     <td>

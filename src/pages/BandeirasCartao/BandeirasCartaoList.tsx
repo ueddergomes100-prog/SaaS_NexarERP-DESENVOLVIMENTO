@@ -85,6 +85,72 @@ const CAMPOS_TAXAS_HISTORICO: CampoComparado[] = [
   { campo: 'prazoRecebimentoDebitoDias', rotulo: 'Prazo de recebimento do débito (dias)' },
 ];
 
+// --- Popup de taxas: pecas de visual (17/11/2026) ---------------------------
+const secaoTaxa: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', borderRadius: '14px',
+  border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)',
+};
+const tituloSecaoTaxa: React.CSSProperties = {
+  margin: 0, fontSize: '13px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-secondary)',
+};
+const rotuloCampoTaxa: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600,
+};
+
+/** Campo numerico com a unidade (% ou dias) dentro, a direita. */
+const CampoComUnidade: React.FC<{
+  value: string;
+  onChange: (valor: string) => void;
+  unidade: string;
+  min: string;
+  max: string;
+  step: string;
+  compacto?: boolean;
+}> = ({ value, onChange, unidade, min, max, step, compacto = false }) => (
+  <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      style={{
+        width: '100%', boxSizing: 'border-box', height: compacto ? '36px' : '42px',
+        padding: `0 ${unidade.length > 1 ? '46px' : '28px'} 0 12px`, borderRadius: '10px',
+        border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)',
+        fontWeight: 700, fontSize: compacto ? '14px' : '15px', fontVariantNumeric: 'tabular-nums',
+      }}
+    />
+    <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', fontWeight: 600, pointerEvents: 'none' }}>
+      {unidade}
+    </span>
+  </div>
+);
+
+/** Atalho: a mesma taxa em todas as parcelas do credito. */
+const AplicarEmTodas: React.FC<{ onAplicar: (valor: string) => void }> = ({ onAplicar }) => {
+  const [valor, setValor] = useState('');
+  const aplicar = () => {
+    const texto = valor.trim().replace(',', '.');
+    if (texto === '' || !Number.isFinite(Number(texto))) return;
+    onAplicar(texto);
+    setValor('');
+  };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Mesma taxa em todas</span>
+      <div style={{ width: '92px' }}>
+        <CampoComUnidade unidade="%" value={valor} onChange={setValor} min="0" max="100" step="0.01" compacto />
+      </div>
+      <button type="button" className="btn-secondary" onClick={aplicar} disabled={valor.trim() === ''} style={{ height: '36px', padding: '0 12px' }}>
+        Aplicar
+      </button>
+    </div>
+  );
+};
+
 const BandeirasCartaoList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const [situacao, setSituacao] = useState<Situacao>(SITUACAO_PADRAO);
@@ -644,101 +710,120 @@ const BandeirasCartaoList: React.FC = () => {
       )}
 
       {feesTarget && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 9999, padding: '20px',
-        }}>
-          <div style={{
-            width: '100%', maxWidth: '640px', backgroundColor: 'var(--bg-secondary)',
-            border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)',
-            padding: '24px', position: 'relative', boxShadow: 'var(--shadow-card)',
-            animation: 'pageFadeIn 0.2s ease-out', maxHeight: '90vh', overflowY: 'auto',
-          }}>
-            <button
-              onClick={closeFeesModal}
-              style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-            >
-              <X size={20} />
-            </button>
-
-            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Percent size={20} color="#8b5cf6" />
-              Taxas — {feesTarget.nome}
-            </h3>
+        // Visual refeito em 17/11/2026 ("a popup de cadastrar a taxa de cartao
+        // ta muito mal feita"): debito e credito separados, parcelas em grade
+        // 4 x 3 e atalho para a mesma taxa em todas. Campos e regras iguais.
+        <div
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(8, 6, 20, 0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px',
+          }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !isFeesSaving) closeFeesModal(); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="titulo-taxas-bandeira"
+            style={{
+              width: '100%', maxWidth: '620px', maxHeight: '92vh', display: 'flex', flexDirection: 'column',
+              backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '18px',
+              boxShadow: '0 24px 60px rgba(0, 0, 0, 0.35)', animation: 'pageFadeIn 0.2s ease-out', overflow: 'hidden',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '20px 24px', borderBottom: '1px solid var(--border-color)' }}>
+              <span style={{ width: '44px', height: '44px', borderRadius: '12px', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(139, 92, 246, 0.14)', color: '#8b5cf6' }}>
+                <CreditCard size={22} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h3 id="titulo-taxas-bandeira" style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                  Taxas da bandeira {feesTarget.nome}
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>
+                  Quanto a operadora desconta e em quantos dias o dinheiro cai.
+                </p>
+              </div>
+              <button type="button" onClick={closeFeesModal} aria-label="Fechar" className="icon-btn" style={{ color: 'var(--text-muted)' }}>
+                <X size={20} />
+              </button>
+            </div>
 
             {feesLoading ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                <Loader2 size={24} className="spin-icon" />
+              <div style={{ padding: '56px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <Loader2 size={26} className="spin-icon" />
               </div>
             ) : (
-              <form onSubmit={handleSaveFees}>
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    Taxas desta bandeira
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: '10px' }}>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)' }}>
-                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>À vista</span>
-                      <div style={{ position: 'relative' }}>
-                        <input
-                          type="number" min="0" max="100" step="0.01"
+              <form onSubmit={handleSaveFees} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <div style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                  <section style={secaoTaxa}>
+                    <h4 style={tituloSecaoTaxa}>Débito</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                      <label style={rotuloCampoTaxa}>
+                        Taxa do débito
+                        <CampoComUnidade
+                          unidade="%"
                           value={feesForm.taxaDebitoPercentual}
-                          onChange={(e) => setFeesForm({ ...feesForm, taxaDebitoPercentual: e.target.value })}
-                          style={{ width: '100%', height: '36px', padding: '8px 22px 8px 8px', boxSizing: 'border-box', textAlign: 'center', fontWeight: 700 }}
+                          onChange={(valor) => setFeesForm({ ...feesForm, taxaDebitoPercentual: valor })}
+                          min="0" max="100" step="0.01"
                         />
-                        <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
-                      </div>
-                    </label>
-                    {Array.from({ length: 12 }, (_, index) => {
-                      const installments = String(index + 1);
-                      return (
-                        <label key={installments} style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700, textAlign: 'center' }}>{installments}x</span>
-                          <div style={{ position: 'relative' }}>
-                            <input
-                              type="number" min="0" max="100" step="0.01"
+                      </label>
+                      <label style={rotuloCampoTaxa}>
+                        Dinheiro cai em
+                        <CampoComUnidade
+                          unidade="dias"
+                          value={feesForm.prazoRecebimentoDebitoDias}
+                          onChange={(valor) => setFeesForm({ ...feesForm, prazoRecebimentoDebitoDias: valor })}
+                          min="0" max="365" step="1"
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section style={secaoTaxa}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                      <h4 style={{ ...tituloSecaoTaxa, margin: 0 }}>Crédito</h4>
+                      <AplicarEmTodas
+                        onAplicar={(valor) => setFeesForm((current) => ({
+                          ...current,
+                          taxasCreditoPorParcela: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), valor])),
+                        }))}
+                      />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))', gap: '10px' }}>
+                      {Array.from({ length: 12 }, (_, index) => {
+                        const installments = String(index + 1);
+                        return (
+                          <label key={installments} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                            <span style={{ width: '30px', textAlign: 'right', flex: 'none' }}>{installments}x</span>
+                            <CampoComUnidade
+                              unidade="%"
                               value={feesForm.taxasCreditoPorParcela[installments]}
-                              onChange={(e) => setFeesForm((current) => ({
+                              onChange={(valor) => setFeesForm((current) => ({
                                 ...current,
-                                taxasCreditoPorParcela: { ...current.taxasCreditoPorParcela, [installments]: e.target.value },
+                                taxasCreditoPorParcela: { ...current.taxasCreditoPorParcela, [installments]: valor },
                               }))}
-                              style={{ width: '100%', height: '36px', padding: '8px 22px 8px 8px', boxSizing: 'border-box', textAlign: 'center', fontWeight: 700 }}
+                              min="0" max="100" step="0.01"
+                              compacto
                             />
-                            <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px', pointerEvents: 'none' }}>%</span>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '9px 0 0' }}>
-                    À vista representa o débito. No crédito, a taxa correspondente ao número de parcelas é aplicada no fechamento financeiro.
-                  </p>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <label style={{ ...rotuloCampoTaxa, maxWidth: '260px' }}>
+                      Primeira parcela cai em
+                      <CampoComUnidade
+                        unidade="dias"
+                        value={feesForm.prazoRecebimentoCreditoDias}
+                        onChange={(valor) => setFeesForm({ ...feesForm, prazoRecebimentoCreditoDias: valor })}
+                        min="0" max="365" step="1"
+                      />
+                    </label>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                      Na venda no crédito vale a taxa do número de parcelas escolhido; ela é descontada no fechamento financeiro.
+                    </p>
+                  </section>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                  <div className="input-group">
-                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Primeiro recebimento do crédito (dias)</label>
-                    <input
-                      type="number" min="0" max="365" step="1"
-                      value={feesForm.prazoRecebimentoCreditoDias}
-                      onChange={(e) => setFeesForm({ ...feesForm, prazoRecebimentoCreditoDias: e.target.value })}
-                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Recebimento do débito (dias)</label>
-                    <input
-                      type="number" min="0" max="365" step="1"
-                      value={feesForm.prazoRecebimentoDebitoDias}
-                      onChange={(e) => setFeesForm({ ...feesForm, prazoRecebimentoDebitoDias: e.target.value })}
-                      style={{ width: '100%', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', padding: '16px 24px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
                   <button type="button" className="btn-secondary" onClick={closeFeesModal} disabled={isFeesSaving}>
                     Cancelar
                   </button>

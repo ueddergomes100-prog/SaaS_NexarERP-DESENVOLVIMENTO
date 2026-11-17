@@ -26,6 +26,7 @@ import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { PAISES, erroDoCadastroExterior, normalizarDocumentoEstrangeiro } from '../../utils/exportacaoNotaDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
+import { formatarTelefoneGravado, mascaraTelefone } from '../../utils/clienteCadastroMobileDomain';
 
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
@@ -321,6 +322,9 @@ const ClienteForm: React.FC = () => {
                 ? ''
                 : String(data.limiteDeCredito),
               // Cliente cadastrado antes do alerta nao tem os campos.
+              // Telefone antigo/importado sem formato abre formatado.
+              telefone: formatarTelefoneGravado(data.telefone),
+              celular: formatarTelefoneGravado(data.celular),
               alertaAtivo: data.alertaAtivo === true,
               alertaTexto: String(data.alertaTexto ?? ''),
             }));
@@ -349,6 +353,12 @@ const ClienteForm: React.FC = () => {
     const value = aplicarCaixaAltaCadastro(e.target, e.target.value);
     
     // Validação específica para CPF/CNPJ (apenas números)
+    // Telefones no padrao "(DD) NNNNN-NNNN" enquanto digita (17/11/2026).
+    if (name === 'telefone' || name === 'celular') {
+      setFormData({ ...formData, [name]: mascaraTelefone(value) });
+      return;
+    }
+
     if (name === 'documento') {
       const onlyNums = value.replace(/\D/g, '');
       if (onlyNums.length <= 14) {

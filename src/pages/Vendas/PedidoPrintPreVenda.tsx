@@ -21,7 +21,9 @@ interface PedidoPrintPreVendaProps {
   configData: any;
   /**
    * Modelo "Pre-venda simplificada" (Jomarly, 17/11/2026): sem Marca, Contrato
-   * e total de pecas; nome do cliente em destaque; "Cod." no lugar de "Matric.".
+   * e total de pecas; nome do cliente em destaque; "Cod." no lugar de "Matric.";
+   * logo pequena e fone da empresa no alto da folha; CNPJ ao lado do nome da
+   * empresa (sem o "'PEDIDO 0001' Fone" do quadro); "Dt Pedido" em negrito.
    */
   simplificado?: boolean;
 }
@@ -60,6 +62,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
   const numeroPedido = pedidoData.numeroPedido || pedidoData.id?.substring(0, 6).toUpperCase() || '';
   const nomeEmpresa = String(configData?.nomeOficina || '').trim();
   const telefoneEmpresa = formatarTelefoneMinuta(configData?.telefone);
+  const cnpjEmpresa = formatarDocumentoMinuta(configData?.cnpj);
   const condicao = condicaoPagamentoMinuta(pedidoData.pagamentos) || String(pedidoData.formaPagamento || '');
   const foneCliente = [formatarTelefoneMinuta(clientData?.telefone), formatarTelefoneMinuta(clientData?.celular)]
     .filter(Boolean).join(' / ');
@@ -67,10 +70,22 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
 
   return (
     <div className="pv-page">
+      {simplificado && (
+        // Jomarly (17/11/2026): logo pequena no alto (tamanho da meia folha) e o
+        // fone da empresa no cabecalho da folha, fora do quadro.
+        <div className="pv-cabecalho-folha">
+          <span />
+          <span className="pv-cabecalho-logo">{configData?.logo && <img src={configData.logo} alt="Logo" />}</span>
+          <span>{telefoneEmpresa && <><span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</>}</span>
+        </div>
+      )}
       <div className="pv-caixa">
         <div className="pv-linha pv-linha--topo">
-          <span><span className="pv-rotulo">Empresa:</span> <strong>{nomeEmpresa}</strong></span>
-          <span>'{rotulo} {numeroPedido}' &nbsp;<span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</span>
+          <span>
+            <span className="pv-rotulo">Empresa:</span> <strong>{nomeEmpresa}</strong>
+            {simplificado && cnpjEmpresa && <> &nbsp;<span className="pv-rotulo">CNPJ:</span> {cnpjEmpresa}</>}
+          </span>
+          {!simplificado && <span>'{rotulo} {numeroPedido}' &nbsp;<span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</span>}
           <span><span className="pv-rotulo">Página:</span> 1 / 1</span>
         </div>
         <div className="pv-aviso">
@@ -81,7 +96,9 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
       <div className="pv-caixa pv-dados">
         <div className="pv-linha">
           <span><span className="pv-rotulo">Pedido:</span> {numeroPedido}</span>
-          <span><span className="pv-rotulo">Dt Emissão:</span> {formatarDataCurtaMinuta(criadoEm)}</span>
+          {simplificado
+            ? <span><strong>Dt Pedido: {formatarDataCurtaMinuta(criadoEm)}</strong></span>
+            : <span><span className="pv-rotulo">Dt Emissão:</span> {formatarDataCurtaMinuta(criadoEm)}</span>}
           <span><span className="pv-rotulo">Hora:</span> {formatarHoraMinuta(criadoEm)}</span>
           <span><span className="pv-rotulo">Operação:</span> VENDAS</span>
           {!simplificado && <span><span className="pv-rotulo">Contrato:</span></span>}

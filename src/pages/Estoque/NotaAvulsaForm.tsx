@@ -23,6 +23,7 @@ import { getDateInputInTimeZone, addDaysToDateInput, addMonthsToDateInput } from
 import { toCents, splitCents } from '../../utils/financeDomain';
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface FornecedorBasico {
   id: string;
@@ -109,8 +110,8 @@ const NotaAvulsaForm: React.FC = () => {
   // recem-criado so aparecia na busca depois de fechar e reabrir esta aba.
   useEffect(() => {
     if (!tenantId) return;
-    const unsubscribe = onSnapshot(
-      query(collection(db, 'estoque'), where('tenantId', '==', tenantId)),
+    const unsubscribe = acompanharCatalogoEstoque(
+      tenantId,
       // produtoRevenda === false = item de uso interno (peca de veiculo,
       // embalagem, insumo a granel...) -- nunca entra em nota avulsa, so
       // continua no controle de estoque.

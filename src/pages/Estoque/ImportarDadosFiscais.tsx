@@ -31,6 +31,7 @@ import {
   type TabelaIbpt,
 } from '../../utils/importacaoFiscalDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, usesCsosn, type RegimeTributario } from '../../utils/fiscalDomain';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /**
  * Atualiza os dados fiscais (codigo de barras, NCM, CEST e a tributacao:
@@ -131,7 +132,7 @@ const ImportarDadosFiscais: React.FC = () => {
 
   const carregarProdutos = async (): Promise<ProdutoFiscalAtual[]> => {
     if (!tenantId) return [];
-    const snap = await getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)));
+    const snap = await obterCatalogoEstoque(tenantId);
     return snap.docs.map((d) => {
       const dados = d.data();
       const embalagens: any[] = Array.isArray(dados.embalagens) ? dados.embalagens : [];

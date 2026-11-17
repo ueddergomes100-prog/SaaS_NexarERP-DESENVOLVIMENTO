@@ -22,6 +22,7 @@ import {
   format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, parseISO,
 } from 'date-fns';
 import './Estoque.css';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 type ProdutoRelatorio = ProdutoDoRelatorioEstoque;
 
@@ -130,7 +131,7 @@ const RelatorioEstoque: React.FC = () => {
     setLoading(true);
     try {
       const [snapProdutos, snapCategorias, snapComposicoes] = await Promise.all([
-        getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId))),
+        obterCatalogoEstoque(tenantId),
         getDocs(query(collection(db, 'categorias'), where('tenantId', '==', tenantId))),
         getDocs(query(collection(db, 'produtos_composicao'), where('tenantId', '==', tenantId))),
       ]);

@@ -24,6 +24,7 @@ import {
   type LinhaComposicaoImportada,
   type MapeamentoColunasComposicao,
 } from '../../utils/importacaoComposicaoDomain';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /**
  * Importacao em massa de composicao (receita de producao) a partir de uma
@@ -132,7 +133,7 @@ const ImportarComposicao: React.FC = () => {
       // Producao produz. Inativo fica de fora: receita nova nao deve cair em
       // cadastro que o usuario ja tirou de circulacao.
       const [snapEstoque, snapMp, snapComposicoes] = await Promise.all([
-        getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId))),
+        obterCatalogoEstoque(tenantId),
         getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId))),
         getDocs(query(collection(db, 'produtos_composicao'), where('tenantId', '==', tenantId))),
       ]);

@@ -58,6 +58,7 @@ import {
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import './Estoque.css';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 // ---------------------------------------------------------------------------
 // HISTORICO DE ALTERACOES (09/11/2026): o que mudou no cadastro do produto.
@@ -1184,7 +1185,7 @@ const EstoqueForm: React.FC = () => {
       try {
         const [snapMp, snapEstoque] = await Promise.all([
           getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId))),
-          getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId))),
+          obterCatalogoEstoque(tenantId),
         ]);
 
         const componentes: ComponenteOption[] = [];
@@ -1965,7 +1966,7 @@ const EstoqueForm: React.FC = () => {
       if (temGrade) produtoData.estoqueConfig.quantidadeAtual = 0;
       let planoDaGrade: PlanoDasVariacoes | null = null;
       if (temGrade) {
-        const snapCatalogo = await getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)));
+        const snapCatalogo = await obterCatalogoEstoque(tenantId || '');
         const codigosDeBarrasEmUso = new Map<string, string>();
         snapCatalogo.forEach((d) => {
           const barras = String(d.data().codigoBarras || '').trim();

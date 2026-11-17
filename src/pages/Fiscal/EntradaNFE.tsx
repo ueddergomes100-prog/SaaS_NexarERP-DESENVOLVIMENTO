@@ -105,6 +105,7 @@ import { compactarXml } from '../../utils/xmlCompactoDomain';
 import { lerNfseXml } from '../../utils/nfseEntradaDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
 import Swal from 'sweetalert2';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /** Item da nota: tudo que o XML trouxe + o total do produto com o nome que a tela ja usava. */
 interface ParsedItem extends ItemDaNota {
@@ -314,8 +315,7 @@ const EntradaNFE: React.FC = () => {
     const fetchEstoque = async () => {
       if (!tenantId) return;
       try {
-        const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-        const snap = await getDocs(q);
+        const snap = await obterCatalogoEstoque(tenantId);
         const list: EstoqueItem[] = [];
         snap.forEach(d => {
           const data = d.data();

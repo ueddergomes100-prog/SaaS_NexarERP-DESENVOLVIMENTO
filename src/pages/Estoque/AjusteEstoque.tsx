@@ -25,6 +25,7 @@ import { applyAjusteEstoqueManual } from '../../utils/firestoreAtomic';
 import { createAuditLog } from '../../services/logService';
 import './Estoque.css';
 import './AjusteEstoque.css';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface ProdutoAjuste extends SearchableProduct {
   id: string;
@@ -93,8 +94,7 @@ const AjusteEstoque: React.FC = () => {
   useEffect(() => {
     const carregarProdutos = async () => {
       if (!tenantId) return;
-      const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-      const snap = await getDocs(q);
+      const snap = await obterCatalogoEstoque(tenantId);
       const lista: ProdutoAjuste[] = snap.docs
         // O principal de uma grade nao tem saldo: o ajuste e' em cada
         // variacao (gradeProdutosDomain.ts). Fica fora da busca.

@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2, ChevronDown, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown, Boxes } from 'lucide-react';
 import { chaveDoProdutoPeloId, itemDaFilial } from '../../utils/cadastroGrupoDomain';
 import { agruparVariacoes, somaDasVariacoes } from '../../utils/gradeProdutosDomain';
-import { collection, query, onSnapshot, doc, where, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, where, updateDoc, setDoc, serverTimestamp, orderBy, startAfter, limit, getDocs, type QueryDocumentSnapshot, type DocumentData, type Unsubscribe } from 'firebase/firestore';
+import { acompanharCatalogoEstoque, catalogoEstoqueJaCarregado, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { buscarProdutosNoBanco, contarResumoDoEstoque, TAMANHO_PAGINA_ESTOQUE } from '../../services/estoqueBuscaService';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -12,7 +14,7 @@ import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
+import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms, splitSearchTerms } from '../../utils/textSearch';
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
 import './Estoque.css';
@@ -45,6 +47,14 @@ interface PecaData {
   grupoChave?: string;
   variacaoRotulo?: string;
   codigoBarras?: string;
+  referencia?: string;
+}
+
+/** Uma pagina da lista (modo padrao): os itens e onde a proxima comeca. */
+interface PaginaDoEstoque {
+  itens: PecaData[];
+  ultimoDoc: QueryDocumentSnapshot<DocumentData> | null;
+  cheia: boolean;
 }
 
 const EstoqueList: React.FC = () => {
@@ -124,27 +134,139 @@ const EstoqueList: React.FC = () => {
     return () => unsubscribe();
   }, [tenantId]);
 
+  // ---------------------------------------------------------------------------
+  // CARREGAMENTO SEM LER O ESTOQUE INTEIRO (17/11/2026, fase 4 da otimizacao
+  // de leituras; pedido do dono: "a tela de estoque esta carregando o estoque
+  // inteiro, nao pode"). Tres modos:
+  //  - padrao (sem busca, filtros no padrao): paginas de 50 pela ordem do nome
+  //    (indice tenantId+nome), ao vivo, com "Ver mais";
+  //  - busca: no banco, pelo comeco do nome e pelo codigo, codigo de barras e
+  //    referencia exatos; "palavra no meio do nome" usa o catalogo compartilhado;
+  //  - filtros (inativos, saldo, reserva, grade, ordem por saldo, todas as
+  //    filiais) e busca completa: catalogo compartilhado (catalogoEstoqueService),
+  //    lido uma vez por pagina aberta e o mesmo das telas de venda.
+  // ---------------------------------------------------------------------------
+  const [buscaCompleta, setBuscaCompleta] = useState(false);
+  const termoBusca = searchTerm.trim();
+  const filtrosNoPadrao = filtroStatus === 'ativos' && filtroSaldo === 'todos' && !soComReserva && !soComGrade
+    && ordemSaldo === 'padrao' && !(grupo && escopoFilial === 'grupo');
+  const modoCompleto = !filtrosNoPadrao || (termoBusca !== '' && (buscaCompleta || catalogoEstoqueJaCarregado(tenantId)));
+  const modoBuscaNoBanco = !modoCompleto && termoBusca !== '';
+  // Busca nova volta para a busca no banco.
+  useEffect(() => { if (termoBusca === '') setBuscaCompleta(false); }, [termoBusca]);
+
+  // Modo completo: catalogo compartilhado, ao vivo.
+  const [catalogo, setCatalogo] = useState<PecaData[] | null>(null);
   useEffect(() => {
-    if (!currentUser) return;
-    const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const pecas: PecaData[] = [];
-      querySnapshot.forEach((doc) => {
-        pecas.push({ id: doc.id, ...doc.data() } as PecaData);
-      });
-      // Por codigo (numerico, nao alfabetico) -- sequencia que o usuario
-      // reconhece do sistema antigo/papel, nao a ordem do nome.
-      pecas.sort((a, b) => (Number(a.codigo) || 0) - (Number(b.codigo) || 0));
-      setPecasList(pecas);
+    if (!currentUser || !tenantId || !modoCompleto) return;
+    setLoading(true);
+    return acompanharCatalogoEstoque(tenantId, (snap) => {
+      setCatalogo(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PecaData)));
       setLoading(false);
     }, (error) => {
-      console.error("Erro ao buscar estoque:", error);
+      console.error('Erro ao buscar estoque:', error);
       setLoading(false);
     });
+  }, [currentUser, tenantId, modoCompleto]);
 
-    return () => unsubscribe();
-  }, [currentUser]);
+  // Modo padrao: paginas de 50, cada uma com a propria escuta.
+  const [paginas, setPaginas] = useState<PaginaDoEstoque[]>([]);
+  const escutasDasPaginas = useRef<Unsubscribe[]>([]);
+  const abrirPagina = useCallback((indice: number, depoisDe: QueryDocumentSnapshot<DocumentData> | null) => {
+    if (!tenantId) return;
+    const restricoes = [where('tenantId', '==', tenantId), orderBy('nome'), ...(depoisDe ? [startAfter(depoisDe)] : []), limit(TAMANHO_PAGINA_ESTOQUE)];
+    escutasDasPaginas.current[indice]?.();
+    escutasDasPaginas.current[indice] = onSnapshot(query(collection(db, 'estoque'), ...restricoes), (snap) => {
+      const pagina: PaginaDoEstoque = {
+        itens: snap.docs.map((d) => ({ id: d.id, ...d.data() } as PecaData)),
+        ultimoDoc: snap.docs[snap.docs.length - 1] ?? null,
+        cheia: snap.size >= TAMANHO_PAGINA_ESTOQUE,
+      };
+      setPaginas((atual) => { const novo = [...atual]; novo[indice] = pagina; return novo; });
+      setLoading(false);
+    }, (error) => {
+      console.error('Erro ao buscar estoque:', error);
+      setLoading(false);
+    });
+  }, [tenantId]);
+  const modoPaginado = !modoCompleto && !modoBuscaNoBanco;
+  useEffect(() => {
+    if (!currentUser || !tenantId || !modoPaginado) return;
+    setLoading(true);
+    setPaginas([]);
+    abrirPagina(0, null);
+    return () => {
+      escutasDasPaginas.current.forEach((parar) => parar?.());
+      escutasDasPaginas.current = [];
+    };
+  }, [currentUser, tenantId, modoPaginado, abrirPagina]);
+  const ultimaPagina = paginas[paginas.length - 1];
+  const temMaisPaginas = modoPaginado && Boolean(ultimaPagina?.cheia && ultimaPagina.ultimoDoc);
+  const verMais = () => {
+    if (!ultimaPagina?.ultimoDoc) return;
+    abrirPagina(paginas.length, ultimaPagina.ultimoDoc);
+  };
+  const itensDasPaginas = paginas.flatMap((p) => p?.itens ?? []);
+
+  // Grade: as variacoes dos principais da pagina (o saldo do principal e' a soma delas).
+  const chavesDosPrincipaisDaPagina = itensDasPaginas
+    .filter((p) => p.temGrade === true)
+    .map((p) => p.grupoChave || chaveDoProdutoPeloId(p.id, tenantId))
+    .sort()
+    .join('|');
+  const [variacoesDaPagina, setVariacoesDaPagina] = useState<PecaData[]>([]);
+  useEffect(() => {
+    if (!tenantId || !modoPaginado || !chavesDosPrincipaisDaPagina) { setVariacoesDaPagina([]); return; }
+    let cancelado = false;
+    const chaves = chavesDosPrincipaisDaPagina.split('|');
+    const lotes: string[][] = [];
+    for (let i = 0; i < chaves.length; i += 10) lotes.push(chaves.slice(i, i + 10));
+    Promise.all(lotes.map((lote) => getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId), where('produtoPaiChave', 'in', lote)))))
+      .then((snaps) => { if (!cancelado) setVariacoesDaPagina(snaps.flatMap((s) => s.docs.map((d) => ({ id: d.id, ...d.data() } as PecaData)))); })
+      .catch((error) => console.error('Erro ao buscar as variações da grade:', error));
+    return () => { cancelado = true; };
+  }, [tenantId, modoPaginado, chavesDosPrincipaisDaPagina]);
+
+  // Busca no banco: comeco do nome + codigo, codigo de barras e referencia exatos.
+  const [resultadosBusca, setResultadosBusca] = useState<PecaData[]>([]);
+  useEffect(() => {
+    if (!tenantId || !modoBuscaNoBanco) return;
+    let cancelado = false;
+    setLoading(true);
+    const espera = window.setTimeout(() => {
+      buscarProdutosNoBanco(tenantId, termoBusca)
+        .then((achados) => { if (!cancelado) { setResultadosBusca(achados as PecaData[]); setLoading(false); } })
+        .catch((error) => {
+          console.error('Erro na busca de produtos:', error);
+          if (!cancelado) { setResultadosBusca([]); setLoading(false); }
+        });
+    }, 350);
+    return () => { cancelado = true; window.clearTimeout(espera); };
+  }, [tenantId, modoBuscaNoBanco, termoBusca]);
+
+  useEffect(() => {
+    const lista = modoCompleto
+      ? (catalogo ?? [])
+      : modoBuscaNoBanco
+        ? resultadosBusca
+        : [...itensDasPaginas, ...variacoesDaPagina];
+    const porId = new Map<string, PecaData>();
+    lista.forEach((p) => porId.set(p.id, p));
+    const pecas = [...porId.values()];
+    // Mesma ordem nos tres modos: pelo nome (a paginacao no banco e' pelo nome).
+    pecas.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
+    setPecasList(pecas);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modoCompleto, modoBuscaNoBanco, catalogo, resultadosBusca, paginas, variacoesDaPagina]);
+
+  // Cartoes de resumo sem ler o estoque: contagem no servidor.
+  const [contagens, setContagens] = useState<{ total: number | null; baixo: number | null; esgotados: number | null }>({ total: null, baixo: null, esgotados: null });
+  useEffect(() => {
+    if (!tenantId || !mostrarResumo || modoCompleto) return;
+    let cancelado = false;
+    contarResumoDoEstoque(tenantId).then((c) => { if (!cancelado) setContagens(c); });
+    return () => { cancelado = true; };
+  }, [tenantId, mostrarResumo, modoCompleto]);
 
   const handleToggleAtivo = async (peca: PecaData) => {
     if (!currentUser) return;
@@ -246,7 +368,9 @@ const EstoqueList: React.FC = () => {
         });
       };
       try {
-        for (const p of pecasList) {
+        // A lista mostra so' uma parte: a padronizacao pega o catalogo inteiro.
+        const todos = (await obterCatalogoEstoque(tenantId || '')).docs.map((d) => ({ id: d.id, ...d.data() } as PecaData));
+        for (const p of todos) {
           const upName = p.nome.toUpperCase().trim();
           if (p.nome !== upName) {
             await updateDoc(doc(db, 'estoque', p.id), {
@@ -288,7 +412,7 @@ const EstoqueList: React.FC = () => {
   // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms. A variacao
   // tambem bate pela combinacao (P / AZUL) e pelo codigo de barras dela.
   const passaNaBusca = (peca: PecaData) => matchesAllSearchTerms(
-    [peca.nome, peca.codigo, peca.categoria, ...(peca.ehVariacao ? [peca.variacaoRotulo ?? '', peca.codigoBarras ?? ''] : [])],
+    [peca.nome, peca.codigo, peca.categoria, peca.codigoBarras ?? '', peca.referencia ?? '', ...(peca.ehVariacao ? [peca.variacaoRotulo ?? ''] : [])],
     searchTerm,
   );
   const buscando = searchTerm.trim() !== '';
@@ -313,8 +437,13 @@ const EstoqueList: React.FC = () => {
   // Cartoes de resumo seguem o filtro de filial (07/10): numa filial nova, os
   // 700 itens do grupo sem estoque aqui apareciam como 'esgotados'. O principal
   // de grade fica de fora: quem tem saldo sao as variacoes.
+  // Sem o catalogo carregado (lista paginada), os numeros vem da contagem no servidor.
   const semPrincipaisDeGrade = pecasList.filter((peca) => peca.temGrade !== true);
   const pecasDoResumo = grupo && escopoFilial === 'filial' ? semPrincipaisDeGrade.filter((peca) => itemDaFilial(peca, tenantId)) : semPrincipaisDeGrade;
+  const formatarContagem = (n: number | null) => (n === null ? '—' : n);
+  const resumoTotal = modoCompleto ? pecasDoResumo.length : formatarContagem(contagens.total);
+  const resumoBaixo = modoCompleto ? pecasDoResumo.filter(p => p.quantidade > 0 && p.quantidade < 5).length : formatarContagem(contagens.baixo);
+  const resumoEsgotados = modoCompleto ? pecasDoResumo.filter(p => p.quantidade <= 0).length : formatarContagem(contagens.esgotados);
 
   const getStatusBadge = (quantidade: number) => {
     if (quantidade <= 0) {
@@ -532,7 +661,7 @@ const EstoqueList: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{pecasDoResumo.length}</h3>
+            <h3>{resumoTotal}</h3>
             <p>Itens Cadastrados</p>
           </div>
         </div>
@@ -543,7 +672,7 @@ const EstoqueList: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{pecasDoResumo.filter(p => p.quantidade > 0 && p.quantidade < 5).length}</h3>
+            <h3>{resumoBaixo}</h3>
             <p>Estoque Baixo</p>
           </div>
         </div>
@@ -554,7 +683,7 @@ const EstoqueList: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{pecasDoResumo.filter(p => p.quantidade <= 0).length}</h3>
+            <h3>{resumoEsgotados}</h3>
             <p>Itens Esgotados</p>
           </div>
         </div>
@@ -697,6 +826,21 @@ const EstoqueList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {modoBuscaNoBanco && !loading && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexWrap: 'wrap', padding: '12px', color: 'var(--text-muted)', fontSize: '13px' }}>
+            <span>Mostrando o que começa com &quot;{splitSearchTerms(termoBusca)[0]}&quot; ou tem esse código, código de barras ou referência.</span>
+            <button type="button" className="btn-secondary" onClick={() => setBuscaCompleta(true)}>
+              Procurar em qualquer parte do nome
+            </button>
+          </div>
+        )}
+        {temMaisPaginas && !loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px' }}>
+            <button type="button" className="btn-secondary" onClick={verMais}>
+              Ver mais produtos
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -65,6 +65,7 @@ import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { contaComoReceita, fromCents, isRevenueReversal, receitaDoConjuntoCentavos, transactionDueDateInput, transactionNetAmount, type TransacaoDeReceita } from '../../utils/financeDomain';
 import { calcularProgressoMeta, faltaParaMeta, parseMetaFaturamentoMensal } from '../../utils/metaFaturamentoDomain';
 import './Dashboard.css';
+import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface OSData {
   id: string;
@@ -417,8 +418,8 @@ const Dashboard: React.FC = () => {
       }
     ));
 
-    unsubscribes.push(onSnapshot(
-      query(collection(db, 'estoque'), where('tenantId', '==', tenantId)),
+    unsubscribes.push(acompanharCatalogoEstoque(
+      tenantId,
       (snapshot) => {
         const data: EstoqueData[] = [];
         snapshot.forEach((docSnap) => data.push({ id: docSnap.id, ...docSnap.data() } as EstoqueData));

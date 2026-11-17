@@ -26,6 +26,7 @@ import {
   type LinhaCest,
   type LinhaNcm,
 } from '../../services/tabelasFiscaisService';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /**
  * FISCAL › TABELAS FISCAIS (pedido do dono, 20/10/2026).
@@ -271,7 +272,7 @@ const AbaNcmCest: React.FC<{ tipo: 'ncm' | 'cest'; podeAlimentar: boolean }> = (
     if (!tenantId) return;
     setAlimentando(true);
     try {
-      const snap = await getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)));
+      const snap = await obterCatalogoEstoque(tenantId);
       const itens = snap.docs.map((d) => ({ ncm: d.data().ncm, cest: d.data().cest })).filter((i) => i.ncm || i.cest);
       if (itens.length === 0) {
         showWarning('Nenhum produto com NCM ou CEST', 'Cadastre o NCM na aba Fiscal do produto, em Estoque.');

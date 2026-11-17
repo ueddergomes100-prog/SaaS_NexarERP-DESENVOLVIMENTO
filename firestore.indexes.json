@@ -119,6 +119,14 @@
       ]
     },
     {
+      "collectionGroup": "estoque",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "quantidade", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "ordens_de_servico",
       "queryScope": "COLLECTION",
       "fields": [

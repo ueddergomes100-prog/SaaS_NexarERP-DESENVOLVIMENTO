@@ -78,6 +78,7 @@ import {
 } from '../../utils/orcamentoModeloDomain';
 import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; descontoPadraoPercentual?: number | null; }
 interface ServicoData { id: string; nome: string; preco: number; }
@@ -274,8 +275,7 @@ const OrcamentoForm: React.FC = () => {
         snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco }));
         setServicosCatalogo(dataS);
 
-        const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-        const snapE = await getDocs(qE);
+        const snapE = await obterCatalogoEstoque(tenantId);
         const dataE: PecaOrcamento[] = [];
         snapE.forEach((doc) => {
           const data = doc.data();

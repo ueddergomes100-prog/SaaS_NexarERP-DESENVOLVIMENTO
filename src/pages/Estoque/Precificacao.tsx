@@ -20,6 +20,7 @@ import { simularPrecos } from '../../services/custosService';
 import type { LinhaDaSimulacao } from '../../utils/custosDomain';
 import { createAuditLog } from '../../services/logService';
 import type { MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /** O que a tela precisa saber de cada produto do estoque. Fica num mapa por
  * id: e' a fonte dos valores originais (pra saber o que mudou no save) e do
@@ -106,7 +107,7 @@ const Precificacao: React.FC = () => {
   useEffect(() => {
     if (!tenantId) return;
     setCarregando(true);
-    getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)))
+    obterCatalogoEstoque(tenantId)
       .then((snap) => {
         const mapa = new Map<string, ProdutoPrecificacao>();
         snap.docs.forEach((d) => {

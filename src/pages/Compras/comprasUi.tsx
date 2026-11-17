@@ -4,6 +4,7 @@ import { Trash2 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import type { ItemDaCotacao } from '../../utils/comprasDomain';
+import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /**
  * Pecas comuns das telas de Compras (22/10/2026): produtos do estoque para a
@@ -27,8 +28,8 @@ export const useProdutosParaCompra = (tenantId: string | null | undefined): Prod
   const [produtos, setProdutos] = useState<ProdutoParaCompra[]>([]);
   useEffect(() => {
     if (!tenantId) return undefined;
-    return onSnapshot(
-      query(collection(db, 'estoque'), where('tenantId', '==', tenantId)),
+    return acompanharCatalogoEstoque(
+      tenantId,
       (snap) => setProdutos(snap.docs.map((d) => ({
         id: d.id,
         nome: String(d.data().nome || ''),

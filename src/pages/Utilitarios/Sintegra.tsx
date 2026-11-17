@@ -13,6 +13,7 @@ import {
   type ProdutoEstoqueSintegra, type SintegraEmpresa, type SintegraNota, type SintegraNotaItem, type SintegraProduto,
 } from '../../utils/sintegraDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 const MESES = [
   '01 - Janeiro', '02 - Fevereiro', '03 - Março', '04 - Abril', '05 - Maio', '06 - Junho',
@@ -147,7 +148,7 @@ const Sintegra: React.FC = () => {
       }));
 
       const codigosProdutos = new Set(notasSintegra.flatMap((nota) => nota.itens.map((item) => item.codigo)));
-      const estoqueSnap = await getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)));
+      const estoqueSnap = await obterCatalogoEstoque(tenantId);
       const produtosSintegra: SintegraProduto[] = montarProdutosSintegra(
         codigosProdutos,
         estoqueSnap.docs.map((d) => ({ id: d.id, ...d.data() } as ProdutoEstoqueSintegra)),

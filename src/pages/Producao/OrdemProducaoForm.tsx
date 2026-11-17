@@ -29,6 +29,7 @@ import { chaveComponente, colecaoDoComponente, normalizarComponente, type Origem
 import { calcularPesagem, consumoDoComponente, ganhoDePeso, parseTaras, unidadeEmKg, type TaraProducao } from '../../utils/producaoPesagemDomain';
 import { salvarTarasNoServidor } from '../../services/producaoService';
 import { createAuditLog } from '../../services/logService';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -227,8 +228,7 @@ const OrdemProducaoForm: React.FC = () => {
     const fetchDados = async () => {
       if (!tenantId) return;
       try {
-        const qProdutos = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-        const snapProdutos = await getDocs(qProdutos);
+        const snapProdutos = await obterCatalogoEstoque(tenantId);
         const produtos: OpcaoSimples[] = [];
         snapProdutos.forEach(d => {
           // Produto inativado nao aparece pra escolher em ordem de producao

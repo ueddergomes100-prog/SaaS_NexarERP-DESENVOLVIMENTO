@@ -1,5 +1,6 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { obterCatalogoEstoque } from '../services/catalogoEstoqueService';
 
 /**
  * Proximo codigo de produto (Estoque): maior codigo numerico ja usado + 1 --
@@ -8,8 +9,7 @@ import { db } from '../services/firebase';
  * getProximoCodigoCliente/getProximoCodigoFornecedor/getProximoCodigoMateriaPrima.
  */
 export const getProximoCodigoProduto = async (tenantId: string): Promise<string> => {
-  const q = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-  const snap = await getDocs(q);
+  const snap = await obterCatalogoEstoque(tenantId);
   const maxCodigo = snap.docs.reduce((max, docSnap) => {
     // Variacao de produto com grade tem codigo "<pai>.<numero>" (123.01): nao
     // entra na sequencia, senao "12301" viraria o maior codigo. Ver gradeProdutosDomain.ts.

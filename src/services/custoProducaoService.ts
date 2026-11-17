@@ -13,6 +13,7 @@ import {
 } from '../utils/custoProducaoDomain';
 import { showWarning } from '../utils/alerts';
 import { mostrarImpactoDeCusto } from '../utils/impactoCustoAlert';
+import { obterCatalogoEstoque } from './catalogoEstoqueService';
 
 /*
  * Grava o custo recalculado dos produtos acabados. A regra esta em
@@ -58,7 +59,7 @@ export const sincronizarCustosDaProducao = async (opcoes: OpcoesDeSincronizacao)
 
   const [snapReceitas, snapEstoque, snapMateriasPrimas] = await Promise.all([
     getDocs(query(collection(db, 'produtos_composicao'), where('tenantId', '==', tenantId))),
-    getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId))),
+    obterCatalogoEstoque(tenantId),
     getDocs(query(collection(db, 'materias_primas'), where('tenantId', '==', tenantId))),
   ]);
 

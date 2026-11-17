@@ -18,6 +18,7 @@ import {
 } from '../../utils/loteDomain';
 import { lotesDaTela, montarDocumentoLotes, rotuloDosDias, type LoteDoProduto } from '../../utils/lotesRelatorioDomain';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
+import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /**
  * LOTES E VALIDADES (2026-09-25): saldo por lote, dias para vencer e as abas de
@@ -82,7 +83,7 @@ const LotesValidades: React.FC = () => {
 
   useEffect(() => {
     if (!tenantId) return undefined;
-    return onSnapshot(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)), (snap) => {
+    return acompanharCatalogoEstoque(tenantId, (snap) => {
       const mapa: Record<string, { nome: string; codigo: string }> = {};
       snap.forEach((d) => { mapa[d.id] = { nome: String(d.data().nome || ''), codigo: String(d.data().codigo || '') }; });
       setProdutos(mapa);

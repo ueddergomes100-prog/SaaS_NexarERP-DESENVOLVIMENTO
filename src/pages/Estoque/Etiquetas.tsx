@@ -19,6 +19,7 @@ import {
   type ItemEtiqueta,
   type ModeloEtiqueta,
 } from '../../utils/etiquetaDomain';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /** O que a tela precisa de cada produto do estoque -- leitura, nunca edita
  * preço/cadastro aqui (isso é papel do cadastro e da Precificação). */
@@ -91,7 +92,7 @@ const Etiquetas: React.FC = () => {
   useEffect(() => {
     if (!tenantId) return;
     setCarregando(true);
-    getDocs(query(collection(db, 'estoque'), where('tenantId', '==', tenantId)))
+    obterCatalogoEstoque(tenantId)
       .then((snap) => {
         const mapa = new Map<string, ProdutoEtiquetaEstoque>();
         snap.docs.forEach((d) => {

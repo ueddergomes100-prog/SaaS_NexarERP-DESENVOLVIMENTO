@@ -234,6 +234,7 @@ import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdi
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import '../OS/OS.css'; // Reusing OS styles for layout consistency
 import './LancamentoItens.css';
+import { obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 interface ClienteBasico {
   id: string; nome: string; telefone: string; codigo?: string; limiteDeCredito?: number | null; descontoPadraoPercentual?: number | null;
@@ -1086,8 +1087,7 @@ const PedidoVendaForm: React.FC = () => {
       );
 
       // Fetch Estoque
-      const qE = query(collection(db, 'estoque'), where('tenantId', '==', tenantId));
-      const snapE = await getDocs(qE);
+      const snapE = await obterCatalogoEstoque(tenantId);
       const dataE: ProdutoEstoque[] = [];
       snapE.forEach((doc) => {
         // produtoRevenda === false = item de uso interno (peca de veiculo,

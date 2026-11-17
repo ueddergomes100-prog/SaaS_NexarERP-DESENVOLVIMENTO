@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { LINHAS_POR_VEZ, useTermoAdiado } from '../../hooks/useTermoAdiado';
 import { useListaPaginada } from '../../hooks/useListaPaginada';
 import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
 import { Search, Plus, Edit, Power, Trash2, Upload, FileText } from 'lucide-react';
@@ -77,13 +78,15 @@ const FornecedoresList: React.FC = () => {
   // Com limite (17/11/2026): 50 por vez pela ordem do nome, busca no banco;
   // situacao diferente de "Ativos", filtros e relatorio usam o cadastro inteiro
   // (catalogo compartilhado). Sem o indice tenantId+nome, usa o cadastro inteiro.
+  // Busca sem travar (17/11/2026): filtra quando a pessoa para de digitar.
+  const termoAdiado = useTermoAdiado(searchTerm);
   const lista = useListaPaginada<FornecedorData>({
     colecao: 'fornecedores',
     tenantId,
     habilitado: Boolean(currentUser),
     completo: situacao !== SITUACAO_PADRAO || filtrosAbertos || Boolean(filtroLocal.uf || filtroLocal.cidade || tipoCadastro)
       || quantosFiltrosExtras(filtroExtra) > 0 || previewAberto,
-    termoBusca: searchTerm,
+    termoBusca: termoAdiado,
     camposExatos: ['codigo', 'cnpj', 'telefone', 'celular'],
   });
   const loading = lista.carregando;
@@ -121,16 +124,22 @@ const FornecedoresList: React.FC = () => {
   const locais = useMemo(() => listarLocaisDosClientes(fornecedores), [fornecedores]);
 
   const filteredFornecedores = fornecedores.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(fornecedor => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
+    if (!termoAdiado) return true;
+    const term = termoAdiado.toLowerCase();
     return (
       (fornecedor.nome && fornecedor.nome.toLowerCase().includes(term)) ||
-      (fornecedor.cnpj && fornecedor.cnpj.includes(searchTerm)) ||
-      (fornecedor.telefone && fornecedor.telefone.includes(searchTerm))
+      (fornecedor.cnpj && fornecedor.cnpj.includes(termoAdiado)) ||
+      (fornecedor.telefone && fornecedor.telefone.includes(termoAdiado))
     );
   })
     .filter((fornecedor) => passaNoFiltroLocal(fornecedor, filtroLocal))
     .filter((fornecedor) => passaNosFiltrosDoFornecedor({ ...fornecedor, cadastradoEm: diaDoCadastro(fornecedor.createdAt) }, tipoCadastro, filtroExtra));
+
+  // Com o cadastro inteiro, desenha 100 linhas por vez (desenhar milhares travava a tela).
+  const [limiteNaTela, setLimiteNaTela] = useState(LINHAS_POR_VEZ);
+  useEffect(() => { setLimiteNaTela(LINHAS_POR_VEZ); }, [termoAdiado, situacao, filtroLocal, filtroExtra, tipoCadastro]);
+  const fornecedoresNaTela = lista.modoCompleto ? filteredFornecedores.slice(0, limiteNaTela) : filteredFornecedores;
+  const restamNaTela = filteredFornecedores.length - fornecedoresNaTela.length;
 
   const filtrosAtivos = (filtroLocal.uf || filtroLocal.cidade ? 1 : 0) + (tipoCadastro ? 1 : 0) + quantosFiltrosExtras(filtroExtra);
   const limparFiltros = () => {
@@ -251,7 +260,7 @@ const FornecedoresList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredFornecedores.map((fornecedor) => (
+                fornecedoresNaTela.map((fornecedor) => (
                   <tr key={fornecedor.id} {...linha(fornecedor.id, () => abrirFornecedor(fornecedor.id))} style={travasFornecedores.has(fornecedor.id) ? { opacity: 0.55 } : undefined}>
                     <td style={{ color: 'var(--text-muted)' }}>{fornecedor.codigo || '-'}</td>
                     <td className="font-medium">
@@ -300,6 +309,13 @@ const FornecedoresList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {restamNaTela > 0 && !loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px' }}>
+            <button type="button" className="btn-secondary" onClick={() => setLimiteNaTela((n) => n + LINHAS_POR_VEZ)}>
+              Mostrar mais ({restamNaTela.toLocaleString('pt-BR')} restantes)
+            </button>
+          </div>
+        )}
         <RodapeListaPaginada
           carregando={loading}
           temMais={lista.temMais}

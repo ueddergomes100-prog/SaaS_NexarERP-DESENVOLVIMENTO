@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2, Columns3, ChevronDown, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown, Boxes } from 'lucide-react';
 import { chaveDoProdutoPeloId, itemDaFilial } from '../../utils/cadastroGrupoDomain';
 import { agruparVariacoes, somaDasVariacoes } from '../../utils/gradeProdutosDomain';
@@ -14,7 +14,8 @@ import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
-import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms, splitSearchTerms } from '../../utils/textSearch';
+import { DICA_BUSCA_MULTIPLA, normalizeSearchText, splitSearchTerms } from '../../utils/textSearch';
+import { LINHAS_POR_VEZ, useTermoAdiado } from '../../hooks/useTermoAdiado';
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { COLUNAS_OPCIONAIS_ESTOQUE, compararPelaOrdem, parseColunasOcultasEstoque, type ColunaOpcionalEstoque } from '../../utils/estoqueColunasDomain';
 import { avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
@@ -172,7 +173,9 @@ const EstoqueList: React.FC = () => {
   //    lido uma vez por pagina aberta e o mesmo das telas de venda.
   // ---------------------------------------------------------------------------
   const [buscaCompleta, setBuscaCompleta] = useState(false);
-  const termoBusca = searchTerm.trim();
+  // Busca sem travar (17/11/2026): o filtro roda quando a pessoa para de digitar.
+  const termoAdiado = useTermoAdiado(searchTerm);
+  const termoBusca = termoAdiado.trim();
   const filtrosNoPadrao = filtroStatus === 'ativos' && filtroSaldo === 'todos' && !soComReserva && !soComGrade
     && ordemLista.campo === 'nome' && !ordemLista.desc
     && ordemSaldo === 'padrao' && !(grupo && escopoFilial === 'grupo');
@@ -266,7 +269,7 @@ const EstoqueList: React.FC = () => {
           console.error('Erro na busca de produtos:', error);
           if (!cancelado) { setResultadosBusca([]); setLoading(false); }
         });
-    }, 350);
+    }, 100);
     return () => { cancelado = true; window.clearTimeout(espera); };
   }, [tenantId, modoBuscaNoBanco, termoBusca]);
 
@@ -437,11 +440,21 @@ const EstoqueList: React.FC = () => {
   // Mesma busca das telas de venda: acento nao conta e "+" exige todas as
   // palavras ("Racao+Quatree+20KG"). Ver matchesAllSearchTerms. A variacao
   // tambem bate pela combinacao (P / AZUL) e pelo codigo de barras dela.
-  const passaNaBusca = (peca: PecaData) => matchesAllSearchTerms(
-    [peca.nome, peca.codigo, peca.categoria, peca.codigoBarras ?? '', peca.referencia ?? '', ...(peca.ehVariacao ? [peca.variacaoRotulo ?? ''] : [])],
-    searchTerm,
-  );
-  const buscando = searchTerm.trim() !== '';
+  // O texto de busca de cada produto e' montado uma vez por mudanca da lista,
+  // nao a cada tecla (com o catalogo inteiro sao milhares de produtos).
+  const textoDeBusca = useMemo(() => {
+    const mapa = new Map<string, string>();
+    pecasList.forEach((peca) => mapa.set(peca.id, [peca.nome, peca.codigo, peca.categoria, peca.codigoBarras ?? '', peca.referencia ?? '', ...(peca.ehVariacao ? [peca.variacaoRotulo ?? ''] : [])]
+      .map((campo) => normalizeSearchText(campo)).join('\u0001')));
+    return mapa;
+  }, [pecasList]);
+  const termosDaBusca = useMemo(() => splitSearchTerms(termoAdiado).map((t) => normalizeSearchText(t)).filter(Boolean), [termoAdiado]);
+  const passaNaBusca = (peca: PecaData) => {
+    if (termosDaBusca.length === 0) return true;
+    const texto = textoDeBusca.get(peca.id) ?? '';
+    return termosDaBusca.every((termo) => texto.includes(termo));
+  };
+  const buscando = termosDaBusca.length > 0;
   /** O principal aparece se ele ou alguma variacao passa; buscando, as variacoes
    * que bateram ja' vem abertas -- e o chevron abre/fecha em qualquer caso. */
   const linhasFiltradas = principais.flatMap((peca) => {
@@ -480,6 +493,12 @@ const EstoqueList: React.FC = () => {
     }
   };
   const linhasVisiveis = ordenarPorSaldo(linhasFiltradas, ordemSaldo, ({ peca }) => comSaldoDasVariacoes(peca).quantidade);
+  // Com o catalogo inteiro, desenha 100 linhas por vez: desenhar milhares de
+  // linhas de uma vez era o que travava a busca.
+  const [limiteNaTela, setLimiteNaTela] = useState(LINHAS_POR_VEZ);
+  useEffect(() => { setLimiteNaTela(LINHAS_POR_VEZ); }, [termoAdiado, filtroStatus, filtroSaldo, soComReserva, soComGrade, ordemSaldo, ordemLista, escopoFilial]);
+  const linhasNaTela = modoCompleto ? linhasVisiveis.slice(0, limiteNaTela) : linhasVisiveis;
+  const restamNaTela = linhasVisiveis.length - linhasNaTela.length;
 
   const alternarExpandido = (id: string, abertoAgora: boolean) => {
     setExpandidos((atual) => new Map(atual).set(id, !abertoAgora));
@@ -888,7 +907,7 @@ const EstoqueList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                linhasVisiveis.flatMap(({ peca, variacoes, aberto, totalDeVariacoes }) => [
+                linhasNaTela.flatMap(({ peca, variacoes, aberto, totalDeVariacoes }) => [
                   linhaDoProduto(peca, { aberto, totalDeVariacoes }),
                   ...variacoes.map((variacao) => linhaDoProduto(variacao, { principal: peca })),
                 ])
@@ -901,6 +920,13 @@ const EstoqueList: React.FC = () => {
             <span>Mostrando o que começa com &quot;{splitSearchTerms(termoBusca)[0]}&quot; ou tem esse código, código de barras ou referência.</span>
             <button type="button" className="btn-secondary" onClick={() => setBuscaCompleta(true)}>
               Procurar em qualquer parte do nome
+            </button>
+          </div>
+        )}
+        {restamNaTela > 0 && !loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px' }}>
+            <button type="button" className="btn-secondary" onClick={() => setLimiteNaTela((n) => n + LINHAS_POR_VEZ)}>
+              Mostrar mais ({restamNaTela.toLocaleString('pt-BR')} restantes)
             </button>
           </div>
         )}

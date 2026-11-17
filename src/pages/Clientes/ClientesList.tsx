@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { LINHAS_POR_VEZ, useTermoAdiado } from '../../hooks/useTermoAdiado';
 import { Search, Plus, Edit, Power, Trash2, Upload, CaseUpper, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -85,12 +86,14 @@ const ClientesList: React.FC = () => {
   // situacao diferente de "Ativos", filtros e relatorio usam o cadastro inteiro
   // (catalogo compartilhado). Ver useListaPaginada.
   const filtrosAtivosAgora = (filtroLocal.uf || filtroLocal.cidade ? 1 : 0) + quantosFiltrosExtras(filtroExtra);
+  // Busca sem travar (17/11/2026): filtra quando a pessoa para de digitar.
+  const termoAdiado = useTermoAdiado(searchTerm);
   const lista = useListaPaginada<ClienteData>({
     colecao: 'clientes',
     tenantId,
     habilitado: Boolean(currentUser),
     completo: situacao !== SITUACAO_PADRAO || filtrosAbertos || filtrosAtivosAgora > 0 || previewAberto,
-    termoBusca: searchTerm,
+    termoBusca: termoAdiado,
     camposExatos: ['codigo', 'documento', 'telefone', 'celular'],
   });
   const loading = lista.carregando || padronizando;
@@ -178,17 +181,23 @@ const ClientesList: React.FC = () => {
   const locais = useMemo(() => listarLocaisDosClientes(clientes), [clientes]);
 
   const filteredClientes = clientes.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter(cliente => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
+    if (!termoAdiado) return true;
+    const term = termoAdiado.toLowerCase();
     return (
       (cliente.codigo && cliente.codigo.toLowerCase().includes(term)) ||
       (cliente.nome && cliente.nome.toLowerCase().includes(term)) ||
-      (cliente.documento && cliente.documento.includes(searchTerm)) ||
-      (cliente.telefone && cliente.telefone.includes(searchTerm))
+      (cliente.documento && cliente.documento.includes(termoAdiado)) ||
+      (cliente.telefone && cliente.telefone.includes(termoAdiado))
     );
   })
     .filter((cliente) => passaNoFiltroLocal(cliente, filtroLocal))
     .filter((cliente) => passaNosFiltrosExtras({ ...cliente, cadastradoEm: diaDoCadastro(cliente.createdAt) }, filtroExtra));
+
+  // Com o cadastro inteiro, desenha 100 linhas por vez (desenhar milhares travava a tela).
+  const [limiteNaTela, setLimiteNaTela] = useState(LINHAS_POR_VEZ);
+  useEffect(() => { setLimiteNaTela(LINHAS_POR_VEZ); }, [termoAdiado, situacao, filtroLocal, filtroExtra]);
+  const clientesNaTela = lista.modoCompleto ? filteredClientes.slice(0, limiteNaTela) : filteredClientes;
+  const restamNaTela = filteredClientes.length - clientesNaTela.length;
 
   const filtrosAtivos = (filtroLocal.uf || filtroLocal.cidade ? 1 : 0) + quantosFiltrosExtras(filtroExtra);
   const limparFiltros = () => {
@@ -298,7 +307,7 @@ const ClientesList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredClientes.map((cliente) => (
+                clientesNaTela.map((cliente) => (
                   <tr
                     key={cliente.id}
                     // Consumidor Final e' registro do sistema e nao abre pra
@@ -366,6 +375,13 @@ const ClientesList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {restamNaTela > 0 && !loading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px' }}>
+            <button type="button" className="btn-secondary" onClick={() => setLimiteNaTela((n) => n + LINHAS_POR_VEZ)}>
+              Mostrar mais ({restamNaTela.toLocaleString('pt-BR')} restantes)
+            </button>
+          </div>
+        )}
         <RodapeListaPaginada
           carregando={loading}
           temMais={lista.temMais}

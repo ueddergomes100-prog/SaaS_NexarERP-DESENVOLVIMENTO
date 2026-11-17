@@ -207,3 +207,44 @@
     min-height: 128mm;
   }
 }
+
+/* Cabecalho no formato do DAV de exemplo (Jomarly, 17/11/2026). */
+.pv-aviso-topo {
+  text-align: center;
+  font-weight: 700;
+  font-size: 11.5px;
+  padding-bottom: 3px;
+  margin-bottom: 6px;
+  border-bottom: 1.5px solid #000;
+}
+
+.pv-empresa-dados {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.pv-empresa-endereco {
+  font-size: 9.5px;
+}
+
+.pv-empresa-direita {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pv-empresa-numero {
+  font-size: 12.5px;
+}
+
+/* A linha final fica em cima dos totais (que agora vem depois da assinatura). */
+.pv-page--simples .pv-linha-final {
+  margin-top: 10px;
+}

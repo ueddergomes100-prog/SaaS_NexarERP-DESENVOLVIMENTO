@@ -13,6 +13,7 @@ import {
   formatarTotalPecasMinuta,
   vendedorMinuta,
 } from '../../utils/minutaDomain';
+import { formatCompanyAddress } from '../../utils/companyAddress';
 import './PedidoPrintPreVenda.css';
 
 interface PedidoPrintPreVendaProps {
@@ -72,11 +73,17 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
   const itens: any[] = Array.isArray(pedidoData.itens) ? pedidoData.itens : [];
   const criadoEm: Date | null = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate() : null;
   const preVenda = ehPreVenda(pedidoData.status);
+  const dataHoraPedido = criadoEm ? formatarGeradoEmMinuta(criadoEm).replace(' as ', ' ') : '';
   const rotulo = preVenda ? 'PRE-VENDA' : 'PEDIDO';
   const numeroPedido = pedidoData.numeroPedido || pedidoData.id?.substring(0, 6).toUpperCase() || '';
   const nomeEmpresa = String(configData?.nomeOficina || '').trim();
   const telefoneEmpresa = formatarTelefoneMinuta(configData?.telefone);
   const cnpjEmpresa = formatarDocumentoMinuta(configData?.cnpj);
+  // "RUA X, Nº 32 - BAIRRO, CIDADE - UF, CEP" (mesma montagem do DAV de exemplo).
+  const cidadeEmpresa = [configData?.nfseCidadeNome || configData?.cidade, configData?.nfseCidadeEstado || configData?.estado]
+    .map((v) => String(v || '').trim()).filter(Boolean).join(' - ');
+  const enderecoEmpresa = [formatCompanyAddress(configData), cidadeEmpresa, formatarCepMinuta(configData?.cep)]
+    .filter(Boolean).join(', ');
   const condicao = condicaoPagamentoMinuta(pedidoData.pagamentos) || String(pedidoData.formaPagamento || '');
   const foneCliente = [formatarTelefoneMinuta(clientData?.telefone), formatarTelefoneMinuta(clientData?.celular)]
     .filter(Boolean).join(' / ');
@@ -85,21 +92,30 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
   return (
     <div className={simplificado ? 'pv-page pv-page--simples' : 'pv-page'}>
       {simplificado ? (
-        // Jomarly (17/11/2026, 3a folha marcada): a logo dentro do quadro da
-        // empresa (quadro maior), fone entre o nome e o CNPJ, sem "Pagina 1/1".
-        <div className="pv-caixa pv-caixa--empresa">
-          {configData?.logo && <img className="pv-logo-caixa" src={configData.logo} alt="Logo" />}
-          <div className="pv-caixa-conteudo">
-            <div className="pv-linha pv-linha--topo">
-              <span><span className="pv-rotulo">Empresa:</span> <strong>{nomeEmpresa}</strong></span>
-              <span>{telefoneEmpresa && <><span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</>}</span>
-              <span>{cnpjEmpresa && <><span className="pv-rotulo">CNPJ:</span> {cnpjEmpresa}</>}</span>
+        // Jomarly (17/11/2026): cabecalho no formato do DAV da Eletrica Terra
+        // (exemplo do dono): aviso centralizado no alto; no quadro, logo +
+        // empresa/contato/endereco a esquerda e pedido/pagina/vendedor/data a direita.
+        <>
+          <div className="pv-aviso-topo">
+            NÃO É DOCUMENTO FISCAL. NÃO É VÁLIDO COMO RECIBO E COMO GARANTIA DE MERCADORIA.
+          </div>
+          <div className="pv-caixa pv-caixa--empresa">
+            {configData?.logo && <img className="pv-logo-caixa" src={configData.logo} alt="Logo" />}
+            <div className="pv-empresa-dados">
+              <div><strong>EMPRESA:</strong> {nomeEmpresa}</div>
+              <div>
+                <strong>CONTATO:</strong> {telefoneEmpresa}
+                {cnpjEmpresa && <> &nbsp;&nbsp;<strong>CNPJ:</strong> {cnpjEmpresa}</>}
+              </div>
+              {enderecoEmpresa && <div className="pv-empresa-endereco"><strong>ENDEREÇO:</strong> {enderecoEmpresa}</div>}
             </div>
-            <div className="pv-aviso">
-              NAO E DOCUMENTO FISCAL - NAO VALE COMO RECIBO NEM GARANTIA DE MERCADORIA - NAO COMPROVA PAGTO
+            <div className="pv-empresa-direita">
+              <div className="pv-empresa-numero"><strong>{rotulo} - {numeroPedido}</strong> &nbsp;&nbsp; <strong>PÁGINA - 1/1</strong></div>
+              <div><strong>VENDEDOR:</strong> {vendedorMinuta(extras.vendedorCodigo, pedidoData.vendedorNome)}</div>
+              <div><strong>DATA:</strong> {dataHoraPedido}</div>
             </div>
           </div>
-        </div>
+        </>
       ) : (
         <div className="pv-caixa">
           <div className="pv-linha pv-linha--topo">
@@ -200,14 +216,6 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
 
       {/* Jomarly: totais, OBS. e assinatura presos no pe da folha (margin-top auto). */}
       <div className={simplificado ? 'pv-fim' : undefined}>
-      <div className="pv-totais">
-        <span><span className="pv-rotulo">Vr Produto:</span> <strong>{numero(pedidoData.valorTotalItens)}</strong></span>
-        <span><span className="pv-rotulo">Vr Desconto:</span> {totalOuVazio(pedidoData.valorTotalDescontos)}</span>
-        <span><span className="pv-rotulo">Vr Frete:</span> {totalOuVazio(pedidoData.frete)}</span>
-        <span><span className="pv-rotulo">Vr Encargos:</span> {totalOuVazio(pedidoData.encargos)}</span>
-        <span><span className="pv-rotulo">Vr Outros:</span></span>
-        <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
-      </div>
 
       {simplificado ? (
         <>
@@ -218,15 +226,33 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
             <div className="pv-assinatura-linha" />
             <span>Assinatura do cliente</span>
           </div>
-          {/* A linha que separava os itens dos totais fica no fim (17/11/2026). */}
+          {/* Linha e totais no fim, abaixo da assinatura (17/11/2026). */}
           <div className="pv-linha-final" />
+          <div className="pv-totais">
+            <span><span className="pv-rotulo">Vr Produto:</span> <strong>{numero(pedidoData.valorTotalItens)}</strong></span>
+            <span><span className="pv-rotulo">Vr Desconto:</span> {totalOuVazio(pedidoData.valorTotalDescontos)}</span>
+            <span><span className="pv-rotulo">Vr Frete:</span> {totalOuVazio(pedidoData.frete)}</span>
+            <span><span className="pv-rotulo">Vr Encargos:</span> {totalOuVazio(pedidoData.encargos)}</span>
+            <span><span className="pv-rotulo">Vr Outros:</span></span>
+            <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
+          </div>
         </>
       ) : (
+        <>
+        <div className="pv-totais">
+          <span><span className="pv-rotulo">Vr Produto:</span> <strong>{numero(pedidoData.valorTotalItens)}</strong></span>
+          <span><span className="pv-rotulo">Vr Desconto:</span> {totalOuVazio(pedidoData.valorTotalDescontos)}</span>
+          <span><span className="pv-rotulo">Vr Frete:</span> {totalOuVazio(pedidoData.frete)}</span>
+          <span><span className="pv-rotulo">Vr Encargos:</span> {totalOuVazio(pedidoData.encargos)}</span>
+          <span><span className="pv-rotulo">Vr Outros:</span></span>
+          <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
+        </div>
         <div className="pv-rodape">
           <span>{preVenda ? 'Pré-Venda' : 'Pedido'}: {numeroPedido}/UN</span>
           <span>Estação: {nomeEmpresa.replace(/\s+/g, '').toUpperCase().slice(0, 20)} - Usuário: {extras.usuarioNome.toUpperCase()}</span>
           <span>Gerado em {formatarGeradoEmMinuta(geradoEm)}</span>
         </div>
+        </>
       )}
       </div>
     </div>

@@ -246,5 +246,10 @@
 
 /* A linha final fica em cima dos totais (que agora vem depois da assinatura). */
 .pv-page--simples .pv-linha-final {
-  margin-top: 10px;
+  margin-top: 0;
+}
+
+/* Assinatura mais baixa, com espaco para assinar (17/11/2026). */
+.pv-page--simples .pv-assinatura {
+  margin-top: 38px;
 }

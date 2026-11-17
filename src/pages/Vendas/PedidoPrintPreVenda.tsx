@@ -219,14 +219,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
 
       {simplificado ? (
         <>
-          <div className="pv-obs">
-            <span className="pv-rotulo">Observações:</span> {String(pedidoData.observacao || '')}
-          </div>
-          <div className="pv-assinatura">
-            <div className="pv-assinatura-linha" />
-            <span>Assinatura do cliente</span>
-          </div>
-          {/* Linha e totais no fim, abaixo da assinatura (17/11/2026). */}
+          {/* Linha e totais em cima; Observacoes e assinatura embaixo (17/11/2026). */}
           <div className="pv-linha-final" />
           <div className="pv-totais">
             <span><span className="pv-rotulo">Vr Produto:</span> <strong>{numero(pedidoData.valorTotalItens)}</strong></span>
@@ -235,6 +228,13 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
             <span><span className="pv-rotulo">Vr Encargos:</span> {totalOuVazio(pedidoData.encargos)}</span>
             <span><span className="pv-rotulo">Vr Outros:</span></span>
             <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
+          </div>
+          <div className="pv-obs">
+            <span className="pv-rotulo">Observações:</span> {String(pedidoData.observacao || '')}
+          </div>
+          <div className="pv-assinatura">
+            <div className="pv-assinatura-linha" />
+            <span>Assinatura do cliente</span>
           </div>
         </>
       ) : (

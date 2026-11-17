@@ -44,10 +44,36 @@ const mudancasDoProduto = (produto, apagar) => {
   return mudancas;
 };
 
+/** Codigo de barras feito do codigo antigo com zeros (0000000000442 para a referencia 442)? */
+const ehCodigoDeBarrasDoCodigoAntigo = (codigoBarras, referencia) => {
+  const barras = String(codigoBarras || '').trim();
+  const ref = String(referencia || '').trim();
+  if (!barras || !ref || !/^\d+$/.test(barras) || !/^\d+$/.test(ref)) return false;
+  return /^0/.test(barras) && Number(barras) === Number(ref);
+};
+
+const textoParaOrdenar = (nome) => String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+
 /**
- * @param {{ db: FirebaseFirestore.Firestore, apagar: () => unknown, agora: () => unknown, tenantId: string, aplicar: boolean, usuarioId: string }} opcoes
+ * Codigos novos 1, 2, 3... pela ordem alfabetica do nome (empate: codigo atual).
+ * Variacao de grade fica de fora (codigo "<pai>.NN"): quem chama recusa
+ * renumerar empresa com grade.
  */
-async function zerarEstoqueECustosDaMigracao({ db, apagar, agora, tenantId, aplicar, usuarioId }) {
+const codigosEmOrdemAlfabetica = (produtos) => {
+  const ordenados = [...produtos].sort((a, b) => {
+    const porNome = textoParaOrdenar(a.nome).localeCompare(textoParaOrdenar(b.nome), 'pt-BR');
+    return porNome !== 0 ? porNome : (Number(a.codigo) || 0) - (Number(b.codigo) || 0);
+  });
+  const mapa = new Map();
+  ordenados.forEach((p, indice) => mapa.set(p.id, String(indice + 1)));
+  return mapa;
+};
+
+/**
+ * @param {{ db: FirebaseFirestore.Firestore, apagar: () => unknown, agora: () => unknown, tenantId: string, aplicar: boolean, usuarioId: string,
+ *   zerar?: boolean, renumerar?: boolean, apagarCodigoAntigo?: boolean }} opcoes
+ */
+async function zerarEstoqueECustosDaMigracao({ db, apagar, agora, tenantId, aplicar, usuarioId, zerar = true, renumerar = false, apagarCodigoAntigo = false }) {
   // Nome e CNPJ da empresa ficam nas configuracoes dela (mesmo lugar que o backup le).
   const empresaSnap = await db.collection('configuracoes').doc(tenantId).get();
   if (!empresaSnap.exists) {
@@ -60,20 +86,43 @@ async function zerarEstoqueECustosDaMigracao({ db, apagar, agora, tenantId, apli
     db.collection('estoque').where('tenantId', '==', tenantId).get(),
     db.collection('pedidos_venda').where('tenantId', '==', tenantId).count().get(),
   ]);
+  const produtos = snap.docs.map((d) => ({ id: d.id, ref: d.ref, ...d.data() }));
+  if (renumerar && produtos.some((p) => p.temGrade === true || p.ehVariacao === true)) {
+    const erro = new Error('Esta empresa tem produtos com grade (variações com código "pai.NN"). Renumerar os códigos assim quebraria as variações: desmarque "Renumerar".');
+    erro.status = 409;
+    throw erro;
+  }
+  const codigosNovos = renumerar ? codigosEmOrdemAlfabetica(produtos) : new Map();
 
   let somaSaldo = 0;
   let comSaldo = 0;
   let comCustos = 0;
+  let codigosTrocados = 0;
+  let referenciasApagadas = 0;
+  let barrasApagadas = 0;
   const paraGravar = [];
-  snap.forEach((doc) => {
-    const produto = doc.data();
+  produtos.forEach((produto) => {
     const q = numero(produto.quantidade);
     somaSaldo += q;
     if (q !== 0) comSaldo += 1;
-    const mudancas = mudancasDoProduto(produto, apagar);
-    const mexeEmCusto = Object.keys(mudancas).some((c) => c !== 'quantidade' && c !== 'estoqueConfig.quantidadeAtual');
-    if (mexeEmCusto) comCustos += 1;
-    if (Object.keys(mudancas).length > 0) paraGravar.push({ ref: doc.ref, mudancas });
+    const mudancas = zerar ? mudancasDoProduto(produto, apagar) : {};
+    if (zerar && Object.keys(mudancas).some((c) => c !== 'quantidade' && c !== 'estoqueConfig.quantidadeAtual')) comCustos += 1;
+    const novoCodigo = codigosNovos.get(produto.id);
+    if (novoCodigo && String(produto.codigo ?? '') !== novoCodigo) {
+      mudancas.codigo = novoCodigo;
+      codigosTrocados += 1;
+    }
+    if (apagarCodigoAntigo) {
+      if (ehCodigoDeBarrasDoCodigoAntigo(produto.codigoBarras, produto.referencia)) {
+        mudancas.codigoBarras = '';
+        barrasApagadas += 1;
+      }
+      if (String(produto.referencia || '').trim() !== '') {
+        mudancas.referencia = '';
+        referenciasApagadas += 1;
+      }
+    }
+    if (Object.keys(mudancas).length > 0) paraGravar.push({ ref: produto.ref, mudancas });
   });
 
   if (aplicar) {
@@ -95,8 +144,11 @@ async function zerarEstoqueECustosDaMigracao({ db, apagar, agora, tenantId, apli
     somaSaldo: Math.round(somaSaldo * 1000) / 1000,
     comCustos,
     alterados: paraGravar.length,
+    codigosTrocados,
+    referenciasApagadas,
+    barrasApagadas,
     pedidosDeVenda: vendas.data().count,
   };
 }
 
-module.exports = { zerarEstoqueECustosDaMigracao, mudancasDoProduto };
+module.exports = { zerarEstoqueECustosDaMigracao, mudancasDoProduto, codigosEmOrdemAlfabetica, ehCodigoDeBarrasDoCodigoAntigo };

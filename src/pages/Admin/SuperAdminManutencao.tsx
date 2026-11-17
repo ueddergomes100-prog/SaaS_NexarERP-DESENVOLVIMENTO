@@ -11,6 +11,7 @@ import {
   type ResultadoDatasFaltantes,
   type ResultadoProtecaoDeSegredos,
   type ResultadoZerarEstoqueMigracao,
+  type OpcoesAjusteMigracao,
 } from '../../services/manutencaoService';
 
 /**
@@ -267,33 +268,44 @@ const CartaoProtegerSegredos: React.FC = () => {
  */
 const CartaoZerarEstoqueMigracao: React.FC = () => {
   const [tenantId, setTenantId] = useState('');
+  const [opcoes, setOpcoes] = useState<OpcoesAjusteMigracao>({ zerar: true, renumerar: false, apagarCodigoAntigo: false });
+  const [opcoesSimuladas, setOpcoesSimuladas] = useState<string>('');
   const [rodando, setRodando] = useState<'simular' | 'aplicar' | null>(null);
   const [resultado, setResultado] = useState<ResultadoZerarEstoqueMigracao | null>(null);
-  const simulado = resultado?.modo === 'simular' && resultado.tenantId === tenantId.trim() && Boolean(resultado.projeto) && resultado.alterados > 0;
+  const nenhumaOpcao = !opcoes.zerar && !opcoes.renumerar && !opcoes.apagarCodigoAntigo;
+  // Aplicar so' com a mesma empresa e as mesmas opcoes que foram simuladas.
+  const simulado = resultado?.modo === 'simular' && resultado.tenantId === tenantId.trim() && opcoesSimuladas === JSON.stringify(opcoes)
+    && Boolean(resultado.projeto) && resultado.alterados > 0;
+  const mudarOpcao = (chave: keyof OpcoesAjusteMigracao) => { setOpcoes((atual) => ({ ...atual, [chave]: !atual[chave] })); setResultado(null); };
   const fmt = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 
   const rodar = async (modo: 'simular' | 'aplicar') => {
     const alvo = tenantId.trim();
-    if (!alvo) { showError('Informe a empresa', 'Cole o código da empresa (tenant) que vai ter o estoque zerado.'); return; }
+    if (!alvo) { showError('Informe a empresa', 'Cole o código da empresa (tenant) que vai ser ajustada.'); return; }
+    if (nenhumaOpcao) { showError('Escolha o que fazer', 'Marque pelo menos uma das opções: zerar estoque e custos, renumerar os códigos ou apagar o código do sistema antigo.'); return; }
     if (modo === 'aplicar' && resultado) {
       const confirmacao = await NexusSwal.fire({
-        title: `Zerar o estoque de ${resultado.empresa}?`,
+        title: `Ajustar os produtos de ${resultado.empresa}?`,
         html: `Ambiente: <strong>${rotuloDoProjeto(resultado.projeto)}</strong>${resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}.<br/>`
-          + `${fmt(resultado.alterados)} produto(s): saldo vai a zero (soma hoje ${fmt(resultado.somaSaldo)}) e preço à vista, custo, custo médio e custo comercial ficam vazios. O preço de venda continua.`
+          + `${fmt(resultado.alterados)} produto(s) vão mudar:<br/>`
+          + (opcoes.zerar ? `· saldo a zero (soma hoje ${fmt(resultado.somaSaldo)}); preço à vista, custo, custo médio e custo comercial vazios; preço de venda continua<br/>` : '')
+          + (opcoes.renumerar ? `· códigos 1, 2, 3... pela ordem alfabética (${fmt(resultado.codigosTrocados)} mudam)<br/>` : '')
+          + (opcoes.apagarCodigoAntigo ? `· código do sistema antigo apagado (${fmt(resultado.referenciasApagadas)} referência(s), ${fmt(resultado.barrasApagadas)} código(s) de barras com zeros)<br/>` : '')
           + `${resultado.pedidosDeVenda > 0 ? `<br/><strong style="color:#ef4444">Esta empresa já tem ${resultado.pedidosDeVenda} pedido(s) de venda.</strong>` : ''}`
           + '<br/>Fica um único registro no histórico: "Migração de sistema, importação de dados". Não tem desfazer.',
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: 'Zerar agora',
+        confirmButtonText: 'Aplicar agora',
         cancelButtonText: 'Cancelar',
       });
       if (!confirmacao.isConfirmed) return;
     }
     setRodando(modo);
     try {
-      const novo = await rodarZerarEstoqueMigracao(modo, alvo);
+      const novo = await rodarZerarEstoqueMigracao(modo, alvo, opcoes);
       setResultado(novo);
-      if (modo === 'aplicar') showSuccess(`Estoque e custos zerados em ${fmt(novo.alterados)} produto(s) de ${novo.empresa}.`);
+      setOpcoesSimuladas(JSON.stringify(opcoes));
+      if (modo === 'aplicar') showSuccess(`${fmt(novo.alterados)} produto(s) de ${novo.empresa} ajustados.`);
     } catch (erro) {
       showError('Não foi possível rodar a tarefa', erro instanceof Error ? erro.message : undefined);
     } finally {
@@ -308,10 +320,10 @@ const CartaoZerarEstoqueMigracao: React.FC = () => {
           <PackageX size={21} />
         </span>
         <div>
-          <h2 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 4px' }}>Zerar estoque e custos de uma empresa migrada</h2>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 4px' }}>Ajustes de migração nos produtos de uma empresa</h2>
           <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
-            Para depois da importação de um cliente novo: zera o saldo de todos os produtos e apaga preço à vista, custo, custo médio e custo comercial.
-            O preço de venda continua. Grava um único registro no histórico da empresa (&quot;Migração de sistema, importação de dados&quot;).
+            Para depois da importação de um cliente novo. Escolha o que fazer em todos os produtos da empresa.
+            Grava um único registro no histórico dela (&quot;Migração de sistema, importação de dados&quot;).
             <strong> Comece por Simular: nada é gravado.</strong>
           </p>
         </div>
@@ -328,8 +340,21 @@ const CartaoZerarEstoqueMigracao: React.FC = () => {
         />
       </label>
 
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+        {([
+          ['zerar', 'Zerar o estoque e apagar os custos (preço à vista, custo, custo médio e custo comercial). O preço de venda continua.'],
+          ['renumerar', 'Renumerar os códigos 1, 2, 3... pela ordem alfabética do nome (o próximo produto novo segue a sequência).'],
+          ['apagarCodigoAntigo', 'Apagar o código do sistema antigo: a Referência e o código de barras feito dela com zeros (o código de barras de fábrica continua).'],
+        ] as Array<[keyof OpcoesAjusteMigracao, string]>).map(([chave, texto]) => (
+          <label key={chave} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={opcoes[chave]} onChange={() => mudarOpcao(chave)} style={{ marginTop: '3px' }} />
+            <span>{texto}</span>
+          </label>
+        ))}
+      </div>
+
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
-        <button type="button" className="btn-secondary" onClick={() => rodar('simular')} disabled={rodando !== null} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button type="button" className="btn-secondary" onClick={() => rodar('simular')} disabled={rodando !== null || nenhumaOpcao} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {rodando === 'simular' ? <Loader2 size={18} className="spin-icon" /> : <Search size={18} />}
           {rodando === 'simular' ? 'Simulando...' : 'Simular'}
         </button>
@@ -338,7 +363,7 @@ const CartaoZerarEstoqueMigracao: React.FC = () => {
           className="btn-primary"
           onClick={() => rodar('aplicar')}
           disabled={rodando !== null || !simulado}
-          title={simulado ? undefined : 'Rode Simular primeiro, para esta empresa; Aplicar libera quando houver produto a zerar.'}
+          title={simulado ? undefined : 'Rode Simular primeiro, com esta empresa e estas opções; Aplicar libera quando houver produto a mudar.'}
           style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: rodando !== null || !simulado ? 0.6 : 1 }}
         >
           {rodando === 'aplicar' ? <Loader2 size={18} className="spin-icon" /> : <PackageX size={18} />}
@@ -355,6 +380,9 @@ const CartaoZerarEstoqueMigracao: React.FC = () => {
           </div>
           <div><strong style={{ color: 'var(--text-primary)' }}>{resultado.empresa}</strong>{resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}</div>
           <div>{fmt(resultado.produtos)} produto(s) · {fmt(resultado.comSaldo)} com saldo (soma {fmt(resultado.somaSaldo)}) · {fmt(resultado.comCustos)} com custo ou preço à vista</div>
+          {(resultado.codigosTrocados > 0 || resultado.referenciasApagadas > 0 || resultado.barrasApagadas > 0) && (
+            <div>{fmt(resultado.codigosTrocados)} código(s) renumerado(s) · {fmt(resultado.referenciasApagadas)} referência(s) e {fmt(resultado.barrasApagadas)} código(s) de barras do sistema antigo</div>
+          )}
           <div>{resultado.modo === 'simular' ? 'Vão mudar' : 'Mudaram'}: <strong style={{ color: 'var(--text-primary)' }}>{fmt(resultado.alterados)}</strong> produto(s)</div>
           {resultado.pedidosDeVenda > 0 && (
             <div style={{ color: '#ef4444', fontWeight: 600 }}>Atenção: esta empresa já tem {fmt(resultado.pedidosDeVenda)} pedido(s) de venda.</div>

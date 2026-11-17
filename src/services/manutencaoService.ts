@@ -126,11 +126,23 @@ export interface ResultadoZerarEstoqueMigracao {
   somaSaldo: number;
   comCustos: number;
   alterados: number;
+  codigosTrocados: number;
+  referenciasApagadas: number;
+  barrasApagadas: number;
   pedidosDeVenda: number;
 }
 
+export interface OpcoesAjusteMigracao {
+  /** Saldo 0 e custos apagados (preco de venda fica). */
+  zerar: boolean;
+  /** Codigos 1, 2, 3... pela ordem alfabetica do nome. */
+  renumerar: boolean;
+  /** Apaga a Referencia (codigo do sistema antigo) e o codigo de barras feito dela com zeros. */
+  apagarCodigoAntigo: boolean;
+}
+
 /** Migracao de cliente (17/11/2026): zera saldo e custos de UMA empresa, mantendo o preco de venda. */
-export const rodarZerarEstoqueMigracao = async (modo: 'simular' | 'aplicar', tenantId: string): Promise<ResultadoZerarEstoqueMigracao> => {
+export const rodarZerarEstoqueMigracao = async (modo: 'simular' | 'aplicar', tenantId: string, opcoes: OpcoesAjusteMigracao): Promise<ResultadoZerarEstoqueMigracao> => {
   if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new ManutencaoError('Sua sessão expirou. Entre novamente para continuar.', 401);
@@ -139,7 +151,7 @@ export const rodarZerarEstoqueMigracao = async (modo: 'simular' | 'aplicar', ten
     resposta = await fetchComTimeout(`${API_URL}/api/manutencao/zerar-estoque-migracao`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ modo, tenantId }),
+      body: JSON.stringify({ modo, tenantId, ...opcoes }),
     }, TEMPO_LIMITE.manutencao);
   } catch (erro) {
     throw new ManutencaoError(mensagemDeFalhaDeRede(erro), 0);

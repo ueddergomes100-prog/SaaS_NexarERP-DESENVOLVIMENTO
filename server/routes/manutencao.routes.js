@@ -195,6 +195,9 @@ router.post('/zerar-estoque-migracao', limite, async (req, res) => {
       tenantId,
       aplicar: modo === 'aplicar',
       usuarioId: req.user.uid,
+      zerar: req.body?.zerar !== false,
+      renumerar: req.body?.renumerar === true,
+      apagarCodigoAntigo: req.body?.apagarCodigoAntigo === true,
     });
     console.log(`[Manutencao] zerar estoque da migracao: ${modo} por ${req.user.email || req.user.uid} no projeto ${projeto} -- empresa ${tenantId}: ${resultado.alterados} de ${resultado.produtos} produtos`);
     if (modo === 'aplicar' && resultado.alterados > 0) {
@@ -202,12 +205,18 @@ router.post('/zerar-estoque-migracao', limite, async (req, res) => {
       await registrarLog({ ...req.user, tenantId, filialNome: resultado.empresa }, {
         modulo: 'estoque',
         acao: 'migracao_importacao',
-        descricao: `Migração de sistema, importação de dados: estoque zerado e custos apagados em ${resultado.alterados} produto(s) (saldo anterior somado: ${resultado.somaSaldo}). O preço de venda foi mantido; preço à vista, custo, custo médio e custo comercial ficam para preencher no cadastro.`,
+        descricao: `Migração de sistema, importação de dados: ${[
+          req.body?.zerar !== false ? `estoque zerado e custos apagados (saldo anterior somado: ${resultado.somaSaldo}; preço de venda mantido; preço à vista, custo, custo médio e custo comercial para preencher no cadastro)` : '',
+          resultado.codigosTrocados > 0 ? `códigos renumerados 1, 2, 3... pela ordem alfabética do nome (${resultado.codigosTrocados} produto(s))` : '',
+          resultado.referenciasApagadas > 0 || resultado.barrasApagadas > 0 ? `código do sistema antigo apagado (${resultado.referenciasApagadas} referência(s) e ${resultado.barrasApagadas} código(s) de barras feitos dele)` : '',
+        ].filter(Boolean).join('; ')}. ${resultado.alterados} produto(s) alterado(s).`,
         documentoTipo: 'produto',
         alteracoes: [
           { campo: 'Produtos alterados', valorAnterior: '', valorNovo: String(resultado.alterados) },
           { campo: 'Produtos com saldo', valorAnterior: String(resultado.comSaldo), valorNovo: '0' },
           { campo: 'Soma dos saldos', valorAnterior: String(resultado.somaSaldo), valorNovo: '0' },
+          { campo: 'Códigos renumerados', valorAnterior: '', valorNovo: String(resultado.codigosTrocados) },
+          { campo: 'Códigos antigos apagados', valorAnterior: '', valorNovo: `${resultado.referenciasApagadas} referência(s), ${resultado.barrasApagadas} código(s) de barras` },
         ],
         critico: true,
       });
@@ -216,7 +225,7 @@ router.post('/zerar-estoque-migracao', limite, async (req, res) => {
   } catch (erro) {
     console.error(`[Manutencao] zerar estoque da migracao (${modo}) falhou:`, erro.message);
     return res.status(erro.status || 500).json({
-      error: erro.status === 404
+      error: erro.status === 404 || erro.status === 409
         ? erro.message
         : modo === 'aplicar'
           ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que ainda não foi zerado).'

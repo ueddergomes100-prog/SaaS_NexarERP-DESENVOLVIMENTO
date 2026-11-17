@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2, ChevronDown, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown, Boxes } from 'lucide-react';
+import { Plus, Search, Filter, AlertCircle, Package, Edit, Power, Trash2, Upload, Factory, ScanBarcode, CaseUpper, Eye, EyeOff, Building2, Columns3, ChevronDown, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown, Boxes } from 'lucide-react';
 import { chaveDoProdutoPeloId, itemDaFilial } from '../../utils/cadastroGrupoDomain';
 import { agruparVariacoes, somaDasVariacoes } from '../../utils/gradeProdutosDomain';
 import { collection, query, onSnapshot, doc, where, updateDoc, setDoc, serverTimestamp, orderBy, startAfter, limit, getDocs, type QueryDocumentSnapshot, type DocumentData, type Unsubscribe } from 'firebase/firestore';
@@ -16,6 +16,7 @@ import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms, splitSearchTerms } from '../../utils/textSearch';
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
+import { COLUNAS_OPCIONAIS_ESTOQUE, compararPelaOrdem, parseColunasOcultasEstoque, type ColunaOpcionalEstoque } from '../../utils/estoqueColunasDomain';
 import { avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
 import './Estoque.css';
 import { CadastroError, alterarSituacaoCadastro } from '../../services/cadastroService';
@@ -57,6 +58,19 @@ interface PaginaDoEstoque {
   cheia: boolean;
 }
 
+/** Cabecalho clicavel que ordena a lista (seta mostra o sentido). */
+const BotaoOrdem: React.FC<{ ativo: boolean; desc: boolean; onClick: () => void; titulo: string; children: React.ReactNode }> = ({ ativo, desc, onClick, titulo, children }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={titulo}
+    style={{ background: 'none', border: 'none', padding: 0, color: ativo ? '#c084fc' : 'inherit', font: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', textTransform: 'inherit', letterSpacing: 'inherit' }}
+  >
+    {children}
+    {ativo ? (desc ? <ArrowDown size={14} /> : <ArrowUp size={14} />) : <ArrowUpDown size={14} style={{ opacity: 0.6 }} />}
+  </button>
+);
+
 const EstoqueList: React.FC = () => {
   const { openTab } = useTabs();
   // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
@@ -80,6 +94,16 @@ const EstoqueList: React.FC = () => {
   const [soComGrade, setSoComGrade] = useState(false);
   // Ordem e filtro pelo saldo (26/10/2026): botao na coluna "Qtd." e filtro de zerados/negativos.
   const [ordemSaldo, setOrdemSaldo] = useState<OrdemSaldo>('padrao');
+  // Clique no cabecalho "Codigo / SKU" ou "Nome do Produto" (17/11/2026): ordena
+  // por ele; clicar de novo inverte. Padrao: nome A-Z (a paginacao no banco).
+  const [ordemLista, setOrdemLista] = useState<{ campo: 'nome' | 'codigo'; desc: boolean }>({ campo: 'nome', desc: false });
+  const ordenarPor = (campo: 'nome' | 'codigo') => {
+    setOrdemSaldo('padrao');
+    setOrdemLista((atual) => (atual.campo === campo ? { campo, desc: !atual.desc } : { campo, desc: false }));
+  };
+  /** Colunas que a empresa escondeu (Configuracoes da filial: colunasOcultasEstoque). */
+  const [colunasOcultas, setColunasOcultas] = useState<string[]>([]);
+  const ver = (coluna: ColunaOpcionalEstoque) => !colunasOcultas.includes(coluna);
   const [filtroSaldo, setFiltroSaldo] = useState<FiltroSaldo>('todos');
   const [reservaAberta, setReservaAberta] = useState<PecaData | null>(null);
   /** Linha destacada por um clique simples. Editar exige duplo clique (ou
@@ -125,6 +149,7 @@ const EstoqueList: React.FC = () => {
     if (!tenantId) return;
     const unsubscribe = onSnapshot(doc(db, 'configuracoes', tenantId), (snap) => {
       setMostrarResumo(parseMostrarResumoEstoque(snap.exists() ? snap.data().mostrarResumoEstoque : undefined));
+      setColunasOcultas(parseColunasOcultasEstoque(snap.exists() ? snap.data().colunasOcultasEstoque : undefined));
     }, (error) => {
       // Falha de leitura MANTEM o que ja estava: piscar os cartoes por causa
       // de uma queda de rede seria pior do que continuar mostrando.
@@ -149,6 +174,7 @@ const EstoqueList: React.FC = () => {
   const [buscaCompleta, setBuscaCompleta] = useState(false);
   const termoBusca = searchTerm.trim();
   const filtrosNoPadrao = filtroStatus === 'ativos' && filtroSaldo === 'todos' && !soComReserva && !soComGrade
+    && ordemLista.campo === 'nome' && !ordemLista.desc
     && ordemSaldo === 'padrao' && !(grupo && escopoFilial === 'grupo');
   const modoCompleto = !filtrosNoPadrao || (termoBusca !== '' && (buscaCompleta || catalogoEstoqueJaCarregado(tenantId)));
   const modoBuscaNoBanco = !modoCompleto && termoBusca !== '';
@@ -254,10 +280,10 @@ const EstoqueList: React.FC = () => {
     lista.forEach((p) => porId.set(p.id, p));
     const pecas = [...porId.values()];
     // Mesma ordem nos tres modos: pelo nome (a paginacao no banco e' pelo nome).
-    pecas.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
+    pecas.sort((a, b) => compararPelaOrdem(a, b, ordemLista.campo, ordemLista.desc));
     setPecasList(pecas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modoCompleto, modoBuscaNoBanco, catalogo, resultadosBusca, paginas, variacoesDaPagina]);
+  }, [modoCompleto, modoBuscaNoBanco, catalogo, resultadosBusca, paginas, variacoesDaPagina, ordemLista]);
 
   // Cartoes de resumo sem ler o estoque: contagem no servidor.
   const [contagens, setContagens] = useState<{ total: number | null; baixo: number | null; esgotados: number | null }>({ total: null, baixo: null, esgotados: null });
@@ -428,6 +454,31 @@ const EstoqueList: React.FC = () => {
     return [{ peca, variacoes, aberto, totalDeVariacoes: todas.length }];
   });
   // Botao da coluna "Qtd.": maior/menor estoque primeiro; as variacoes seguem embaixo do principal.
+  const totalDeColunas = 2 + COLUNAS_OPCIONAIS_ESTOQUE.filter((c) => ver(c.chave)).length;
+  /** Mais opcoes > Colunas da lista: vale para todos os usuarios da filial. */
+  const escolherColunas = async () => {
+    if (!tenantId) return;
+    const resposta = await NexusSwal.fire({
+      title: 'Colunas da lista de produtos',
+      html: `<div style="text-align:left;display:flex;flex-direction:column;gap:8px">${COLUNAS_OPCIONAIS_ESTOQUE.map((c) => (
+        `<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" data-coluna="${c.chave}" ${ver(c.chave) ? 'checked' : ''}/> ${c.rotulo}</label>`
+      )).join('')}<small style="opacity:.7">Nome do produto e Ações aparecem sempre. Vale para todos os usuários desta filial.</small></div>`,
+      showCancelButton: true,
+      confirmButtonText: 'Salvar',
+      cancelButtonText: 'Cancelar',
+      preConfirm: () => COLUNAS_OPCIONAIS_ESTOQUE
+        .filter((c) => !(document.querySelector(`input[data-coluna="${c.chave}"]`) as HTMLInputElement | null)?.checked)
+        .map((c) => c.chave),
+    });
+    if (!resposta.isConfirmed) return;
+    try {
+      await setDoc(doc(db, 'configuracoes', tenantId), { tenantId, colunasOcultasEstoque: resposta.value as string[] }, { merge: true });
+      showSuccess('Colunas salvas.');
+    } catch (error) {
+      console.error('Erro ao salvar as colunas do estoque:', error);
+      showError('Não foi possível salvar as colunas', 'Esta opção vale para todos os usuários da filial e só pode ser mudada pelo dono ou por um administrador.');
+    }
+  };
   const linhasVisiveis = ordenarPorSaldo(linhasFiltradas, ordemSaldo, ({ peca }) => comSaldoDasVariacoes(peca).quantidade);
 
   const alternarExpandido = (id: string, abertoAgora: boolean) => {
@@ -496,7 +547,7 @@ const EstoqueList: React.FC = () => {
       title={canEditProduto ? (principal ? 'Duplo clique abre o produto principal (a variação se edita no quadro da grade)' : 'Clique para selecionar, duplo clique para editar') : undefined}
       style={travasProdutos.has(peca.id) ? { opacity: 0.55 } : undefined}
     >
-      <td className="font-medium" style={{ color: 'var(--text-muted)', paddingLeft: principal ? '28px' : undefined }}>{peca.codigo}</td>
+      {ver('codigo') && <td className="font-medium" style={{ color: 'var(--text-muted)', paddingLeft: principal ? '28px' : undefined }}>{peca.codigo}</td>}
       <td>
         {ehPrincipalDeGrade && (
           // Abre/fecha as variacoes sem selecionar nem abrir a linha.
@@ -531,10 +582,12 @@ const EstoqueList: React.FC = () => {
         )}
         <MarcaEmEdicao trava={travasProdutos.get(peca.id)} />
       </td>
-      <td>{peca.categoria}</td>
-      <td className="font-medium">
-        {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
-      </td>
+      {ver('categoria') && <td>{peca.categoria}</td>}
+      {ver('quantidade') && (
+        <td className="font-medium">
+          {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
+        </td>
+      )}
       {(() => {
         // Reservado e disponivel sem abrir o cadastro; clicar no
         // reservado mostra em que documento ele esta preso.
@@ -542,7 +595,7 @@ const EstoqueList: React.FC = () => {
         const casas = peca.unidadeMedidaCasasDecimais ?? 0;
         return (
           <>
-            <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            {ver('reservado') && <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
               {reserva.temReserva && ehPrincipalDeGrade ? (
                 // A reserva esta' nas variacoes: abra o principal para ver cada uma.
                 <span style={{ color: '#c084fc', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{reserva.reservada.toFixed(casas)}</span>
@@ -558,18 +611,22 @@ const EstoqueList: React.FC = () => {
               ) : (
                 <span style={{ color: 'var(--text-muted)' }}>—</span>
               )}
-            </td>
-            <td className="font-medium" style={{ color: reserva.temReserva ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-              {reserva.disponivel.toFixed(casas)}
-            </td>
+            </td>}
+            {ver('disponivel') && (
+              <td className="font-medium" style={{ color: reserva.temReserva ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                {reserva.disponivel.toFixed(casas)}
+              </td>
+            )}
           </>
         );
       })()}
-      <td>
-        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(peca.precoVenda))}
-      </td>
-      <td>{getStatusBadge(Number(peca.quantidade))}</td>
-      <td>
+      {ver('preco') && (
+        <td>
+          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(peca.precoVenda))}
+        </td>
+      )}
+      {ver('status') && <td>{getStatusBadge(Number(peca.quantidade))}</td>}
+      {ver('ativo') && <td>
         <span style={{
           backgroundColor: peca.ativo === false ? 'rgba(255,255,255,0.05)' : '#10b98120',
           color: peca.ativo === false ? 'var(--text-muted)' : '#10b981',
@@ -577,7 +634,7 @@ const EstoqueList: React.FC = () => {
         }}>
           {peca.ativo === false ? 'Inativo' : 'Ativo'}
         </span>
-      </td>
+      </td>}
       <td>
         {canEditProduto && (
           // stopPropagation: sem isso, um duplo clique acidental
@@ -628,6 +685,13 @@ const EstoqueList: React.FC = () => {
                 onClick: () => openTab('/estoque/importar-fiscal', 'Importar Dados Fiscais'),
               },
               { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+              {
+                texto: 'Colunas da lista', Icone: Columns3,
+                titulo: 'Escolher quais colunas aparecem nesta lista (vale para todos os usuários da filial)',
+                oculto: !podeAlterarConfiguracoes,
+                separadorAntes: true,
+                onClick: () => { void escolherColunas(); },
+              },
               {
                 texto: mostrarResumo ? 'Esconder cartões de resumo' : 'Mostrar cartões de resumo',
                 Icone: mostrarResumo ? EyeOff : Eye,
@@ -783,10 +847,16 @@ const EstoqueList: React.FC = () => {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Código / SKU</th>
-                <th>Nome do Produto</th>
-                <th>Categoria</th>
-                <th aria-sort={ordemSaldo === 'maior' ? 'descending' : ordemSaldo === 'menor' ? 'ascending' : 'none'}>
+                {ver('codigo') && (
+                  <th aria-sort={ordemLista.campo === 'codigo' && ordemSaldo === 'padrao' ? (ordemLista.desc ? 'descending' : 'ascending') : 'none'}>
+                    <BotaoOrdem ativo={ordemLista.campo === 'codigo' && ordemSaldo === 'padrao'} desc={ordemLista.desc} onClick={() => ordenarPor('codigo')} titulo="Ordenar pelo código">Código / SKU</BotaoOrdem>
+                  </th>
+                )}
+                <th aria-sort={ordemLista.campo === 'nome' && ordemSaldo === 'padrao' ? (ordemLista.desc ? 'descending' : 'ascending') : 'none'}>
+                  <BotaoOrdem ativo={ordemLista.campo === 'nome' && ordemSaldo === 'padrao'} desc={ordemLista.desc} onClick={() => ordenarPor('nome')} titulo="Ordenar pelo nome (A-Z)">Nome do Produto</BotaoOrdem>
+                </th>
+                {ver('categoria') && <th>Categoria</th>}
+                {ver('quantidade') && <th aria-sort={ordemSaldo === 'maior' ? 'descending' : ordemSaldo === 'menor' ? 'ascending' : 'none'}>
                   <button
                     type="button"
                     onClick={() => setOrdemSaldo((atual) => proximaOrdemSaldo(atual))}
@@ -797,23 +867,23 @@ const EstoqueList: React.FC = () => {
                     Qtd.
                     {ordemSaldo === 'maior' ? <ArrowDown size={14} /> : ordemSaldo === 'menor' ? <ArrowUp size={14} /> : <ArrowUpDown size={14} style={{ opacity: 0.6 }} />}
                   </button>
-                </th>
-                <th>Reservado</th>
-                <th>Disponível</th>
-                <th>Preço (Venda)</th>
-                <th>Status</th>
-                <th>Ativo</th>
+                </th>}
+                {ver('reservado') && <th>Reservado</th>}
+                {ver('disponivel') && <th>Disponível</th>}
+                {ver('preco') && <th>Preço (Venda)</th>}
+                {ver('status') && <th>Status</th>}
+                {ver('ativo') && <th>Ativo</th>}
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
+                  <td colSpan={totalDeColunas} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
                 </tr>
               ) : linhasVisiveis.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ padding: '8px' }}>
+                  <td colSpan={totalDeColunas} style={{ padding: '8px' }}>
                     <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'} compacto />
                   </td>
                 </tr>

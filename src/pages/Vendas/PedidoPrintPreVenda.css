@@ -162,7 +162,17 @@
 .pv-page--simples {
   display: flex;
   flex-direction: column;
-  min-height: 140mm;
+  min-height: 130mm;
+}
+
+/* Sem a linha em cima dos totais: ela vai para o fim (.pv-linha-final). */
+.pv-page--simples .pv-totais {
+  border-top: none;
+}
+
+.pv-linha-final {
+  border-top: 1px solid #000;
+  margin-top: 8px;
 }
 
 .pv-fim {
@@ -179,7 +189,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-top: 26px;
+  margin-top: 22px;
   font-size: 9.5px;
   text-transform: uppercase;
 }
@@ -191,7 +201,9 @@
 }
 
 @media print {
+  /* 128mm: o bloco final fica ~1cm acima da borda de baixo da meia folha --
+     colado na borda, a impressora entortava o papel na saida (17/11/2026). */
   .pv-page--simples {
-    min-height: 138mm;
+    min-height: 128mm;
   }
 }

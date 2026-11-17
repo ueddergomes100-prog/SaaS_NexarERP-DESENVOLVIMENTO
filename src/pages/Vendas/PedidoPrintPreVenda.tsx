@@ -212,12 +212,14 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
       {simplificado ? (
         <>
           <div className="pv-obs">
-            <span className="pv-rotulo">Obs.:</span> {String(pedidoData.observacao || '')}
+            <span className="pv-rotulo">Observações:</span> {String(pedidoData.observacao || '')}
           </div>
           <div className="pv-assinatura">
             <div className="pv-assinatura-linha" />
             <span>Assinatura do cliente</span>
           </div>
+          {/* A linha que separava os itens dos totais fica no fim (17/11/2026). */}
+          <div className="pv-linha-final" />
         </>
       ) : (
         <div className="pv-rodape">

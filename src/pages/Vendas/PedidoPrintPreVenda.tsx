@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { usePedidoPrintExtras } from '../../hooks/usePedidoPrintExtras';
 import { ehPreVenda } from '../../utils/preVendaDomain';
 import {
@@ -22,8 +22,9 @@ interface PedidoPrintPreVendaProps {
   /**
    * Modelo "Pre-venda simplificada" (Jomarly, 17/11/2026): sem Marca, Contrato
    * e total de pecas; nome do cliente em destaque; "Cod." no lugar de "Matric.";
-   * logo pequena e fone da empresa no alto da folha; CNPJ ao lado do nome da
-   * empresa (sem o "'PEDIDO 0001' Fone" do quadro); "Dt Pedido" em negrito.
+   * logo dentro do quadro da empresa, com fone e CNPJ na mesma linha do nome
+   * (sem "'PEDIDO 0001'" e "Pagina"); "Dt Pedido" em negrito; sem o cabecalho
+   * do navegador.
    */
   simplificado?: boolean;
 }
@@ -55,6 +56,18 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
   // Fixo enquanto a folha esta montada: o "Gerado em" nao pode andar a cada render.
   const [geradoEm] = useState(() => new Date());
 
+  // Jomarly: sem a data/hora e o titulo que o navegador imprime no alto e no pe
+  // da folha -- margem pequena, como a meia folha (PedidoPrintMeiaFolha.tsx).
+  // So' a margem, nunca o tamanho do papel (regra do projeto).
+  useEffect(() => {
+    if (!simplificado) return undefined;
+    const estilo = document.createElement('style');
+    estilo.setAttribute('data-pre-venda-simples', 'true');
+    estilo.textContent = '@media print { @page { margin: 4mm; } }';
+    document.head.appendChild(estilo);
+    return () => { estilo.remove(); };
+  }, [simplificado]);
+
   const itens: any[] = Array.isArray(pedidoData.itens) ? pedidoData.itens : [];
   const criadoEm: Date | null = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate() : null;
   const preVenda = ehPreVenda(pedidoData.status);
@@ -69,29 +82,35 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
   const enderecoCliente = [clientData?.endereco, clientData?.numero].filter(Boolean).join(', ');
 
   return (
-    <div className="pv-page">
-      {simplificado && (
-        // Jomarly (17/11/2026): logo pequena no alto (tamanho da meia folha) e o
-        // fone da empresa no cabecalho da folha, fora do quadro.
-        <div className="pv-cabecalho-folha">
-          <span><span className="pv-rotulo">Página:</span> 1 / 1</span>
-          <span className="pv-cabecalho-logo">{configData?.logo && <img src={configData.logo} alt="Logo" />}</span>
-          <span>{telefoneEmpresa && <><span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</>}</span>
+    <div className={simplificado ? 'pv-page pv-page--simples' : 'pv-page'}>
+      {simplificado ? (
+        // Jomarly (17/11/2026, 3a folha marcada): a logo dentro do quadro da
+        // empresa (quadro maior), fone entre o nome e o CNPJ, sem "Pagina 1/1".
+        <div className="pv-caixa pv-caixa--empresa">
+          {configData?.logo && <img className="pv-logo-caixa" src={configData.logo} alt="Logo" />}
+          <div className="pv-caixa-conteudo">
+            <div className="pv-linha pv-linha--topo">
+              <span><span className="pv-rotulo">Empresa:</span> <strong>{nomeEmpresa}</strong></span>
+              <span>{telefoneEmpresa && <><span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</>}</span>
+              <span>{cnpjEmpresa && <><span className="pv-rotulo">CNPJ:</span> {cnpjEmpresa}</>}</span>
+            </div>
+            <div className="pv-aviso">
+              NAO E DOCUMENTO FISCAL - NAO VALE COMO RECIBO NEM GARANTIA DE MERCADORIA - NAO COMPROVA PAGTO
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="pv-caixa">
+          <div className="pv-linha pv-linha--topo">
+            <span><span className="pv-rotulo">Empresa:</span> <strong>{nomeEmpresa}</strong></span>
+            <span>'{rotulo} {numeroPedido}' &nbsp;<span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</span>
+            <span><span className="pv-rotulo">Página:</span> 1 / 1</span>
+          </div>
+          <div className="pv-aviso">
+            NAO E DOCUMENTO FISCAL - NAO VALE COMO RECIBO NEM GARANTIA DE MERCADORIA - NAO COMPROVA PAGTO
+          </div>
         </div>
       )}
-      <div className="pv-caixa">
-        <div className="pv-linha pv-linha--topo">
-          <span><span className="pv-rotulo">Empresa:</span> <strong>{nomeEmpresa}</strong></span>
-          {!simplificado && <span>'{rotulo} {numeroPedido}' &nbsp;<span className="pv-rotulo">Fone:</span> {telefoneEmpresa}</span>}
-          {/* Jomarly: CNPJ no fim da linha (a pagina sobe para o alto da folha). */}
-          {simplificado
-            ? <span>{cnpjEmpresa && <><span className="pv-rotulo">CNPJ:</span> {cnpjEmpresa}</>}</span>
-            : <span><span className="pv-rotulo">Página:</span> 1 / 1</span>}
-        </div>
-        <div className="pv-aviso">
-          NAO E DOCUMENTO FISCAL - NAO VALE COMO RECIBO NEM GARANTIA DE MERCADORIA - NAO COMPROVA PAGTO
-        </div>
-      </div>
 
       <div className="pv-caixa pv-dados">
         <div className="pv-linha">

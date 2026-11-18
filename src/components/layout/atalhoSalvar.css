@@ -1,0 +1,29 @@
+/*
+ * "F6" escrito no botao de gravar do cabecalho (18/11/2026) -- ver
+ * atalhoSalvarDomain.ts e useAtalhoSalvar.ts.
+ *
+ * Aparece no botao principal do cabecalho que leva o disquete: e' exatamente o
+ * botao que o F6 aciona nos cadastros. Pedido de Venda e OS ficam de fora
+ * (data-atalho-salvar="nao" na raiz): la' o F6 e' Pagamento.
+ *
+ * Enquanto salva, o disquete vira o icone girando e o "F6" some junto.
+ * So' com mouse (hover: hover): tela de toque nao tem F6.
+ */
+@media (hover: hover) {
+  .app-layout-wrapper .page-content .page-header .btn-primary:has(> svg[class*='lucide-save']):not([data-atalho-salvar='nao'], [data-atalho-salvar='nao'] *)::after {
+    content: 'F6';
+    margin-left: 10px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(91, 33, 182, 0.12);
+    color: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.3;
+    letter-spacing: 0.02em;
+  }
+}
+
+@media print {
+  .app-layout-wrapper .page-content .page-header .btn-primary::after { content: none !important; }
+}

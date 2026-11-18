@@ -12,9 +12,11 @@ import TabBar from './TabBar';
 import { TabPanesArea } from './TabPane';
 import { useFaixaDoTopo } from './useFaixaDoTopo';
 import { useColunasAjustaveis } from './useColunasAjustaveis';
+import { useAtalhoSalvar } from './useAtalhoSalvar';
 import './Layout.css';
 // Design novo do desktop (14/10/2026): vem DEPOIS do Layout.css para vencer na cascata.
 import './visualDesktop.css';
+import './atalhoSalvar.css';
 
 const AppLayout: React.FC = () => {
   const [globalAlert, setGlobalAlert] = useState<{message: string} | null>(null);
@@ -25,6 +27,8 @@ const AppLayout: React.FC = () => {
   useFaixaDoTopo();
   // Toda tabela do sistema com colunas de largura ajustavel (21/10/2026).
   useColunasAjustaveis();
+  // F6 aciona o botao de salvar da tela que esta' na frente (18/11/2026).
+  useAtalhoSalvar();
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system_alerts', 'global'), (snap) => {

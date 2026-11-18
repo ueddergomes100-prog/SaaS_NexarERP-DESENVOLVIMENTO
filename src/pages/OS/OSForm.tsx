@@ -1752,7 +1752,8 @@ const OSForm: React.FC = () => {
   }
 
   return (
-    <div className="os-page">
+    // data-atalho-salvar="nao": aqui o F6 e' Pagamento, nao salvar (dono, 18/11/2026 -- atalhoSalvarDomain.ts).
+    <div className="os-page" data-atalho-salvar="nao">
       <div className="page-header">
         <div className="header-title-group">
           <button className="icon-btn back-btn" onClick={() => navigate('/os')}><ArrowLeft size={20} /></button>

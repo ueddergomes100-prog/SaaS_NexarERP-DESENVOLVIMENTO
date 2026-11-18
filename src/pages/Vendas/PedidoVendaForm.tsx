@@ -5464,7 +5464,8 @@ const PedidoVendaForm: React.FC = () => {
   }
 
   return (
-    <div className="os-page">
+    // data-atalho-salvar="nao": aqui o F6 e' Pagamento, nao salvar (dono, 18/11/2026 -- atalhoSalvarDomain.ts).
+    <div className="os-page" data-atalho-salvar="nao">
       {notaEntradaAberta && (
         <EscolherNotaEntradaModal
           notas={notasEntrada}

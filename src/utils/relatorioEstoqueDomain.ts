@@ -58,7 +58,32 @@ export interface FiltroRelatorioEstoque {
   apenasAtivos: boolean;
 }
 
-/** Produtos que passam nos filtros da tela (antes dos desmarcados um a um). */
+const alfabetico = new Intl.Collator('pt-BR', { sensitivity: 'base' });
+
+const numeroDoCodigo = (codigo: string): number => {
+  const n = Number.parseFloat(codigo.replace(',', '.'));
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+};
+
+/**
+ * Ordem do relatorio: a mesma da lista de produtos (Estoque) -- nome de A a Z,
+ * acento e maiuscula nao contam; nomes iguais saem pelo codigo como NUMERO
+ * (2 antes de 10). Sem isto o relatorio saia na ordem em que o banco devolve,
+ * que para o usuario e' ordem nenhuma.
+ */
+const compararPeloNome = (a: ProdutoDoRelatorioEstoque, b: ProdutoDoRelatorioEstoque): number => {
+  const porNome = alfabetico.compare(a.nome, b.nome);
+  if (porNome !== 0) return porNome;
+  const ca = numeroDoCodigo(a.codigo);
+  const cb = numeroDoCodigo(b.codigo);
+  if (ca !== cb) return ca < cb ? -1 : 1;
+  return a.codigo.localeCompare(b.codigo);
+};
+
+/**
+ * Produtos que passam nos filtros da tela (antes dos desmarcados um a um),
+ * ja' em ordem alfabetica: a tela e o PDF/Excel saem nesta ordem.
+ */
 export const produtosDoRelatorioEstoque = (
   produtos: ProdutoDoRelatorioEstoque[],
   filtro: FiltroRelatorioEstoque,
@@ -77,7 +102,7 @@ export const produtosDoRelatorioEstoque = (
     if (ncm && !produto.ncm.includes(ncm)) return false;
     if (termo && !`${produto.nome} ${produto.codigo} ${produto.marca}`.toLowerCase().includes(termo)) return false;
     return true;
-  });
+  }).sort(compararPeloNome);
 };
 
 /** Base do valor em estoque: custo; sem custo, o preco de venda. */

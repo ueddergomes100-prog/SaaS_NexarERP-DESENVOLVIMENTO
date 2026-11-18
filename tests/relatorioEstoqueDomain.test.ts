@@ -33,14 +33,32 @@ const filtroBase: FiltroRelatorioEstoque = {
 };
 
 test('filtros da tela: ativos, período de cadastro só quando desmarcado, categoria, NCM e busca', () => {
-  assert.deepEqual(produtosDoRelatorioEstoque(base, filtroBase).map((x) => x.id), ['a', 'b', 'c', 'e', 'f']);
+  assert.deepEqual(produtosDoRelatorioEstoque(base, filtroBase).map((x) => x.id), ['e', 'c', 'b', 'a', 'f']);
   assert.equal(produtosDoRelatorioEstoque(base, { ...filtroBase, apenasAtivos: false }).length, 6);
   // Com período valendo, sai o cadastrado fora dele; quem não tem data fica.
-  assert.deepEqual(produtosDoRelatorioEstoque(base, { ...filtroBase, ignorarPeriodo: false }).map((x) => x.id), ['a', 'b', 'c', 'f']);
+  assert.deepEqual(produtosDoRelatorioEstoque(base, { ...filtroBase, ignorarPeriodo: false }).map((x) => x.id), ['c', 'b', 'a', 'f']);
   assert.deepEqual(produtosDoRelatorioEstoque(base, { ...filtroBase, categoria: 'Grãos' }).map((x) => x.id), ['b']);
   assert.deepEqual(produtosDoRelatorioEstoque(base, { ...filtroBase, ncm: ' 1005 ' }).map((x) => x.id), ['b']);
   assert.deepEqual(produtosDoRelatorioEstoque(base, { ...filtroBase, texto: 'pet' }).map((x) => x.id), ['c'], 'busca também pela marca');
   assert.deepEqual(produtosDoRelatorioEstoque(base, { ...filtroBase, texto: 'a1' }).map((x) => x.id), ['a'], 'busca pelo código');
+});
+
+test('ordem: nome de A a Z como na lista de produtos; acento e maiúscula não contam; nome igual sai pelo código como número', () => {
+  const lista = [
+    p({ id: '1', nome: 'PARAFUSO CAB.CHATA MADEIRA 2,8 X 30', codigo: '40' }),
+    p({ id: '2', nome: 'ARRUELA LISA 1/4', codigo: '7' }),
+    p({ id: '3', nome: 'PARAFUSO AUTO BROCANTE 5,5 X 2', codigo: '12' }),
+    p({ id: '4', nome: 'parafuso auto brocante 5,5 x 1', codigo: '11' }),
+    p({ id: '5', nome: 'ÓLEO 1L', codigo: '3' }),
+    p({ id: '6', nome: 'PARAFUSO AUTO BROCANTE 5,5 X 2', codigo: '9' }),
+    p({ id: '7', nome: 'OLEO 1L', codigo: '20' }),
+  ];
+  assert.deepEqual(produtosDoRelatorioEstoque(lista, filtroBase).map((x) => x.id), ['2', '5', '7', '4', '6', '3', '1']);
+  assert.deepEqual(
+    produtosDoRelatorioEstoque(lista, { ...filtroBase, texto: 'parafuso' }).map((x) => x.id), ['4', '6', '3', '1'],
+    'a busca não muda a ordem',
+  );
+  assert.deepEqual(lista.map((x) => x.id), ['1', '2', '3', '4', '5', '6', '7'], 'não mexe na lista recebida');
 });
 
 test('indicadores: valor em estoque = quantidade × custo (sem custo, preço de venda), em centavos', () => {
@@ -64,7 +82,7 @@ test('documento: respeita os desmarcados, declara todas as colunas e moeda em ce
   assert.ok(doc.filtros.includes('Somente produtos ativos'));
 
   const secao = doc.secoes[0];
-  assert.deepEqual(secao.linhas.map((x: ProdutoDoRelatorioEstoque) => x.id), ['a', 'b', 'c', 'f']);
+  assert.deepEqual(secao.linhas.map((x: ProdutoDoRelatorioEstoque) => x.id), ['c', 'b', 'a', 'f']);
   assert.deepEqual(secao.colunas.map((c) => c.id), [
     'produto', 'codigo', 'quantidade', 'unidade', 'categoria', 'marca', 'referencia', 'localizacao',
     'estoqueMinimo', 'custo', 'preco', 'precoAVista', 'valorTotal', 'ncm', 'codigoBarras',
@@ -73,7 +91,7 @@ test('documento: respeita os desmarcados, declara todas as colunas e moeda em ce
   assert.deepEqual(padrao, ['produto', 'codigo', 'quantidade', 'unidade', 'categoria', 'preco']);
 
   const col = (id: string) => secao.colunas.find((c) => c.id === id)!;
-  const [a, b, c, f] = secao.linhas as ProdutoDoRelatorioEstoque[];
+  const [c, b, a, f] = secao.linhas as ProdutoDoRelatorioEstoque[];
   assert.equal(col('quantidade').valor(b), '2,5');
   assert.equal(col('custo').valor(a), 10010);
   assert.equal(col('valorTotal').valor(a), 30030);

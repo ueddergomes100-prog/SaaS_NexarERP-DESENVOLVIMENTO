@@ -10,11 +10,14 @@ import { registerServiceWorker } from './registerServiceWorker'
 import './utils/pedidoDeInstalacao'
 import { iniciarTema } from './utils/tema'
 import { iniciarSeletorDeData } from './utils/seletorDeDataUi'
+import { iniciarCursorNaCaixaAlta } from './utils/cursorNaCaixaAlta'
 
 // Tema (escuro/claro/automatico) vale para o sistema e para o app Vendas.
 iniciarTema()
 // Calendario do Hennder em todo <input type="date"> (no computador).
 iniciarSeletorDeData()
+// Campo em caixa alta nao joga mais o cursor para o fim ao digitar no meio do texto.
+iniciarCursorNaCaixaAlta()
 
 const PRELOAD_RELOAD_KEY = 'nexus_preload_reload_attempted';
 const PRELOAD_RELOAD_WINDOW_MS = 60000;

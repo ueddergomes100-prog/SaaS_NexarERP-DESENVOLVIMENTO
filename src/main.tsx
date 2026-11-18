@@ -11,6 +11,7 @@ import './utils/pedidoDeInstalacao'
 import { iniciarTema } from './utils/tema'
 import { iniciarSeletorDeData } from './utils/seletorDeDataUi'
 import { iniciarCursorNaCaixaAlta } from './utils/cursorNaCaixaAlta'
+import { iniciarDuploCliqueSemSelecao } from './utils/duploCliqueSemSelecao'
 
 // Tema (escuro/claro/automatico) vale para o sistema e para o app Vendas.
 iniciarTema()
@@ -18,6 +19,8 @@ iniciarTema()
 iniciarSeletorDeData()
 // Campo em caixa alta nao joga mais o cursor para o fim ao digitar no meio do texto.
 iniciarCursorNaCaixaAlta()
+// Duplo clique para abrir uma linha nao marca mais o texto de azul.
+iniciarDuploCliqueSemSelecao()
 
 const PRELOAD_RELOAD_KEY = 'nexus_preload_reload_attempted';
 const PRELOAD_RELOAD_WINDOW_MS = 60000;

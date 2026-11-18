@@ -1,0 +1,117 @@
+/*
+ * Barra que acompanha a rolagem (18/11/2026) -- ver BarraDeAcaoRapida.tsx.
+ *
+ * E' a faixa violeta do topo "descendo" mais um degrau: mesmo degrade da barra
+ * do topo e das abas, entao parece o cabecalho da tela encolhido, e nao uma
+ * peca nova por cima da lista. O botao e' o mesmo branco do cabecalho.
+ *
+ * A raiz tem altura ZERO e gruda no topo da area rolavel: nao empurra nada da
+ * tela e a barra de dentro fica solta por cima do conteudo.
+ */
+.acao-rapida {
+  position: sticky;
+  top: 0;
+  height: 0;
+  /* acima do cabecalho da tela (20) e das barras que grudam no rodape (30); abaixo das janelas (1000+) */
+  z-index: 40;
+}
+
+.acao-rapida__barra {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--app-faixa, linear-gradient(90deg, #2b1057 0%, #4c1d95 50%, #7c3aed 100%));
+  box-shadow: 0 16px 28px -20px rgba(20, 6, 45, 0.85);
+  color: #fff;
+  animation: acao-rapida-entra 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes acao-rapida-entra {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.acao-rapida__titulo {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+.acao-rapida__acoes {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acao-rapida__topo,
+.acao-rapida__botao {
+  height: 36px;
+  border-radius: 11px;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 120ms ease, filter 120ms ease;
+}
+
+/* "vidro", como os botoes secundarios do cabecalho */
+.acao-rapida__topo {
+  flex: 0 0 auto;
+  width: 36px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+.acao-rapida__topo:hover { background: rgba(255, 255, 255, 0.24); }
+
+/* branco, como o botao principal do cabecalho */
+.acao-rapida__botao {
+  gap: 6px;
+  padding: 0 14px;
+  border: 0;
+  background: #fff;
+  color: #5b21b6;
+  font-size: 13.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 10px 22px -14px rgba(20, 6, 45, 0.7);
+}
+.acao-rapida__botao:hover:not(:disabled) { filter: brightness(0.96); }
+.acao-rapida__botao:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.acao-rapida__topo:focus-visible,
+.acao-rapida__botao:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  .acao-rapida__barra { height: 50px; gap: 10px; }
+  .acao-rapida__titulo { font-size: 14px; }
+  .acao-rapida__botao { padding: 0 12px; font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acao-rapida__barra { animation: none; }
+  .acao-rapida__topo, .acao-rapida__botao { transition: none; }
+}
+
+/* chrome do app nunca vai para o papel */
+@media print {
+  .acao-rapida { display: none !important; }
+}

@@ -133,7 +133,8 @@ const ehTopoPorH1 = (el: Element): boolean => {
   }
 };
 
-const acharTopo = (paginaVisivel: HTMLElement): HTMLElement | null => {
+/** O cabecalho da tela aberta (tambem usado pela barra que acompanha a rolagem, BarraDeAcaoRapida.tsx). */
+export const acharTopo = (paginaVisivel: HTMLElement): HTMLElement | null => {
   const classico = paginaVisivel.querySelector<HTMLElement>(SELETOR_TOPO_CLASSICO);
   if (classico) return classico;
   const raiz = paginaVisivel.querySelector<HTMLElement>(':scope > .page-transition > div');

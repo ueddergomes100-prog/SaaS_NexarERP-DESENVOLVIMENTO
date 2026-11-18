@@ -9,6 +9,7 @@ import { appRoutesConfig } from '../../routes/appRoutesConfig';
 import { TabActiveContext, TabIdContext, singleSessionPrefixFor, useTabs, type Tab } from '../../contexts/TabsContext';
 import { ErrorBoundary } from '../ErrorBoundary';
 import PageLoader from './PageLoader';
+import BarraDeAcaoRapida from './BarraDeAcaoRapida';
 
 /**
  * Conteudo de uma aba. react-router proibe <Router> aninhado (nao da pra
@@ -116,6 +117,8 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
     <TabIdContext.Provider value={tab.id}>
       <TabActiveContext.Provider value={isActive}>
         <main className="page-content">
+          {/* Atalho de cadastrar que acompanha a rolagem; altura zero, nao empurra a tela. */}
+          <BarraDeAcaoRapida />
           <div className={hasSettled ? 'page-transition page-transition--settled' : 'page-transition'}>
             {isModuleBlocked || !isRouteAllowed ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>

@@ -6,6 +6,7 @@ const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
+const { buscarCidadesNaSpedy } = require('../services/spedyCidades');
 const { separarCscDaNumeracao } = require('../services/protegerSegredos');
 // Toda chamada a Spedy passa por aqui: tempo limite + erro em portugues
 // (ver utils/fetchComTimeout.js). Sem isso a tela ficava presa em
@@ -58,11 +59,16 @@ const TYPE_PATHS = {
   consumer: 'consumer-invoices'
 };
 
+// A Spedy responde 401 sem texto nenhum quando nao reconhece a chave: sem isto
+// a tela mostrava so' "Erro ao comunicar com a Spedy" e ninguem sabia onde olhar.
+const MENSAGEM_CHAVE_RECUSADA = 'A Spedy recusou a chave de acesso desta empresa. Confira o campo "Spedy API Key" em Configurações → Configuração de Nota Fiscal (Spedy). Se a empresa ainda não foi cadastrada na Spedy, deixe o campo em branco e peça ao suporte para cadastrá-la.';
+
 const proxyJson = async (res, response) => {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     return res.status(response.status).json({
-      error: data.errors?.[0]?.message || data.error || 'Erro ao comunicar com a Spedy.'
+      error: data.errors?.[0]?.message || data.error
+        || (response.status === 401 ? MENSAGEM_CHAVE_RECUSADA : 'Erro ao comunicar com a Spedy.')
     });
   }
 
@@ -261,45 +267,6 @@ router.get('/:type', (req, res) => handleSpedyRequest(req, res, 'GET', ({ apiKey
   }, PERFIS.spedyLeitura);
 }));
 
-// Chave pra busca de cidade quando a empresa ainda nao tem a propria
-// (caso do cadastro novo via master key, ver spedyCompanies.routes.js):
-// sem isso, empresa nova cai num ciclo -- precisa da cidade pra cadastrar
-// a empresa na Spedy, mas so ganha chave propria DEPOIS de cadastrada.
-// Cidade integrada e dado de referencia (nao fiscal/financeiro do tenant),
-// entao usar a chave mestra da plataforma so pra essa busca e seguro.
-const loadCitiesApiKey = async (tenantId) => {
-  if (!tenantId) {
-    const error = new Error('Tenant nao informado.');
-    error.status = 400;
-    throw error;
-  }
-
-  const [publicSnap, privateSnap] = await Promise.all([
-    db.collection('configuracoes').doc(tenantId).get(),
-    db.collection('configuracoes_privadas').doc(tenantId).get()
-  ]);
-  const publicConfig = publicSnap.exists ? publicSnap.data() : {};
-  const privateConfig = privateSnap.exists ? privateSnap.data() : {};
-  const tenantApiKey = privateConfig.spedyApiKey || publicConfig.spedyApiKey;
-  if (tenantApiKey) {
-    const env = publicConfig.spedyEnvironment === 'production' ? 'production' : 'sandbox';
-    return { apiKey: tenantApiKey, baseUrl: BASE_URLS[env] };
-  }
-
-  const masterSnap = await db.collection('plataforma').doc('spedy').get();
-  const masterData = masterSnap.exists ? masterSnap.data() : {};
-  if (masterData.masterApiKeySandbox) {
-    return { apiKey: masterData.masterApiKeySandbox, baseUrl: BASE_URLS.sandbox };
-  }
-  if (masterData.masterApiKeyProducao) {
-    return { apiKey: masterData.masterApiKeyProducao, baseUrl: BASE_URLS.production };
-  }
-
-  const error = new Error('Esta empresa ainda não tem a chave da Spedy configurada, e a chave mestra da plataforma também não foi cadastrada. Peça a um administrador da plataforma para configurar a chave mestra em Administração → Chave mestra da Spedy.');
-  error.status = 400;
-  throw error;
-};
-
 // Precisa vir ANTES de GET /:type/:id -- senao essa rota generica captura
 // "cities" como se fosse um id de nota.
 router.get('/:type/cities', async (req, res) => {
@@ -314,14 +281,10 @@ router.get('/:type/cities', async (req, res) => {
       return res.status(400).json({ error: 'Tipo de documento fiscal invalido.' });
     }
 
-    const { apiKey, baseUrl } = await loadCitiesApiKey(tenantId);
-    const params = new URLSearchParams();
-    if (req.query.filterText) params.set('filterText', String(req.query.filterText));
-    if (req.query.state) params.set('state', String(req.query.state));
-    const response = await fetchComTimeout(`${baseUrl}/${typePath}/cities?${params.toString()}`, {
-      method: 'GET',
-      headers: { 'X-Api-Key': apiKey }
-    }, PERFIS.spedyLeitura);
+    // Chave da empresa e, se ela nao servir, a mestra da plataforma: ver services/spedyCidades.js.
+    const response = await buscarCidadesNaSpedy({
+      tenantId, typePath, filterText: req.query.filterText, state: req.query.state,
+    });
     return proxyJson(res, response);
   } catch (error) {
     console.error('[Spedy Cities Proxy]', error);

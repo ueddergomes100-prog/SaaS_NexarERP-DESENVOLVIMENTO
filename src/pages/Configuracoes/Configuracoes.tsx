@@ -23,7 +23,7 @@ import { permissoesEfetivas, permissoesParaGravar } from '../../utils/permissoes
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { documentoService } from '../../services/documentoService';
 import { isCnpjValido } from '../../utils/documentoValidacao';
-import { avisoDaSituacao, preenchimentoPelaReceita, regimeSugerido, soOsVazios, type CamposDaEmpresa } from '../../utils/cnpjPreenchimentoDomain';
+import { avisoDaSituacao, ehMeiNaReceita, preenchimentoPelaReceita, regimeSugerido, soOsVazios, type CamposDaEmpresa } from '../../utils/cnpjPreenchimentoDomain';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
 import { formatCompanyAddress } from '../../utils/companyAddress';
@@ -215,6 +215,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   { campo: 'cnpj', rotulo: 'CNPJ' },
   { campo: 'inscricaoEstadual', rotulo: 'Inscrição estadual' },
   { campo: 'regimeTributario', rotulo: 'Regime tributário', formatar: opcaoHistorico(REGIME_TRIBUTARIO_OPTIONS) },
+  { campo: 'empresaMei', rotulo: 'Empresa é MEI', formatar: simNaoHistorico },
   { campo: 'telefone', rotulo: 'Telefone / WhatsApp' },
   { campo: 'whatsapp', rotulo: 'WhatsApp' },
   { campo: 'instagram', rotulo: 'Instagram' },
@@ -450,6 +451,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     cnpj: '',
     inscricaoEstadual: '',
     regimeTributario: DEFAULT_REGIME_TRIBUTARIO as RegimeTributario,
+    /** MEI: Simples Nacional que vai para a Spedy com o regime proprio (19/11/2026). */
+    empresaMei: false,
     controlaFiscal: DEFAULT_CONTROLA_FISCAL,
     telefone: '',
     whatsapp: '',
@@ -716,6 +719,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             emiteNFCe: data.emiteNFCe ?? false,
             emiteNFSe: data.emiteNFSe ?? false,
             regimeTributario: (data.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario,
+            empresaMei: data.empresaMei === true,
             controlaFiscal: parseControlaFiscal(data.controlaFiscal),
             whatsapp: data.whatsapp ?? '',
             instagram: data.instagram ?? '',
@@ -1027,8 +1031,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   /** Dados da empresa que a Spedy imprime na nota (emitente). Mudou algum ao
    *  salvar, reenvia pra Spedy -- ver POST /api/spedy/empresa/sincronizar. */
   const dadosEmpresaParaSpedy = (d: Record<string, unknown>): string => JSON.stringify(
-    ['razaoSocial', 'nomeOficina', 'cnpj', 'inscricaoEstadual', 'rua', 'numero', 'bairro', 'cep', 'email', 'regimeTributario', 'nfseCidadeCodigo']
-      .map((campo) => String(d[campo] ?? '').trim()),
+    [
+      ...['razaoSocial', 'nomeOficina', 'cnpj', 'inscricaoEstadual', 'rua', 'numero', 'bairro', 'cep', 'email', 'regimeTributario', 'nfseCidadeCodigo']
+        .map((campo) => String(d[campo] ?? '').trim()),
+      // So' entra quando e' MEI: assim quem nao e' MEI nao reenvia nada a' Spedy por causa do campo novo.
+      ...(d.empresaMei === true && d.regimeTributario === 'simples_nacional' ? ['mei'] : []),
+    ],
   );
 
   /**
@@ -1111,6 +1119,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         ...prev,
         ...aplicar,
         ...(regime ? { regimeTributario: regime } : {}),
+        ...(ehMeiNaReceita(dados) ? { empresaMei: true } : {}),
         ...(cidade && !prev.nfseCidadeCodigo ? cidade : {}),
       }));
       const aviso = avisoDaSituacao(dados);
@@ -2013,7 +2022,11 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               <select
                 name="regimeTributario"
                 value={formData.regimeTributario}
-                onChange={(e) => setFormData({ ...formData, regimeTributario: e.target.value as RegimeTributario })}
+                onChange={(e) => {
+                  const regime = e.target.value as RegimeTributario;
+                  // MEI so' existe dentro do Simples: sair do Simples desmarca.
+                  setFormData({ ...formData, regimeTributario: regime, ...(regime === 'simples_nacional' ? {} : { empresaMei: false }) });
+                }}
                 disabled={!isEditingMode}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               >
@@ -2021,6 +2034,25 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
+
+              {formData.regimeTributario === 'simples_nacional' && (
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', color: 'var(--text-primary)', marginTop: '4px', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.empresaMei === true}
+                    onChange={(e) => setFormData({ ...formData, empresaMei: e.target.checked })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                  />
+                  <span>
+                    <strong>Empresa é MEI</strong>
+                    <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                      Marque se a empresa é Microempreendedor Individual. A nota fiscal sai com o regime
+                      {' '}<strong>Simples Nacional — MEI</strong>; o cadastro de produto continua igual ao do Simples.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', color: 'var(--text-primary)', marginTop: '4px', cursor: isEditingMode ? 'pointer' : 'default' }}>
                 <input
@@ -4299,6 +4331,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       <input
                         type={mostrarSpedyApiKey ? 'text' : 'password'}
                         name="spedyApiKey"
+                        // Sem isto o navegador preenche o campo com a senha salva do login e ela
+                        // e' gravada como "chave da Spedy" no proximo salvar (19/11/2026).
+                        autoComplete="new-password"
                         title="Insira a chave obtida no painel Spedy"
                         value={formData.spedyApiKey || ''}
                         onChange={handleChange}

@@ -21,6 +21,8 @@ export interface EmitenteDaPrevia {
   nomeOficina?: unknown;
   inscricaoEstadual?: unknown;
   regimeTributario?: unknown;
+  /** MEI: Simples Nacional com codigo de regime proprio na nota (CRT 4). */
+  empresaMei?: unknown;
   rua?: unknown;
   numero?: unknown;
   bairro?: unknown;
@@ -107,7 +109,7 @@ const parteDoEmitente = (e: EmitenteDaPrevia): ParteDaNota => ({
   nome: texto(e.razaoSocial) || texto(e.nomeOficina),
   fantasia: texto(e.nomeOficina),
   inscricaoEstadual: texto(e.inscricaoEstadual),
-  regime: texto(e.regimeTributario) === 'simples_nacional' ? '1' : '3',
+  regime: texto(e.regimeTributario) === 'simples_nacional' ? (e.empresaMei === true ? '4' : '1') : '3',
   endereco: {
     logradouro: texto(e.rua),
     numero: texto(e.numero),

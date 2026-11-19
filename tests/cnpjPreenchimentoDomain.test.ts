@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   avisoDaSituacao,
+  ehMeiNaReceita,
   camposDaReceita,
   formatarCep,
   formatarTelefone,
@@ -65,4 +66,11 @@ test('situacao nao ativa avisa; Simples Nacional sugere o regime', () => {
   assert.equal(regimeSugerido(receita), 'simples_nacional');
   assert.equal(regimeSugerido({ ...receita, simplesNacional: false }), null);
   assert.equal(regimeSugerido({ ...receita, simplesNacional: null }), null);
+});
+
+test('MEI: a Receita marca a empresa como MEI e o regime sugerido e o Simples; sem a informacao nada e marcado', () => {
+  assert.equal(ehMeiNaReceita({ ...receita, mei: true }), true);
+  assert.equal(ehMeiNaReceita({ ...receita, mei: false }), false);
+  assert.equal(ehMeiNaReceita(receita), false);
+  assert.equal(regimeSugerido({ ...receita, simplesNacional: null, mei: true }), 'simples_nacional');
 });

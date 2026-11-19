@@ -19,6 +19,19 @@ const TAX_REGIME_MAP = {
   lucro_real: 'regimeNormal',
 };
 
+/**
+ * Regime da empresa na Spedy. O MEI (19/11/2026) e' Simples Nacional para o
+ * sistema inteiro (CSOSN no produto, mesmas regras de imposto), mas na Spedy
+ * tem valor proprio -- `simplesNacionalMEI` -- e e' dele que sai o codigo de
+ * regime tributario (CRT) impresso na nota. Por isso o MEI e' uma marca em
+ * Configuracoes (`empresaMei`), nao um quarto regime: nada do calculo muda,
+ * so' o que vai para a Spedy.
+ */
+const regimeDaEmpresaNaSpedy = (config) => {
+  const regime = TAX_REGIME_MAP[config && config.regimeTributario] || 'simplesNacional';
+  return regime === 'simplesNacional' && config && config.empresaMei === true ? 'simplesNacionalMEI' : regime;
+};
+
 /** Monta o corpo de criacao de empresa a partir do que ja esta salvo em
  * configuracoes/{tenantId} -- nao pede nada de novo pro admin da
  * plataforma alem do CNPJ da empresa (que ja esta la). Endereco e cidade
@@ -74,8 +87,8 @@ const buildCompanyPayload = (config) => {
         },
       } : {}),
     },
-    taxRegime: TAX_REGIME_MAP[config.regimeTributario] || 'simplesNacional',
+    taxRegime: regimeDaEmpresaNaSpedy(config),
   };
 };
 
-module.exports = { TAX_REGIME_MAP, sanitizarInscricaoEstadual, buildCompanyPayload };
+module.exports = { TAX_REGIME_MAP, regimeDaEmpresaNaSpedy, sanitizarInscricaoEstadual, buildCompanyPayload };

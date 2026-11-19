@@ -24,6 +24,8 @@ export interface DadosDaReceita {
   email?: string;
   /** Optante pelo Simples Nacional (quando a Receita informa). */
   simplesNacional?: boolean | null;
+  /** Microempreendedor Individual (a Receita so' informa quando e'). */
+  mei?: boolean;
 }
 
 /** Campos da tela de Configuracoes que a Receita preenche. */
@@ -122,4 +124,11 @@ export const avisoDaSituacao = (d: DadosDaReceita): string | null => {
 };
 
 /** Regime tributario sugerido pela Receita (so' quando ela informa que e' do Simples). */
-export const regimeSugerido = (d: DadosDaReceita): 'simples_nacional' | null => (d.simplesNacional === true ? 'simples_nacional' : null);
+export const regimeSugerido = (d: DadosDaReceita): 'simples_nacional' | null => (d.simplesNacional === true || d.mei === true ? 'simples_nacional' : null);
+
+/**
+ * A Receita diz que a empresa e' MEI. So' serve para MARCAR "Empresa e' MEI" em
+ * Configuracoes: a falta da informacao nao desmarca nada (a consulta nao
+ * distingue "nao e' MEI" de "nao informou").
+ */
+export const ehMeiNaReceita = (d: DadosDaReceita): boolean => d.mei === true;

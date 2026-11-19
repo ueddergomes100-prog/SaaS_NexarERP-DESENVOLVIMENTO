@@ -354,7 +354,7 @@ exports.validarDadosDaFilial = validarDadosDaFilial;
  */
 exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = [
     'tenantId', 'grupoId', 'filialCodigo', 'createdAt', 'updatedAt', 'alteradoPor', 'alteradoEm', 'ultimaAlteracao',
-    'nomeOficina', 'razaoSocial', 'nomeFantasia', 'nomeUsuario', 'cnpj', 'inscricaoEstadual',
+    'nomeOficina', 'razaoSocial', 'nomeFantasia', 'nomeUsuario', 'cnpj', 'inscricaoEstadual', 'empresaMei',
     'telefone', 'whatsapp', 'instagram', 'email',
     'rua', 'numero', 'complemento', 'bairro', 'cep', 'endereco', 'cidade', 'uf', 'codigoIbge',
     'spedyEnabled', 'spedyApiKey', 'spedyEnvironment', 'spedyCompanyId',

@@ -74,6 +74,13 @@ test('previa: transporte, pagamentos pelo codigo da SEFAZ, duplicatas e fatura',
   assert.equal(nota.faturaValor, 250);
 });
 
+test('previa: emitente MEI sai com o codigo de regime 4; a marca de MEI fora do Simples nao vale', () => {
+  const base = { payload: { receiver: { name: 'X', federalTaxNumber: '12345678901' }, items: [], total: {} }, hoje: '2026-11-19' };
+  assert.equal(notaDaPrevia({ ...base, emitente: { regimeTributario: 'simples_nacional', empresaMei: true } }).emitente.regime, '4');
+  assert.equal(notaDaPrevia({ ...base, emitente: { regimeTributario: 'simples_nacional' } }).emitente.regime, '1');
+  assert.equal(notaDaPrevia({ ...base, emitente: { regimeTributario: 'lucro_presumido', empresaMei: true } }).emitente.regime, '3');
+});
+
 test('previa: payload minimo nao quebra (sem transporte, pagamentos, duplicatas)', () => {
   const nota = notaDaPrevia({ payload: { receiver: { name: 'X', federalTaxNumber: '12345678901' }, items: [], total: {} }, emitente: {}, hoje: '2026-11-07' });
   assert.equal(nota.transporte.modalidadeFrete, '9');

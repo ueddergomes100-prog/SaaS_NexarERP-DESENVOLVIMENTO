@@ -88,7 +88,7 @@ test('configuracao da filial: copia as regras da matriz, nunca a identidade nem 
     rua: 'RUA A', cidade: 'VITORIA', uf: 'ES', telefone: '27 3333-0000', spedyApiKey: 'segredo', spedyCompanyId: 'sp1', spedyEnabled: true,
     spedyNumeracao: { productInvoice: { series: 1, nextNumber: 120 }, consumerInvoice: { series: 1, currentNumber: 900, csc: 'abc', tokenId: '1' } },
     spedyApiKeyConfigured: true, spedyEmpresaSincronizadaCom: '{}', emiteNFe: true, emiteNFCe: true, emiteNFSe: true,
-    nfseCodigoServicoMunicipal: '1401', nfseAliquotaIssPadrao: 3, regimeTributario: 'simples_nacional',
+    nfseCodigoServicoMunicipal: '1401', nfseAliquotaIssPadrao: 3, regimeTributario: 'simples_nacional', empresaMei: true,
     trabalhaComPreVenda: true, ordemFormasPagamento: ['pix', 'dinheiro'], limiteDescontoPdv: 5, logo: 'https://logo', campoVazio: undefined,
   };
   const dados = lerDadosDaFilial({ codigo: '20', nome: 'Loja Baixada', uf: 'ES', cidade: 'Serra', cnpj: CNPJ_FILIAL, razaoSocial: 'SHOPPING RURAL BAIXADA LTDA' });
@@ -102,6 +102,7 @@ test('configuracao da filial: copia as regras da matriz, nunca a identidade nem 
   assert.equal(config.inscricaoEstadual, '');
   assert.equal(config.telefone, '');
   assert.equal(config.spedyEnabled, false);
+  assert.equal('empresaMei' in config, false, 'ser MEI e do CNPJ da matriz, nao vai para a filial');
   assert.equal('spedyApiKey' in config, false);
   assert.equal('spedyCompanyId' in config, false);
   assert.equal(config.trabalhaComPreVenda, true);

@@ -6,6 +6,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { TabActiveContext, useTabs } from '../../contexts/TabsContext';
 import IdentificarVendedorModal from '../../components/common/IdentificarVendedorModal';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import type { VendedorIdentificado } from '../../utils/vendedorPinDomain';
 import { contaComoFaturamento } from '../../utils/preVendaDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
@@ -90,6 +92,8 @@ const MinhasVendas: React.FC = () => {
   const navigate = useNavigate();
   // Imprimir abre aba propria (17/11/2026): nao fecha a aba de Minhas Vendas.
   const { openTab } = useTabs();
+  // Olhinho (21/11/2026): esconde o valor faturado junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const { tenantId } = useAuth();
   const isTabActive = useContext(TabActiveContext);
 
@@ -198,11 +202,14 @@ const MinhasVendas: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
-      <div>
-        <h1 style={{ fontSize: '24px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <UserCheck size={26} color="var(--accent-purple)" /> Minhas Vendas
-        </h1>
-        <p style={{ color: 'var(--text-muted)' }}>{vendedor.vendedorNome} (código {vendedor.codigo})</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <UserCheck size={26} color="var(--accent-purple)" /> Minhas Vendas
+          </h1>
+          <p style={{ color: 'var(--text-muted)' }}>{vendedor.vendedorNome} (código {vendedor.codigo})</p>
+        </div>
+        <BotaoOlhoValores />
       </div>
 
       {erro && (
@@ -249,7 +256,7 @@ const MinhasVendas: React.FC = () => {
         </div>
         <div className="card" style={{ padding: '18px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
           <span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Valor faturado no período</span>
-          <strong style={{ display: 'block', marginTop: '7px', fontSize: '21px' }}>{currency.format(fromCents(totais.totalCentavos))}</strong>
+          <strong style={{ display: 'block', marginTop: '7px', fontSize: '21px' }}>{mostrarValor(currency.format(fromCents(totais.totalCentavos)))}</strong>
         </div>
       </div>
 

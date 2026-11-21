@@ -8,6 +8,8 @@ import { juntarPdfs } from '../../utils/juntarPdfs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { informacoesComplementaresComMensagem, mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, doc, getDoc, serverTimestamp, limit, Timestamp, documentId, type DocumentData, type QuerySnapshot } from 'firebase/firestore';
 import { assinarComReserva, lerComReserva } from '../../services/consultaComReserva';
 import { janelaDoPeriodoNotas, PERIODO_NOTAS_PADRAO, ROTULO_PERIODO_NOTAS, type PeriodoNotas } from '../../utils/periodoListaDomain';
@@ -360,6 +362,8 @@ const inicioDosPedidosParaNota = () => dateInputToUtcStart(primeiroDiaDosPedidos
 
 const NFE: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
+  // Olhinho (21/11/2026): o "Total Emitido" esconde junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   // CFOPs desativados pela empresa (Fiscal > Tabelas Fiscais): saem da lista do item.
   const { desativados: cfopsDesativados } = useCfopsDesativados();
   // CFOP de saida escolhido na faixa "para todos os itens" ('' = o mais comum da nota).
@@ -3545,6 +3549,7 @@ const NFE: React.FC = () => {
               },
             ]}
           />
+          <BotaoOlhoValores />
           {(marcadasParaImprimir.length > 0 || progressoImpressao) && (
             <button
               type="button"
@@ -3582,7 +3587,7 @@ const NFE: React.FC = () => {
         <div className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', borderLeft: '4px solid #10b981' }}>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '0 0 6px 0' }}>Total Emitido</p>
           <h3 style={{ margin: 0, fontSize: '24px', fontWeight: 700 }}>
-            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalEmitido)}
+            {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalEmitido))}
           </h3>
           <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>{mAtivas.length} Notas Autorizadas</p>
         </div>

@@ -43,6 +43,8 @@ import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { useDadosRelatorioVendas } from '../../hooks/useDadosRelatorioVendas';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const number = new Intl.NumberFormat('pt-BR');
@@ -90,6 +92,10 @@ const inputStyle: React.CSSProperties = {
 
 const RelatoriosVendas: React.FC = () => {
   const navigate = useNavigate();
+  // Olhinho (21/11/2026): esconde os totais e o resumo por vendedor junto com as
+  // outras telas; o detalhamento venda a venda continua visivel.
+  const { mostrar: mostrarValor } = useValoresOcultos();
+  const brl = (centavos: number) => mostrarValor(currency.format(fromCents(centavos)));
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const { data, loading, error } = useDadosRelatorioVendas({ de: filters.startDate, ate: filters.endDate });
   const [page, setPage] = useState(1);
@@ -279,6 +285,7 @@ const RelatoriosVendas: React.FC = () => {
           <p style={{ color: 'var(--text-muted)' }}>Empresa ativa: dados isolados por tenant • Período {formatDateInputPtBr(filters.startDate)} a {formatDateInputPtBr(filters.endDate)}</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <BotaoOlhoValores />
           <MenuMaisOpcoes
             itens={[{
               texto: carregandoDevolucoes ? 'Abrindo devoluções...' : 'Relatório de devoluções', Icone: RotateCcw,
@@ -314,15 +321,15 @@ const RelatoriosVendas: React.FC = () => {
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px' }}>
         {[
           ['Vendas válidas', number.format(totals.count)],
-          ['Venda líquida', currency.format(fromCents(totals.netCents))],
-          ['Taxas de cartão', currency.format(fromCents(totals.cardFeeCents))],
-          ['Receita líquida', currency.format(fromCents(totals.financialNetCents))],
-          ['Ticket médio', currency.format(fromCents(totals.averageCents))],
-          ['Descontos', currency.format(fromCents(totals.discountCents))],
-          ['Recebido', currency.format(fromCents(totals.receivedCents))],
-          ['Pendente', currency.format(fromCents(totals.pendingCents))],
+          ['Venda líquida', brl(totals.netCents)],
+          ['Taxas de cartão', brl(totals.cardFeeCents)],
+          ['Receita líquida', brl(totals.financialNetCents)],
+          ['Ticket médio', brl(totals.averageCents)],
+          ['Descontos', brl(totals.discountCents)],
+          ['Recebido', brl(totals.receivedCents)],
+          ['Pendente', brl(totals.pendingCents)],
           ['Canceladas', number.format(totals.cancelledCount)],
-          ['Comissões registradas', currency.format(fromCents(totals.commissionCents))],
+          ['Comissões registradas', brl(totals.commissionCents)],
         ].map(([label, value]) => <div key={label} className="card" style={{ padding: '18px', backgroundColor: 'var(--bg-secondary)' }}><span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{label}</span><strong style={{ display: 'block', marginTop: '7px', fontSize: '21px' }}>{value}</strong></div>)}
       </section>
 
@@ -332,7 +339,7 @@ const RelatoriosVendas: React.FC = () => {
           <button className="btn-secondary" onClick={() => setPreviewAberto('vendedor')} disabled={sellerSummary.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Printer size={17} /> Imprimir por vendedor</button>
         </div>
         <div className="table-wrapper"><table className="data-table"><thead><tr><th>Vendedor</th><th>Vendas</th><th>Itens vendidos</th><th>Bruto</th><th>Descontos</th><th>Cancel.</th><th>Venda líquida</th><th>Taxas cartão</th><th>Receita líquida</th><th>Ticket médio</th><th>Recebido</th><th>A receber</th><th>Pagamentos</th><th>Comissão</th></tr></thead><tbody>
-          {sellerSummary.length === 0 ? <tr><td colSpan={14} style={{ textAlign: 'center', padding: '32px' }}>Nenhuma venda encontrada para os filtros.</td></tr> : sellerSummary.map((seller) => <tr key={seller.id} onClick={() => seller.id !== 'nao_identificado' && setFilter('sellerId', seller.id)} style={{ cursor: seller.id !== 'nao_identificado' ? 'pointer' : 'default' }}><td><strong>{seller.name}</strong></td><td>{seller.sales}</td><td>{new Intl.NumberFormat('pt-BR').format(seller.items)}</td><td>{currency.format(fromCents(seller.grossCents))}</td><td>{currency.format(fromCents(seller.discountCents))}</td><td>{seller.cancellations}</td><td>{currency.format(fromCents(seller.netCents))}</td><td>{currency.format(fromCents(seller.cardFeeCents))}</td><td>{currency.format(fromCents(seller.financialNetCents))}</td><td>{currency.format(fromCents(seller.sales ? Math.round(seller.netCents / seller.sales) : 0))}</td><td>{currency.format(fromCents(seller.receivedCents))}</td><td>{currency.format(fromCents(seller.pendingCents))}</td><td style={{ maxWidth: '220px', fontSize: '12px' }}>{Object.entries(seller.payments).map(([method, value]) => `${method}: ${currency.format(fromCents(Number(value)))}`).join(' • ') || '-'}</td><td>{currency.format(fromCents(seller.commissionCents))}</td></tr>)}
+          {sellerSummary.length === 0 ? <tr><td colSpan={14} style={{ textAlign: 'center', padding: '32px' }}>Nenhuma venda encontrada para os filtros.</td></tr> : sellerSummary.map((seller) => <tr key={seller.id} onClick={() => seller.id !== 'nao_identificado' && setFilter('sellerId', seller.id)} style={{ cursor: seller.id !== 'nao_identificado' ? 'pointer' : 'default' }}><td><strong>{seller.name}</strong></td><td>{seller.sales}</td><td>{new Intl.NumberFormat('pt-BR').format(seller.items)}</td><td>{brl(seller.grossCents)}</td><td>{brl(seller.discountCents)}</td><td>{seller.cancellations}</td><td>{brl(seller.netCents)}</td><td>{brl(seller.cardFeeCents)}</td><td>{brl(seller.financialNetCents)}</td><td>{brl(seller.sales ? Math.round(seller.netCents / seller.sales) : 0)}</td><td>{brl(seller.receivedCents)}</td><td>{brl(seller.pendingCents)}</td><td style={{ maxWidth: '220px', fontSize: '12px' }}>{Object.entries(seller.payments).map(([method, value]) => `${method}: ${brl(Number(value))}`).join(' • ') || '-'}</td><td>{brl(seller.commissionCents)}</td></tr>)}
         </tbody></table></div>
       </section>
 

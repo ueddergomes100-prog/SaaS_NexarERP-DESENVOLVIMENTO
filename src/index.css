@@ -383,6 +383,14 @@ body.light-theme textarea:disabled {
   color: var(--text-primary);
 }
 
+/* O "olhinho" que esconde os totais de todas as telas (BotaoOlhoValores, 21/11/2026). */
+.botao-olho-valores {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--radius-lg);
+}
+
 @media (max-width: 768px) {
   /* Consolidate table wrapper and scrolls */
   table {

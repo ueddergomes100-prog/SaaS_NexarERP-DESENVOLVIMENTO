@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowUpCircle, ArrowDownCircle, Search, DollarSign, Eye, EyeOff, Calendar, X, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Search, DollarSign, Calendar, X, Loader2, CheckCircle, RotateCcw } from 'lucide-react';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { collection, addDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import { db } from '../../services/firebase';
@@ -49,7 +51,8 @@ const transactionDate = (transaction: TransacaoData) => {
 };
 
 const Caixa: React.FC = () => {
-  const [showSaldo, setShowSaldo] = useState(false);
+  // Olhinho (21/11/2026): o mesmo de todas as telas; esconde entradas, saidas e saldo.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const [searchTerm, setSearchTerm] = useState('');
   const [diasFiltro, setDiasFiltro] = useState<number>(30); // Padrão 30 dias
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
@@ -239,6 +242,7 @@ const Caixa: React.FC = () => {
           <p className="page-subtitle">Somente dinheiro em espécie; PIX, cartão e transferências ficam no fluxo digital</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <BotaoOlhoValores />
           <button className="btn-secondary" style={{ color: '#ef4444', borderColor: '#ef444440' }} onClick={() => handleOpenModal('saida')}>
             <ArrowDownCircle size={18} style={{ marginRight: 8 }} />
             Nova Despesa
@@ -258,7 +262,7 @@ const Caixa: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalEntradas)}</h3>
+            <h3>{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalEntradas))}</h3>
             <p>Entradas Recebidas</p>
           </div>
         </div>
@@ -270,7 +274,7 @@ const Caixa: React.FC = () => {
             </div>
           </div>
           <div className="stat-info">
-            <h3>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalSaidas)}</h3>
+            <h3>{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalSaidas))}</h3>
             <p>Saídas Pagas</p>
           </div>
         </div>
@@ -280,20 +284,10 @@ const Caixa: React.FC = () => {
             <div className="stat-icon purple-bg">
               <DollarSign size={24} />
             </div>
-            <button 
-              onClick={() => setShowSaldo(!showSaldo)} 
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-              title={showSaldo ? 'Ocultar Saldo' : 'Mostrar Saldo'}
-            >
-              {showSaldo ? <EyeOff size={20} /> : <Eye size={20} />}
-            </button>
+            <BotaoOlhoValores className="olho-no-cartao" tamanho={20} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} />
           </div>
           <div className="stat-info">
-            <h3>
-              {showSaldo 
-                ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldoAtual) 
-                : 'R$ •••••'}
-            </h3>
+            <h3>{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldoAtual))}</h3>
             <p>Saldo do Período</p>
           </div>
         </div>

@@ -3,6 +3,8 @@ import { BarChart3, ChevronDown, RefreshCw } from 'lucide-react';
 import { consultarResumoDoGrupo } from '../../services/filialService';
 import type { ResumoDaFilial } from '../../utils/resumoGrupoDomain';
 import { addMonthsToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import './ResumoDoGrupo.css';
 
 /**
@@ -48,6 +50,9 @@ interface Resultado {
 }
 
 const ResumoDoGrupo: React.FC<{ filialAtualId?: string }> = ({ filialAtualId }) => {
+  // Olhinho (21/11/2026): os valores do grupo escondem junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
+  const reaisNaTela = (centavos: number) => mostrarValor(reais(centavos));
   const [aberto, setAberto] = useState(lerAberto);
   const [periodo, setPeriodo] = useState<Periodo>('mes');
   const [dados, setDados] = useState<Resultado | null>(null);
@@ -107,6 +112,7 @@ const ResumoDoGrupo: React.FC<{ filialAtualId?: string }> = ({ filialAtualId }) 
                 </button>
               ))}
             </div>
+            <BotaoOlhoValores className="resumo-grupo__atualizar" tamanho={14} />
             <button type="button" className="resumo-grupo__atualizar" onClick={() => { void buscar(periodo); }} disabled={carregando}>
               <RefreshCw size={14} className={carregando ? 'resumo-grupo__girando' : undefined} aria-hidden="true" /> Atualizar
             </button>
@@ -141,7 +147,7 @@ const ResumoDoGrupo: React.FC<{ filialAtualId?: string }> = ({ filialAtualId }) 
                         </th>
                         <td className="resumo-grupo__num">
                           <div className="resumo-grupo__venda">
-                            <span>{reais(f.vendasCentavos)}</span>
+                            <span>{reaisNaTela(f.vendasCentavos)}</span>
                             <span className="resumo-grupo__fatia" title={`${fatia}% das vendas do grupo`}>
                               <span style={{ width: `${Math.round((f.vendasCentavos / maiorVenda) * 100)}%` }} />
                             </span>
@@ -149,9 +155,9 @@ const ResumoDoGrupo: React.FC<{ filialAtualId?: string }> = ({ filialAtualId }) 
                           </div>
                         </td>
                         <td className="resumo-grupo__num">{f.pedidos}</td>
-                        <td className="resumo-grupo__num">{reais(f.ticketMedioCentavos)}</td>
-                        <td className="resumo-grupo__num">{reais(f.aReceberCentavos)}</td>
-                        <td className="resumo-grupo__num">{reais(f.estoqueCentavos)}</td>
+                        <td className="resumo-grupo__num">{reaisNaTela(f.ticketMedioCentavos)}</td>
+                        <td className="resumo-grupo__num">{reaisNaTela(f.aReceberCentavos)}</td>
+                        <td className="resumo-grupo__num">{reaisNaTela(f.estoqueCentavos)}</td>
                       </tr>
                     );
                   })}
@@ -159,11 +165,11 @@ const ResumoDoGrupo: React.FC<{ filialAtualId?: string }> = ({ filialAtualId }) 
                 <tfoot>
                   <tr>
                     <th scope="row">Total do grupo</th>
-                    <td className="resumo-grupo__num">{reais(dados.total.vendasCentavos)}</td>
+                    <td className="resumo-grupo__num">{reaisNaTela(dados.total.vendasCentavos)}</td>
                     <td className="resumo-grupo__num">{dados.total.pedidos}</td>
-                    <td className="resumo-grupo__num">{reais(dados.total.ticketMedioCentavos)}</td>
-                    <td className="resumo-grupo__num">{reais(dados.total.aReceberCentavos)}</td>
-                    <td className="resumo-grupo__num">{reais(dados.total.estoqueCentavos)}</td>
+                    <td className="resumo-grupo__num">{reaisNaTela(dados.total.ticketMedioCentavos)}</td>
+                    <td className="resumo-grupo__num">{reaisNaTela(dados.total.aReceberCentavos)}</td>
+                    <td className="resumo-grupo__num">{reaisNaTela(dados.total.estoqueCentavos)}</td>
                   </tr>
                 </tfoot>
               </table>

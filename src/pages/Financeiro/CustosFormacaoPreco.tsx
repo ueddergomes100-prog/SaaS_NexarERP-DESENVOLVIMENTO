@@ -11,6 +11,8 @@ import {
   type ResumoDosCustos,
 } from '../../utils/custosDomain';
 import { carregarCustos, salvarCustos, simularPrecos } from '../../services/custosService';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 
 /**
  * FINANCEIRO > CUSTOS E FORMACAO DE PRECO (23/10/2026, item 6 do dono).
@@ -63,6 +65,9 @@ const Cartao: React.FC<{ titulo: string; valor: string; detalhe?: string; cor?: 
 );
 
 const CustosFormacaoPreco: React.FC = () => {
+  // Olhinho (21/11/2026): esconde os resultados da aba Resumo junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
+  const reaisNaTela = (centavos: number) => mostrarValor(reais(centavos));
   const [aba, setAba] = useState<Aba>('resumo');
   const [config, setConfig] = useState<ConfigCustos>(CONFIG_CUSTOS_PADRAO);
   const [resumo, setResumo] = useState<ResumoDosCustos | null>(null);
@@ -147,6 +152,7 @@ const CustosFormacaoPreco: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <BotaoOlhoValores />
           <button type="button" className="btn-secondary" onClick={() => void carregar()} disabled={carregando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><RefreshCw size={16} /> Atualizar</button>
           <button type="button" className="btn-primary" onClick={() => void salvar()} disabled={salvando || !alterado} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {salvando ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={16} />} Salvar
@@ -167,19 +173,19 @@ const CustosFormacaoPreco: React.FC = () => {
           {aba === 'resumo' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <Cartao titulo="Despesa fixa do mês" valor={reais(resumo.despesaFixaMensalCentavos)} detalhe={`Média de ${nomeDoMes(resumo.meses[0])} a ${nomeDoMes(mesDaConta)}`} />
-                <Cartao titulo="Faturamento médio" valor={reais(resumo.faturamentoMedioCentavos)} detalhe={config.faturamentoManualCentavos ? 'Informado à mão' : 'Recebido no período (mesma conta do Dashboard)'} />
+                <Cartao titulo="Despesa fixa do mês" valor={reaisNaTela(resumo.despesaFixaMensalCentavos)} detalhe={`Média de ${nomeDoMes(resumo.meses[0])} a ${nomeDoMes(mesDaConta)}`} />
+                <Cartao titulo="Faturamento médio" valor={reaisNaTela(resumo.faturamentoMedioCentavos)} detalhe={config.faturamentoManualCentavos ? 'Informado à mão' : 'Recebido no período (mesma conta do Dashboard)'} />
                 <Cartao titulo="Rateio nas vendas" valor={pct(resumo.rateioPercentual)} detalhe="Despesa fixa ÷ faturamento: entra no preço de cada produto" cor="var(--accent-purple)" />
-                <Cartao titulo="Ponto de equilíbrio" valor={resumo.pontoDeEquilibrioCentavos !== null ? reais(resumo.pontoDeEquilibrioCentavos) : '—'} detalhe="Faturamento do mês que só paga as despesas (sem lucro)" />
+                <Cartao titulo="Ponto de equilíbrio" valor={resumo.pontoDeEquilibrioCentavos !== null ? reaisNaTela(resumo.pontoDeEquilibrioCentavos) : '—'} detalhe="Faturamento do mês que só paga as despesas (sem lucro)" />
               </div>
               <div className="card" style={{ padding: '18px' }}>
                 <h3 style={{ margin: '0 0 10px', fontSize: '15px' }}>De onde vem a despesa fixa</h3>
                 <table className="data-table" style={{ width: '100%' }}>
                   <tbody>
-                    <tr><td>Média das categorias fixas pagas no Contas a Pagar</td><td style={{ textAlign: 'right' }}>{reais(resumo.mediaDespesaFixaCentavos)}</td></tr>
-                    <tr><td>Despesas lançadas à mão</td><td style={{ textAlign: 'right' }}>{reais(resumo.ajustesCentavos)}</td></tr>
-                    <tr><td>Depreciação dos bens</td><td style={{ textAlign: 'right' }}>{reais(resumo.depreciacaoMensalCentavos)}</td></tr>
-                    <tr><td style={{ fontWeight: 700 }}>Despesa fixa do mês</td><td style={{ textAlign: 'right', fontWeight: 700 }}>{reais(resumo.despesaFixaMensalCentavos)}</td></tr>
+                    <tr><td>Média das categorias fixas pagas no Contas a Pagar</td><td style={{ textAlign: 'right' }}>{reaisNaTela(resumo.mediaDespesaFixaCentavos)}</td></tr>
+                    <tr><td>Despesas lançadas à mão</td><td style={{ textAlign: 'right' }}>{reaisNaTela(resumo.ajustesCentavos)}</td></tr>
+                    <tr><td>Depreciação dos bens</td><td style={{ textAlign: 'right' }}>{reaisNaTela(resumo.depreciacaoMensalCentavos)}</td></tr>
+                    <tr><td style={{ fontWeight: 700 }}>Despesa fixa do mês</td><td style={{ textAlign: 'right', fontWeight: 700 }}>{reaisNaTela(resumo.despesaFixaMensalCentavos)}</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -189,7 +195,7 @@ const CustosFormacaoPreco: React.FC = () => {
                   <thead><tr><th>Mês</th><th style={{ textAlign: 'right' }}>Despesa fixa paga</th><th style={{ textAlign: 'right' }}>Faturamento</th></tr></thead>
                   <tbody>
                     {resumo.meses.map((m) => (
-                      <tr key={m}><td>{nomeDoMes(m)}</td><td style={{ textAlign: 'right' }}>{reais(resumo.despesaPorMes[m])}</td><td style={{ textAlign: 'right' }}>{reais(resumo.faturamentoPorMes[m])}</td></tr>
+                      <tr key={m}><td>{nomeDoMes(m)}</td><td style={{ textAlign: 'right' }}>{reaisNaTela(resumo.despesaPorMes[m])}</td><td style={{ textAlign: 'right' }}>{reaisNaTela(resumo.faturamentoPorMes[m])}</td></tr>
                     ))}
                   </tbody>
                 </table>

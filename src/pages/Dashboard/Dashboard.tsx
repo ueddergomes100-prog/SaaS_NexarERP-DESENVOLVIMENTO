@@ -7,8 +7,6 @@ import {
   ClipboardList,
   Clock,
   DollarSign,
-  Eye,
-  EyeOff,
   FileText,
   MoreVertical,
   Package,
@@ -34,6 +32,8 @@ import {
   YAxis
 } from 'recharts';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { tomDoContador, tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
 import {
   collection,
@@ -289,7 +289,9 @@ const Dashboard: React.FC = () => {
     return saved === 'hoje' || saved === 'semana' || saved === 'mes' ? saved : 'hoje';
   });
   const [tableTab, setTableTab] = useState<'Ativas' | 'Finalizadas'>('Ativas');
-  const [hideData, setHideData] = useState(() => localStorage.getItem('nexus_hide_dashboard') === 'true');
+  // Olhinho (21/11/2026): o mesmo de todas as telas (useValoresOcultos); a
+  // escolha antiga deste Dashboard ('nexus_hide_dashboard') vale ate' o usuario mexer.
+  const { ocultos: hideData } = useValoresOcultos();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [openActionMenu, setOpenActionMenu] = useState<'top' | 'quick' | null>(null);
   /** Meta de faturamento do mes (Configuracoes). 0 = empresa nao trabalha
@@ -462,12 +464,6 @@ const Dashboard: React.FC = () => {
 
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [currentUser, tenantId, hasFinancialAccess, vendasVisiveisDeUsuarioId, inicioDoPeriodoMs]);
-
-  const toggleHideData = () => {
-    const newVal = !hideData;
-    setHideData(newVal);
-    localStorage.setItem('nexus_hide_dashboard', String(newVal));
-  };
 
   const selectDashboardPeriod = (period: DashboardPeriod) => {
     setDashboardPeriod(period);
@@ -1041,13 +1037,7 @@ const Dashboard: React.FC = () => {
             <strong>{formattedTime}</strong>
             <Clock size={18} />
           </div>
-          <button
-            className="icon-btn dashboard-icon-action"
-            onClick={toggleHideData}
-            title={hideData ? 'Mostrar valores' : 'Ocultar valores'}
-          >
-            {hideData ? <EyeOff size={18} /> : <Eye size={18} />}
-          </button>
+          <BotaoOlhoValores className="icon-btn dashboard-icon-action" />
           {renderNewActionMenu('top', 'btn-primary dashboard-primary-action')}
         </div>
       </header>

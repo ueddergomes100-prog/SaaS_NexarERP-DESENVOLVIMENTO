@@ -17,6 +17,8 @@ import {
   type FiltroComissoes,
 } from '../../utils/relatorioComissoesDomain';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -32,6 +34,8 @@ const nomeDoUsuario = (user: any): string => user?.nome || user?.nomeResponsavel
 
 const RelatorioComissoes: React.FC = () => {
   const navigate = useNavigate();
+  // Olhinho (21/11/2026): esconde os totais do topo junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
   const [entries, setEntries] = useState<EntradaComissao[]>([]);
   const [users, setUsers] = useState<Record<string, any>>({});
@@ -151,7 +155,10 @@ const RelatorioComissoes: React.FC = () => {
     <div className="relatorio-caixa-alta" style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div><h1 style={{ fontSize: '25px', display: 'flex', alignItems: 'center', gap: '9px' }}><DollarSign color="#10b981" /> Relatório de Comissões</h1><p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>Snapshots históricos por venda e OS; registros legados aparecem separados como estimativa.</p></div>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <BotaoOlhoValores />
         <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={filtered.length === 0} title={filtered.length === 0 ? 'Nenhuma comissão no filtro. Ajuste o período, o vendedor ou o status para gerar o relatório.' : 'Abre o relatório em PDF com o que está filtrado na tela (dá para salvar em Excel)'} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><FileText size={18} /> Gerar relatório</button>
+        </div>
       </div>
 
       {error && <div role="alert" style={{ padding: '14px', color: '#fecaca', backgroundColor: 'rgba(239,68,68,.12)', borderRadius: '8px' }}>{error}</div>}
@@ -165,8 +172,8 @@ const RelatorioComissoes: React.FC = () => {
       </section>
 
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
-        <div className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)' }}><span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>COMISSÃO HISTÓRICA VÁLIDA</span><strong style={{ display: 'block', fontSize: '26px', color: '#10b981', marginTop: '8px' }}>{currency.format(fromCents(confirmedTotalCents))}</strong></div>
-        <div className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)' }}><span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>ESTIMATIVA DE REGISTROS LEGADOS</span><strong style={{ display: 'block', fontSize: '26px', color: '#f59e0b', marginTop: '8px' }}>{currency.format(fromCents(legacyEstimateCents))}</strong></div>
+        <div className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)' }}><span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>COMISSÃO HISTÓRICA VÁLIDA</span><strong style={{ display: 'block', fontSize: '26px', color: '#10b981', marginTop: '8px' }}>{mostrarValor(currency.format(fromCents(confirmedTotalCents)))}</strong></div>
+        <div className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)' }}><span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>ESTIMATIVA DE REGISTROS LEGADOS</span><strong style={{ display: 'block', fontSize: '26px', color: '#f59e0b', marginTop: '8px' }}>{mostrarValor(currency.format(fromCents(legacyEstimateCents)))}</strong></div>
         <div className="card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)' }}><span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>ORIGENS NO FILTRO</span><strong style={{ display: 'block', fontSize: '26px', marginTop: '8px' }}>{filtered.length}</strong></div>
       </section>
 

@@ -35,6 +35,8 @@ import {
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import AlcaLarguraColuna, { useLarguraColuna } from '../../components/common/AlcaLarguraColuna';
 import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { descreverTrava, mensagemDeBloqueio } from '../../utils/travaEdicaoDomain';
@@ -144,6 +146,7 @@ const CONFERENCIA_STATUS_TOM: Record<string, TomChip> = {
 const PedidoVendas: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
+  const { mostrar: mostrarValor } = useValoresOcultos();
   // Trava de edicao (15/10/2026): pedido aberto para editar por outra pessoa fica cinza e nao abre.
   const travasPedidos = useTravasAtivas('pedido_venda');
   const abrirPedido = (pedidoId: string) => {
@@ -656,6 +659,9 @@ const PedidoVendas: React.FC = () => {
 
   // ---------- design novo (14/10/2026): busca + abas com contagem, tabela e rodape de totais ----------
   const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+  // Olhinho (21/11/2026): os totais do topo e do rodape escondem junto com as
+  // outras telas; o valor de cada pedido na lista continua visivel.
+  const totalNaTela = (valor: number) => mostrarValor(moeda.format(valor));
   // Contagem de cada aba com a MESMA regra da lista (busca e periodo), sem os
   // filtros de coluna -- esses so' valem na aba aberta, que mostra o numero exato.
   const contagemDaAba = (aba: string) => {
@@ -691,12 +697,15 @@ const PedidoVendas: React.FC = () => {
           <p style={{ color: 'var(--text-muted)' }}>
             {loading
               ? 'Carregando pedidos...'
-              : `${rotuloPeriodoTopo} · ${filteredPedidos.length} ${filteredPedidos.length === 1 ? 'pedido' : 'pedidos'} · ${moeda.format(totalFiltrado)}`}
+              : `${rotuloPeriodoTopo} · ${filteredPedidos.length} ${filteredPedidos.length === 1 ? 'pedido' : 'pedidos'} · ${totalNaTela(totalFiltrado)}`}
           </p>
         </div>
-        <button className="btn-primary" onClick={() => openTab('/pedidos-venda/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Plus size={20} /> Novo pedido
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <BotaoOlhoValores />
+          <button className="btn-primary" onClick={() => openTab('/pedidos-venda/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={20} /> Novo pedido
+          </button>
+        </div>
       </div>
 
       {listaEscondida ? (
@@ -1112,12 +1121,12 @@ const PedidoVendas: React.FC = () => {
           <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 500 }}>
             Mostrando <strong style={{ color: 'var(--text-primary)' }}>{filteredPedidos.length}</strong> {filteredPedidos.length === 1 ? 'pedido' : 'pedidos'}
           </span>
-          {totalFaturado > 0 && <span className="hd-chip verde">Faturado: {moeda.format(totalFaturado)}</span>}
-          {totalEmAberto > 0 && <span className="hd-chip azul">Em aberto: {moeda.format(totalEmAberto)}</span>}
-          {totalCancelado > 0 && <span className="hd-chip">Cancelado: {moeda.format(totalCancelado)}</span>}
+          {totalFaturado > 0 && <span className="hd-chip verde">Faturado: {totalNaTela(totalFaturado)}</span>}
+          {totalEmAberto > 0 && <span className="hd-chip azul">Em aberto: {totalNaTela(totalEmAberto)}</span>}
+          {totalCancelado > 0 && <span className="hd-chip">Cancelado: {totalNaTela(totalCancelado)}</span>}
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 600 }}>
-            Total <strong style={{ marginLeft: '6px', fontSize: '17px', color: 'var(--text-primary)', fontWeight: 800 }}>{moeda.format(totalFiltrado)}</strong>
+            Total <strong style={{ marginLeft: '6px', fontSize: '17px', color: 'var(--text-primary)', fontWeight: 800 }}>{totalNaTela(totalFiltrado)}</strong>
           </span>
         </div>
       )}

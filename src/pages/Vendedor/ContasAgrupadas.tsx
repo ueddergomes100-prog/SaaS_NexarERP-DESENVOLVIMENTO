@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { differenceInCalendarDays, formatDateInputPtBr } from '../../utils/dateTime';
 import { agruparContasPorNome, type ContaParaAgrupar } from '../../utils/contasAgrupadasDomain';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 
 /**
  * Lista do Contas a Receber / a Pagar do app Vendas agrupada por cliente ou
@@ -32,6 +34,8 @@ const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um :
 const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carregando, rotuloTotal, rotuloNome }) => {
   const grupos = useMemo(() => agruparContasPorNome(contas, hoje), [contas, hoje]);
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
+  // Olhinho (21/11/2026): o total do topo esconde junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const total = grupos.reduce((soma, g) => soma + Math.round(g.total * 100), 0) / 100;
 
   const alternar = (chave: string) => setAbertos((atual) => {
@@ -57,7 +61,10 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
             {plural(grupos.length, rotuloNome, `${rotuloNome}s`)} · {plural(contas.length, 'nota', 'notas')}
           </div>
         </div>
-        <span style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{formatarMoeda(total)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{mostrarValor(formatarMoeda(total))}</span>
+          <BotaoOlhoValores tamanho={18} style={{ width: '36px', height: '36px', border: 'none', background: 'none', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} className="olho-no-cartao" />
+        </div>
       </div>
 
       {grupos.map((grupo) => {

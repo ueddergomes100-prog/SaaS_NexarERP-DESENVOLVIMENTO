@@ -73,6 +73,8 @@ import {
 import { pedirNovoValorDaParcela } from '../../utils/alteracaoValorTituloUi';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { creditoEhDoCliente, juntarCreditosSemRepetir } from '../../utils/creditoDomain';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { createAuditLog } from '../../services/logService';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
@@ -1074,6 +1076,8 @@ const ContasReceber: React.FC = () => {
   // Recebimento de venda/OS cancelada nao conta (cancelar so' remove -- 19/10/2026).
   const recebimentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr && !lancamentoDesfeito(t));
 
+  // Olhinho (21/11/2026): esconde os totais do topo junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + transactionNetAmount(curr), 0);
   // Desconto dado na baixa (15/10/2026) e' lancamento de saida: sai daqui para o card mostrar o que entrou de fato.
   const totalRecebidoHoje = recebimentosHoje.reduce((acc, curr) => acc + transactionNetAmount(curr) - (Number(curr.baixaManual?.descontoCentavos) || 0) / 100, 0);
@@ -1245,12 +1249,13 @@ const ContasReceber: React.FC = () => {
           >
             <Plus size={18} /> Lançar conta
           </button>
+          <BotaoOlhoValores />
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
             <Clock size={24} color="#10b981" />
             <div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Recebido Hoje</div>
               <div style={{ fontSize: '20px', fontWeight: 700, color: '#10b981' }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalRecebidoHoje)}
+                {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalRecebidoHoje))}
               </div>
             </div>
           </div>
@@ -1259,7 +1264,7 @@ const ContasReceber: React.FC = () => {
             <div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total a Receber</div>
               <div style={{ fontSize: '20px', fontWeight: 700, color: '#f59e0b' }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente)}
+                {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente))}
               </div>
             </div>
           </div>

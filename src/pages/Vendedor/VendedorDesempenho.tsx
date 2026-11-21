@@ -14,6 +14,8 @@ import {
   type VendaParaDesempenho,
 } from '../../utils/desempenhoVendedorDomain';
 import VendedorHeader from './VendedorHeader';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import './vendedorMobile.css';
 
 /**
@@ -37,7 +39,7 @@ const Cartao: React.FC<{ rotulo: string; valor: string; detalhe?: string; destaq
   </div>
 );
 
-const Ranking: React.FC<{ titulo: string; itens: RankingDesempenho[]; unidade: (item: RankingDesempenho) => string }> = ({ titulo, itens, unidade }) => (
+const Ranking: React.FC<{ titulo: string; itens: RankingDesempenho[]; unidade: (item: RankingDesempenho) => string; brl: (centavos: number) => string }> = ({ titulo, itens, unidade, brl }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
     <div className="app-secao">{titulo}</div>
     {itens.length === 0 ? (
@@ -51,7 +53,7 @@ const Ranking: React.FC<{ titulo: string; itens: RankingDesempenho[]; unidade: (
               <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{unidade(item)}</div>
             </div>
-            <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{moeda(item.totalCentavos)}</span>
+            <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{brl(item.totalCentavos)}</span>
           </div>
         ))}
       </div>
@@ -61,6 +63,9 @@ const Ranking: React.FC<{ titulo: string; itens: RankingDesempenho[]; unidade: (
 
 const VendedorDesempenho: React.FC = () => {
   const { tenantId, currentUser } = useAuth();
+  // Olhinho (21/11/2026): a tela inteira e' resultado; esconde junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
+  const brl = (centavos: number) => mostrarValor(moeda(centavos));
   const [desempenho, setDesempenho] = useState<DesempenhoVendedor | null>(null);
   const [erro, setErro] = useState('');
   const hoje = useMemo(() => getDateInputInTimeZone(), []);
@@ -94,7 +99,11 @@ const VendedorDesempenho: React.FC = () => {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
-      <VendedorHeader titulo="Meu desempenho" subtitulo={`Suas vendas faturadas · ${mesNome}`} />
+      <VendedorHeader
+        titulo="Meu desempenho"
+        subtitulo={`Suas vendas faturadas · ${mesNome}`}
+        acao={<BotaoOlhoValores className="app-topo__acao" style={{ width: '40px', height: '40px', borderRadius: '12px', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} />}
+      />
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {erro ? (
           <div role="alert" className="app-cartao" style={{ padding: '16px', color: '#ef4444', fontSize: '14px' }}>{erro}</div>
@@ -105,7 +114,7 @@ const VendedorDesempenho: React.FC = () => {
             {desempenho.meta && (
               <div className="app-cartao" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  <Target size={16} color="var(--accent-purple)" /> Meta do mês: {moeda(desempenho.meta.valorCentavos)}
+                  <Target size={16} color="var(--accent-purple)" /> Meta do mês: {brl(desempenho.meta.valorCentavos)}
                 </div>
                 <div style={{ height: '12px', borderRadius: '999px', backgroundColor: 'var(--bg-tertiary)', overflow: 'hidden' }} role="progressbar" aria-valuenow={desempenho.meta.percentual} aria-valuemin={0} aria-valuemax={100}>
                   <div style={{ width: `${Math.min(100, desempenho.meta.percentual)}%`, height: '100%', borderRadius: '999px', backgroundColor: desempenho.meta.percentual >= 100 ? '#10b981' : 'var(--accent-purple)' }} />
@@ -113,7 +122,7 @@ const VendedorDesempenho: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                   <strong style={{ color: 'var(--text-primary)' }}>{desempenho.meta.percentual.toLocaleString('pt-BR')}% da meta</strong>
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {desempenho.meta.faltaCentavos > 0 ? `Faltam ${moeda(desempenho.meta.faltaCentavos)}` : 'Meta batida!'}
+                    {desempenho.meta.faltaCentavos > 0 ? `Faltam ${brl(desempenho.meta.faltaCentavos)}` : 'Meta batida!'}
                   </span>
                 </div>
               </div>
@@ -124,21 +133,21 @@ const VendedorDesempenho: React.FC = () => {
               <div style={{ gridColumn: '1 / -1' }}>
                 <Cartao
                   rotulo={`Vendido em ${mesNome}`}
-                  valor={moeda(desempenho.mes.totalCentavos)}
+                  valor={brl(desempenho.mes.totalCentavos)}
                   destaque
                   detalhe={desempenho.variacaoPercentual === null
                     ? `${desempenho.mes.quantidade} venda(s)`
                     : `${desempenho.mes.quantidade} venda(s) · ${desempenho.variacaoPercentual >= 0 ? '+' : ''}${desempenho.variacaoPercentual.toLocaleString('pt-BR')}% sobre o mesmo período do mês passado`}
                 />
               </div>
-              <Cartao rotulo="Hoje" valor={moeda(desempenho.hoje.totalCentavos)} detalhe={`${desempenho.hoje.quantidade} venda(s)`} />
-              <Cartao rotulo="Esta semana" valor={moeda(desempenho.semana.totalCentavos)} detalhe={`${desempenho.semana.quantidade} venda(s)`} />
-              <Cartao rotulo="Ticket médio" valor={moeda(desempenho.mes.ticketMedioCentavos)} detalhe="por venda no mês" />
-              <Cartao rotulo="Comissão do mês" valor={moeda(desempenho.comissaoMesCentavos)} detalhe="das vendas faturadas" />
-              <Cartao rotulo="Mês passado" valor={moeda(desempenho.mesPassadoInteiro.totalCentavos)} detalhe={`${desempenho.mesPassadoInteiro.quantidade} venda(s) no mês inteiro`} />
+              <Cartao rotulo="Hoje" valor={brl(desempenho.hoje.totalCentavos)} detalhe={`${desempenho.hoje.quantidade} venda(s)`} />
+              <Cartao rotulo="Esta semana" valor={brl(desempenho.semana.totalCentavos)} detalhe={`${desempenho.semana.quantidade} venda(s)`} />
+              <Cartao rotulo="Ticket médio" valor={brl(desempenho.mes.ticketMedioCentavos)} detalhe="por venda no mês" />
+              <Cartao rotulo="Comissão do mês" valor={brl(desempenho.comissaoMesCentavos)} detalhe="das vendas faturadas" />
+              <Cartao rotulo="Mês passado" valor={brl(desempenho.mesPassadoInteiro.totalCentavos)} detalhe={`${desempenho.mesPassadoInteiro.quantidade} venda(s) no mês inteiro`} />
               <Cartao
                 rotulo="Aguardando faturamento"
-                valor={moeda(desempenho.aguardandoFaturamento.totalCentavos)}
+                valor={brl(desempenho.aguardandoFaturamento.totalCentavos)}
                 detalhe={`${desempenho.aguardandoFaturamento.quantidade} pré-venda(s) em aberto`}
               />
             </div>
@@ -156,7 +165,7 @@ const VendedorDesempenho: React.FC = () => {
                     <XAxis dataKey="dia" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                     <Tooltip
                       cursor={{ fill: 'rgba(124,58,237,0.08)' }}
-                      formatter={(valor) => [moedaCurta(Number(valor) * 100), 'Vendido']}
+                      formatter={(valor) => [mostrarValor(moedaCurta(Number(valor) * 100)), 'Vendido']}
                       labelFormatter={(dia) => `Dia ${dia}`}
                     />
                     <Bar dataKey="valor" fill="#7c3aed" radius={[4, 4, 0, 0]} isAnimationActive={false} />
@@ -169,11 +178,13 @@ const VendedorDesempenho: React.FC = () => {
               titulo="Produtos que você mais vendeu"
               itens={desempenho.topProdutos}
               unidade={(item) => `${item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} un. vendidas`}
+              brl={brl}
             />
             <Ranking
               titulo="Clientes que mais compraram"
               itens={desempenho.topClientes}
               unidade={(item) => `${item.quantidade} compra(s) no mês`}
+              brl={brl}
             />
 
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>

@@ -10,6 +10,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import StatCard from '../../components/Reports/StatCard';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import ChartWrapper from '../../components/Reports/ChartWrapper';
 import ReportFilter from '../../components/Reports/ReportFilter';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
@@ -37,6 +39,9 @@ const isoDoDia = (data: Date): string => (Number.isNaN(data.getTime()) ? '' : fo
 
 const RelatoriosMecanica: React.FC = () => {
   const { tenantId } = useAuth();
+  // Olhinho (21/11/2026): cartoes, grafico em R$ e ranking escondem junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
+  const brl = (centavos: number) => mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100));
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('mes');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
@@ -167,6 +172,7 @@ const RelatoriosMecanica: React.FC = () => {
           <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Desempenho técnico, volume de ordens e faturamento de serviços</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <BotaoOlhoValores />
           <button className="btn-primary" onClick={() => setPreviewAberto(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={18} /> Gerar relatório
           </button>
@@ -188,7 +194,8 @@ const RelatoriosMecanica: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
         <StatCard 
           title="Faturamento Bruto"
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.brutoCentavos / 100)} 
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.brutoCentavos / 100)}
+          valorEmDinheiro 
           icon={DollarSign} 
           color="#10b981" 
           subtitle={`${stats.qtdConcluidas} OS finalizadas`}
@@ -196,6 +203,7 @@ const RelatoriosMecanica: React.FC = () => {
         <StatCard
           title="Taxas de Cartão"
           value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.taxasCentavos / 100)}
+          valorEmDinheiro
           icon={DollarSign}
           color="#f59e0b"
           subtitle="Dedução financeira"
@@ -203,13 +211,15 @@ const RelatoriosMecanica: React.FC = () => {
         <StatCard
           title="Receita Líquida"
           value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.liquidoCentavos / 100)}
+          valorEmDinheiro
           icon={TrendingUp}
           color="#10b981"
           subtitle="Após taxas de cartão"
         />
         <StatCard 
           title="Faturamento só Serviços" 
-          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.servicosCentavos / 100)} 
+          value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.servicosCentavos / 100)}
+          valorEmDinheiro 
           icon={TrendingUp} 
           color="#8b5cf6" 
           subtitle="Mão de obra técnica"
@@ -268,7 +278,7 @@ const RelatoriosMecanica: React.FC = () => {
                 <Cell fill="#8b5cf6" />
                 <Cell fill="#10b981" />
               </Pie>
-              <Tooltip />
+              <Tooltip formatter={(valor) => brl(Math.round(Number(valor || 0) * 100))} />
               <Legend verticalAlign="bottom" height={36}/>
             </PieChart>
           </ResponsiveContainer>
@@ -307,9 +317,9 @@ const RelatoriosMecanica: React.FC = () => {
                   <td style={{ padding: '16px 8px', textAlign: 'center' }}>
                     <span style={{ backgroundColor: 'var(--bg-tertiary)', padding: '4px 10px', borderRadius: '6px', fontWeight: 700 }}>{mec.qtd}</span>
                   </td>
-                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#8b5cf6', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.servicosCentavos / 100)}</td>
-                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.pecasCentavos / 100)}</td>
-                  <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 800 }}>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mec.totalCentavos / 100)}</td>
+                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#8b5cf6', fontWeight: 600 }}>{brl(mec.servicosCentavos)}</td>
+                  <td style={{ padding: '16px 8px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{brl(mec.pecasCentavos)}</td>
+                  <td style={{ padding: '16px 8px', textAlign: 'right', fontWeight: 800 }}>{brl(mec.totalCentavos)}</td>
                 </tr>
               ))}
               {stats.porTecnico.length === 0 && (

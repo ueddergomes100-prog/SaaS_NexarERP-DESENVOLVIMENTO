@@ -10,6 +10,9 @@ import {
   type TransacaoFaturamento,
 } from '../../utils/relatorioFaturamentoAnualDomain';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
+import { MASCARA_NUMERO } from '../../utils/valoresOcultosDomain';
 
 /*
  * FATURAMENTO & DRE. Toda a conta (DRE, formas de pagamento, medias e
@@ -20,6 +23,8 @@ import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../compo
  */
 
 const Faturamento: React.FC = () => {
+  // Olhinho (21/11/2026): a tela inteira e' resultado; esconde junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const [anoFiltro, setAnoFiltro] = useState<number>(new Date().getFullYear());
   const [previewAberto, setPreviewAberto] = useState(false);
   const { tenantId } = useAuth();
@@ -54,7 +59,7 @@ const Faturamento: React.FC = () => {
   const margemLucro = resumo.margemLucro;
 
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+    return mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value));
   };
 
   if (previewAberto) {
@@ -84,7 +89,8 @@ const Faturamento: React.FC = () => {
           <p style={{ color: 'var(--text-muted)' }}>Demonstrativo de Resultados e Balancete Mensal</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <select 
+          <BotaoOlhoValores />
+          <select
             value={anoFiltro}
             onChange={(e) => setAnoFiltro(Number(e.target.value))}
             style={{ padding: '10px 16px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
@@ -180,7 +186,7 @@ const Faturamento: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px' }}>
               <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Margem de Lucro:</span>
               <span style={{ fontWeight: 600, fontSize: '14px', padding: '4px 8px', borderRadius: '12px', backgroundColor: margemLucro >= 20 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)', color: margemLucro >= 20 ? '#10b981' : '#f59e0b' }}>
-                {margemLucro.toFixed(2)}%
+                {mostrarValor(`${margemLucro.toFixed(2)}%`, MASCARA_NUMERO)}
               </span>
             </div>
           </div>

@@ -15,6 +15,8 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { montarDocumentoExtratoBanco } from '../../utils/relatorioExtratoBancoDomain';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import './Financeiro.css';
 
 interface CartaoInfo {
@@ -75,6 +77,8 @@ const isCardMethod = (formaPagamento?: string) => (
 );
 
 const Banco: React.FC = () => {
+  // Olhinho (21/11/2026): esconde os saldos e o total do cartao junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const [searchTerm, setSearchTerm] = useState('');
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -209,6 +213,7 @@ const Banco: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+          {bancosAtivos.length > 0 && <BotaoOlhoValores />}
           {bancosAtivos.length === 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(55, 215, 255, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(55, 215, 255, 0.2)' }}>
               <CheckCircle size={24} color="#37d7ff" />
@@ -221,7 +226,7 @@ const Banco: React.FC = () => {
                 <div>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{banco.nome}</div>
                   <div style={{ fontSize: '20px', fontWeight: 700, color: '#37d7ff' }}>
-                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(banco.saldoCentavos || 0))}
+                    {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(banco.saldoCentavos || 0)))}
                   </div>
                 </div>
               </div>
@@ -246,7 +251,7 @@ const Banco: React.FC = () => {
             <h3 style={{ margin: 0 }}>Cartão pendente de conciliação</h3>
           </div>
           <div style={{ fontSize: '14px', color: '#f59e0b', fontWeight: 700 }}>
-            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendenteCartao)}
+            {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendenteCartao))}
           </div>
         </div>
 

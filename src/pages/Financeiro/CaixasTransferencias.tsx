@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowLeftRight, Landmark, Loader2, Pencil, Plus, Vault, Wallet, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { formatarReais, type ContaRef } from '../../utils/contasDinheiroDomain';
@@ -64,6 +66,8 @@ const Janela: React.FC<{ titulo: string; onFechar: () => void; children: React.R
 
 const CaixasTransferencias: React.FC = () => {
   const { tenantId } = useAuth();
+  // Olhinho (21/11/2026): esconde os saldos dos caixas e bancos junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const [caixas, setCaixas] = useState<CaixaResumo[]>([]);
   const [bancos, setBancos] = useState<BancoResumo[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -178,7 +182,7 @@ const CaixasTransferencias: React.FC = () => {
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{c.tipo === 'caixa' ? (c.descricao || 'Caixa') : 'Banco'}</div>
         </div>
       </div>
-      <div style={{ fontSize: '22px', fontWeight: 800, color: c.saldoCentavos < 0 ? '#ef4444' : 'var(--text-primary)' }}>{formatarReais(c.saldoCentavos)}</div>
+      <div style={{ fontSize: '22px', fontWeight: 800, color: c.saldoCentavos < 0 ? '#ef4444' : 'var(--text-primary)' }}>{mostrarValor(formatarReais(c.saldoCentavos))}</div>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>{acoes}</div>
     </div>
   );
@@ -199,6 +203,7 @@ const CaixasTransferencias: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <BotaoOlhoValores />
           <MenuMaisOpcoes
             itens={[
               { texto: 'Novo caixa', Icone: Plus, titulo: 'Cadastra outro lugar onde a loja guarda dinheiro (ex.: segunda gaveta)', onClick: abrirNovoCaixa },

@@ -5,6 +5,8 @@ import { db } from '../../services/firebase';
 import { spedyService } from '../../services/spedyService';
 import { bytesParaBase64, enviarAoContador, type AnexoParaContador } from '../../services/envioContadorService';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { gerarRelatorioPdf } from '../../utils/relatorioPdf';
 import { preferenciasPadrao } from '../../utils/relatorioPdfDomain';
@@ -108,6 +110,8 @@ const alternar = <T,>(lista: readonly T[], item: T): T[] => (lista.includes(item
 
 const RelatorioContador: React.FC = () => {
   const { tenantId, userRole, isOwner, userPermissions } = useAuth();
+  // Olhinho (21/11/2026): os totais em R$ escondem junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const podeVer = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_RELATORIO_CONTADOR);
   const hoje = getDateInputInTimeZone();
   // Padrao: o mes passado inteiro (e' o que o contador fecha).
@@ -410,6 +414,7 @@ const RelatorioContador: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <BotaoOlhoValores />
           <MenuMaisOpcoes
             itens={[
               {
@@ -551,8 +556,8 @@ const RelatorioContador: React.FC = () => {
 
       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
         {cartao('Notas na lista', totais.notas.toLocaleString('pt-BR'))}
-        {cartao('Saídas autorizadas', reais(totais.saidasAutorizadas))}
-        {cartao('Entradas autorizadas', reais(totais.entradasAutorizadas))}
+        {cartao('Saídas autorizadas', mostrarValor(reais(totais.saidasAutorizadas)))}
+        {cartao('Entradas autorizadas', mostrarValor(reais(totais.entradasAutorizadas)))}
         {cartao('Canceladas', totais.canceladas.toLocaleString('pt-BR'))}
         {cartao('Com carta de correção', totais.comCartaDeCorrecao.toLocaleString('pt-BR'))}
       </div>

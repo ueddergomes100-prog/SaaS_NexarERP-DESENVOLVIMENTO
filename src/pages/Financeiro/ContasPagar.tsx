@@ -42,6 +42,8 @@ import {
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote } from '../../components/finance/BaixaEmLote';
 import { estadoDaSelecao, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
@@ -666,6 +668,8 @@ const ContasPagar: React.FC = () => {
   const contasPendentes = transacoes.filter(t => t.status === 'Pendente');
   const pagamentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr);
 
+  // Olhinho (21/11/2026): esconde os totais do topo junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const totalPendente = contasPendentes.reduce((acc, curr) => acc + curr.valor, 0);
   // Desconto obtido na baixa (15/10/2026) e' lancamento de entrada: sai daqui para o card mostrar o que saiu de fato.
   const totalPagoHoje = pagamentosHoje.reduce((acc, curr) => acc + curr.valor - (Number(curr.baixaManual?.descontoCentavos) || 0) / 100, 0);
@@ -829,12 +833,13 @@ const ContasPagar: React.FC = () => {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Gestão de custos, boletos e despesas agendadas</p>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <BotaoOlhoValores />
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
             <Clock size={24} color="#ef4444" />
             <div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Pago Hoje</div>
               <div style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPagoHoje)}
+                {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPagoHoje))}
               </div>
             </div>
           </div>
@@ -843,7 +848,7 @@ const ContasPagar: React.FC = () => {
             <div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total Pendente</div>
               <div style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente)}
+                {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente))}
               </div>
             </div>
           </div>
@@ -905,7 +910,7 @@ const ContasPagar: React.FC = () => {
                 {titulosVencidos.length} {titulosVencidos.length === 1 ? 'conta vencida' : 'contas vencidas'}
               </strong>
               {' — '}
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalVencido)}
+              {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalVencido))}
               {' em atraso.'}
             </span>
           </div>

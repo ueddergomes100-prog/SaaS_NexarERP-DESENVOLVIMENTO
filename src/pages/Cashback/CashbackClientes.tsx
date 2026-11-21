@@ -23,6 +23,9 @@ import { montarDocumentoCashback, type ClienteDoRelatorioCashback } from '../../
 import { useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
+import { MASCARA_NUMERO } from '../../utils/valoresOcultosDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 
@@ -58,6 +61,8 @@ const millisDe = (valor: unknown): number => {
 
 const CashbackClientes: React.FC = () => {
   const { tenantId, configCashback, userRole, isOwner, userPermissions } = useAuth();
+  // Olhinho (21/11/2026): os saldos somados escondem junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const podeVer = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_CASHBACK);
   const { linha } = useLinhaSelecionavel();
   const hoje = getDateInputInTimeZone();
@@ -207,14 +212,17 @@ const CashbackClientes: React.FC = () => {
             Saldo de cada cliente, de onde veio e quando vence. O saldo nasce na venda paga e é usado como forma de pagamento &quot;Cashback&quot;.
           </p>
         </div>
-        <MenuMaisOpcoes
-          itens={[{
-            texto: 'Relatório', Icone: FileText,
-            titulo: 'Abre em PDF os clientes da lista, com saldo e vencimento (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
-            desabilitado: carregando,
-            onClick: () => setPreviewAberto(true),
-          }]}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <BotaoOlhoValores />
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Relatório', Icone: FileText,
+              titulo: 'Abre em PDF os clientes da lista, com saldo e vencimento (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              desabilitado: carregando,
+              onClick: () => setPreviewAberto(true),
+            }]}
+          />
+        </div>
       </div>
 
       {!configCashback.ativo && (
@@ -226,8 +234,8 @@ const CashbackClientes: React.FC = () => {
 
       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
         {cartao('Clientes com saldo', String(contagem.com_saldo), configCashback.ativo ? ROTULO_MODELO_CASHBACK[configCashback.modelo] : undefined)}
-        {(totais.temReais || !totais.temPontos) && cartao('Saldo em R$', formatarCashback('reais', totais.reais, 0), 'Soma do que os clientes podem usar')}
-        {totais.temPontos && cartao('Saldo em pontos', formatarCashback('pontos', 0, totais.pontos), 'Soma do que os clientes podem trocar')}
+        {(totais.temReais || !totais.temPontos) && cartao('Saldo em R$', mostrarValor(formatarCashback('reais', totais.reais, 0)), 'Soma do que os clientes podem usar')}
+        {totais.temPontos && cartao('Saldo em pontos', mostrarValor(formatarCashback('pontos', 0, totais.pontos), MASCARA_NUMERO), 'Soma do que os clientes podem trocar')}
         {cartao(`Vence em ${DIAS_VENCENDO} dias`, String(contagem.vencendo), 'Clientes com parte do saldo vencendo')}
       </div>
 

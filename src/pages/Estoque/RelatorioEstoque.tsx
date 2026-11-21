@@ -5,6 +5,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../../components/Reports/StatCard';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import ReportFilter from '../../components/Reports/ReportFilter';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 import { ROTULO_POR_ORIGEM, normalizarComponente, type ComponenteComposicao } from '../../utils/producaoDomain';
@@ -295,9 +296,12 @@ const RelatorioEstoque: React.FC = () => {
             <p className="page-subtitle">Filtre e marque os produtos que entram no relatório. As colunas do PDF são escolhidas ao gerar.</p>
           </div>
         </div>
-        <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={selecionados.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <FileText size={18} /> Gerar relatório ({selecionados.length})
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <BotaoOlhoValores />
+          <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={selecionados.length === 0} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FileText size={18} /> Gerar relatório ({selecionados.length})
+          </button>
+        </div>
       </div>
 
       <ReportFilter
@@ -372,7 +376,7 @@ const RelatorioEstoque: React.FC = () => {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
         <StatCard title="Itens no relatório" value={String(stats.total)} icon={Boxes} color="#3b82f6" subtitle={`De ${filtrados.length} no filtro`} />
-        <StatCard title="Valor em Estoque" value={currency.format(fromCents(stats.valorEstoqueCentavos))} icon={DollarSign} color="#10b981" subtitle="Quantidade × custo" />
+        <StatCard title="Valor em Estoque" value={currency.format(fromCents(stats.valorEstoqueCentavos))} icon={DollarSign} color="#10b981" subtitle="Quantidade × custo" valorEmDinheiro />
         <StatCard title="Estoque Baixo" value={String(stats.estoqueBaixo)} icon={AlertCircle} color="#f59e0b" subtitle="No ou abaixo do mínimo" />
         <StatCard title="Itens Esgotados" value={String(stats.esgotados)} icon={XCircle} color="#ef4444" subtitle="Quantidade zerada" />
       </div>

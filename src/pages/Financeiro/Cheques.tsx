@@ -10,6 +10,8 @@ import {
   type ChequeDetails,
 } from '../../utils/financeDomain';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { depositarCheque, devolverCheque, voltarChequeParaCarteira } from '../../services/caixasService';
 import { ROTULO_SITUACAO_CHEQUE_RECEBIDO, situacaoDoCheque } from '../../utils/contasDinheiroDomain';
@@ -74,6 +76,8 @@ interface Banco extends TenantCollectionItem {
 const DIAS_AVISO_VENCIMENTO = 3;
 
 const Cheques: React.FC = () => {
+  // Olhinho (21/11/2026): esconde o total do topo junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const [searchTerm, setSearchTerm] = useState('');
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [situacaoCheque, setSituacaoCheque] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
@@ -355,12 +359,13 @@ const Cheques: React.FC = () => {
             onClick: () => setPreviewAberto(true),
           }]}
         />
+        <BotaoOlhoValores />
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
           <FileCheck2 size={24} color="#8b5cf6" />
           <div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{aba === 'recebidos' ? 'Total a compensar' : 'Total a sair do banco'}</div>
             <div style={{ fontSize: '20px', fontWeight: 700, color: '#8b5cf6' }}>
-              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente)}
+              {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente))}
             </div>
           </div>
         </div>

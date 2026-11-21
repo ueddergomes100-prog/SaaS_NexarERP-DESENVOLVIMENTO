@@ -14,6 +14,8 @@ import { lerGrupo, lerLimiteFiliais, lerPercentualFilial, mensalidadeComFiliais,
 import { spedyAdminService, type SpedyMasterKeyStatus } from '../../services/spedyAdminService';
 import CadastrarEmpresaSpedyModal from '../../components/admin/CadastrarEmpresaSpedyModal';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import ModulosDaEmpresaModal from '../../components/admin/ModulosDaEmpresaModal';
 
 interface TenantInfo {
@@ -55,6 +57,8 @@ const normalizeDeleteConfirmation = (value: string) => value.trim().replace(/\s+
 const SuperAdmin: React.FC = () => {
   const { userRole, currentUser, setActiveTenantId } = useAuth();
   const navigate = useNavigate();
+  // Olhinho (21/11/2026): MRR, ticket e graficos em R$ escondem junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
 
   /**
    * Entrada no ERP de um cliente. E' o UNICO caminho do painel pro sistema,
@@ -683,6 +687,7 @@ const SuperAdmin: React.FC = () => {
           <p style={{ color: 'var(--text-muted)', fontSize: '16px' }}>Seu centro de comando financeiro e gestão de clientes.</p>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <BotaoOlhoValores />
           <button className="btn-secondary" onClick={handlePublishAlert} style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Megaphone size={16} /> Aviso Global
           </button>
@@ -698,7 +703,7 @@ const SuperAdmin: React.FC = () => {
             <div>
               <p style={{ color: 'var(--text-muted)', fontSize: '15px', marginBottom: '8px', fontWeight: 500 }}>MRR Atual (Receita Mensal)</p>
               <h3 style={{ fontSize: '36px', margin: 0, fontWeight: 800 }}>
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mrr)}
+                {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(mrr))}
               </h3>
             </div>
             <div style={{ padding: '14px', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: '14px', color: '#10b981' }}>
@@ -706,7 +711,7 @@ const SuperAdmin: React.FC = () => {
             </div>
           </div>
           <p style={{ fontSize: '14px', color: '#10b981', margin: 0, display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-            <Wallet size={16} /> Ticket médio: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ticketMedio)}
+            <Wallet size={16} /> Ticket médio: {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ticketMedio))}
           </p>
         </div>
 
@@ -828,11 +833,11 @@ const SuperAdmin: React.FC = () => {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
                 <XAxis dataKey="name" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} />
-                <YAxis stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `R$ ${val}`} />
+                <YAxis stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} tickFormatter={(val) => mostrarValor(`R$ ${val}`)} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }}
                   itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
-                  formatter={(value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))}
+                  formatter={(value) => mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0)))}
                 />
                 <Area type="monotone" dataKey="mrr" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorMrr)" name="MRR" />
               </AreaChart>
@@ -875,9 +880,9 @@ const SuperAdmin: React.FC = () => {
               <BarChart data={planRevenueData} margin={{ top: 20, right: 24, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
                 <XAxis dataKey="name" stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} />
-                <YAxis stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} tickFormatter={(val) => `R$ ${val}`} />
+                <YAxis stroke="var(--text-muted)" tick={{fill: 'var(--text-muted)'}} axisLine={false} tickLine={false} tickFormatter={(val) => mostrarValor(`R$ ${val}`)} />
                 <Tooltip
-                  formatter={(value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))}
+                  formatter={(value) => mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0)))}
                   contentStyle={{ backgroundColor: 'var(--bg-secondary)', border: 'none', borderRadius: '8px', color: '#fff' }}
                 />
                 <Bar dataKey="receita" fill="#10b981" radius={[6, 6, 0, 0]} name="Receita ativa" />

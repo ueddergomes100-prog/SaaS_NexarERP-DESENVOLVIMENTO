@@ -8,6 +8,8 @@ import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { CampoFiltro, CampoPeriodo, PainelFiltros, BotaoFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { rotuloDoTipoDespesa, totaisPorTipo } from '../../utils/rotaDomain';
@@ -33,6 +35,8 @@ const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'curren
 const RotasList: React.FC = () => {
   const { tenantId } = useAuth();
   const { openTab } = useTabs();
+  // Olhinho (21/11/2026): o gasto somado esconde junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const { linha } = useLinhaSelecionavel();
   const { items: motoristas } = useTenantCollection<{ id: string; nome?: string }>('motoristas', tenantId);
 
@@ -92,6 +96,7 @@ const RotasList: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <BotaoOlhoValores />
           <MenuMaisOpcoes
             itens={[
               {
@@ -114,14 +119,14 @@ const RotasList: React.FC = () => {
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
             {filtrosAtivos > 0 ? 'Gasto no filtro atual' : 'Gasto em todas as rotas'}
           </div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#ef4444' }}>{moeda(resumo.totalCentavos / 100)}</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#ef4444' }}>{mostrarValor(moeda(resumo.totalCentavos / 100))}</div>
           <div style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>{filtradas.length} rota(s)</div>
         </div>
         <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
           {resumo.porTipo.map((t) => (
             <div key={t.tipo}>
               <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{t.label}</div>
-              <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>{moeda(t.totalCentavos / 100)}</div>
+              <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>{mostrarValor(moeda(t.totalCentavos / 100))}</div>
             </div>
           ))}
         </div>

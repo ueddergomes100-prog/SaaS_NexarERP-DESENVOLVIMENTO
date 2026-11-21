@@ -1,4 +1,5 @@
 import React from 'react';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 
 interface StatCardProps {
   title: string;
@@ -10,9 +11,13 @@ interface StatCardProps {
     isUp: boolean;
   };
   subtitle?: string;
+  /** Valor em dinheiro: o "olhinho" (21/11/2026) esconde junto com as outras telas. */
+  valorEmDinheiro?: boolean;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, color, trend, subtitle }) => {
+const StatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, color, trend, subtitle, valorEmDinheiro }) => {
+  const { mostrar } = useValoresOcultos();
+  const valorNaTela = valorEmDinheiro ? mostrar(String(value)) : value;
   return (
     <div className="card" style={{ 
       padding: '24px', 
@@ -41,7 +46,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, color, tr
       
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
         <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-          {value}
+          {valorNaTela}
         </h2>
         {trend && (
           <span style={{ 

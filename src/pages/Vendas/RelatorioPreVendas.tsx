@@ -24,6 +24,8 @@ import {
   textoDaImpressao,
 } from '../../utils/relatorioPreVendasDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
+import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { descreverTrava, mensagemDeBloqueio } from '../../utils/travaEdicaoDomain';
 import { NexusSwal } from '../../utils/alerts';
@@ -62,6 +64,8 @@ type PreVendaLinha = PreVendaDoRelatorio;
 
 const RelatorioPreVendas: React.FC = () => {
   const navigate = useNavigate();
+  // Olhinho (21/11/2026): esconde o valor comprometido junto com as outras telas.
+  const { mostrar: mostrarValor } = useValoresOcultos();
   const { tenantId, currentUser, vendasVisiveisDeUsuarioId, userRole, isOwner } = useAuth();
   // Trava de edicao (15/10/2026): pre-venda aberta por outra pessoa fica cinza e nao abre.
   const travasPedidos = useTravasAtivas('pedido_venda');
@@ -173,6 +177,7 @@ const RelatorioPreVendas: React.FC = () => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        {podeVerResumo && <BotaoOlhoValores />}
         <button
           className={naoImpressasPrimeiro ? 'btn-primary' : 'btn-secondary'}
           onClick={alternarNaoImpressas}
@@ -246,7 +251,7 @@ const RelatorioPreVendas: React.FC = () => {
           </div>
           <div className="card" style={{ padding: '20px' }}>
             <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Valor comprometido (não é receita)</p>
-            <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: '#f59e0b' }}>{currency.format(fromCents(totais.valorCents))}</p>
+            <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: 700, color: '#f59e0b' }}>{mostrarValor(currency.format(fromCents(totais.valorCents)))}</p>
           </div>
           <div className="card" style={{ padding: '20px' }}>
             <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Com estoque reservado</p>

@@ -64,6 +64,7 @@ import { contaComoFaturamento, isPedidoAberto } from '../../utils/preVendaDomain
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { contaComoReceita, fromCents, isRevenueReversal, receitaDoConjuntoCentavos, transactionDueDateInput, transactionNetAmount, type TransacaoDeReceita } from '../../utils/financeDomain';
 import { calcularProgressoMeta, faltaParaMeta, parseMetaFaturamentoMensal } from '../../utils/metaFaturamentoDomain';
+import { horasDoEixoDoDia, momentoNoDiaDoPagamento } from '../../utils/dashboardHorasDomain';
 import './Dashboard.css';
 import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
@@ -94,6 +95,9 @@ interface TransacaoData {
    * dinheiro entra, nao a da venda. */
   dataPrevistaRecebimento?: string;
   createdAt?: any;
+  /** Ultima alteracao (a baixa do titulo recebido hoje): da' a hora no grafico do "Hoje". */
+  alteradoEm?: any;
+  updatedAt?: any;
 }
 
 interface PedidoVendaData {
@@ -114,6 +118,7 @@ interface PedidoVendaData {
   };
   dataVenda?: string;
   createdAt?: any;
+  alteradoEm?: any;
 }
 
 interface OrcamentoData {
@@ -255,6 +260,35 @@ const assinarColecaoDoPeriodo = (
   // Mesmo utilitario das outras listas (reserva ligada fora do callback de
   // erro do SDK -- ver services/consultaComReserva.ts).
   return assinarComReserva(limitada, completa, `Dashboard (${nome})`, aoReceber, aoFalhar);
+};
+
+/** Ano-mes-dia no fuso da empresa (dashboardHorasDomain.ts). */
+const partesDoDia = (data: Date) => {
+  const p = getZonedParts(data, DEFAULT_TIME_ZONE);
+  return { year: p.year, month: p.month, day: p.day };
+};
+
+/**
+ * Onde o lancamento entra no grafico. Semana/Mes: o dia do pagamento. Hoje:
+ * a hora gravada no mesmo dia (criacao, senao a ultima alteracao = a baixa);
+ * sem nenhuma, o proprio dia (00h). Ver dashboardHorasDomain.ts (21/11/2026).
+ */
+const momentoNoGrafico = (dia: Date | null, horarios: unknown[], period: DashboardPeriod): Date | null => {
+  if (!dia || period !== 'hoje') return dia;
+  return momentoNoDiaDoPagamento(dia, horarios.map((h) => toDate(h)), partesDoDia) || dia;
+};
+
+/** No "Hoje", acrescenta as horas sem movimento (zero) para o grafico virar uma linha do dia. */
+const completarHorasDoDia = <T extends { name: string; order: number }>(
+  pontos: T[],
+  period: DashboardPeriod,
+  agora: Date,
+  vazio: (hora: number) => T,
+): T[] => {
+  if (period !== 'hoje') return pontos;
+  const existentes = new Map(pontos.map((p) => [p.order, p]));
+  return horasDoEixoDoDia([...existentes.keys()], getZonedParts(agora, DEFAULT_TIME_ZONE).hour)
+    .map((hora) => existentes.get(hora) || vazio(hora));
 };
 
 const periodBucket = (date: Date, period: DashboardPeriod) => {
@@ -643,7 +677,7 @@ const Dashboard: React.FC = () => {
     transacoes
       .filter((transaction) => transaction.status === 'Paga' && isWithinDateRange(transactionDate(transaction), selectedPeriodRange.start, selectedPeriodRange.end))
       .forEach((transaction) => {
-        const date = transactionDate(transaction);
+        const date = momentoNoGrafico(transactionDate(transaction), [transaction.createdAt, transaction.alteradoEm, transaction.updatedAt], dashboardPeriod);
         if (!date) return;
         const bucket = periodBucket(date, dashboardPeriod);
         const current = buckets.get(bucket.key) || { name: bucket.name, order: bucket.order, entradas: 0, saidas: 0, saldo: 0, lancamentos: [] };
@@ -655,12 +689,15 @@ const Dashboard: React.FC = () => {
         }
         buckets.set(bucket.key, current);
       });
-    return Array.from(buckets.values())
+    const pontos = Array.from(buckets.values())
       .map(({ lancamentos, ...ponto }) => {
         const entradas = fromCents(receitaDoConjuntoCentavos(lancamentos));
         return { ...ponto, entradas, saldo: entradas - ponto.saidas };
       })
       .sort((a, b) => a.order - b.order);
+    return completarHorasDoDia(pontos, dashboardPeriod, new Date(), (hora) => ({
+      name: `${String(hora).padStart(2, '0')}h`, order: hora, entradas: 0, saidas: 0, saldo: 0,
+    }));
   }, [dashboardPeriod, selectedPeriodRange, transacoes]);
 
   const performanceData = useMemo(() => {
@@ -683,7 +720,8 @@ const Dashboard: React.FC = () => {
       const date = toDate(sale.dataVenda) || toDate(sale.createdAt);
       // Mesma regra do valor vendido: o grafico conta venda, nao pedido aberto.
       if (!contaComoFaturamento(sale.status) || !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) || !date) return;
-      ensureBucket(date).pedidos += 1;
+      const momento = momentoNoGrafico(date, [sale.createdAt, sale.alteradoEm], dashboardPeriod);
+      if (momento) ensureBucket(momento).pedidos += 1;
     });
     // Receita de cada ponto: venda/OS cancelada some, devolucao abate, nunca negativa.
     const lancamentosPorPonto = new Map<ReturnType<typeof ensureBucket>, TransacaoDeReceita[]>();
@@ -694,14 +732,19 @@ const Dashboard: React.FC = () => {
         !isWithinDateRange(date, selectedPeriodRange.start, selectedPeriodRange.end) ||
         !date
       ) return;
-      const ponto = ensureBucket(date);
+      const momento = momentoNoGrafico(date, [transaction.createdAt, transaction.alteradoEm, transaction.updatedAt], dashboardPeriod);
+      if (!momento) return;
+      const ponto = ensureBucket(momento);
       lancamentosPorPonto.set(ponto, [...(lancamentosPorPonto.get(ponto) || []), transaction]);
     });
     lancamentosPorPonto.forEach((lancamentos, ponto) => {
       ponto.receita = fromCents(receitaDoConjuntoCentavos(lancamentos));
     });
 
-    return Array.from(buckets.values()).sort((a, b) => a.order - b.order);
+    const pontos = Array.from(buckets.values()).sort((a, b) => a.order - b.order);
+    return completarHorasDoDia(pontos, dashboardPeriod, new Date(), (hora) => ({
+      name: `${String(hora).padStart(2, '0')}h`, order: hora, receita: 0, os: 0, finalizadas: 0, pedidos: 0,
+    }));
   }, [dashboardPeriod, osList, pedidos, selectedPeriodRange, transacoes]);
 
   const osStatusData = useMemo(() => {

@@ -67,6 +67,31 @@ export const calcularDescontoCents = (
   return Math.min(Math.max(0, bruto), baseCents);
 };
 
+/**
+ * Total do item ENQUANTO ele e' digitado na barra de lancamento (21/11/2026,
+ * pedido do dono): quantidade x preco unitario - desconto, na hora, sem
+ * esperar o "Adicionar". O preco unitario nao muda: e' ele que vai no pedido
+ * e na nota (1,5 x R$ 4,00 = R$ 6,00, nao um unitario de R$ 6,00).
+ * Devolve null quando ainda nao da' para calcular (sem preco ou quantidade).
+ */
+export const totalDoItemEmDigitacaoCents = (args: {
+  precoUnitario: unknown;
+  quantidade: unknown;
+  descontoTipo?: DescontoTipo;
+  descontoValor?: unknown;
+  /** false = a empresa desligou o desconto por item (o valor digitado nao conta). */
+  comDesconto?: boolean;
+}): number | null => {
+  const preco = toFiniteNumber(args.precoUnitario);
+  const quantidade = toFiniteNumber(String(args.quantidade ?? '').replace(',', '.'));
+  if (!(preco > 0) || !(quantidade > 0)) return null;
+  const brutoCents = Math.round(preco * quantidade * 100);
+  const descontoCents = args.comDesconto === false
+    ? 0
+    : calcularDescontoCents(args.descontoTipo ?? 'valor', args.descontoValor, brutoCents);
+  return Math.max(0, brutoCents - descontoCents);
+};
+
 /** So o que a regra de nivel 1 precisa enxergar do produto. */
 export interface ProdutoComLimiteDesconto {
   descontoMaximoPercentual?: number | null;

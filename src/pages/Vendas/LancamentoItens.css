@@ -137,6 +137,21 @@
 
 .lanc-seg-desconto { flex: 1.4 1 0; }
 
+/* Total do item enquanto digita (21/11/2026): so' leitura, numero em destaque. */
+.lanc-seg-total { flex: 1.1 1 0; }
+/* Barra apertada: so' "Total"; com espaco (ver @container), "Total do item". */
+.lanc-rotulo-extra { display: none; }
+.lanc-total {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
 .lanc-rotulo {
   display: flex;
   align-items: baseline;
@@ -301,6 +316,8 @@
   .lanc-seg-qtd { flex: 0 0 104px; }
   .lanc-seg-preco { flex: 0 0 136px; }
   .lanc-seg-desconto { flex: 0 0 176px; }
+  .lanc-seg-total { flex: 0 0 124px; }
+  .lanc-rotulo-extra { display: inline; }
   .lanc-adicionar { border-radius: 0 11px 11px 0; }
 }
 

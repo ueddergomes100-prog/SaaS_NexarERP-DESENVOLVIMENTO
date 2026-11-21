@@ -16,7 +16,7 @@
 // o comportamento de hoje (nenhum limite existe) em todo tenant que nao
 // configurar nada.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.descontoDoClienteEmCents = exports.checarLimiteComCliente = exports.erroDoDescontoPadraoCliente = exports.parseDescontoPadraoCliente = exports.descontoPadraoDoCliente = exports.descontoInicial = exports.parseTipoDescontoPadrao = exports.DEFAULT_TIPO_DESCONTO_PADRAO = exports.parsePermitirDescontoPorItem = exports.DEFAULT_PERMITIR_DESCONTO_POR_ITEM = exports.parseModoLimiteDesconto = exports.parseLimiteDescontoConfig = exports.checarLimiteTotal = exports.excedeLimiteItem = exports.resolveLimiteItem = exports.calcularDescontoCents = exports.DEFAULT_MODO_LIMITE_DESCONTO = void 0;
+exports.descontoDoClienteEmCents = exports.checarLimiteComCliente = exports.erroDoDescontoPadraoCliente = exports.parseDescontoPadraoCliente = exports.descontoPadraoDoCliente = exports.descontoInicial = exports.parseTipoDescontoPadrao = exports.DEFAULT_TIPO_DESCONTO_PADRAO = exports.parsePermitirDescontoPorItem = exports.DEFAULT_PERMITIR_DESCONTO_POR_ITEM = exports.parseModoLimiteDesconto = exports.parseLimiteDescontoConfig = exports.checarLimiteTotal = exports.excedeLimiteItem = exports.resolveLimiteItem = exports.totalDoItemEmDigitacaoCents = exports.calcularDescontoCents = exports.DEFAULT_MODO_LIMITE_DESCONTO = void 0;
 exports.DEFAULT_MODO_LIMITE_DESCONTO = 'avisar';
 const toFiniteNumber = (value, fallback = 0) => {
     const parsed = Number(value);
@@ -38,6 +38,25 @@ const calcularDescontoCents = (tipo, valorInformado, baseCents) => {
     return Math.min(Math.max(0, bruto), baseCents);
 };
 exports.calcularDescontoCents = calcularDescontoCents;
+/**
+ * Total do item ENQUANTO ele e' digitado na barra de lancamento (21/11/2026,
+ * pedido do dono): quantidade x preco unitario - desconto, na hora, sem
+ * esperar o "Adicionar". O preco unitario nao muda: e' ele que vai no pedido
+ * e na nota (1,5 x R$ 4,00 = R$ 6,00, nao um unitario de R$ 6,00).
+ * Devolve null quando ainda nao da' para calcular (sem preco ou quantidade).
+ */
+const totalDoItemEmDigitacaoCents = (args) => {
+    const preco = toFiniteNumber(args.precoUnitario);
+    const quantidade = toFiniteNumber(String(args.quantidade ?? '').replace(',', '.'));
+    if (!(preco > 0) || !(quantidade > 0))
+        return null;
+    const brutoCents = Math.round(preco * quantidade * 100);
+    const descontoCents = args.comDesconto === false
+        ? 0
+        : (0, exports.calcularDescontoCents)(args.descontoTipo ?? 'valor', args.descontoValor, brutoCents);
+    return Math.max(0, brutoCents - descontoCents);
+};
+exports.totalDoItemEmDigitacaoCents = totalDoItemEmDigitacaoCents;
 /** Limite do PRODUTO em percentual, ou null se o produto nao define um.
  * Sempre percentual -- e' assim que o campo sempre existiu no cadastro. */
 const resolveLimiteItem = (produto) => {

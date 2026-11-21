@@ -160,6 +160,7 @@ import {
 } from '../../utils/embalagemDomain';
 import {
   calcularDescontoCents,
+  totalDoItemEmDigitacaoCents,
   checarLimiteTotal,
   DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
   DEFAULT_TIPO_DESCONTO_PADRAO,
@@ -1590,6 +1591,14 @@ const PedidoVendaForm: React.FC = () => {
     return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
   }, [produtoSelecionado, venderPorEmbalagem]);
   const opcaoUnidadeSelecionada = findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemSelecionadaId);
+  // Total do item que esta' sendo digitado na barra (descontoDomain.ts).
+  const totalDoItemDigitadoCents = totalDoItemEmDigitacaoCents({
+    precoUnitario: produtoPreco,
+    quantidade: produtoQtd,
+    descontoTipo: produtoDescontoInput.tipo,
+    descontoValor: produtoDescontoInput.valor,
+    comDesconto: permitirDescontoPorItem,
+  });
 
   /** Trocar de embalagem repoe o preco da opcao escolhida. Nao preserva um
    * preco digitado a mao de proposito: o preco do saco nao tem relacao com o
@@ -6549,6 +6558,16 @@ const PedidoVendaForm: React.FC = () => {
                     </span>
                   </div>
                 )}
+
+                {/* Total do item na hora (21/11/2026): quantidade x preco - desconto, antes de adicionar. */}
+                <div className="lanc-seg lanc-seg-total" aria-live="polite">
+                  <span className="lanc-rotulo"><span>Total<span className="lanc-rotulo-extra"> do item</span></span></span>
+                  <span className="lanc-total">
+                    {totalDoItemDigitadoCents === null
+                      ? '—'
+                      : fromCents(totalDoItemDigitadoCents).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </span>
+                </div>
 
                 <button type="button" onClick={handleAddItem} className="lanc-adicionar">
                   <Plus size={18} aria-hidden="true" /> Adicionar

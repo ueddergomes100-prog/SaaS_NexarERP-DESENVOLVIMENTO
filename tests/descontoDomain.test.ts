@@ -19,6 +19,7 @@ import {
   parseModoLimiteDesconto,
   resolveLimiteItem,
 } from '../src/utils/descontoDomain';
+import { totalDoItemEmDigitacaoCents } from '../src/utils/descontoDomain';
 
 test('calcularDescontoCents em percentual', () => {
   assert.equal(calcularDescontoCents('percentual', 10, 10000), 1000);
@@ -241,4 +242,15 @@ test('desconto maximo 0 no produto significa SEM TETO, nao "nao aceita desconto"
   const semTeto = { descontoMaximoPercentual: 0 };
   assert.equal(resolveLimiteItem(semTeto), null);
   assert.equal(excedeLimiteItem(semTeto, 9000, 10000), false);
+});
+
+test('total do item enquanto digita: 1,5 x R$ 4,00 = R$ 6,00, sem mexer no unitario (21/11/2026)', () => {
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: '1.5' }), 600);
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: '1,5' }), 600, 'aceita virgula');
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: 1.5, descontoTipo: 'valor', descontoValor: '1' }), 500);
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: 1.5, descontoTipo: 'percentual', descontoValor: '10' }), 540);
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: 1.5, descontoTipo: 'valor', descontoValor: '1', comDesconto: false }), 600, 'desconto por item desligado nao conta');
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: 1.5, descontoTipo: 'valor', descontoValor: '99' }), 0, 'desconto nao passa do valor');
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 0, quantidade: 2 }), null);
+  assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: '' }), null);
 });

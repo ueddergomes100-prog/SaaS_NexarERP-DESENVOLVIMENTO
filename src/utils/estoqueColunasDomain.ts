@@ -9,7 +9,9 @@
  * produto e Acoes aparecem sempre.
  */
 
-export type ColunaOpcionalEstoque = 'codigo' | 'categoria' | 'quantidade' | 'reservado' | 'disponivel' | 'preco' | 'status' | 'ativo';
+/** vista (21/11/2026, redesenho da lista). Custo e margem NAO entram na lista
+ * (decisao do dono, 21/11/2026): ficam so' dentro do cadastro do produto. */
+export type ColunaOpcionalEstoque = 'codigo' | 'categoria' | 'quantidade' | 'reservado' | 'disponivel' | 'preco' | 'vista' | 'status' | 'ativo';
 
 export const COLUNAS_OPCIONAIS_ESTOQUE: ReadonlyArray<{ chave: ColunaOpcionalEstoque; rotulo: string }> = [
   { chave: 'codigo', rotulo: 'Código / SKU' },
@@ -17,7 +19,8 @@ export const COLUNAS_OPCIONAIS_ESTOQUE: ReadonlyArray<{ chave: ColunaOpcionalEst
   { chave: 'quantidade', rotulo: 'Qtd.' },
   { chave: 'reservado', rotulo: 'Reservado' },
   { chave: 'disponivel', rotulo: 'Disponível' },
-  { chave: 'preco', rotulo: 'Preço (Venda)' },
+  { chave: 'preco', rotulo: 'Preço de venda' },
+  { chave: 'vista', rotulo: 'Preço à vista' },
   { chave: 'status', rotulo: 'Status' },
   { chave: 'ativo', rotulo: 'Ativo' },
 ];

@@ -19,6 +19,10 @@ import { LINHAS_POR_VEZ, useTermoAdiado } from '../../hooks/useTermoAdiado';
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { COLUNAS_OPCIONAIS_ESTOQUE, compararPelaOrdem, parseColunasOcultasEstoque, type ColunaOpcionalEstoque } from '../../utils/estoqueColunasDomain';
 import { avisoInativacaoComSaldo, avisoInativacaoSemSaldo, precisaZerarParaInativar } from '../../utils/estoqueInativacaoDomain';
+import {
+  embalagensDaLista, equivalenciaDaEmbalagem, precosDoProdutoDaLista, resumoDasEmbalagens, saldoNaEmbalagem,
+  temEmbalagemAtiva, unidadeBaseDaLista, unidadesDeVendaDaLista, type UnidadeDeVendaDaLista,
+} from '../../utils/estoqueUnidadesDeVendaDomain';
 import './Estoque.css';
 import { CadastroError, alterarSituacaoCadastro } from '../../services/cadastroService';
 import { confirmarEExcluirCadastro } from '../../utils/excluirCadastroUi';
@@ -50,7 +54,22 @@ interface PecaData {
   variacaoRotulo?: string;
   codigoBarras?: string;
   referencia?: string;
+  /** Valores e embalagens na lista (21/11/2026): estoqueUnidadesDeVendaDomain.ts. */
+  precoCusto?: number;
+  precoAVista?: number;
+  precos?: { venda?: unknown; aVista?: unknown; custo?: unknown } | null;
+  embalagens?: unknown;
 }
+
+const MOEDA = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/** Visao da lista (21/11/2026): "Estoque" (saldo) ou "Tabela de precos" (cada unidade de venda numa linha). */
+type VisaoDaLista = 'estoque' | 'precos';
+const chaveDaVisao = (uid: string | undefined) => `hennder_estoque_visao_${uid ?? ''}`;
+/** Escolha de cada usuario neste computador; sem armazenamento, abre na de Estoque. */
+const lerVisaoGuardada = (uid: string | undefined): VisaoDaLista => {
+  try { return window.localStorage.getItem(chaveDaVisao(uid)) === 'precos' ? 'precos' : 'estoque'; } catch { return 'estoque'; }
+};
 
 /** Uma pagina da lista (modo padrao): os itens e onde a proxima comeca. */
 interface PaginaDoEstoque {
@@ -116,7 +135,24 @@ const EstoqueList: React.FC = () => {
   /** Configuracoes -> Estoque: mostrar os cartoes de resumo no topo. */
   const [mostrarResumo, setMostrarResumo] = useState(DEFAULT_MOSTRAR_RESUMO_ESTOQUE);
 
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, grupo, podeTrocarFilial, usaGradeDeProdutos } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, grupo, podeTrocarFilial, usaGradeDeProdutos, venderPorEmbalagem } = useAuth();
+  // Redesenho da lista (21/11/2026, pedido do dono: ver embalagens e valores sem
+  // abrir item por item). Embalagem so' aparece com Configuracoes > "Vender por
+  // embalagem" ligado -- a mesma condicao da aba Embalagens do cadastro.
+  const [visao, setVisao] = useState<VisaoDaLista>(() => lerVisaoGuardada(currentUser?.uid));
+  const escolherVisao = (nova: VisaoDaLista) => {
+    setVisao(nova);
+    try { window.localStorage.setItem(chaveDaVisao(currentUser?.uid), nova); } catch { /* sem armazenamento: vale enquanto a tela estiver aberta */ }
+  };
+  /** So' os produtos vendidos tambem em embalagem (rolo, tubo, saco...). */
+  const [soComEmbalagem, setSoComEmbalagem] = useState(false);
+  /** Embalagens abertas embaixo do produto: a escolha da linha vale por cima do "Abrir embalagens". */
+  const [embalagensAbertas, setEmbalagensAbertas] = useState<Map<string, boolean>>(new Map());
+  const [todasEmbalagensAbertas, setTodasEmbalagensAbertas] = useState(false);
+  const alternarTodasEmbalagens = () => {
+    setTodasEmbalagensAbertas((atual) => !atual);
+    setEmbalagensAbertas(new Map());
+  };
   // Filiais (2026-10-06): a lista ja' vem nos itens desta filial (cadastrados
   // nela ou com estoque nela); quem usa outras filiais ve o catalogo do grupo.
   const [escopoFilial, setEscopoFilial] = useState<'filial' | 'grupo'>('filial');
@@ -176,7 +212,7 @@ const EstoqueList: React.FC = () => {
   // Busca sem travar (17/11/2026): o filtro roda quando a pessoa para de digitar.
   const termoAdiado = useTermoAdiado(searchTerm);
   const termoBusca = termoAdiado.trim();
-  const filtrosNoPadrao = filtroStatus === 'ativos' && filtroSaldo === 'todos' && !soComReserva && !soComGrade
+  const filtrosNoPadrao = filtroStatus === 'ativos' && filtroSaldo === 'todos' && !soComReserva && !soComGrade && !(venderPorEmbalagem && soComEmbalagem)
     && ordemLista.campo === 'nome' && !ordemLista.desc
     && ordemSaldo === 'padrao' && !(grupo && escopoFilial === 'grupo');
   const modoCompleto = !filtrosNoPadrao || (termoBusca !== '' && (buscaCompleta || catalogoEstoqueJaCarregado(tenantId)));
@@ -460,21 +496,25 @@ const EstoqueList: React.FC = () => {
   const linhasFiltradas = principais.flatMap((peca) => {
     if (soComGrade && peca.temGrade !== true) return [];
     const todas = variacoesDe(peca);
+    if (venderPorEmbalagem && soComEmbalagem && !temEmbalagemAtiva(peca) && !todas.some((v) => temEmbalagemAtiva(v))) return [];
     const variacoesQueBatem = todas.filter((v) => passaNosFiltros(v) && passaNaBusca(v));
     if (!(passaNosFiltros(peca) && passaNaBusca(peca)) && variacoesQueBatem.length === 0) return [];
     const aberto = expandidos.get(peca.id) ?? (buscando && variacoesQueBatem.length > 0);
-    const variacoes = !aberto ? [] : buscando ? variacoesQueBatem : todas.filter(passaNosFiltros);
-    return [{ peca, variacoes, aberto, totalDeVariacoes: todas.length }];
+    const variacoesQuePassam = buscando ? variacoesQueBatem : todas.filter(passaNosFiltros);
+    const variacoes = aberto ? variacoesQuePassam : [];
+    return [{ peca, variacoes, variacoesQuePassam, aberto, totalDeVariacoes: todas.length }];
   });
   // Botao da coluna "Qtd.": maior/menor estoque primeiro; as variacoes seguem embaixo do principal.
   const totalDeColunas = 2 + COLUNAS_OPCIONAIS_ESTOQUE.filter((c) => ver(c.chave)).length;
+  /** Tabela de precos: Codigo, Produto, Unidade, Venda, A vista, Codigo de barras, Acoes. */
+  const totalDeColunasDosPrecos = 7;
   /** Mais opcoes > Colunas da lista: vale para todos os usuarios da filial. */
   const escolherColunas = async () => {
     if (!tenantId) return;
     const resposta = await NexusSwal.fire({
       title: 'Colunas da lista de produtos',
       html: `<div style="text-align:left;display:flex;flex-direction:column;gap:8px">${COLUNAS_OPCIONAIS_ESTOQUE.map((c) => (
-        `<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" data-coluna="${c.chave}" ${ver(c.chave) ? 'checked' : ''}/> ${c.rotulo}</label>`
+        `<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" data-coluna="${c.chave}" ${colunasOcultas.includes(c.chave) ? '' : 'checked'}/> ${c.rotulo}</label>`
       )).join('')}<small style="opacity:.7">Nome do produto e Ações aparecem sempre. Vale para todos os usuários desta filial.</small></div>`,
       showCancelButton: true,
       confirmButtonText: 'Salvar',
@@ -496,7 +536,7 @@ const EstoqueList: React.FC = () => {
   // Com o catalogo inteiro, desenha 100 linhas por vez: desenhar milhares de
   // linhas de uma vez era o que travava a busca.
   const [limiteNaTela, setLimiteNaTela] = useState(LINHAS_POR_VEZ);
-  useEffect(() => { setLimiteNaTela(LINHAS_POR_VEZ); }, [termoAdiado, filtroStatus, filtroSaldo, soComReserva, soComGrade, ordemSaldo, ordemLista, escopoFilial]);
+  useEffect(() => { setLimiteNaTela(LINHAS_POR_VEZ); }, [termoAdiado, filtroStatus, filtroSaldo, soComReserva, soComGrade, soComEmbalagem, ordemSaldo, ordemLista, escopoFilial]);
   const linhasNaTela = modoCompleto ? linhasVisiveis.slice(0, limiteNaTela) : linhasVisiveis;
   const restamNaTela = linhasVisiveis.length - linhasNaTela.length;
 
@@ -540,21 +580,44 @@ const EstoqueList: React.FC = () => {
     }
   };
 
+  /** Valor da embalagem que nao foi digitado nela: veio do produto x quantidade da embalagem. */
+  const marcaCalculado = (calculado: boolean, oQue: string) => (calculado ? (
+    <span className="estoque-calc" title={`${oQue} calculado: valor do produto × quantidade da embalagem. Para usar um valor próprio, informe na aba Embalagens do produto.`}>calc.</span>
+  ) : null);
+  const reaisOuTraco = (valor: number, dica: string) => (valor > 0 ? MOEDA.format(valor) : <span className="estoque-mudo" title={dica}>—</span>);
+  const formatarQuantidade = (valor: number, casas: number) => valor.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+
   /**
    * Uma linha da tabela: produto comum, principal de grade (saldo = soma das
    * variacoes, chevron para abri-las) ou variacao (indentada, abre o principal).
+   * Produto com embalagem (21/11/2026): o selo "2 embalagens: TB, RL" abre, logo
+   * embaixo, uma linha por embalagem com saldo, venda e a vista nas mesmas
+   * colunas -- sem precisar abrir o cadastro. Custo e margem nao aparecem na
+   * lista (decisao do dono, 21/11/2026): so' dentro do cadastro.
    */
   const linhaDoProduto = (pecaCrua: PecaData, opcoes: { principal?: PecaData; aberto?: boolean; totalDeVariacoes?: number }) => {
     const { principal, aberto = false, totalDeVariacoes = 0 } = opcoes;
     const peca = comSaldoDasVariacoes(pecaCrua);
     const ehPrincipalDeGrade = pecaCrua.temGrade === true;
     const idParaAbrir = principal ? principal.id : peca.id;
-    return (
+    const precos = precosDoProdutoDaLista(peca);
+    const reserva = resumoDeReserva(peca);
+    const casas = peca.unidadeMedidaCasasDecimais ?? 0;
+    const siglaDaBase = peca.unidadeMedidaSigla || 'UN';
+    const embalagens = venderPorEmbalagem ? embalagensDaLista(peca) : [];
+    const embalagensAbertasAgora = embalagens.length > 0 && (embalagensAbertas.get(peca.id) ?? todasEmbalagensAbertas);
+    const classeDaLinha = [
+      canEditProduto ? 'row-selectable' : '',
+      canEditProduto && selectedId === peca.id ? 'is-selected' : '',
+      embalagensAbertasAgora ? 'estoque-linha-aberta' : '',
+    ].filter(Boolean).join(' ');
+
+    const linhaPrincipal = (
     <tr
       key={peca.id}
       // Sem permissao de abrir o cadastro a linha nao abre nada --
       // seria um duplo clique que so devolve erro.
-      className={canEditProduto ? (selectedId === peca.id ? 'row-selectable is-selected' : 'row-selectable') : undefined}
+      className={classeDaLinha || undefined}
       onClick={canEditProduto ? () => setSelectedId(peca.id) : undefined}
       onDoubleClick={canEditProduto ? () => abrirProduto(idParaAbrir) : undefined}
       // Enter abre o produto selecionado -- o duplo clique sozinho
@@ -599,51 +662,53 @@ const EstoqueList: React.FC = () => {
             Grade · {totalDeVariacoes} variação(ões) {aberto ? '▾' : '▸'}
           </button>
         )}
+        {embalagens.length > 0 && (
+          // Mesmo jeito do selo da grade: abre/fecha sem selecionar nem abrir o produto.
+          <button
+            type="button"
+            className="estoque-embalagens-selo"
+            aria-expanded={embalagensAbertasAgora}
+            title={embalagensAbertasAgora ? 'Esconder as embalagens' : 'Mostrar as embalagens com saldo e preços'}
+            onClick={(e) => { e.stopPropagation(); setEmbalagensAbertas((atual) => new Map(atual).set(peca.id, !embalagensAbertasAgora)); }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            {embalagensAbertasAgora ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {resumoDasEmbalagens(embalagens)}
+          </button>
+        )}
         <MarcaEmEdicao trava={travasProdutos.get(peca.id)} />
       </td>
       {ver('categoria') && <td>{peca.categoria}</td>}
       {ver('quantidade') && (
-        <td className="font-medium">
-          {Number(peca.quantidade).toFixed(peca.unidadeMedidaCasasDecimais ?? 0)} {peca.unidadeMedidaSigla || 'UN'}
+        <td className="font-medium estoque-num">
+          {formatarQuantidade(Number(peca.quantidade) || 0, casas)} <span className="estoque-un">{siglaDaBase}</span>
         </td>
       )}
-      {(() => {
-        // Reservado e disponivel sem abrir o cadastro; clicar no
-        // reservado mostra em que documento ele esta preso.
-        const reserva = resumoDeReserva(peca);
-        const casas = peca.unidadeMedidaCasasDecimais ?? 0;
-        return (
-          <>
-            {ver('reservado') && <td onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-              {reserva.temReserva && ehPrincipalDeGrade ? (
-                // A reserva esta' nas variacoes: abra o principal para ver cada uma.
-                <span style={{ color: '#c084fc', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{reserva.reservada.toFixed(casas)}</span>
-              ) : reserva.temReserva ? (
-                <button
-                  type="button"
-                  onClick={() => setReservaAberta(peca)}
-                  title="Ver de onde vem a reserva"
-                  style={{ background: 'color-mix(in srgb, #a855f7 16%, transparent)', color: '#c084fc', border: 'none', borderRadius: '999px', padding: '2px 10px', fontWeight: 600, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {reserva.reservada.toFixed(casas)}
-                </button>
-              ) : (
-                <span style={{ color: 'var(--text-muted)' }}>—</span>
-              )}
-            </td>}
-            {ver('disponivel') && (
-              <td className="font-medium" style={{ color: reserva.temReserva ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                {reserva.disponivel.toFixed(casas)}
-              </td>
-            )}
-          </>
-        );
-      })()}
-      {ver('preco') && (
-        <td>
-          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(peca.precoVenda))}
+      {/* Reservado e disponivel sem abrir o cadastro; clicar no reservado mostra em que documento ele esta preso. */}
+      {ver('reservado') && <td className="estoque-num" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+        {reserva.temReserva && ehPrincipalDeGrade ? (
+          // A reserva esta' nas variacoes: abra o principal para ver cada uma.
+          <span style={{ color: '#c084fc', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{formatarQuantidade(reserva.reservada, casas)}</span>
+        ) : reserva.temReserva ? (
+          <button
+            type="button"
+            onClick={() => setReservaAberta(peca)}
+            title="Ver de onde vem a reserva"
+            style={{ background: 'color-mix(in srgb, #a855f7 16%, transparent)', color: '#c084fc', border: 'none', borderRadius: '999px', padding: '2px 10px', fontWeight: 600, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
+          >
+            {formatarQuantidade(reserva.reservada, casas)}
+          </button>
+        ) : (
+          <span style={{ color: 'var(--text-muted)' }}>—</span>
+        )}
+      </td>}
+      {ver('disponivel') && (
+        <td className="font-medium estoque-num" style={{ color: reserva.temReserva ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+          {formatarQuantidade(reserva.disponivel, casas)}
         </td>
       )}
+      {ver('preco') && <td className="estoque-num"><strong>{MOEDA.format(precos.venda)}</strong></td>}
+      {ver('vista') && <td className="estoque-num">{reaisOuTraco(precos.vista, 'Sem preço à vista: vale o de venda')}</td>}
       {ver('status') && <td>{getStatusBadge(Number(peca.quantidade))}</td>}
       {ver('ativo') && <td>
         <span style={{
@@ -683,6 +748,97 @@ const EstoqueList: React.FC = () => {
       </td>
     </tr>
     );
+
+    if (!embalagensAbertasAgora) return [linhaPrincipal];
+    // O saldo da embalagem e' o mesmo estoque (na unidade base) contado em embalagens.
+    const linhasDasEmbalagens = embalagens.map((unidade, indice) => {
+      const casasDaEmbalagem = unidade.fracionado ? unidade.casasDecimais : 0;
+      return (
+        <tr
+          key={`${peca.id}-embalagem-${unidade.embalagemId}`}
+          className={`estoque-emb-linha${indice === embalagens.length - 1 ? ' estoque-emb-linha--ultima' : ''}`}
+          onDoubleClick={canEditProduto ? () => abrirProduto(idParaAbrir) : undefined}
+          title={canEditProduto ? 'Duplo clique abre o produto (os valores da embalagem se mudam na aba Embalagens)' : undefined}
+        >
+          {ver('codigo') && <td />}
+          <td>
+            <div className="estoque-emb-nome">
+              <span className="estoque-sigla" title={unidade.codigoBarras ? `Código de barras: ${unidade.codigoBarras}` : undefined}>{unidade.sigla}</span>
+              <span>{equivalenciaDaEmbalagem(unidade, siglaDaBase)}</span>
+              {unidade.descricao && <span className="estoque-mudo estoque-emb-descricao" title={unidade.descricao}>· {unidade.descricao}</span>}
+            </div>
+          </td>
+          {ver('categoria') && <td />}
+          {ver('quantidade') && (
+            <td className="estoque-num estoque-mudo-2" title={unidade.fracionado ? undefined : 'Embalagens completas que o saldo dá'}>
+              {formatarQuantidade(saldoNaEmbalagem(peca.quantidade, unidade), casasDaEmbalagem)} <span className="estoque-un">{unidade.sigla}</span>
+            </td>
+          )}
+          {ver('reservado') && <td />}
+          {ver('disponivel') && <td className="estoque-num estoque-mudo-2">{formatarQuantidade(saldoNaEmbalagem(reserva.disponivel, unidade), casasDaEmbalagem)}</td>}
+          {ver('preco') && <td className="estoque-num"><strong>{reaisOuTraco(unidade.venda, 'Sem preço de venda')}</strong>{marcaCalculado(unidade.vendaCalculada, 'Preço de venda')}</td>}
+          {ver('vista') && <td className="estoque-num">{reaisOuTraco(unidade.vista, 'Sem preço à vista: vale o de venda')}{marcaCalculado(unidade.vistaCalculada, 'Preço à vista')}</td>}
+          {ver('status') && <td />}
+          {ver('ativo') && <td />}
+          <td />
+        </tr>
+      );
+    });
+    return [linhaPrincipal, ...linhasDasEmbalagens];
+  };
+
+  /**
+   * "Tabela de precos": cada unidade de venda do produto numa linha (a unidade
+   * do estoque e, com "Vender por embalagem", cada embalagem ativa).
+   */
+  const linhasDePreco = (pecaCrua: PecaData, principal?: PecaData) => {
+    const peca = comSaldoDasVariacoes(pecaCrua);
+    const unidades: UnidadeDeVendaDaLista[] = venderPorEmbalagem ? unidadesDeVendaDaLista(peca) : [unidadeBaseDaLista(peca)];
+    const idParaAbrir = principal ? principal.id : peca.id;
+    return unidades.map((unidade, indice) => (
+      <tr
+        key={`${peca.id}-preco-${unidade.embalagemId || 'base'}`}
+        className={[
+          'estoque-precos-linha',
+          indice > 0 ? 'estoque-precos-linha--seguinte' : '',
+          indice === unidades.length - 1 ? 'estoque-precos-linha--ultima' : '',
+          canEditProduto ? 'row-selectable' : '',
+        ].filter(Boolean).join(' ')}
+        onDoubleClick={canEditProduto ? () => abrirProduto(idParaAbrir) : undefined}
+        title={canEditProduto ? 'Duplo clique abre o produto' : undefined}
+        style={travasProdutos.has(peca.id) ? { opacity: 0.55 } : undefined}
+      >
+        <td className="font-medium" style={{ color: 'var(--text-muted)' }}>{indice === 0 ? peca.codigo : ''}</td>
+        <td>
+          {indice === 0 && (principal
+            ? <span style={{ paddingLeft: '12px' }}>↳ {peca.variacaoRotulo || peca.nome}</span>
+            : <span className="estoque-precos-nome">{peca.nome}</span>)}
+          {indice === 0 && <MarcaEmEdicao trava={travasProdutos.get(peca.id)} />}
+        </td>
+        <td>
+          <div className="estoque-unidade">
+            <span className={`estoque-sigla${unidade.base ? ' estoque-sigla--base' : ''}`}>{unidade.sigla}</span>
+            <span className="estoque-mudo-2">{unidade.base ? 'unidade do estoque' : equivalenciaDaEmbalagem(unidade, peca.unidadeMedidaSigla || 'UN')}</span>
+            {unidade.descricao && <span className="estoque-mudo">· {unidade.descricao}</span>}
+          </div>
+        </td>
+        <td className="estoque-num"><strong>{reaisOuTraco(unidade.venda, 'Sem preço de venda')}</strong>{marcaCalculado(unidade.vendaCalculada, 'Preço de venda')}</td>
+        <td className="estoque-num">{reaisOuTraco(unidade.vista, 'Sem preço à vista: vale o de venda')}{marcaCalculado(unidade.vistaCalculada, 'Preço à vista')}</td>
+        <td className="estoque-mudo estoque-barras">{unidade.codigoBarras}</td>
+        <td>
+          {indice === 0 && canEditProduto && (
+            <button
+              className="icon-btn"
+              title={principal ? 'Abrir o produto principal' : 'Editar'}
+              onClick={(e) => { e.stopPropagation(); abrirProduto(idParaAbrir); }}
+              onDoubleClick={(e) => e.stopPropagation()}
+            >
+              <Edit size={16} />
+            </button>
+          )}
+        </td>
+      </tr>
+    ));
   };
 
   return (
@@ -692,7 +848,15 @@ const EstoqueList: React.FC = () => {
           <h1 className="page-title">Estoque e Produtos</h1>
           <p className="page-subtitle">Controle de inventário, produtos e insumos</p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="estoque-visao" role="group" aria-label="Como ver a lista">
+            <button type="button" aria-pressed={visao === 'estoque'} onClick={() => escolherVisao('estoque')} title="Saldo, reserva e preços de cada produto">
+              Estoque
+            </button>
+            <button type="button" aria-pressed={visao === 'precos'} onClick={() => escolherVisao('precos')} title="Cada unidade de venda (metro, tubo, rolo...) numa linha, com os preços">
+              Tabela de preços
+            </button>
+          </div>
           {/* A vista so' o "Novo Produto"; o resto e' de uso eventual (dono, 02/10). */}
           <MenuMaisOpcoes
             itens={[
@@ -843,6 +1007,18 @@ const EstoqueList: React.FC = () => {
               Com grade
             </button>
           )}
+          {venderPorEmbalagem && (
+            <button
+              type="button"
+              className="btn-secondary filter-btn"
+              onClick={() => setSoComEmbalagem((v) => !v)}
+              aria-pressed={soComEmbalagem}
+              title="Mostrar só os produtos vendidos também em embalagem (rolo, tubo, saco...)"
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', ...(soComEmbalagem ? { borderColor: '#a855f7', color: '#c084fc' } : {}) }}
+            >
+              Com embalagem
+            </button>
+          )}
           {grupo && podeTrocarFilial && (
             <label
               className="btn-secondary filter-btn"
@@ -860,10 +1036,60 @@ const EstoqueList: React.FC = () => {
               </select>
             </label>
           )}
+          {venderPorEmbalagem && visao === 'estoque' && (
+            <button
+              type="button"
+              className="btn-secondary filter-btn"
+              onClick={alternarTodasEmbalagens}
+              aria-pressed={todasEmbalagensAbertas}
+              title={todasEmbalagensAbertas ? 'Fechar as embalagens de todos os produtos' : 'Mostrar as embalagens de todos os produtos, com saldo e preços'}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}
+            >
+              <Package size={16} />
+              {todasEmbalagensAbertas ? 'Fechar embalagens' : 'Abrir embalagens'}
+            </button>
+          )}
         </div>
 
         <div className="table-wrapper">
-          <table className="data-table">
+          {visao === 'precos' ? (
+          <table className="data-table estoque-tabela">
+            <thead>
+              <tr>
+                <th aria-sort={ordemLista.campo === 'codigo' && ordemSaldo === 'padrao' ? (ordemLista.desc ? 'descending' : 'ascending') : 'none'}>
+                  <BotaoOrdem ativo={ordemLista.campo === 'codigo' && ordemSaldo === 'padrao'} desc={ordemLista.desc} onClick={() => ordenarPor('codigo')} titulo="Ordenar pelo código">Código</BotaoOrdem>
+                </th>
+                <th aria-sort={ordemLista.campo === 'nome' && ordemSaldo === 'padrao' ? (ordemLista.desc ? 'descending' : 'ascending') : 'none'}>
+                  <BotaoOrdem ativo={ordemLista.campo === 'nome' && ordemSaldo === 'padrao'} desc={ordemLista.desc} onClick={() => ordenarPor('nome')} titulo="Ordenar pelo nome (A-Z)">Produto</BotaoOrdem>
+                </th>
+                <th>Unidade de venda</th>
+                <th className="estoque-num">Venda</th>
+                <th className="estoque-num">À vista</th>
+                <th>Código de barras</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={totalDeColunasDosPrecos} style={{ textAlign: 'center', padding: '20px' }}>Carregando Estoque...</td>
+                </tr>
+              ) : linhasVisiveis.length === 0 ? (
+                <tr>
+                  <td colSpan={totalDeColunasDosPrecos} style={{ padding: '8px' }}>
+                    <EstadoVazio titulo={searchTerm ? `Nenhum resultado encontrado para "${searchTerm}".` : 'Nenhum produto cadastrado no estoque.'} compacto />
+                  </td>
+                </tr>
+              ) : (
+                linhasNaTela.flatMap(({ peca, variacoesQuePassam }) => [
+                  ...linhasDePreco(peca),
+                  ...variacoesQuePassam.flatMap((variacao) => linhasDePreco(variacao, peca)),
+                ])
+              )}
+            </tbody>
+          </table>
+          ) : (
+          <table className="data-table estoque-tabela">
             <thead>
               <tr>
                 {ver('codigo') && (
@@ -875,7 +1101,7 @@ const EstoqueList: React.FC = () => {
                   <BotaoOrdem ativo={ordemLista.campo === 'nome' && ordemSaldo === 'padrao'} desc={ordemLista.desc} onClick={() => ordenarPor('nome')} titulo="Ordenar pelo nome (A-Z)">Nome do Produto</BotaoOrdem>
                 </th>
                 {ver('categoria') && <th>Categoria</th>}
-                {ver('quantidade') && <th aria-sort={ordemSaldo === 'maior' ? 'descending' : ordemSaldo === 'menor' ? 'ascending' : 'none'}>
+                {ver('quantidade') && <th className="estoque-num" aria-sort={ordemSaldo === 'maior' ? 'descending' : ordemSaldo === 'menor' ? 'ascending' : 'none'}>
                   <button
                     type="button"
                     onClick={() => setOrdemSaldo((atual) => proximaOrdemSaldo(atual))}
@@ -887,9 +1113,10 @@ const EstoqueList: React.FC = () => {
                     {ordemSaldo === 'maior' ? <ArrowDown size={14} /> : ordemSaldo === 'menor' ? <ArrowUp size={14} /> : <ArrowUpDown size={14} style={{ opacity: 0.6 }} />}
                   </button>
                 </th>}
-                {ver('reservado') && <th>Reservado</th>}
-                {ver('disponivel') && <th>Disponível</th>}
-                {ver('preco') && <th>Preço (Venda)</th>}
+                {ver('reservado') && <th className="estoque-num">Reservado</th>}
+                {ver('disponivel') && <th className="estoque-num">Disponível</th>}
+                {ver('preco') && <th className="estoque-num">Venda</th>}
+                {ver('vista') && <th className="estoque-num">À vista</th>}
                 {ver('status') && <th>Status</th>}
                 {ver('ativo') && <th>Ativo</th>}
                 <th>Ações</th>
@@ -908,12 +1135,13 @@ const EstoqueList: React.FC = () => {
                 </tr>
               ) : (
                 linhasNaTela.flatMap(({ peca, variacoes, aberto, totalDeVariacoes }) => [
-                  linhaDoProduto(peca, { aberto, totalDeVariacoes }),
-                  ...variacoes.map((variacao) => linhaDoProduto(variacao, { principal: peca })),
+                  ...linhaDoProduto(peca, { aberto, totalDeVariacoes }),
+                  ...variacoes.flatMap((variacao) => linhaDoProduto(variacao, { principal: peca })),
                 ])
               )}
             </tbody>
           </table>
+          )}
         </div>
         {modoBuscaNoBanco && !loading && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexWrap: 'wrap', padding: '12px', color: 'var(--text-muted)', fontSize: '13px' }}>

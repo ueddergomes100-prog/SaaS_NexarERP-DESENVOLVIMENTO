@@ -636,3 +636,219 @@
 .embalagem-cartao__margem--negativa strong {
   color: #ef4444;
 }
+
+/* ============================================================================
+   LISTA "ESTOQUE E PRODUTOS" (21/11/2026): valores e embalagens na lista, sem
+   abrir o cadastro item por item. Selo "2 embalagens: TB, RL" abre as linhas
+   das embalagens logo embaixo do produto; "Tabela de precos" mostra cada
+   unidade de venda numa linha. Cores pelas variaveis do tema (claro e escuro).
+   ========================================================================== */
+/* Lista densa (ate 11 colunas): menos folga dos lados para caber sem rolar para o lado. */
+.estoque-page .estoque-tabela th,
+.estoque-page .estoque-tabela td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.estoque-page .estoque-tabela th:first-child,
+.estoque-page .estoque-tabela td:first-child {
+  padding-left: 16px;
+}
+
+.estoque-tabela .estoque-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.estoque-un {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.estoque-mudo {
+  color: var(--text-muted);
+}
+
+.estoque-mudo-2 {
+  color: var(--text-secondary);
+}
+
+.estoque-barras {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.estoque-embalagens-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+  padding: 2px 9px 2px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-purple) 32%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-purple) 7%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 72%, var(--text-primary));
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.estoque-embalagens-selo:hover {
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+}
+
+.estoque-embalagens-selo[aria-expanded='true'] {
+  background: var(--accent-purple);
+  border-color: var(--accent-purple);
+  color: #fff;
+}
+
+.estoque-embalagens-selo:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: 2px;
+}
+
+.estoque-tabela .estoque-linha-aberta > td {
+  background: color-mix(in srgb, var(--accent-purple) 5%, transparent);
+  border-bottom-color: transparent !important;
+}
+
+.estoque-tabela .estoque-emb-linha > td {
+  background: color-mix(in srgb, var(--accent-purple) 5%, transparent);
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+  border-bottom-color: color-mix(in srgb, var(--accent-purple) 10%, var(--border-color)) !important;
+  font-size: 13.5px;
+}
+
+.estoque-tabela .estoque-emb-linha--ultima > td {
+  border-bottom-color: var(--border-color) !important;
+  padding-bottom: 12px !important;
+}
+
+.estoque-emb-nome,
+.estoque-unidade {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+/* Trilho ligando a embalagem ao produto de cima. */
+.estoque-emb-nome {
+  position: relative;
+  padding-left: 22px;
+  /* A embalagem cabe numa linha: a descricao longa corta (o texto inteiro fica na dica). */
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.estoque-emb-descricao {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.estoque-tabela .status-badge {
+  white-space: nowrap;
+}
+
+.estoque-emb-nome::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: -14px;
+  height: calc(50% + 14px);
+  width: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--accent-purple) 35%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--accent-purple) 35%, transparent);
+  border-bottom-left-radius: 6px;
+}
+
+.estoque-sigla {
+  display: inline-block;
+  min-width: 34px;
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 75%, var(--text-primary));
+  font-size: 11.5px;
+  font-weight: 800;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.estoque-sigla--base {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.estoque-calc {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: help;
+}
+
+/* Seletor "Estoque | Tabela de precos" no topo (fica sobre a faixa violeta). */
+.estoque-visao {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+}
+
+.estoque-visao button {
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.estoque-visao button[aria-pressed='true'] {
+  background: #fff;
+  color: #5b21b6;
+}
+
+.estoque-visao button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Tabela de precos: as unidades do mesmo produto ficam juntas, sem linha entre elas. */
+.estoque-precos-nome {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.estoque-tabela .estoque-precos-linha:not(.estoque-precos-linha--ultima) > td {
+  border-bottom-color: transparent !important;
+  padding-bottom: 5px !important;
+}
+
+.estoque-tabela .estoque-precos-linha--seguinte > td {
+  padding-top: 5px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .estoque-embalagens-selo,
+  .estoque-visao button {
+    transition: none;
+  }
+}

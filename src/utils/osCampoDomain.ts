@@ -14,6 +14,7 @@
  */
 
 import { identificacaoCurta, type ModoOficina } from './oficinaDomain';
+import { toBaseQuantity } from './embalagemDomain';
 
 export const STATUS_OS_EM_ATENDIMENTO = 'Em atendimento';
 export const STATUS_OS_AGUARDANDO_CONFERENCIA = 'Aguardando conferência';
@@ -102,6 +103,13 @@ const rastreioDoPreco = (x: PrecoRastreado): PrecoRastreado => ({
   ...(x.promocaoId ? { promocaoId: x.promocaoId, promocaoNome: x.promocaoNome || '' } : {}),
 });
 
+/** Campos de embalagem que passam entre a peca da OS e o item do seletor (sem chave vazia). */
+const rastreioDaEmbalagem = (x: { embalagemId?: string; fatorConversao?: number; quantidade?: number }): { embalagemId?: string; fatorConversao?: number; quantidadeBase?: number } => (
+  x.embalagemId
+    ? { embalagemId: x.embalagemId, fatorConversao: Number(x.fatorConversao) || 1, quantidadeBase: toBaseQuantity(x.quantidade, x.fatorConversao) }
+    : {}
+);
+
 export interface PecaCampo extends PrecoRastreado {
   id: string;
   nome: string;
@@ -111,6 +119,10 @@ export interface PecaCampo extends PrecoRastreado {
   unidadeMedidaSigla: string;
   unidadeMedidaFracionado: boolean;
   unidadeMedidaCasasDecimais: number;
+  /** Item numa embalagem (rolo, tubo, saco -- 21/11/2026): estoque em quantidade x fator. */
+  embalagemId?: string;
+  fatorConversao?: number;
+  quantidadeBase?: number;
 }
 
 /** O item como o VendedorItemPicker trabalha (ItemVendaExterna). */
@@ -125,6 +137,10 @@ export interface ItemPickerCampo extends PrecoRastreado {
   unidadeMedidaSigla: string;
   unidadeMedidaFracionado: boolean;
   unidadeMedidaCasasDecimais: number;
+  /** Item numa embalagem (rolo, tubo, saco -- 21/11/2026): estoque em quantidade x fator. */
+  embalagemId?: string;
+  fatorConversao?: number;
+  quantidadeBase?: number;
 }
 
 export const pecaParaItemPicker = (p: PecaCampo): ItemPickerCampo => ({
@@ -138,6 +154,7 @@ export const pecaParaItemPicker = (p: PecaCampo): ItemPickerCampo => ({
   unidadeMedidaSigla: p.unidadeMedidaSigla || 'UN',
   unidadeMedidaFracionado: p.unidadeMedidaFracionado === true,
   unidadeMedidaCasasDecimais: Number(p.unidadeMedidaCasasDecimais || 0),
+  ...rastreioDaEmbalagem(p),
   ...rastreioDoPreco(p),
 });
 
@@ -150,6 +167,7 @@ export const itemPickerParaPeca = (i: ItemPickerCampo): PecaCampo => ({
   unidadeMedidaSigla: i.unidadeMedidaSigla || 'UN',
   unidadeMedidaFracionado: i.unidadeMedidaFracionado === true,
   unidadeMedidaCasasDecimais: Number(i.unidadeMedidaCasasDecimais || 0),
+  ...rastreioDaEmbalagem(i),
   ...rastreioDoPreco(i),
 });
 

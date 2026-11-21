@@ -32,6 +32,7 @@ const { bloqueioParaRefazerParcelas } = require('../domain/alteracaoValorTituloD
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const grade = require('../domain/gradeProdutosDomain');
 const reserva = require('../domain/estoqueReservaDomain');
+const { toBaseQuantity } = require('../domain/embalagemDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { ErroVenda, situacaoDoCliente, lerColecaoDaEmpresa, percentualDoClienteDaVenda, conferirPrecosNoServidor } = require('./vendaFechamento');
 const cd = require('../domain/conferenciaDescontoDomain');
@@ -279,7 +280,8 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
         if (!produto || produto.controlarLote !== true) return;
         const lotes = pedido.lotes[String(indice)] || [];
         const soma = lotes.reduce((t, l) => t + l.quantidade, 0);
-        if (Math.abs(soma - Number(peca.quantidade || 0)) > 1e-6) {
+        // Lote na unidade base: peca lancada em embalagem conta quantidade x fator (21/11/2026).
+        if (Math.abs(soma - toBaseQuantity(peca.quantidade, peca.fatorConversao)) > 1e-6) {
           throw new ErroVenda(400, `${peca.nome || 'Peça'}: escolha de novo de qual lote sai (a quantidade dos lotes não bate com a da OS).`);
         }
         lotes.forEach((l) => {

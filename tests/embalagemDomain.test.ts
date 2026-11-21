@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildOpcoesUnidadeVenda,
+  camposDeUnidadeDoItem,
+  custoDaEmbalagem,
+  margemSobreCusto,
   findOpcaoUnidadeVenda,
+  opcaoDoItemGravado,
+  opcoesDeUnidadeDaTela,
+  unidadeDePrecoDaOpcao,
   formatFatorConversao,
   normalizeEmbalagens,
   toBaseQuantity,
@@ -160,4 +166,55 @@ test('toStockAdjustmentItems converte cada item e preserva id/nome', () => {
 test('formatFatorConversao usa 3 casas com virgula, igual ao seletor', () => {
   assert.equal(formatFatorConversao(20), '20,000');
   assert.equal(formatFatorConversao(0.5), '0,500');
+});
+
+/* Unidade no Orcamento, na OS e no app Vendas (21/11/2026): tubo de 6 m, metro como base. */
+const tuboMetro = {
+  precoVenda: 5,
+  unidadeMedidaSigla: 'MT',
+  unidadeMedidaCasasDecimais: 2,
+  unidadeMedidaFracionado: true,
+  embalagens: [{
+    id: 'emb-tubo', unidadeMedidaId: 'tb', unidadeMedidaSigla: 'TB', unidadeMedidaCasasDecimais: 0, unidadeMedidaFracionado: false,
+    descricao: 'TUBO 6M', fatorConversao: 6, precoVenda: 27, precoAVista: 25, codigoBarras: '', ativo: true,
+  }],
+};
+
+test('opcoesDeUnidadeDaTela: com "Vender por embalagem" desligado, so a unidade do cadastro', () => {
+  assert.deepEqual(opcoesDeUnidadeDaTela(tuboMetro, false).map((o) => o.sigla), ['MT']);
+  assert.deepEqual(opcoesDeUnidadeDaTela(tuboMetro, true).map((o) => o.sigla), ['MT', 'TB']);
+});
+
+test('camposDeUnidadeDoItem: tubo grava sigla, casas, fator e a quantidade no estoque; metro nao ganha campo de embalagem', () => {
+  const [metro, tubo] = buildOpcoesUnidadeVenda(tuboMetro);
+  assert.deepEqual(camposDeUnidadeDoItem(tubo, 2), {
+    unidadeMedidaSigla: 'TB', unidadeMedidaCasasDecimais: 0, unidadeMedidaFracionado: false,
+    embalagemId: 'emb-tubo', fatorConversao: 6, quantidadeBase: 12,
+  });
+  assert.deepEqual(camposDeUnidadeDoItem(metro, 2.5), { unidadeMedidaSigla: 'MT', unidadeMedidaCasasDecimais: 2, unidadeMedidaFracionado: true });
+});
+
+test('unidadeDePrecoDaOpcao: precos proprios do tubo; na base, nenhum', () => {
+  const [metro, tubo] = buildOpcoesUnidadeVenda(tuboMetro);
+  assert.deepEqual(unidadeDePrecoDaOpcao(tubo), { fatorConversao: 6, precoProprio: 27, precoAVistaProprio: 25 });
+  assert.deepEqual(unidadeDePrecoDaOpcao(metro), { fatorConversao: 1, precoProprio: 0, precoAVistaProprio: 0 });
+});
+
+test('opcaoDoItemGravado: embalagem apagada do cadastro devolve null (nao vira metro sem aviso)', () => {
+  assert.equal(opcaoDoItemGravado(tuboMetro, 'emb-tubo')?.sigla, 'TB');
+  assert.equal(opcaoDoItemGravado(tuboMetro, '')?.sigla, 'MT');
+  assert.equal(opcaoDoItemGravado(tuboMetro, 'emb-apagada'), null);
+});
+
+test('custo da embalagem: o proprio quando cadastrado; senao custo do metro x fator (21/11/2026)', () => {
+  assert.equal(custoDaEmbalagem({ precoCusto: 20, fatorConversao: 6 }, 4), 20);
+  assert.equal(custoDaEmbalagem({ precoCusto: 0, fatorConversao: 6 }, 4), 24);
+  assert.equal(custoDaEmbalagem({ fatorConversao: 6 }, 0), 0);
+  assert.equal(normalizeEmbalagens([{ id: 'e', fatorConversao: 6, precoCusto: '20,5' }])[0].precoCusto, 0, 'texto com virgula nao vira numero');
+  assert.equal(normalizeEmbalagens([{ id: 'e', fatorConversao: 6, precoCusto: 20.5 }])[0].precoCusto, 20.5);
+});
+
+test('margem sobre o custo, como no cadastro do produto', () => {
+  assert.equal(margemSobreCusto(27, 20), 35);
+  assert.equal(margemSobreCusto(27, 0), null);
 });

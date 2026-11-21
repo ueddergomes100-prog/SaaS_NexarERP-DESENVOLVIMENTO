@@ -160,3 +160,16 @@ test('preco alterado abaixo da tabela conta como desconto ao faturar; acima e li
   assert.equal(conferir(200).diferencaTotalCentavos, 18000);
   assert.equal(conferir(300).diferencaTotalCentavos, 0);
 });
+
+test('app em tubo (21/11/2026): preco do tubo sem promocao carregada; com tabela, a unidade vai para a tabela', () => {
+  const tubo = { embalagemId: 'emb-tubo', sigla: 'TB', label: 'TB(6,000)', fatorConversao: 6, casasDecimais: 0, permiteFracionado: false, precoVenda: 27, precoVendaProprio: 27, precoAVistaProprio: 0 };
+  assert.equal(precificarNoApp({ precos: null, produto, quantidade: 1, naVenda: [], consomeQuota: false, unidade: tubo }).preco, 27);
+  let unidadeRecebida: unknown = null;
+  const comTabela: PrecosDoApp = {
+    tabelaDe: (_p, unidade) => { unidadeRecebida = unidade; return { venda: 27, vista: 27, promocao: null }; },
+    quantidadeLiberada: () => null,
+    quotaConferida: true,
+  };
+  assert.equal(precificarNoApp({ precos: comTabela, produto, quantidade: 1, naVenda: [], consomeQuota: true, unidade: tubo }).preco, 27);
+  assert.deepEqual(unidadeRecebida, { fatorConversao: 6, precoProprio: 27, precoAVistaProprio: 0 });
+});

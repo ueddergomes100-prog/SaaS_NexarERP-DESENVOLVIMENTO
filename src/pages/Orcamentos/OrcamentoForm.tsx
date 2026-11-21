@@ -53,6 +53,15 @@ import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../c
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
+import {
+  DEFAULT_VENDER_POR_EMBALAGEM,
+  camposDeUnidadeDoItem,
+  findOpcaoUnidadeVenda,
+  opcoesDeUnidadeDaTela,
+  toBaseQuantity,
+  unidadeDePrecoDaOpcao,
+  type OpcaoUnidadeVenda,
+} from '../../utils/embalagemDomain';
 import type { OrigemPreco, TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
@@ -97,6 +106,10 @@ interface ItemOrcamento {
   origemPreco?: OrigemPreco;
   promocaoId?: string;
   promocaoNome?: string;
+  /** Peca orcada numa embalagem (21/11/2026): rolo, tubo, saco. Vai junto quando vira pedido ou OS. */
+  embalagemId?: string;
+  fatorConversao?: number;
+  quantidadeBase?: number;
 }
 // A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
 // desenhava a sua, com informacao diferente (a OS nem mostrava estoque).
@@ -128,6 +141,8 @@ interface PecaOrcamento {
   /** `true` = principal de uma grade (gradeProdutosDomain.ts): sem estoque,
    * quem se vende sao as variacoes -- searchProducts() tambem exclui. */
   temGrade?: boolean;
+  /** Embalagens do cadastro (embalagemDomain.ts). */
+  embalagens?: unknown;
 }
 interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
 
@@ -205,6 +220,9 @@ const OrcamentoForm: React.FC = () => {
   const [pecaNomeInput, setPecaNomeInput] = useState('');
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
   const [pecaSelecionada, setPecaSelecionada] = useState<PecaOrcamento | null>(null);
+  // Unidade da proxima peca (21/11/2026): '' = unidade do cadastro; senao a embalagem.
+  const [pecaEmbalagemId, setPecaEmbalagemId] = useState('');
+  const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [isPecaSearchModalOpen, setIsPecaSearchModalOpen] = useState(false);
 
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
@@ -302,6 +320,7 @@ const OrcamentoForm: React.FC = () => {
             unidadeMedidaCasasDecimais: data.unidadeMedidaCasasDecimais,
             ativo: data.ativo ?? data.statusAtivo ?? true,
             temGrade: data.temGrade === true,
+            embalagens: data.embalagens,
           });
         });
         setPecasEstoque(dataE);
@@ -313,6 +332,7 @@ const OrcamentoForm: React.FC = () => {
           if (configSnap.exists()) {
             const config = configSnap.data();
             setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+            setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
             setLimiteDescontoOrcamento(parseLimiteDescontoConfig(config.limiteDescontoOrcamento));
             setModoLimiteDesconto(parseModoLimiteDesconto(config.modoLimiteDesconto));
             setTipoDescontoPadrao(parseTipoDescontoPadrao(config.tipoDescontoPadrao));
@@ -419,6 +439,7 @@ const OrcamentoForm: React.FC = () => {
     setPecaNomeInput('');
     setPecaPrecoInput('');
     setPecaSelecionada(null);
+    setPecaEmbalagemId('');
   };
 
   // Mesma checagem de bloquear/perguntar que ja rodava so no Salvar (ver
@@ -446,6 +467,9 @@ const OrcamentoForm: React.FC = () => {
     }
   };
 
+  // Unidades em que a peca escolhida pode sair (21/11/2026).
+  const opcoesDaPecaEscolhida = pecaSelecionada ? opcoesDeUnidadeDaTela(pecaSelecionada, venderPorEmbalagem) : [];
+
   const handleAddItem = (tipo: 'servico' | 'peca') => {
     const nome = tipo === 'servico' ? servicoNomeInput : pecaNomeInput;
     const preco = tipo === 'servico' ? servicoPrecoInput : pecaPrecoInput;
@@ -457,6 +481,7 @@ const OrcamentoForm: React.FC = () => {
     let existingId: string | undefined;
     let unidadeMedida: UnidadeMedidaProduto | null = null;
     let precificacao: ReturnType<typeof camposDePrecoDoItem> | null = null;
+    let opcaoDaPeca: OpcaoUnidadeVenda | null = null;
 
     if (tipo === 'peca') {
       const peca = pecaSelecionada || pecasEstoque.find(p => p.nome.toLowerCase() === nome.toLowerCase());
@@ -472,10 +497,12 @@ const OrcamentoForm: React.FC = () => {
       }
 
       existingId = peca.id;
+      // Unidade escolhida (rolo, tubo...): preco e estoque nela (21/11/2026).
+      opcaoDaPeca = findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(peca, venderPorEmbalagem), pecaEmbalagemId);
       // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
-      precificacao = camposDePrecoDoItem(tabelaDe(peca), CONDICAO_ORCAMENTO, precoNum);
+      precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcaoDaPeca)), CONDICAO_ORCAMENTO, precoNum);
 
-      if (!permitirVendaSemEstoque && peca && 1 > (peca.quantidade || 0)) {
+      if (!permitirVendaSemEstoque && peca && toBaseQuantity(1, opcaoDaPeca.fatorConversao) > (peca.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${peca.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
         return;
       }
@@ -507,6 +534,8 @@ const OrcamentoForm: React.FC = () => {
       // preenchidos, entao nenhum `undefined` chega no Firestore (que
       // recusa: "Unsupported field value: undefined").
       ...(unidadeMedida ?? {}),
+      // Na embalagem, a unidade do item e' a dela; na base, nada muda.
+      ...(opcaoDaPeca?.embalagemId ? camposDeUnidadeDoItem(opcaoDaPeca, 1) : {}),
       ...(precificacao ? precificacao.campos : {}),
     };
 
@@ -520,6 +549,7 @@ const OrcamentoForm: React.FC = () => {
       setPecaNomeInput('');
       setPecaPrecoInput('');
       setPecaSelecionada(null);
+      setPecaEmbalagemId('');
       pecaNomeInputRef.current?.focus();
     }
   };
@@ -542,13 +572,14 @@ const OrcamentoForm: React.FC = () => {
 
       if (!permitirVendaSemEstoque) {
         const pecaEstoque = pecasEstoque.find(p => p.id === item.id);
-        if (pecaEstoque && qtd > (pecaEstoque.quantidade || 0)) {
-          showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} un. no estoque.`);
+        if (pecaEstoque && toBaseQuantity(qtd, item.fatorConversao) > (pecaEstoque.quantidade || 0)) {
+          showError('Estoque Insuficiente', `Você tem apenas ${pecaEstoque.quantidade || 0} ${pecaEstoque.unidadeMedidaSigla || 'un.'} no estoque.`);
           return;
         }
       }
 
       novos[index].quantidade = qtd;
+      if (item.embalagemId) novos[index].quantidadeBase = toBaseQuantity(qtd, item.fatorConversao);
       setItens(novos);
       return;
     }
@@ -1188,7 +1219,7 @@ const OrcamentoForm: React.FC = () => {
                 </>
               )}
 
-              <div className="item-add-row">
+              <div className={`item-add-row${opcoesDaPecaEscolhida.length > 1 ? ' item-add-row--com-unidade' : ''}`}>
                 <div style={{ position: 'relative' }}>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Produto</label>
                   <ProductAutocomplete
@@ -1199,11 +1230,13 @@ const OrcamentoForm: React.FC = () => {
                       setPecaNomeInput(value);
                       const existsExact = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
                       setPecaSelecionada(existsExact || null);
+                      setPecaEmbalagemId('');
                     }}
                     onSelect={(p) => {
                       setPecaNomeInput(p.nome);
                       setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), CONDICAO_ORCAMENTO)));
                       setPecaSelecionada(p);
+                      setPecaEmbalagemId('');
                     }}
                     placeholder="Código ou nome do produto"
                     ariaLabel="Buscar produto"
@@ -1230,12 +1263,32 @@ const OrcamentoForm: React.FC = () => {
                       setPecaNomeInput(p.nome);
                       setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), CONDICAO_ORCAMENTO)));
                       setPecaSelecionada(p);
+                      setPecaEmbalagemId('');
                     }}
                     renderItem={renderPecaRow}
                     initialQuery={pecaNomeInput}
                     title="Buscar produto"
                   />
                 </div>
+                {/* Unidade (rolo, tubo, saco): so' quando o produto tem embalagem e a empresa vende por embalagem. */}
+                {opcoesDaPecaEscolhida.length > 1 && pecaSelecionada && (
+                  <div>
+                    <label htmlFor="orcamento-unidade-peca" style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Unidade</label>
+                    <select
+                      id="orcamento-unidade-peca"
+                      value={pecaEmbalagemId}
+                      onChange={(e) => {
+                        setPecaEmbalagemId(e.target.value);
+                        const opcao = findOpcaoUnidadeVenda(opcoesDaPecaEscolhida, e.target.value);
+                        setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(pecaSelecionada, unidadeDePrecoDaOpcao(opcao)), CONDICAO_ORCAMENTO)));
+                      }}
+                    >
+                      {opcoesDaPecaEscolhida.map((opcao) => (
+                        <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
                   <input type="text" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
@@ -1251,7 +1304,13 @@ const OrcamentoForm: React.FC = () => {
                 <div key={index} className="item-row">
                   <div className="item-info">
                     <div className="item-name">{item.nome}</div>
-                    <div className="item-type">{item.tipo === 'servico' ? 'Mão de obra — quantidade em horas' : 'Produto'}</div>
+                    <div className="item-type">
+                      {item.tipo === 'servico'
+                        ? 'Mão de obra — quantidade em horas'
+                        : item.embalagemId
+                          ? `Produto em ${item.unidadeMedidaSigla} · ${toBaseQuantity(item.quantidade, item.fatorConversao).toLocaleString('pt-BR')} no estoque`
+                          : 'Produto'}
+                    </div>
                   </div>
                   <div className="item-actions">
                     <input

@@ -9,7 +9,7 @@
 // quilo. Por isso a conversao acontece so na hora de mexer no estoque
 // (toStockAdjustmentItems), nunca no valor financeiro do item.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
+exports.margemSobreCusto = exports.custoDaEmbalagem = exports.unidadeDePrecoDaOpcao = exports.opcaoDoItemGravado = exports.camposDeUnidadeDoItem = exports.opcoesDeUnidadeDaTela = exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
 /** Casas decimais usadas ao converter para a unidade base. Existe so pra
  * absorver o erro de ponto flutuante de quantidade fracionada x fator (ex:
  * 0.1 * 3), nao pra limitar o que o usuario pode digitar -- esse limite e da
@@ -49,6 +49,7 @@ const normalizeEmbalagens = (value) => {
             fatorConversao,
             precoVenda: Math.max(0, toFiniteNumber(entry.precoVenda)),
             precoAVista: Math.max(0, toFiniteNumber(entry.precoAVista)),
+            precoCusto: Math.max(0, toFiniteNumber(entry.precoCusto)),
             codigoBarras: toTrimmedString(entry.codigoBarras),
             ativo: entry.ativo !== false,
         });
@@ -122,3 +123,70 @@ const toStockAdjustmentItems = (itens) => (itens.map((item) => ({
     quantidade: (0, exports.toBaseQuantity)(item.quantidade, item.fatorConversao),
 })));
 exports.toStockAdjustmentItems = toStockAdjustmentItems;
+/**
+ * As opcoes de unidade que a tela oferece: com "Vender por embalagem"
+ * desligado nas Configuracoes, so' a unidade base (21/11/2026: mesma regra
+ * do Pedido de Venda agora tambem no Orcamento, na OS e no app Vendas).
+ */
+const opcoesDeUnidadeDaTela = (produto, venderPorEmbalagem) => {
+    const opcoes = (0, exports.buildOpcoesUnidadeVenda)(produto);
+    return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
+};
+exports.opcoesDeUnidadeDaTela = opcoesDeUnidadeDaTela;
+/**
+ * Campos de unidade do item lancado (venda, orcamento, OS, app). Na unidade
+ * base o item nao ganha campo de embalagem nenhum -- fica igual ao que o
+ * sistema sempre gravou. Na embalagem: a sigla e as casas dela, o id, o
+ * fator e a quantidade ja' convertida para o estoque.
+ */
+const camposDeUnidadeDoItem = (opcao, quantidade) => ({
+    unidadeMedidaSigla: opcao.sigla,
+    unidadeMedidaCasasDecimais: opcao.casasDecimais,
+    unidadeMedidaFracionado: opcao.permiteFracionado,
+    ...(opcao.embalagemId
+        ? { embalagemId: opcao.embalagemId, fatorConversao: opcao.fatorConversao, quantidadeBase: (0, exports.toBaseQuantity)(quantidade, opcao.fatorConversao) }
+        : {}),
+});
+exports.camposDeUnidadeDoItem = camposDeUnidadeDoItem;
+/**
+ * A opcao de um item ja' gravado (orcamento virando pedido, item reaberto).
+ * Diferente de findOpcaoUnidadeVenda, NAO cai na base quando a embalagem
+ * sumiu: a quantidade estava em embalagem e viraria unidade base sem aviso
+ * (1 rolo viraria 1 metro). Devolve null e quem chama avisa.
+ */
+const opcaoDoItemGravado = (produto, embalagemId) => {
+    const opcoes = (0, exports.buildOpcoesUnidadeVenda)(produto);
+    const alvo = toTrimmedString(embalagemId);
+    if (!alvo)
+        return opcoes[0];
+    return opcoes.find((opcao) => opcao.embalagemId === alvo) || null;
+};
+exports.opcaoDoItemGravado = opcaoDoItemGravado;
+/** A unidade para a tabela de preco (tabelaDoProduto / tabelaComPromocao): fator e os precos proprios da embalagem. */
+const unidadeDePrecoDaOpcao = (opcao) => ({
+    fatorConversao: opcao.fatorConversao,
+    precoProprio: opcao.embalagemId ? Number(opcao.precoVendaProprio) || 0 : 0,
+    precoAVistaProprio: opcao.embalagemId ? Number(opcao.precoAVistaProprio) || 0 : 0,
+});
+exports.unidadeDePrecoDaOpcao = unidadeDePrecoDaOpcao;
+/**
+ * Custo da embalagem (21/11/2026): o proprio, quando cadastrado; senao o custo
+ * do produto (unidade base) x fator. Ex.: metro a R$ 4, tubo de 6 m sem custo
+ * proprio = R$ 24; com custo proprio de R$ 20, vale R$ 20.
+ */
+const custoDaEmbalagem = (embalagem, custoDaBase) => {
+    const proprio = Math.max(0, toFiniteNumber(embalagem.precoCusto));
+    if (proprio > 0)
+        return proprio;
+    const fator = toFiniteNumber(embalagem.fatorConversao, 1);
+    return Math.round(Math.max(0, toFiniteNumber(custoDaBase)) * (fator > 0 ? fator : 1) * 100) / 100;
+};
+exports.custoDaEmbalagem = custoDaEmbalagem;
+/** Margem sobre o custo, a mesma conta do cadastro do produto: (venda - custo) / custo. Sem custo = null. */
+const margemSobreCusto = (preco, custo) => {
+    const c = toFiniteNumber(custo);
+    if (!(c > 0))
+        return null;
+    return ((toFiniteNumber(preco) - c) / c) * 100;
+};
+exports.margemSobreCusto = margemSobreCusto;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  linhasDeEstoqueDaOs,
   assinaturaDaCobrancaDaOs,
   bloqueioParaReabrirOs,
   camposDescritivosDaOs,
@@ -335,4 +336,17 @@ test('comissao reaberta: sem valor e fora da base do relatorio', () => {
   const linha = { status: 'reaberta', baseCents: 5000, valueCents: 0, historical: true } as EntradaComissao;
   assert.equal(baseConsideradaCentavos(linha), 0);
   assert.equal(rotuloStatusComissao('reaberta'), 'Reaberta');
+});
+
+test('pecas da OS no estoque na unidade base: peca em tubo de 6 m baixa 6 x quantidade (21/11/2026)', () => {
+  assert.deepEqual(linhasDeEstoqueDaOs([
+    { id: 'tubo', nome: 'TUBO PVC', quantidade: 2, fatorConversao: 6 },
+    { id: 'joelho', nome: 'JOELHO', quantidade: 3 },
+    { id: 'avulso', nome: 'AVULSO', quantidade: 1 },
+  ]), [
+    { id: 'tubo', nome: 'TUBO PVC', quantidade: 12 },
+    { id: 'joelho', nome: 'JOELHO', quantidade: 3 },
+  ]);
+  // O que ja' saiu (pecasBaixadas, sem fator) nao converte de novo.
+  assert.deepEqual(linhasDeEstoqueDaOs([{ id: 'tubo', nome: 'TUBO PVC', quantidade: 12 }]), [{ id: 'tubo', nome: 'TUBO PVC', quantidade: 12 }]);
 });

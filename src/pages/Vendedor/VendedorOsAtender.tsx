@@ -79,7 +79,7 @@ const VendedorOsAtender: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const voltarPara = useVoltarPara();
-  const { tenantId, currentUser, userNome, userPermissions, permiteVendaSemEstoque, userRole, isOwner } = useAuth();
+  const { tenantId, currentUser, userNome, userPermissions, permiteVendaSemEstoque, venderPorEmbalagem, userRole, isOwner } = useAuth();
   const { modo, rotulos, configMaquinas } = useModoOficina();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: catalogoServicos } = useTenantCollection<ServicoCatalogo>('servicos', tenantId);
@@ -366,7 +366,7 @@ const VendedorOsAtender: React.FC = () => {
 
         <section style={cardStyle} className={veValores ? undefined : 'os-campo-sem-valores'}>
           <div style={tituloSecao}><Wrench size={15} /> Peças usadas</div>
-          <VendedorItemPicker
+          <VendedorItemPicker venderPorEmbalagem={venderPorEmbalagem}
             produtos={produtosAtivos}
             itens={pecas.map(pecaParaItemPicker)}
             onItensChange={(itens) => { setPecas(itens.map(itemPickerParaPeca)); marcar(); }}

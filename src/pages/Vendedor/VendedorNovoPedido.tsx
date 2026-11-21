@@ -43,7 +43,7 @@ const VendedorNovoPedido: React.FC = () => {
   const location = useLocation();
   const { localId } = useParams();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
-  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, userPermissions, controlaFiscal, modoRotaPreVenda, configBonificacao, userRole, isOwner } = useAuth();
+  const { tenantId, currentUser, trabalhaComPreVenda, permiteVendaSemEstoque, venderPorEmbalagem, userPermissions, controlaFiscal, modoRotaPreVenda, configBonificacao, userRole, isOwner } = useAuth();
   // Bonificacao (30/10/2026): a empresa ligou e a pessoa pode bonificar.
   const podeBonificar = configBonificacao.ativa && (hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_BONIFICAR));
   // Rota na pre-venda (21/10/2026): ao marcar "Pronto para enviar", pergunta a rota quando ha' mais de uma em montagem.
@@ -186,7 +186,7 @@ const VendedorNovoPedido: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} precos={promocoesVigentes} consomeQuota podeBonificar={podeBonificar} podeAlterarPreco={podeAlterarPrecoNoApp({ role: userRole, isOwner, permissoes: userPermissions })} />
+        <VendedorItemPicker venderPorEmbalagem={venderPorEmbalagem} produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque={permiteVendaSemEstoque} precos={promocoesVigentes} consomeQuota podeBonificar={podeBonificar} podeAlterarPreco={podeAlterarPrecoNoApp({ role: userRole, isOwner, permissoes: userPermissions })} />
 
         <div style={{ marginTop: '22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

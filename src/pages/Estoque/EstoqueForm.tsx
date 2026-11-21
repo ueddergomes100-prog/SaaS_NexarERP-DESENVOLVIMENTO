@@ -26,7 +26,7 @@ import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTim
 import { situacaoDoLote, ROTULO_SITUACAO_LOTE } from '../../utils/loteDomain';
 import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../../utils/cashbackDomain';
 import { opcoesDeCategoria, separarCategoriasPorSituacao } from '../../utils/categoriaDomain';
-import { DEFAULT_VENDER_POR_EMBALAGEM, formatFatorConversao, normalizeEmbalagens } from '../../utils/embalagemDomain';
+import { DEFAULT_VENDER_POR_EMBALAGEM, custoDaEmbalagem, formatFatorConversao, margemSobreCusto, normalizeEmbalagens } from '../../utils/embalagemDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -269,6 +269,8 @@ interface EmbalagemFormRow {
   fatorConversao: string;
   precoVenda: string;
   precoAVista: string;
+  /** Custo proprio da embalagem (21/11/2026). Vazio = custo do produto x fator. */
+  precoCusto: string;
   codigoBarras: string;
   ativo: boolean;
 }
@@ -282,6 +284,7 @@ const emptyEmbalagemRow = (): EmbalagemFormRow => ({
   fatorConversao: '1',
   precoVenda: '',
   precoAVista: '',
+  precoCusto: '',
   codigoBarras: '',
   ativo: true,
 });
@@ -1027,6 +1030,7 @@ const EstoqueForm: React.FC = () => {
               fatorConversao: String(embalagem.fatorConversao),
               precoVenda: embalagem.precoVenda > 0 ? String(embalagem.precoVenda) : '',
               precoAVista: embalagem.precoAVista > 0 ? String(embalagem.precoAVista) : '',
+              precoCusto: embalagem.precoCusto > 0 ? String(embalagem.precoCusto) : '',
               codigoBarras: embalagem.codigoBarras,
               ativo: embalagem.ativo,
             })));
@@ -1839,6 +1843,7 @@ const EstoqueForm: React.FC = () => {
               fatorConversao: toNumber(embalagem.fatorConversao),
               precoVenda: toNumber(embalagem.precoVenda),
               precoAVista: toNumber(embalagem.precoAVista),
+              precoCusto: toNumber(embalagem.precoCusto),
               codigoBarras: embalagem.codigoBarras.trim(),
               ativo: embalagem.ativo,
             };
@@ -3077,6 +3082,17 @@ const EstoqueForm: React.FC = () => {
                   />
                 </div>
                 <div className="input-group">
+                  <label>Preço de custo</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    title={`Vazio = custo do produto (${formatCurrency(precoCusto)}) × fator`}
+                    value={novaEmbalagem.precoCusto}
+                    onChange={(e) => setNovaEmbalagem(prev => ({ ...prev, precoCusto: e.target.value }))}
+                  />
+                </div>
+                <div className="input-group">
                   <label>Preço de venda</label>
                   <input
                     type="number"
@@ -3119,106 +3135,128 @@ const EstoqueForm: React.FC = () => {
                 </button>
               </div>
 
-              <div className="table-wrapper" style={{ marginTop: '20px' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Unidade</th>
-                      <th>Fator</th>
-                      <th>Preço de venda</th>
-                      <th>Preço à vista</th>
-                      <th>Código de barras</th>
-                      <th>Descrição</th>
-                      <th>Ativa</th>
-                      <th>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {embalagens.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                          Nenhuma embalagem cadastrada. O produto é vendido apenas em {baseUnidadeSigla}.
-                        </td>
-                      </tr>
-                    ) : (
-                      embalagens.map(embalagem => {
-                        const unidadeEmbalagem = activeUnidades.find(u => u.id === embalagem.unidadeMedidaId);
-                        const fator = toNumber(embalagem.fatorConversao);
-                        const precoEfetivo = toNumber(embalagem.precoVenda) > 0
-                          ? toNumber(embalagem.precoVenda)
-                          : precoVenda * fator;
-                        return (
-                          <tr key={embalagem.id} style={{ opacity: embalagem.ativo ? 1 : 0.5 }}>
-                            <td>
-                              <strong>{unidadeEmbalagem?.sigla || '—'}</strong>
-                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                1 {unidadeEmbalagem?.sigla || '?'} = {formatFatorConversao(fator)} {baseUnidadeSigla}
-                              </div>
-                            </td>
-                            <td style={{ maxWidth: '120px' }}>
-                              <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={embalagem.fatorConversao}
-                                onChange={(e) => updateEmbalagem(embalagem.id, 'fatorConversao', e.target.value)}
-                              />
-                            </td>
-                            <td style={{ maxWidth: '140px' }}>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                               
-                                value={embalagem.precoVenda}
-                                onChange={(e) => updateEmbalagem(embalagem.id, 'precoVenda', e.target.value)}
-                              />
-                            </td>
-                            <td style={{ maxWidth: '140px' }}>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                               
-                                value={embalagem.precoAVista}
-                                onChange={(e) => updateEmbalagem(embalagem.id, 'precoAVista', e.target.value)}
-                              />
-                              {toNumber(embalagem.precoAVista) > 0 && toNumber(embalagem.precoAVista) > precoEfetivo && (
-                                <div style={{ fontSize: '11px', color: '#d97706', marginTop: '4px' }}>
-                                  Maior que o preço de venda ({formatCurrency(precoEfetivo)})
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ maxWidth: '180px' }}>
-                              <input
-                                value={embalagem.codigoBarras}
-                                onChange={(e) => updateEmbalagem(embalagem.id, 'codigoBarras', e.target.value)}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                value={embalagem.descricao}
-                                onChange={(e) => updateEmbalagem(embalagem.id, 'descricao', e.target.value)}
-                              />
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
+              {/* Cada embalagem num cartao com os mesmos campos do formulario
+                  (21/11/2026): antes era uma tabela de campos crus, encavalados. */}
+              <div className="embalagens-lista">
+                {embalagens.length === 0 ? (
+                  <div className="embalagens-vazio">
+                    Nenhuma embalagem cadastrada. O produto é vendido apenas em {baseUnidadeSigla}.
+                  </div>
+                ) : (
+                  embalagens.map(embalagem => {
+                    const unidadeEmbalagem = activeUnidades.find(u => u.id === embalagem.unidadeMedidaId);
+                    const sigla = unidadeEmbalagem?.sigla || '—';
+                    const fator = toNumber(embalagem.fatorConversao);
+                    const precoEfetivo = toNumber(embalagem.precoVenda) > 0
+                      ? toNumber(embalagem.precoVenda)
+                      : precoVenda * fator;
+                    const custoEfetivo = custoDaEmbalagem({ precoCusto: toNumber(embalagem.precoCusto), fatorConversao: fator }, precoCusto);
+                    const margem = margemSobreCusto(precoEfetivo, custoEfetivo);
+                    return (
+                      <div key={embalagem.id} className={`embalagem-cartao${embalagem.ativo ? '' : ' embalagem-cartao--inativa'}`}>
+                        <div className="embalagem-cartao__topo">
+                          <div className="embalagem-cartao__titulo">
+                            <span className="embalagem-cartao__sigla">{sigla}</span>
+                            <div>
+                              <strong>1 {sigla} = {formatFatorConversao(fator)} {baseUnidadeSigla}</strong>
+                              {embalagem.descricao && <span className="embalagem-cartao__descricao">{embalagem.descricao}</span>}
+                            </div>
+                          </div>
+                          <div className="embalagem-cartao__acoes">
+                            <label className="embalagem-cartao__ativa">
                               <input
                                 type="checkbox"
                                 checked={embalagem.ativo}
                                 onChange={(e) => updateEmbalagem(embalagem.id, 'ativo', e.target.checked)}
                               />
-                            </td>
-                            <td>
-                              <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Remover" onClick={() => removeEmbalagem(embalagem.id)}>
-                                <Trash2 size={16} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                              Ativa
+                            </label>
+                            <button type="button" className="icon-btn embalagem-cartao__remover" title={`Remover a embalagem ${sigla}`} aria-label={`Remover a embalagem ${sigla}`} onClick={() => removeEmbalagem(embalagem.id)}>
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="embalagem-cartao__campos">
+                          <div className="input-group">
+                            <label>Fator (em {baseUnidadeSigla})</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              value={embalagem.fatorConversao}
+                              onChange={(e) => updateEmbalagem(embalagem.id, 'fatorConversao', e.target.value)}
+                            />
+                          </div>
+                          <div className="input-group">
+                            <label>Preço de custo</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              title="Vazio = custo do produto × fator"
+                              value={embalagem.precoCusto}
+                              onChange={(e) => updateEmbalagem(embalagem.id, 'precoCusto', e.target.value)}
+                            />
+                            {toNumber(embalagem.precoCusto) <= 0 && (
+                              <span className="embalagem-cartao__dica">Vale {formatCurrency(custoEfetivo)} ({formatCurrency(precoCusto)} × {formatFatorConversao(fator)})</span>
+                            )}
+                          </div>
+                          <div className="input-group">
+                            <label>Preço de venda</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              title="Vazio = preço do produto × fator"
+                              value={embalagem.precoVenda}
+                              onChange={(e) => updateEmbalagem(embalagem.id, 'precoVenda', e.target.value)}
+                            />
+                            {toNumber(embalagem.precoVenda) <= 0 && (
+                              <span className="embalagem-cartao__dica">Vale {formatCurrency(precoEfetivo)} ({formatCurrency(precoVenda)} × {formatFatorConversao(fator)})</span>
+                            )}
+                          </div>
+                          <div className="input-group">
+                            <label>Preço à vista</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              title="Vazio = segue o preço de venda"
+                              value={embalagem.precoAVista}
+                              onChange={(e) => updateEmbalagem(embalagem.id, 'precoAVista', e.target.value)}
+                            />
+                            {toNumber(embalagem.precoAVista) > 0 && toNumber(embalagem.precoAVista) > precoEfetivo && (
+                              <span className="embalagem-cartao__dica embalagem-cartao__dica--alerta">Maior que o preço de venda ({formatCurrency(precoEfetivo)})</span>
+                            )}
+                          </div>
+                          <div className="input-group">
+                            <label>Código de barras</label>
+                            <input
+                              value={embalagem.codigoBarras}
+                              onChange={(e) => updateEmbalagem(embalagem.id, 'codigoBarras', e.target.value)}
+                            />
+                          </div>
+                          <div className="input-group">
+                            <label>Descrição</label>
+                            <input
+                              value={embalagem.descricao}
+                              onChange={(e) => updateEmbalagem(embalagem.id, 'descricao', aplicarCaixaAltaCadastro(e.target, e.target.value))}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="embalagem-cartao__resumo">
+                          <span>Custo <strong>{formatCurrency(custoEfetivo)}</strong></span>
+                          <span>Venda <strong>{formatCurrency(precoEfetivo)}</strong></span>
+                          <span className={margem !== null && margem < 0 ? 'embalagem-cartao__margem--negativa' : undefined}>
+                            Margem <strong>{margem === null ? 'sem custo' : `${margem.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}</strong>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
 
               <div className="info-panel compact-panel" style={{ marginTop: '16px' }}>

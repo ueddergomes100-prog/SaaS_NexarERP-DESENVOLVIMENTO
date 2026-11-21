@@ -9,6 +9,7 @@ import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import { lerPrecoDigitado, precificarNoApp, precoDaTabelaDoItem, promocaoParaMostrar, trocarPrecoDoItem, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
 import { bonificarItem, cobrarItem, ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
+import { camposDeUnidadeDoItem, findOpcaoUnidadeVenda, opcoesDeUnidadeDaTela, toBaseQuantity } from '../../utils/embalagemDomain';
 
 export interface ProdutoVendedorExterno {
   id: string;
@@ -24,6 +25,8 @@ export interface ProdutoVendedorExterno {
   ativo?: boolean;
   /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
   bloquearVendaSemEstoque?: boolean;
+  /** Embalagens do cadastro (rolo, tubo, saco -- embalagemDomain.ts). */
+  embalagens?: unknown;
 }
 
 interface Props {
@@ -41,6 +44,8 @@ interface Props {
   podeBonificar?: boolean;
   /** Permissao "App: Alterar o preco do item" (podeAlterarPrecoNoApp). So' pedido e orcamento. */
   podeAlterarPreco?: boolean;
+  /** Config "Vender por embalagem" (21/11/2026): mostra a escolha da unidade no produto marcado. */
+  venderPorEmbalagem?: boolean;
 }
 
 const RESULTADOS_LIMITE = 15;
@@ -63,7 +68,7 @@ const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 
  * painel -- exatamente o oposto do que precisa aqui. Escrever a lista de novo
  * aqui evita arriscar as telas desktop, que continuam com o fluxo de sempre.
  */
-const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true, precos = null, consomeQuota = false, podeBonificar = false, podeAlterarPreco = false }) => {
+const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, permitirVendaSemEstoque, mostrarValores = true, precos = null, consomeQuota = false, podeBonificar = false, podeAlterarPreco = false, venderPorEmbalagem = false }) => {
   const [produtoBusca, setProdutoBusca] = useState('');
   // Tocar na busca ja' mostra a lista (mesmo comportamento do Pedido de Venda);
   // "Mostrar mais" aumenta o corte. "#" lista tudo, "#gel" filtra.
@@ -71,6 +76,8 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
   const [limite, setLimite] = useState(RESULTADOS_LIMITE);
   // produtoId -> quantidade digitada (string, mesma logica do campo antigo).
   const [selecionados, setSelecionados] = useState<Record<string, string>>({});
+  // produtoId -> embalagem escolhida ('' ou ausente = unidade do cadastro). 21/11/2026.
+  const [unidadesEscolhidas, setUnidadesEscolhidas] = useState<Record<string, string>>({});
 
   const termo = produtoBusca.trim() || (focado ? LISTAR_TUDO_TERM : '');
   const resultado = useMemo(() => {
@@ -121,10 +128,16 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
         return;
       }
 
-      const unidade = resolveUnidadeMedidaProduto(produto);
+      const unidadeDoCadastro = resolveUnidadeMedidaProduto(produto);
+      // Unidade escolhida (rolo, tubo...): estoque, quantidade e preco nela (21/11/2026).
+      const opcao = findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(produto, venderPorEmbalagem), unidadesEscolhidas[id]);
+      const unidade = opcao.embalagemId
+        ? { unidadeMedidaSigla: opcao.sigla, unidadeMedidaFracionado: opcao.permiteFracionado, unidadeMedidaCasasDecimais: opcao.casasDecimais }
+        : unidadeDoCadastro;
+      const qtdNoEstoque = toBaseQuantity(qtd, opcao.fatorConversao);
 
-      if (!podeVenderSemEstoque(permitirVendaSemEstoque, produto) && qtd > (produto.quantidade || 0)) {
-        erros.push(`${produto.nome}: só há ${produto.quantidade || 0} ${unidade.unidadeMedidaSigla} em estoque`);
+      if (!podeVenderSemEstoque(permitirVendaSemEstoque, produto) && qtdNoEstoque > (produto.quantidade || 0)) {
+        erros.push(`${produto.nome}: só há ${produto.quantidade || 0} ${unidadeDoCadastro.unidadeMedidaSigla} em estoque`);
         return;
       }
 
@@ -138,7 +151,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
       if (!temUnidadeMedidaCadastrada(produto)) semUnidade.push(produto.nome);
 
       // Preco pela tabela do dia (promocao), como no desktop. Ver precoAppVendasDomain.
-      const preco = precificarNoApp({ precos, produto, quantidade: qtd, naVenda: [...itens, ...novosItens], consomeQuota });
+      const preco = precificarNoApp({ precos, produto, quantidade: qtd, naVenda: [...itens, ...novosItens], consomeQuota, unidade: opcao });
       if (preco.aviso) foraDaPromocao.push(preco.aviso);
       novosItens.push({
         id: produto.id,
@@ -151,6 +164,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
         unidadeMedidaSigla: unidade.unidadeMedidaSigla,
         unidadeMedidaFracionado: unidade.unidadeMedidaFracionado,
         unidadeMedidaCasasDecimais: unidade.unidadeMedidaCasasDecimais,
+        ...(opcao.embalagemId ? camposDeUnidadeDoItem(opcao, qtd) : {}),
         ...(preco.campos || {}),
       });
     });
@@ -169,6 +183,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
     semUnidade.forEach((nome) => showWarning(avisoUnidadeMedidaAusente(nome).text));
     foraDaPromocao.forEach((aviso) => showWarning(aviso));
     setSelecionados({});
+    setUnidadesEscolhidas({});
     setProdutoBusca('');
   };
 
@@ -256,6 +271,27 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                     })()}
                   </div>
 
+                  {/* Unidade (rolo, tubo, saco): so' com embalagem e "Vender por embalagem" ligado (21/11/2026). */}
+                  {marcado && (() => {
+                    const opcoes = opcoesDeUnidadeDaTela(produto, venderPorEmbalagem);
+                    if (opcoes.length < 2) return null;
+                    return (
+                      <select
+                        value={unidadesEscolhidas[produto.id] || ''}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setUnidadesEscolhidas((atual) => ({ ...atual, [produto.id]: e.target.value }))}
+                        aria-label={`Unidade de ${produto.nome}`}
+                        style={{
+                          height: '40px', maxWidth: '96px', borderRadius: '10px', border: '1px solid var(--border-color)', flexShrink: 0,
+                          backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, padding: '0 6px',
+                        }}
+                      >
+                        {opcoes.map((opcao) => (
+                          <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
+                        ))}
+                      </select>
+                    );
+                  })()}
                   {marcado && (
                     <input
                       type="text"

@@ -29,6 +29,8 @@ export interface Embalagem {
   precoVenda: number;
   /** Preco a vista proprio. 0/ausente = regra de tabelaDoProduto (precoVendaDomain.ts). */
   precoAVista: number;
+  /** Custo proprio (21/11/2026, pedido do dono): o tubo pode custar diferente de 6 x o metro. 0/ausente = custo do produto x fator. */
+  precoCusto: number;
   codigoBarras: string;
   ativo: boolean;
 }
@@ -98,6 +100,7 @@ export const normalizeEmbalagens = (value: unknown): Embalagem[] => {
       fatorConversao,
       precoVenda: Math.max(0, toFiniteNumber(entry.precoVenda)),
       precoAVista: Math.max(0, toFiniteNumber(entry.precoAVista)),
+      precoCusto: Math.max(0, toFiniteNumber(entry.precoCusto)),
       codigoBarras: toTrimmedString(entry.codigoBarras),
       ativo: entry.ativo !== false,
     });
@@ -189,3 +192,83 @@ export const toStockAdjustmentItems = (itens: ItemVendaParaEstoque[]): AjusteEst
     quantidade: toBaseQuantity(item.quantidade, item.fatorConversao),
   }))
 );
+
+/**
+ * As opcoes de unidade que a tela oferece: com "Vender por embalagem"
+ * desligado nas Configuracoes, so' a unidade base (21/11/2026: mesma regra
+ * do Pedido de Venda agora tambem no Orcamento, na OS e no app Vendas).
+ */
+export const opcoesDeUnidadeDaTela = (
+  produto: ProdutoComEmbalagens | null | undefined,
+  venderPorEmbalagem: boolean,
+): OpcaoUnidadeVenda[] => {
+  const opcoes = buildOpcoesUnidadeVenda(produto);
+  return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
+};
+
+/**
+ * Campos de unidade do item lancado (venda, orcamento, OS, app). Na unidade
+ * base o item nao ganha campo de embalagem nenhum -- fica igual ao que o
+ * sistema sempre gravou. Na embalagem: a sigla e as casas dela, o id, o
+ * fator e a quantidade ja' convertida para o estoque.
+ */
+export const camposDeUnidadeDoItem = (
+  opcao: OpcaoUnidadeVenda,
+  quantidade: number,
+): {
+  unidadeMedidaSigla: string;
+  unidadeMedidaCasasDecimais: number;
+  unidadeMedidaFracionado: boolean;
+  embalagemId?: string;
+  fatorConversao?: number;
+  quantidadeBase?: number;
+} => ({
+  unidadeMedidaSigla: opcao.sigla,
+  unidadeMedidaCasasDecimais: opcao.casasDecimais,
+  unidadeMedidaFracionado: opcao.permiteFracionado,
+  ...(opcao.embalagemId
+    ? { embalagemId: opcao.embalagemId, fatorConversao: opcao.fatorConversao, quantidadeBase: toBaseQuantity(quantidade, opcao.fatorConversao) }
+    : {}),
+});
+
+/**
+ * A opcao de um item ja' gravado (orcamento virando pedido, item reaberto).
+ * Diferente de findOpcaoUnidadeVenda, NAO cai na base quando a embalagem
+ * sumiu: a quantidade estava em embalagem e viraria unidade base sem aviso
+ * (1 rolo viraria 1 metro). Devolve null e quem chama avisa.
+ */
+export const opcaoDoItemGravado = (
+  produto: ProdutoComEmbalagens | null | undefined,
+  embalagemId: unknown,
+): OpcaoUnidadeVenda | null => {
+  const opcoes = buildOpcoesUnidadeVenda(produto);
+  const alvo = toTrimmedString(embalagemId);
+  if (!alvo) return opcoes[0];
+  return opcoes.find((opcao) => opcao.embalagemId === alvo) || null;
+};
+
+/** A unidade para a tabela de preco (tabelaDoProduto / tabelaComPromocao): fator e os precos proprios da embalagem. */
+export const unidadeDePrecoDaOpcao = (opcao: OpcaoUnidadeVenda): { fatorConversao: number; precoProprio: number; precoAVistaProprio: number } => ({
+  fatorConversao: opcao.fatorConversao,
+  precoProprio: opcao.embalagemId ? Number(opcao.precoVendaProprio) || 0 : 0,
+  precoAVistaProprio: opcao.embalagemId ? Number(opcao.precoAVistaProprio) || 0 : 0,
+});
+
+/**
+ * Custo da embalagem (21/11/2026): o proprio, quando cadastrado; senao o custo
+ * do produto (unidade base) x fator. Ex.: metro a R$ 4, tubo de 6 m sem custo
+ * proprio = R$ 24; com custo proprio de R$ 20, vale R$ 20.
+ */
+export const custoDaEmbalagem = (embalagem: { precoCusto?: unknown; fatorConversao?: unknown }, custoDaBase: unknown): number => {
+  const proprio = Math.max(0, toFiniteNumber(embalagem.precoCusto));
+  if (proprio > 0) return proprio;
+  const fator = toFiniteNumber(embalagem.fatorConversao, 1);
+  return Math.round(Math.max(0, toFiniteNumber(custoDaBase)) * (fator > 0 ? fator : 1) * 100) / 100;
+};
+
+/** Margem sobre o custo, a mesma conta do cadastro do produto: (venda - custo) / custo. Sem custo = null. */
+export const margemSobreCusto = (preco: unknown, custo: unknown): number | null => {
+  const c = toFiniteNumber(custo);
+  if (!(c > 0)) return null;
+  return ((toFiniteNumber(preco) - c) / c) * 100;
+};

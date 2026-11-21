@@ -154,6 +154,7 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
   findOpcaoUnidadeVenda,
+  opcaoDoItemGravado,
   toBaseQuantity,
   toStockAdjustmentItems,
 } from '../../utils/embalagemDomain';
@@ -420,6 +421,8 @@ interface LinhaDeOrcamento {
   origemPreco?: ItemVenda['origemPreco'];
   promocaoId?: string;
   promocaoNome?: string;
+  /** Peca orcada numa embalagem (21/11/2026). */
+  embalagemId?: string;
 }
 
 const PedidoVendaForm: React.FC = () => {
@@ -1442,7 +1445,7 @@ const PedidoVendaForm: React.FC = () => {
             deFora.push(`${linha.nome || 'Peça'} (inativa ou sem cadastro no Estoque)`);
             continue;
           }
-          const montado = montarItemDoCatalogo(produto, Number(linha.quantidade || 0));
+          const montado = montarItemDoCatalogo(produto, Number(linha.quantidade || 0), undefined, linha.embalagemId);
           if ('erro' in montado) {
             deFora.push(montado.erro);
             continue;
@@ -2089,9 +2092,14 @@ const PedidoVendaForm: React.FC = () => {
     product: ProdutoEstoque,
     quantidade: number,
     indiceIgnorado?: number,
+    /** Item que ja' vinha numa embalagem (orcamento, 21/11/2026). Ausente = unidade do cadastro. */
+    embalagemId?: string,
   ): { item: ItemVenda; aviso?: string; avisoReserva?: () => void } | { erro: string; mostrarReserva?: () => void } => {
     if (!(quantidade > 0)) return { erro: `${product.nome}: quantidade inválida.` };
-    const opcao = buildOpcoesUnidadeVenda(product)[0];
+    const opcaoGravada = embalagemId ? opcaoDoItemGravado(product, embalagemId) : buildOpcoesUnidadeVenda(product)[0];
+    // Embalagem apagada do cadastro: a quantidade estava nela e viraria unidade base sem aviso.
+    if (!opcaoGravada) return { erro: `${product.nome}: a embalagem em que foi orçado não existe mais no cadastro. Lance o item de novo escolhendo a unidade.` };
+    const opcao = opcaoGravada;
     const fator = opcao?.fatorConversao ?? 1;
     const quantidadeBase = toBaseQuantity(quantidade, fator);
     const conferencia = conferirReservaNoPedido(product, quantidadeBase + baseDoProdutoNosItens(itens, product.id, indiceIgnorado));

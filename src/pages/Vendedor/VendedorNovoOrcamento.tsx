@@ -30,7 +30,7 @@ const VendedorNovoOrcamento: React.FC = () => {
   const { localId } = useParams();
   const location = useLocation();
   const estadoNavegacao = (location.state as VendedorNovoPedidoNavState | null) || null;
-  const { tenantId, currentUser, userPermissions, userRole, isOwner } = useAuth();
+  const { tenantId, currentUser, userPermissions, userRole, isOwner, venderPorEmbalagem } = useAuth();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
   // Promocoes de hoje (19/10/2026): orcamento mostra o preco da promocao, sem consumir quota (como no desktop).
@@ -128,7 +128,7 @@ const VendedorNovoOrcamento: React.FC = () => {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        <VendedorItemPicker produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque precos={promocoesVigentes} podeAlterarPreco={podeAlterarPrecoNoApp({ role: userRole, isOwner, permissoes: userPermissions })} />
+        <VendedorItemPicker venderPorEmbalagem={venderPorEmbalagem} produtos={produtosAtivos} itens={itens} onItensChange={setItens} permitirVendaSemEstoque precos={promocoesVigentes} podeAlterarPreco={podeAlterarPrecoNoApp({ role: userRole, isOwner, permissoes: userPermissions })} />
       </div>
 
       <VendedorRodapeRascunho aoSalvar={handleSalvar} />

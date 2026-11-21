@@ -215,6 +215,22 @@
   transition: all 0.2s;
 }
 
+/* Com a coluna "Unidade" (produto com embalagem: rolo, tubo, saco -- 21/11/2026). */
+.item-add-row--com-unidade {
+  grid-template-columns: 2fr 130px 1fr auto;
+}
+
+.item-add-row select {
+  width: 100%;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.item-add-row select:focus,
 .item-add-row input:focus {
   outline: none;
   border-color: var(--accent-purple);

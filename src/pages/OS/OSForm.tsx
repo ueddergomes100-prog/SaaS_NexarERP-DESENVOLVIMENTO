@@ -125,7 +125,16 @@ import {
   corDoStatusDaOs,
   erroDasNotasParaCancelarOs,
   mensagemOsCanceladaNaoReabre,
+  linhasDeEstoqueDaOs,
 } from '../../utils/osFechamentoDomain';
+import {
+  DEFAULT_VENDER_POR_EMBALAGEM,
+  camposDeUnidadeDoItem,
+  findOpcaoUnidadeVenda,
+  opcoesDeUnidadeDaTela,
+  toBaseQuantity,
+  unidadeDePrecoDaOpcao,
+} from '../../utils/embalagemDomain';
 import { cancelarOsPelaTela, finalizarOsPelaTela, reabrirOsPelaTela } from '../../services/osFechamentoService';
 import { cancelarOsNoServidor, finalizarOsNoServidor, reabrirOsNoServidor, OsServidorError } from '../../services/osServidorService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
@@ -171,6 +180,8 @@ interface PecaData {
   temGrade?: boolean;
   /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
   bloquearVendaSemEstoque?: boolean;
+  /** Embalagens do cadastro (rolo, tubo, saco): vender em outra unidade (embalagemDomain.ts). */
+  embalagens?: unknown;
 }
 interface PecaSelecionada {
   id: string;
@@ -185,6 +196,10 @@ interface PecaSelecionada {
   origemPreco?: OrigemPreco;
   promocaoId?: string;
   promocaoNome?: string;
+  /** Peca lancada numa embalagem (21/11/2026): estoque baixa quantidade x fator. */
+  embalagemId?: string;
+  fatorConversao?: number;
+  quantidadeBase?: number;
 }
 
 // A linha de produto e a MESMA nas quatro telas de busca -- antes cada uma
@@ -215,14 +230,15 @@ const getLocalDateInputValue = (date = new Date()) => {
 };
 
 /** Quanto a OS ja' tem de uma peca nas linhas, sem a linha `indiceIgnorado`. */
-const quantidadeDaPecaNaOs = (pecas: Array<{ id: string; quantidade: number }>, pecaId: string, indiceIgnorado?: number): number => pecas
-  .reduce((total, p, i) => (i === indiceIgnorado || p.id !== pecaId ? total : total + (Number(p.quantidade) || 0)), 0);
+// Na unidade BASE do estoque: peca em embalagem conta quantidade x fator (21/11/2026).
+const quantidadeDaPecaNaOs = (pecas: Array<{ id: string; quantidade: number; fatorConversao?: number }>, pecaId: string, indiceIgnorado?: number): number => pecas
+  .reduce((total, p, i) => (i === indiceIgnorado || p.id !== pecaId ? total : total + toBaseQuantity(p.quantidade, p.fatorConversao)), 0);
 
 /** Reserva por peca a partir das pecas gravadas da OS. */
 const mapaDaReservaDaOs = (pecas: unknown): Map<string, number> => {
   const mapa = new Map<string, number>();
-  (Array.isArray(pecas) ? pecas : []).forEach((p: { id?: string; quantidade?: number }) => {
-    if (p?.id) mapa.set(p.id, (mapa.get(p.id) || 0) + (Number(p.quantidade) || 0));
+  (Array.isArray(pecas) ? pecas : []).forEach((p: { id?: string; quantidade?: number; fatorConversao?: number }) => {
+    if (p?.id) mapa.set(p.id, (mapa.get(p.id) || 0) + toBaseQuantity(p.quantidade, p.fatorConversao));
   });
   return mapa;
 };
@@ -320,6 +336,9 @@ const OSForm: React.FC = () => {
   const reservaPropriaRef = useRef<Map<string, number>>(new Map());
   const [pecaNomeInput, setPecaNomeInput] = useState('');
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
+  // Unidade da proxima peca (21/11/2026): '' = unidade do cadastro; senao a embalagem.
+  const [pecaEmbalagemId, setPecaEmbalagemId] = useState('');
+  const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [isPecaSearchModalOpen, setIsPecaSearchModalOpen] = useState(false);
   const [pecasSelecionadas, setPecasSelecionadas] = useState<PecaSelecionada[]>([]);
   const [permitirVendaSemEstoque, setPermitirVendaSemEstoque] = useState(false);
@@ -498,6 +517,7 @@ const OSForm: React.FC = () => {
           ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
           temGrade: doc.data().temGrade === true,
           bloquearVendaSemEstoque: doc.data().bloquearVendaSemEstoque === true,
+          embalagens: doc.data().embalagens,
         });
       });
       setPecasEstoque(dataE);
@@ -511,6 +531,7 @@ const OSForm: React.FC = () => {
         if (configSnap.exists()) {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
+          setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
           setVendaPeloServidor(parseVendaPeloServidor(config.vendaPeloServidor));
           setFormasPrecoAVista(parseFormasAVista(config.formasPrecoAVista));
           setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
@@ -801,6 +822,7 @@ const OSForm: React.FC = () => {
   const handleClearPecaInput = () => {
     setPecaNomeInput('');
     setPecaPrecoInput('');
+    setPecaEmbalagemId('');
   };
 
   const handleAddServico = async () => {
@@ -924,6 +946,10 @@ const OSForm: React.FC = () => {
     }
   }, [condicaoPagamento]);
 
+  // Peca escolhida na busca e as unidades em que ela pode sair (21/11/2026).
+  const pecaEscolhida = pecasEstoque.find((p) => p.nome.toLowerCase() === pecaNomeInput.toLowerCase()) || null;
+  const opcoesDaPecaEscolhida = pecaEscolhida ? opcoesDeUnidadeDaTela(pecaEscolhida, venderPorEmbalagem) : [];
+
   const handleAddPeca = async () => {
     if (!pecaNomeInput || !pecaPrecoInput) return;
     const precoNum = parseFloat(pecaPrecoInput.replace(',', '.'));
@@ -963,12 +989,14 @@ const OSForm: React.FC = () => {
     }
     
     if (peca) {
+      // Unidade escolhida (rolo, tubo...): estoque e preco nela (21/11/2026).
+      const opcao = findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(peca, venderPorEmbalagem), pecaEmbalagemId);
       // Reserva na venda (13/10/2026): conta o que a OS ja' tem desta peca e
       // o que esta reservado em outros documentos.
       const reserva = conferirSaidaComReserva({
         tenantId,
         produto: peca,
-        pedida: 1 + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id),
+        pedida: toBaseQuantity(1, opcao.fatorConversao) + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id),
         reservadoPeloDocumento: reservaPropriaRef.current.get(peca.id) || 0,
         documentoAtualId: id,
         permiteVendaSemEstoque: permitirVendaSemEstoque,
@@ -987,17 +1015,20 @@ const OSForm: React.FC = () => {
         showWarning(aviso.title, aviso.text);
       }
       // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
-      const precificacao = camposDePrecoDoItem(tabelaDe(peca), condicaoPagamento, precoNum);
+      const precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcao)), condicaoPagamento, precoNum);
       setPecasSelecionadas([...pecasSelecionadas, {
         id: peca.id,
         nome: peca.nome,
         preco: precificacao.preco,
         quantidade: 1,
         ...resolveUnidadeMedidaProduto(peca),
+        // Na embalagem, a unidade do item e' a dela; na base, nada muda.
+        ...(opcao.embalagemId ? camposDeUnidadeDoItem(opcao, 1) : {}),
         ...precificacao.campos,
       }]);
       setPecaNomeInput('');
       setPecaPrecoInput('');
+      setPecaEmbalagemId('');
       pecaNomeInputRef.current?.focus();
     }
   };
@@ -1024,7 +1055,7 @@ const OSForm: React.FC = () => {
       const reserva = conferirSaidaComReserva({
         tenantId,
         produto: pecaEstoque,
-        pedida: qtd + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id, index),
+        pedida: toBaseQuantity(qtd, peca.fatorConversao) + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id, index),
         reservadoPeloDocumento: reservaPropriaRef.current.get(peca.id) || 0,
         documentoAtualId: id,
         permiteVendaSemEstoque: permitirVendaSemEstoque,
@@ -1037,6 +1068,7 @@ const OSForm: React.FC = () => {
     }
 
     novas[index].quantidade = qtd;
+    if (peca.embalagemId) novas[index].quantidadeBase = toBaseQuantity(qtd, peca.fatorConversao);
     setPecasSelecionadas(novas);
   };
 
@@ -1532,9 +1564,10 @@ const OSForm: React.FC = () => {
         // momentoBaixaEstoque === 'pedido'. Reserva que sobrou de quando a
         // empresa reservava (ou de OS cancelada nesta gravacao) e' solta.
         const wasReserved = existingOsData?.estoqueReservado === true;
-        const previousReserved = wasReserved ? (existingOsData.pecas || []) : [];
+        // Reserva na unidade base do estoque (peca em embalagem = quantidade x fator).
+        const previousReserved = wasReserved ? linhasDeEstoqueDaOs(existingOsData.pecas) : [];
         estoqueJaBaixado = existingOsData?.estoqueBaixado === true;
-        const pecasItems = pecasSelecionadas.map(peca => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade }));
+        const pecasItems = linhasDeEstoqueDaOs(pecasSelecionadas);
         if (statusDoRascunho !== STATUS_OS_CANCELADA && momentoBaixaEstoque === 'pedido' && !estoqueJaBaixado) {
           const deltas = computeReservationDelta(previousReserved, pecasItems);
           if (deltas.length) await applyStockFieldDeltas(transaction, db, deltas, permitirVendaSemEstoque);
@@ -1622,7 +1655,7 @@ const OSForm: React.FC = () => {
         planoLotes = await prepararBaixaDeLotes({
           db,
           tenantId,
-          linhas: linhasParaLote(pecasSelecionadas.map((peca) => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade }))),
+          linhas: linhasParaLote(pecasSelecionadas.map((peca) => ({ id: peca.id, nome: peca.nome, quantidade: peca.quantidade, fatorConversao: peca.fatorConversao }))),
           modo: loteModoSaida,
           avisarVencido: loteAvisarVencido,
         });
@@ -2275,11 +2308,13 @@ const OSForm: React.FC = () => {
                   inputRef={pecaNomeInputRef}
                   onChange={(value) => {
                     setPecaNomeInput(value);
+                    setPecaEmbalagemId('');
                     const exists = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
                     if (exists) setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(exists), condicaoPagamento)));
                   }}
                   onSelect={(p) => {
                     setPecaNomeInput(p.nome);
+                    setPecaEmbalagemId('');
                     setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), condicaoPagamento)));
                   }}
                   mode={pecaSearchMode}
@@ -2305,6 +2340,7 @@ const OSForm: React.FC = () => {
                   products={pecasEstoque}
                   onSelect={(p) => {
                     setPecaNomeInput(p.nome);
+                    setPecaEmbalagemId('');
                     setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), condicaoPagamento)));
                   }}
                   mode={pecaSearchMode}
@@ -2313,6 +2349,27 @@ const OSForm: React.FC = () => {
                   title="Buscar peça"
                 />
               </div>
+
+              {/* Unidade (rolo, tubo, saco): so' quando a peca tem embalagem e a empresa vende por embalagem. */}
+              {opcoesDaPecaEscolhida.length > 1 && (
+                <select
+                  aria-label="Unidade da peça"
+                  title="Unidade em que a peça sai"
+                  value={pecaEmbalagemId}
+                  onChange={(e) => {
+                    setPecaEmbalagemId(e.target.value);
+                    if (pecaEscolhida) {
+                      const opcao = findOpcaoUnidadeVenda(opcoesDaPecaEscolhida, e.target.value);
+                      setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(pecaEscolhida, unidadeDePrecoDaOpcao(opcao)), condicaoPagamento)));
+                    }
+                  }}
+                  style={{ flex: '0 0 130px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px', color: 'var(--text-primary)' }}
+                >
+                  {opcoesDaPecaEscolhida.map((opcao) => (
+                    <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
+                  ))}
+                </select>
+              )}
 
               <input
                 type="number"
@@ -2332,7 +2389,14 @@ const OSForm: React.FC = () => {
                   <tbody>
                     {pecasSelecionadas.map((p, index) => (
                       <tr key={index} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                        <td style={{ padding: '8px 0' }}>{p.nome}</td>
+                        <td style={{ padding: '8px 0' }}>
+                          {p.nome}
+                          {p.embalagemId && (
+                            <span style={{ display: 'block', fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                              em {p.unidadeMedidaSigla} · baixa {toBaseQuantity(p.quantidade, p.fatorConversao).toLocaleString('pt-BR')} do estoque
+                            </span>
+                          )}
+                        </td>
                         <td style={{ padding: '8px 0', width: '70px' }}>
                           <input
                             type="number"

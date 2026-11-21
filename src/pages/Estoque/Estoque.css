@@ -505,3 +505,134 @@
     background: var(--bg-secondary);
   }
 }
+
+/* ============ Aba Embalagens do cadastro (21/11/2026) ============
+ * Cada embalagem num cartao com os campos do formulario (.input-group);
+ * antes era uma tabela de campos crus, encavalados. */
+.embalagens-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.embalagens-vazio {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.embalagem-cartao {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.embalagem-cartao--inativa {
+  opacity: 0.55;
+}
+
+.embalagem-cartao__topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.embalagem-cartao__titulo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.embalagem-cartao__titulo strong {
+  display: block;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.embalagem-cartao__sigla {
+  min-width: 44px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(124, 58, 237, 0.12);
+  color: var(--accent-purple);
+  font-weight: 800;
+  font-size: 14px;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.embalagem-cartao__descricao {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.embalagem-cartao__acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.embalagem-cartao__ativa {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.embalagem-cartao__remover {
+  color: #ef4444;
+}
+
+.embalagem-cartao__campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.embalagem-cartao__campos .input-group {
+  margin: 0;
+}
+
+.embalagem-cartao__dica {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.embalagem-cartao__dica--alerta {
+  color: #d97706;
+}
+
+.embalagem-cartao__resumo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.embalagem-cartao__resumo strong {
+  color: var(--text-primary);
+  margin-left: 4px;
+}
+
+.embalagem-cartao__margem--negativa strong {
+  color: #ef4444;
+}

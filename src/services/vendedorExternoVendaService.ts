@@ -60,6 +60,10 @@ export interface ItemVendaExterna {
   /** Bonificacao (30/10/2026): item de brinde -- preco 0 para o cliente, preco cheio em precoReferencia. Ver bonificacaoDomain.ts. */
   bonificado?: boolean;
   precoReferencia?: number;
+  /** Item numa embalagem (rolo, tubo, saco -- 21/11/2026): estoque em quantidade x fator. */
+  embalagemId?: string;
+  fatorConversao?: number;
+  quantidadeBase?: number;
 }
 
 const semDesconto = () => ({

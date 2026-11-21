@@ -18,6 +18,7 @@ import { bloqueioPorParcelaRenegociada } from './renegociacaoDomain';
 import { STATUS_NOTA_EM_TRANSMISSAO, listaDeNotas, type NotaDaVenda } from './cancelamentoNotaVendaDomain';
 import { computeReservationCommit, computeReservationRelease, computeReservationReturn, type StockFieldDelta, type StockLineItem } from './estoqueReservaDomain';
 import { somarLotesUsados, type LoteUsado } from './loteRetornoDomain';
+import { toBaseQuantity } from './embalagemDomain';
 import { lerLotes } from './vendaFechamentoDomain';
 import {
   CORES_STATUS_OS_CAMPO,
@@ -98,6 +99,8 @@ export interface LinhaPecaDaOs {
   nome?: string;
   preco?: number;
   quantidade?: number;
+  /** Peca vendida numa embalagem (21/11/2026): 1 rolo = fator metros no estoque. */
+  fatorConversao?: number;
 }
 
 export interface DescontoDaOs {
@@ -230,11 +233,18 @@ export interface OsGravada {
   comissao?: unknown;
 }
 
-const linhasDeEstoque = (pecas: unknown): StockLineItem[] => (
+/**
+ * Pecas da OS no estoque, sempre na unidade BASE do produto (21/11/2026):
+ * peca lancada em embalagem (rolo, tubo, saco) baixa e reserva quantidade x
+ * fator. Peca sem fator (toda OS antiga) fica como sempre foi. Usada na tela
+ * (reserva ao salvar) e no fechamento, aqui e no servidor.
+ */
+export const linhasDeEstoqueDaOs = (pecas: unknown): StockLineItem[] => (
   listaDe<LinhaPecaDaOs>(pecas)
-    .map((p) => ({ id: String(p.id || ''), nome: String(p.nome || ''), quantidade: Number(p.quantidade || 0) }))
+    .map((p) => ({ id: String(p.id || ''), nome: String(p.nome || ''), quantidade: toBaseQuantity(p.quantidade, p.fatorConversao) }))
     .filter((p) => p.id && p.id !== 'avulso' && p.quantidade > 0)
 );
+const linhasDeEstoque = linhasDeEstoqueDaOs;
 
 /** O que saiu do estoque na finalizacao. OS antiga (antes de 19/10/2026) nao guardava: vale a lista de pecas. */
 export const pecasQueSairamDoEstoque = (os: OsGravada): StockLineItem[] => (

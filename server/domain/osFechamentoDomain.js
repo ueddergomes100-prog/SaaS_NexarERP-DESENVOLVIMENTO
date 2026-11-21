@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.planoDoCancelamentoDaOs = exports.planoDaReaberturaDaOs = exports.titulosQueSaemNaFinalizacao = exports.planoDaFinalizacaoDaOs = exports.estornoDosTitulosDaOs = exports.idsDosTitulosGravados = exports.idDoTituloDaOs = exports.camposDoTituloDaOs = exports.lerPedidoDeReaberturaDaOs = exports.lerPedidoDeCancelamentoDaOs = exports.lerPedidoDeFinalizacaoDaOs = exports.novoSaldoDoProduto = exports.somarDeltasDeEstoque = exports.pecasQueSairamDoEstoque = exports.bloqueioParaReabrirOs = exports.mensagemOsCanceladaNaoReabre = exports.erroDasNotasParaCancelarOs = exports.classificarNotasDaOs = exports.camposDescritivosDaOs = exports.CAMPOS_DESCRITIVOS_DA_OS = exports.assinaturaDaCobrancaDaOs = exports.totaisDaOs = exports.corDoStatusDaOs = exports.STATUS_OS_EM_ABERTO = exports.STATUS_OS_REABERTA_PADRAO = exports.STATUS_OS_FINALIZADA = exports.STATUS_OS_CANCELADA = void 0;
+exports.planoDoCancelamentoDaOs = exports.planoDaReaberturaDaOs = exports.titulosQueSaemNaFinalizacao = exports.planoDaFinalizacaoDaOs = exports.estornoDosTitulosDaOs = exports.idsDosTitulosGravados = exports.idDoTituloDaOs = exports.camposDoTituloDaOs = exports.lerPedidoDeReaberturaDaOs = exports.lerPedidoDeCancelamentoDaOs = exports.lerPedidoDeFinalizacaoDaOs = exports.novoSaldoDoProduto = exports.somarDeltasDeEstoque = exports.pecasQueSairamDoEstoque = exports.linhasDeEstoqueDaOs = exports.bloqueioParaReabrirOs = exports.mensagemOsCanceladaNaoReabre = exports.erroDasNotasParaCancelarOs = exports.classificarNotasDaOs = exports.camposDescritivosDaOs = exports.CAMPOS_DESCRITIVOS_DA_OS = exports.assinaturaDaCobrancaDaOs = exports.totaisDaOs = exports.corDoStatusDaOs = exports.STATUS_OS_EM_ABERTO = exports.STATUS_OS_REABERTA_PADRAO = exports.STATUS_OS_FINALIZADA = exports.STATUS_OS_CANCELADA = void 0;
 const osServicePricing_1 = require("./osServicePricing");
 const descontoDomain_1 = require("./descontoDomain");
 const financeDomain_1 = require("./financeDomain");
@@ -10,6 +10,7 @@ const renegociacaoDomain_1 = require("./renegociacaoDomain");
 const cancelamentoNotaVendaDomain_1 = require("./cancelamentoNotaVendaDomain");
 const estoqueReservaDomain_1 = require("./estoqueReservaDomain");
 const loteRetornoDomain_1 = require("./loteRetornoDomain");
+const embalagemDomain_1 = require("./embalagemDomain");
 const vendaFechamentoDomain_1 = require("./vendaFechamentoDomain");
 const osCampoDomain_1 = require("./osCampoDomain");
 Object.defineProperty(exports, "STATUS_OS_CANCELADA", { enumerable: true, get: function () { return osCampoDomain_1.STATUS_OS_CANCELADA; } });
@@ -119,9 +120,17 @@ const bloqueioParaReabrirOs = (titulos) => ((0, renegociacaoDomain_1.bloqueioPor
     || (0, cancelamentoVendaDomain_1.bloqueioParaAlterarPagamento)(titulos, { documento: 'OS', acao: 'reabrir a OS' })
     || null);
 exports.bloqueioParaReabrirOs = bloqueioParaReabrirOs;
-const linhasDeEstoque = (pecas) => (listaDe(pecas)
-    .map((p) => ({ id: String(p.id || ''), nome: String(p.nome || ''), quantidade: Number(p.quantidade || 0) }))
+/**
+ * Pecas da OS no estoque, sempre na unidade BASE do produto (21/11/2026):
+ * peca lancada em embalagem (rolo, tubo, saco) baixa e reserva quantidade x
+ * fator. Peca sem fator (toda OS antiga) fica como sempre foi. Usada na tela
+ * (reserva ao salvar) e no fechamento, aqui e no servidor.
+ */
+const linhasDeEstoqueDaOs = (pecas) => (listaDe(pecas)
+    .map((p) => ({ id: String(p.id || ''), nome: String(p.nome || ''), quantidade: (0, embalagemDomain_1.toBaseQuantity)(p.quantidade, p.fatorConversao) }))
     .filter((p) => p.id && p.id !== 'avulso' && p.quantidade > 0));
+exports.linhasDeEstoqueDaOs = linhasDeEstoqueDaOs;
+const linhasDeEstoque = exports.linhasDeEstoqueDaOs;
 /** O que saiu do estoque na finalizacao. OS antiga (antes de 19/10/2026) nao guardava: vale a lista de pecas. */
 const pecasQueSairamDoEstoque = (os) => (linhasDeEstoque(Array.isArray(os.pecasBaixadas) ? os.pecasBaixadas : os.pecas));
 exports.pecasQueSairamDoEstoque = pecasQueSairamDoEstoque;

@@ -127,6 +127,8 @@ interface AuthContextType {
   /** Config da empresa: "Permitir venda sem estoque" (`venderSemEstoque`).
    *  O app do vendedor externo segue a mesma regra das demais telas de venda. */
   permiteVendaSemEstoque: boolean;
+  /** Config da filial "Vender por embalagem" (`venderPorEmbalagem`): rolo, tubo, saco no app (21/11/2026). */
+  venderPorEmbalagem: boolean;
   /** Configuracoes Gerais: "Loja utiliza grade de produtos" (gradeProdutosDomain.ts).
    *  Liga o menu Cadastros Auxiliares > Grades e a grade no cadastro do produto. */
   usaGradeDeProdutos: boolean;
@@ -256,6 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [configBonificacao, setConfigBonificacao] = useState<ConfigBonificacao>(DEFAULT_CONFIG_BONIFICACAO);
   const [trabalhaComCondicional, setTrabalhaComCondicional] = useState(DEFAULT_TRABALHA_COM_CONDICIONAL);
   const [permiteVendaSemEstoque, setPermiteVendaSemEstoque] = useState(false);
+  const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(false);
   const [usaGradeDeProdutos, setUsaGradeDeProdutos] = useState(false);
   const [configCashback, setConfigCashback] = useState<ConfigCashback>(DEFAULT_CONFIG_CASHBACK);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(DEFAULT_CONFERENCIA_MERCADORIA);
@@ -627,6 +630,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setTrabalhaComCondicional(parseTrabalhaComCondicional(snap.exists() ? snap.data().trabalhaComCondicional : undefined));
       setAgenteDigitalAtivo(parseAgenteDigitalAtivo(snap.exists() ? snap.data().agenteDigitalAtivo : undefined));
       setPermiteVendaSemEstoque(snap.exists() && snap.data().venderSemEstoque === true);
+      setVenderPorEmbalagem(snap.exists() && snap.data().venderPorEmbalagem === true);
       // Mesma leitura: a grade de produtos nasce desligada, como toda chave nova.
       setUsaGradeDeProdutos(snap.exists() && snap.data().usaGradeDeProdutos === true);
       setConfigCashback(parseConfigCashback(snap.exists() ? snap.data().cashback : undefined));
@@ -858,7 +862,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser, userNome, userRole, nivelAcesso, isOwner, homeTenantId, tenantId, filialAtual, selectedTenant]);
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, venderPorEmbalagem, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome }}>
       {children}
     </AuthContext.Provider>
   );

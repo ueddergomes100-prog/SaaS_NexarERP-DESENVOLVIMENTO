@@ -18,7 +18,8 @@
  * internet: sem essa conferencia (app offline) o item entra no preco normal,
  * com aviso -- melhor do que vender alem da quota que a loja definiu.
  */
-import { camposDePrecoDoItem, type CamposDePrecoDoItem, type ProdutoPrecificavel } from './precoComPromocaoDomain';
+import { camposDePrecoDoItem, type CamposDePrecoDoItem, type ProdutoPrecificavel, type UnidadeDoItem } from './precoComPromocaoDomain';
+import { toBaseQuantity, unidadeDePrecoDaOpcao, type OpcaoUnidadeVenda } from './embalagemDomain';
 import { precoAutomatico, type CondicaoPagamento, type OrigemPreco, type TabelaDePrecoDoItem } from './precoVendaDomain';
 import type { PromocaoDoProduto } from './promocaoDomain';
 
@@ -27,7 +28,7 @@ export const CONDICAO_DO_APP: CondicaoPagamento = 'prazo';
 
 /** O que o app precisa do usePromocoesVigentes. */
 export interface PrecosDoApp {
-  tabelaDe: (produto: ProdutoPrecificavel) => TabelaDePrecoDoItem;
+  tabelaDe: (produto: ProdutoPrecificavel, unidade?: UnidadeDoItem) => TabelaDePrecoDoItem;
   quantidadeLiberada: (produto: ProdutoPrecificavel, jaNestaVenda: number) => { promo: PromocaoDoProduto; liberada: number | null } | null;
   /** false = nao deu para saber quanto ja' saiu das promocoes com quota (sem internet). */
   quotaConferida: boolean;
@@ -36,6 +37,8 @@ export interface PrecosDoApp {
 export interface LinhaJaNaVenda {
   id: string;
   quantidade: number;
+  /** Item em embalagem: quantidade na unidade base (a quota da promocao conta nela). */
+  quantidadeBase?: number;
   promocaoId?: string;
 }
 
@@ -58,13 +61,16 @@ export const precificarNoApp = (args: {
   quantidade: number;
   naVenda: ReadonlyArray<LinhaJaNaVenda>;
   consomeQuota: boolean;
+  /** Unidade escolhida (21/11/2026): rolo, tubo, saco. Ausente = unidade do cadastro. */
+  unidade?: OpcaoUnidadeVenda;
 }): PrecoNoApp => {
-  const { precos, produto, quantidade, naVenda, consomeQuota } = args;
+  const { precos, produto, quantidade, naVenda, consomeQuota, unidade } = args;
   if (!precos) {
-    const preco = Number(produto.precoVenda) || 0;
+    // Sem tabela de promocoes: o preco da embalagem (proprio, ou o do cadastro x fator).
+    const preco = unidade?.embalagemId ? unidade.precoVenda : Number(produto.precoVenda) || 0;
     return { preco, campos: null, aviso: null };
   }
-  let tabela = precos.tabelaDe(produto);
+  let tabela = unidade ? precos.tabelaDe(produto, unidadeDePrecoDaOpcao(unidade)) : precos.tabelaDe(produto);
   let aviso: string | null = null;
   // So' confere quando a promocao vale no preco do app (a prazo); a "so a vista"
   // nao entra aqui -- fica na tabela para a loja aplicar se receber a vista.
@@ -72,13 +78,13 @@ export const precificarNoApp = (args: {
     const promoId = tabela.promocao.id;
     const jaNestaVenda = naVenda
       .filter((l) => l.id === produto.id && l.promocaoId === promoId)
-      .reduce((t, l) => t + (Number(l.quantidade) || 0), 0);
+      .reduce((t, l) => t + (Number(l.quantidadeBase ?? l.quantidade) || 0), 0);
     const conferencia = precos.quantidadeLiberada(produto, jaNestaVenda);
     const nome = produto.nome || 'Produto';
     if (conferencia && conferencia.promo.quota !== null && !precos.quotaConferida) {
       tabela = { ...tabela, promocao: null };
       aviso = `${nome}: a promoção "${conferencia.promo.nome}" tem quantidade limitada e precisa de internet para conferir quanto ainda sobra. O item entrou no preço normal.`;
-    } else if (conferencia && conferencia.liberada !== null && quantidade > conferencia.liberada) {
+    } else if (conferencia && conferencia.liberada !== null && toBaseQuantity(quantidade, unidade?.fatorConversao) > conferencia.liberada) {
       tabela = { ...tabela, promocao: null };
       aviso = conferencia.liberada > 0
         ? `${nome}: a promoção "${conferencia.promo.nome}" só libera mais ${conferencia.liberada} unidade(s) neste pedido. O item entrou no preço normal.`

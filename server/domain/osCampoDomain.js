@@ -16,6 +16,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.filtrarOsDoApp = exports.resumoDaOsParaLista = exports.AVISO_OS_EM_ATENDIMENTO_NO_CAMPO = exports.validarConclusaoAtendimento = exports.montarNovaOsDeCampo = exports.descricaoDoEquipamento = exports.equipamentoDoCadastro = exports.EQUIPAMENTO_CAMPO_VAZIO = exports.totalDoAtendimentoCentavos = exports.servicoDeCatalogo = exports.itemPickerParaPeca = exports.pecaParaItemPicker = exports.caminhoDaAssinaturaOS = exports.caminhoDaFotoOS = exports.podeAdicionarFotos = exports.TAMANHO_MAXIMO_FOTO_BYTES = exports.LADO_MAXIMO_FOTO_PX = exports.LIMITE_FOTOS_OS = exports.podeAtenderNoApp = exports.osAguardandoConferencia = exports.osEmAtendimentoNoCampo = exports.osEncerrada = exports.CORES_STATUS_OS_CAMPO = exports.STATUS_OS_CANCELADA = exports.STATUS_OS_FINALIZADA = exports.STATUS_OS_AGUARDANDO_CONFERENCIA = exports.STATUS_OS_EM_ATENDIMENTO = void 0;
 const oficinaDomain_1 = require("./oficinaDomain");
+const embalagemDomain_1 = require("./embalagemDomain");
 exports.STATUS_OS_EM_ATENDIMENTO = 'Em atendimento';
 exports.STATUS_OS_AGUARDANDO_CONFERENCIA = 'Aguardando conferência';
 exports.STATUS_OS_FINALIZADA = 'Finalizada';
@@ -63,6 +64,10 @@ const rastreioDoPreco = (x) => ({
     ...(x.origemPreco ? { origemPreco: x.origemPreco } : {}),
     ...(x.promocaoId ? { promocaoId: x.promocaoId, promocaoNome: x.promocaoNome || '' } : {}),
 });
+/** Campos de embalagem que passam entre a peca da OS e o item do seletor (sem chave vazia). */
+const rastreioDaEmbalagem = (x) => (x.embalagemId
+    ? { embalagemId: x.embalagemId, fatorConversao: Number(x.fatorConversao) || 1, quantidadeBase: (0, embalagemDomain_1.toBaseQuantity)(x.quantidade, x.fatorConversao) }
+    : {});
 const pecaParaItemPicker = (p) => ({
     id: p.id,
     nome: p.nome,
@@ -74,6 +79,7 @@ const pecaParaItemPicker = (p) => ({
     unidadeMedidaSigla: p.unidadeMedidaSigla || 'UN',
     unidadeMedidaFracionado: p.unidadeMedidaFracionado === true,
     unidadeMedidaCasasDecimais: Number(p.unidadeMedidaCasasDecimais || 0),
+    ...rastreioDaEmbalagem(p),
     ...rastreioDoPreco(p),
 });
 exports.pecaParaItemPicker = pecaParaItemPicker;
@@ -86,6 +92,7 @@ const itemPickerParaPeca = (i) => ({
     unidadeMedidaSigla: i.unidadeMedidaSigla || 'UN',
     unidadeMedidaFracionado: i.unidadeMedidaFracionado === true,
     unidadeMedidaCasasDecimais: Number(i.unidadeMedidaCasasDecimais || 0),
+    ...rastreioDaEmbalagem(i),
     ...rastreioDoPreco(i),
 });
 exports.itemPickerParaPeca = itemPickerParaPeca;

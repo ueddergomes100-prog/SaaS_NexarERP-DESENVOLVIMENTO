@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   campoDoClienteDoCredito,
+  coberturaDoEstornoDoCredito,
   creditoEhDoCliente,
   creditoFoiAlteradoDurante,
   distribuirConsumoCredito,
@@ -190,6 +191,37 @@ test('de quem e o credito: com codigo vale o codigo; sem codigo vale o nome (cas
   assert.equal(creditoEhDoCliente({ clienteNome: 'JOAO' }, { nome: 'joao' }), true);
   assert.equal(creditoEhDoCliente({ clienteId: 'c1', clienteNome: 'JOAO' }, { nome: 'JOAO' }), false);
   assert.equal(creditoEhDoCliente({ clienteNome: '' }, { nome: '' }), false);
+});
+
+test('estorno da devolucao: credito intacto nao precisa de cobertura', () => {
+  const r = coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 10800 }, [{ id: 'cancelamento_p180', saldoDisponivelCentavos: 10800 }]);
+  assert.deepEqual(r, { usadoCentavos: 0, cobertura: [], faltaCentavos: 0 });
+});
+
+test('estorno da devolucao: credito usado numa venda cancelada sai do credito do cancelamento (caso Jomarly)', () => {
+  const r = coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 0 }, [{ id: 'cancelamento_p180', saldoDisponivelCentavos: 10800 }]);
+  assert.equal(r.usadoCentavos, 10800);
+  assert.equal(r.faltaCentavos, 0);
+  assert.deepEqual(r.cobertura, [{ id: 'cancelamento_p180', usadoCentavos: 10800, saldoRestanteCentavos: 0 }]);
+});
+
+test('estorno da devolucao: parte usada coberta por mais de um cancelamento, o mais antigo primeiro; sobra fica com o cliente', () => {
+  const r = coberturaDoEstornoDoCredito(
+    { valorOriginalCentavos: 10000, saldoDisponivelCentavos: 4000 },
+    [{ id: 'a', saldoDisponivelCentavos: 2500 }, { id: 'b', saldoDisponivelCentavos: 0 }, { id: 'c', saldoDisponivelCentavos: 5000 }],
+  );
+  assert.equal(r.usadoCentavos, 6000);
+  assert.equal(r.faltaCentavos, 0);
+  assert.deepEqual(r.cobertura, [
+    { id: 'a', usadoCentavos: 2500, saldoRestanteCentavos: 0 },
+    { id: 'c', usadoCentavos: 3500, saldoRestanteCentavos: 1500 },
+  ]);
+});
+
+test('estorno da devolucao: cliente ja gastou o credito de volta -> falta e o estorno nao segue', () => {
+  const r = coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 0 }, [{ id: 'x', saldoDisponivelCentavos: 3000 }]);
+  assert.equal(r.faltaCentavos, 7800);
+  assert.equal(coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 0 }, []).faltaCentavos, 10800);
 });
 
 test('as duas buscas (codigo e nome) se juntam sem repetir o credito', () => {

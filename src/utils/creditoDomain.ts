@@ -187,6 +187,55 @@ export const creditoEhDoCliente = (
   return nome !== '' && String(credito.clienteNome ?? '').trim().toUpperCase() === nome;
 };
 
+// ---------------------------------------------------------------------------
+// ESTORNO DA DEVOLUCAO CUJO CREDITO FOI USADO (21/11/2026)
+// ---------------------------------------------------------------------------
+//
+// Caso real (Jomarly): devolucao de 4 clipes virou R$ 108 de credito; o
+// credito foi usado no pedido #0180; o #0180 foi cancelado e os R$ 108
+// voltaram ao cliente como OUTRO credito (`cancelamento_<pedido>`,
+// origem 'cancelamento_venda'). O certo eram 3 clipes, mas o estorno da
+// devolucao recusava para sempre ("ja' foi parcialmente utilizado"): olhava
+// so' o credito da devolucao, que continua gasto.
+//
+// Regra: a parte usada do credito da devolucao pode ser coberta pelo credito
+// que voltou ao cliente no cancelamento de uma venda (so' esse: credito de
+// outra devolucao tem o estorno dela). O mais antigo primeiro. Se o cliente
+// ja' gastou o credito do cancelamento de novo, o estorno continua barrado.
+
+export interface CreditoDoCancelamento {
+  id: string;
+  saldoDisponivelCentavos: number;
+  numeroPedidoOriginal?: string;
+}
+
+export interface CoberturaDoEstorno {
+  /** Quanto do credito da devolucao ja' foi usado. */
+  usadoCentavos: number;
+  /** De qual credito de cancelamento sai cada parte. */
+  cobertura: ConsumoCredito[];
+  /** O que falta cobrir; maior que zero = o estorno nao pode seguir. */
+  faltaCentavos: number;
+}
+
+export const coberturaDoEstornoDoCredito = (
+  credito: { valorOriginalCentavos: number; saldoDisponivelCentavos: number },
+  creditosDoCancelamento: CreditoDoCancelamento[],
+): CoberturaDoEstorno => {
+  const usado = Math.max(0, toFiniteNumber(credito.valorOriginalCentavos) - Math.max(0, toFiniteNumber(credito.saldoDisponivelCentavos)));
+  let restante = usado;
+  const cobertura: ConsumoCredito[] = [];
+  for (const c of creditosDoCancelamento) {
+    if (restante <= 0) break;
+    const disponivel = Math.max(0, toFiniteNumber(c.saldoDisponivelCentavos));
+    if (disponivel <= 0) continue;
+    const usadoAqui = Math.min(disponivel, restante);
+    cobertura.push({ id: c.id, usadoCentavos: usadoAqui, saldoRestanteCentavos: disponivel - usadoAqui });
+    restante -= usadoAqui;
+  }
+  return { usadoCentavos: usado, cobertura, faltaCentavos: restante };
+};
+
 /** Junta as listas das duas buscas (pelo codigo e pelo nome) sem repetir credito. */
 export const juntarCreditosSemRepetir = <T extends { id: string }>(...listas: T[][]): T[] => {
   const vistos = new Set<string>();

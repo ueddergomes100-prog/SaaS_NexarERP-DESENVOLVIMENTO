@@ -10,7 +10,7 @@
 // do desconto maximo, aqui o pedido do usuario foi um toggle simples
 // sim/nao.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.juntarCreditosSemRepetir = exports.creditoEhDoCliente = exports.campoDoClienteDoCredito = exports.distribuirConsumoCredito = exports.somarCreditosCentavos = exports.MENSAGEM_CREDITO_CONCORRENTE = exports.creditoFoiAlteradoDurante = exports.parseCreditoVersao = exports.CAMPO_CREDITO_VERSAO = exports.parseTrabalhaComLimiteCredito = exports.excedeLimiteCredito = void 0;
+exports.juntarCreditosSemRepetir = exports.coberturaDoEstornoDoCredito = exports.creditoEhDoCliente = exports.campoDoClienteDoCredito = exports.distribuirConsumoCredito = exports.somarCreditosCentavos = exports.MENSAGEM_CREDITO_CONCORRENTE = exports.creditoFoiAlteradoDurante = exports.parseCreditoVersao = exports.CAMPO_CREDITO_VERSAO = exports.parseTrabalhaComLimiteCredito = exports.excedeLimiteCredito = void 0;
 const toFiniteNumber = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -152,6 +152,23 @@ const creditoEhDoCliente = (credito, cliente) => {
     return nome !== '' && String(credito.clienteNome ?? '').trim().toUpperCase() === nome;
 };
 exports.creditoEhDoCliente = creditoEhDoCliente;
+const coberturaDoEstornoDoCredito = (credito, creditosDoCancelamento) => {
+    const usado = Math.max(0, toFiniteNumber(credito.valorOriginalCentavos) - Math.max(0, toFiniteNumber(credito.saldoDisponivelCentavos)));
+    let restante = usado;
+    const cobertura = [];
+    for (const c of creditosDoCancelamento) {
+        if (restante <= 0)
+            break;
+        const disponivel = Math.max(0, toFiniteNumber(c.saldoDisponivelCentavos));
+        if (disponivel <= 0)
+            continue;
+        const usadoAqui = Math.min(disponivel, restante);
+        cobertura.push({ id: c.id, usadoCentavos: usadoAqui, saldoRestanteCentavos: disponivel - usadoAqui });
+        restante -= usadoAqui;
+    }
+    return { usadoCentavos: usado, cobertura, faltaCentavos: restante };
+};
+exports.coberturaDoEstornoDoCredito = coberturaDoEstornoDoCredito;
 /** Junta as listas das duas buscas (pelo codigo e pelo nome) sem repetir credito. */
 const juntarCreditosSemRepetir = (...listas) => {
     const vistos = new Set();

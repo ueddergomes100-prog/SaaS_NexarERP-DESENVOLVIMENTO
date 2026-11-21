@@ -4,6 +4,7 @@ import {
   buildOpcoesUnidadeVenda,
   camposDeUnidadeDoItem,
   custoDaEmbalagem,
+  embalagensComUnidadesAtuais,
   margemSobreCusto,
   findOpcaoUnidadeVenda,
   opcaoDoItemGravado,
@@ -217,4 +218,22 @@ test('custo da embalagem: o proprio quando cadastrado; senao custo do metro x fa
 test('margem sobre o custo, como no cadastro do produto', () => {
   assert.equal(margemSobreCusto(27, 20), 35);
   assert.equal(margemSobreCusto(27, 0), null);
+});
+
+test('embalagensComUnidadesAtuais: unidade G marcada como fracionada depois refaz a copia da embalagem (caso PREGO, 21/11/2026)', () => {
+  const embalagens = [
+    { id: 'g', unidadeMedidaId: 'u-g', unidadeMedidaSigla: 'G', unidadeMedidaFracionado: false, unidadeMedidaCasasDecimais: 0, fatorConversao: 0.1, precoVenda: 4, extra: 'fica' },
+    { id: 'cx', unidadeMedidaId: 'u-cx', unidadeMedidaSigla: 'CX', unidadeMedidaFracionado: false, unidadeMedidaCasasDecimais: 0, fatorConversao: 10 },
+  ];
+  const unidades: Record<string, { sigla: string; permiteFracionado: boolean; casasDecimais: number }> = {
+    'u-g': { sigla: 'G', permiteFracionado: true, casasDecimais: 3 },
+  };
+  const r = embalagensComUnidadesAtuais(embalagens, (e) => unidades[e.unidadeMedidaId] || null);
+  assert.equal(r.alteradas, 1);
+  assert.equal(r.travadas, 1);
+  assert.deepEqual(r.embalagens[0], { ...embalagens[0], unidadeMedidaFracionado: true, unidadeMedidaCasasDecimais: 3 });
+  assert.equal(r.embalagens[1], embalagens[1], 'embalagem sem unidade achada fica como esta');
+  // Rodar de novo nao muda nada.
+  assert.equal(embalagensComUnidadesAtuais(r.embalagens, (e) => unidades[e.unidadeMedidaId] || null).alteradas, 0);
+  assert.deepEqual(embalagensComUnidadesAtuais(undefined, () => null), { embalagens: [], alteradas: 0, travadas: 0 });
 });

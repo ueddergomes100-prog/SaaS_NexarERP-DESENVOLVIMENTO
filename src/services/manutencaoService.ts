@@ -175,6 +175,11 @@ export interface ResultadoVendaFracionada {
   alterados: number;
   porSigla: Array<{ sigla: string; produtos: number; travados: number; alterados: number }>;
   exemplos: Array<{ codigo: string; nome: string; sigla: string }>;
+  /** Embalagens com a copia da unidade refeita (21/11/2026). */
+  embalagensAcertadas?: number;
+  /** Das acertadas, as que recusavam fracao com a unidade ja' fracionada. */
+  embalagensTravadas?: number;
+  exemplosEmbalagem?: Array<{ codigo: string; nome: string }>;
 }
 
 /** Venda fracionada (21/11/2026): produto ativo em unidade fracionada passa a vender fracionado. */

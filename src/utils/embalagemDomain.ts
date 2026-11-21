@@ -272,3 +272,48 @@ export const margemSobreCusto = (preco: unknown, custo: unknown): number | null 
   if (!(c > 0)) return null;
   return ((toFiniteNumber(preco) - c) / c) * 100;
 };
+
+/** O que a embalagem copia da unidade de medida dela. */
+export interface UnidadeDaEmbalagem {
+  sigla?: unknown;
+  permiteFracionado?: unknown;
+  casasDecimais?: unknown;
+}
+
+/**
+ * Refaz a copia da unidade nas embalagens (21/11/2026). Caso real (Jomarly,
+ * PREGO 10 X 10 vendido em G de 0,100 KG): a unidade G foi marcada como
+ * "Fracionada" depois e a venda continuou recusando 0,5 G, porque a
+ * embalagem guarda uma COPIA de "Fracionada" e das casas decimais feita ao
+ * salvar o produto. `acharUnidade` diz a unidade atual de cada embalagem
+ * (null = deixa como esta'). Os outros campos da embalagem ficam intactos.
+ */
+export const embalagensComUnidadesAtuais = (
+  embalagens: unknown,
+  acharUnidade: (embalagem: { unidadeMedidaId: string; unidadeMedidaSigla: string }) => UnidadeDaEmbalagem | null,
+): { embalagens: unknown[]; alteradas: number; travadas: number } => {
+  if (!Array.isArray(embalagens)) return { embalagens: [], alteradas: 0, travadas: 0 };
+  let alteradas = 0;
+  let travadas = 0;
+  const novas = embalagens.map((raw) => {
+    if (!raw || typeof raw !== 'object') return raw;
+    const entry = raw as Record<string, unknown>;
+    const unidade = acharUnidade({
+      unidadeMedidaId: toTrimmedString(entry.unidadeMedidaId),
+      unidadeMedidaSigla: toTrimmedString(entry.unidadeMedidaSigla).toUpperCase(),
+    });
+    if (!unidade) return raw;
+    const fracionado = unidade.permiteFracionado === true;
+    const casas = Math.max(0, Math.trunc(toFiniteNumber(unidade.casasDecimais)));
+    const sigla = toTrimmedString(unidade.sigla).toUpperCase() || toTrimmedString(entry.unidadeMedidaSigla).toUpperCase() || 'UN';
+    const mudou = (entry.unidadeMedidaFracionado === true) !== fracionado
+      || toFiniteNumber(entry.unidadeMedidaCasasDecimais) !== casas
+      || toTrimmedString(entry.unidadeMedidaSigla).toUpperCase() !== sigla;
+    if (!mudou) return raw;
+    alteradas += 1;
+    // "Travada" = a unidade aceita fracao e a copia recusava (o caso da venda barrada).
+    if (fracionado && entry.unidadeMedidaFracionado !== true) travadas += 1;
+    return { ...entry, unidadeMedidaFracionado: fracionado, unidadeMedidaCasasDecimais: casas, unidadeMedidaSigla: sigla };
+  });
+  return { embalagens: novas, alteradas, travadas };
+};

@@ -11,10 +11,17 @@
  * passa a vender fracionado, como era no sistema antigo -- marca "Produto
  * fracionado" e acerta a copia da unidade (fracionado e casas decimais).
  *
+ * Embalagens (21/11/2026): cada embalagem guarda uma copia da unidade dela
+ * (Fracionada, casas, sigla). Unidade alterada depois deixava a embalagem
+ * recusando fracao (PREGO 10 X 10 em G na Jomarly). A tarefa refaz essa copia
+ * em todo produto ativo, com a unidade atual.
+ *
  * Roda pelo Painel da Plataforma > Manutencao (da maquina local nada roda
  * contra producao). Uma empresa por vez, Simular antes de Aplicar. Rodar de
  * novo e' seguro: so' grava em produto que ainda precisa mudar.
  */
+
+const { embalagensComUnidadesAtuais } = require('../domain/embalagemDomain');
 
 const TAMANHO_LOTE = 400;
 const EXEMPLOS = 40;
@@ -80,12 +87,31 @@ async function corrigirVendaFracionada({ db, agora, tenantId, aplicar, usuarioId
   const paraGravar = [];
   let naUnidadeFracionada = 0;
   let travados = 0;
+  let embalagensAcertadas = 0;
+  let embalagensTravadas = 0;
+  const exemplosEmbalagem = [];
+  // Unidade atual de cada embalagem: pelo id; embalagem antiga sem id, pela sigla.
+  const unidadeDaEmbalagem = (e) => porId.get(e.unidadeMedidaId) || (!e.unidadeMedidaId ? porSigla.get(e.unidadeMedidaSigla) || null : null);
 
   produtosSnap.docs.forEach((d) => {
     const produto = d.data();
     if (!produtoAtivo(produto)) return;
+    // Embalagens (21/11/2026, caso PREGO em G): a copia da unidade em cada
+    // embalagem volta a seguir a unidade atual, fracionada ou nao.
+    const acerto = embalagensComUnidadesAtuais(produto.embalagens, unidadeDaEmbalagem);
+    const mudancasDaEmbalagem = acerto.alteradas > 0 ? { embalagens: acerto.embalagens } : {};
+    if (acerto.alteradas > 0) {
+      embalagensAcertadas += acerto.alteradas;
+      embalagensTravadas += acerto.travadas;
+      if (acerto.travadas > 0 && exemplosEmbalagem.length < EXEMPLOS) {
+        exemplosEmbalagem.push({ codigo: String(produto.codigo ?? ''), nome: String(produto.nome ?? '') });
+      }
+    }
     const unidade = unidadeDoProduto(produto, porId, porSigla);
-    if (!unidade || unidade.permiteFracionado !== true) return;
+    if (!unidade || unidade.permiteFracionado !== true) {
+      if (acerto.alteradas > 0) paraGravar.push({ ref: d.ref, mudancas: mudancasDaEmbalagem });
+      return;
+    }
     naUnidadeFracionada += 1;
     const chave = sigla(unidade.sigla);
     const resumo = porSiglaResumo.get(chave) || { sigla: chave, produtos: 0, travados: 0, alterados: 0 };
@@ -96,9 +122,9 @@ async function corrigirVendaFracionada({ db, agora, tenantId, aplicar, usuarioId
       resumo.travados += 1;
       if (exemplos.length < EXEMPLOS) exemplos.push({ codigo: String(produto.codigo ?? ''), nome: String(produto.nome ?? ''), sigla: chave });
     }
-    if (Object.keys(mudancas).length > 0) {
-      resumo.alterados += 1;
-      paraGravar.push({ ref: d.ref, mudancas });
+    if (Object.keys(mudancas).length > 0) resumo.alterados += 1;
+    if (Object.keys(mudancas).length > 0 || acerto.alteradas > 0) {
+      paraGravar.push({ ref: d.ref, mudancas: { ...mudancas, ...mudancasDaEmbalagem } });
     }
     porSiglaResumo.set(chave, resumo);
   });
@@ -124,6 +150,9 @@ async function corrigirVendaFracionada({ db, agora, tenantId, aplicar, usuarioId
     alterados: paraGravar.length,
     porSigla: [...porSiglaResumo.values()].sort((a, b) => a.sigla.localeCompare(b.sigla)),
     exemplos: exemplos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    embalagensAcertadas,
+    embalagensTravadas,
+    exemplosEmbalagem: exemplosEmbalagem.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
   };
 }
 

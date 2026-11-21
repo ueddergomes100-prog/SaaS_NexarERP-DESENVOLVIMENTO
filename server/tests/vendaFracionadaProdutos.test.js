@@ -87,3 +87,30 @@ test('empresa que nao existe: erro em portugues com status 404', async () => {
     (e) => e.status === 404 && /Empresa não encontrada/.test(e.message),
   );
 });
+
+test('embalagens: unidade G marcada como fracionada depois -- a copia da embalagem e refeita (caso PREGO, 21/11/2026)', async () => {
+  const fake = criarBancoFalso({
+    ...base(),
+    'unidades_medida/u-g': { tenantId: 'loja', sigla: 'G', casasDecimais: 3, permiteFracionado: true },
+    'unidades_medida/u-kg': { tenantId: 'loja', sigla: 'KG', casasDecimais: 3, permiteFracionado: false },
+    'estoque/prego': {
+      tenantId: 'loja', codigo: '50', nome: 'PREGO 10 X 10', unidadeMedidaId: 'u-kg', unidadeMedidaSigla: 'KG', produtoFracionado: false, ativo: true,
+      embalagens: [{ id: 'e1', unidadeMedidaId: 'u-g', unidadeMedidaSigla: 'G', unidadeMedidaFracionado: false, unidadeMedidaCasasDecimais: 0, fatorConversao: 0.1, precoVenda: 4 }],
+    },
+  }, { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.corrigirVendaFracionada({ db: fake.db, agora: () => TS, tenantId: 'loja', aplicar: false, usuarioId: 'admin' });
+  assert.equal(r.embalagensAcertadas, 1);
+  assert.equal(r.embalagensTravadas, 1);
+  assert.deepEqual(r.exemplosEmbalagem, [{ codigo: '50', nome: 'PREGO 10 X 10' }]);
+  assert.equal(fake.ler('estoque/prego').embalagens[0].unidadeMedidaFracionado, false, 'simular nao grava');
+
+  await s.corrigirVendaFracionada({ db: fake.db, agora: () => TS, tenantId: 'loja', aplicar: true, usuarioId: 'admin' });
+  const prego = fake.ler('estoque/prego');
+  assert.equal(prego.embalagens[0].unidadeMedidaFracionado, true);
+  assert.equal(prego.embalagens[0].unidadeMedidaCasasDecimais, 3);
+  assert.equal(prego.embalagens[0].precoVenda, 4, 'o resto da embalagem fica');
+  assert.equal(prego.produtoFracionado, false, 'produto em unidade inteira nao muda');
+  const deNovo = await s.corrigirVendaFracionada({ db: fake.db, agora: () => TS, tenantId: 'loja', aplicar: false, usuarioId: 'admin' });
+  assert.equal(deNovo.embalagensAcertadas, 0);
+});

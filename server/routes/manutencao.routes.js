@@ -270,7 +270,7 @@ router.post('/venda-fracionada', limite, async (req, res) => {
       await registrarLog({ ...req.user, tenantId, filialNome: resultado.empresa }, {
         modulo: 'estoque',
         acao: 'venda_fracionada',
-        descricao: `Venda fracionada acertada nos produtos ativos em unidade fracionada (${resultado.unidadesFracionadas.join(', ')}): "Produto fracionado" marcado e a configuração da unidade copiada de novo. ${resultado.alterados} produto(s) alterado(s), ${resultado.travados} deles recusavam quantidade quebrada na venda.`,
+        descricao: `Venda fracionada acertada nos produtos ativos em unidade fracionada (${resultado.unidadesFracionadas.join(', ')}): "Produto fracionado" marcado e a configuração da unidade copiada de novo. ${resultado.alterados} produto(s) alterado(s), ${resultado.travados} deles recusavam quantidade quebrada na venda.${resultado.embalagensAcertadas > 0 ? ` Embalagens com a unidade copiada de novo: ${resultado.embalagensAcertadas} (${resultado.embalagensTravadas} recusavam fração).` : ''}`,
         documentoTipo: 'produto',
         alteracoes: resultado.porSigla.map((s) => ({ campo: `Unidade ${s.sigla}`, valorAnterior: `${s.travados} recusando fração`, valorNovo: `${s.alterados} produto(s) acertado(s)` })),
         critico: true,

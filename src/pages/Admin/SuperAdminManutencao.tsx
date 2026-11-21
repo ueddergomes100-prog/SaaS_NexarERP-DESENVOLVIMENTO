@@ -450,6 +450,7 @@ const CartaoVendaFracionada: React.FC = () => {
           <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
             Todo produto ativo numa unidade marcada como &quot;Fracionada&quot; (metro, quilo, metro cúbico...) passa a aceitar
             quantidade quebrada na venda: marca &quot;Produto fracionado&quot; e copia de novo as casas decimais da unidade.
+            As embalagens (rolo, tubo, saco) de todo produto ativo também voltam a seguir a unidade atual delas.
             <strong> Comece por Simular: nada é gravado.</strong>
           </p>
         </div>
@@ -523,6 +524,20 @@ const CartaoVendaFracionada: React.FC = () => {
               <summary style={{ cursor: 'pointer' }}>Produtos que hoje recusam quantidade quebrada ({fmt(resultado.travados)}{resultado.travados > resultado.exemplos.length ? `, mostrando ${resultado.exemplos.length}` : ''})</summary>
               <ul style={{ margin: '8px 0 0', paddingLeft: '20px', columns: 2, fontSize: '13px' }}>
                 {resultado.exemplos.map((e) => <li key={`${e.codigo}-${e.nome}`}>{e.codigo ? `${e.codigo} · ` : ''}{e.nome} ({e.sigla})</li>)}
+              </ul>
+            </details>
+          )}
+          {(resultado.embalagensAcertadas ?? 0) > 0 && (
+            <div>
+              Embalagens com a unidade copiada de novo: <strong style={{ color: 'var(--text-primary)' }}>{fmt(resultado.embalagensAcertadas ?? 0)}</strong>
+              {(resultado.embalagensTravadas ?? 0) > 0 && <> · <span style={{ color: '#ef4444' }}>{fmt(resultado.embalagensTravadas ?? 0)} recusando fração</span></>}
+            </div>
+          )}
+          {(resultado.exemplosEmbalagem?.length ?? 0) > 0 && (
+            <details>
+              <summary style={{ cursor: 'pointer' }}>Produtos com embalagem recusando fração ({fmt(resultado.exemplosEmbalagem?.length ?? 0)})</summary>
+              <ul style={{ margin: '8px 0 0', paddingLeft: '20px', columns: 2, fontSize: '13px' }}>
+                {(resultado.exemplosEmbalagem ?? []).map((e) => <li key={`${e.codigo}-${e.nome}`}>{e.codigo ? `${e.codigo} · ` : ''}{e.nome}</li>)}
               </ul>
             </details>
           )}

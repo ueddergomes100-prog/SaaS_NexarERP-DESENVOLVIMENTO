@@ -9,7 +9,7 @@
 // quilo. Por isso a conversao acontece so na hora de mexer no estoque
 // (toStockAdjustmentItems), nunca no valor financeiro do item.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.margemSobreCusto = exports.custoDaEmbalagem = exports.unidadeDePrecoDaOpcao = exports.opcaoDoItemGravado = exports.camposDeUnidadeDoItem = exports.opcoesDeUnidadeDaTela = exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
+exports.embalagensComUnidadesAtuais = exports.margemSobreCusto = exports.custoDaEmbalagem = exports.unidadeDePrecoDaOpcao = exports.opcaoDoItemGravado = exports.camposDeUnidadeDoItem = exports.opcoesDeUnidadeDaTela = exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
 /** Casas decimais usadas ao converter para a unidade base. Existe so pra
  * absorver o erro de ponto flutuante de quantidade fracionada x fator (ex:
  * 0.1 * 3), nao pra limitar o que o usuario pode digitar -- esse limite e da
@@ -190,3 +190,43 @@ const margemSobreCusto = (preco, custo) => {
     return ((toFiniteNumber(preco) - c) / c) * 100;
 };
 exports.margemSobreCusto = margemSobreCusto;
+/**
+ * Refaz a copia da unidade nas embalagens (21/11/2026). Caso real (Jomarly,
+ * PREGO 10 X 10 vendido em G de 0,100 KG): a unidade G foi marcada como
+ * "Fracionada" depois e a venda continuou recusando 0,5 G, porque a
+ * embalagem guarda uma COPIA de "Fracionada" e das casas decimais feita ao
+ * salvar o produto. `acharUnidade` diz a unidade atual de cada embalagem
+ * (null = deixa como esta'). Os outros campos da embalagem ficam intactos.
+ */
+const embalagensComUnidadesAtuais = (embalagens, acharUnidade) => {
+    if (!Array.isArray(embalagens))
+        return { embalagens: [], alteradas: 0, travadas: 0 };
+    let alteradas = 0;
+    let travadas = 0;
+    const novas = embalagens.map((raw) => {
+        if (!raw || typeof raw !== 'object')
+            return raw;
+        const entry = raw;
+        const unidade = acharUnidade({
+            unidadeMedidaId: toTrimmedString(entry.unidadeMedidaId),
+            unidadeMedidaSigla: toTrimmedString(entry.unidadeMedidaSigla).toUpperCase(),
+        });
+        if (!unidade)
+            return raw;
+        const fracionado = unidade.permiteFracionado === true;
+        const casas = Math.max(0, Math.trunc(toFiniteNumber(unidade.casasDecimais)));
+        const sigla = toTrimmedString(unidade.sigla).toUpperCase() || toTrimmedString(entry.unidadeMedidaSigla).toUpperCase() || 'UN';
+        const mudou = (entry.unidadeMedidaFracionado === true) !== fracionado
+            || toFiniteNumber(entry.unidadeMedidaCasasDecimais) !== casas
+            || toTrimmedString(entry.unidadeMedidaSigla).toUpperCase() !== sigla;
+        if (!mudou)
+            return raw;
+        alteradas += 1;
+        // "Travada" = a unidade aceita fracao e a copia recusava (o caso da venda barrada).
+        if (fracionado && entry.unidadeMedidaFracionado !== true)
+            travadas += 1;
+        return { ...entry, unidadeMedidaFracionado: fracionado, unidadeMedidaCasasDecimais: casas, unidadeMedidaSigla: sigla };
+    });
+    return { embalagens: novas, alteradas, travadas };
+};
+exports.embalagensComUnidadesAtuais = embalagensComUnidadesAtuais;

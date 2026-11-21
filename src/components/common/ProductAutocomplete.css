@@ -46,24 +46,43 @@
   color: #ef4444;
 }
 
+/*
+ * O painel e' uma coluna: titulo das colunas (fixo), a lista (rola), os
+ * avisos de filial / "Ver mais" e o rodape (fixos). Antes o painel inteiro
+ * rolava e o que vinha depois da lista sumia embaixo (21/11/2026).
+ *
+ * A altura maxima vem do componente (o espaco ate' a beira da janela); os
+ * 320px sao so' a reserva para antes da primeira medida e para o painel
+ * "inline" do PDV.
+ */
 .product-autocomplete__panel {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   right: 0;
   z-index: 60;
+  display: flex;
+  flex-direction: column;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   max-height: 320px;
-  overflow-y: auto;
+  overflow: hidden;
   box-shadow: var(--shadow-card);
+  container: busca-produto / inline-size;
 }
 
 .product-autocomplete__panel--inline {
   position: static;
   margin-top: 8px;
   box-shadow: none;
+}
+
+.product-autocomplete__lista {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /*
@@ -84,7 +103,7 @@
   border-bottom: 1px solid var(--border-color);
   background-color: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
@@ -95,8 +114,9 @@
 .produto-opcao__nome {
   grid-column: 1;
   grid-row: 1;
-  font-weight: 500;
-  line-height: 1.35;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -108,19 +128,21 @@
    com fundo brigaria com a linha selecionada. */
 .produto-opcao__match {
   background: none;
-  color: var(--accent-purple);
+  color: var(--brand-ink, var(--accent-purple));
   font-weight: 700;
 }
 
 /* Numero tabular pras virgulas ficarem uma embaixo da outra: o olho corre a
-   coluna de preco sem precisar ler. */
+   coluna de preco sem precisar ler. Na cor do texto: verde claro em fundo
+   branco nao dava leitura (21/11/2026); quem tem cor e' o estoque. */
 .produto-opcao__preco {
   grid-column: 2;
   grid-row: 1;
   align-self: start;
+  font-size: 15px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #34d399;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -130,12 +152,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text-muted);
 }
 
 /* Tres estados, nao dois: "baixo" e o unico em que ainda da pra repor antes
-   de faltar, e era o que nao existia. Ver nivelDeEstoque. */
+   de faltar, e era o que nao existia. Ver nivelDeEstoque. As cores vem do
+   tema (--status-*): cada tema tem a sua versao legivel. */
 .produto-opcao__estoque {
   display: inline-flex;
   align-items: center;
@@ -144,6 +167,7 @@
   border-radius: 999px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .produto-opcao__ponto {
@@ -154,18 +178,18 @@
 }
 
 .produto-opcao__estoque.is-ok {
-  background-color: color-mix(in srgb, #10b981 14%, transparent);
-  color: #34d399;
+  background-color: color-mix(in srgb, var(--status-green, #10b981) 14%, transparent);
+  color: var(--status-green, #10b981);
 }
 
 .produto-opcao__estoque.is-baixo {
-  background-color: color-mix(in srgb, #f59e0b 16%, transparent);
-  color: #fbbf24;
+  background-color: color-mix(in srgb, var(--status-yellow, #f59e0b) 16%, transparent);
+  color: var(--status-yellow, #f59e0b);
 }
 
 .produto-opcao__estoque.is-zerado {
-  background-color: color-mix(in srgb, #ef4444 15%, transparent);
-  color: #f87171;
+  background-color: color-mix(in srgb, var(--status-red, #ef4444) 13%, transparent);
+  color: var(--status-red, #ef4444);
 }
 
 .produto-opcao__reserva {
@@ -175,8 +199,8 @@
   border-radius: 999px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  background-color: color-mix(in srgb, #a855f7 16%, transparent);
-  color: #c084fc;
+  background-color: var(--brand-soft, rgba(124, 58, 237, 0.12));
+  color: var(--brand-ink, var(--accent-purple));
 }
 
 .produto-opcao__codigo {
@@ -193,14 +217,15 @@
 }
 
 .product-autocomplete__view-more {
+  flex: 0 0 auto;
   display: block;
   width: 100%;
   padding: 10px 16px;
   border: none;
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-tertiary);
-  color: var(--accent-purple);
-  font-size: 12px;
+  color: var(--brand-ink, var(--accent-purple));
+  font-size: 13px;
   font-weight: 600;
   text-align: center;
   cursor: pointer;
@@ -221,12 +246,13 @@
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 14px;
   text-align: center;
 }
 
 /* Filiais (2026-10-06): "Ver itens de todas as filiais" / "Mostrar so os desta filial". */
 .product-autocomplete__escopo {
+  flex: 0 0 auto;
   display: block;
   width: 100%;
   padding: 8px 16px;
@@ -248,4 +274,205 @@
   margin-top: 8px;
   border-top: 0;
   color: var(--accent-purple);
+}
+
+/* -------------------------------------------------------------------------
+ * Lista em colunas (21/11/2026)
+ *
+ * Titulo das colunas e rodape existem na marcacao sempre que a tela usa a
+ * linha padrao de produto, mas so' APARECEM quando o painel e' largo. No
+ * estreito (celula da grade de itens, tela pequena) a lista fica como acima:
+ * nome em cima, estoque e codigo embaixo.
+ * ------------------------------------------------------------------------- */
+.product-autocomplete__cabecalho,
+.product-autocomplete__rodape {
+  display: none;
+}
+
+@container busca-produto (min-width: 600px) {
+  .product-autocomplete__panel--colunas .product-autocomplete__cabecalho,
+  .product-autocomplete__panel--colunas .product-autocomplete__option {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr) 136px 120px;
+    align-items: center;
+    gap: 0 12px;
+    padding: 0 18px;
+  }
+
+  .product-autocomplete__panel--colunas .product-autocomplete__cabecalho {
+    flex: 0 0 auto;
+    height: 34px;
+    background-color: var(--brand-softer, var(--bg-tertiary));
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .product-autocomplete__panel--colunas .product-autocomplete__cabecalho > :last-child {
+    text-align: right;
+  }
+
+  .product-autocomplete__panel--colunas .product-autocomplete__option {
+    min-height: 43px;
+    font-size: 16px;
+  }
+
+  .product-autocomplete__panel--colunas .product-autocomplete__option:hover,
+  .product-autocomplete__panel--colunas .product-autocomplete__option.is-highlighted {
+    background-color: var(--brand-soft, var(--bg-tertiary));
+    box-shadow: inset 4px 0 0 var(--brand-600, var(--accent-purple));
+  }
+
+  /* A faixa de baixo se desfaz: estoque e codigo viram colunas da linha. */
+  .product-autocomplete__panel--colunas .produto-opcao__meta {
+    display: contents;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__codigo {
+    grid-column: 1;
+    grid-row: 1;
+    color: var(--text-muted);
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__codigo-rotulo {
+    display: none;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__nome {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 5px 0;
+    font-size: 16px;
+    line-height: 1.25;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__estoque {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: start;
+    padding: 0;
+    background: none;
+    font-size: 14px;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__ponto {
+    display: none;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__preco {
+    grid-column: 4;
+    grid-row: 1;
+    align-self: center;
+    justify-self: end;
+    font-size: 16px;
+  }
+
+  /* Reserva: linha fina embaixo do nome, so' em quem tem. */
+  .product-autocomplete__panel--colunas .produto-opcao__reserva {
+    grid-column: 2 / 4;
+    grid-row: 2;
+    justify-self: start;
+    margin: -2px 0 7px;
+    font-size: 12px;
+  }
+
+  /* No painel largo o rodape faz o papel do "Ver mais". */
+  .product-autocomplete__panel--colunas .product-autocomplete__view-more {
+    display: none;
+  }
+
+  .product-autocomplete__panel--colunas .product-autocomplete__rodape {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 40px;
+    padding: 6px 18px;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--brand-softer, var(--bg-tertiary));
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .product-autocomplete__rodape strong {
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+
+  .product-autocomplete__teclas {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    white-space: nowrap;
+  }
+
+  .product-autocomplete__teclas button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--brand-ink, var(--accent-purple));
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .product-autocomplete__teclas button:hover {
+    text-decoration: underline;
+  }
+
+  .product-autocomplete__teclas kbd {
+    display: inline-block;
+    min-width: 22px;
+    margin-right: 5px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .product-autocomplete__teclas kbd + kbd {
+    margin-left: -2px;
+  }
+}
+
+/* Painel largo mas nao tanto (tela de 1366 px, menu aberto): as colunas de
+   numero apertam para o nome caber, e as dicas de teclado saem. */
+@container busca-produto (min-width: 600px) and (max-width: 760px) {
+  .product-autocomplete__panel--colunas .product-autocomplete__cabecalho,
+  .product-autocomplete__panel--colunas .product-autocomplete__option {
+    grid-template-columns: 64px minmax(0, 1fr) 104px 98px;
+    gap: 0 10px;
+    padding: 0 14px;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__nome,
+  .product-autocomplete__panel--colunas .produto-opcao__preco {
+    font-size: 15px;
+  }
+
+  .product-autocomplete__panel--colunas .produto-opcao__codigo {
+    font-size: 14px;
+  }
+
+  .product-autocomplete__panel--colunas .product-autocomplete__rodape {
+    padding: 6px 14px;
+  }
+
+  .product-autocomplete__teclas > span {
+    display: none;
+  }
 }

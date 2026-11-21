@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   findEmbalagemIdByExactCode,
   isListarTudoTerm,
+  ordenarProdutosDaBusca,
   productMatchesExactCode,
   productMatchesSearch,
   searchProducts,
@@ -210,7 +211,8 @@ test('# devolve o catalogo inteiro em vez de filtrar', () => {
 
   assert.equal(resultado.total, 3);
   assert.equal(resultado.truncated, false);
-  assert.deepEqual(resultado.items.map((item) => item.id), ['a', 'b', 'c']);
+  // Em ordem alfabetica: ACUCAR, CAFE VERDE, FILTRO DE OLEO.
+  assert.deepEqual(resultado.items.map((item) => item.id), ['b', 'a', 'c']);
 });
 
 test('# respeita o limite mas informa o total real, pro "Ver mais" aparecer', () => {
@@ -287,14 +289,16 @@ test('"+" com dois termos lista todos que batem nos dois', () => {
   const result = searchProducts(catalogoRacao, 'quatree+gourmet', { limit: 10 });
 
   assert.equal(result.total, 2);
-  assert.deepEqual(result.items.map((item) => item.id), ['a', 'b']);
+  // Ordem alfabetica: "...10,1KG" vem antes de "...20KG".
+  assert.deepEqual(result.items.map((item) => item.id), ['b', 'a']);
 });
 
 test('busca de uma palavra so continua funcionando como antes', () => {
   const result = searchProducts(catalogoRacao, 'gatos', { limit: 10 });
 
   assert.equal(result.total, 2);
-  assert.deepEqual(result.items.map((item) => item.id), ['c', 'd']);
+  // Ordem alfabetica: "Areia..." antes de "Racao...".
+  assert.deepEqual(result.items.map((item) => item.id), ['d', 'c']);
 });
 
 test('modo exata: "+" casa por conter, senao palavra do meio nunca acharia', () => {
@@ -306,7 +310,7 @@ test('modo exata: "+" casa por conter, senao palavra do meio nunca acharia', () 
 
   const comMais = searchProducts(catalogoRacao, 'racao+20kg', { mode: 'exata', limit: 10 });
   assert.equal(comMais.total, 2);
-  assert.deepEqual(comMais.items.map((item) => item.id), ['a', 'c']);
+  assert.deepEqual(comMais.items.map((item) => item.id), ['c', 'a']);
 });
 
 test('"+" tambem casa termo em campo diferente (nome + marca)', () => {
@@ -338,4 +342,50 @@ test('productMatchesSearch com "+" derruba quem tem so parte das palavras', () =
 
   assert.equal(productMatchesSearch(produto, 'racao+gourmet'), true);
   assert.equal(productMatchesSearch(produto, 'racao+premium'), false);
+});
+
+// --- Ordem da lista (21/11/2026) --------------------------------------------
+
+const catalogoFerragem = [
+  product({ id: 'p4', nome: 'PARAFUSO CAB.CHATA MADEIRA 4,2 X 55', codigo: '1533' }),
+  product({ id: 'v1', nome: 'VALVULA P/POCO ROSC. 1"', codigo: '2868' }),
+  product({ id: 'p2', nome: 'parafuso auto brocante 5,5 x 1', codigo: '1507' }),
+  product({ id: 'o2', nome: 'OLEO 1L', codigo: '20' }),
+  product({ id: 'p1', nome: 'PARAFUSO AUTO ATARRAX. CAB.PANEL. 6,3 X 45', codigo: '1502' }),
+  product({ id: 'o1', nome: 'ÓLEO 1L', codigo: '3' }),
+  product({ id: 'c1', nome: 'CAMARA DE AR 3,25 X 8', codigo: '150' }),
+  product({ id: 'c2', nome: 'COLHER PEDREIRO 8"', codigo: '15' }),
+];
+
+test('lista sai em ordem alfabetica pelo nome: acento e maiuscula nao contam, nome igual sai pelo codigo como numero', () => {
+  const tudo = searchProducts(catalogoFerragem, '#', { limit: 50 });
+  assert.deepEqual(tudo.items.map((p) => p.id), ['c1', 'c2', 'o1', 'o2', 'p1', 'p2', 'p4', 'v1']);
+
+  const parafusos = searchProducts(catalogoFerragem, 'paraf', { limit: 50 });
+  assert.deepEqual(parafusos.items.map((p) => p.id), ['p1', 'p2', 'p4']);
+  assert.deepEqual(searchProducts(catalogoFerragem, '#paraf', { limit: 50 }).items.map((p) => p.id), ['p1', 'p2', 'p4']);
+});
+
+test('o corte do limite vem depois da ordem: os primeiros da lista sao os primeiros do alfabeto', () => {
+  const dois = searchProducts(catalogoFerragem, '#', { limit: 2 });
+  assert.deepEqual(dois.items.map((p) => p.id), ['c1', 'c2']);
+  assert.equal(dois.total, 8);
+  assert.equal(dois.truncated, true);
+});
+
+test('quem digita so numero procura pelo codigo: codigos que comecam com ele vem primeiro, do menor para o maior', () => {
+  // "15" e' o codigo EXATO da colher: o leitor/atalho de codigo exato continua valendo e so' ela volta.
+  assert.deepEqual(searchProducts(catalogoFerragem, '15', { limit: 50 }).items.map((p) => p.id), ['c2']);
+  // "150" exato tambem. "153" nao e' codigo de ninguem: lista quem comeca com 153.
+  assert.deepEqual(searchProducts(catalogoFerragem, '153', { limit: 50 }).items.map((p) => p.id), ['p4']);
+  // Prefixo de varios codigos, do menor para o maior, sem olhar o nome.
+  assert.deepEqual(ordenarProdutosDaBusca(catalogoFerragem, '15').map((p) => p.id).slice(0, 5), ['c2', 'c1', 'p1', 'p2', 'p4']);
+  // O que nao comeca com o numero segue pelo nome.
+  assert.deepEqual(ordenarProdutosDaBusca(catalogoFerragem, '15').map((p) => p.id).slice(5), ['o1', 'o2', 'v1']);
+});
+
+test('ordenar nao mexe na lista recebida', () => {
+  const antes = catalogoFerragem.map((p) => p.id);
+  ordenarProdutosDaBusca(catalogoFerragem, 'paraf');
+  assert.deepEqual(catalogoFerragem.map((p) => p.id), antes);
 });

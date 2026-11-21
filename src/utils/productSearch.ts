@@ -65,6 +65,50 @@ const TEXT_FIELDS: Array<keyof SearchableProduct> = ['nome', 'marca', 'categoria
 
 const normalize = normalizeSearchText;
 
+const ALFABETICO = new Intl.Collator('pt-BR', { sensitivity: 'base' });
+const SO_DIGITOS = /^\d+$/;
+
+const numeroDoCodigo = (codigo: unknown): number => {
+  const n = Number.parseFloat(String(codigo ?? '').replace(',', '.'));
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+};
+
+/**
+ * Ordem em que a busca devolve os produtos (21/11/2026, pedido de cliente: "a
+ * lista tem que estar em ordem alfabetica").
+ *
+ * Pelo NOME, de A a Z (acento e maiuscula nao contam; nome igual sai pelo
+ * codigo como numero) -- a mesma regra da lista de produtos do Estoque. Antes
+ * a lista saia na ordem em que o banco devolvia o catalogo, que para quem le
+ * e' ordem nenhuma.
+ *
+ * Uma excecao: quem digita so' NUMERO esta procurando pelo codigo. Ai' os
+ * produtos cujo codigo comeca com o que foi digitado vem primeiro, do menor
+ * para o maior (15, 150, 1502...), e o resto segue pelo nome.
+ *
+ * Nao mexe na lista recebida.
+ */
+export const ordenarProdutosDaBusca = <T extends SearchableProduct>(produtos: T[], termo?: unknown): T[] => {
+  const termoLimpo = normalize(String(termo ?? '').replace(/^#/, ''));
+  const buscaPorCodigo = SO_DIGITOS.test(termoLimpo);
+  const decorados = produtos.map((produto, indice) => ({
+    produto,
+    indice,
+    nome: String(produto.nome ?? ''),
+    numero: numeroDoCodigo(produto.codigo),
+    pelocodigo: buscaPorCodigo && normalize(produto.codigo).startsWith(termoLimpo),
+  }));
+  decorados.sort((a, b) => {
+    if (a.pelocodigo !== b.pelocodigo) return a.pelocodigo ? -1 : 1;
+    if (a.pelocodigo && a.numero !== b.numero) return a.numero < b.numero ? -1 : 1;
+    const porNome = ALFABETICO.compare(a.nome, b.nome);
+    if (porNome !== 0) return porNome;
+    if (a.numero !== b.numero) return a.numero < b.numero ? -1 : 1;
+    return a.indice - b.indice;
+  });
+  return decorados.map((d) => d.produto);
+};
+
 const matchesByMode = (haystack: string, term: string, mode: ProductSearchMode): boolean => {
   if (!haystack) return false;
   return mode === 'exata' ? haystack.startsWith(term) : haystack.includes(term);
@@ -186,7 +230,7 @@ export const searchProducts = <T extends SearchableProduct>(
 
   if (isListarTudoTerm(term)) {
     return {
-      items: produtosAtivos.slice(0, limit),
+      items: ordenarProdutosDaBusca(produtosAtivos).slice(0, limit),
       total: produtosAtivos.length,
       truncated: produtosAtivos.length > limit,
     };
@@ -210,7 +254,7 @@ export const searchProducts = <T extends SearchableProduct>(
     : produtosAtivos.filter((product) => productMatchesSearch(product, term, mode));
 
   return {
-    items: matches.slice(0, limit),
+    items: ordenarProdutosDaBusca(matches, term).slice(0, limit),
     total: matches.length,
     truncated: matches.length > limit,
   };

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEnderecoComNumero, useIdDaRota } from '../../components/common/RegistroPorNumero';
 import { useTabs } from '../../contexts/TabsContext';
-import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, Receipt, RefreshCw, X, Truck, RotateCcw, Undo2, AlertTriangle, Save, History, Copy, MoreHorizontal, ChevronDown, FileText, Plus, Pencil, Search } from 'lucide-react';
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, deleteField, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot, Timestamp } from 'firebase/firestore';
 import EscolherNotaEntradaModal from './EscolherNotaEntradaModal';
 import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, type NotaEntradaParaEscolha, type PrecoDoPedidoDaNota } from '../../utils/pedidoDaNotaEntradaDomain';
@@ -481,6 +481,8 @@ const PedidoVendaForm: React.FC = () => {
   const paymentDraftCounter = useRef(1);
   const submitLockRef = useRef(false);
   const produtoBuscaInputRef = useRef<HTMLInputElement>(null);
+  // A lista de produtos acompanha a largura da barra de lancamento inteira (21/11/2026).
+  const barraDeLancamentoRef = useRef<HTMLDivElement>(null);
   // Grade de itens (TabelaItensVenda): F5 abre a quantidade da linha selecionada.
   const tabelaItensRef = useRef<TabelaItensVendaHandle | null>(null);
   const clienteInputRef = useRef<HTMLInputElement>(null);
@@ -6155,7 +6157,7 @@ const PedidoVendaForm: React.FC = () => {
             </div>
 
             {(!isViewing || canAddPendingItem) && (
-              <div className="lanc-barra" role="group" aria-label="Adicionar produto à venda">
+              <div className="lanc-barra" role="group" aria-label="Adicionar produto à venda" ref={barraDeLancamentoRef}>
                 <div className="lanc-seg lanc-seg-produto">
                   <div className="lanc-rotulo">
                     <span>Produto</span>
@@ -6170,6 +6172,7 @@ const PedidoVendaForm: React.FC = () => {
                     )}
                   </div>
                   <div className="lanc-busca-wrap">
+                    <Search size={20} className="lanc-busca-icone" aria-hidden="true" />
                     <ProductAutocomplete
                       value={produtoBusca}
                       products={produtosCatalogo}
@@ -6202,6 +6205,9 @@ const PedidoVendaForm: React.FC = () => {
                       onViewMore={() => setIsProdutoSearchModalOpen(true)}
                       renderItem={renderProdutoRow}
                       onEnterComProdutoSelecionado={() => focarCampo(produtoQtdInputRef)}
+                      ancora={barraDeLancamentoRef}
+                      ancoraFolga={4}
+                      rolarAoAbrir
                     />
                     {produtoBusca && (
                       <button

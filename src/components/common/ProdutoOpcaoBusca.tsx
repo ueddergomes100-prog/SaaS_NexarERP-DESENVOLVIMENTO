@@ -28,6 +28,14 @@ import { resumoDeReserva } from '../../utils/estoqueReservaDomain';
  * Custa altura: cabem ~5 produtos por tela em vez de 6. E' o preco de ler o
  * nome inteiro, e no balcao a pergunta e' QUAL produto, nao quanto custa.
  *
+ * Em 21/11/2026 (cliente: "esta' pequeno, so' aparecem 6") a mesma marcacao
+ * ganhou um segundo arranjo: quando o painel e' LARGO (campo de produto do
+ * Pedido de Venda, PDV, OS...), a linha vira colunas -- codigo | nome |
+ * estoque | preco -- numa linha so', com letra de 16 px. Painel estreito
+ * (celula da grade, telas pequenas) continua no arranjo de duas linhas. A
+ * troca e' feita por container query em ProductAutocomplete.css; aqui a
+ * marcacao e' uma so'.
+ *
  * Uma so implementacao pras quatro telas (Pedido de Venda, OS, Orcamento,
  * PDV) -- antes cada uma desenhava a sua, com informacao diferente: a OS nem
  * mostrava estoque, o Orcamento nem o codigo.
@@ -55,6 +63,12 @@ const ROTULO_ESTOQUE: Record<ReturnType<typeof nivelDeEstoque>, string> = {
 const formatarPreco = (valor: unknown) => (
   Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 );
+
+/** "1.200" e "2,5": quantidade no jeito brasileiro, com as casas da unidade. */
+const formatarQuantidade = (valor: number, casas: number) => {
+  const digitos = Math.max(0, Math.min(Math.trunc(casas) || 0, 4));
+  return valor.toLocaleString('pt-BR', { minimumFractionDigits: digitos, maximumFractionDigits: digitos });
+};
 
 interface Props {
   produto: ProdutoParaOpcaoBusca;
@@ -88,14 +102,19 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
           <i className="produto-opcao__ponto" aria-hidden="true" />
           {nivel === 'zerado'
             ? ROTULO_ESTOQUE.zerado
-            : `${quantidade.toFixed(casas)} ${produto.unidadeMedidaSigla || 'UN'}`}
+            : `${formatarQuantidade(quantidade, casas)} ${produto.unidadeMedidaSigla || 'UN'}`}
         </span>
         {reserva.temReserva && (
           <span className="produto-opcao__reserva" title="Quantidade presa em pré-venda, condicional, OS ou troca em aberto">
-            Reservado: {reserva.reservada.toFixed(casas)} · Disponível: {reserva.disponivel.toFixed(casas)}
+            Reservado: {formatarQuantidade(reserva.reservada, casas)} · Disponível: {formatarQuantidade(reserva.disponivel, casas)}
           </span>
         )}
-        {codigo && <span className="produto-opcao__codigo">cód. {codigo}</span>}
+        {/* O "cód." some quando a lista esta' em colunas: ali o titulo da coluna ja' diz. */}
+        {codigo && (
+          <span className="produto-opcao__codigo">
+            <span className="produto-opcao__codigo-rotulo">cód. </span>{codigo}
+          </span>
+        )}
       </span>
     </>
   );

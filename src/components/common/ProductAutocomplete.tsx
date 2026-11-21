@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import {
+  ordenarProdutosDaBusca,
   produtoVendavel,
   searchProducts,
   type ProductSearchMode,
@@ -8,6 +9,7 @@ import {
   type SearchableProduct,
 } from '../../utils/productSearch';
 import ProductSearchModal from './ProductSearchModal';
+import { renderProdutoOpcaoBusca } from './ProdutoOpcaoBusca';
 import { useAuth } from '../../contexts/AuthContext';
 import { chaveDoProdutoPeloId, itemDaFilial } from '../../utils/cadastroGrupoDomain';
 import EstoqueNasFiliais from './EstoqueNasFiliais';
@@ -56,13 +58,62 @@ export interface ProductAutocompleteProps<T extends SearchableProduct & { id: st
   /** Estoque nas outras filiais do item em destaque (padrao: sim). A composicao
    *  desliga: materia-prima nao esta' no estoque de produtos. */
   mostrarEstoqueNasFiliais?: boolean;
+  /**
+   * Lista em COLUNAS (codigo | produto | estoque | preco), com titulo das
+   * colunas em cima e a contagem embaixo -- so' quando o painel e' largo; no
+   * estreito a linha continua em duas linhas (21/11/2026). Padrao: ligado
+   * para quem usa a linha padrao de produto (`renderProdutoOpcaoBusca`), que
+   * e' a unica que tem essas quatro informacoes.
+   */
+  colunas?: boolean;
+  /**
+   * Elemento cuja LARGURA a lista acompanha. No Pedido de Venda e' a barra de
+   * lancamento inteira: o campo de produto e' so' um pedaco dela, e a lista
+   * presa a ele ficava estreita justamente onde o nome precisa de espaco.
+   */
+  ancora?: React.RefObject<HTMLElement | null>;
+  /** Quantos pixels a lista passa da ancora de cada lado (cobre o contorno de foco dela). */
+  ancoraFolga?: number;
+  /**
+   * Ao abrir, sobe a pagina o suficiente para a lista caber inteira. Em tela
+   * de 20 polegadas o campo fica no meio da tela e sobravam 6 linhas; com a
+   * pagina um pouco para cima cabem 10.
+   */
+  rolarAoAbrir?: boolean;
 }
+
+/** Quantos produtos a lista traz antes de mandar para a consulta completa. */
+const LIMITE_PADRAO = 50;
+/** Cabecalho + 10 linhas + rodape: a altura que vale a pena conseguir. */
+const ALTURA_BOA = 520;
+const ALTURA_MINIMA = 240;
+const ALTURA_MAXIMA = 640;
+/** Espaco entre o campo e a lista, mais a folga ate' a beira de baixo da tela. */
+const FOLGA_VERTICAL = 28;
+/** O que fica visivel acima do campo quando a pagina sobe (rotulo e titulo do cartao). */
+const RESPIRO_ACIMA = 104;
+const PASSO_DA_PAGINA = 8;
+
+interface Geometria {
+  maxHeight?: number;
+  left?: number;
+  width?: number;
+}
+
+const acharRolavel = (elemento: HTMLElement): HTMLElement | null => {
+  for (let atual = elemento.parentElement; atual; atual = atual.parentElement) {
+    const rolagem = window.getComputedStyle(atual).overflowY;
+    if ((rolagem === 'auto' || rolagem === 'scroll') && atual.scrollHeight > atual.clientHeight) return atual;
+  }
+  return null;
+};
 
 /**
  * Autocomplete de produto compartilhado por PDV, Pedido de Venda e OS (F2).
  * Busca via src/utils/productSearch.ts (F1): codigo exato tem prioridade,
  * modo exata/completa e corte por limite com total para "Ver mais".
- * Navegacao por teclado embutida: seta cima/baixo move, Enter seleciona, Esc fecha.
+ * Navegacao por teclado embutida: seta cima/baixo move, PageUp/PageDown pula
+ * varias linhas, Enter seleciona, F3 abre a consulta completa, Esc fecha.
  */
 function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>({
   value,
@@ -71,7 +122,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   onSelect,
   renderItem,
   mode = 'completa',
-  limit = 6,
+  limit = LIMITE_PADRAO,
   placeholder,
   ariaLabel,
   disabled,
@@ -85,9 +136,15 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   travarAoSelecionar = true,
   onDestacado,
   mostrarEstoqueNasFiliais = true,
+  colunas,
+  ancora,
+  ancoraFolga = 0,
+  rolarAoAbrir = false,
 }: ProductAutocompleteProps<T>) {
   const internalRef = useRef<HTMLInputElement | null>(null);
   const resolvedInputRef = inputRef || internalRef;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const listaRef = useRef<HTMLDivElement | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   // Campo VAZIO lista o catalogo inteiro (padrao "# lista tudo"), mas Enter so'
   // escolhe dali depois de a pessoa navegar com a seta. Sem isso, o Enter
@@ -100,6 +157,10 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   // Comeca travado se ja' vier com valor.
   const [locked, setLocked] = useState(() => value.trim().length > 0);
   const [modalAberto, setModalAberto] = useState(false);
+  const [geometria, setGeometria] = useState<Geometria>({});
+  // So' o teclado rola a lista ate' o item em destaque: com o mouse a linha
+  // ja' esta' embaixo do ponteiro, e rolar ali faria a lista fugir da mao.
+  const rolarAteODestaqueRef = useRef(false);
   // Filiais (2026-10-06): o cadastro de produtos e' do grupo, mas a busca ja'
   // vem nos "Itens desta filial" (cadastrados nela ou com estoque nela). Quem
   // pode usar outras filiais troca para "Todos do grupo".
@@ -112,13 +173,15 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
     [products, grupo, todasAsFiliais, tenantId],
   );
   const escondidosPelaFilial = products.length - produtosVisiveis.length;
+  const emColunas = colunas ?? ((renderItem as unknown) === renderProdutoOpcaoBusca);
 
   const result = useMemo(() => {
     if (!value.trim()) {
       // Campo vazio lista o catalogo com o MESMO corte da busca: produto
       // inativo e o principal de uma grade (gradeProdutosDomain.ts) nunca
       // sao oferecidos -- antes (20/10/2026) so' a busca digitada cortava.
-      const oferecidos = produtosVisiveis.filter(produtoVendavel);
+      // E na mesma ordem dela: alfabetica (21/11/2026).
+      const oferecidos = ordenarProdutosDaBusca(produtosVisiveis.filter(produtoVendavel));
       return {
         items: oferecidos.slice(0, limit),
         total: oferecidos.length,
@@ -131,6 +194,7 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   useEffect(() => {
     setHighlightedIndex(0);
     setNavegouComSeta(false);
+    if (listaRef.current) listaRef.current.scrollTop = 0;
   }, [value, products]);
 
   // Rede de seguranca: se o valor for limpo por fora (ex: depois de
@@ -163,24 +227,104 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
     onDestacadoRef.current?.(destacado);
   }, [destacado]);
 
+  /**
+   * Ao abrir a lista: sobe a pagina para ela caber (quando a tela pede) e mede
+   * a altura e a largura.
+   *
+   * A altura e' o espaco que sobra do campo ate' a beira de baixo da janela (a
+   * lista nunca passa da tela -- o rodape com a contagem ficava escondido); a
+   * largura acompanha a ancora, quando ha'.
+   *
+   * A pagina sobe de uma vez, sem animacao: a pessoa clica no campo e ja' sai
+   * digitando, e cada tecla faz o navegador reposicionar a pagina no cursor --
+   * uma rolagem suave em andamento era cancelada no meio e a lista ficava para
+   * fora da tela.
+   */
+  useEffect(() => {
+    if (!isOpen || locked || variant === 'inline') return undefined;
+    const campo = resolvedInputRef.current;
+    const raiz = rootRef.current;
+    if (!campo || !raiz) return undefined;
+
+    if (rolarAoAbrir) {
+      const retangulo = campo.getBoundingClientRect();
+      const espaco = window.innerHeight - retangulo.bottom - FOLGA_VERTICAL;
+      const rolavel = espaco < ALTURA_BOA ? acharRolavel(campo) : null;
+      if (rolavel) {
+        const podeSubir = retangulo.top - rolavel.getBoundingClientRect().top - RESPIRO_ACIMA;
+        const restaDePagina = rolavel.scrollHeight - rolavel.clientHeight - rolavel.scrollTop;
+        const quanto = Math.floor(Math.min(ALTURA_BOA - espaco, podeSubir, restaDePagina));
+        if (quanto >= 8) rolavel.scrollTop += quanto;
+      }
+    }
+
+    const medir = () => {
+      const retangulo = campo.getBoundingClientRect();
+      const espaco = window.innerHeight - retangulo.bottom - FOLGA_VERTICAL;
+      const nova: Geometria = { maxHeight: Math.round(Math.max(ALTURA_MINIMA, Math.min(espaco, ALTURA_MAXIMA))) };
+      const alvo = ancora?.current;
+      if (alvo) {
+        const daAncora = alvo.getBoundingClientRect();
+        const daRaiz = raiz.getBoundingClientRect();
+        nova.left = Math.round(daAncora.left - daRaiz.left - ancoraFolga);
+        nova.width = Math.round(daAncora.width + ancoraFolga * 2);
+      }
+      setGeometria((atual) => (
+        atual.maxHeight === nova.maxHeight && atual.left === nova.left && atual.width === nova.width ? atual : nova
+      ));
+    };
+    medir();
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, [isOpen, locked, variant, rolarAoAbrir, ancora, ancoraFolga, resolvedInputRef]);
+
+  // Seta/PageDown: a linha em destaque tem que estar a' vista dentro da lista.
+  useEffect(() => {
+    if (!rolarAteODestaqueRef.current) return;
+    rolarAteODestaqueRef.current = false;
+    const lista = listaRef.current;
+    const linha = lista?.children[highlightedIndex] as HTMLElement | undefined;
+    if (!lista || !linha) return;
+    const topo = linha.offsetTop - lista.offsetTop;
+    if (topo < lista.scrollTop) lista.scrollTop = topo;
+    else if (topo + linha.offsetHeight > lista.scrollTop + lista.clientHeight) {
+      lista.scrollTop = topo + linha.offsetHeight - lista.clientHeight;
+    }
+  }, [highlightedIndex]);
+
   const clearSelection = () => {
     onChange('');
     setLocked(false);
     resolvedInputRef.current?.focus();
   };
 
+  const moverDestaque = (passo: number) => {
+    setIsOpen(true);
+    setNavegouComSeta(true);
+    rolarAteODestaqueRef.current = true;
+    setHighlightedIndex((index) => Math.max(0, Math.min(index + passo, result.items.length - 1)));
+  };
+
+  const abrirVerMais = (resultado: ProductSearchResult<T>) => {
+    if (onViewMore) onViewMore(resultado);
+    else { setIsOpen(false); setModalAberto(true); }
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       if (result.items.length === 0) return;
       event.preventDefault();
-      setIsOpen(true);
-      setNavegouComSeta(true);
-      setHighlightedIndex((index) => Math.min(index + 1, result.items.length - 1));
-    } else if (event.key === 'ArrowUp') {
+      moverDestaque(event.key === 'ArrowDown' ? 1 : -1);
+    } else if ((event.key === 'PageDown' || event.key === 'PageUp') && isOpen && !locked) {
       if (result.items.length === 0) return;
       event.preventDefault();
-      setNavegouComSeta(true);
-      setHighlightedIndex((index) => Math.max(0, index - 1));
+      moverDestaque(event.key === 'PageDown' ? PASSO_DA_PAGINA : -PASSO_DA_PAGINA);
+    } else if (event.key === 'F3' && !locked && !disabled) {
+      // F3 leva ao campo de produto (atalho da tela); com o cursor ja' aqui,
+      // abre a consulta completa -- a janela com a ficha do produto.
+      event.preventDefault();
+      event.stopPropagation();
+      abrirVerMais(result);
     } else if (event.key === 'Enter') {
       // Produto ja escolhido (o campo trava quando isso acontece): Enter aqui
       // lanca o item. Ver onEnterComProdutoSelecionado.
@@ -205,11 +349,6 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
     }
   };
 
-  const abrirVerMais = (resultado: ProductSearchResult<T>) => {
-    if (onViewMore) onViewMore(resultado);
-    else { setIsOpen(false); setModalAberto(true); }
-  };
-
   const trimmedValue = value.trim();
   const showResults = isOpen && result.items.length > 0;
   // Filiais: nada desta filial (mas ha' itens de outras) tambem precisa dizer
@@ -218,9 +357,18 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
   const showEmpty = isOpen && result.items.length === 0
     && ((trimmedValue.length > 0 && emptyHint !== undefined) || nadaDestaFilial);
   const extraCount = result.total - result.items.length;
+  // Campo vazio e sem seta: nenhuma linha aparece escolhida, porque o Enter ali
+  // nao escolhe ninguem (o mouse continua realcando a linha em que esta').
+  const destaqueAtivo = Boolean(trimmedValue) || navegouComSeta;
+  const estiloDoPainel: React.CSSProperties | undefined = variant === 'inline' ? undefined : {
+    ...(geometria.maxHeight ? { maxHeight: geometria.maxHeight } : {}),
+    ...(geometria.left !== undefined && geometria.width !== undefined
+      ? { left: geometria.left, right: 'auto', width: geometria.width }
+      : {}),
+  };
 
   return (
-    <div className={`product-autocomplete${className ? ` ${className}` : ''}`}>
+    <div ref={rootRef} className={`product-autocomplete${className ? ` ${className}` : ''}`}>
       <input
         ref={resolvedInputRef}
         type="text"
@@ -256,27 +404,40 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
 
       {showResults && (
         <div
-          className={`product-autocomplete__panel${variant === 'inline' ? ' product-autocomplete__panel--inline' : ''}`}
-          role="listbox"
+          className={`product-autocomplete__panel${variant === 'inline' ? ' product-autocomplete__panel--inline' : ''}${emColunas ? ' product-autocomplete__panel--colunas' : ''}`}
+          style={estiloDoPainel}
+          // Clicar na barra de rolagem ou no rodape nao pode tirar o foco do
+          // campo: a lista fecharia no meio do gesto.
+          onMouseDown={(event) => event.preventDefault()}
         >
-          {result.items.map((product, index) => (
-            <button
-              key={product.id}
-              type="button"
-              role="option"
-              aria-selected={highlightedIndex === index}
-              className={
-                highlightedIndex === index
-                  ? 'product-autocomplete__option is-highlighted'
-                  : 'product-autocomplete__option'
-              }
-              onMouseEnter={() => setHighlightedIndex(index)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => confirmSelect(product)}
-            >
-              {renderItem(product, highlightedIndex === index, value)}
-            </button>
-          ))}
+          {emColunas && (
+            <div className="product-autocomplete__cabecalho" aria-hidden="true">
+              <span>Cód.</span>
+              <span>Produto</span>
+              <span>Estoque</span>
+              <span>Preço</span>
+            </div>
+          )}
+
+          <div className="product-autocomplete__lista" role="listbox" ref={listaRef}>
+            {result.items.map((product, index) => (
+              <button
+                key={product.id}
+                type="button"
+                role="option"
+                aria-selected={destaqueAtivo && highlightedIndex === index}
+                className={
+                  destaqueAtivo && highlightedIndex === index
+                    ? 'product-autocomplete__option is-highlighted'
+                    : 'product-autocomplete__option'
+                }
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onClick={() => confirmSelect(product)}
+              >
+                {renderItem(product, highlightedIndex === index, value)}
+              </button>
+            ))}
+          </div>
 
           {grupo && mostrarEstoqueNasFiliais && result.items[highlightedIndex] && (
             <EstoqueNasFiliais chave={chaveDoProdutoPeloId(result.items[highlightedIndex].id, tenantId)} compacto atrasoMs={250} />
@@ -286,7 +447,6 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
             <button
               type="button"
               className="product-autocomplete__escopo"
-              onMouseDown={(event) => event.preventDefault()}
               onClick={() => setTodasAsFiliais((v) => !v)}
             >
               {todasAsFiliais ? 'Mostrar só os itens desta filial' : 'Ver itens de todas as filiais'}
@@ -297,17 +457,32 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
             <button
               type="button"
               className="product-autocomplete__view-more"
-              onMouseDown={(event) => event.preventDefault()}
               onClick={() => abrirVerMais(result)}
             >
               Ver mais ({extraCount} {extraCount === 1 ? 'resultado' : 'resultados'} a mais)
             </button>
           )}
+
+          {emColunas && (
+            <div className="product-autocomplete__rodape">
+              <span>
+                <strong>{result.total} {result.total === 1 ? 'produto' : 'produtos'}</strong>
+                {result.truncated ? `, mostrando os ${result.items.length} primeiros` : ''} em ordem alfabética
+              </span>
+              <span className="product-autocomplete__teclas">
+                <span><kbd>↑</kbd><kbd>↓</kbd>escolher</span>
+                <span><kbd>Enter</kbd>seleciona</span>
+                <button type="button" onClick={() => abrirVerMais(result)} title="Abre a janela de consulta, com a ficha de cada produto">
+                  <kbd>F3</kbd>consulta completa
+                </button>
+              </span>
+            </div>
+          )}
         </div>
       )}
 
       {showEmpty && (
-        <div className="product-autocomplete__empty">
+        <div className="product-autocomplete__empty" onMouseDown={(event) => event.preventDefault()}>
           {nadaDestaFilial
             ? (trimmedValue ? 'Nenhum item desta filial com esse nome.' : 'Esta filial ainda não tem itens próprios nem estoque recebido.')
             : emptyHint}
@@ -315,7 +490,6 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
             <button
               type="button"
               className="product-autocomplete__escopo"
-              onMouseDown={(event) => event.preventDefault()}
               onClick={() => setTodasAsFiliais(true)}
             >
               Procurar em todas as filiais

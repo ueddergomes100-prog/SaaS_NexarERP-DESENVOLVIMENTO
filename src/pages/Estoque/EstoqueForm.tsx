@@ -9,6 +9,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/unidadeMedidaDomain';
+import { produtoFracionadoAoEscolherUnidade } from '../../utils/vendaFracionadaDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { PERMISSAO_PRODUTO_AVANCADO } from '../../utils/permissionCatalog';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -1362,6 +1363,11 @@ const EstoqueForm: React.FC = () => {
         next.pesoEnvio = value;
       }
 
+      // Unidade fracionada ja' marca "Produto fracionado"; inteira desmarca (21/11/2026).
+      if (name === 'unidadeMedidaId') {
+        next.produtoFracionado = produtoFracionadoAoEscolherUnidade(activeUnidades.find((u) => u.id === value));
+      }
+
       return next;
     });
   };
@@ -2708,7 +2714,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <label className="switch-row">
                   <input type="checkbox" checked={formData.produtoFracionado} onChange={handleCheckbox('produtoFracionado')} />
-                  <span>Produto fracionado</span>
+                  <span title="Aceita quantidade quebrada na venda (0,5 m³, 1,25 kg). Só vale com a unidade de medida marcada como Fracionada; ao escolher uma unidade fracionada, já vem marcado.">Produto fracionado</span>
                 </label>
                 <div className="input-group">
                   <label>Peso</label>

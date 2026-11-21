@@ -73,6 +73,17 @@ export const unidadeMudouParaOsProdutos = (antes: UnidadeDeMedida | null | undef
 );
 
 /**
+ * "Produto fracionado" ao escolher a unidade no cadastro (decisao do dono,
+ * 21/11/2026): unidade fracionada ja' marca a caixa (quem nao quiser vender
+ * quebrado desmarca); unidade inteira desmarca, porque ali nao ha' fracao.
+ * Antes a caixa comecava desmarcada e quem cadastrava "AREIA METRO" em M3 nao
+ * sabia que precisava marcar -- na Jomarly, 33 produtos novos travaram assim.
+ */
+export const produtoFracionadoAoEscolherUnidade = (unidade: UnidadeDeMedida | null | undefined): boolean => (
+  unidade?.permiteFracionado === true
+);
+
+/**
  * Mensagem da venda quando a quantidade quebrada e' recusada. Diz o que fazer
  * nos dois casos possiveis, porque a tela de venda nao sabe se o problema e' a
  * unidade ou a marca do produto.

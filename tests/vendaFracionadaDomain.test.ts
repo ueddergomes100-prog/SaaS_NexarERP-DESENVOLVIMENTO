@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   fracionadoProprioDoProduto,
   mensagemQuantidadeInteira,
+  produtoFracionadoAoEscolherUnidade,
   mudancasDoProdutoPelaUnidade,
   unidadeMudouParaOsProdutos,
 } from '../src/utils/vendaFracionadaDomain';
@@ -51,4 +52,10 @@ test('mensagem da venda diz o que fazer, em portugues, com o nome do produto e a
   assert.match(texto, /Unidades de Medida/);
   assert.match(texto, /Produto fracionado/);
   assert.match(mensagemQuantidadeInteira('', ''), /^Este produto .* unidade UN\./);
+});
+
+test('escolher a unidade no cadastro: fracionada marca "Produto fracionado", inteira desmarca', () => {
+  assert.equal(produtoFracionadoAoEscolherUnidade({ permiteFracionado: true, casasDecimais: 3 }), true);
+  assert.equal(produtoFracionadoAoEscolherUnidade({ permiteFracionado: false }), false);
+  assert.equal(produtoFracionadoAoEscolherUnidade(undefined), false);
 });

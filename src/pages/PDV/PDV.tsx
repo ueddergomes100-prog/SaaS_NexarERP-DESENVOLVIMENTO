@@ -53,6 +53,7 @@ import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, findEmbalagemIdByExactCode, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { mensagemQuantidadeInteira } from '../../utils/vendaFracionadaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import CartPanel from './components/CartPanel';
@@ -711,7 +712,7 @@ const PDV: React.FC = () => {
     if (!isValidSaleQuantity(nextQuantity, permiteFracionado, casasDecimais)) {
       showError('Operação bloqueada', permiteFracionado
         ? `A quantidade de ${product.nome} aceita no máximo ${casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${sigla}.`
-        : `${product.nome} está sendo vendido na unidade ${sigla}, que não permite quantidade fracionada.`);
+        : mensagemQuantidadeInteira(product.nome, sigla));
       return false;
     }
     const quantidadeBase = toBaseQuantity(nextQuantity, opcao?.fatorConversao);

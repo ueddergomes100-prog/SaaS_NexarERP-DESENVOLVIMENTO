@@ -62,6 +62,7 @@ import ProductSearchModal from '../../components/common/ProductSearchModal';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { mensagemQuantidadeInteira } from '../../utils/vendaFracionadaDomain';
 import {
   avisoUnidadeMedidaAusente,
   resolveUnidadeMedidaProduto,
@@ -1014,7 +1015,7 @@ const OSForm: React.FC = () => {
     if (!isValidSaleQuantity(qtd, peca.unidadeMedidaFracionado, peca.unidadeMedidaCasasDecimais)) {
       showError('Operação Bloqueada', peca.unidadeMedidaFracionado
         ? `A quantidade de ${peca.nome} aceita no máximo ${peca.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${peca.unidadeMedidaSigla || 'UN'}.`
-        : `A peça ${peca.nome} está configurada na unidade ${peca.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+        : mensagemQuantidadeInteira(peca.nome, peca.unidadeMedidaSigla));
       return;
     }
 

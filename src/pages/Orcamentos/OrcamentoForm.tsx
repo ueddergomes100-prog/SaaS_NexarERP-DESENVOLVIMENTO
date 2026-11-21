@@ -18,6 +18,7 @@ import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/aler
 import { parseParametrosVenda, validadeOrcamentoPadrao } from '../../utils/parametrosVendaDomain';
 import { formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { mensagemQuantidadeInteira } from '../../utils/vendaFracionadaDomain';
 import {
   avisoUnidadeMedidaAusente,
   resolveUnidadeMedidaProduto,
@@ -535,7 +536,7 @@ const OrcamentoForm: React.FC = () => {
       if (!isValidSaleQuantity(qtd, item.unidadeMedidaFracionado, item.unidadeMedidaCasasDecimais)) {
         showError('Operação Bloqueada', item.unidadeMedidaFracionado
           ? `A quantidade de ${item.nome} aceita no máximo ${item.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${item.unidadeMedidaSigla || 'UN'}.`
-          : `A peça ${item.nome} está configurada na unidade ${item.unidadeMedidaSigla || 'UN'}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+          : mensagemQuantidadeInteira(item.nome, item.unidadeMedidaSigla));
         return;
       }
 

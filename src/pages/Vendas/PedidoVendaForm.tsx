@@ -75,6 +75,7 @@ import {
 } from '../../utils/documentoFiscalVendaDomain';
 import { erroDaEscolhaNotaFiscal, escolhaDaNotaFiscal, rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { mensagemQuantidadeInteira } from '../../utils/vendaFracionadaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -1812,7 +1813,7 @@ const PedidoVendaForm: React.FC = () => {
       if (!isValidSaleQuantity(qtdNum, opcaoUnidade.permiteFracionado, opcaoUnidade.casasDecimais)) {
         showError('Operação Bloqueada', opcaoUnidade.permiteFracionado
           ? `A quantidade de ${produtoEncontrado.nome} aceita no máximo ${opcaoUnidade.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${opcaoUnidade.sigla}.`
-          : `${produtoEncontrado.nome} está sendo vendido na unidade ${opcaoUnidade.sigla}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`);
+          : mensagemQuantidadeInteira(produtoEncontrado.nome, opcaoUnidade.sigla));
         return;
       }
     }
@@ -2216,7 +2217,7 @@ const PedidoVendaForm: React.FC = () => {
     if (!isValidSaleQuantity(novaQtd, opcaoItem.permiteFracionado, opcaoItem.casasDecimais)) {
       return opcaoItem.permiteFracionado
         ? `A quantidade de ${item.nome} aceita no máximo ${opcaoItem.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${siglaItem}.`
-        : `${item.nome} está sendo vendido na unidade ${siglaItem}, que NÃO permite venda fracionada. Utilize uma quantidade inteira.`;
+        : mensagemQuantidadeInteira(item.nome, siglaItem);
     }
     const novaQtdBase = toBaseQuantity(novaQtd, fatorItem);
     const conferenciaReserva = produtoCatalogo && campos.quantidade !== undefined

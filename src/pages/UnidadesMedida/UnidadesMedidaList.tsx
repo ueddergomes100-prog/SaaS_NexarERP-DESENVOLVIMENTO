@@ -4,7 +4,9 @@ import { Search, Plus, Scale, Edit, Power, X, Loader2, AlertTriangle } from 'luc
 import { collection, query, onSnapshot, doc, where, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { unidadeMudouParaOsProdutos } from '../../utils/vendaFracionadaDomain';
+import { atualizarProdutosDaUnidade } from '../../services/unidadeProdutosService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -287,7 +289,26 @@ const UnidadesMedidaList: React.FC = () => {
             status: 'sucesso',
           });
         }
-        showSuccess('Unidade de medida atualizada!');
+        // Os produtos guardam uma copia de "Fracionada" e das casas decimais:
+        // mudou, leva para eles (21/11/2026, ver vendaFracionadaDomain.ts).
+        if (tenantId && unidadeMudouParaOsProdutos(anterior, docData)) {
+          try {
+            const { alterados } = await atualizarProdutosDaUnidade({
+              tenantId, unidadeId: editingId, sigla: docData.sigla, unidade: docData, usuarioId: currentUser.uid,
+            });
+            showSuccess(alterados > 0
+              ? `Unidade de medida atualizada! ${alterados} ${alterados === 1 ? 'produto que usa' : 'produtos que usam'} ${docData.sigla} também ${alterados === 1 ? 'foi ajustado' : 'foram ajustados'}.`
+              : 'Unidade de medida atualizada!');
+          } catch (erroProdutos) {
+            console.error('Erro ao ajustar os produtos da unidade:', erroProdutos);
+            showWarning(
+              'Unidade salva, mas os produtos não foram ajustados',
+              `Os produtos que usam ${docData.sigla} continuam com a configuração antiga. Salve a unidade de novo; se continuar, peça a quem pode alterar produtos para fazer isso.`,
+            );
+          }
+        } else {
+          showSuccess('Unidade de medida atualizada!');
+        }
       } else {
         // Verifica se a sigla já existe
         const jaExiste = unidades.some(u => u.sigla.toUpperCase() === docData.sigla);

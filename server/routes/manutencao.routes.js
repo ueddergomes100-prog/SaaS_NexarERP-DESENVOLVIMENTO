@@ -7,6 +7,7 @@ const { unificarConfiguracoesGerais } = require('../services/configuracoesGerais
 const { registrarLog } = require('../services/auditoria');
 const { protegerSegredos } = require('../services/protegerSegredos');
 const { zerarEstoqueECustosDaMigracao } = require('../services/zerarEstoqueMigracao');
+const { corrigirVendaFracionada } = require('../services/vendaFracionadaProdutos');
 
 /**
  * MANUTENCAO DO BANCO, pelo Painel da Plataforma (2026-10-15).
@@ -229,6 +230,59 @@ router.post('/zerar-estoque-migracao', limite, async (req, res) => {
         ? erro.message
         : modo === 'aplicar'
           ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que ainda não foi zerado).'
+          : 'Não foi possível ler os produtos da empresa agora. Tente de novo em alguns minutos.',
+    });
+  } finally {
+    emAndamento = false;
+  }
+});
+
+// Venda fracionada (21/11/2026): produto ativo em unidade fracionada passa a
+// vender fracionado. Uma empresa por vez. Ver services/vendaFracionadaProdutos.js.
+router.post('/venda-fracionada', limite, async (req, res) => {
+  if (!req.user?.isPlatformAdmin) {
+    return res.status(403).json({ error: 'Só o administrador da plataforma pode rodar a manutenção do banco.' });
+  }
+  const modo = typeof req.body?.modo === 'string' ? req.body.modo : 'simular';
+  if (modo !== 'simular' && modo !== 'aplicar') {
+    return res.status(400).json({ error: 'Esta tarefa só tem Simular e Aplicar.' });
+  }
+  const tenantId = typeof req.body?.tenantId === 'string' ? req.body.tenantId.trim() : '';
+  if (!tenantId) {
+    return res.status(400).json({ error: 'Informe o código da empresa (tenant) cujos produtos serão conferidos.' });
+  }
+  if (emAndamento) {
+    return res.status(409).json({ error: 'Já tem uma tarefa de manutenção rodando. Espere ela terminar e tente de novo.' });
+  }
+  emAndamento = true;
+  const projeto = projectId || admin.app().options.projectId || null;
+  try {
+    const resultado = await corrigirVendaFracionada({
+      db,
+      agora: () => admin.firestore.FieldValue.serverTimestamp(),
+      tenantId,
+      aplicar: modo === 'aplicar',
+      usuarioId: req.user.uid,
+    });
+    console.log(`[Manutencao] venda fracionada: ${modo} por ${req.user.email || req.user.uid} no projeto ${projeto} -- empresa ${tenantId}: ${resultado.alterados} de ${resultado.naUnidadeFracionada} produtos em unidade fracionada (${resultado.travados} travados)`);
+    if (modo === 'aplicar' && resultado.alterados > 0) {
+      await registrarLog({ ...req.user, tenantId, filialNome: resultado.empresa }, {
+        modulo: 'estoque',
+        acao: 'venda_fracionada',
+        descricao: `Venda fracionada acertada nos produtos ativos em unidade fracionada (${resultado.unidadesFracionadas.join(', ')}): "Produto fracionado" marcado e a configuração da unidade copiada de novo. ${resultado.alterados} produto(s) alterado(s), ${resultado.travados} deles recusavam quantidade quebrada na venda.`,
+        documentoTipo: 'produto',
+        alteracoes: resultado.porSigla.map((s) => ({ campo: `Unidade ${s.sigla}`, valorAnterior: `${s.travados} recusando fração`, valorNovo: `${s.alterados} produto(s) acertado(s)` })),
+        critico: true,
+      });
+    }
+    return res.json({ projeto, modo, ...resultado });
+  } catch (erro) {
+    console.error(`[Manutencao] venda fracionada (${modo}) falhou:`, erro.message);
+    return res.status(erro.status || 500).json({
+      error: erro.status === 404
+        ? erro.message
+        : modo === 'aplicar'
+          ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que ainda não foi acertado).'
           : 'Não foi possível ler os produtos da empresa agora. Tente de novo em alguns minutos.',
     });
   } finally {

@@ -160,3 +160,39 @@ export const rodarZerarEstoqueMigracao = async (modo: 'simular' | 'aplicar', ten
   if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
   return dados as ResultadoZerarEstoqueMigracao;
 };
+
+export interface ResultadoVendaFracionada {
+  projeto: string | null;
+  modo: 'simular' | 'aplicar';
+  tenantId: string;
+  empresa: string;
+  cnpj: string;
+  produtos: number;
+  unidadesFracionadas: string[];
+  naUnidadeFracionada: number;
+  /** Hoje recusam quantidade quebrada na venda. */
+  travados: number;
+  alterados: number;
+  porSigla: Array<{ sigla: string; produtos: number; travados: number; alterados: number }>;
+  exemplos: Array<{ codigo: string; nome: string; sigla: string }>;
+}
+
+/** Venda fracionada (21/11/2026): produto ativo em unidade fracionada passa a vender fracionado. */
+export const rodarVendaFracionada = async (modo: 'simular' | 'aplicar', tenantId: string): Promise<ResultadoVendaFracionada> => {
+  if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new ManutencaoError('Sua sessão expirou. Entre novamente para continuar.', 401);
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/manutencao/venda-fracionada`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo, tenantId }),
+    }, TEMPO_LIMITE.manutencao);
+  } catch (erro) {
+    throw new ManutencaoError(mensagemDeFalhaDeRede(erro), 0);
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
+  return dados as ResultadoVendaFracionada;
+};

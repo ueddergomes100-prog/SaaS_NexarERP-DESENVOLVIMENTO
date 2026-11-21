@@ -9,6 +9,7 @@ import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { mensagemQuantidadeInteira } from '../../utils/vendaFracionadaDomain';
 import { resolveUnidadeMedidaProduto } from '../../utils/unidadeMedidaDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
@@ -91,7 +92,7 @@ const CondicionalForm: React.FC = () => {
     if (!isValidSaleQuantity(qtd, unidade.unidadeMedidaFracionado, unidade.unidadeMedidaCasasDecimais)) {
       showError('Quantidade inválida', unidade.unidadeMedidaFracionado
         ? `A quantidade de ${produto.nome} aceita no máximo ${unidade.unidadeMedidaCasasDecimais} casa(s) decimal(is).`
-        : `${produto.nome} é contado em ${unidade.unidadeMedidaSigla}, que não permite quantidade fracionada. Use um número inteiro.`);
+        : mensagemQuantidadeInteira(produto.nome, unidade.unidadeMedidaSigla));
       return;
     }
     const jaNaLista = itens.filter((i) => i.id === produto.id).reduce((s, i) => s + i.quantidade, 0);

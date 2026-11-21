@@ -7,7 +7,8 @@ import { ArrowLeft, Save, Package, DollarSign, Loader2, Factory, Plus, Trash2, L
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where, setDoc, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal, confirmUnsavedChanges } from '../../utils/alerts';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/unidadeMedidaDomain';
 import { produtoFracionadoAoEscolherUnidade } from '../../utils/vendaFracionadaDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
@@ -665,6 +666,10 @@ const EstoqueForm: React.FC = () => {
   // na unidade base; cada embalagem so diz quantas unidades base ela consome.
   const [embalagens, setEmbalagens] = useState<EmbalagemFormRow[]>([]);
   const [novaEmbalagem, setNovaEmbalagem] = useState<EmbalagemFormRow>(emptyEmbalagemRow);
+  // Algo foi digitado/alterado e ainda nao foi salvo (21/11/2026): fechar a aba
+  // ou voltar pergunta antes. Liga em qualquer digitacao dentro do formulario.
+  const [temAlteracao, setTemAlteracao] = useState(false);
+  const salvouRef = useRef(false);
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [historicoPrecos, setHistoricoPrecos] = useState<HistoricoPreco[]>([]);
   /** id -> nome, so pra traduzir o `usuarioId` gravado em cada alteracao de
@@ -1398,27 +1403,48 @@ const EstoqueForm: React.FC = () => {
     }));
   };
 
-  const handleAddEmbalagem = () => {
+  /** O que impede a embalagem que esta' sendo preenchida de entrar (null = pode). */
+  const erroDaNovaEmbalagem = (): { titulo: string; texto: string } | null => {
     const fator = toNumber(novaEmbalagem.fatorConversao);
     if (!novaEmbalagem.unidadeMedidaId) {
-      showError('Embalagem incompleta', 'Selecione a unidade de medida da embalagem.');
-      return;
+      return { titulo: 'Embalagem incompleta', texto: 'Selecione a unidade de medida da embalagem.' };
     }
     if (fator <= 0) {
-      showError('Embalagem inválida', 'O fator de conversão deve ser maior que zero.');
-      return;
+      return { titulo: 'Embalagem inválida', texto: 'O fator de conversão deve ser maior que zero.' };
     }
     // Duas embalagens na mesma unidade viram duas opcoes com o mesmo rotulo no
     // seletor da venda -- o operador nao teria como diferenciar.
     if (embalagens.some(e => e.unidadeMedidaId === novaEmbalagem.unidadeMedidaId)) {
-      showError('Unidade repetida', 'Já existe uma embalagem cadastrada nesta unidade de medida.');
-      return;
+      return { titulo: 'Unidade repetida', texto: 'Já existe uma embalagem cadastrada nesta unidade de medida.' };
     }
     if (novaEmbalagem.unidadeMedidaId === formData.unidadeMedidaId) {
-      showError('Unidade repetida', 'Esta já é a unidade base do produto — ela sempre aparece na venda, sem precisar de embalagem.');
+      return { titulo: 'Unidade repetida', texto: 'Esta já é a unidade base do produto — ela sempre aparece na venda, sem precisar de embalagem.' };
+    }
+    return null;
+  };
+
+  /**
+   * A embalagem de cima foi preenchida mas nao adicionada? (21/11/2026: um
+   * cliente preencheu varias, salvou o produto sem clicar em "Adicionar
+   * embalagem" e elas nao foram gravadas.) O fator nao conta: ja' vem com 1.
+   */
+  const novaEmbalagemPreenchida = Boolean(
+    novaEmbalagem.unidadeMedidaId
+    || novaEmbalagem.precoVenda.trim()
+    || novaEmbalagem.precoAVista.trim()
+    || novaEmbalagem.precoCusto.trim()
+    || novaEmbalagem.codigoBarras.trim()
+    || novaEmbalagem.descricao.trim(),
+  );
+
+  const handleAddEmbalagem = () => {
+    const erro = erroDaNovaEmbalagem();
+    if (erro) {
+      showError(erro.titulo, erro.texto);
       return;
     }
 
+    setTemAlteracao(true);
     setEmbalagens(prev => [...prev, { ...novaEmbalagem, id: makeEmbalagemRowId() }]);
     setNovaEmbalagem(emptyEmbalagemRow());
   };
@@ -1428,6 +1454,7 @@ const EstoqueForm: React.FC = () => {
   };
 
   const removeEmbalagem = (embalagemId: string) => {
+    setTemAlteracao(true);
     setEmbalagens(prev => prev.filter(e => e.id !== embalagemId));
   };
 
@@ -1443,6 +1470,7 @@ const EstoqueForm: React.FC = () => {
   };
 
   const removeAtacadoFaixa = (faixaId: string) => {
+    setTemAlteracao(true);
     setAtacadoFaixas(prev => prev.filter(faixa => faixa.id !== faixaId));
   };
 
@@ -1636,8 +1664,42 @@ const EstoqueForm: React.FC = () => {
       showError('Produto inativo', 'Este produto está inativo e não pode ser alterado. Para alterar, reative-o na lista de Produtos.');
       return false;
     }
+    salvouRef.current = false;
     if (!validateForm()) return;
     if (!currentUser) return;
+
+    // Embalagem preenchida e nao adicionada: nao some calada (21/11/2026).
+    let embalagensDaGravacao = embalagens;
+    if (novaEmbalagemPreenchida) {
+      const siglaDaNova = activeUnidades.find(u => u.id === novaEmbalagem.unidadeMedidaId)?.sigla;
+      const escolha = await NexusSwal.fire({
+        title: 'Embalagem preenchida e não adicionada',
+        text: `Você preencheu uma embalagem${siglaDaNova ? ` em ${siglaDaNova}` : ''} na aba Embalagens, mas não clicou em "Adicionar embalagem". Do jeito que está, ela não entra no cadastro.`,
+        icon: 'warning',
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Adicionar e salvar',
+        denyButtonText: 'Salvar sem ela',
+        cancelButtonText: 'Voltar ao cadastro',
+        confirmButtonColor: '#10b981',
+      });
+      if (escolha.isConfirmed) {
+        const erro = erroDaNovaEmbalagem();
+        if (erro) {
+          setActiveTab('embalagens');
+          showError(erro.titulo, erro.texto);
+          return false;
+        }
+        embalagensDaGravacao = [...embalagens, { ...novaEmbalagem, id: makeEmbalagemRowId() }];
+        setEmbalagens(embalagensDaGravacao);
+        setNovaEmbalagem(emptyEmbalagemRow());
+      } else if (escolha.isDenied) {
+        setNovaEmbalagem(emptyEmbalagemRow());
+      } else {
+        setActiveTab('embalagens');
+        return false;
+      }
+    }
 
     setIsLoading(true);
 
@@ -1829,7 +1891,7 @@ const EstoqueForm: React.FC = () => {
         // da unidade, sem o AND com "Produto fracionado" -- quem decide se um
         // saco pode ser vendido pela metade e a unidade da embalagem, nao o
         // fato do produto ser fracionavel a granel.
-        embalagens: embalagens
+        embalagens: embalagensDaGravacao
           .filter(embalagem => toNumber(embalagem.fatorConversao) > 0)
           .map(embalagem => {
             const unidadeEmbalagem = activeUnidades.find(u => u.id === embalagem.unidadeMedidaId);
@@ -2106,6 +2168,8 @@ const EstoqueForm: React.FC = () => {
       // Base unica de NCM/CEST (Tabelas Fiscais, 20/10/2026): so' os codigos, sem esperar.
       registrarUsoFiscal([{ ncm: formData.ncm, cest: formData.cest }]);
 
+      salvouRef.current = true;
+      setTemAlteracao(false);
       navigate('/estoque');
     } catch (error) {
       console.error('Erro ao salvar produto:', error);
@@ -2113,6 +2177,34 @@ const EstoqueForm: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Fechar a aba com algo digitado pergunta antes (mesmo guarda do Pedido e
+  // da OS). "Salvar e fechar" so' fecha se o produto salvou de verdade.
+  const salvarParaFechar = async (): Promise<boolean> => {
+    await handleSave();
+    return salvouRef.current;
+  };
+  useUnsavedChangesGuard(temAlteracao && !produtoInativo, salvarParaFechar);
+
+  /** Seta de voltar: com algo digitado, pergunta antes de sair. */
+  const sairDoCadastro = async () => {
+    if (!temAlteracao || produtoInativo) {
+      navigate('/estoque');
+      return;
+    }
+    const escolha = await confirmUnsavedChanges({
+      titulo: 'Sair sem salvar o produto?',
+      texto: 'Você alterou este cadastro e ainda não salvou.',
+      salvar: 'Salvar e sair',
+      descartar: 'Sair sem salvar',
+    });
+    if (escolha === 'cancel') return;
+    if (escolha === 'save') {
+      await handleSave();
+      return;
+    }
+    navigate('/estoque');
   };
 
   if (!canEditProduto) {
@@ -2149,7 +2241,7 @@ const EstoqueForm: React.FC = () => {
     <div className="estoque-page">
       <div className="page-header product-form-header">
         <div className="header-title-group">
-          <button className="icon-btn back-btn" onClick={() => navigate('/estoque')} title="Voltar">
+          <button type="button" className="icon-btn back-btn" onClick={() => { void sairDoCadastro(); }} title="Voltar">
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -2191,7 +2283,7 @@ const EstoqueForm: React.FC = () => {
         </div>
       )}
 
-      <form className="product-form" onSubmit={handleSave} autoComplete="off">
+      <form className="product-form" onSubmit={handleSave} autoComplete="off" onChangeCapture={() => setTemAlteracao(true)}>
         <div className="product-tabs">
           {tabs
             .filter(tab => modoCadastro === 'avancado' || ['geral', 'precos', 'historico', 'estoque', 'grade', 'fiscal'].includes(tab.id))

@@ -267,6 +267,13 @@
   color: var(--text-primary);
 }
 
+/* Apelido ao lado do nome (21/11/2026): mais leve, para o nome continuar mandando. */
+.linha-cliente__apelido {
+  margin-left: 6px;
+  color: var(--brand-ink, var(--accent-purple));
+  font-weight: 600;
+}
+
 .linha-cliente__codigo {
   margin-right: 8px;
   color: var(--text-muted);

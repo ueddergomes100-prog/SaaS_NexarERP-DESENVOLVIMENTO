@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck, Cake } from 'lucide-react';
 import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
 import { proximaPreferenciaTema, tituloDoBotaoDeTema } from '../../utils/temaDomain';
 import FilialSeletor from './FilialSeletor';
@@ -16,6 +16,16 @@ import './Layout.css';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { assinarComReserva, lerComReserva } from '../../services/consultaComReserva';
 import { diasAteAData } from '../../utils/avisosSinoDomain';
+import {
+  aniversariantesDoDia,
+  chavesDeAniversarioNoDia,
+  deveAbrirJanelaDeAniversario,
+  fraseDaIdade,
+  type Aniversariante,
+  type ClienteParaAniversario,
+} from '../../utils/aniversarioClienteDomain';
+import { formatarTelefoneGravado } from '../../utils/clienteCadastroMobileDomain';
+import { NexusSwal, escaparHtml } from '../../utils/alerts';
 
 const TopBar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, userNome } = useAuth();
@@ -55,12 +65,28 @@ const TopBar: React.FC = () => {
   const [avisosLembretes, setAvisosLembretes] = useState<any[]>([]);
   const [avisosAgendamentos, setAvisosAgendamentos] = useState<any[]>([]);
   const [avisosContasPagar, setAvisosContasPagar] = useState<any[]>([]);
+  // Aniversariantes do dia (21/11/2026). Ver aniversarioClienteDomain.ts.
+  const [aniversariantes, setAniversariantes] = useState<Aniversariante[]>([]);
+  const [aniversariosDispensados, setAniversariosDispensados] = useState<string[]>([]);
+  const avisosAniversario = aniversariantes
+    .map((a) => ({
+      id: `aniv-${a.id}-${getDateInputInTimeZone()}`,
+      clienteId: a.id,
+      tipoLogico: 'aniversario',
+      labelTipo: 'Aniversário hoje',
+      veiculo: a.rotulo,
+      clienteNome: [fraseDaIdade(a.idade), formatarTelefoneGravado(a.telefone)].filter(Boolean).join(' · '),
+      diasRestantes: 0,
+    }))
+    .filter((aviso) => !aniversariosDispensados.includes(aviso.id));
 
   useEffect(() => {
-    const notifs = [...avisosLembretes, ...avisosAgendamentos, ...avisosContasPagar];
+    const notifs = [...avisosAniversario, ...avisosLembretes, ...avisosAgendamentos, ...avisosContasPagar];
     notifs.sort((a, b) => a.diasRestantes - b.diasRestantes);
     setNotifications(notifs);
-  }, [avisosLembretes, avisosAgendamentos, avisosContasPagar]);
+    // avisosAniversario e' derivado de aniversariantes + dispensados (listados abaixo).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aniversariantes, aniversariosDispensados, avisosLembretes, avisosAgendamentos, avisosContasPagar]);
 
   useEffect(() => {
     if (!currentUser || !tenantId) return;
@@ -195,6 +221,82 @@ const TopBar: React.FC = () => {
     }, (erro) => console.error('Sino (contas a pagar):', erro));
   }, [currentUser, tenantId, hasContasPagarAccess]);
 
+  // Clientes que fazem aniversario hoje. O cadastro guarda o mes e o dia
+  // ("aniversario": "11-21"), entao o banco devolve so' quem faz hoje -- sem
+  // ler a lista inteira. Duas consultas so' no 28/02 de ano nao bissexto (quem
+  // nasceu em 29 entra no 28). Quem nao pode ver clientes recebe "sem
+  // permissao" do banco e o sino segue sem a parte de aniversario.
+  useEffect(() => {
+    if (!currentUser || !tenantId) {
+      setAniversariantes([]);
+      return undefined;
+    }
+    const hoje = getDateInputInTimeZone();
+    try {
+      const salvos = localStorage.getItem(`nexus_dismissed_notifs_${currentUser.uid}`);
+      setAniversariosDispensados(salvos ? JSON.parse(salvos) : []);
+    } catch {
+      setAniversariosDispensados([]);
+    }
+    const porChave = new Map<string, ClienteParaAniversario[]>();
+    const atualizar = () => setAniversariantes(aniversariantesDoDia([...porChave.values()].flat(), hoje));
+    const cancelamentos = chavesDeAniversarioNoDia(hoje).map((chave) => onSnapshot(
+      query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('aniversario', '==', chave)),
+      (snap) => {
+        porChave.set(chave, snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        atualizar();
+      },
+      (erro) => {
+        console.error('Sino (aniversarios):', erro);
+        porChave.set(chave, []);
+        atualizar();
+      },
+    ));
+    return () => cancelamentos.forEach((cancelar) => cancelar());
+  }, [currentUser, tenantId]);
+
+  // Janela dos aniversariantes: uma vez por dia para cada usuario, na primeira
+  // vez que o sistema abre. Se outra janela estiver na tela, espera ela fechar.
+  useEffect(() => {
+    if (!currentUser || !tenantId || aniversariantes.length === 0) return undefined;
+    const hoje = getDateInputInTimeZone();
+    const chave = `hennder_aniversarios_avisados_${currentUser.uid}_${tenantId}`;
+    let ultimoDia: string;
+    try {
+      ultimoDia = localStorage.getItem(chave) || '';
+    } catch {
+      ultimoDia = '';
+    }
+    if (!deveAbrirJanelaDeAniversario(ultimoDia, hoje, aniversariantes.length)) return undefined;
+
+    const LIMITE_NA_JANELA = 8;
+    const itens = aniversariantes.slice(0, LIMITE_NA_JANELA).map((a) => {
+      const detalhe = [fraseDaIdade(a.idade), formatarTelefoneGravado(a.telefone)].filter(Boolean).join(' · ');
+      return `<li style="margin:0 0 8px"><strong>${escaparHtml(a.rotulo)}</strong>${detalhe ? `<br><span style="font-size:13px;opacity:.8">${escaparHtml(detalhe)}</span>` : ''}</li>`;
+    }).join('');
+    const sobra = aniversariantes.length - LIMITE_NA_JANELA;
+    const html = `<ul style="text-align:left;margin:0;padding-left:20px">${itens}</ul>`
+      + (sobra > 0 ? `<p style="margin:6px 0 0">e mais ${sobra} ${sobra === 1 ? 'cliente' : 'clientes'}.</p>` : '')
+      + '<p style="margin:12px 0 0;font-size:13px;opacity:.8">A lista fica no sino do topo durante o dia.</p>';
+
+    const tentar = window.setInterval(() => {
+      if (NexusSwal.isVisible()) return;
+      window.clearInterval(tentar);
+      try {
+        localStorage.setItem(chave, hoje);
+      } catch {
+        // Navegador sem armazenamento: a janela pode voltar ao recarregar, o resto segue.
+      }
+      void NexusSwal.fire({
+        title: aniversariantes.length === 1 ? 'Hoje é aniversário de um cliente' : `Hoje é aniversário de ${aniversariantes.length} clientes`,
+        html,
+        icon: 'info',
+        confirmButtonText: 'Entendi',
+      });
+    }, 1500);
+    return () => window.clearInterval(tentar);
+  }, [aniversariantes, currentUser, tenantId]);
+
   // Handle clicking outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -233,6 +335,7 @@ const TopBar: React.FC = () => {
     // Update UI immediately
     setNotifications(prev => prev.filter(n => n.id !== id));
     setAvisosContasPagar(prev => prev.filter(n => n.id !== id));
+    setAniversariosDispensados(prev => (prev.includes(id) ? prev : [...prev, id]));
   };
 
   useEffect(() => {
@@ -521,7 +624,8 @@ const TopBar: React.FC = () => {
                       display: 'flex', gap: '12px', cursor: 'pointer', transition: 'background 0.2s', position: 'relative'
                     }}
                     onClick={() => {
-                      if (notif.tipoLogico === 'agendamento') openTab('/crm/agenda', 'Agendamentos');
+                      if (notif.tipoLogico === 'aniversario') openTab(`/clientes/editar/${notif.clienteId}`);
+                      else if (notif.tipoLogico === 'agendamento') openTab('/crm/agenda', 'Agendamentos');
                       else if (notif.tipoLogico === 'conta_pagar') openTab('/financeiro/contas-pagar', 'Contas a Pagar');
                       else openTab('/crm/lembretes', 'Alertas de Retorno');
                       setShowDropdown(false);
@@ -529,8 +633,8 @@ const TopBar: React.FC = () => {
                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
                     onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                     >
-                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: notif.tipoLogico === 'conta_pagar' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(139, 92, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: notif.tipoLogico === 'conta_pagar' ? '#ef4444' : '#8b5cf6', flexShrink: 0 }}>
-                        {notif.tipoLogico === 'conta_pagar' ? <Receipt size={16} /> : <Calendar size={16} />}
+                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: notif.tipoLogico === 'conta_pagar' ? 'rgba(239, 68, 68, 0.2)' : notif.tipoLogico === 'aniversario' ? 'rgba(236, 72, 153, 0.18)' : 'rgba(139, 92, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: notif.tipoLogico === 'conta_pagar' ? '#ef4444' : notif.tipoLogico === 'aniversario' ? '#db2777' : '#8b5cf6', flexShrink: 0 }}>
+                        {notif.tipoLogico === 'conta_pagar' ? <Receipt size={16} /> : notif.tipoLogico === 'aniversario' ? <Cake size={16} /> : <Calendar size={16} />}
                       </div>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -539,15 +643,17 @@ const TopBar: React.FC = () => {
                           </span>
                         </div>
                         <p style={{ margin: '0 0 4px 0', fontSize: '13px', fontWeight: 600, paddingRight: '20px' }}>{notif.veiculo}</p>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {notif.tipoLogico === 'conta_pagar' ? `Categoria: ${notif.clienteNome}` : `Cliente: ${notif.clienteNome}`}
-                        </p>
-                        <p style={{ margin: 0, fontSize: '11px', color: notif.tipoLogico === 'conta_pagar' ? '#ef4444' : '#f59e0b', fontWeight: 500 }}>
-                          {notif.tipoLogico === 'conta_pagar' ? 'Vence Hoje' : `Faltam ${notif.diasRestantes} dias`}
+                        {(notif.tipoLogico !== 'aniversario' || notif.clienteNome) && (
+                          <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            {notif.tipoLogico === 'conta_pagar' ? `Categoria: ${notif.clienteNome}` : notif.tipoLogico === 'aniversario' ? notif.clienteNome : `Cliente: ${notif.clienteNome}`}
+                          </p>
+                        )}
+                        <p style={{ margin: 0, fontSize: '11px', color: notif.tipoLogico === 'conta_pagar' ? '#ef4444' : notif.tipoLogico === 'aniversario' ? '#db2777' : '#f59e0b', fontWeight: 500 }}>
+                          {notif.tipoLogico === 'conta_pagar' ? 'Vence Hoje' : notif.tipoLogico === 'aniversario' ? 'Clique para abrir o cadastro' : `Faltam ${notif.diasRestantes} dias`}
                         </p>
                       </div>
                       
-                      {notif.tipoLogico === 'conta_pagar' && (
+                      {(notif.tipoLogico === 'conta_pagar' || notif.tipoLogico === 'aniversario') && (
                         <button 
                           onClick={(e) => handleDismissNotification(e, notif.id)}
                           style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' }}

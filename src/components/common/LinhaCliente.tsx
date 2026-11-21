@@ -15,6 +15,9 @@ const LinhaCliente: React.FC<{ cliente: SearchableClient }> = ({ cliente }) => {
   const nome = String(cliente.nome || '').trim();
   const fantasia = String(cliente.fantasia || '').trim();
   const mostrarFantasia = fantasia !== '' && normalizeSearchText(fantasia) !== normalizeSearchText(nome);
+  // Apelido (21/11/2026): ao lado do nome, quando existe e nao repete o nome.
+  const apelido = String(cliente.apelido || '').trim();
+  const mostrarApelido = apelido !== '' && normalizeSearchText(apelido) !== normalizeSearchText(nome);
   const documento = cliente.documento ? formatarDocumento(String(cliente.documento)) : '';
   const telefone = String(cliente.telefone || cliente.celular || '').trim();
   const detalhe = [mostrarFantasia ? fantasia : '', documento, telefone].filter(Boolean).join(' · ');
@@ -31,6 +34,7 @@ const LinhaCliente: React.FC<{ cliente: SearchableClient }> = ({ cliente }) => {
           {cliente.codigo && <span className="linha-cliente__codigo">{cliente.codigo}</span>}
           {temAlerta && <TriangleAlert size={13} className="linha-cliente__alerta" aria-label="Tem alerta no cadastro" />}
           {nome}
+          {mostrarApelido && <span className="linha-cliente__apelido">({apelido})</span>}
         </span>
         {detalhe && <span className="linha-cliente__detalhe">{detalhe}</span>}
       </span>

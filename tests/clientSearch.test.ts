@@ -159,3 +159,26 @@ test('etiqueta do campo: conta e resume os filtros fora do padrao', () => {
   assert.equal(resumoDosFiltros(filtros, locais), 'SERRA · ES +1');
   assert.equal(resumoDosFiltros({ ...FILTROS_CONSULTA_PADRAO, campo: 'documento' }, locais), 'Em CPF/CNPJ');
 });
+
+// --- Apelido (21/11/2026) -----------------------------------------------------
+
+const comApelido = [
+  { id: 'f', codigo: '30', nome: 'FABIANO BERNARDO', apelido: 'FABINHO' },
+  { id: 'j', codigo: '31', nome: 'JOAO DA SILVA', apelido: '' },
+  { id: 'a', codigo: '32', nome: 'ANTONIO CARLOS', apelido: 'TONINHO DO POSTO' },
+];
+
+test('apelido: a busca acha pelo apelido, em qualquer posicao, sem acento e sem caixa', () => {
+  assert.deepEqual(searchClients(comApelido, 'fabinho').map((c) => c.id), ['f']);
+  assert.deepEqual(searchClients(comApelido, 'posto').map((c) => c.id), ['a']);
+  assert.deepEqual(searchClients(comApelido, 'toninho', { campo: 'nome' }).map((c) => c.id), ['a'], '"Buscar em: Nome" inclui o apelido');
+  assert.deepEqual(searchClients(comApelido, 'toninho', { campo: 'fantasia' }).map((c) => c.id), []);
+});
+
+test('apelido que comeca com o termo sobe junto com o nome que comeca com ele', () => {
+  const lista = [
+    { id: 'x', codigo: '40', nome: 'MARIA TONINHA' },
+    { id: 'a', codigo: '32', nome: 'ANTONIO CARLOS', apelido: 'TONINHO' },
+  ];
+  assert.deepEqual(searchClients(lista, 'toninh').map((c) => c.id), ['a', 'x']);
+});

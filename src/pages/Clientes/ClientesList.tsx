@@ -49,6 +49,8 @@ interface ClienteData {
   cidade?: string;
   // Campos que so' o relatorio usa (16/10/2026).
   fantasia?: string;
+  /** Como o cliente e' chamado (21/11/2026): aparece ao lado do nome. */
+  apelido?: string;
   celular?: string;
   identidade?: string;
   estado?: string;
@@ -329,6 +331,9 @@ const ClientesList: React.FC = () => {
                     <td style={{ color: 'var(--text-muted)' }}>{cliente.codigo || '-'}</td>
                     <td className="font-medium">
                       {cliente.nome}
+                      {cliente.apelido && cliente.apelido.trim().toUpperCase() !== String(cliente.nome || '').trim().toUpperCase() && (
+                        <span style={{ marginLeft: '6px', color: 'var(--brand-ink, var(--accent-purple))', fontWeight: 600 }}>({cliente.apelido.trim()})</span>
+                      )}
                       <MarcaEmEdicao trava={travasClientes.get(cliente.id)} />
                     </td>
                     <td>{formatarTelefoneGravado(cliente.celular) || '-'}</td>

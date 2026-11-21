@@ -11,6 +11,8 @@ export interface SearchableClient {
   // Sem `null` de proposito: os tipos de cliente das telas (ex.: o
   // ClienteConfirmavel do app Vendas) declaram estes campos como string opcional.
   fantasia?: string;
+  /** Como o cliente e' chamado (21/11/2026). A busca trata como parte do nome. */
+  apelido?: string;
   documento?: string;
   telefone?: string;
   celular?: string;
@@ -203,6 +205,7 @@ export const resumoDosFiltros = (filtros: FiltrosConsultaCliente, locais: Locais
 interface IndiceDoCliente {
   nome: string;
   fantasia: string;
+  apelido: string;
   codigo: string;
   documento: string;
   documentoDigitos: string;
@@ -225,6 +228,7 @@ const indexar = (cliente: SearchableClient): IndiceDoCliente => {
   const indice: IndiceDoCliente = {
     nome: normalizeSearchText(cliente.nome),
     fantasia: normalizeSearchText(cliente.fantasia),
+    apelido: normalizeSearchText(cliente.apelido),
     codigo: normalizeSearchText(cliente.codigo),
     documento: normalizeSearchText(cliente.documento),
     documentoDigitos: soDigitos(cliente.documento),
@@ -262,7 +266,8 @@ const casaDigitos = (valor: string, termo: TermoDaBusca): boolean => (
 const ondeCasou = (indice: IndiceDoCliente, termo: TermoDaBusca, campo: CampoBuscaCliente): 'identidade' | 'local' | null => {
   switch (campo) {
     case 'nome':
-      return casaTexto(indice.nome, termo) || (indice.codigo !== '' && indice.codigo === termo.texto) ? 'identidade' : null;
+      return casaTexto(indice.nome, termo) || casaTexto(indice.apelido, termo)
+        || (indice.codigo !== '' && indice.codigo === termo.texto) ? 'identidade' : null;
     case 'fantasia':
       return casaTexto(indice.fantasia, termo) ? 'identidade' : null;
     case 'documento':
@@ -276,6 +281,7 @@ const ondeCasou = (indice: IndiceDoCliente, termo: TermoDaBusca, campo: CampoBus
       return casaTexto(indice.bairro, termo) ? 'local' : null;
     default: {
       const naIdentidade = casaTexto(indice.nome, termo)
+        || casaTexto(indice.apelido, termo)
         || casaTexto(indice.fantasia, termo)
         || casaTexto(indice.codigo, termo)
         || casaTexto(indice.documento, termo)
@@ -341,7 +347,7 @@ export const searchClients = <T extends SearchableClient>(
     }
     let nivel = 2;
     if (indice.codigo && indice.codigo === termoInteiro && (campo === 'tudo' || campo === 'nome')) nivel = 0;
-    else if (indice.nome.startsWith(termos[0].texto) && !soPeloEndereco) nivel = 1;
+    else if ((indice.nome.startsWith(termos[0].texto) || (indice.apelido !== '' && indice.apelido.startsWith(termos[0].texto))) && !soPeloEndereco) nivel = 1;
     else if (soPeloEndereco && campo === 'tudo') nivel = 3;
     ranqueados.push({ cliente, nivel, ordem });
   });

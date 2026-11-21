@@ -22,7 +22,8 @@ import { fetchComTimeout } from '../../utils/fetchComTimeout';
 import { ALERTA_TAMANHO_MAXIMO, camposDoAlertaParaGravar, erroDoAlertaDoCliente } from '../../utils/clienteAlertaDomain';
 import { PERMISSAO_UTILIZA_OUTRAS_FILIAIS, rotuloFilial } from '../../utils/filialDomain';
 import { formatarCashback, lerResumoCashback, parteDoSaldoVenceu, temDivida, textoDoSaldo, type ResumoCashbackDoCliente } from '../../utils/cashbackDomain';
-import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
+import { camposDeNascimentoParaGravar, erroDaDataDeNascimento } from '../../utils/aniversarioClienteDomain';
 import { PAISES, erroDoCadastroExterior, normalizarDocumentoEstrangeiro } from '../../utils/exportacaoNotaDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
@@ -38,6 +39,8 @@ const CAMPOS_CLIENTE_HISTORICO: CampoComparado[] = [
   { campo: 'codigo', rotulo: 'Código' },
   { campo: 'nome', rotulo: 'Nome' },
   { campo: 'fantasia', rotulo: 'Nome fantasia' },
+  { campo: 'apelido', rotulo: 'Apelido' },
+  { campo: 'dataNascimento', rotulo: 'Data de nascimento', formatar: (v) => (v ? formatDateInputPtBr(String(v)) : '') },
   { campo: 'identidade', rotulo: 'Inscrição Estadual / RG' },
   { campo: 'telefone', rotulo: 'Telefone fixo' },
   { campo: 'celular', rotulo: 'Celular / WhatsApp' },
@@ -86,6 +89,10 @@ const ClienteForm: React.FC = () => {
     codigo: '',
     nome: '',
     fantasia: '',
+    /** Como o cliente e' chamado no balcao (21/11/2026). Busca e aviso de aniversario usam. */
+    apelido: '',
+    /** "AAAA-MM-DD" ou vazio. Ver aniversarioClienteDomain.ts. */
+    dataNascimento: '',
     telefone: '',
     celular: '',
     email: '',
@@ -327,6 +334,9 @@ const ClienteForm: React.FC = () => {
               celular: formatarTelefoneGravado(data.celular),
               alertaAtivo: data.alertaAtivo === true,
               alertaTexto: String(data.alertaTexto ?? ''),
+              // Cliente cadastrado antes de 21/11/2026 nao tem os campos.
+              apelido: String(data.apelido ?? ''),
+              dataNascimento: String(data.dataNascimento ?? ''),
             }));
             setDtUltimaCompraSistemaAntigo(data.dtUltimaCompraSistemaAntigo || '');
             setResumoCashback(lerResumoCashback(data.cashback));
@@ -442,6 +452,13 @@ const ClienteForm: React.FC = () => {
         return;
       }
 
+      const erroNascimento = erroDaDataDeNascimento(formData.dataNascimento, getDateInputInTimeZone());
+      if (erroNascimento) {
+        showError('Data de nascimento', erroNascimento);
+        setIsLoading(false);
+        return;
+      }
+
       const erroDesconto = erroDoDescontoPadraoCliente(formData.descontoPadraoPercentual);
       if (erroDesconto) {
         showError('Desconto padrão inválido', erroDesconto);
@@ -461,6 +478,9 @@ const ClienteForm: React.FC = () => {
       const dataToSave = {
         ...semCashback,
         nome: formData.nome.toUpperCase().trim(),
+        apelido: formData.apelido.toUpperCase().trim(),
+        // Data e a chave "MM-DD" que o aviso de aniversario procura; sem data, os dois vazios.
+        ...camposDeNascimentoParaGravar(formData.dataNascimento),
         limiteDeCredito: Number.isFinite(limiteDeCreditoParsed) ? limiteDeCreditoParsed : null,
         // Numero, nao texto: e' assim que a venda le. Campo em branco vira 0
         // (== sem desconto proprio), nunca undefined (regra 3 do CLAUDE.md).
@@ -605,6 +625,17 @@ const ClienteForm: React.FC = () => {
             <div className="input-group">
               <label>Inscrição Estadual / RG</label>
               <input type="text" name="identidade" title="Isento, se não houver" value={formData.identidade} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div className="input-group">
+              <label>Apelido</label>
+              <input type="text" name="apelido" title="Como o cliente é chamado. A busca de cliente também procura pelo apelido." value={formData.apelido} onChange={handleChange} maxLength={60} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="input-group">
+              <label>Data de nascimento</label>
+              <input type="date" name="dataNascimento" title="No dia do aniversário o sistema avisa no sino do topo" value={formData.dataNascimento} max={getDateInputInTimeZone()} onChange={(e) => setFormData((prev) => ({ ...prev, dataNascimento: e.target.value }))} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 

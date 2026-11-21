@@ -10,6 +10,10 @@ import { mensagemDocumentoInvalido } from '../../utils/documentoValidacao';
 import { buscarClienteDuplicadoPorDocumento } from '../../utils/clienteDuplicadoCheck';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { createAuditLog } from '../../services/logService';
+import { mascaraTelefone } from '../../utils/clienteCadastroMobileDomain';
+import { apenasDigitos } from '../../utils/documentoValidacao';
+import { camposDeNascimentoParaGravar, erroDaDataDeNascimento } from '../../utils/aniversarioClienteDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 
 export interface ClienteCadastradoRapido {
   id: string;
@@ -38,6 +42,10 @@ interface CadastroRapidoClienteModalProps {
  * usuario, no mesmo nome de campo do cadastro completo (endereco, numero,
  * bairro, cidade). Quem precisar de mais (limite de credito, e-mail...)
  * edita o cadastro completo depois em Clientes.
+ *
+ * 21/11/2026: apelido e data de nascimento (o sistema avisa no dia do
+ * aniversario, ver aniversarioClienteDomain.ts) e o celular formatado
+ * enquanto digita, "(33) 99847-6541", como no cadastro completo.
  */
 const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
   open,
@@ -53,6 +61,8 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
   const [cidade, setCidade] = useState('');
   const [telefone, setTelefone] = useState('');
   const [documento, setDocumento] = useState('');
+  const [apelido, setApelido] = useState('');
+  const [dataNascimento, setDataNascimento] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -64,6 +74,8 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
     setCidade('');
     setTelefone('');
     setDocumento('');
+    setApelido('');
+    setDataNascimento('');
   }, [open, nomeInicial]);
 
   if (!open) return null;
@@ -72,6 +84,16 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
     const nomeLimpo = nome.toUpperCase().trim();
     if (!nomeLimpo) {
       showError('Campo obrigatório', 'Informe o nome do cliente.');
+      return;
+    }
+    const digitosDoCelular = apenasDigitos(telefone);
+    if (digitosDoCelular && digitosDoCelular.length < 10) {
+      showError('Celular incompleto', 'O celular precisa do DDD e do número (10 ou 11 números). Complete ou deixe em branco.');
+      return;
+    }
+    const erroNascimento = erroDaDataDeNascimento(dataNascimento, getDateInputInTimeZone());
+    if (erroNascimento) {
+      showError('Data de nascimento', erroNascimento);
       return;
     }
     const erroDocumento = mensagemDocumentoInvalido(documento);
@@ -95,6 +117,8 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
       const novoClienteRef = await addDoc(collection(db, 'clientes'), {
         codigo,
         nome: nomeLimpo,
+        apelido: apelido.toUpperCase().trim(),
+        ...camposDeNascimentoParaGravar(dataNascimento),
         endereco: endereco.trim(),
         numero: numero.trim(),
         bairro: bairro.trim(),
@@ -175,6 +199,31 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
             />
           </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Apelido</label>
+              <input
+                type="text"
+                value={apelido}
+                maxLength={60}
+                title="Como o cliente é chamado. A busca de cliente também procura pelo apelido."
+                onChange={(e) => setApelido(aplicarCaixaAltaCadastro(e.target, e.target.value))}
+                style={{ textTransform: 'uppercase', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Data de nascimento</label>
+              <input
+                type="date"
+                value={dataNascimento}
+                max={getDateInputInTimeZone()}
+                title="No dia do aniversário o sistema avisa no sino do topo"
+                onChange={(e) => setDataNascimento(e.target.value)}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Endereço</label>
@@ -222,8 +271,9 @@ const CadastroRapidoClienteModal: React.FC<CadastroRapidoClienteModalProps> = ({
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Celular</label>
               <input
                 type="text"
+                inputMode="tel"
                 value={telefone}
-                onChange={(e) => setTelefone(e.target.value)}
+                onChange={(e) => setTelefone(mascaraTelefone(e.target.value))}
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 12px', color: 'var(--text-primary)' }}
               />
             </div>

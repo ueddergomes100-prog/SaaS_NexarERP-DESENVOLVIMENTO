@@ -194,12 +194,22 @@ test('de quem e o credito: com codigo vale o codigo; sem codigo vale o nome (cas
 });
 
 test('estorno da devolucao: credito intacto nao precisa de cobertura', () => {
-  const r = coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 10800 }, [{ id: 'cancelamento_p180', saldoDisponivelCentavos: 10800 }]);
-  assert.deepEqual(r, { usadoCentavos: 0, cobertura: [], faltaCentavos: 0 });
+  const r = coberturaDoEstornoDoCredito({ valorEstornoCentavos: 10800, saldoDisponivelCentavos: 10800 }, [{ id: 'cancelamento_p180', saldoDisponivelCentavos: 10800 }]);
+  assert.deepEqual(r, { doProprioCentavos: 10800, usadoCentavos: 0, cobertura: [], faltaCentavos: 0 });
+});
+
+test('estorno por quantidade (caso Jomarly: 1 de 4 clipes, R$ 27): sai do saldo proprio e, se nao houver, do cancelamento', () => {
+  // Credito da devolucao gasto no #0180 (saldo 0); #0180 cancelado devolveu R$ 108.
+  const r = coberturaDoEstornoDoCredito({ valorEstornoCentavos: 2700, saldoDisponivelCentavos: 0 }, [{ id: 'cancelamento_p180', saldoDisponivelCentavos: 10800 }]);
+  assert.equal(r.doProprioCentavos, 0);
+  assert.deepEqual(r.cobertura, [{ id: 'cancelamento_p180', usadoCentavos: 2700, saldoRestanteCentavos: 8100 }]);
+  // Credito ainda com saldo: sai dele, sem tocar no cancelamento.
+  const s = coberturaDoEstornoDoCredito({ valorEstornoCentavos: 2700, saldoDisponivelCentavos: 5000 }, [{ id: 'c', saldoDisponivelCentavos: 10800 }]);
+  assert.deepEqual(s, { doProprioCentavos: 2700, usadoCentavos: 0, cobertura: [], faltaCentavos: 0 });
 });
 
 test('estorno da devolucao: credito usado numa venda cancelada sai do credito do cancelamento (caso Jomarly)', () => {
-  const r = coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 0 }, [{ id: 'cancelamento_p180', saldoDisponivelCentavos: 10800 }]);
+  const r = coberturaDoEstornoDoCredito({ valorEstornoCentavos: 10800, saldoDisponivelCentavos: 0 }, [{ id: 'cancelamento_p180', saldoDisponivelCentavos: 10800 }]);
   assert.equal(r.usadoCentavos, 10800);
   assert.equal(r.faltaCentavos, 0);
   assert.deepEqual(r.cobertura, [{ id: 'cancelamento_p180', usadoCentavos: 10800, saldoRestanteCentavos: 0 }]);
@@ -207,7 +217,7 @@ test('estorno da devolucao: credito usado numa venda cancelada sai do credito do
 
 test('estorno da devolucao: parte usada coberta por mais de um cancelamento, o mais antigo primeiro; sobra fica com o cliente', () => {
   const r = coberturaDoEstornoDoCredito(
-    { valorOriginalCentavos: 10000, saldoDisponivelCentavos: 4000 },
+    { valorEstornoCentavos: 10000, saldoDisponivelCentavos: 4000 },
     [{ id: 'a', saldoDisponivelCentavos: 2500 }, { id: 'b', saldoDisponivelCentavos: 0 }, { id: 'c', saldoDisponivelCentavos: 5000 }],
   );
   assert.equal(r.usadoCentavos, 6000);
@@ -219,9 +229,9 @@ test('estorno da devolucao: parte usada coberta por mais de um cancelamento, o m
 });
 
 test('estorno da devolucao: cliente ja gastou o credito de volta -> falta e o estorno nao segue', () => {
-  const r = coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 0 }, [{ id: 'x', saldoDisponivelCentavos: 3000 }]);
+  const r = coberturaDoEstornoDoCredito({ valorEstornoCentavos: 10800, saldoDisponivelCentavos: 0 }, [{ id: 'x', saldoDisponivelCentavos: 3000 }]);
   assert.equal(r.faltaCentavos, 7800);
-  assert.equal(coberturaDoEstornoDoCredito({ valorOriginalCentavos: 10800, saldoDisponivelCentavos: 0 }, []).faltaCentavos, 10800);
+  assert.equal(coberturaDoEstornoDoCredito({ valorEstornoCentavos: 10800, saldoDisponivelCentavos: 0 }, []).faltaCentavos, 10800);
 });
 
 test('as duas buscas (codigo e nome) se juntam sem repetir o credito', () => {

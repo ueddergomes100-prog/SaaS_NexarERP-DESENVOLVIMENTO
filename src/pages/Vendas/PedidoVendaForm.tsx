@@ -11,6 +11,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, lerResumoCashback } from '../../utils/cashbackDomain';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
+import { creditoDaDevolucaoAposEstorno, planoDoEstornoDaDevolucao, type ItemDaDevolucao } from '../../utils/estornoDevolucaoDomain';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
 import { estornarCashbackDaVendaSemFalhar, gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, definirComNotaFiscalNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
@@ -5225,20 +5226,85 @@ const PedidoVendaForm: React.FC = () => {
 
   const handleEstornarDevolucao = async (devolucao: DevolucaoVenda) => {
     if (!currentUser || !tenantId || !id || estornandoDevolucaoId) return;
+    const moedaBr = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(centavos));
+
+    // A devolucao e a chave "Permitir venda sem estoque" lidas na hora (a tela
+    // pode estar velha e pode nao ter carregado a configuracao).
+    let devolucaoAtual: Record<string, unknown>;
+    let filialPermiteEstoqueNegativo = false;
+    try {
+      const [devolucaoSnap, configSnap] = await Promise.all([
+        getDoc(doc(db, 'devolucoes_venda', devolucao.id)),
+        getDoc(doc(db, 'configuracoes', tenantId)),
+      ]);
+      if (!devolucaoSnap.exists()) {
+        showError('Devolução não encontrada', 'Ela não existe mais. Feche o pedido e abra de novo.');
+        return;
+      }
+      devolucaoAtual = devolucaoSnap.data();
+      filialPermiteEstoqueNegativo = configSnap.exists() && configSnap.data().venderSemEstoque === true;
+    } catch (erro) {
+      console.error('Erro ao ler a devolução:', erro);
+      showError('Não foi possível ler a devolução', 'Verifique a conexão e tente estornar de novo.');
+      return;
+    }
+    if (devolucaoAtual.status === 'estornada') {
+      showError('Esta devolução já foi estornada', 'Feche o pedido e abra de novo para ver a situação atual.');
+      return;
+    }
+
+    // Quanto estornar de cada item (21/11/2026, pedido do dono). Devolucao com
+    // lote so' estorna inteira (estornoDevolucaoDomain.ts).
+    const itensDaDevolucao: ItemDaDevolucao[] = Array.isArray(devolucaoAtual.itensDevolvidos) ? devolucaoAtual.itensDevolvidos as ItemDaDevolucao[] : [];
+    const temLote = Array.isArray(devolucaoAtual.lotesDevolvidos) && devolucaoAtual.lotesDevolvidos.length > 0;
+    const linhasDaEscolha = itensDaDevolucao.map((item, i) => `
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-color, #e5e7eb);text-align:left">
+        <span style="flex:1;min-width:0"><strong>${escaparHtml(item.nome)}</strong><br/><span style="font-size:12px;opacity:.75">Devolvido: ${Number(item.quantidadeDevolvida).toLocaleString('pt-BR')}</span></span>
+        <input id="estorno-qtd-${i}" type="number" min="0" max="${Number(item.quantidadeDevolvida)}" step="any" value="${Number(item.quantidadeDevolvida)}" ${temLote ? 'disabled' : ''}
+          aria-label="Quantidade a estornar de ${escaparHtml(item.nome)}"
+          style="width:110px;padding:8px 10px;border-radius:8px;border:1px solid var(--border-color, #d1d5db);text-align:right;font-size:15px" />
+      </label>`).join('');
+    const escolha = await NexusSwal.fire({
+      title: 'Estornar devolução',
+      html: `<div style="font-size:14px;line-height:1.5">
+        <p style="margin:0 0 8px">Quanto de cada item volta a sair do estoque? O valor da devolução diminui na mesma proporção.</p>
+        ${linhasDaEscolha}
+        ${temLote ? '<p style="margin:10px 0 0;font-size:13px;opacity:.8">Esta devolução tem produto com lote: o estorno é da devolução inteira.</p>' : ''}
+      </div>`,
+      showCancelButton: true,
+      confirmButtonText: 'Continuar',
+      cancelButtonText: 'Manter',
+      focusConfirm: false,
+      preConfirm: () => {
+        const quantidades = itensDaDevolucao.map((_, i) => (document.getElementById(`estorno-qtd-${i}`) as HTMLInputElement | null)?.value ?? '');
+        const plano = planoDoEstornoDaDevolucao(itensDaDevolucao, quantidades);
+        if ('erro' in plano) {
+          NexusSwal.showValidationMessage(plano.erro);
+          return false;
+        }
+        if (temLote && !plano.total) {
+          NexusSwal.showValidationMessage('Esta devolução tem produto com lote: o estorno é da devolução inteira.');
+          return false;
+        }
+        return quantidades;
+      },
+    });
+    if (!escolha.isConfirmed || !Array.isArray(escolha.value)) return;
+    const quantidadesEscolhidas: string[] = escolha.value;
+    const planoEscolhido = planoDoEstornoDaDevolucao(itensDaDevolucao, quantidadesEscolhidas);
+    if ('erro' in planoEscolhido) return;
 
     // Credito da devolucao ja' usado numa venda que foi cancelada (21/11/2026):
     // o valor voltou ao cliente como credito do cancelamento, e e' dele que o
-    // estorno tira a parte usada (creditoDomain.ts, coberturaDoEstornoDoCredito).
-    const moedaBr = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(centavos));
+    // estorno tira a parte que passar do saldo (coberturaDoEstornoDoCredito).
     let candidatosDaCobertura: CreditoDoCancelamento[] = [];
     let avisoDaCobertura = '';
-    if (devolucao.destinoValor === 'credito') {
+    if (devolucaoAtual.destinoValor === 'credito') {
       try {
         const creditoSnap = await getDoc(doc(db, 'creditos_cliente', `devolucao_${devolucao.id}`));
         const credito = creditoSnap.exists() ? creditoSnap.data() : null;
-        const valorOriginalCentavos = credito ? toCents(Number(credito.valorOriginal || 0)) : 0;
         const saldoCentavos = credito ? Number(credito.saldoDisponivelCentavos ?? toCents(Number(credito.saldoDisponivel || 0))) : 0;
-        if (credito && credito.status !== 'cancelado' && saldoCentavos < valorOriginalCentavos) {
+        if (credito && credito.status !== 'cancelado' && saldoCentavos < planoEscolhido.valorCentavos) {
           const dono = { id: String(credito.clienteId || clienteIdSelecionado || ''), nome: String(credito.clienteNome || clienteNome || '') };
           const emAberto = where('status', 'in', ['disponivel', 'usado_parcial']);
           const [porCodigo, porNome] = await Promise.all([
@@ -5259,11 +5325,11 @@ const PedidoVendaForm: React.FC = () => {
             }))
             .sort((a, b) => a.criadoEm - b.criadoEm)
             .map((c) => ({ id: c.id, saldoDisponivelCentavos: c.saldoDisponivelCentavos, numeroPedidoOriginal: c.numeroPedidoOriginal }));
-          const plano = coberturaDoEstornoDoCredito({ valorOriginalCentavos, saldoDisponivelCentavos: saldoCentavos }, candidatosDaCobertura);
+          const plano = coberturaDoEstornoDoCredito({ valorEstornoCentavos: planoEscolhido.valorCentavos, saldoDisponivelCentavos: saldoCentavos }, candidatosDaCobertura);
           if (plano.faltaCentavos > 0) {
             showError(
               'Não dá para estornar esta devolução',
-              `O crédito desta devolução (${moedaBr(valorOriginalCentavos)}) já foi usado em ${moedaBr(plano.usadoCentavos)}, e o cliente não tem esse valor de volta em crédito. `
+              `O estorno tira ${moedaBr(planoEscolhido.valorCentavos)} do crédito do cliente, mas o crédito desta devolução só tem ${moedaBr(saldoCentavos)} e o cliente não tem o resto de volta em crédito. `
               + 'Para estornar, cancele antes a venda em que o crédito foi usado: o valor volta ao cliente e o estorno passa a ser possível.',
             );
             return;
@@ -5272,7 +5338,7 @@ const PedidoVendaForm: React.FC = () => {
             .map((c) => candidatosDaCobertura.find((x) => x.id === c.id)?.numeroPedidoOriginal)
             .filter(Boolean)
             .map((n) => `#${n}`);
-          avisoDaCobertura = ` O crédito desta devolução foi usado em ${moedaBr(plano.usadoCentavos)} e o valor voltou ao cliente no cancelamento ${vendas.length > 1 ? 'das vendas' : 'da venda'} ${vendas.join(', ')}; o estorno tira ${moedaBr(plano.usadoCentavos)} desse crédito do cancelamento.`;
+          avisoDaCobertura = ` O crédito desta devolução já tinha sido usado e o valor voltou ao cliente no cancelamento ${vendas.length > 1 ? 'das vendas' : 'da venda'} ${vendas.join(', ')}: ${moedaBr(plano.usadoCentavos)} saem desse crédito do cancelamento.`;
         }
       } catch (erro) {
         console.error('Erro ao conferir o crédito da devolução:', erro);
@@ -5281,9 +5347,16 @@ const PedidoVendaForm: React.FC = () => {
       }
     }
 
+    const resumoDoEstorno = planoEscolhido.estornados
+      .map((e) => `${e.quantidade.toLocaleString('pt-BR')}x ${e.nome}`)
+      .join(', ');
+    const destinoDoValor = devolucaoAtual.destinoValor === 'credito'
+      ? 'sai do crédito do cliente'
+      : devolucaoAtual.destinoValor === 'banco' ? 'volta para o banco' : 'volta para o caixa';
     const confirm = await NexusSwal.fire({
-      title: 'Estornar Devolução?',
-      text: `O estoque devolvido será retirado de novo e o crédito/caixa gerado será desfeito, se ainda não tiver sido usado.${avisoDaCobertura}`,
+      title: planoEscolhido.total ? 'Estornar a devolução inteira?' : 'Estornar parte da devolução?',
+      text: `${resumoDoEstorno} volta${planoEscolhido.estornados.length > 1 ? 'm' : ''} a sair do estoque e ${moedaBr(planoEscolhido.valorCentavos)} ${destinoDoValor}.`
+        + `${planoEscolhido.total ? '' : ' A devolução continua com o restante.'}${avisoDaCobertura}`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Sim, estornar',
@@ -5307,15 +5380,23 @@ const PedidoVendaForm: React.FC = () => {
         const devolucaoData = devolucaoSnap.data();
         if (devolucaoData.status === 'estornada') throw new Error('Esta devolução já foi estornada.');
 
-        const itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number; fatorConversao?: number; subtotal: number }> = devolucaoData.itensDevolvidos || [];
+        // O plano e' refeito com a devolucao relida: se ela mudou desde a
+        // escolha (outra pessoa estornou junto), nada e' gravado.
+        const plano = planoDoEstornoDaDevolucao(Array.isArray(devolucaoData.itensDevolvidos) ? devolucaoData.itensDevolvidos : [], quantidadesEscolhidas);
+        if ('erro' in plano || plano.valorCentavos !== planoEscolhido.valorCentavos) {
+          throw new Error('Esta devolução mudou enquanto a tela estava aberta. Feche o pedido, abra de novo e refaça o estorno.');
+        }
+        const valorEstornoCentavos = plano.valorCentavos;
+        const estornosAnteriores = Array.isArray(devolucaoData.estornosParciais) ? devolucaoData.estornosParciais : [];
+        // Primeiro estorno e inteiro: mesmo id de antes; estorno por partes: um id por vez.
+        const sufixoDoEstorno = plano.total && estornosAnteriores.length === 0 ? '' : `_${estornosAnteriores.length + 1}`;
 
-        // So estorna o destino do valor se ele ainda nao foi usado --
-        // credito ja parcialmente gasto em Contas a Receber nao pode ser
-        // desfeito silenciosamente.
-        // Parte ja' usada: so' segue se o valor voltou ao cliente no
-        // cancelamento de uma venda (coberturaDoEstornoDoCredito, 21/11/2026).
+        // Credito: sai do saldo do proprio credito da devolucao; o que passar
+        // disso so' segue se voltou ao cliente no cancelamento de uma venda
+        // (coberturaDoEstornoDoCredito, 21/11/2026).
         let creditoRef = null;
         let coberturaDoCredito: ConsumoCredito[] = [];
+        let creditoDepois: ReturnType<typeof creditoDaDevolucaoAposEstorno> | null = null;
         if (devolucaoData.destinoValor === 'credito') {
           creditoRef = doc(db, 'creditos_cliente', `devolucao_${devolucao.id}`);
           const creditoSnap = await transaction.get(creditoRef);
@@ -5323,8 +5404,8 @@ const PedidoVendaForm: React.FC = () => {
             const creditoData = creditoSnap.data();
             const valorOriginalCentavos = toCents(Number(creditoData.valorOriginal || 0));
             const saldoCentavos = Number(creditoData.saldoDisponivelCentavos ?? toCents(Number(creditoData.saldoDisponivel || 0)));
-            if (saldoCentavos < valorOriginalCentavos) {
-              const relidos: CreditoDoCancelamento[] = [];
+            const relidos: CreditoDoCancelamento[] = [];
+            if (saldoCentavos < valorEstornoCentavos) {
               for (const candidato of candidatosDaCobertura) {
                 const s = await transaction.get(doc(db, 'creditos_cliente', candidato.id));
                 if (!s.exists()) continue;
@@ -5332,14 +5413,17 @@ const PedidoVendaForm: React.FC = () => {
                 if (c.tenantId !== tenantId || !['disponivel', 'usado_parcial'].includes(c.status)) continue;
                 relidos.push({ id: candidato.id, saldoDisponivelCentavos: Number(c.saldoDisponivelCentavos ?? toCents(Number(c.saldoDisponivel || 0))) });
               }
-              const plano = coberturaDoEstornoDoCredito({ valorOriginalCentavos, saldoDisponivelCentavos: saldoCentavos }, relidos);
-              if (plano.faltaCentavos > 0) {
-                throw new Error(candidatosDaCobertura.length > 0
-                  ? 'O crédito do cliente mudou enquanto a tela estava aberta. Feche esta mensagem e tente estornar de novo.'
-                  : 'O crédito desta devolução já foi usado e o cliente não tem esse valor de volta em crédito. Para estornar, cancele antes a venda em que o crédito foi usado.');
-              }
-              coberturaDoCredito = plano.cobertura;
             }
+            const cobertura = coberturaDoEstornoDoCredito({ valorEstornoCentavos, saldoDisponivelCentavos: saldoCentavos }, relidos);
+            if (cobertura.faltaCentavos > 0) {
+              throw new Error(candidatosDaCobertura.length > 0
+                ? 'O crédito do cliente mudou enquanto a tela estava aberta. Feche esta mensagem e tente estornar de novo.'
+                : 'O crédito desta devolução já foi usado e o cliente não tem esse valor de volta em crédito. Para estornar, cancele antes a venda em que o crédito foi usado.');
+            }
+            coberturaDoCredito = cobertura.cobertura;
+            creditoDepois = creditoDaDevolucaoAposEstorno({
+              valorOriginalCentavos, saldoCentavos, valorEstornoCentavos, doProprioCentavos: cobertura.doProprioCentavos,
+            });
           }
         }
 
@@ -5358,39 +5442,45 @@ const PedidoVendaForm: React.FC = () => {
         const saleData = saleSnap.data();
         const storedItems = Array.isArray(saleData.itens) ? saleData.itens : [];
         const updatedItems = storedItems.map((storedItem: ItemVenda) => {
-          const devolvido = itensDevolvidos.find((item) => item.id === storedItem.id && item.nome === storedItem.nome);
-          if (!devolvido) return storedItem;
+          const estornado = plano.estornados.find((item) => item.id === storedItem.id && item.nome === storedItem.nome);
+          if (!estornado) return storedItem;
           const atual = Number(storedItem.quantidadeJaDevolvida || 0);
-          return { ...storedItem, quantidadeJaDevolvida: Math.max(0, atual - devolvido.quantidadeDevolvida) };
+          return { ...storedItem, quantidadeJaDevolvida: Math.max(0, Math.round((atual - estornado.quantidade) * 1000) / 1000) };
         });
 
-        // Estoque e lote nao ficam negativos (19/10/2026, decisao do dono): se a
-        // mercadoria devolvida ja' saiu de novo, recusa dizendo o que fazer.
+        // Estoque do produto (21/11/2026, decisao do dono): segue a mesma chave
+        // da venda -- "Permitir venda sem estoque" da filial, a menos que o
+        // produto tenha "Bloquear venda sem estoque". Com a chave desligada,
+        // nao negativa (como era desde 19/10). Lote continua sem negativar.
         // Leitura dos lotes antes de qualquer escrita, como o Firestore exige.
-        await conferirLotesDoEstornoNaTransacao(transaction, db, devolucaoData.lotesDevolvidos);
+        const lotesDoEstorno = plano.total ? devolucaoData.lotesDevolvidos : undefined;
+        if (!plano.total && Array.isArray(devolucaoData.lotesDevolvidos) && devolucaoData.lotesDevolvidos.length > 0) {
+          throw new Error('Esta devolução tem produto com lote: o estorno é da devolução inteira.');
+        }
+        await conferirLotesDoEstornoNaTransacao(transaction, db, lotesDoEstorno);
         try {
           await applyStockAdjustments(
             transaction,
             db,
-            toStockAdjustmentItems(itensDevolvidos.map((item) => ({
+            toStockAdjustmentItems(plano.estornados.map((item) => ({
               id: item.id,
               nome: item.nome,
-              quantidade: item.quantidadeDevolvida,
+              quantidade: item.quantidade,
               fatorConversao: item.fatorConversao,
             }))),
             'decrement',
-            false,
+            filialPermiteEstoqueNegativo,
           );
         } catch (erroEstoque) {
           throw new Error(`Não dá para estornar esta devolução: ${erroEstoque instanceof Error ? erroEstoque.message : 'estoque insuficiente.'} A mercadoria devolvida já saiu do estoque de novo (venda ou ajuste). Dê entrada ou ajuste o estoque do produto antes de estornar.`, { cause: erroEstoque });
         }
-        estornarLotesDaDevolucaoNaTransacao(transaction, db, devolucaoData.lotesDevolvidos);
+        estornarLotesDaDevolucaoNaTransacao(transaction, db, lotesDoEstorno);
 
-        const valorDevolvidoCentavos = toCents(devolucaoData.valorTotalDevolvido || 0);
+        const valorDevolvidoCentavos = valorEstornoCentavos;
         const savedCommission = saleData.comissao?.regraVersion
           ? recalculateCommissionAfterReturn(
             saleData.comissao,
-            itensDevolvidos.map((item) => ({ id: item.id, nome: item.nome, baseCents: -toCents(item.subtotal) })),
+            plano.estornados.map((item) => ({ id: item.id, nome: item.nome, baseCents: -item.valorCentavos })),
           )
           : null;
 
@@ -5401,30 +5491,55 @@ const PedidoVendaForm: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Devolução estornada'),
         });
 
-        transaction.update(devolucaoRef, {
-          status: 'estornada',
-          estornadaEm: serverTimestamp(),
-          // De onde saiu a parte do credito que ja' tinha sido usada (21/11/2026).
+        // Registro de cada estorno (inteiro ou por partes): o que saiu, quanto
+        // e, no credito, de onde saiu a parte que ja' tinha sido usada.
+        const registroDoEstorno = {
+          em: new Date().toISOString(),
+          usuarioId: currentUser.uid,
+          itens: plano.estornados.map((e) => ({ id: e.id, nome: e.nome, quantidade: e.quantidade, valorCentavos: e.valorCentavos })),
+          valorCentavos: valorEstornoCentavos,
           ...(coberturaDoCredito.length > 0
-            ? { creditoCobertoNoEstorno: coberturaDoCredito.map((c) => ({ creditoId: c.id, centavos: c.usadoCentavos })) }
+            ? { creditoCoberto: coberturaDoCredito.map((c) => ({ creditoId: c.id, centavos: c.usadoCentavos })) }
             : {}),
+        };
+        const valorQueFicaCentavos = Math.max(0, toCents(Number(devolucaoData.valorTotalDevolvido || 0)) - valorEstornoCentavos);
+        transaction.update(devolucaoRef, {
+          estornosParciais: [...estornosAnteriores, registroDoEstorno],
+          ...(plano.total
+            ? {
+              status: 'estornada',
+              estornadaEm: serverTimestamp(),
+              ...(coberturaDoCredito.length > 0
+                ? { creditoCobertoNoEstorno: coberturaDoCredito.map((c) => ({ creditoId: c.id, centavos: c.usadoCentavos })) }
+                : {}),
+            }
+            : {
+              itensDevolvidos: plano.restantes,
+              valorTotalDevolvido: fromCents(valorQueFicaCentavos),
+              valorTotalDevolvidoCentavos: valorQueFicaCentavos,
+            }),
           updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Devolução estornada'),
+          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), plano.total ? 'Devolução estornada' : 'Devolução estornada em parte'),
         });
 
+        // Caixa e banco: o lancamento da devolucao so' fica "Estornado" quando
+        // o estorno e' da devolucao inteira; por partes, entra so' o valor.
+        const descricaoDoEstorno = `Estorno ${plano.total ? '' : 'parcial '}da devolução do pedido #${numeroPedido}`;
         if (devolucaoData.destinoValor === 'caixa') {
           const caixaRef = doc(db, 'transacoes', `devolucao_${devolucao.id}`);
-          transaction.update(caixaRef, {
-            estornada: true,
-            statusOperacional: 'Estornada',
-            estornadaEm: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
-          });
-          transaction.set(doc(db, 'transacoes', `estorno_devolucao_${devolucao.id}`), {
-            descricao: `Estorno da devolução do pedido #${numeroPedido}`,
+          if (plano.total) {
+            transaction.update(caixaRef, {
+              estornada: true,
+              statusOperacional: 'Estornada',
+              estornadaEm: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
+            });
+          }
+          transaction.set(doc(db, 'transacoes', `estorno_devolucao_${devolucao.id}${sufixoDoEstorno}`), {
+            descricao: descricaoDoEstorno,
             categoria: 'Devolução de Venda',
-            valor: Number(devolucaoData.valorTotalDevolvido || 0),
+            valor: fromCents(valorDevolvidoCentavos),
             valorCentavos: valorDevolvidoCentavos,
             tipo: 'entrada',
             formaPagamento: 'Dinheiro',
@@ -5435,23 +5550,25 @@ const PedidoVendaForm: React.FC = () => {
             clienteNome,
             pedidoOrigemId: id,
             devolucaoId: devolucao.id,
-            idempotencyKey: `estorno_devolucao:${devolucao.id}`,
+            idempotencyKey: `estorno_devolucao:${devolucao.id}${sufixoDoEstorno}`,
             tenantId,
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           }, { merge: true });
         } else if (bancoEstornoRef) {
-          transaction.update(doc(db, 'transacoes', `devolucao_${devolucao.id}`), {
-            estornada: true,
-            statusOperacional: 'Estornada',
-            estornadaEm: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
-          });
-          transaction.set(doc(db, 'transacoes', `estorno_devolucao_${devolucao.id}`), {
-            descricao: `Estorno da devolução do pedido #${numeroPedido}`,
+          if (plano.total) {
+            transaction.update(doc(db, 'transacoes', `devolucao_${devolucao.id}`), {
+              estornada: true,
+              statusOperacional: 'Estornada',
+              estornadaEm: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
+            });
+          }
+          transaction.set(doc(db, 'transacoes', `estorno_devolucao_${devolucao.id}${sufixoDoEstorno}`), {
+            descricao: descricaoDoEstorno,
             categoria: 'Devolução de Venda',
-            valor: Number(devolucaoData.valorTotalDevolvido || 0),
+            valor: fromCents(valorDevolvidoCentavos),
             valorCentavos: valorDevolvidoCentavos,
             tipo: 'entrada',
             formaPagamento: devolucaoData.formaDevolucao || 'Transferência',
@@ -5464,7 +5581,7 @@ const PedidoVendaForm: React.FC = () => {
             clienteNome,
             pedidoOrigemId: id,
             devolucaoId: devolucao.id,
-            idempotencyKey: `estorno_devolucao:${devolucao.id}`,
+            idempotencyKey: `estorno_devolucao:${devolucao.id}${sufixoDoEstorno}`,
             tenantId,
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
@@ -5474,13 +5591,14 @@ const PedidoVendaForm: React.FC = () => {
             updatedAt: serverTimestamp(),
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Estorno da devolução do pedido #${numeroPedido}`),
           });
-        } else if (creditoRef) {
+        } else if (creditoRef && creditoDepois) {
           transaction.update(creditoRef, {
-            status: 'cancelado',
-            saldoDisponivel: 0,
-            saldoDisponivelCentavos: 0,
+            status: creditoDepois.status,
+            valorOriginal: fromCents(creditoDepois.valorOriginalCentavos),
+            saldoDisponivel: fromCents(creditoDepois.saldoCentavos),
+            saldoDisponivelCentavos: creditoDepois.saldoCentavos,
             updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Estorno da devolução'),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), descricaoDoEstorno),
           });
           coberturaDoCredito.forEach((c) => {
             transaction.update(doc(db, 'creditos_cliente', c.id), {
@@ -5502,7 +5620,9 @@ const PedidoVendaForm: React.FC = () => {
           usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas',
           acao: 'estorno_devolucao',
-          descricao: `Devolução do pedido #${numeroPedido} estornada.`,
+          descricao: planoEscolhido.total
+            ? `Devolução do pedido #${numeroPedido} estornada.`
+            : `Devolução do pedido #${numeroPedido} estornada em parte: ${planoEscolhido.estornados.map((e) => `${e.quantidade.toLocaleString('pt-BR')}x ${e.nome}`).join(', ')} (${moedaBr(planoEscolhido.valorCentavos)}).`,
           registroRelacionadoId: devolucao.id,
           // Historico de alteracoes (09/11/2026): aparece tambem no pedido.
           ...(id ? { documentosRelacionados: [id] } : {}),
@@ -5515,7 +5635,7 @@ const PedidoVendaForm: React.FC = () => {
         console.error('Erro ao registrar auditoria do estorno de devolução:', logError);
       }
 
-      showSuccess('Devolução estornada com sucesso!');
+      showSuccess(planoEscolhido.total ? 'Devolução estornada com sucesso!' : `Estorno feito: ${moedaBr(planoEscolhido.valorCentavos)}. A devolução continua com o restante.`);
       await fetchDevolucoes(id);
     } catch (err) {
       console.error('Erro ao estornar devolução:', err);

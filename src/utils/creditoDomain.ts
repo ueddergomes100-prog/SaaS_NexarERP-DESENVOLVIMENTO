@@ -210,7 +210,9 @@ export interface CreditoDoCancelamento {
 }
 
 export interface CoberturaDoEstorno {
-  /** Quanto do credito da devolucao ja' foi usado. */
+  /** Quanto do valor estornado sai do saldo do proprio credito da devolucao. */
+  doProprioCentavos: number;
+  /** Quanto falta tirar alem do saldo proprio (a parte do credito ja' usada). */
   usadoCentavos: number;
   /** De qual credito de cancelamento sai cada parte. */
   cobertura: ConsumoCredito[];
@@ -218,11 +220,19 @@ export interface CoberturaDoEstorno {
   faltaCentavos: number;
 }
 
+/**
+ * Estornar `valorEstornoCentavos` do credito da devolucao (a devolucao
+ * inteira = o valor original; estorno por quantidade = so' a parte, 21/11):
+ * sai primeiro do saldo do proprio credito; o que passar disso sai do credito
+ * que voltou ao cliente no cancelamento de uma venda.
+ */
 export const coberturaDoEstornoDoCredito = (
-  credito: { valorOriginalCentavos: number; saldoDisponivelCentavos: number },
+  credito: { valorEstornoCentavos: number; saldoDisponivelCentavos: number },
   creditosDoCancelamento: CreditoDoCancelamento[],
 ): CoberturaDoEstorno => {
-  const usado = Math.max(0, toFiniteNumber(credito.valorOriginalCentavos) - Math.max(0, toFiniteNumber(credito.saldoDisponivelCentavos)));
+  const valor = Math.max(0, toFiniteNumber(credito.valorEstornoCentavos));
+  const doProprio = Math.min(valor, Math.max(0, toFiniteNumber(credito.saldoDisponivelCentavos)));
+  const usado = valor - doProprio;
   let restante = usado;
   const cobertura: ConsumoCredito[] = [];
   for (const c of creditosDoCancelamento) {
@@ -233,7 +243,7 @@ export const coberturaDoEstornoDoCredito = (
     cobertura.push({ id: c.id, usadoCentavos: usadoAqui, saldoRestanteCentavos: disponivel - usadoAqui });
     restante -= usadoAqui;
   }
-  return { usadoCentavos: usado, cobertura, faltaCentavos: restante };
+  return { doProprioCentavos: doProprio, usadoCentavos: usado, cobertura, faltaCentavos: restante };
 };
 
 /** Junta as listas das duas buscas (pelo codigo e pelo nome) sem repetir credito. */

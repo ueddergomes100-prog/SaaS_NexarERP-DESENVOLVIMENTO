@@ -152,8 +152,16 @@ const creditoEhDoCliente = (credito, cliente) => {
     return nome !== '' && String(credito.clienteNome ?? '').trim().toUpperCase() === nome;
 };
 exports.creditoEhDoCliente = creditoEhDoCliente;
+/**
+ * Estornar `valorEstornoCentavos` do credito da devolucao (a devolucao
+ * inteira = o valor original; estorno por quantidade = so' a parte, 21/11):
+ * sai primeiro do saldo do proprio credito; o que passar disso sai do credito
+ * que voltou ao cliente no cancelamento de uma venda.
+ */
 const coberturaDoEstornoDoCredito = (credito, creditosDoCancelamento) => {
-    const usado = Math.max(0, toFiniteNumber(credito.valorOriginalCentavos) - Math.max(0, toFiniteNumber(credito.saldoDisponivelCentavos)));
+    const valor = Math.max(0, toFiniteNumber(credito.valorEstornoCentavos));
+    const doProprio = Math.min(valor, Math.max(0, toFiniteNumber(credito.saldoDisponivelCentavos)));
+    const usado = valor - doProprio;
     let restante = usado;
     const cobertura = [];
     for (const c of creditosDoCancelamento) {
@@ -166,7 +174,7 @@ const coberturaDoEstornoDoCredito = (credito, creditosDoCancelamento) => {
         cobertura.push({ id: c.id, usadoCentavos: usadoAqui, saldoRestanteCentavos: disponivel - usadoAqui });
         restante -= usadoAqui;
     }
-    return { usadoCentavos: usado, cobertura, faltaCentavos: restante };
+    return { doProprioCentavos: doProprio, usadoCentavos: usado, cobertura, faltaCentavos: restante };
 };
 exports.coberturaDoEstornoDoCredito = coberturaDoEstornoDoCredito;
 /** Junta as listas das duas buscas (pelo codigo e pelo nome) sem repetir credito. */

@@ -78,7 +78,10 @@ const AppLayout: React.FC = () => {
       )}
       <div className="app-container">
         {needsTenantSelection ? (
-          <>
+          // O menu lateral usa as abas (useTabs): sem o provedor aqui, a tela de
+          // escolher a empresa do administrador da plataforma quebrava com
+          // "Não foi possível carregar esta tela" (achado em 21/11/2026).
+          <TabsProvider dono={donoDasAbas(currentUser?.uid, '')}>
             <Sidebar />
             <div className="main-content">
               <TopBar />
@@ -117,7 +120,7 @@ const AppLayout: React.FC = () => {
                 </div>
               </main>
             </div>
-          </>
+          </TabsProvider>
         ) : (
           <TabsProvider dono={donoDasAbas(currentUser?.uid, tenantId)}>
             <Sidebar />

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.lerPedidoDeAlteracaoDePagamento = exports.lerPedidoDeCancelamentoDaPreVenda = exports.lerPedidoDeCancelamento = exports.bloqueioDoCreditoNaAlteracao = exports.bloqueioParaAlterarPagamento = exports.estornoDosTitulosDaVenda = exports.estornoDosTitulos = exports.camposDoCreditoDevolvido = exports.idDoCreditoDevolvido = exports.creditoUsadoNaVenda = exports.FORMA_CREDITO_DEVOLUCAO = exports.erroDaRotaParaCancelar = exports.erroDoMotivoDoCancelamento = exports.MOTIVO_CANCELAMENTO_MAXIMO = exports.MOTIVO_CANCELAMENTO_MINIMO = void 0;
 const financeDomain_1 = require("./financeDomain");
 const cashbackDomain_1 = require("./cashbackDomain");
+const creditoDomain_1 = require("./creditoDomain");
 /*
  * CANCELAR VENDA E ALTERAR A FORMA DE PAGAMENTO (item 8, fatia 3b -- 19/10/2026).
  *
@@ -64,6 +65,7 @@ exports.idDoCreditoDevolvido = idDoCreditoDevolvido;
  */
 const camposDoCreditoDevolvido = (args) => ({
     clienteNome: String(args.clienteNome || '').trim().toUpperCase(),
+    ...(0, creditoDomain_1.campoDoClienteDoCredito)(args.clienteId),
     pedidoOrigemId: args.pedidoId,
     numeroPedidoOriginal: args.numeroPedido,
     valorOriginal: (0, financeDomain_1.fromCents)(args.valorCentavos),

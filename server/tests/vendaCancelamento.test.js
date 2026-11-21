@@ -141,6 +141,7 @@ test('credito de devolucao usado volta para o cliente como credito disponivel', 
   assert.equal(credito.status, 'disponivel');
   assert.equal(credito.saldoDisponivelCentavos, 500);
   assert.equal(credito.clienteNome, 'MARIA');
+  assert.equal(credito.clienteId, 'cli1', 'com o codigo do cliente o credito nao some se o cadastro for renomeado');
 });
 
 test('pedido numa rota aberta nao cancela; rota ja fechada nao bloqueia', async () => {

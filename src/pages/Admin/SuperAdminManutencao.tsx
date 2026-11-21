@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, CalendarCheck, KeyRound, Loader2, PackageX, RotateCcw, Ruler, Search, Wrench } from 'lucide-react';
+import { Building2, CalendarCheck, KeyRound, Loader2, PackageX, RotateCcw, Ruler, Search, Wallet, Wrench } from 'lucide-react';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import {
   rodarDatasFaltantes,
@@ -7,7 +7,9 @@ import {
   rodarUnificacaoConfiguracoesGerais,
   rodarZerarEstoqueMigracao,
   rodarVendaFracionada,
+  rodarCreditosDoCliente,
   type ModoDatasFaltantes,
+  type ResultadoCreditosDoCliente,
   type ResultadoConfiguracoesGerais,
   type ResultadoDatasFaltantes,
   type ResultadoProtecaoDeSegredos,
@@ -534,6 +536,153 @@ const CartaoVendaFracionada: React.FC = () => {
   );
 };
 
+/**
+ * Creditos de devolucao (21/11/2026): grava o codigo do cliente nos creditos
+ * antigos, que so' tinham o nome (server/services/creditosDoCliente.js).
+ */
+const CartaoCreditosDoCliente: React.FC = () => {
+  const [tenantId, setTenantId] = useState('');
+  const [rodando, setRodando] = useState<'simular' | 'aplicar' | null>(null);
+  const [resultado, setResultado] = useState<ResultadoCreditosDoCliente | null>(null);
+  const simulado = resultado?.modo === 'simular' && resultado.tenantId === tenantId.trim() && Boolean(resultado.projeto) && resultado.ligados > 0;
+  const fmt = (n: number) => n.toLocaleString('pt-BR');
+  const reais = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const rodar = async (modo: 'simular' | 'aplicar') => {
+    const alvo = tenantId.trim();
+    if (!alvo) { showError('Informe a empresa', 'Cole o código da empresa (tenant) cujos créditos serão conferidos.'); return; }
+    if (modo === 'aplicar' && resultado) {
+      const confirmacao = await NexusSwal.fire({
+        title: `Ligar os créditos de ${resultado.empresa} aos clientes?`,
+        html: `Ambiente: <strong>${rotuloDoProjeto(resultado.projeto)}</strong>${resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}.<br/>`
+          + `${fmt(resultado.ligados)} crédito(s) recebem o código do cliente da venda de origem;`
+          + ` ${fmt(resultado.escondidos)} deles (${reais(resultado.escondidosCentavos)}) voltam a aparecer para o cliente.<br/>`
+          + 'Saldo e situação dos créditos não mudam. Fica um registro no histórico da empresa.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Aplicar agora',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirmacao.isConfirmed) return;
+    }
+    setRodando(modo);
+    try {
+      const novo = await rodarCreditosDoCliente(modo, alvo);
+      setResultado(novo);
+      if (modo === 'aplicar') showSuccess(`${fmt(novo.ligados)} crédito(s) de ${novo.empresa} ligados ao cliente.`);
+    } catch (erro) {
+      showError('Não foi possível rodar a tarefa', erro instanceof Error ? erro.message : undefined);
+    } finally {
+      setRodando(null);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+        <span style={{ width: '42px', height: '42px', borderRadius: '13px', backgroundColor: 'rgba(124, 58, 237, 0.12)', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          <Wallet size={21} />
+        </span>
+        <div>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 4px' }}>Ligar os créditos de devolução ao cliente</h2>
+          <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+            Crédito antigo só guardava o nome do cliente: se o cadastro foi renomeado depois, o crédito some da venda e do Contas a Receber.
+            Esta tarefa grava nele o código do cliente da venda de origem. Saldo e situação não mudam.
+            <strong> Comece por Simular: nada é gravado.</strong>
+          </p>
+        </div>
+      </div>
+
+      <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '420px' }}>
+        Código da empresa (tenant)
+        <input
+          type="text"
+          value={tenantId}
+          onChange={(e) => { setTenantId(e.target.value); setResultado(null); }}
+          title="O código aparece no Painel da Plataforma, na lista de empresas"
+          style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+        />
+      </label>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+        <button type="button" className="btn-secondary" onClick={() => rodar('simular')} disabled={rodando !== null} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {rodando === 'simular' ? <Loader2 size={18} className="spin-icon" /> : <Search size={18} />}
+          {rodando === 'simular' ? 'Simulando...' : 'Simular'}
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => rodar('aplicar')}
+          disabled={rodando !== null || !simulado}
+          title={simulado ? undefined : 'Rode Simular primeiro, com esta empresa; Aplicar libera quando houver crédito a ligar.'}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: rodando !== null || !simulado ? 0.6 : 1 }}
+        >
+          {rodando === 'aplicar' ? <Loader2 size={18} className="spin-icon" /> : <Wallet size={18} />}
+          {rodando === 'aplicar' ? 'Gravando...' : `Aplicar${simulado ? ` (${fmt(resultado?.ligados ?? 0)})` : ''}`}
+        </button>
+      </div>
+
+      {resultado && !rodando && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Ambiente: <strong style={{ color: 'var(--text-primary)' }}>{rotuloDoProjeto(resultado.projeto)}</strong>
+            {' · '}
+            {resultado.modo === 'simular' ? 'Simulação (nada foi gravado)' : 'Gravado'}
+          </div>
+          <div><strong style={{ color: 'var(--text-primary)' }}>{resultado.empresa}</strong>{resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}</div>
+          <div>
+            {fmt(resultado.creditos)} crédito(s) · {fmt(resultado.semCodigo)} sem o código do cliente
+            {' · '}{resultado.modo === 'simular' ? 'vão ser ligados' : 'ligados'}: <strong style={{ color: 'var(--text-primary)' }}>{fmt(resultado.ligados)}</strong>
+          </div>
+          <div style={{ color: resultado.escondidos > 0 ? '#ef4444' : undefined }}>
+            Escondidos hoje (cliente renomeado): <strong>{fmt(resultado.escondidos)}</strong>{resultado.escondidos > 0 ? ` · ${reais(resultado.escondidosCentavos)}` : ''}
+          </div>
+          {resultado.exemplos.length > 0 && (
+            <details open={resultado.escondidos > 0}>
+              <summary style={{ cursor: 'pointer' }}>Créditos em aberto que vão ser ligados ({fmt(resultado.exemplos.length)})</summary>
+              <table style={{ borderCollapse: 'collapse', fontSize: '13px', marginTop: '8px' }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-muted)', textAlign: 'left' }}>
+                    <th style={{ padding: '4px 8px' }}>Pedido</th>
+                    <th style={{ padding: '4px 8px' }}>Nome no crédito</th>
+                    <th style={{ padding: '4px 8px' }}>Cliente hoje</th>
+                    <th style={{ padding: '4px 8px', textAlign: 'right' }}>Saldo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resultado.exemplos.map((e) => (
+                    <tr key={`${e.numeroPedido}-${e.nomeNoCredito}-${e.saldoCentavos}`} style={{ borderTop: '1px solid var(--border-color)', color: e.escondido ? '#ef4444' : undefined }}>
+                      <td style={{ padding: '4px 8px' }}>{e.numeroPedido ? `#${e.numeroPedido}` : '-'}</td>
+                      <td style={{ padding: '4px 8px' }}>{e.nomeNoCredito}</td>
+                      <td style={{ padding: '4px 8px' }}>{e.nomeNoCadastro}</td>
+                      <td style={{ padding: '4px 8px', textAlign: 'right' }}>{reais(e.saldoCentavos)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+          {resultado.semComoLigar.length > 0 && (
+            <details>
+              <summary style={{ cursor: 'pointer' }}>Em aberto sem como ligar, continuam pelo nome ({fmt(resultado.semComoLigar.length)})</summary>
+              <ul style={{ margin: '8px 0 0', paddingLeft: '20px', fontSize: '13px' }}>
+                {resultado.semComoLigar.map((s) => (
+                  <li key={`${s.numeroPedido}-${s.nomeNoCredito}-${s.saldoCentavos}`}>
+                    {s.numeroPedido ? `#${s.numeroPedido} · ` : ''}{s.nomeNoCredito} · {reais(s.saldoCentavos)}: {s.motivo}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {!resultado.projeto && (
+            <div style={{ color: '#ef4444', fontWeight: 600 }}>O servidor não informou em qual banco está ligado, então o Aplicar fica bloqueado. Avise o suporte.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SuperAdminManutencao: React.FC = () => {
   const [rodando, setRodando] = useState<ModoDatasFaltantes | null>(null);
   const [resultado, setResultado] = useState<ResultadoDatasFaltantes | null>(null);
@@ -681,6 +830,7 @@ const SuperAdminManutencao: React.FC = () => {
       <CartaoProtegerSegredos />
       <CartaoZerarEstoqueMigracao />
       <CartaoVendaFracionada />
+      <CartaoCreditosDoCliente />
     </div>
   );
 };

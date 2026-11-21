@@ -357,10 +357,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     .reduce((soma, p) => soma + p.valorCentavos, 0);
   let idsDosCreditos = [];
   if (creditoUsadoCentavos > 0) {
-    // O credito e' gravado pelo NOME do cliente (DevolucaoVendaModal nao grava
-    // clienteId), e e' por ele que o Pedido de Venda e o Contas a Receber o
-    // procuram. Procurar por clienteId nunca achava nada: venda com credito era
-    // recusada. O nome vem do CADASTRO do cliente da venda, nao do que a tela
+    // Credito antigo so' tem o NOME do cliente; desde 21/11/2026 o novo tambem
+    // tem o clienteId. O nome vem do CADASTRO do cliente da venda, nao do que a tela
     // mandou -- senao daria para gastar o credito de outro cliente trocando o nome.
     const semCliente = 'Crédito de devolução só pode ser usado com o cliente cadastrado escolhido.';
     if (!pedido.clienteId) throw new ErroVenda(400, semCliente);
@@ -369,12 +367,17 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       ? String(clienteSnap.data().nome || '').trim().toUpperCase()
       : '';
     if (!nomeDoCadastro) throw new ErroVenda(400, semCliente);
-    const snap = await db.collection('creditos_cliente')
-      .where('tenantId', '==', tenantId)
-      .where('clienteNome', '==', nomeDoCadastro)
-      .where('status', 'in', ['disponivel', 'usado_parcial'])
-      .get();
-    idsDosCreditos = snap.docs.map((d) => d.id);
+    // Pelo codigo do cliente E pelo nome (21/11/2026): so' pelo nome, renomear
+    // o cadastro escondia o credito. Credito com codigo vale so' para aquele
+    // cliente (credito.creditoEhDoCliente).
+    const emAberto = (consulta) => consulta.where('tenantId', '==', tenantId).where('status', 'in', ['disponivel', 'usado_parcial']);
+    const [porCodigo, porNome] = await Promise.all([
+      emAberto(db.collection('creditos_cliente')).where('clienteId', '==', pedido.clienteId).get(),
+      emAberto(db.collection('creditos_cliente')).where('clienteNome', '==', nomeDoCadastro).get(),
+    ]);
+    idsDosCreditos = credito.juntarCreditosSemRepetir(porCodigo.docs, porNome.docs)
+      .filter((d) => credito.creditoEhDoCliente(d.data(), { id: pedido.clienteId, nome: nomeDoCadastro }))
+      .map((d) => d.id);
   }
 
   // Cashback como pagamento (fase 2, 20/10/2026): o saldo e' conferido e

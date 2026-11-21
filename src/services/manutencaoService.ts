@@ -196,3 +196,39 @@ export const rodarVendaFracionada = async (modo: 'simular' | 'aplicar', tenantId
   if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
   return dados as ResultadoVendaFracionada;
 };
+
+export interface ResultadoCreditosDoCliente {
+  projeto: string | null;
+  modo: 'simular' | 'aplicar';
+  tenantId: string;
+  empresa: string;
+  cnpj: string;
+  creditos: number;
+  semCodigo: number;
+  ligados: number;
+  /** Em aberto e com o nome antigo do cliente: hoje nao aparecem na venda. */
+  escondidos: number;
+  escondidosCentavos: number;
+  exemplos: Array<{ numeroPedido: string; nomeNoCredito: string; nomeNoCadastro: string; saldoCentavos: number; escondido: boolean }>;
+  semComoLigar: Array<{ numeroPedido: string; nomeNoCredito: string; saldoCentavos: number; motivo: string }>;
+}
+
+/** Creditos de devolucao (21/11/2026): grava o codigo do cliente nos creditos antigos, pelo pedido de origem. */
+export const rodarCreditosDoCliente = async (modo: 'simular' | 'aplicar', tenantId: string): Promise<ResultadoCreditosDoCliente> => {
+  if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new ManutencaoError('Sua sessão expirou. Entre novamente para continuar.', 401);
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/manutencao/creditos-do-cliente`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo, tenantId }),
+    }, TEMPO_LIMITE.manutencao);
+  } catch (erro) {
+    throw new ManutencaoError(mensagemDeFalhaDeRede(erro), 0);
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
+  return dados as ResultadoCreditosDoCliente;
+};

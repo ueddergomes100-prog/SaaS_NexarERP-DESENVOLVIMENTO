@@ -266,6 +266,19 @@ test('credito de devolucao: trocar o nome na tela nao gasta o credito de outro c
   assert.equal(fake.ler('creditos_cliente/devolucao_d2').saldoDisponivel, 50);
 });
 
+test('credito de devolucao: cliente renomeado acha o credito pelo codigo; credito de outro codigo com o mesmo nome fica fora', async () => {
+  // Caso real (Jomarly, 21/11/2026): credito gravado como "MARIA ANTIGA" e o
+  // cadastro renomeado depois para "MARIA".
+  const fake = criarBancoFalso(base({
+    'creditos_cliente/cancelamento_v0': { tenantId: 'loja', clienteId: 'cli1', clienteNome: 'MARIA ANTIGA', status: 'disponivel', saldoDisponivel: 15, saldoDisponivelCentavos: 1500, valorOriginal: 15 },
+    'creditos_cliente/devolucao_x': { tenantId: 'loja', clienteId: 'cli9', clienteNome: 'MARIA', status: 'disponivel', saldoDisponivel: 50, valorOriginal: 50 },
+  }), { consultas: true });
+  const pagamentos = [pagamento({ forma: 'Crédito de Devolução', valor: '10' }), pagamento({ id: 'pg2', valor: '10' })];
+  await carregar(fake.db).finalizarVenda({ user: VENDEDOR, tenantId: 'loja', corpo: corpo({ pagamentos }) });
+  assert.equal(fake.ler('creditos_cliente/cancelamento_v0').saldoDisponivelCentavos, 500);
+  assert.equal(fake.ler('creditos_cliente/devolucao_x').saldoDisponivel, 50, 'outra MARIA (outro codigo) nao divide credito');
+});
+
 // ------------------------------------------------------------------ Cashback como pagamento (fase 2, 20/10/2026)
 
 const loteDeCashback = (extra = {}) => ({

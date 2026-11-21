@@ -10,7 +10,7 @@
 // do desconto maximo, aqui o pedido do usuario foi um toggle simples
 // sim/nao.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.distribuirConsumoCredito = exports.somarCreditosCentavos = exports.MENSAGEM_CREDITO_CONCORRENTE = exports.creditoFoiAlteradoDurante = exports.parseCreditoVersao = exports.CAMPO_CREDITO_VERSAO = exports.parseTrabalhaComLimiteCredito = exports.excedeLimiteCredito = void 0;
+exports.juntarCreditosSemRepetir = exports.creditoEhDoCliente = exports.campoDoClienteDoCredito = exports.distribuirConsumoCredito = exports.somarCreditosCentavos = exports.MENSAGEM_CREDITO_CONCORRENTE = exports.creditoFoiAlteradoDurante = exports.parseCreditoVersao = exports.CAMPO_CREDITO_VERSAO = exports.parseTrabalhaComLimiteCredito = exports.excedeLimiteCredito = void 0;
 const toFiniteNumber = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -117,3 +117,51 @@ const distribuirConsumoCredito = (creditos, valorCentavos) => {
     return consumos;
 };
 exports.distribuirConsumoCredito = distribuirConsumoCredito;
+// ---------------------------------------------------------------------------
+// DE QUEM E' O CREDITO DE DEVOLUCAO (21/11/2026)
+// ---------------------------------------------------------------------------
+//
+// Caso real (Jomarly): a venda #0180 foi cancelada e o credito usado nela
+// voltou como "ALGERICO CONCAS". Meia hora depois o cadastro do cliente foi
+// renomeado para "ALGERICO ALCIDES CONCAS" e o credito sumiu: ele so' tinha o
+// NOME, e o Pedido de Venda, o Contas a Receber e o servidor procuravam pelo
+// nome exato do cadastro.
+//
+// Agora o credito guarda o codigo do cliente (`clienteId`) quando a venda
+// tinha cliente cadastrado, e a busca junta "pelo codigo" com "pelo nome".
+// Credito antigo sem codigo continua valendo pelo nome; a tarefa da
+// Manutencao "Ligar os creditos de devolucao ao cliente" grava o codigo nos
+// antigos pelo pedido de origem.
+/** O codigo do cliente para gravar no credito (sem codigo, a chave fica fora). */
+const campoDoClienteDoCredito = (clienteId) => {
+    const id = typeof clienteId === 'string' ? clienteId.trim() : '';
+    return id ? { clienteId: id } : {};
+};
+exports.campoDoClienteDoCredito = campoDoClienteDoCredito;
+/**
+ * O credito e' deste cliente? Com codigo gravado, vale so' o codigo (dois
+ * clientes com o mesmo nome nao dividem credito). Sem codigo (credito antigo
+ * ou cliente avulso), vale o nome, como sempre foi.
+ */
+const creditoEhDoCliente = (credito, cliente) => {
+    const idDoCredito = typeof credito.clienteId === 'string' ? credito.clienteId.trim() : '';
+    const idDoCliente = typeof cliente.id === 'string' ? cliente.id.trim() : '';
+    if (idDoCredito)
+        return idDoCredito === idDoCliente;
+    const nome = String(cliente.nome ?? '').trim().toUpperCase();
+    return nome !== '' && String(credito.clienteNome ?? '').trim().toUpperCase() === nome;
+};
+exports.creditoEhDoCliente = creditoEhDoCliente;
+/** Junta as listas das duas buscas (pelo codigo e pelo nome) sem repetir credito. */
+const juntarCreditosSemRepetir = (...listas) => {
+    const vistos = new Set();
+    const juntos = [];
+    listas.forEach((lista) => lista.forEach((item) => {
+        if (vistos.has(item.id))
+            return;
+        vistos.add(item.id);
+        juntos.push(item);
+    }));
+    return juntos;
+};
+exports.juntarCreditosSemRepetir = juntarCreditosSemRepetir;

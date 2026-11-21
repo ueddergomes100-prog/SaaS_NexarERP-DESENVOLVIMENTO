@@ -1,5 +1,6 @@
 import { fromCents, toCents, transactionMovesPhysicalCash } from './financeDomain';
 import { cashbackUsadoNaVenda } from './cashbackDomain';
+import { campoDoClienteDoCredito } from './creditoDomain';
 
 /*
  * CANCELAR VENDA E ALTERAR A FORMA DE PAGAMENTO (item 8, fatia 3b -- 19/10/2026).
@@ -86,10 +87,13 @@ export const camposDoCreditoDevolvido = (args: {
   pedidoId: string;
   numeroPedido: string;
   clienteNome: string;
+  /** Codigo do cliente da venda (21/11/2026): o credito nao some se o cadastro for renomeado. */
+  clienteId?: unknown;
   valorCentavos: number;
   tenantId: string;
 }): Record<string, unknown> => ({
   clienteNome: String(args.clienteNome || '').trim().toUpperCase(),
+  ...campoDoClienteDoCredito(args.clienteId),
   pedidoOrigemId: args.pedidoId,
   numeroPedidoOriginal: args.numeroPedido,
   valorOriginal: fromCents(args.valorCentavos),

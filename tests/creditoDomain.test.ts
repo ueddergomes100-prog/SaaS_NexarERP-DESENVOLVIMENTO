@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  campoDoClienteDoCredito,
+  creditoEhDoCliente,
   creditoFoiAlteradoDurante,
   distribuirConsumoCredito,
+  juntarCreditosSemRepetir,
   excedeLimiteCredito,
   MENSAGEM_CREDITO_CONCORRENTE,
   parseCreditoVersao,
@@ -163,4 +166,34 @@ test('mensagem da corrida diz que nada foi gravado e o que fazer', () => {
   assert.match(MENSAGEM_CREDITO_CONCORRENTE, /Nada foi gravado/);
   assert.match(MENSAGEM_CREDITO_CONCORRENTE, /finalize novamente/i);
   assert.doesNotMatch(MENSAGEM_CREDITO_CONCORRENTE, /Transaction|undefined|Firestore/i);
+});
+
+test('credito de devolucao guarda o codigo do cliente; sem codigo a chave fica fora (nunca undefined)', () => {
+  assert.deepEqual(campoDoClienteDoCredito('c779'), { clienteId: 'c779' });
+  assert.deepEqual(campoDoClienteDoCredito(' c779 '), { clienteId: 'c779' });
+  assert.deepEqual(campoDoClienteDoCredito(undefined), {});
+  assert.deepEqual(campoDoClienteDoCredito(null), {});
+  assert.deepEqual(campoDoClienteDoCredito(''), {});
+  assert.equal('clienteId' in campoDoClienteDoCredito(undefined), false);
+});
+
+test('de quem e o credito: com codigo vale o codigo; sem codigo vale o nome (caso do cliente renomeado)', () => {
+  const cliente = { id: 'c779', nome: 'Algerico Alcides Concas' };
+  // Caso real: credito gravado antes da renomeacao, ja com o codigo.
+  assert.equal(creditoEhDoCliente({ clienteId: 'c779', clienteNome: 'ALGERICO CONCAS' }, cliente), true);
+  // Outro cliente com o mesmo nome nao divide credito.
+  assert.equal(creditoEhDoCliente({ clienteId: 'c999', clienteNome: 'ALGERICO ALCIDES CONCAS' }, cliente), false);
+  // Credito antigo sem codigo: pelo nome, como sempre foi.
+  assert.equal(creditoEhDoCliente({ clienteNome: 'ALGERICO ALCIDES CONCAS' }, cliente), true);
+  assert.equal(creditoEhDoCliente({ clienteNome: 'ALGERICO CONCAS' }, cliente), false);
+  // Cliente digitado sem cadastro: so' o nome.
+  assert.equal(creditoEhDoCliente({ clienteNome: 'JOAO' }, { nome: 'joao' }), true);
+  assert.equal(creditoEhDoCliente({ clienteId: 'c1', clienteNome: 'JOAO' }, { nome: 'JOAO' }), false);
+  assert.equal(creditoEhDoCliente({ clienteNome: '' }, { nome: '' }), false);
+});
+
+test('as duas buscas (codigo e nome) se juntam sem repetir o credito', () => {
+  const juntos = juntarCreditosSemRepetir([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]);
+  assert.deepEqual(juntos.map((c) => c.id), ['a', 'b', 'c']);
+  assert.deepEqual(juntarCreditosSemRepetir(), []);
 });

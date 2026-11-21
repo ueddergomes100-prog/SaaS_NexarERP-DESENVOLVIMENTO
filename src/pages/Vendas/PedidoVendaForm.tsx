@@ -181,8 +181,10 @@ import {
 } from '../../utils/clienteValidacaoDomain';
 import {
   CAMPO_CREDITO_VERSAO,
+  creditoEhDoCliente,
   creditoFoiAlteradoDurante,
   distribuirConsumoCredito,
+  juntarCreditosSemRepetir,
   excedeLimiteCredito,
   MENSAGEM_CREDITO_CONCORRENTE,
   parseCreditoVersao,
@@ -1664,20 +1666,26 @@ const PedidoVendaForm: React.FC = () => {
       setCreditosCliente([]);
       return;
     }
-    if (creditoPerguntadoParaRef.current === nome) return;
+    // Credito pelo codigo do cliente E pelo nome (21/11/2026): so' pelo nome,
+    // renomear o cadastro escondia o credito (creditoDomain.ts).
+    const idDoCliente = clienteIdSelecionado || '';
+    const chaveDaPergunta = idDoCliente || nome;
+    if (creditoPerguntadoParaRef.current === chaveDaPergunta) return;
 
     let cancelado = false;
     (async () => {
       try {
-        const snap = await getDocs(query(
-          collection(db, 'creditos_cliente'),
-          where('tenantId', '==', tenantId),
-          where('clienteNome', '==', nome),
-          where('status', 'in', ['disponivel', 'usado_parcial']),
-        ));
+        const emAberto = where('status', 'in', ['disponivel', 'usado_parcial']);
+        const [porNome, porCodigo] = await Promise.all([
+          getDocs(query(collection(db, 'creditos_cliente'), where('tenantId', '==', tenantId), where('clienteNome', '==', nome), emAberto)),
+          idDoCliente
+            ? getDocs(query(collection(db, 'creditos_cliente'), where('tenantId', '==', tenantId), where('clienteId', '==', idDoCliente), emAberto))
+            : Promise.resolve(null),
+        ]);
         if (cancelado) return;
 
-        const disponiveis: CreditoClienteDisponivel[] = snap.docs
+        const disponiveis: CreditoClienteDisponivel[] = juntarCreditosSemRepetir(porCodigo?.docs ?? [], porNome.docs)
+          .filter((d) => creditoEhDoCliente(d.data(), { id: idDoCliente, nome }))
           .map((d) => ({
             id: d.id,
             saldoDisponivelCentavos: Number(d.data().saldoDisponivelCentavos ?? toCents(d.data().saldoDisponivel || 0)),
@@ -1692,7 +1700,7 @@ const PedidoVendaForm: React.FC = () => {
         const totalCents = somarCreditosCentavos(disponiveis);
         if (totalCents <= 0) return;
 
-        creditoPerguntadoParaRef.current = nome;
+        creditoPerguntadoParaRef.current = chaveDaPergunta;
         const result = await NexusSwal.fire({
           title: 'Este cliente tem crédito',
           html: `<div style="font-size:14px;line-height:1.7;">
@@ -1712,7 +1720,7 @@ const PedidoVendaForm: React.FC = () => {
 
     return () => { cancelado = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clienteNome, tenantId, isViewing]);
+  }, [clienteNome, clienteIdSelecionado, tenantId, isViewing]);
 
   /** Adiciona (ou atualiza) a linha de pagamento "Crédito de Devolução".
    * Nunca abate mais que o total da venda nem que o saldo do cliente. */
@@ -5153,7 +5161,7 @@ const PedidoVendaForm: React.FC = () => {
         creditoDevolvidoCentavos = 0;
         if (creditoRef && !creditoJaDevolvido) {
           transaction.set(creditoRef, {
-            ...camposDoCreditoDevolvido({ pedidoId: id, numeroPedido: numeroDaVenda, clienteNome: saleData.clienteNome || clienteNome, valorCentavos: creditoCentavos, tenantId }),
+            ...camposDoCreditoDevolvido({ pedidoId: id, numeroPedido: numeroDaVenda, clienteNome: saleData.clienteNome || clienteNome, clienteId: saleData.clienteId, valorCentavos: creditoCentavos, tenantId }),
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),

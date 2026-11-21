@@ -190,7 +190,7 @@ const cancelarVenda = async ({ user, tenantId, corpo }) => {
 
     if (creditoRef && !creditoJaDevolvido) {
       tx.set(creditoRef, {
-        ...cv.camposDoCreditoDevolvido({ pedidoId, numeroPedido, clienteNome: venda.clienteNome || '', valorCentavos: creditoCentavos, tenantId }),
+        ...cv.camposDoCreditoDevolvido({ pedidoId, numeroPedido, clienteNome: venda.clienteNome || '', clienteId: venda.clienteId, valorCentavos: creditoCentavos, tenantId }),
         createdAt: agora(),
         updatedAt: agora(),
         ...buildDocumentMetadata(user.uid, agora()),

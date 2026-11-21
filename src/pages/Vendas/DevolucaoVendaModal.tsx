@@ -16,6 +16,7 @@ import type { LoteUsado } from '../../utils/loteDomain';
 import { toStockAdjustmentItems } from '../../utils/embalagemDomain';
 import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
+import { campoDoClienteDoCredito } from '../../utils/creditoDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 
 /** Formas de devolucao que saem de conta bancaria (nao do caixa fisico). */
@@ -337,6 +338,8 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         } else {
           transaction.set(doc(db, 'creditos_cliente', `devolucao_${novaDevolucaoRef.id}`), {
             clienteNome,
+            // Codigo do cliente da venda: o credito nao some se o cadastro for renomeado.
+            ...campoDoClienteDoCredito(saleData.clienteId),
             pedidoOrigemId: pedidoId,
             devolucaoId: novaDevolucaoRef.id,
             numeroPedidoOriginal: numeroPedido,

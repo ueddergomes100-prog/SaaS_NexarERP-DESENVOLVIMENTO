@@ -8,6 +8,7 @@ const { registrarLog } = require('../services/auditoria');
 const { protegerSegredos } = require('../services/protegerSegredos');
 const { zerarEstoqueECustosDaMigracao } = require('../services/zerarEstoqueMigracao');
 const { corrigirVendaFracionada } = require('../services/vendaFracionadaProdutos');
+const { ligarCreditosAoCliente } = require('../services/creditosDoCliente');
 
 /**
  * MANUTENCAO DO BANCO, pelo Painel da Plataforma (2026-10-15).
@@ -284,6 +285,60 @@ router.post('/venda-fracionada', limite, async (req, res) => {
         : modo === 'aplicar'
           ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no que ainda não foi acertado).'
           : 'Não foi possível ler os produtos da empresa agora. Tente de novo em alguns minutos.',
+    });
+  } finally {
+    emAndamento = false;
+  }
+});
+
+// Creditos de devolucao antigos so' tinham o NOME do cliente: renomear o
+// cadastro escondia o credito (Jomarly, 21/11/2026). Grava o codigo do
+// cliente pelo pedido de origem. Ver services/creditosDoCliente.js.
+router.post('/creditos-do-cliente', limite, async (req, res) => {
+  if (!req.user?.isPlatformAdmin) {
+    return res.status(403).json({ error: 'Só o administrador da plataforma pode rodar a manutenção do banco.' });
+  }
+  const modo = typeof req.body?.modo === 'string' ? req.body.modo : 'simular';
+  if (modo !== 'simular' && modo !== 'aplicar') {
+    return res.status(400).json({ error: 'Esta tarefa só tem Simular e Aplicar.' });
+  }
+  const tenantId = typeof req.body?.tenantId === 'string' ? req.body.tenantId.trim() : '';
+  if (!tenantId) {
+    return res.status(400).json({ error: 'Informe o código da empresa (tenant) cujos créditos serão conferidos.' });
+  }
+  if (emAndamento) {
+    return res.status(409).json({ error: 'Já tem uma tarefa de manutenção rodando. Espere ela terminar e tente de novo.' });
+  }
+  emAndamento = true;
+  const projeto = projectId || admin.app().options.projectId || null;
+  try {
+    const resultado = await ligarCreditosAoCliente({
+      db,
+      agora: () => admin.firestore.FieldValue.serverTimestamp(),
+      tenantId,
+      aplicar: modo === 'aplicar',
+      usuarioId: req.user.uid,
+    });
+    console.log(`[Manutencao] creditos do cliente: ${modo} por ${req.user.email || req.user.uid} no projeto ${projeto} -- empresa ${tenantId}: ${resultado.ligados} de ${resultado.semCodigo} creditos sem codigo (${resultado.escondidos} escondidos)`);
+    if (modo === 'aplicar' && resultado.ligados > 0) {
+      await registrarLog({ ...req.user, tenantId, filialNome: resultado.empresa }, {
+        modulo: 'financeiro',
+        acao: 'creditos_do_cliente',
+        descricao: `Créditos de devolução ligados ao cadastro do cliente pelo pedido de origem: ${resultado.ligados} crédito(s). ${resultado.escondidos} deles estavam com o nome antigo do cliente e não apareciam na venda (R$ ${(resultado.escondidosCentavos / 100).toFixed(2).replace('.', ',')}).`,
+        documentoTipo: 'credito_cliente',
+        alteracoes: resultado.exemplos.filter((e) => e.escondido).map((e) => ({ campo: `Crédito do pedido #${e.numeroPedido}`, valorAnterior: e.nomeNoCredito, valorNovo: e.nomeNoCadastro })),
+        critico: true,
+      });
+    }
+    return res.json({ projeto, modo, ...resultado });
+  } catch (erro) {
+    console.error(`[Manutencao] creditos do cliente (${modo}) falhou:`, erro.message);
+    return res.status(erro.status || 500).json({
+      error: erro.status === 404
+        ? erro.message
+        : modo === 'aplicar'
+          ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no crédito que ainda não tem o cliente).'
+          : 'Não foi possível ler os créditos da empresa agora. Tente de novo em alguns minutos.',
     });
   } finally {
     emAndamento = false;

@@ -148,3 +148,53 @@ export const distribuirConsumoCredito = (
   }
   return consumos;
 };
+
+// ---------------------------------------------------------------------------
+// DE QUEM E' O CREDITO DE DEVOLUCAO (21/11/2026)
+// ---------------------------------------------------------------------------
+//
+// Caso real (Jomarly): a venda #0180 foi cancelada e o credito usado nela
+// voltou como "ALGERICO CONCAS". Meia hora depois o cadastro do cliente foi
+// renomeado para "ALGERICO ALCIDES CONCAS" e o credito sumiu: ele so' tinha o
+// NOME, e o Pedido de Venda, o Contas a Receber e o servidor procuravam pelo
+// nome exato do cadastro.
+//
+// Agora o credito guarda o codigo do cliente (`clienteId`) quando a venda
+// tinha cliente cadastrado, e a busca junta "pelo codigo" com "pelo nome".
+// Credito antigo sem codigo continua valendo pelo nome; a tarefa da
+// Manutencao "Ligar os creditos de devolucao ao cliente" grava o codigo nos
+// antigos pelo pedido de origem.
+
+/** O codigo do cliente para gravar no credito (sem codigo, a chave fica fora). */
+export const campoDoClienteDoCredito = (clienteId: unknown): { clienteId?: string } => {
+  const id = typeof clienteId === 'string' ? clienteId.trim() : '';
+  return id ? { clienteId: id } : {};
+};
+
+/**
+ * O credito e' deste cliente? Com codigo gravado, vale so' o codigo (dois
+ * clientes com o mesmo nome nao dividem credito). Sem codigo (credito antigo
+ * ou cliente avulso), vale o nome, como sempre foi.
+ */
+export const creditoEhDoCliente = (
+  credito: { clienteId?: unknown; clienteNome?: unknown },
+  cliente: { id?: unknown; nome?: unknown },
+): boolean => {
+  const idDoCredito = typeof credito.clienteId === 'string' ? credito.clienteId.trim() : '';
+  const idDoCliente = typeof cliente.id === 'string' ? cliente.id.trim() : '';
+  if (idDoCredito) return idDoCredito === idDoCliente;
+  const nome = String(cliente.nome ?? '').trim().toUpperCase();
+  return nome !== '' && String(credito.clienteNome ?? '').trim().toUpperCase() === nome;
+};
+
+/** Junta as listas das duas buscas (pelo codigo e pelo nome) sem repetir credito. */
+export const juntarCreditosSemRepetir = <T extends { id: string }>(...listas: T[][]): T[] => {
+  const vistos = new Set<string>();
+  const juntos: T[] = [];
+  listas.forEach((lista) => lista.forEach((item) => {
+    if (vistos.has(item.id)) return;
+    vistos.add(item.id);
+    juntos.push(item);
+  }));
+  return juntos;
+};

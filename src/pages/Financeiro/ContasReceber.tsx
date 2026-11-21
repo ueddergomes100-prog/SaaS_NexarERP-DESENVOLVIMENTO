@@ -72,6 +72,7 @@ import {
 } from '../../utils/alteracaoValorTituloDomain';
 import { pedirNovoValorDaParcela } from '../../utils/alteracaoValorTituloUi';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { creditoEhDoCliente, juntarCreditosSemRepetir } from '../../utils/creditoDomain';
 import { createAuditLog } from '../../services/logService';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
@@ -570,15 +571,22 @@ const ContasReceber: React.FC = () => {
     let saldoCredito = 0;
     const creditosAtivos: any[] = [];
     
-    if (t.clienteNome) {
-      const qC = query(
-        collection(db, 'creditos_cliente'), 
-        where('tenantId', '==', tenantId), 
-        where('clienteNome', '==', t.clienteNome), 
-        where('status', 'in', ['disponivel', 'usado_parcial'])
-      );
-      const snapC = await getDocs(qC);
-      snapC.forEach(d => {
+    // Credito pelo codigo do cliente E pelo nome (21/11/2026): so' pelo nome,
+    // renomear o cadastro escondia o credito (creditoDomain.ts).
+    const idDoCliente = typeof t.clienteId === 'string' ? t.clienteId : '';
+    if (t.clienteNome || idDoCliente) {
+      const emAberto = where('status', 'in', ['disponivel', 'usado_parcial']);
+      const [porNome, porCodigo] = await Promise.all([
+        t.clienteNome
+          ? getDocs(query(collection(db, 'creditos_cliente'), where('tenantId', '==', tenantId), where('clienteNome', '==', t.clienteNome), emAberto))
+          : Promise.resolve(null),
+        idDoCliente
+          ? getDocs(query(collection(db, 'creditos_cliente'), where('tenantId', '==', tenantId), where('clienteId', '==', idDoCliente), emAberto))
+          : Promise.resolve(null),
+      ]);
+      const doCliente = juntarCreditosSemRepetir(porCodigo?.docs ?? [], porNome?.docs ?? [])
+        .filter((d) => creditoEhDoCliente(d.data(), { id: idDoCliente, nome: t.clienteNome }));
+      doCliente.forEach(d => {
         const data = d.data();
         if (data.saldoDisponivel > 0) {
           creditosAtivos.push({ id: d.id, ...data });

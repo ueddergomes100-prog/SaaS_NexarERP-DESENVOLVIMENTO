@@ -298,6 +298,8 @@ interface ProdutoEstoque {
   /** `true` = principal de uma grade (gradeProdutosDomain.ts): sem estoque,
    * quem se vende sao as variacoes -- searchProducts() tambem exclui. */
   temGrade?: boolean;
+  /** Aba "Atacado" do produto: faixa de quantidade com preco proprio (precoVendaDomain). */
+  atacado?: unknown;
   /** Trava do produto mesmo com "Permitir venda sem estoque" ligado (estoqueReservaDomain.ts). */
   bloquearVendaSemEstoque?: boolean;
 }
@@ -762,8 +764,8 @@ const PedidoVendaForm: React.FC = () => {
   };
 
   /** Preco e campos de preco do item: automatico, ou 'manual' quando o digitado e' outro. */
-  const camposDePreco = (tabela: TabelaDePrecoDoItem, precoDigitado?: number) => {
-    const auto = precoAutomatico(tabela, condicaoPagamento);
+  const camposDePreco = (tabela: TabelaDePrecoDoItem, precoDigitado?: number, quantidade = 0) => {
+    const auto = precoAutomatico(tabela, condicaoPagamento, quantidade);
     const manual = precoDigitado !== undefined && precoDigitado > 0 && Math.abs(precoDigitado - auto.preco) > 0.0001;
     const origem: OrigemPreco = manual ? 'manual' : auto.origem;
     return {
@@ -780,8 +782,8 @@ const PedidoVendaForm: React.FC = () => {
   const promocaoIdsDosItens = (lista: ItemVenda[]): string[] => [...new Set(lista.map((i) => i.promocaoId).filter((p): p is string => Boolean(p)))];
 
   /** Preco que o campo "Preco" mostra ao escolher o produto/embalagem. */
-  const precoSugerido = (produto: ProdutoEstoque, opcao: Parameters<typeof tabelaDoItemDoCatalogo>[1]): number => (
-    precoAutomatico(tabelaDoItemDoCatalogo(produto, opcao), condicaoPagamento).preco
+  const precoSugerido = (produto: ProdutoEstoque, opcao: Parameters<typeof tabelaDoItemDoCatalogo>[1], quantidade = 0): number => (
+    precoAutomatico(tabelaDoItemDoCatalogo(produto, opcao), condicaoPagamento, quantidade).preco
   );
 
   const { baixarLotesNaTransacao, camposDeLoteDoItem, conferirLotesDoEstornoNaTransacao, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, estornarLotesDaDevolucaoNaTransacao, linhasParaLote, prepararBaixaDeLotes } = loteBaixa;
@@ -1135,6 +1137,7 @@ const PedidoVendaForm: React.FC = () => {
           ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
           temGrade: doc.data().temGrade === true,
           bloquearVendaSemEstoque: doc.data().bloquearVendaSemEstoque === true,
+          ...(doc.data().atacado ? { atacado: doc.data().atacado } : {}),
         });
       });
       setProdutosCatalogo(dataE);
@@ -1878,8 +1881,13 @@ const PedidoVendaForm: React.FC = () => {
       avisoPromocao = conferida.aviso;
       // Promocao que saiu pela quota: o campo mostrava o preco promocional, entao
       // o valor dele nao e' "digitado" -- vale o automatico sem a promocao.
-      const digitado = conferida.aviso ? undefined : (precoDigitadoDoItem > 0 ? precoDigitadoDoItem : undefined);
-      const precoTabela = precoAutomatico(conferida.tabela, condicaoPagamento).preco;
+      // O campo "Preco" mostra o preco sem quantidade (varejo): deixado como veio,
+      // nao e' digitado -- assim a faixa de atacado da quantidade pode valer.
+      const sugeridoNoCampo = precoAutomatico(conferida.tabela, condicaoPagamento).preco;
+      const digitado = conferida.aviso || Math.abs(precoDigitadoDoItem - sugeridoNoCampo) < 0.0001
+        ? undefined
+        : (precoDigitadoDoItem > 0 ? precoDigitadoDoItem : undefined);
+      const precoTabela = precoAutomatico(conferida.tabela, condicaoPagamento, qtdDoItem).preco;
       const abaixoDaTabela = digitado !== undefined && digitado < precoTabela - 0.0001;
       if (abaixoDaTabela && !permitirDescontoPorItem) {
         showError(
@@ -1889,7 +1897,7 @@ const PedidoVendaForm: React.FC = () => {
         return;
       }
       if (abaixoDaTabela) descontoPorPrecoCents = toCents((precoTabela - (digitado as number)) * qtdDoItem);
-      const resultado = camposDePreco(conferida.tabela, abaixoDaTabela ? undefined : digitado);
+      const resultado = camposDePreco(conferida.tabela, abaixoDaTabela ? undefined : digitado, qtdDoItem);
       precoFinal = resultado.preco;
       camposPreco = resultado.campos;
     }
@@ -2096,7 +2104,7 @@ const PedidoVendaForm: React.FC = () => {
       }
       // O valor da nota vira o preco digitado do item ('manual': nao troca sozinho), sem desconto.
       const { preco, campos } = montado.item.tabelaPreco
-        ? camposDePreco(montado.item.tabelaPreco, noItem.precoUnitario)
+        ? camposDePreco(montado.item.tabelaPreco, noItem.precoUnitario, quantidade)
         : { preco: noItem.precoUnitario, campos: { origemPreco: 'manual' as OrigemPreco } };
       novos.push({ ...montado.item, ...campos, precoUnitario: preco, subtotal: Math.max(0, preco * quantidade) });
     }
@@ -2146,7 +2154,7 @@ const PedidoVendaForm: React.FC = () => {
       return { erro: `${product.nome}: a unidade ${opcao.sigla} ${opcao.permiteFracionado ? `aceita no máximo ${opcao.casasDecimais ?? 0} casa(s) decimal(is)` : 'não permite quantidade fracionada'}.` };
     }
     const conferida = conferirQuotaDaPromocao(product, tabelaDoItemDoCatalogo(product, opcao), quantidadeBase, indiceIgnorado);
-    const { preco, campos: camposPreco } = camposDePreco(conferida.tabela);
+    const { preco, campos: camposPreco } = camposDePreco(conferida.tabela, undefined, quantidade);
     return {
       aviso: conferida.aviso,
       ...(conferencia.situacao === 'avisar_reserva' ? { avisoReserva: conferencia.mostrar } : {}),
@@ -2297,8 +2305,8 @@ const PedidoVendaForm: React.FC = () => {
     // foi mexido aqui -- editar so' a quantidade nao reavalia o preco.
     const precoMexido = Math.abs(novoPreco - item.precoUnitario) > 0.0001;
     const precoTabela = item.tabelaPreco
-      ? precoAutomatico(item.tabelaPreco, condicaoPagamento).preco
-      : (produtoCatalogo ? precoSugerido(produtoCatalogo, opcaoItem) : item.precoUnitario);
+      ? precoAutomatico(item.tabelaPreco, condicaoPagamento, novaQtd).preco
+      : (produtoCatalogo ? precoSugerido(produtoCatalogo, opcaoItem, novaQtd) : item.precoUnitario);
     const abaixoDaTabela = precoMexido && novoPreco < precoTabela - 0.0001;
     if (abaixoDaTabela && !permitirDescontoPorItem) {
       return `O preço de tabela é R$ ${precoTabela.toFixed(2).replace('.', ',')} e o desconto por item está desligado em Configurações da filial: o preço não pode ficar abaixo dele.`;
@@ -2350,7 +2358,7 @@ const PedidoVendaForm: React.FC = () => {
       }
       const mexeuPreco = Math.abs(precoEfetivo - item.precoUnitario) > 0.0001;
       const digitado = mexeuPreco ? precoEfetivo : (item.origemPreco === 'manual' ? item.precoUnitario : undefined);
-      const { preco, campos: camposPreco } = camposDePreco(tabela, digitado);
+      const { preco, campos: camposPreco } = camposDePreco(tabela, digitado, novaQtd);
       const { promocaoId: _promocaoAnterior, promocaoNome: _nomeAnterior, ...semPromocao } = atualizado;
       void _promocaoAnterior; void _nomeAnterior;
       atualizado = { ...semPromocao, ...camposPreco, precoUnitario: preco };

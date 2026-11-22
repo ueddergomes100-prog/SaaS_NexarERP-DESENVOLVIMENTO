@@ -355,6 +355,7 @@ const PDV: React.FC = () => {
               bloquearVendaSemEstoque: data.bloquearVendaSemEstoque === true,
               embalagens: data.embalagens,
               descontoMaximoPercentual: data.descontoMaximoPercentual,
+              ...(data.atacado ? { atacado: data.atacado } : {}),
             } as PdvProduct;
           })
           // produtoRevenda === false = item de uso interno (peca de veiculo,
@@ -769,7 +770,8 @@ const PDV: React.FC = () => {
           : `A quantidade da promoção "${quota.promo.nome}" acabou. O item entrou no preço normal.`);
       }
     }
-    return camposDePrecoDoItem(tabela, CONDICAO_PDV);
+    // A quantidade da linha decide a faixa de atacado (precoVendaDomain).
+    return camposDePrecoDoItem(tabela, CONDICAO_PDV, undefined, quantidadeTotal);
   }, [tabelaDe, quantidadeLiberada]);
 
   const addProductToCart = useCallback((product: PdvProduct, quantity = 1, opcao?: OpcaoUnidadeVenda) => {
@@ -818,6 +820,14 @@ const PDV: React.FC = () => {
   }, [openSession, session, validateQuantity, precificarLinha]);
 
   const updateItemQuantity = useCallback((itemId: string, quantity: number) => {
+    // Quantidade nova pode entrar (ou sair) da faixa de atacado e da quota da
+    // promocao: o preco automatico acompanha. Preco digitado nao muda.
+    // Calculado fora do updater (StrictMode roda o updater duas vezes).
+    const itemAtual = cartItemsRef.current.find((entry) => entry.id === itemId);
+    const produtoAtual = itemAtual ? products.find((entry) => entry.id === itemAtual.productId) : undefined;
+    const precificacao = itemAtual && produtoAtual && quantity > 0 && itemAtual.tabelaPreco && itemAtual.origemPreco !== 'manual'
+      ? precificarLinha(produtoAtual, findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produtoAtual), itemAtual.embalagemId), quantity, itemAtual.id)
+      : null;
     setCartItems((current) => current.flatMap((item) => {
       if (item.id !== itemId) return [item];
       if (quantity <= 0) return [];
@@ -830,9 +840,12 @@ const PDV: React.FC = () => {
         ...item,
         quantidade: quantity,
         ...(item.embalagemId ? { quantidadeBase: toBaseQuantity(quantity, item.fatorConversao) } : {}),
+        ...(precificacao
+          ? { precoUnitarioCentavos: toCents(precificacao.preco), promocaoId: undefined, promocaoNome: undefined, ...precificacao.campos }
+          : {}),
       }];
     }));
-  }, [products, validateQuantity]);
+  }, [products, validateQuantity, precificarLinha]);
 
   /** Opcoes de unidade por linha do carrinho, so quando a chave esta ligada.
    * Desligada = mapa vazio, e o CartPanel nem renderiza o seletor. */
@@ -1009,7 +1022,7 @@ const PDV: React.FC = () => {
       let diferencaCentavos = 0;
       const reprecificados = cartItems.map((item) => {
         if (!item.tabelaPreco || item.origemPreco === 'manual') return item;
-        const auto = precoAutomatico(item.tabelaPreco, condicaoEscolhida);
+        const auto = precoAutomatico(item.tabelaPreco, condicaoEscolhida, item.quantidade);
         const centavos = toCents(auto.preco);
         if (centavos === item.precoUnitarioCentavos) return item;
         alterados += 1;

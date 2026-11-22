@@ -25,6 +25,8 @@ export interface ProdutoPrecificavel {
   id: string;
   precoVenda?: unknown;
   precoAVista?: unknown;
+  /** Aba "Atacado" do produto (precoVendaDomain.faixasDeAtacadoDoProduto). */
+  atacado?: unknown;
 }
 
 export interface UnidadeDoItem {
@@ -77,8 +79,10 @@ export const camposDePrecoDoItem = (
   tabela: TabelaDePrecoDoItem,
   condicao: CondicaoPagamento,
   precoDigitado?: number,
+  /** Quantidade do item na unidade vendida (atacado). */
+  quantidade = 0,
 ): { preco: number; campos: CamposDePrecoDoItem } => {
-  const auto = precoAutomatico(tabela, condicao);
+  const auto = precoAutomatico(tabela, condicao, quantidade);
   const manual = precoDigitado !== undefined && precoDigitado > 0 && Math.abs(precoDigitado - auto.preco) > 0.0001;
   const origem: OrigemPreco = manual ? 'manual' : auto.origem;
   return {
@@ -91,7 +95,22 @@ export const camposDePrecoDoItem = (
   };
 };
 
+/**
+ * Quantidade do item mudou: o preco automatico acompanha (faixa de atacado,
+ * 22/11/2026). null = item sem tabela ou com preco digitado -- fica como esta.
+ * Quem usa troca promocaoId/promocaoNome pelos de `campos` (sem undefined).
+ */
+export const reprecificarPelaQuantidade = (
+  item: { tabelaPreco?: TabelaDePrecoDoItem; origemPreco?: OrigemPreco; bonificado?: unknown },
+  condicao: CondicaoPagamento,
+  quantidade: number,
+): { preco: number; campos: CamposDePrecoDoItem } | null => (
+  item.tabelaPreco && item.origemPreco !== 'manual' && item.bonificado !== true
+    ? camposDePrecoDoItem(item.tabelaPreco, condicao, undefined, quantidade)
+    : null
+);
+
 /** Preco que o campo "Preco" sugere ao escolher o produto (sem nada digitado). */
-export const precoSugeridoDoItem = (tabela: TabelaDePrecoDoItem, condicao: CondicaoPagamento): number => (
-  precoAutomatico(tabela, condicao).preco
+export const precoSugeridoDoItem = (tabela: TabelaDePrecoDoItem, condicao: CondicaoPagamento, quantidade = 0): number => (
+  precoAutomatico(tabela, condicao, quantidade).preco
 );

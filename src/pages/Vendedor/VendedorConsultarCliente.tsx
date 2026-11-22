@@ -4,6 +4,7 @@ import { Phone, MapPin, Mail, Plus } from 'lucide-react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import ComprasSistemaAnterior from '../../components/clientes/ComprasSistemaAnterior';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
 import { buscarIdsClientesMaisFrequentes } from '../../services/vendedorRankingService';
@@ -297,6 +298,9 @@ const VendedorConsultarCliente: React.FC = () => {
                 ))
               )}
             </div>
+
+            {/* Ultimos pedidos do sistema antigo (migracao, 22/11/2026): so' consulta. */}
+            <ComprasSistemaAnterior tenantId={tenantId} clienteId={selecionado?.id} compacto />
           </>
         )}
       </div>

@@ -19,10 +19,17 @@
  * PROMOCAO vem por cima: ver promocaoDomain.ts. Preco digitado a mao pelo
  * vendedor nunca e' trocado sozinho.
  *
+ * ATACADO (pedido do dono, 22/11/2026, migracao Embala Minas): as faixas da
+ * aba "Atacado" do produto valem na venda. Quando a quantidade do ITEM (a
+ * linha) chega na faixa e o preco dela e' menor que o que valeria sem ela
+ * (promocao, a vista ou venda), o item vai pelo preco de atacado. Faixa sem
+ * preco (a tela ja' nasce com 1-9 / 10-49 / 50+ em branco) nao vale; atacado
+ * desligado nao vale; embalagem com preco proprio nao entra (como a promocao).
+ *
  * Regra pura: sem tela, sem Firestore.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.reprecificarItens = exports.tabelaDoProduto = exports.precoAutomatico = exports.ROTULO_ORIGEM_PRECO = exports.ROTULO_CONDICAO = exports.condicaoDoPagamento = exports.parseFormasAVista = exports.FORMAS_CONFIGURAVEIS_A_VISTA = exports.FORMAS_A_VISTA_PADRAO = void 0;
+exports.reprecificarItens = exports.tabelaDoProduto = exports.faixasDeAtacadoDoProduto = exports.precoAutomatico = exports.faixaDeAtacado = exports.ROTULO_ORIGEM_PRECO = exports.ROTULO_CONDICAO = exports.condicaoDoPagamento = exports.parseFormasAVista = exports.FORMAS_CONFIGURAVEIS_A_VISTA = exports.FORMAS_A_VISTA_PADRAO = void 0;
 /** Formas que contam como a vista quando a empresa nao configurou outra lista.
  *  Cartao de credito so' conta em 1x (ver condicaoDoPagamento). */
 exports.FORMAS_A_VISTA_PADRAO = [
@@ -79,23 +86,84 @@ exports.ROTULO_ORIGEM_PRECO = {
     venda: 'Preço de venda',
     vista: 'Preço à vista',
     promocao: 'Promoção',
+    atacado: 'Preço de atacado',
     manual: 'Preço digitado',
 };
 const positivo = (v) => {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : 0;
 };
-/** O preco que o sistema poe sozinho, e de onde ele veio. */
-const precoAutomatico = (tabela, condicao) => {
-    const promo = tabela.promocao;
-    if (promo && positivo(promo.preco) > 0 && (!promo.soAVista || condicao === 'vista')) {
-        return { preco: positivo(promo.preco), origem: 'promocao' };
+/** A faixa de atacado em que a quantidade cai (a de maior "a partir de"). null = nenhuma. */
+const faixaDeAtacado = (tabela, quantidade) => {
+    const q = Number(quantidade);
+    if (!Array.isArray(tabela.atacado) || !Number.isFinite(q) || q <= 0)
+        return null;
+    let escolhida = null;
+    for (const f of tabela.atacado) {
+        if (!(positivo(f.preco) > 0) || !(positivo(f.aPartirDe) > 0))
+            continue;
+        if (q + 1e-9 < f.aPartirDe)
+            continue;
+        if (f.ate !== null && f.ate !== undefined && q > f.ate + 1e-9)
+            continue;
+        if (!escolhida || f.aPartirDe > escolhida.aPartirDe)
+            escolhida = f;
     }
-    if (condicao === 'vista' && positivo(tabela.vista) > 0)
-        return { preco: positivo(tabela.vista), origem: 'vista' };
-    return { preco: positivo(tabela.venda), origem: 'venda' };
+    return escolhida;
+};
+exports.faixaDeAtacado = faixaDeAtacado;
+/**
+ * O preco que o sistema poe sozinho, e de onde ele veio. `quantidade` e' a do
+ * item na unidade vendida; sem ela (ou 0) o atacado nao entra na conta.
+ */
+const precoAutomatico = (tabela, condicao, quantidade = 0) => {
+    const semAtacado = (() => {
+        const promo = tabela.promocao;
+        if (promo && positivo(promo.preco) > 0 && (!promo.soAVista || condicao === 'vista')) {
+            return { preco: positivo(promo.preco), origem: 'promocao' };
+        }
+        if (condicao === 'vista' && positivo(tabela.vista) > 0)
+            return { preco: positivo(tabela.vista), origem: 'vista' };
+        return { preco: positivo(tabela.venda), origem: 'venda' };
+    })();
+    const faixa = (0, exports.faixaDeAtacado)(tabela, quantidade);
+    if (faixa && (semAtacado.preco <= 0 || faixa.preco < semAtacado.preco - 0.0001)) {
+        return { preco: positivo(faixa.preco), origem: 'atacado' };
+    }
+    return semAtacado;
 };
 exports.precoAutomatico = precoAutomatico;
+/**
+ * Faixas de atacado do produto convertidas para a unidade vendida (embalagem
+ * de fator 10 com faixa "a partir de 50" do kg = a partir de 5 embalagens, e o
+ * preco x 10). Vazio quando o atacado esta desligado ou sem faixa com preco.
+ */
+const faixasDeAtacadoDoProduto = (produto, fatorConversao = 1) => {
+    const atacado = produto.atacado;
+    if (!atacado || typeof atacado !== 'object' || atacado.ativo !== true || !Array.isArray(atacado.faixas))
+        return [];
+    const fator = positivo(fatorConversao) || 1;
+    const minimo = positivo(atacado.quantidadeMinima);
+    const faixas = [];
+    for (const bruta of atacado.faixas) {
+        if (!bruta || typeof bruta !== 'object')
+            continue;
+        const preco = positivo(bruta.preco);
+        const inicio = Math.max(positivo(bruta.quantidadeInicial), minimo);
+        if (!(preco > 0) || !(inicio > 0))
+            continue;
+        const fim = bruta.ilimitado === true || !(positivo(bruta.quantidadeFinal) > 0) ? null : positivo(bruta.quantidadeFinal);
+        if (fim !== null && fim < inicio)
+            continue;
+        faixas.push({
+            aPartirDe: Math.round((inicio / fator) * 1000) / 1000,
+            ate: fim === null ? null : Math.round((fim / fator) * 1000) / 1000,
+            preco: Math.round(preco * fator * 100) / 100,
+        });
+    }
+    return faixas;
+};
+exports.faixasDeAtacadoDoProduto = faixasDeAtacadoDoProduto;
 /**
  * Tabela do item na unidade vendida. Os precos do produto sao da unidade base
  * (o kg); a embalagem pode ter os DOIS precos proprios (pedido do dono,
@@ -112,10 +180,14 @@ const tabelaDoProduto = (produto, unidade = {}) => {
     const vistaPropria = positivo(unidade.precoAVistaProprio);
     const fator = positivo(unidade.fatorConversao) || 1;
     const arredonda = (v) => Math.round(v * fator * 100) / 100;
+    // Embalagem com preco proprio nao entra no atacado (o preco do saco foi negociado a parte).
+    const atacado = proprio > 0 || vistaPropria > 0 ? [] : (0, exports.faixasDeAtacadoDoProduto)(produto, fator);
     return {
         venda: proprio > 0 ? proprio : arredonda(positivo(produto.precoVenda)),
         vista: vistaPropria > 0 ? vistaPropria : (proprio > 0 ? 0 : arredonda(positivo(produto.precoAVista))),
         promocao: null,
+        // Sem chave undefined: a tabela vai gravada no item (Firestore).
+        ...(atacado.length > 0 ? { atacado } : {}),
     };
 };
 exports.tabelaDoProduto = tabelaDoProduto;
@@ -131,7 +203,7 @@ const reprecificarItens = (itens, condicao) => {
         // Item bonificado (30/10/2026) fica a preco zero: a forma de pagamento nao mexe nele.
         if (!item.tabelaPreco || item.origemPreco === 'manual' || item.bonificado === true)
             return item;
-        const { preco, origem } = (0, exports.precoAutomatico)(item.tabelaPreco, condicao);
+        const { preco, origem } = (0, exports.precoAutomatico)(item.tabelaPreco, condicao, item.quantidade);
         if (Math.abs(preco - item.precoUnitario) < 0.0001 && origem === item.origemPreco)
             return item;
         if (Math.abs(preco - item.precoUnitario) >= 0.0001) {

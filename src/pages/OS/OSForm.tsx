@@ -106,7 +106,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
-import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
+import { camposDePrecoDoItem, precoSugeridoDoItem, reprecificarPelaQuantidade } from '../../utils/precoComPromocaoDomain';
 import { conferirPrecos } from '../../utils/conferenciaPrecoDomain';
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { FORMAS_A_VISTA_PADRAO, ROTULO_CONDICAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico, type OrigemPreco, type TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
@@ -184,6 +184,8 @@ interface PecaData {
   bloquearVendaSemEstoque?: boolean;
   /** Embalagens do cadastro (rolo, tubo, saco): vender em outra unidade (embalagemDomain.ts). */
   embalagens?: unknown;
+  /** Aba "Atacado" do produto (precoVendaDomain). */
+  atacado?: unknown;
 }
 interface PecaSelecionada {
   id: string;
@@ -522,6 +524,7 @@ const OSForm: React.FC = () => {
           temGrade: doc.data().temGrade === true,
           bloquearVendaSemEstoque: doc.data().bloquearVendaSemEstoque === true,
           embalagens: doc.data().embalagens,
+          ...(doc.data().atacado ? { atacado: doc.data().atacado } : {}),
         });
       });
       setPecasEstoque(dataE);
@@ -932,7 +935,7 @@ const OSForm: React.FC = () => {
     let alterados = 0;
     const novas = pecasSelecionadasRef.current.map((peca) => {
       if (!peca.tabelaPreco || peca.origemPreco === 'manual') return peca;
-      const auto = precoAutomatico(peca.tabelaPreco, condicaoPagamento);
+      const auto = precoAutomatico(peca.tabelaPreco, condicaoPagamento, peca.quantidade);
       if (Math.abs(auto.preco - peca.preco) < 0.0001 && auto.origem === peca.origemPreco) return peca;
       alterados += 1;
       const nova: PecaSelecionada = { ...peca, preco: auto.preco, origemPreco: auto.origem };
@@ -1024,7 +1027,7 @@ const OSForm: React.FC = () => {
         showWarning(aviso.title, aviso.text);
       }
       // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
-      const precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcao)), condicaoPagamento, precoDigitado);
+      const precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcao)), condicaoPagamento, precoDigitado, quantidadeInicial);
       setPecasSelecionadas([...pecasSelecionadas, {
         id: peca.id,
         nome: peca.nome,
@@ -1076,6 +1079,13 @@ const OSForm: React.FC = () => {
       }
     }
 
+    // Quantidade nova pode entrar na faixa de atacado: o preco automatico acompanha.
+    const repreco = reprecificarPelaQuantidade(peca, condicaoPagamento, qtd);
+    if (repreco) {
+      const { promocaoId: _promocao, promocaoNome: _nome, ...semPromocao } = peca;
+      void _promocao; void _nome;
+      novas[index] = { ...semPromocao, ...repreco.campos, preco: repreco.preco };
+    }
     novas[index].quantidade = qtd;
     if (peca.embalagemId) novas[index].quantidadeBase = toBaseQuantity(qtd, peca.fatorConversao);
     setPecasSelecionadas(novas);

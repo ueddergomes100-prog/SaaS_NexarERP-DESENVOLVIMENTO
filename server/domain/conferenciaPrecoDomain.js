@@ -65,7 +65,7 @@ const conferirPrecos = (args) => {
             return { precoSistema: 0, brutoCentavos: cobrado, descontoCentavos: descontoDoItem, diferencaCentavos: 0 };
         const unidade = unidadeDoItem(produto, item);
         const tabela = (0, precoVendaDomain_1.tabelaDoProduto)(produto, unidade);
-        const semPromocao = (0, precoVendaDomain_1.precoAutomatico)(tabela, args.condicao).preco;
+        const semPromocao = (0, precoVendaDomain_1.precoAutomatico)(tabela, args.condicao, item.quantidade).preco;
         // Embalagem com preco proprio nao entra em promocao (precoComPromocaoDomain).
         let comPromocao = tabela;
         let chaveDaQuota = '';
@@ -85,7 +85,7 @@ const conferirPrecos = (args) => {
                 }
             }
         }
-        const automatico = (0, precoVendaDomain_1.precoAutomatico)(comPromocao, args.condicao);
+        const automatico = (0, precoVendaDomain_1.precoAutomatico)(comPromocao, args.condicao, item.quantidade);
         // Gasta a quota so' a linha que pagou menos que o preco normal.
         if (automatico.origem === 'promocao' && (0, financeDomain_1.toCents)(item.precoUnitario) < (0, financeDomain_1.toCents)(semPromocao)) {
             const restante = restanteDaPromocao.get(chaveDaQuota);

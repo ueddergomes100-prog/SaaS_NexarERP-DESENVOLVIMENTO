@@ -359,6 +359,7 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
                     </span>
                   )}
                   {item.origemPreco === 'vista' && <span className="tiv-sub">à vista</span>}
+                  {item.origemPreco === 'atacado' && <span className="tiv-sub" title="Quantidade chegou na faixa de atacado do produto">atacado</span>}
                   {item.origemPreco === 'manual' && <span className="tiv-sub" title="Preço digitado: não muda com a forma de pagamento">digitado</span>}
                 </span>
               ), 'tiv-direita')}

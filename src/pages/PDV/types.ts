@@ -34,6 +34,8 @@ export interface PdvProduct {
   /** Array cru do documento de estoque -- normalizado por embalagemDomain. */
   embalagens?: unknown;
   descontoMaximoPercentual?: number;
+  /** Aba "Atacado" do produto: faixa de quantidade com preco proprio (precoVendaDomain). */
+  atacado?: unknown;
 }
 
 export interface PdvClient {

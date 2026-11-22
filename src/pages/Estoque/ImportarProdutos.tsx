@@ -70,6 +70,9 @@ interface ProdutoConfirmar {
   custoComercial: string;
   precoAVista: string;
   precoAPrazo: string;
+  /** Atacado do sistema antigo (22/11/2026): preco e quantidade minima. Vazio = sem atacado. */
+  precoAtacado: string;
+  qtdMinimaAtacado: string;
   codigoBarras: string;
   marca: string;
   referencia: string;
@@ -96,7 +99,7 @@ const ImportarProdutos: React.FC = () => {
   const [nomeArquivo, setNomeArquivo] = useState('');
   const [cabecalho, setCabecalho] = useState<string[]>([]);
   const [linhasDados, setLinhasDados] = useState<string[][]>([]);
-  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, valorVenda: null, codigoBarras: null, unidade: null, marca: null, referencia: null });
+  const [mapeamento, setMapeamento] = useState<MapeamentoColunas>({ codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, valorVenda: null, precoAtacado: null, qtdMinimaAtacado: null, codigoBarras: null, unidade: null, marca: null, referencia: null });
 
   const [itens, setItens] = useState<ItemImportado[]>([]);
   const [itensExcluidos, setItensExcluidos] = useState<Set<number>>(new Set());
@@ -286,6 +289,8 @@ const ImportarProdutos: React.FC = () => {
         custoComercial: paraTexto(itemBase.custoComercial),
         precoAVista: paraTexto(itemBase.precoAVista),
         precoAPrazo: paraTexto(itemBase.precoAPrazo),
+        precoAtacado: paraTexto(itemBase.precoAtacado),
+        qtdMinimaAtacado: paraTexto(itemBase.qtdMinimaAtacado),
         codigoBarras: itemBase.codigoBarras,
         marca: itemBase.marca,
         referencia: itemBase.referencia,
@@ -309,6 +314,8 @@ const ImportarProdutos: React.FC = () => {
         custoComercial: paraTexto(item.custoComercial),
         precoAVista: paraTexto(item.precoAVista),
         precoAPrazo: paraTexto(item.precoAPrazo),
+        precoAtacado: paraTexto(item.precoAtacado),
+        qtdMinimaAtacado: paraTexto(item.qtdMinimaAtacado),
         codigoBarras: item.codigoBarras,
         marca: item.marca,
         referencia: item.referencia,
@@ -416,6 +423,8 @@ const ImportarProdutos: React.FC = () => {
               custoMedio: paraNumeroOpcional(produto.custoMedio),
               custoComercial: paraNumeroOpcional(produto.custoComercial),
               precoAVista: paraNumeroOpcional(produto.precoAVista),
+              precoAtacado: paraNumeroOpcional(produto.precoAtacado),
+              quantidadeMinimaAtacado: paraNumeroOpcional(produto.qtdMinimaAtacado),
               codigoBarras: produto.codigoBarras,
               marca: produto.marca,
               referencia: produto.referencia,
@@ -529,7 +538,7 @@ const ImportarProdutos: React.FC = () => {
             <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Arquivo: {nomeArquivo} — {linhasDados.length} linha(s) de dado encontrada(s).</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            {(['codigo', 'descricao', 'quantidade', 'unidade', 'marca', 'referencia', 'observacao', 'codigoBarras', 'custo', 'custoMedio', 'custoComercial', 'precoAVista', 'precoAPrazo', 'valorVenda'] as const).map((campo) => {
+            {(['codigo', 'descricao', 'quantidade', 'unidade', 'marca', 'referencia', 'observacao', 'codigoBarras', 'custo', 'custoMedio', 'custoComercial', 'precoAVista', 'precoAPrazo', 'valorVenda', 'precoAtacado', 'qtdMinimaAtacado'] as const).map((campo) => {
               const obrigatorio = campo === 'codigo' || campo === 'descricao' || campo === 'quantidade';
               const rotulos: Record<typeof campo, string> = {
                 codigo: 'Código interno (referência)', descricao: 'Descrição', quantidade: 'Quantidade',
@@ -539,6 +548,7 @@ const ImportarProdutos: React.FC = () => {
                 custoMedio: 'Custo médio (opcional)', custoComercial: 'Custo comercial (opcional)',
                 precoAVista: 'Preço à vista (opcional)', precoAPrazo: 'Preço a prazo / de venda (opcional)',
                 valorVenda: 'Preço de venda pronto (opcional)',
+                precoAtacado: 'Preço de atacado (opcional)', qtdMinimaAtacado: 'Qtd. mínima do atacado (opcional)',
               };
               return (
                 <div className="input-group" key={campo}>
@@ -769,6 +779,11 @@ const ImportarProdutos: React.FC = () => {
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" value={produto.precoVenda} onChange={(e) => atualizarProduto(produto.chave, { precoVenda: e.target.value })} disabled={produto.produtoRevenda === false} style={{ width: '100px', backgroundColor: 'var(--bg-tertiary)', border: (!produto.precoVenda && produto.produtoRevenda !== false) ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 8px', color: 'var(--text-primary)', opacity: produto.produtoRevenda === false ? 0.5 : 1 }} />
+                      {Number(produto.precoAtacado.replace(',', '.')) > 0 && Number(produto.qtdMinimaAtacado.replace(',', '.')) > 0 && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }} title="Entra na aba Atacado do produto: a partir dessa quantidade, a venda usa o preço de atacado.">
+                          atacado R$ {produto.precoAtacado} a partir de {produto.qtdMinimaAtacado}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '8px', textAlign: 'center' }}>
                       <input

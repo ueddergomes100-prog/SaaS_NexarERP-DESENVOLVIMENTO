@@ -91,8 +91,13 @@ export const caminhoDaAssinaturaOS = (tenantId: string, osId: string, carimbo: n
  * para a OS do desktop trocar o preco sozinha quando a forma de pagamento muda.
  */
 export interface PrecoRastreado {
-  tabelaPreco?: { venda: number; vista: number; promocao?: { id: string; nome: string; preco: number; soAVista: boolean } | null };
-  origemPreco?: 'venda' | 'vista' | 'promocao' | 'manual';
+  tabelaPreco?: {
+    venda: number;
+    vista: number;
+    promocao?: { id: string; nome: string; preco: number; soAVista: boolean } | null;
+    atacado?: Array<{ aPartirDe: number; ate: number | null; preco: number }>;
+  };
+  origemPreco?: 'venda' | 'vista' | 'promocao' | 'atacado' | 'manual';
   promocaoId?: string;
   promocaoNome?: string;
 }

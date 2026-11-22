@@ -75,6 +75,7 @@ const RelatorioComissoes = lazy(() => import('../pages/Financeiro/RelatorioComis
 const ClientesList = lazy(() => import('../pages/Clientes/ClientesList'));
 const ClienteForm = lazy(() => import('../pages/Clientes/ClienteForm'));
 const ImportarClientes = lazy(() => import('../pages/Clientes/ImportarClientes'));
+const ImportarHistoricoClientes = lazy(() => import('../pages/Clientes/ImportarHistoricoClientes'));
 const UsuariosList = lazy(() => import('../pages/Usuarios/UsuariosList'));
 const Configuracoes = lazy(() => import('../pages/Configuracoes/Configuracoes'));
 const FiliaisList = lazy(() => import('../pages/Filiais/FiliaisList'));
@@ -231,6 +232,7 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'clientes/editar/:id', element: <RegistroPorNumero colecao="clientes" campo="codigo" lista="/clientes" rotulo="Cliente"><ClienteForm /></RegistroPorNumero> },
   { path: 'clientes/:numero', element: <RegistroPorNumero colecao="clientes" campo="codigo" lista="/clientes" rotulo="Cliente"><ClienteForm /></RegistroPorNumero> },
   { path: 'clientes/importar', element: <ImportarClientes /> },
+  { path: 'clientes/importar-historico', element: <ImportarHistoricoClientes /> },
 
   { path: 'veiculos', element: <VeiculosList /> },
   { path: 'veiculos/novo', element: <VeiculoForm /> },

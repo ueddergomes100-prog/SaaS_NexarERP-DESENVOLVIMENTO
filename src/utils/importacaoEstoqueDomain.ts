@@ -101,7 +101,7 @@ export const parseDelimitedText = (texto: string, delimitador: string): string[]
 // Mapeamento de colunas
 // ---------------------------------------------------------------------------
 
-export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'custoMedio' | 'custoComercial' | 'precoAVista' | 'precoAPrazo' | 'valorVenda' | 'codigoBarras' | 'unidade' | 'marca' | 'referencia';
+export type CampoColuna = 'codigo' | 'descricao' | 'quantidade' | 'observacao' | 'custo' | 'custoMedio' | 'custoComercial' | 'precoAVista' | 'precoAPrazo' | 'valorVenda' | 'precoAtacado' | 'qtdMinimaAtacado' | 'codigoBarras' | 'unidade' | 'marca' | 'referencia';
 
 /** codigo/descricao/quantidade sempre tem uma coluna (mesmo que seja um
  * chute errado); os outros sao realmente opcionais -- planilha de
@@ -123,6 +123,11 @@ export interface MapeamentoColunas {
   precoAVista: number | null;
   precoAPrazo: number | null;
   valorVenda: number | null;
+  /** Preco de atacado e a quantidade a partir da qual ele vale (22/11/2026,
+   * migracao Embala Minas). Os dois juntos viram a faixa unica da aba
+   * "Atacado" do produto, no mesmo formato que a Entrada de NF-e grava. */
+  precoAtacado: number | null;
+  qtdMinimaAtacado: number | null;
   codigoBarras: number | null;
   unidade: number | null;
   marca: number | null;
@@ -146,6 +151,8 @@ const SINONIMOS: Record<CampoColuna, string[]> = {
   precoAVista: ['vista', 'avista'],
   precoAPrazo: ['prazo', 'aprazo'],
   valorVenda: ['valor venda', 'vr venda', 'preco venda'],
+  precoAtacado: ['preco atacado', 'preco de atacado', 'vr atacado', 'valor atacado', 'atacado'],
+  qtdMinimaAtacado: ['minima atacado', 'minimo atacado', 'minima de atacado', 'minimo de atacado', 'qtd atacado', 'quantidade atacado'],
   codigoBarras: ['barras', 'ean', 'gtin'],
   unidade: ['unidade', 'und', 'un.', 'medida'],
   marca: ['marca'],
@@ -190,7 +197,12 @@ export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas
 
   const codigoBarras = encontrar('codigoBarras');
   const descricao = encontrar('descricao');
-  const quantidade = encontrar('quantidade');
+  // Atacado antes da quantidade e do preco: "Qtd. minima atacado" contem "qtd"
+  // e "atacado" -- nao pode ser tomada pela quantidade nem pelo preco de atacado.
+  const qtdMinimaAtacado = encontrar('qtdMinimaAtacado');
+  const precoAtacado = encontrar('precoAtacado', qtdMinimaAtacado >= 0 ? [qtdMinimaAtacado] : []);
+  const colunasDeAtacado = [qtdMinimaAtacado, precoAtacado].filter((idx) => idx >= 0);
+  const quantidade = encontrar('quantidade', colunasDeAtacado);
   const observacao = encontrar('observacao');
   // Custo medio e custo comercial sao resolvidos ANTES do custo: os dois
   // cabecalhos contem a palavra "custo" e, numa planilha sem a coluna "Custo"
@@ -227,6 +239,8 @@ export const inferirMapeamentoColunas = (cabecalho: string[]): MapeamentoColunas
     precoAVista: precoAVista >= 0 ? precoAVista : null,
     precoAPrazo: precoAPrazo >= 0 ? precoAPrazo : null,
     valorVenda: valorVenda >= 0 ? valorVenda : null,
+    precoAtacado: precoAtacado >= 0 ? precoAtacado : null,
+    qtdMinimaAtacado: qtdMinimaAtacado >= 0 ? qtdMinimaAtacado : null,
     codigoBarras: codigoBarras >= 0 ? codigoBarras : null,
     unidade: unidade >= 0 ? unidade : null,
     marca: marca >= 0 ? marca : null,
@@ -468,6 +482,9 @@ export interface ItemImportado {
   /** Preco de venda PRONTO vindo do export do sistema antigo (coluna
    * dedicada) -- distinto de precoAVista/precoAPrazo. */
   valorVenda: number | null;
+  /** Atacado do sistema antigo: so vale com os dois (preco e quantidade minima). */
+  precoAtacado: number | null;
+  qtdMinimaAtacado: number | null;
   marca: string;
   referencia: string;
   /** Espelha QuantidadeInterpretada.estoqueNegativo -- produto nasce com
@@ -523,7 +540,7 @@ export const parseValorMonetario = (bruto: string | undefined): number | null =>
  * moeda aparece quando a planilha exporta o valor cru (ex: "226.1571").
  * So cai pro parser de moeda brasileira (parseValorMonetario) quando esse
  * formato nao bate, cobrindo planilha que already vem com "R$"/virgula. */
-const parseNumeroOuMonetario = (bruto: string | undefined): number | null => {
+export const parseNumeroOuMonetario = (bruto: string | undefined): number | null => {
   const limpo = (bruto || '').trim();
   if (!limpo) return null;
   const direto = parseNumeroExportado(limpo);
@@ -561,6 +578,8 @@ export const processarLinhas = (
       precoAVista: mapeamento.precoAVista !== null ? parseNumeroOuMonetario(linha[mapeamento.precoAVista]) : null,
       precoAPrazo: mapeamento.precoAPrazo !== null ? parseNumeroOuMonetario(linha[mapeamento.precoAPrazo]) : null,
       valorVenda: mapeamento.valorVenda !== null ? parseNumeroOuMonetario(linha[mapeamento.valorVenda]) : null,
+      precoAtacado: mapeamento.precoAtacado !== null ? parseNumeroOuMonetario(linha[mapeamento.precoAtacado]) : null,
+      qtdMinimaAtacado: mapeamento.qtdMinimaAtacado !== null ? parseNumeroOuMonetario(linha[mapeamento.qtdMinimaAtacado]) : null,
       marca: mapeamento.marca !== null ? (linha[mapeamento.marca] || '').trim() : '',
       referencia: mapeamento.referencia !== null ? (linha[mapeamento.referencia] || '').trim() : '',
       estoqueNegativo: interpretada.estoqueNegativo === true,
@@ -707,6 +726,10 @@ export interface ProdutoParaImportar {
   custoComercial?: number;
   precoAVista?: number;
   precoAPrazo?: number;
+  /** Preco de atacado (por unidade base) a partir de `quantidadeMinimaAtacado`.
+   * So entra no documento com os dois maiores que zero. */
+  precoAtacado?: number;
+  quantidadeMinimaAtacado?: number;
   codigoBarras?: string;
   marca?: string;
   referencia?: string;
@@ -756,6 +779,20 @@ export const montarProdutoImportado = (
   const permitirEstoqueNegativoFinal = produto.permitirEstoqueNegativo ?? false;
   const custoMedioFinal = Number(produto.custoMedio) > 0 ? Number(produto.custoMedio) : undefined;
   const custoComercialFinal = Number(produto.custoComercial) > 0 ? Number(produto.custoComercial) : undefined;
+  const precoAtacadoFinal = Number(produto.precoAtacado);
+  const minimoAtacadoFinal = Number(produto.quantidadeMinimaAtacado);
+  // Mesmo formato da Entrada de NF-e (faixa unica "a partir de", sem fim).
+  const camposDeAtacado = precoAtacadoFinal > 0 && minimoAtacadoFinal > 0
+    ? {
+      atacado: {
+        ativo: true,
+        quantidadeMinima: minimoAtacadoFinal,
+        faixas: [{ id: 'faixa-importacao', quantidadeInicial: minimoAtacadoFinal, quantidadeFinal: null, ilimitado: true, preco: precoAtacadoFinal }],
+      },
+      ativarAtacado: true,
+      quantidadeMinimaAtacado: minimoAtacadoFinal,
+    }
+    : {};
 
   return {
     codigo: produto.codigo,
@@ -776,6 +813,7 @@ export const montarProdutoImportado = (
     ...(custoComercialFinal !== undefined ? { custoComercial: custoComercialFinal } : {}),
     ...(produto.precoAVista !== undefined ? { precoAVista: produto.precoAVista } : {}),
     ...(produto.precoAPrazo !== undefined ? { precoAPrazo: produto.precoAPrazo } : {}),
+    ...camposDeAtacado,
     margemLucro: 0,
     lucroEstimado: 0,
     descontoMaximoPercentual: 0,

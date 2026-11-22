@@ -30,6 +30,8 @@ import { promocaoDoProduto, quantidadeLiberadaNaPromocao, type PromocaoComId } f
 
 export interface ProdutoParaPreco extends ProdutoComEmbalagens {
   precoAVista?: unknown;
+  /** Aba "Atacado" do produto: a faixa que a quantidade da linha atinge vale como preco do sistema. */
+  atacado?: unknown;
 }
 
 export interface ItemParaPreco {
@@ -114,7 +116,7 @@ export const conferirPrecos = (args: {
 
     const unidade = unidadeDoItem(produto, item);
     const tabela: TabelaDePrecoDoItem = tabelaDoProduto(produto, unidade);
-    const semPromocao = precoAutomatico(tabela, args.condicao).preco;
+    const semPromocao = precoAutomatico(tabela, args.condicao, item.quantidade).preco;
 
     // Embalagem com preco proprio nao entra em promocao (precoComPromocaoDomain).
     let comPromocao = tabela;
@@ -140,7 +142,7 @@ export const conferirPrecos = (args: {
         }
       }
     }
-    const automatico = precoAutomatico(comPromocao, args.condicao);
+    const automatico = precoAutomatico(comPromocao, args.condicao, item.quantidade);
     // Gasta a quota so' a linha que pagou menos que o preco normal.
     if (automatico.origem === 'promocao' && toCents(item.precoUnitario) < toCents(semPromocao)) {
       const restante = restanteDaPromocao.get(chaveDaQuota);

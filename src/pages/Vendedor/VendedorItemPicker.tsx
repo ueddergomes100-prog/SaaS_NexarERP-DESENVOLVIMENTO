@@ -27,6 +27,8 @@ export interface ProdutoVendedorExterno {
   bloquearVendaSemEstoque?: boolean;
   /** Embalagens do cadastro (rolo, tubo, saco -- embalagemDomain.ts). */
   embalagens?: unknown;
+  /** Aba "Atacado" do produto: faixa de quantidade com preco proprio (precoVendaDomain). */
+  atacado?: unknown;
 }
 
 interface Props {
@@ -373,6 +375,11 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                 {mostrarValores && !ehBonificado(item) && item.origemPreco === 'promocao' && item.tabelaPreco && (
                   <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#10b981', marginTop: '2px' }} title={item.promocaoNome}>
                     promoção · de <s>{formatarMoeda(item.tabelaPreco.venda)}</s>
+                  </div>
+                )}
+                {mostrarValores && !ehBonificado(item) && item.origemPreco === 'atacado' && item.tabelaPreco && (
+                  <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#10b981', marginTop: '2px' }}>
+                    atacado · de <s>{formatarMoeda(item.tabelaPreco.venda)}</s>
                   </div>
                 )}
                 {mostrarValores && !ehBonificado(item) && item.origemPreco === 'manual' && (

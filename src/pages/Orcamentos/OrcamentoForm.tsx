@@ -52,7 +52,7 @@ import DescontoInput, { type DescontoInputValue } from '../../components/finance
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
-import { camposDePrecoDoItem, precoSugeridoDoItem } from '../../utils/precoComPromocaoDomain';
+import { camposDePrecoDoItem, precoSugeridoDoItem, reprecificarPelaQuantidade } from '../../utils/precoComPromocaoDomain';
 import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   camposDeUnidadeDoItem,
@@ -147,6 +147,8 @@ interface PecaOrcamento {
   temGrade?: boolean;
   /** Embalagens do cadastro (embalagemDomain.ts). */
   embalagens?: unknown;
+  /** Aba "Atacado" do produto (precoVendaDomain). */
+  atacado?: unknown;
 }
 interface VeiculoBasico { id: string; placa: string; modelo: string; ano: string; cor: string; clienteId: string; }
 
@@ -325,6 +327,7 @@ const OrcamentoForm: React.FC = () => {
             ativo: data.ativo ?? data.statusAtivo ?? true,
             temGrade: data.temGrade === true,
             embalagens: data.embalagens,
+            ...(data.atacado ? { atacado: data.atacado } : {}),
           });
         });
         setPecasEstoque(dataE);
@@ -513,7 +516,7 @@ const OrcamentoForm: React.FC = () => {
         if (precoNum > 0) precoNum = Number((precoNum / opcaoEscolhida.fatorConversao).toFixed(6));
       }
       // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
-      precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcaoDaPeca)), CONDICAO_ORCAMENTO, precoNum);
+      precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcaoDaPeca)), CONDICAO_ORCAMENTO, precoNum, quantidadeInicial);
 
       if (!permitirVendaSemEstoque && peca && toBaseQuantity(1, opcaoDaPeca.fatorConversao) > (peca.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${peca.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
@@ -591,6 +594,13 @@ const OrcamentoForm: React.FC = () => {
         }
       }
 
+      // Quantidade nova pode entrar na faixa de atacado: o preco automatico acompanha.
+      const repreco = reprecificarPelaQuantidade(item, CONDICAO_ORCAMENTO, qtd);
+      if (repreco) {
+        const { promocaoId: _promocao, promocaoNome: _nome, ...semPromocao } = item;
+        void _promocao; void _nome;
+        novos[index] = { ...semPromocao, ...repreco.campos, preco: repreco.preco };
+      }
       novos[index].quantidade = qtd;
       if (item.embalagemId) novos[index].quantidadeBase = toBaseQuantity(qtd, item.fatorConversao);
       setItens(novos);

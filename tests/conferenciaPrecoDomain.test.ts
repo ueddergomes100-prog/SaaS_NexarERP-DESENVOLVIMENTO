@@ -93,3 +93,14 @@ test('meio metro lancado como 0,5 M3: a tabela e o preco do meio metro / fator, 
   const semOrigem = conferirPrecos({ itens: [linha], produtos: { areia }, promocoes: [], hoje: HOJE, condicao: 'prazo' });
   assert.equal(semOrigem.itens[0].diferencaCentavos, 1000);
 });
+
+test('atacado (22/11/2026): na faixa, o preco de atacado e o do sistema -- nao vira desconto', () => {
+  const pote = { precoVenda: 53.8, atacado: { ativo: true, quantidadeMinima: 8, faixas: [{ quantidadeInicial: 8, quantidadeFinal: null, preco: 49.99, ilimitado: true }] } };
+  const linha = (quantidade: number, precoUnitario: number): ItemParaPreco => ({ id: 'pote', nome: 'POTE', precoUnitario, quantidade, desconto: 0 });
+  const r = conferirPrecos({ itens: [linha(8, 49.99), linha(7, 49.99)], produtos: { pote }, promocoes: [], hoje: HOJE, condicao: 'prazo' });
+  assert.equal(r.itens[0].diferencaCentavos, 0);
+  assert.equal(r.itens[0].precoSistema, 49.99);
+  // Abaixo da quantidade da faixa: o atacado vira desconto (passa pelos limites).
+  assert.equal(r.itens[1].precoSistema, 53.8);
+  assert.equal(r.itens[1].diferencaCentavos, 2667);
+});

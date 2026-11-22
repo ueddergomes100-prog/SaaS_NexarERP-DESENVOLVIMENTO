@@ -91,7 +91,7 @@ export const precificarNoApp = (args: {
         : `${nome}: a quantidade da promoção "${conferencia.promo.nome}" acabou. O item entrou no preço normal.`;
     }
   }
-  const { preco, campos } = camposDePrecoDoItem(tabela, CONDICAO_DO_APP);
+  const { preco, campos } = camposDePrecoDoItem(tabela, CONDICAO_DO_APP, undefined, quantidade);
   return { preco, campos, aviso };
 };
 
@@ -143,13 +143,13 @@ export const trocarPrecoDoItem = <T extends ItemComPrecoDoApp>(item: T, precoNov
   delete resto.promocaoNome;
   const subtotal = (preco: number) => Math.round(preco * (Number(item.quantidade) || 0) * 100) / 100;
   if (!item.tabelaPreco) return { ...resto, precoUnitario: digitado, origemPreco: 'manual', subtotal: subtotal(digitado) };
-  const { preco, campos } = camposDePrecoDoItem(item.tabelaPreco, CONDICAO_DO_APP, digitado);
+  const { preco, campos } = camposDePrecoDoItem(item.tabelaPreco, CONDICAO_DO_APP, digitado, Number(item.quantidade) || 0);
   return { ...resto, ...campos, precoUnitario: preco, subtotal: subtotal(preco) };
 };
 
 /** Preco que o sistema poria no item, para mostrar ao lado do alterado. 0 = sem tabela. */
-export const precoDaTabelaDoItem = (item: Pick<ItemComPrecoDoApp, 'tabelaPreco'>): number => (
-  item.tabelaPreco ? precoAutomatico(item.tabelaPreco, CONDICAO_DO_APP).preco : 0
+export const precoDaTabelaDoItem = (item: Pick<ItemComPrecoDoApp, 'tabelaPreco'> & { quantidade?: number }): number => (
+  item.tabelaPreco ? precoAutomatico(item.tabelaPreco, CONDICAO_DO_APP, Number(item.quantidade) || 0).preco : 0
 );
 
 /** O que mostrar na busca: preco da promocao de hoje (e se e' so' a vista). null = sem promocao. */

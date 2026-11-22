@@ -88,7 +88,7 @@ test('decodificarArquivoTexto recupera texto Windows-1252 (cp1252) mal lido como
 
 test('inferirMapeamentoColunas reconhece o cabecalho real da planilha do cliente', () => {
   const mapeamento = inferirMapeamentoColunas(['Cód.', 'Descrição', 'Quantidade contada', 'Observação']);
-  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  assert.deepEqual(mapeamento, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAtacado: null, qtdMinimaAtacado: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
 });
 
 test('processarLinhas ignora linhas vazias e devolve item por linha com descricao', () => {
@@ -97,7 +97,7 @@ test('processarLinhas ignora linhas vazias e devolve item por linha com descrica
     ['', '', '', ''],
     ['113', 'ADUBO 04-14-08 50KG SACO', '8', ''],
   ];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAtacado: null, qtdMinimaAtacado: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
   assert.equal(itens.length, 2);
   assert.equal(itens[1].quantidadeCalculada, 8);
   assert.equal(itens[1].status, 'OK');
@@ -116,7 +116,7 @@ test('detectarGruposEmbalagem acha o par kg/saco e sugere o fator pelo peso na d
       ['84', 'ADUBO UREIA 45-00-00 50KG SACO', '44', ''],
       ['999', 'PRODUTO SEM PAR', '1', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAtacado: null, qtdMinimaAtacado: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -130,7 +130,7 @@ test('detectarGruposEmbalagem nao sugere fator quando a descricao nao informa o 
       ['92', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC METRO', '0', ''],
       ['39', 'LONA BRANCA/PRETA FUZIL 8X50 -200 MC ROLO', '0', ''],
     ],
-    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
+    { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: null, custoMedio: null, custoComercial: null, precoAtacado: null, qtdMinimaAtacado: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null },
   );
   const grupos = detectarGruposEmbalagem(itens);
   assert.equal(grupos.length, 1);
@@ -182,7 +182,7 @@ test('inferirMapeamentoColunas acha custo/preco a vista/preco a prazo quando pre
 
 test('processarLinhas le custo/preco a vista/preco a prazo das colunas mapeadas', () => {
   const linhas = [['1', 'PRODUTO X', '10', '', '25,50', '39,90', '45,00']];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, custoMedio: null, custoComercial: null, precoAVista: 5, precoAPrazo: 6, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: 3, custo: 4, custoMedio: null, custoComercial: null, precoAtacado: null, qtdMinimaAtacado: null, precoAVista: 5, precoAPrazo: 6, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
   assert.equal(itens[0].custo, 25.5);
   assert.equal(itens[0].precoAVista, 39.9);
   assert.equal(itens[0].precoAPrazo, 45);
@@ -239,7 +239,7 @@ test('resolverSiglaUnidade traduz nome por extenso pra sigla do sistema, mantem 
 test('processarLinhas usa a coluna Unidade explicita, mesmo com preco em formato "R$ 14,00"', () => {
   const linhas = [['136', '000001', '100 PS SUPLEMENTO PARA PÁSSARO 10ML', '11,', 'UNID', 'R$ 14,00', 'R$ 14,00']];
   const itens = processarLinhas(linhas, {
-    codigo: 0, codigoBarras: 1, descricao: 2, quantidade: 3, unidade: 4, precoAVista: 5, precoAPrazo: 6, observacao: null, custo: null, custoMedio: null, custoComercial: null,
+    codigo: 0, codigoBarras: 1, descricao: 2, quantidade: 3, unidade: 4, precoAVista: 5, precoAPrazo: 6, observacao: null, custo: null, custoMedio: null, custoComercial: null, precoAtacado: null, qtdMinimaAtacado: null,
     valorVenda: null, marca: null, referencia: null,
   });
   assert.equal(itens[0].quantidadeCalculada, 11);
@@ -313,7 +313,7 @@ test('inferirMapeamentoColunas separa Custo, Custo medio e Custo comercial, em q
 
 test('processarLinhas le custo medio e custo comercial das colunas mapeadas', () => {
   const linhas = [['1', 'PRODUTO X', '10', '14,34', '5,51897', '15,92']];
-  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: 3, custoMedio: 4, custoComercial: 5, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
+  const itens = processarLinhas(linhas, { codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: 3, custoMedio: 4, custoComercial: 5, precoAtacado: null, qtdMinimaAtacado: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: null, valorVenda: null, marca: null, referencia: null });
   assert.equal(itens[0].custo, 14.34);
   assert.equal(itens[0].custoMedio, 5.51897);
   assert.equal(itens[0].custoComercial, 15.92);
@@ -348,7 +348,7 @@ test('montarProdutoImportado grava custo medio e custo comercial so quando maior
 });
 
 test('detectarGruposEmbalagem nao junta produtos na MESMA unidade quando a planilha traz a coluna Unidade', () => {
-  const mapeamento = { codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, custoMedio: null, custoComercial: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: 3, valorVenda: null, marca: null, referencia: null };
+  const mapeamento = { codigo: 0, descricao: 1, quantidade: 2, observacao: null, custo: null, custoMedio: null, custoComercial: null, precoAtacado: null, qtdMinimaAtacado: null, precoAVista: null, precoAPrazo: null, codigoBarras: null, unidade: 3, valorVenda: null, marca: null, referencia: null };
   // Dois produtos diferentes (20 kg e 15 kg), os dois vendidos em saco: nao e' par solto x embalagem.
   const mesmaUnidade = processarLinhas([
     ['1', 'ARGAMASSA AC1 20KG', '10', 'SC'],
@@ -371,4 +371,24 @@ test('detectarGruposEmbalagem nao junta produtos na MESMA unidade quando a plani
     ['2', 'ARGAMASSA AC1 15KG', '4', ''],
   ], mapeamento);
   assert.equal(detectarGruposEmbalagem(umSemUnidade, { unidadeVeioDaPlanilha: true }).length, 1);
+});
+
+test('atacado do sistema antigo (22/11/2026): colunas reconhecidas e faixa unica no produto', () => {
+  const cab = ['Cód. Interno', 'Descrição', 'Quantidade', 'Unidade', 'Preço venda', 'Preço atacado', 'Qtd. mínima atacado'];
+  const mapa = inferirMapeamentoColunas(cab);
+  assert.equal(mapa.quantidade, 2, '"Qtd. minima atacado" nao e a quantidade');
+  assert.equal(mapa.precoAtacado, 5);
+  assert.equal(mapa.qtdMinimaAtacado, 6);
+  const [item] = processarLinhas([['135', 'POTE', '70', 'PCT', '53.8', '49.99', '8']], mapa);
+  assert.equal(item.precoAtacado, 49.99);
+  assert.equal(item.qtdMinimaAtacado, 8);
+  const base = { codigo: '1', nome: 'POTE', categoria: 'EMBALAGENS', unidadeBase: { id: 'u', sigla: 'PCT', casasDecimais: 0, fracionado: false }, quantidade: 70, precoVenda: 53.8 };
+  const doc = montarProdutoImportado({ ...base, precoAtacado: 49.99, quantidadeMinimaAtacado: 8 }, 'T', 'U', 'TS');
+  assert.deepEqual(doc.atacado, { ativo: true, quantidadeMinima: 8, faixas: [{ id: 'faixa-importacao', quantidadeInicial: 8, quantidadeFinal: null, ilimitado: true, preco: 49.99 }] });
+  assert.equal(doc.ativarAtacado, true);
+  assert.equal(doc.quantidadeMinimaAtacado, 8);
+  // Sem a quantidade minima (ou sem preco) nao entra nada -- nem chave undefined.
+  const sem = montarProdutoImportado({ ...base, precoAtacado: 49.99 }, 'T', 'U', 'TS');
+  assert.equal('atacado' in sem, false);
+  assert.equal('ativarAtacado' in sem, false);
 });

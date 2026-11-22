@@ -1026,7 +1026,11 @@ service cloud.firestore {
         // Cashback (2026-10-20): SO' LEITURA. Gerar, usar e estornar e' o servidor
         // (server/services/cashback.js); o resumo fica em clientes/{id}.cashback,
         // que a tela tambem nao grava (cashbackSoPeloServidor).
-        'cashback_movimentos'
+        'cashback_movimentos',
+        // Historico do sistema anterior (22/11/2026, migracao): os ultimos pedidos
+        // do sistema antigo, so' consulta (ficha do cliente e app Vendas). Nasce na
+        // importacao (create abaixo, so' administrador) e nunca e' alterado.
+        'historico_sistema_anterior'
       ] && canReadTenantDocument() && romaneioVisivelAoLogin(collectionName);
 
       allow create: if collectionName in [
@@ -1076,7 +1080,9 @@ service cloud.firestore {
         'expedicoes',
         'entregas',
         'caixas_pdv',
-        'notas_avulsas'
+        'notas_avulsas',
+        // So' o administrador (canManageTenantData em canWriteTenantCollection).
+        'historico_sistema_anterior'
       ] && canCreateTenantDocument() && romaneioNasceEmMontagem(collectionName) && cashbackNaoNasceNaTela(collectionName) && canWriteTenantCollection(collectionName);
 
       allow update: if collectionName in [

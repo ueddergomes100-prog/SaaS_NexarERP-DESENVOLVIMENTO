@@ -5,6 +5,7 @@ import { usePodeLiberarTrava, useTravaDeEdicao } from '../../hooks/useTravaDeEdi
 import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard, CheckCircle, TriangleAlert } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import ComprasSistemaAnterior from '../../components/clientes/ComprasSistemaAnterior';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
@@ -701,6 +702,8 @@ const ClienteForm: React.FC = () => {
               Última compra no sistema anterior: {dtUltimaCompraSistemaAntigo}
             </p>
           )}
+          {/* Ultimos pedidos do sistema antigo (migracao, 22/11/2026): so' consulta. */}
+          {id && <ComprasSistemaAnterior tenantId={tenantId} clienteId={id} />}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border-color)', marginTop: '12px' }}>
             <MapPin size={20} style={{ color: 'var(--accent-purple)' }} />

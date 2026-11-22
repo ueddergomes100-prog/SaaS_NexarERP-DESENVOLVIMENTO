@@ -57,9 +57,11 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   camposDeUnidadeDoItem,
   findOpcaoUnidadeVenda,
+  opcaoNaUnidadeDoEstoque,
   opcoesDeUnidadeDaTela,
   toBaseQuantity,
   unidadeDePrecoDaOpcao,
+  type EmbalagemDeOrigem,
   type OpcaoUnidadeVenda,
 } from '../../utils/embalagemDomain';
 import type { OrigemPreco, TabelaDePrecoDoItem } from '../../utils/precoVendaDomain';
@@ -108,6 +110,8 @@ interface ItemOrcamento {
   promocaoNome?: string;
   /** Peca orcada numa embalagem (21/11/2026): rolo, tubo, saco. Vai junto quando vira pedido ou OS. */
   embalagemId?: string;
+  /** Meio metro, lata: a peca entra na unidade do estoque e guarda de qual embalagem veio (21/11/2026). */
+  embalagemDeOrigem?: EmbalagemDeOrigem;
   fatorConversao?: number;
   quantidadeBase?: number;
 }
@@ -476,12 +480,14 @@ const OrcamentoForm: React.FC = () => {
 
     if (!nome || !preco) return;
 
-    const precoNum = parseFloat(preco.replace(',', '.'));
+    let precoNum = parseFloat(preco.replace(',', '.'));
 
     let existingId: string | undefined;
     let unidadeMedida: UnidadeMedidaProduto | null = null;
     let precificacao: ReturnType<typeof camposDePrecoDoItem> | null = null;
     let opcaoDaPeca: OpcaoUnidadeVenda | null = null;
+    /** 1 na unidade escolhida; meio metro (embalagem fracionaria) entra como 0,5 da unidade do estoque. */
+    let quantidadeInicial = 1;
 
     if (tipo === 'peca') {
       const peca = pecaSelecionada || pecasEstoque.find(p => p.nome.toLowerCase() === nome.toLowerCase());
@@ -498,7 +504,14 @@ const OrcamentoForm: React.FC = () => {
 
       existingId = peca.id;
       // Unidade escolhida (rolo, tubo...): preco e estoque nela (21/11/2026).
-      opcaoDaPeca = findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(peca, venderPorEmbalagem), pecaEmbalagemId);
+      const opcaoEscolhida = findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(peca, venderPorEmbalagem), pecaEmbalagemId);
+      // Embalagem fracionaria (meio metro, lata) entra na unidade do estoque:
+      // 1 meio metro a R$ 110 = 0,5 M3 a R$ 220 (embalagemDomain, 21/11/2026).
+      opcaoDaPeca = opcaoNaUnidadeDoEstoque(opcaoEscolhida, opcoesDeUnidadeDaTela(peca, false)[0]);
+      if (opcaoDaPeca !== opcaoEscolhida) {
+        quantidadeInicial = opcaoEscolhida.fatorConversao;
+        if (precoNum > 0) precoNum = Number((precoNum / opcaoEscolhida.fatorConversao).toFixed(6));
+      }
       // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
       precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcaoDaPeca)), CONDICAO_ORCAMENTO, precoNum);
 
@@ -526,7 +539,7 @@ const OrcamentoForm: React.FC = () => {
       id: existingId || 'avulso',
       nome: nome.toUpperCase(),
       preco: precificacao ? precificacao.preco : precoNum,
-      quantidade: 1,
+      quantidade: quantidadeInicial,
       tipo,
       // Servico continua SEM os 3 campos, de proposito: servico nao tem
       // unidade de medida, nao existe "UN de servico" -- o fallback vale
@@ -535,7 +548,7 @@ const OrcamentoForm: React.FC = () => {
       // recusa: "Unsupported field value: undefined").
       ...(unidadeMedida ?? {}),
       // Na embalagem, a unidade do item e' a dela; na base, nada muda.
-      ...(opcaoDaPeca?.embalagemId ? camposDeUnidadeDoItem(opcaoDaPeca, 1) : {}),
+      ...(opcaoDaPeca?.embalagemId || opcaoDaPeca?.origem ? camposDeUnidadeDoItem(opcaoDaPeca, quantidadeInicial) : {}),
       ...(precificacao ? precificacao.campos : {}),
     };
 

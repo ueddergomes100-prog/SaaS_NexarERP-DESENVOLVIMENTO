@@ -65,9 +65,13 @@ const rastreioDoPreco = (x) => ({
     ...(x.promocaoId ? { promocaoId: x.promocaoId, promocaoNome: x.promocaoNome || '' } : {}),
 });
 /** Campos de embalagem que passam entre a peca da OS e o item do seletor (sem chave vazia). */
-const rastreioDaEmbalagem = (x) => (x.embalagemId
-    ? { embalagemId: x.embalagemId, fatorConversao: Number(x.fatorConversao) || 1, quantidadeBase: (0, embalagemDomain_1.toBaseQuantity)(x.quantidade, x.fatorConversao) }
-    : {});
+const rastreioDaEmbalagem = (x) => ({
+    ...(x.embalagemId
+        ? { embalagemId: x.embalagemId, fatorConversao: Number(x.fatorConversao) || 1, quantidadeBase: (0, embalagemDomain_1.toBaseQuantity)(x.quantidade, x.fatorConversao) }
+        : {}),
+    // Meio metro, lata: item na unidade do estoque, com a embalagem de onde veio (21/11/2026).
+    ...(x.embalagemDeOrigem ? { embalagemDeOrigem: x.embalagemDeOrigem } : {}),
+});
 const pecaParaItemPicker = (p) => ({
     id: p.id,
     nome: p.nome,

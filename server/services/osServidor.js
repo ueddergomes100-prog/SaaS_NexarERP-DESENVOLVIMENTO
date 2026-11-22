@@ -167,6 +167,8 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
     desconto: 0,
     embalagemId: p.embalagemId,
     fatorConversao: p.fatorConversao,
+    // Meio metro lancado como 0,5 M3: a tabela e' a da embalagem / fator (21/11/2026).
+    embalagemDeOrigem: p.embalagemDeOrigem,
   }));
   const precos = await conferirPrecosNoServidor({ tenantId, config, itens: itensParaPreco, pagamentos: pedido.pagamentos, ignorarPedidoId: osRef.id });
   const configDescontoOs = cd.configDoDesconto(config, 'os');

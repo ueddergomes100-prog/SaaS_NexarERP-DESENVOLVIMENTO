@@ -14,7 +14,7 @@
  */
 
 import { identificacaoCurta, type ModoOficina } from './oficinaDomain';
-import { toBaseQuantity } from './embalagemDomain';
+import { toBaseQuantity, type EmbalagemDeOrigem } from './embalagemDomain';
 
 export const STATUS_OS_EM_ATENDIMENTO = 'Em atendimento';
 export const STATUS_OS_AGUARDANDO_CONFERENCIA = 'Aguardando conferência';
@@ -104,11 +104,13 @@ const rastreioDoPreco = (x: PrecoRastreado): PrecoRastreado => ({
 });
 
 /** Campos de embalagem que passam entre a peca da OS e o item do seletor (sem chave vazia). */
-const rastreioDaEmbalagem = (x: { embalagemId?: string; fatorConversao?: number; quantidade?: number }): { embalagemId?: string; fatorConversao?: number; quantidadeBase?: number } => (
-  x.embalagemId
+const rastreioDaEmbalagem = (x: { embalagemId?: string; fatorConversao?: number; quantidade?: number; embalagemDeOrigem?: EmbalagemDeOrigem }): { embalagemId?: string; fatorConversao?: number; quantidadeBase?: number; embalagemDeOrigem?: EmbalagemDeOrigem } => ({
+  ...(x.embalagemId
     ? { embalagemId: x.embalagemId, fatorConversao: Number(x.fatorConversao) || 1, quantidadeBase: toBaseQuantity(x.quantidade, x.fatorConversao) }
-    : {}
-);
+    : {}),
+  // Meio metro, lata: item na unidade do estoque, com a embalagem de onde veio (21/11/2026).
+  ...(x.embalagemDeOrigem ? { embalagemDeOrigem: x.embalagemDeOrigem } : {}),
+});
 
 export interface PecaCampo extends PrecoRastreado {
   id: string;
@@ -123,6 +125,7 @@ export interface PecaCampo extends PrecoRastreado {
   embalagemId?: string;
   fatorConversao?: number;
   quantidadeBase?: number;
+  embalagemDeOrigem?: EmbalagemDeOrigem;
 }
 
 /** O item como o VendedorItemPicker trabalha (ItemVendaExterna). */
@@ -141,6 +144,7 @@ export interface ItemPickerCampo extends PrecoRastreado {
   embalagemId?: string;
   fatorConversao?: number;
   quantidadeBase?: number;
+  embalagemDeOrigem?: EmbalagemDeOrigem;
 }
 
 export const pecaParaItemPicker = (p: PecaCampo): ItemPickerCampo => ({

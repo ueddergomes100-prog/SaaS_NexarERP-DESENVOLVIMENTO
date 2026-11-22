@@ -59,6 +59,16 @@ export interface OpcaoUnidadeVenda {
    *  quem monta a tabela a vista/a prazo e' tabelaDoProduto. */
   precoVendaProprio: number;
   precoAVistaProprio: number;
+  /** Embalagem FRACIONARIA lancada na unidade do estoque (opcaoNaUnidadeDoEstoque):
+   *  de qual embalagem a opcao veio. Ausente nas opcoes normais. */
+  origem?: EmbalagemDeOrigem;
+}
+
+/** De qual embalagem veio o item lancado na unidade do estoque (meio metro de areia -> 0,5 M3). */
+export interface EmbalagemDeOrigem {
+  embalagemId: string;
+  sigla: string;
+  fatorConversao: number;
 }
 
 const toFiniteNumber = (value: unknown, fallback = 0): number => {
@@ -222,6 +232,7 @@ export const camposDeUnidadeDoItem = (
   embalagemId?: string;
   fatorConversao?: number;
   quantidadeBase?: number;
+  embalagemDeOrigem?: EmbalagemDeOrigem;
 } => ({
   unidadeMedidaSigla: opcao.sigla,
   unidadeMedidaCasasDecimais: opcao.casasDecimais,
@@ -229,7 +240,81 @@ export const camposDeUnidadeDoItem = (
   ...(opcao.embalagemId
     ? { embalagemId: opcao.embalagemId, fatorConversao: opcao.fatorConversao, quantidadeBase: toBaseQuantity(quantidade, opcao.fatorConversao) }
     : {}),
+  ...(opcao.origem ? { embalagemDeOrigem: { ...opcao.origem } } : {}),
 });
+
+// ---------------------------------------------------------------------------
+// EMBALAGEM FRACIONARIA ENTRA NA UNIDADE DO ESTOQUE (21/11/2026, pedido do
+// dono: "a areia tem meio metro cadastrado; ao adicionar fica como se fosse
+// 1 metro inteiro"). Embalagem MENOR que a unidade do estoque (fator < 1:
+// meio metro = 0,5 M3, lata = 0,02 M3) nao e' um volume que existe sozinho
+// -- e' um atalho de quantidade. O item entra na unidade do estoque: 1 meio
+// metro a R$ 110 vira 0,5 M3 a R$ 220/M3 (total R$ 110), e a nota sai em M3.
+// O preco da embalagem continua valendo: os precos proprios dela sao divididos
+// pelo fator e viram a tabela do item (a conferencia de preco do servidor faz
+// a mesma conta pelo `embalagemDeOrigem`). Embalagem de fator >= 1 (tubo, rolo,
+// saco) segue como sempre: o item fica na embalagem.
+// ---------------------------------------------------------------------------
+
+/** Embalagem que e' uma fracao da unidade do estoque (fator entre 0 e 1). */
+export const embalagemFracionaria = (opcao: { embalagemId?: unknown; fatorConversao?: unknown } | null | undefined): boolean => {
+  const fator = toFiniteNumber(opcao?.fatorConversao, 1);
+  return Boolean(toTrimmedString(opcao?.embalagemId)) && fator > 0 && fator < 1;
+};
+
+/** Casas decimais de um numero (0,5 -> 1; 0,02 -> 2; 0,125 -> 3), ate' 6. */
+const casasDoNumero = (valor: number): number => {
+  const texto = Number(valor.toFixed(BASE_QUANTITY_PRECISION)).toString();
+  const ponto = texto.indexOf('.');
+  return ponto < 0 ? 0 : Math.min(BASE_QUANTITY_PRECISION, texto.length - ponto - 1);
+};
+
+const precoPorUnidadeDoEstoque = (preco: number, fator: number): number => (
+  preco > 0 ? Number((preco / fator).toFixed(BASE_QUANTITY_PRECISION)) : 0
+);
+
+/**
+ * A opcao que a tela usa para LANCAR o item. Embalagem fracionaria vira a
+ * unidade do estoque: sigla e casas do estoque (no minimo as do fator, para
+ * caber 0,5), fracionado, fator 1, precos da embalagem divididos pelo fator e
+ * `origem` dizendo de qual embalagem veio. Qualquer outra opcao volta igual.
+ */
+export const opcaoNaUnidadeDoEstoque = (opcao: OpcaoUnidadeVenda, base: OpcaoUnidadeVenda): OpcaoUnidadeVenda => {
+  if (!embalagemFracionaria(opcao)) return opcao;
+  const fator = opcao.fatorConversao;
+  return {
+    embalagemId: '',
+    sigla: base.sigla,
+    label: base.label,
+    fatorConversao: 1,
+    casasDecimais: Math.max(base.casasDecimais, casasDoNumero(fator)),
+    permiteFracionado: true,
+    precoVenda: precoPorUnidadeDoEstoque(opcao.precoVenda, fator),
+    precoVendaProprio: precoPorUnidadeDoEstoque(opcao.precoVendaProprio, fator),
+    precoAVistaProprio: precoPorUnidadeDoEstoque(opcao.precoAVistaProprio, fator),
+    origem: { embalagemId: opcao.embalagemId, sigla: opcao.sigla, fatorConversao: fator },
+  };
+};
+
+/**
+ * A opcao de LANCAMENTO de um item ja' gravado que veio de embalagem
+ * fracionaria (orcamento virando pedido, quantidade editada na grade). A
+ * embalagem que sumiu do cadastro cai na unidade do estoque com o preco do
+ * produto -- a quantidade do item ja' esta' na unidade do estoque.
+ */
+export const opcaoDoItemDeOrigem = (
+  produto: ProdutoComEmbalagens | null | undefined,
+  origem: unknown,
+): OpcaoUnidadeVenda | null => {
+  if (!origem || typeof origem !== 'object') return null;
+  const embalagemId = toTrimmedString((origem as Record<string, unknown>).embalagemId);
+  if (!embalagemId) return null;
+  const opcoes = buildOpcoesUnidadeVenda(produto);
+  const daEmbalagem = opcoes.find((opcao) => opcao.embalagemId === embalagemId);
+  return daEmbalagem && embalagemFracionaria(daEmbalagem)
+    ? opcaoNaUnidadeDoEstoque(daEmbalagem, opcoes[0])
+    : { ...opcoes[0], permiteFracionado: true, casasDecimais: Math.max(opcoes[0].casasDecimais, 3) };
+};
 
 /**
  * A opcao de um item ja' gravado (orcamento virando pedido, item reaberto).
@@ -250,8 +335,9 @@ export const opcaoDoItemGravado = (
 /** A unidade para a tabela de preco (tabelaDoProduto / tabelaComPromocao): fator e os precos proprios da embalagem. */
 export const unidadeDePrecoDaOpcao = (opcao: OpcaoUnidadeVenda): { fatorConversao: number; precoProprio: number; precoAVistaProprio: number } => ({
   fatorConversao: opcao.fatorConversao,
-  precoProprio: opcao.embalagemId ? Number(opcao.precoVendaProprio) || 0 : 0,
-  precoAVistaProprio: opcao.embalagemId ? Number(opcao.precoAVistaProprio) || 0 : 0,
+  // Embalagem fracionaria na unidade do estoque (origem): os precos proprios ja' vem divididos pelo fator.
+  precoProprio: opcao.embalagemId || opcao.origem ? Number(opcao.precoVendaProprio) || 0 : 0,
+  precoAVistaProprio: opcao.embalagemId || opcao.origem ? Number(opcao.precoAVistaProprio) || 0 : 0,
 });
 
 /**

@@ -154,9 +154,12 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
   findOpcaoUnidadeVenda,
+  opcaoDoItemDeOrigem,
   opcaoDoItemGravado,
+  opcaoNaUnidadeDoEstoque,
   toBaseQuantity,
   toStockAdjustmentItems,
+  type EmbalagemDeOrigem,
 } from '../../utils/embalagemDomain';
 import {
   calcularDescontoCents,
@@ -320,6 +323,9 @@ interface ItemVenda {
   /** quantidade x fatorConversao, gravado so para auditoria/conferencia --
    * a baixa de estoque recalcula pelo fator, nao confia neste campo. */
   quantidadeBase?: number;
+  /** Meio metro, lata (embalagem fracionaria): o item entra na unidade do estoque
+   * e guarda de qual embalagem veio (embalagemDomain.opcaoNaUnidadeDoEstoque, 21/11/2026). */
+  embalagemDeOrigem?: EmbalagemDeOrigem;
   /** Precos do item (venda, a vista, promocao) -- e' com eles que o preco
    * troca sozinho quando a forma de pagamento muda (precoVendaDomain.ts).
    * Ausente em item avulso e em venda antiga: o preco fica como esta. */
@@ -413,6 +419,8 @@ const mapaDaReserva = (lista: ItemVenda[]): Map<string, number> => {
 
 /** Linha de orcamento como gravada em `orcamentos/{id}.itens` (OrcamentoForm). */
 interface LinhaDeOrcamento {
+  /** Peca orcada em embalagem fracionaria, ja' na unidade do estoque (21/11/2026). */
+  embalagemDeOrigem?: EmbalagemDeOrigem;
   id?: string;
   nome?: string;
   preco?: number;
@@ -709,11 +717,13 @@ const PedidoVendaForm: React.FC = () => {
   /** Tabela de precos do item, na unidade escolhida, com a promocao que vale hoje. */
   const tabelaDoItemDoCatalogo = (
     produto: ProdutoEstoque,
-    opcao: { embalagemId?: string; fatorConversao?: number; precoVendaProprio?: number; precoAVistaProprio?: number } | undefined,
+    opcao: { embalagemId?: string; fatorConversao?: number; precoVendaProprio?: number; precoAVistaProprio?: number; origem?: EmbalagemDeOrigem } | undefined,
   ): TabelaDePrecoDoItem => {
     const fator = opcao?.fatorConversao ?? 1;
-    const precoProprio = opcao?.embalagemId ? Number(opcao.precoVendaProprio) || 0 : 0;
-    const precoAVistaProprio = opcao?.embalagemId ? Number(opcao.precoAVistaProprio) || 0 : 0;
+    // Embalagem fracionaria na unidade do estoque (origem): precos proprios ja' divididos pelo fator.
+    const temPrecoProprio = Boolean(opcao?.embalagemId || opcao?.origem);
+    const precoProprio = temPrecoProprio ? Number(opcao?.precoVendaProprio) || 0 : 0;
+    const precoAVistaProprio = temPrecoProprio ? Number(opcao?.precoAVistaProprio) || 0 : 0;
     const tabela = tabelaDoProduto(produto, { fatorConversao: fator, precoProprio, precoAVistaProprio });
     // Embalagem com preco PROPRIO (venda ou a vista) nao entra em promocao:
     // a promocao e' do kg, e o preco do saco foi negociado a parte.
@@ -1387,6 +1397,7 @@ const PedidoVendaForm: React.FC = () => {
             ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
             ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
             ...(item.quantidadeBase !== undefined ? { quantidadeBase: item.quantidadeBase } : {}),
+            ...(item.embalagemDeOrigem ? { embalagemDeOrigem: item.embalagemDeOrigem } : {}),
             // Bonificacao (30/10/2026): o brinde vem como brinde; quem nao pode bonificar volta para cobrado no faturamento.
             ...(item.bonificado === true ? { bonificado: true, precoReferencia: Number(item.precoReferencia || 0) } : {}),
           });
@@ -1446,7 +1457,7 @@ const PedidoVendaForm: React.FC = () => {
             deFora.push(`${linha.nome || 'Peça'} (inativa ou sem cadastro no Estoque)`);
             continue;
           }
-          const montado = montarItemDoCatalogo(produto, Number(linha.quantidade || 0), undefined, linha.embalagemId);
+          const montado = montarItemDoCatalogo(produto, Number(linha.quantidade || 0), undefined, linha.embalagemId, linha.embalagemDeOrigem);
           if ('erro' in montado) {
             deFora.push(montado.erro);
             continue;
@@ -1842,9 +1853,17 @@ const PedidoVendaForm: React.FC = () => {
       }
     }
 
+    // Embalagem FRACIONARIA (meio metro, lata) entra na unidade do estoque: 1
+    // meio metro a R$ 110 vira 0,5 M3 a R$ 220 (embalagemDomain, 21/11/2026).
+    // A quantidade digitada ja' foi conferida na embalagem, logo acima.
+    const opcaoDoItem = opcaoNaUnidadeDoEstoque(opcaoUnidade, buildOpcoesUnidadeVenda(produtoEncontrado)[0]);
+    const vaiParaOEstoque = opcaoDoItem !== opcaoUnidade;
+    const qtdDoItem = vaiParaOEstoque ? quantidadeBase : qtdNum;
+    const precoDigitadoDoItem = vaiParaOEstoque && produtoPreco > 0 ? Number((produtoPreco / fatorConversao).toFixed(6)) : produtoPreco;
+
     // Preco: o automatico (a vista / de venda / promocao, conforme o pagamento)
     // ou o digitado no campo, que vira 'manual' e nunca troca sozinho.
-    let precoFinal = produtoPreco > 0 ? produtoPreco : 0;
+    let precoFinal = precoDigitadoDoItem > 0 ? precoDigitadoDoItem : 0;
     let camposPreco: ReturnType<typeof camposDePreco>['campos'] | null = null;
     let avisoPromocao: string | undefined;
     // PRECO ABAIXO DA TABELA = DESCONTO (2026-10-01, pedido urgente do dono).
@@ -1855,11 +1874,11 @@ const PedidoVendaForm: React.FC = () => {
     // travas e aparece no relatorio de descontos. Subir o preco continua livre.
     let descontoPorPrecoCents = 0;
     if (produtoEncontrado) {
-      const conferida = conferirQuotaDaPromocao(produtoEncontrado, tabelaDoItemDoCatalogo(produtoEncontrado, opcaoUnidade), quantidadeBase);
+      const conferida = conferirQuotaDaPromocao(produtoEncontrado, tabelaDoItemDoCatalogo(produtoEncontrado, opcaoDoItem), quantidadeBase);
       avisoPromocao = conferida.aviso;
       // Promocao que saiu pela quota: o campo mostrava o preco promocional, entao
       // o valor dele nao e' "digitado" -- vale o automatico sem a promocao.
-      const digitado = conferida.aviso ? undefined : (produtoPreco > 0 ? produtoPreco : undefined);
+      const digitado = conferida.aviso ? undefined : (precoDigitadoDoItem > 0 ? precoDigitadoDoItem : undefined);
       const precoTabela = precoAutomatico(conferida.tabela, condicaoPagamento).preco;
       const abaixoDaTabela = digitado !== undefined && digitado < precoTabela - 0.0001;
       if (abaixoDaTabela && !permitirDescontoPorItem) {
@@ -1869,12 +1888,12 @@ const PedidoVendaForm: React.FC = () => {
         );
         return;
       }
-      if (abaixoDaTabela) descontoPorPrecoCents = toCents((precoTabela - (digitado as number)) * qtdNum);
+      if (abaixoDaTabela) descontoPorPrecoCents = toCents((precoTabela - (digitado as number)) * qtdDoItem);
       const resultado = camposDePreco(conferida.tabela, abaixoDaTabela ? undefined : digitado);
       precoFinal = resultado.preco;
       camposPreco = resultado.campos;
     }
-    const precoCheioCents = toCents(precoFinal * qtdNum);
+    const precoCheioCents = toCents(precoFinal * qtdDoItem);
     // Com a opcao desligada o desconto por item e' ZERO de verdade, nao so
     // escondido: senao um valor que ficou no estado (digitado antes de o dono
     // desligar a opcao, que muda ao vivo) entraria na venda com o campo
@@ -1932,23 +1951,24 @@ const PedidoVendaForm: React.FC = () => {
     }
 
     const produtoDesconto = fromCents(descontoItemCents);
-    const subtotal = (precoFinal * qtdNum) - produtoDesconto;
+    const subtotal = (precoFinal * qtdDoItem) - produtoDesconto;
 
     const novoItem: ItemVenda = {
       id: produtoEncontrado?.id || 'avulso',
       nome: produtoEncontrado?.nome || produtoBusca,
       ...(produtoEncontrado?.codigo ? { codigo: produtoEncontrado.codigo } : {}),
       precoUnitario: precoFinal,
-      quantidade: qtdNum,
+      quantidade: qtdDoItem,
       desconto: produtoDesconto,
       subtotal: Math.max(0, subtotal),
-      unidadeMedidaSigla: opcaoUnidade?.sigla || produtoEncontrado?.unidadeMedidaSigla || 'UN',
-      unidadeMedidaCasasDecimais: opcaoUnidade?.casasDecimais ?? produtoEncontrado?.unidadeMedidaCasasDecimais ?? 0,
+      unidadeMedidaSigla: opcaoDoItem?.sigla || produtoEncontrado?.unidadeMedidaSigla || 'UN',
+      unidadeMedidaCasasDecimais: opcaoDoItem?.casasDecimais ?? produtoEncontrado?.unidadeMedidaCasasDecimais ?? 0,
       // Item vendido na unidade base nao ganha campo nenhum de embalagem --
       // fica byte a byte igual ao que o sistema sempre gravou.
-      ...(opcaoUnidade?.embalagemId
-        ? { embalagemId: opcaoUnidade.embalagemId, fatorConversao, quantidadeBase }
+      ...(opcaoDoItem?.embalagemId
+        ? { embalagemId: opcaoDoItem.embalagemId, fatorConversao, quantidadeBase }
         : {}),
+      ...(opcaoDoItem?.origem ? { embalagemDeOrigem: { ...opcaoDoItem.origem } } : {}),
       ...(camposPreco || {}),
     };
 
@@ -2103,9 +2123,13 @@ const PedidoVendaForm: React.FC = () => {
     indiceIgnorado?: number,
     /** Item que ja' vinha numa embalagem (orcamento, 21/11/2026). Ausente = unidade do cadastro. */
     embalagemId?: string,
+    /** Item de embalagem fracionaria, ja' na unidade do estoque (meio metro -> 0,5 M3). */
+    embalagemDeOrigem?: EmbalagemDeOrigem,
   ): { item: ItemVenda; aviso?: string; avisoReserva?: () => void } | { erro: string; mostrarReserva?: () => void } => {
     if (!(quantidade > 0)) return { erro: `${product.nome}: quantidade inválida.` };
-    const opcaoGravada = embalagemId ? opcaoDoItemGravado(product, embalagemId) : buildOpcoesUnidadeVenda(product)[0];
+    const opcaoGravada = embalagemId
+      ? opcaoDoItemGravado(product, embalagemId)
+      : (opcaoDoItemDeOrigem(product, embalagemDeOrigem) ?? buildOpcoesUnidadeVenda(product)[0]);
     // Embalagem apagada do cadastro: a quantidade estava nela e viraria unidade base sem aviso.
     if (!opcaoGravada) return { erro: `${product.nome}: a embalagem em que foi orçado não existe mais no cadastro. Lance o item de novo escolhendo a unidade.` };
     const opcao = opcaoGravada;
@@ -2138,6 +2162,7 @@ const PedidoVendaForm: React.FC = () => {
         unidadeMedidaSigla: opcao?.sigla || product.unidadeMedidaSigla || 'UN',
         unidadeMedidaCasasDecimais: opcao?.casasDecimais ?? product.unidadeMedidaCasasDecimais ?? 0,
         ...(opcao?.embalagemId ? { embalagemId: opcao.embalagemId, fatorConversao: fator, quantidadeBase } : {}),
+        ...(opcao?.origem ? { embalagemDeOrigem: { ...opcao.origem } } : {}),
       },
     };
   };
@@ -2231,7 +2256,9 @@ const PedidoVendaForm: React.FC = () => {
     const produtoCatalogo = produtosCatalogo.find((p) => p.id === item.id);
     // A unidade que vale aqui e a do ITEM (a embalagem escolhida quando ele
     // foi adicionado), nao a unidade base do produto no catalogo.
-    const opcaoItem = findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produtoCatalogo), item.embalagemId);
+    // Item de embalagem fracionaria (meio metro -> 0,5 M3): a quantidade e' na unidade do estoque, fracionada.
+    const opcaoItem = (!item.embalagemId && opcaoDoItemDeOrigem(produtoCatalogo, item.embalagemDeOrigem))
+      || findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produtoCatalogo), item.embalagemId);
     const fatorItem = item.fatorConversao ?? opcaoItem.fatorConversao ?? 1;
     const siglaItem = item.unidadeMedidaSigla || opcaoItem.sigla;
 
@@ -4473,6 +4500,7 @@ const PedidoVendaForm: React.FC = () => {
               ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla } : {}),
               ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
               ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
+              ...(item.embalagemDeOrigem ? { embalagemDeOrigem: item.embalagemDeOrigem } : {}),
             })),
             pagamentos: paymentRecords.map((payment) => ({ formaPagamento: payment.formaPagamento, valor: payment.valor })),
             valorTotal: valorTotalPedido,
@@ -4734,6 +4762,7 @@ const PedidoVendaForm: React.FC = () => {
           ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla } : {}),
           ...(item.fatorConversao !== undefined ? { fatorConversao: item.fatorConversao } : {}),
           ...(item.embalagemId ? { embalagemId: item.embalagemId } : {}),
+          ...(item.embalagemDeOrigem ? { embalagemDeOrigem: item.embalagemDeOrigem } : {}),
         })),
         pagamentos: paymentDrafts.map((payment) => ({ formaPagamento: payment.forma, valor: fromCents(toCents(payment.valor)) })),
         valorTotal: valorTotalPedido,

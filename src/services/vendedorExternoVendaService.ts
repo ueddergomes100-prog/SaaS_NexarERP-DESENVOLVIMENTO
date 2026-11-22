@@ -9,7 +9,7 @@ import {
   writeTenantSequenceValue,
 } from '../utils/firestoreAtomic';
 import { computeReservationDelta } from '../utils/estoqueReservaDomain';
-import { toStockAdjustmentItems } from '../utils/embalagemDomain';
+import { toStockAdjustmentItems, type EmbalagemDeOrigem } from '../utils/embalagemDomain';
 import { buildDocumentMetadata } from '../utils/documentMetadata';
 import { toCents } from '../utils/financeDomain';
 import { STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
@@ -64,6 +64,8 @@ export interface ItemVendaExterna {
   embalagemId?: string;
   fatorConversao?: number;
   quantidadeBase?: number;
+  /** Meio metro, lata: item na unidade do estoque, com a embalagem de onde veio (21/11/2026). */
+  embalagemDeOrigem?: EmbalagemDeOrigem;
 }
 
 const semDesconto = () => ({

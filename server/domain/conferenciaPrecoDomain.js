@@ -39,6 +39,10 @@ const brutoDaLinha = (preco, quantidade) => (Math.max(0, Math.round((0, financeD
 /** Unidade vendida, com os precos proprios da embalagem. Embalagem que sumiu do cadastro: preco base x fator do item. */
 const unidadeDoItem = (produto, item) => {
     const embalagemId = typeof item.embalagemId === 'string' ? item.embalagemId.trim() : '';
+    // Meio metro lancado como 0,5 M3: a tabela e' a da embalagem dividida pelo fator (21/11/2026).
+    const daOrigem = embalagemId ? null : (0, embalagemDomain_1.opcaoDoItemDeOrigem)(produto, item.embalagemDeOrigem);
+    if (daOrigem)
+        return (0, embalagemDomain_1.unidadeDePrecoDaOpcao)(daOrigem);
     const opcao = (0, embalagemDomain_1.findOpcaoUnidadeVenda)((0, embalagemDomain_1.buildOpcoesUnidadeVenda)(produto), embalagemId);
     if (embalagemId && opcao.embalagemId !== embalagemId) {
         return { fatorConversao: positivo(item.fatorConversao) || 1, precoProprio: 0, precoAVistaProprio: 0 };

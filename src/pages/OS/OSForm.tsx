@@ -131,9 +131,11 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   camposDeUnidadeDoItem,
   findOpcaoUnidadeVenda,
+  opcaoNaUnidadeDoEstoque,
   opcoesDeUnidadeDaTela,
   toBaseQuantity,
   unidadeDePrecoDaOpcao,
+  type EmbalagemDeOrigem,
 } from '../../utils/embalagemDomain';
 import { cancelarOsPelaTela, finalizarOsPelaTela, reabrirOsPelaTela } from '../../services/osFechamentoService';
 import { cancelarOsNoServidor, finalizarOsNoServidor, reabrirOsNoServidor, OsServidorError } from '../../services/osServidorService';
@@ -198,6 +200,8 @@ interface PecaSelecionada {
   promocaoNome?: string;
   /** Peca lancada numa embalagem (21/11/2026): estoque baixa quantidade x fator. */
   embalagemId?: string;
+  /** Meio metro, lata: a peca entra na unidade do estoque e guarda de qual embalagem veio (21/11/2026). */
+  embalagemDeOrigem?: EmbalagemDeOrigem;
   fatorConversao?: number;
   quantidadeBase?: number;
 }
@@ -990,13 +994,18 @@ const OSForm: React.FC = () => {
     
     if (peca) {
       // Unidade escolhida (rolo, tubo...): estoque e preco nela (21/11/2026).
-      const opcao = findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(peca, venderPorEmbalagem), pecaEmbalagemId);
+      const opcaoEscolhida = findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(peca, venderPorEmbalagem), pecaEmbalagemId);
+      // Embalagem fracionaria (meio metro, lata) entra na unidade do estoque:
+      // 1 meio metro a R$ 110 = 0,5 M3 a R$ 220 (embalagemDomain, 21/11/2026).
+      const opcao = opcaoNaUnidadeDoEstoque(opcaoEscolhida, opcoesDeUnidadeDaTela(peca, false)[0]);
+      const quantidadeInicial = opcao !== opcaoEscolhida ? opcaoEscolhida.fatorConversao : 1;
+      const precoDigitado = opcao !== opcaoEscolhida && precoNum > 0 ? Number((precoNum / opcaoEscolhida.fatorConversao).toFixed(6)) : precoNum;
       // Reserva na venda (13/10/2026): conta o que a OS ja' tem desta peca e
       // o que esta reservado em outros documentos.
       const reserva = conferirSaidaComReserva({
         tenantId,
         produto: peca,
-        pedida: toBaseQuantity(1, opcao.fatorConversao) + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id),
+        pedida: toBaseQuantity(quantidadeInicial, opcao.fatorConversao) + quantidadeDaPecaNaOs(pecasSelecionadas, peca.id),
         reservadoPeloDocumento: reservaPropriaRef.current.get(peca.id) || 0,
         documentoAtualId: id,
         permiteVendaSemEstoque: permitirVendaSemEstoque,
@@ -1015,15 +1024,15 @@ const OSForm: React.FC = () => {
         showWarning(aviso.title, aviso.text);
       }
       // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
-      const precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcao)), condicaoPagamento, precoNum);
+      const precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcao)), condicaoPagamento, precoDigitado);
       setPecasSelecionadas([...pecasSelecionadas, {
         id: peca.id,
         nome: peca.nome,
         preco: precificacao.preco,
-        quantidade: 1,
+        quantidade: quantidadeInicial,
         ...resolveUnidadeMedidaProduto(peca),
         // Na embalagem, a unidade do item e' a dela; na base, nada muda.
-        ...(opcao.embalagemId ? camposDeUnidadeDoItem(opcao, 1) : {}),
+        ...(opcao.embalagemId || opcao.origem ? camposDeUnidadeDoItem(opcao, quantidadeInicial) : {}),
         ...precificacao.campos,
       }]);
       setPecaNomeInput('');

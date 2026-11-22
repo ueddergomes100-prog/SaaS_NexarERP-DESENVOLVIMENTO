@@ -24,7 +24,7 @@
  * Regra pura: sem tela, sem Firestore.
  */
 import { toCents } from './financeDomain';
-import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, type ProdutoComEmbalagens } from './embalagemDomain';
+import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, opcaoDoItemDeOrigem, toBaseQuantity, unidadeDePrecoDaOpcao, type ProdutoComEmbalagens } from './embalagemDomain';
 import { precoAutomatico, tabelaDoProduto, type CondicaoPagamento, type TabelaDePrecoDoItem } from './precoVendaDomain';
 import { promocaoDoProduto, quantidadeLiberadaNaPromocao, type PromocaoComId } from './promocaoDomain';
 
@@ -41,6 +41,8 @@ export interface ItemParaPreco {
   desconto?: number;
   embalagemId?: unknown;
   fatorConversao?: unknown;
+  /** Embalagem fracionaria lancada na unidade do estoque (embalagemDomain.opcaoNaUnidadeDoEstoque). */
+  embalagemDeOrigem?: unknown;
   /** Bonificacao (30/10/2026): item de brinde, a preco zero de proposito -- nao confere. */
   bonificado?: unknown;
 }
@@ -77,6 +79,9 @@ const brutoDaLinha = (preco: number, quantidade: number): number => (
 /** Unidade vendida, com os precos proprios da embalagem. Embalagem que sumiu do cadastro: preco base x fator do item. */
 const unidadeDoItem = (produto: ProdutoParaPreco, item: ItemParaPreco) => {
   const embalagemId = typeof item.embalagemId === 'string' ? item.embalagemId.trim() : '';
+  // Meio metro lancado como 0,5 M3: a tabela e' a da embalagem dividida pelo fator (21/11/2026).
+  const daOrigem = embalagemId ? null : opcaoDoItemDeOrigem(produto, item.embalagemDeOrigem);
+  if (daOrigem) return unidadeDePrecoDaOpcao(daOrigem);
   const opcao = findOpcaoUnidadeVenda(buildOpcoesUnidadeVenda(produto), embalagemId);
   if (embalagemId && opcao.embalagemId !== embalagemId) {
     return { fatorConversao: positivo(item.fatorConversao) || 1, precoProprio: 0, precoAVistaProprio: 0 };

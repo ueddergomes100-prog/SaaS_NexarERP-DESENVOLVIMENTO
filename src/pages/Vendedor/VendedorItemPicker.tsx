@@ -9,7 +9,7 @@ import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import { lerPrecoDigitado, precificarNoApp, precoDaTabelaDoItem, promocaoParaMostrar, trocarPrecoDoItem, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
 import { bonificarItem, cobrarItem, ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
-import { camposDeUnidadeDoItem, findOpcaoUnidadeVenda, opcoesDeUnidadeDaTela, toBaseQuantity } from '../../utils/embalagemDomain';
+import { camposDeUnidadeDoItem, findOpcaoUnidadeVenda, opcaoNaUnidadeDoEstoque, opcoesDeUnidadeDaTela, toBaseQuantity } from '../../utils/embalagemDomain';
 
 export interface ProdutoVendedorExterno {
   id: string;
@@ -150,21 +150,26 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
       if (!temUnidadeMedidaCadastrada(produto)) semUnidade.push(produto.nome);
 
+      // Embalagem fracionaria (meio metro, lata) entra na unidade do estoque:
+      // 1 meio metro = 0,5 M3 a R$ 220 (embalagemDomain, 21/11/2026). A
+      // quantidade digitada ja' foi conferida na embalagem, logo acima.
+      const opcaoDoItem = opcaoNaUnidadeDoEstoque(opcao, opcoesDeUnidadeDaTela(produto, false)[0]);
+      const qtdDoItem = opcaoDoItem !== opcao ? qtdNoEstoque : qtd;
       // Preco pela tabela do dia (promocao), como no desktop. Ver precoAppVendasDomain.
-      const preco = precificarNoApp({ precos, produto, quantidade: qtd, naVenda: [...itens, ...novosItens], consomeQuota, unidade: opcao });
+      const preco = precificarNoApp({ precos, produto, quantidade: qtdDoItem, naVenda: [...itens, ...novosItens], consomeQuota, unidade: opcaoDoItem });
       if (preco.aviso) foraDaPromocao.push(preco.aviso);
       novosItens.push({
         id: produto.id,
         nome: produto.nome,
         ...(produto.codigo ? { codigo: produto.codigo } : {}),
         precoUnitario: preco.preco,
-        quantidade: qtd,
+        quantidade: qtdDoItem,
         desconto: 0,
-        subtotal: Math.round(preco.preco * qtd * 100) / 100,
+        subtotal: Math.round(preco.preco * qtdDoItem * 100) / 100,
         unidadeMedidaSigla: unidade.unidadeMedidaSigla,
         unidadeMedidaFracionado: unidade.unidadeMedidaFracionado,
         unidadeMedidaCasasDecimais: unidade.unidadeMedidaCasasDecimais,
-        ...(opcao.embalagemId ? camposDeUnidadeDoItem(opcao, qtd) : {}),
+        ...(opcaoDoItem.embalagemId || opcaoDoItem.origem ? camposDeUnidadeDoItem(opcaoDoItem, qtdDoItem) : {}),
         ...(preco.campos || {}),
       });
     });

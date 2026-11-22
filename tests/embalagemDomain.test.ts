@@ -4,7 +4,10 @@ import {
   buildOpcoesUnidadeVenda,
   camposDeUnidadeDoItem,
   custoDaEmbalagem,
+  embalagemFracionaria,
   embalagensComUnidadesAtuais,
+  opcaoDoItemDeOrigem,
+  opcaoNaUnidadeDoEstoque,
   margemSobreCusto,
   findOpcaoUnidadeVenda,
   opcaoDoItemGravado,
@@ -236,4 +239,67 @@ test('embalagensComUnidadesAtuais: unidade G marcada como fracionada depois refa
   // Rodar de novo nao muda nada.
   assert.equal(embalagensComUnidadesAtuais(r.embalagens, (e) => unidades[e.unidadeMedidaId] || null).alteradas, 0);
   assert.deepEqual(embalagensComUnidadesAtuais(undefined, () => null), { embalagens: [], alteradas: 0, travadas: 0 });
+});
+
+// Embalagem fracionaria entra na unidade do estoque (21/11/2026: meio metro de areia = 0,5 M3).
+const areiaFracionada = {
+  precoVenda: 200,
+  unidadeMedidaSigla: 'M3',
+  unidadeMedidaCasasDecimais: 0,
+  unidadeMedidaFracionado: false,
+  embalagens: [
+    { id: 'meio', unidadeMedidaSigla: 'MT', fatorConversao: 0.5, precoVenda: 110, ativo: true },
+    { id: 'lata', unidadeMedidaSigla: 'LATA', fatorConversao: 0.02, ativo: true },
+    { id: 'carrada', unidadeMedidaSigla: 'CARR', fatorConversao: 5, precoVenda: 950, ativo: true },
+  ],
+};
+
+test('embalagem fracionaria: so fator entre 0 e 1, e so embalagem', () => {
+  const [base, meio, lata, carrada] = buildOpcoesUnidadeVenda(areiaFracionada);
+  assert.equal(embalagemFracionaria(base), false);
+  assert.equal(embalagemFracionaria(meio), true);
+  assert.equal(embalagemFracionaria(lata), true);
+  assert.equal(embalagemFracionaria(carrada), false);
+  assert.equal(embalagemFracionaria({ embalagemId: 'x', fatorConversao: 0 }), false);
+});
+
+test('meio metro vira a unidade do estoque com o preco do meio metro dividido pelo fator', () => {
+  const [base, meio, , carrada] = buildOpcoesUnidadeVenda(areiaFracionada);
+  const naBase = opcaoNaUnidadeDoEstoque(meio, base);
+  assert.equal(naBase.embalagemId, '');
+  assert.equal(naBase.sigla, 'M3');
+  assert.equal(naBase.fatorConversao, 1);
+  assert.equal(naBase.permiteFracionado, true, 'M3 inteiro no cadastro, mas meio metro e fracao por natureza');
+  assert.equal(naBase.casasDecimais, 1, 'casas do fator (0,5)');
+  assert.equal(naBase.precoVendaProprio, 220);
+  assert.equal(naBase.precoVenda, 220);
+  assert.deepEqual(naBase.origem, { embalagemId: 'meio', sigla: 'MT', fatorConversao: 0.5 });
+  assert.deepEqual(unidadeDePrecoDaOpcao(naBase), { fatorConversao: 1, precoProprio: 220, precoAVistaProprio: 0 });
+  // 1 meio metro = 0,5 M3 a R$ 220 = R$ 110; o item nao fica com embalagem, guarda a origem.
+  assert.deepEqual(camposDeUnidadeDoItem(naBase, 0.5), {
+    unidadeMedidaSigla: 'M3', unidadeMedidaCasasDecimais: 1, unidadeMedidaFracionado: true,
+    embalagemDeOrigem: { embalagemId: 'meio', sigla: 'MT', fatorConversao: 0.5 },
+  });
+  // Embalagem maior que a unidade (carrada) continua embalagem.
+  assert.equal(opcaoNaUnidadeDoEstoque(carrada, base), carrada);
+  assert.equal(opcaoNaUnidadeDoEstoque(base, base), base);
+});
+
+test('lata sem preco proprio: vale o preco do produto (200 x 0,02 / 0,02)', () => {
+  const [base, , lata] = buildOpcoesUnidadeVenda(areiaFracionada);
+  const naBase = opcaoNaUnidadeDoEstoque(lata, base);
+  assert.equal(naBase.casasDecimais, 2);
+  assert.equal(naBase.precoVendaProprio, 0);
+  assert.equal(naBase.precoVenda, 200);
+  assert.deepEqual(unidadeDePrecoDaOpcao(naBase), { fatorConversao: 1, precoProprio: 0, precoAVistaProprio: 0 });
+});
+
+test('item gravado com origem: volta a opcao de lancamento; embalagem apagada cai no estoque, fracionado', () => {
+  assert.equal(opcaoDoItemDeOrigem(areiaFracionada, { embalagemId: 'meio' })?.precoVendaProprio, 220);
+  const sumiu = opcaoDoItemDeOrigem(areiaFracionada, { embalagemId: 'apagada' });
+  assert.equal(sumiu?.sigla, 'M3');
+  assert.equal(sumiu?.precoVendaProprio, 0);
+  assert.equal(sumiu?.permiteFracionado, true);
+  assert.equal(opcaoDoItemDeOrigem(areiaFracionada, undefined), null);
+  assert.equal(opcaoDoItemDeOrigem(areiaFracionada, { embalagemId: '' }), null);
 });

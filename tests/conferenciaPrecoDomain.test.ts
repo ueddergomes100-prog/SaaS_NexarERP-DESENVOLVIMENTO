@@ -83,3 +83,13 @@ test('quantidade fracionada: arredonda por linha', () => {
   const r = conferir([item({ precoUnitario: 9.99, quantidade: 0.333 })]);
   assert.equal(r.itens[0].diferencaCentavos, Math.round(1000 * 0.333) - Math.round(999 * 0.333));
 });
+
+test('meio metro lancado como 0,5 M3: a tabela e o preco do meio metro / fator, nao vira desconto (21/11/2026)', () => {
+  const areia = { precoVenda: 240, unidadeMedidaSigla: 'M3', embalagens: [{ id: 'meio', unidadeMedidaSigla: 'MT', fatorConversao: 0.5, precoVenda: 110, ativo: true }] };
+  const linha = { id: 'areia', nome: 'AREIA', precoUnitario: 220, quantidade: 0.5, desconto: 0 };
+  const comOrigem = conferirPrecos({ itens: [{ ...linha, embalagemDeOrigem: { embalagemId: 'meio', sigla: 'MT', fatorConversao: 0.5 } }], produtos: { areia }, promocoes: [], hoje: HOJE, condicao: 'prazo' });
+  assert.deepEqual(comOrigem.itens[0], { precoSistema: 220, brutoCentavos: 11000, descontoCentavos: 0, diferencaCentavos: 0 });
+  // Sem a origem, 220 < 240 do M3 seria desconto: e' isso que a origem evita.
+  const semOrigem = conferirPrecos({ itens: [linha], produtos: { areia }, promocoes: [], hoje: HOJE, condicao: 'prazo' });
+  assert.equal(semOrigem.itens[0].diferencaCentavos, 1000);
+});

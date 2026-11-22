@@ -9,7 +9,7 @@
 // quilo. Por isso a conversao acontece so na hora de mexer no estoque
 // (toStockAdjustmentItems), nunca no valor financeiro do item.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.embalagensComUnidadesAtuais = exports.margemSobreCusto = exports.custoDaEmbalagem = exports.unidadeDePrecoDaOpcao = exports.opcaoDoItemGravado = exports.opcaoDoItemDeOrigem = exports.opcaoNaUnidadeDoEstoque = exports.embalagemFracionaria = exports.camposDeUnidadeDoItem = exports.opcoesDeUnidadeDaTela = exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
+exports.embalagensComUnidadesAtuais = exports.margemSobreCusto = exports.custoDaEmbalagem = exports.unidadeDePrecoDaOpcao = exports.opcaoDoItemGravado = exports.opcaoDoItemDeOrigem = exports.linhaNaUnidadeDoEstoque = exports.opcaoNaUnidadeDoEstoque = exports.embalagemFracionaria = exports.camposDeUnidadeDoItem = exports.opcoesDeUnidadeDaTela = exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
 /** Casas decimais usadas ao converter para a unidade base. Existe so pra
  * absorver o erro de ponto flutuante de quantidade fracionada x fator (ex:
  * 0.1 * 3), nao pra limitar o que o usuario pode digitar -- esse limite e da
@@ -198,6 +198,31 @@ const opcaoNaUnidadeDoEstoque = (opcao, base) => {
     };
 };
 exports.opcaoNaUnidadeDoEstoque = opcaoNaUnidadeDoEstoque;
+/**
+ * Linha da Frente de Caixa na hora de GRAVAR a venda (21/11/2026). No carrinho
+ * a linha fica na unidade bipada -- bipar o meio metro de novo soma +1 meio
+ * metro, e o "+" nao pode somar 1 M3 inteiro. Ao gravar, a linha de embalagem
+ * fracionaria vira a unidade do estoque, como no Pedido de Venda: 2 meio metros
+ * a R$ 110 = 1 M3 a R$ 220 (mesmo total). Qualquer outra linha: null (grava igual).
+ */
+const linhaNaUnidadeDoEstoque = (linha, base) => {
+    if (!(0, exports.embalagemFracionaria)(linha))
+        return null;
+    const fator = toFiniteNumber(linha.fatorConversao, 1);
+    const quantidade = (0, exports.toBaseQuantity)(linha.quantidade, fator);
+    return {
+        quantidade,
+        precoUnitario: precoPorUnidadeDoEstoque(toFiniteNumber(linha.precoUnitario), fator),
+        unidadeMedidaSigla: base.sigla || 'UN',
+        unidadeMedidaCasasDecimais: Math.max(base.casasDecimais, casasDoNumero(fator), casasDoNumero(quantidade)),
+        embalagemDeOrigem: {
+            embalagemId: toTrimmedString(linha.embalagemId),
+            sigla: toTrimmedString(linha.unidadeMedidaSigla).toUpperCase(),
+            fatorConversao: fator,
+        },
+    };
+};
+exports.linhaNaUnidadeDoEstoque = linhaNaUnidadeDoEstoque;
 /**
  * A opcao de LANCAMENTO de um item ja' gravado que veio de embalagem
  * fracionaria (orcamento virando pedido, quantidade editada na grade). A

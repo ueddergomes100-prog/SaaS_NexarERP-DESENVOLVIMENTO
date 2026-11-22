@@ -807,6 +807,11 @@ body.light-theme .profile-menu:hover {
   opacity: 0.35;
   transition: opacity 0.15s;
 }
+/* O cabecalho guarda espaco para a alca: texto (principalmente o alinhado a
+   direita, como Qtd. e Venda) nunca fica embaixo das setinhas (21/11/2026). */
+th[data-alca-coluna='1'] {
+  padding-right: 20px !important;
+}
 th:hover > .alca-coluna,
 .alca-coluna:focus-visible,
 .alca-coluna.arrastando {

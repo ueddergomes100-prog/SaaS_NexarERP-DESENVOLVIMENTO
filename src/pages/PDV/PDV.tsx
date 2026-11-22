@@ -86,6 +86,7 @@ import {
   toBaseQuantity,
   toStockAdjustmentItems,
   type OpcaoUnidadeVenda,
+  linhaNaUnidadeDoEstoque,
 } from '../../utils/embalagemDomain';
 import {
   DEFAULT_MODO_LIMITE_DESCONTO,
@@ -847,6 +848,13 @@ const PDV: React.FC = () => {
   /** Troca a unidade de uma linha ja lancada. Se ja existir outra linha na
    * unidade de destino, as duas seriam a mesma coisa -- em vez de criar id
    * duplicado, recusa e explica. */
+  /** Linha de meio metro/lata vira a unidade do estoque ao gravar (embalagemDomain.linhaNaUnidadeDoEstoque). */
+  const linhaGravada = useCallback((item: PdvCartItem) => {
+    const produto = products.find((p) => p.id === item.productId);
+    const base = buildOpcoesUnidadeVenda(produto)[0];
+    return linhaNaUnidadeDoEstoque({ ...item, precoUnitario: fromCents(item.precoUnitarioCentavos) }, { sigla: base.sigla, casasDecimais: base.casasDecimais });
+  }, [products]);
+
   const changeItemUnit = useCallback((itemId: string, embalagemId: string) => {
     const itemAtual = cartItemsRef.current.find((entry) => entry.id === itemId);
     const produtoAtual = itemAtual ? products.find((entry) => entry.id === itemAtual.productId) : undefined;
@@ -1092,18 +1100,24 @@ const PDV: React.FC = () => {
           clienteId: selectedClient?.id || null,
           clienteNome: selectedClient?.nome || 'CONSUMIDOR FINAL',
           observacao: observation.trim(),
-          itens: cartItems.map((item, indiceDoItem) => ({
-            id: item.productId,
-            nome: item.nome,
-            precoUnitario: fromCents(item.precoUnitarioCentavos),
-            quantidade: item.quantidade,
-            desconto: fromCents(item.descontoCentavos),
-            ...(item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla, unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais ?? 0 } : {}),
-            ...(item.origemPreco ? { origemPreco: item.origemPreco } : {}),
-            ...(item.promocaoId ? { promocaoId: item.promocaoId, promocaoNome: item.promocaoNome || '' } : {}),
-            ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
-            ...(item.embalagemId ? { embalagemId: item.embalagemId, fatorConversao: item.fatorConversao, quantidadeBase: item.quantidadeBase } : {}),
-          })),
+          itens: cartItems.map((item, indiceDoItem) => {
+            // Meio metro, lata: grava na unidade do estoque (1 M3 a R$ 220 = 2 meio metros a R$ 110).
+            const naBase = linhaGravada(item);
+            return {
+              id: item.productId,
+              nome: item.nome,
+              precoUnitario: naBase ? naBase.precoUnitario : fromCents(item.precoUnitarioCentavos),
+              quantidade: naBase ? naBase.quantidade : item.quantidade,
+              desconto: fromCents(item.descontoCentavos),
+              ...(naBase
+                ? { unidadeMedidaSigla: naBase.unidadeMedidaSigla, unidadeMedidaCasasDecimais: naBase.unidadeMedidaCasasDecimais, embalagemDeOrigem: naBase.embalagemDeOrigem }
+                : item.unidadeMedidaSigla ? { unidadeMedidaSigla: item.unidadeMedidaSigla, unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais ?? 0 } : {}),
+              ...(item.origemPreco ? { origemPreco: item.origemPreco } : {}),
+              ...(item.promocaoId ? { promocaoId: item.promocaoId, promocaoNome: item.promocaoNome || '' } : {}),
+              ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
+              ...(item.embalagemId && !naBase ? { embalagemId: item.embalagemId, fatorConversao: item.fatorConversao, quantidadeBase: item.quantidadeBase } : {}),
+            };
+          }),
           descontoGeral: {
             tipo: 'valor',
             valorInformado: fromCents(totals.vendaDescontoCentavos),
@@ -1183,25 +1197,28 @@ const PDV: React.FC = () => {
           const proportionalSaleDiscount = Math.round(saleDiscountShare * (lineGrossCents / grossItemsCents));
           const totalDiscountCents = Math.min(lineGrossCents, item.descontoCentavos + proportionalSaleDiscount);
           const subtotalCents = Math.max(0, lineGrossCents - totalDiscountCents);
+          // Meio metro, lata: grava na unidade do estoque (o total da linha nao muda).
+          const naBase = linhaGravada(item);
           return {
             id: item.productId,
             nome: item.nome,
-            precoUnitario: fromCents(item.precoUnitarioCentavos),
-            precoUnitarioCentavos: item.precoUnitarioCentavos,
-            quantidade: item.quantidade,
+            precoUnitario: naBase ? naBase.precoUnitario : fromCents(item.precoUnitarioCentavos),
+            precoUnitarioCentavos: naBase ? toCents(naBase.precoUnitario) : item.precoUnitarioCentavos,
+            quantidade: naBase ? naBase.quantidade : item.quantidade,
             desconto: fromCents(totalDiscountCents),
             descontoCentavos: totalDiscountCents,
             subtotal: fromCents(subtotalCents),
             subtotalCentavos: subtotalCents,
-            unidadeMedidaSigla: item.unidadeMedidaSigla,
-            unidadeMedidaCasasDecimais: item.unidadeMedidaCasasDecimais,
+            unidadeMedidaSigla: naBase ? naBase.unidadeMedidaSigla : item.unidadeMedidaSigla,
+            unidadeMedidaCasasDecimais: naBase ? naBase.unidadeMedidaCasasDecimais : item.unidadeMedidaCasasDecimais,
+            ...(naBase ? { embalagemDeOrigem: naBase.embalagemDeOrigem } : {}),
             // De onde veio o preco (a vista / promocao), como no Pedido de Venda.
             ...(item.origemPreco ? { origemPreco: item.origemPreco } : {}),
             ...(item.promocaoId ? { promocaoId: item.promocaoId, promocaoNome: item.promocaoNome || '' } : {}),
             ...camposDeLoteDoItem(planoLotes, String(indiceDoItem)),
             // Mesmo contrato do Pedido de Venda: item na unidade base nao
             // ganha campo de embalagem, para nao mudar o formato historico.
-            ...(item.embalagemId
+            ...(item.embalagemId && !naBase
               ? {
                   embalagemId: item.embalagemId,
                   fatorConversao: item.fatorConversao,

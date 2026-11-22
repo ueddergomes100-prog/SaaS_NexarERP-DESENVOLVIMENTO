@@ -297,6 +297,39 @@ export const opcaoNaUnidadeDoEstoque = (opcao: OpcaoUnidadeVenda, base: OpcaoUni
 };
 
 /**
+ * Linha da Frente de Caixa na hora de GRAVAR a venda (21/11/2026). No carrinho
+ * a linha fica na unidade bipada -- bipar o meio metro de novo soma +1 meio
+ * metro, e o "+" nao pode somar 1 M3 inteiro. Ao gravar, a linha de embalagem
+ * fracionaria vira a unidade do estoque, como no Pedido de Venda: 2 meio metros
+ * a R$ 110 = 1 M3 a R$ 220 (mesmo total). Qualquer outra linha: null (grava igual).
+ */
+export const linhaNaUnidadeDoEstoque = (
+  linha: { embalagemId?: unknown; fatorConversao?: unknown; unidadeMedidaSigla?: unknown; quantidade: number; precoUnitario: number },
+  base: { sigla: string; casasDecimais: number },
+): {
+  quantidade: number;
+  precoUnitario: number;
+  unidadeMedidaSigla: string;
+  unidadeMedidaCasasDecimais: number;
+  embalagemDeOrigem: EmbalagemDeOrigem;
+} | null => {
+  if (!embalagemFracionaria(linha)) return null;
+  const fator = toFiniteNumber(linha.fatorConversao, 1);
+  const quantidade = toBaseQuantity(linha.quantidade, fator);
+  return {
+    quantidade,
+    precoUnitario: precoPorUnidadeDoEstoque(toFiniteNumber(linha.precoUnitario), fator),
+    unidadeMedidaSigla: base.sigla || 'UN',
+    unidadeMedidaCasasDecimais: Math.max(base.casasDecimais, casasDoNumero(fator), casasDoNumero(quantidade)),
+    embalagemDeOrigem: {
+      embalagemId: toTrimmedString(linha.embalagemId),
+      sigla: toTrimmedString(linha.unidadeMedidaSigla).toUpperCase(),
+      fatorConversao: fator,
+    },
+  };
+};
+
+/**
  * A opcao de LANCAMENTO de um item ja' gravado que veio de embalagem
  * fracionaria (orcamento virando pedido, quantidade editada na grade). A
  * embalagem que sumiu do cadastro cai na unidade do estoque com o preco do

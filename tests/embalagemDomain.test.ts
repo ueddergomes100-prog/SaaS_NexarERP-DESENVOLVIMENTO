@@ -5,6 +5,7 @@ import {
   camposDeUnidadeDoItem,
   custoDaEmbalagem,
   embalagemFracionaria,
+  linhaNaUnidadeDoEstoque,
   embalagensComUnidadesAtuais,
   opcaoDoItemDeOrigem,
   opcaoNaUnidadeDoEstoque,
@@ -302,4 +303,22 @@ test('item gravado com origem: volta a opcao de lancamento; embalagem apagada ca
   assert.equal(sumiu?.permiteFracionado, true);
   assert.equal(opcaoDoItemDeOrigem(areiaFracionada, undefined), null);
   assert.equal(opcaoDoItemDeOrigem(areiaFracionada, { embalagemId: '' }), null);
+});
+
+test('Frente de Caixa: linha de meio metro vira a unidade do estoque so ao gravar, com o mesmo total', () => {
+  const linha = { embalagemId: 'meio', fatorConversao: 0.5, unidadeMedidaSigla: 'mt', quantidade: 3, precoUnitario: 110 };
+  const naBase = linhaNaUnidadeDoEstoque(linha, { sigla: 'M3', casasDecimais: 0 });
+  assert.deepEqual(naBase, {
+    quantidade: 1.5,
+    precoUnitario: 220,
+    unidadeMedidaSigla: 'M3',
+    unidadeMedidaCasasDecimais: 1,
+    embalagemDeOrigem: { embalagemId: 'meio', sigla: 'MT', fatorConversao: 0.5 },
+  });
+  assert.equal(naBase!.quantidade * naBase!.precoUnitario, 3 * 110);
+  // Lata de 0,02 M3: 7 latas = 0,14 M3 (2 casas).
+  assert.equal(linhaNaUnidadeDoEstoque({ embalagemId: 'lata', fatorConversao: 0.02, quantidade: 7, precoUnitario: 6 }, { sigla: 'M3', casasDecimais: 0 })?.unidadeMedidaCasasDecimais, 2);
+  // Tubo (fator 6) e unidade base: grava igual.
+  assert.equal(linhaNaUnidadeDoEstoque({ embalagemId: 'tb', fatorConversao: 6, quantidade: 1, precoUnitario: 27 }, { sigla: 'MT', casasDecimais: 2 }), null);
+  assert.equal(linhaNaUnidadeDoEstoque({ quantidade: 1, precoUnitario: 5 }, { sigla: 'MT', casasDecimais: 2 }), null);
 });

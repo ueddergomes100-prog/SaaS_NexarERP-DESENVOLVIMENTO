@@ -655,6 +655,15 @@
   padding-left: 16px;
 }
 
+.estoque-page .estoque-tabela th {
+  white-space: nowrap;
+}
+
+/* Numero alinhado com o cabecalho, que guarda 20px para a alca de coluna (index.css). */
+.estoque-page .estoque-tabela td.estoque-num {
+  padding-right: 20px;
+}
+
 .estoque-tabela .estoque-num {
   text-align: right;
   font-variant-numeric: tabular-nums;

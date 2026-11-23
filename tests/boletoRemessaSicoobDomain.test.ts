@@ -77,8 +77,8 @@ const ARQUIVO_REAL_LINHAS = [
   '75699999         000001000016000000                                                                                                                                                                                                             ',
 ];
 
-const gerar = () => montarRemessaSicoob({
-  convenio: CONVENIO_SOL_LIFE,
+const gerar = (convenio: ConvenioBoletoSicoob = CONVENIO_SOL_LIFE) => montarRemessaSicoob({
+  convenio,
   titulos: TITULOS_REAIS,
   dataGeracao: '2026-09-08',
   horaGeracao: '181914',
@@ -245,4 +245,18 @@ test('parcela da remessa e a do codigo de barras sao a mesma', () => {
   }
   assert.equal(parcelaDoBoletoSicoob({ paymentIndex: 0 }), 1);
   assert.equal(parcelaDoBoletoSicoob({ paymentIndex: null }), 1);
+});
+
+test('codigo do cliente no convenio: Sol Life sai identica e Embala Minas leva o DV certo (23/11)', () => {
+  const esperado = ARQUIVO_REAL_LINHAS.join('\r\n') + '\r\n';
+  assert.equal(gerar({ ...CONVENIO_SOL_LIFE, codigoCliente: '1318772' }), esperado);
+  const remessa = montarRemessaSicoob({
+    convenio: { ...CONVENIO_SOL_LIFE, conta: '24424', contaDv: '4', codigoCliente: '0580490', numeroRemessa: 507899 },
+    titulos: [{ nossoNumero: 4070, numeroDocumento: '1', vencimento: '2026-12-07', valorCentavos: 500, sacado: SACADO_REAL }],
+    dataGeracao: '2026-11-23',
+    horaGeracao: '170000',
+  });
+  const segmentoP = remessa.split('\r\n')[2];
+  assert.equal(segmentoP[13], 'P');
+  assert.match(segmentoP, /0000040703/);
 });

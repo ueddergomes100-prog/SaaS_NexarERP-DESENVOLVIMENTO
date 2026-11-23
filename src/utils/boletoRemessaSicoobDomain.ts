@@ -110,6 +110,8 @@ export interface ConvenioBoletoSicoob {
   cooperativa: string;
   conta: string;
   contaDv?: string;
+  /** Codigo do cliente/beneficiario no Sicoob -- entra no DV do nosso numero (ver boletoCnabDomain). */
+  codigoCliente?: string;
   /** CNPJ da empresa cedente, so' digitos. */
   cnpjCedente: string;
   nomeCedente: string;
@@ -215,6 +217,7 @@ const montarSegmentoP = (
     cooperativa: convenio.cooperativa,
     conta: convenio.conta,
     contaDv: convenio.contaDv || '0',
+    ...(convenio.codigoCliente ? { codigoCliente: convenio.codigoCliente } : {}),
   });
 
   let l = TEMPLATE_SEGMENTO_P;

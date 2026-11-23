@@ -24,6 +24,16 @@ import { digitosDoBoleto, montarCodigoBarras, zerosAEsquerda } from './boletoDom
  *   cooperativa (4) + conta COM O DV da conta, em 9 posicoes + nosso numero em 8
  *
  * (ex.: 3049 + 000512150 + 00001330). Por isso `contaDv` entra no calculo.
+ *
+ * CORRECAO (23/11/2026, Embala Minas): a formula OFICIAL do Sicoob e'
+ *
+ *   cooperativa (4) + CODIGO DO CLIENTE/beneficiario (10) + nosso numero (7)
+ *
+ * Na Sol Life as duas dao o mesmo digito por coincidencia de alinhamento (codigo 131877-2), mas na
+ * Embala Minas (conta 24424-4, codigo do cliente 58049-0) a de conta+DV errava o digito: o boleto de
+ * teste 4070 saiu 4070-4 e o certo e' 4070-3 -- conferido com os nossos numeros 4062 a 4069 que o
+ * sistema anterior emitiu e o banco aceitou. Por isso, quando o banco tem o codigo do cliente
+ * cadastrado, e' ele que entra no calculo; sem o codigo, segue a formula da conta (Sol Life).
  */
 
 export interface ParametrosNossoNumeroSicoob {
@@ -37,6 +47,9 @@ export interface ParametrosNossoNumeroSicoob {
   digitosDaConta?: number;
   /** Quantos digitos o nosso numero ocupa no calculo (8 confirmado pelo banco). */
   digitosDoNossoNumero?: number;
+  /** Codigo do cliente/beneficiario no Sicoob (o do cadastro do banco). Quando informado, o DV usa
+   *  a formula oficial: cooperativa(4) + codigo do cliente(10) + nosso numero(7). */
+  codigoCliente?: string;
 }
 
 /** Pesos do Sicoob, ciclicos da esquerda pra direita. */
@@ -49,9 +62,12 @@ const PESOS_SICOOB = [3, 1, 9, 7];
  * do banco, diferente do DV do codigo de barras.
  */
 export const dvNossoNumeroSicoob = (nossoNumero: string | number, p: ParametrosNossoNumeroSicoob): number => {
-  const sequencia = zerosAEsquerda(p.cooperativa, 4)
-    + zerosAEsquerda(`${digitosDoBoleto(p.conta)}${digitosDoBoleto(p.contaDv ?? '')}`, p.digitosDaConta ?? 9)
-    + zerosAEsquerda(nossoNumero, p.digitosDoNossoNumero ?? 8);
+  const codigoCliente = digitosDoBoleto(p.codigoCliente ?? '');
+  const sequencia = codigoCliente
+    ? zerosAEsquerda(p.cooperativa, 4) + zerosAEsquerda(codigoCliente, 10) + zerosAEsquerda(nossoNumero, 7)
+    : zerosAEsquerda(p.cooperativa, 4)
+      + zerosAEsquerda(`${digitosDoBoleto(p.conta)}${digitosDoBoleto(p.contaDv ?? '')}`, p.digitosDaConta ?? 9)
+      + zerosAEsquerda(nossoNumero, p.digitosDoNossoNumero ?? 8);
 
   let soma = 0;
   for (let i = 0; i < sequencia.length; i += 1) {
@@ -136,6 +152,7 @@ export const campoLivreSicoob = (dados: DadosBoletoSicoob): string => {
     contaDv: dados.contaDv,
     digitosDaConta: dados.digitosDaConta,
     digitosDoNossoNumero: dados.digitosDoNossoNumero,
+    ...(digitosDoBoleto(dados.codigoCliente || '') ? { codigoCliente: dados.codigoCliente } : {}),
   });
   const parcela = zerosAEsquerda(dados.parcela ?? 1, 3);
 

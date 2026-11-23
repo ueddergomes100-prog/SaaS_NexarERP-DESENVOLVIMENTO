@@ -633,6 +633,7 @@ const Boletos: React.FC = () => {
           cooperativa: String(banco.agencia || ''),
           conta: String(banco.conta || ''),
           contaDv: banco.boleto?.contaDv,
+          ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
           cnpjCedente: banco.boleto.cnpjCedente,
           nomeCedente: banco.boleto.nomeCedente,
           instrucoes: banco.boleto?.instrucoes,

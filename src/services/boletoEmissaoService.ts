@@ -156,6 +156,7 @@ export const emitirUmTitulo = async (a: { tenantId: string; uid: string; titulo:
         cooperativa: String(banco.agencia || ''),
         conta: String(banco.conta || ''),
         contaDv: banco.boleto?.contaDv || '0',
+        ...(banco.boleto?.codigoCliente ? { codigoCliente: banco.boleto.codigoCliente } : {}),
       }),
       linhaDigitavel: linhaDigitavelDoCodigoBarras(codigoBarras),
       codigoBarras,

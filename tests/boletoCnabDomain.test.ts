@@ -192,3 +192,32 @@ test('codigo de barras bate digito a digito com boleto real impresso pelo Sicoob
   assert.equal(cb, '75693154800000677971304901131877200009184001');
   assert.equal(erroDaLinhaDigitavel(linhaDigitavelDoCodigoBarras(cb)), null);
 });
+
+/**
+ * Correcao de 23/11/2026 (Embala Minas): com o codigo do cliente cadastrado, o DV usa a formula oficial
+ * do Sicoob -- cooperativa(4) + codigo do cliente(10) + nosso numero(7). Prova: os nossos numeros 4062 a
+ * 4069 que o sistema anterior da Embala Minas emitiu (e o banco aceitou) saem com o mesmo DV.
+ */
+const SICOOB_EMBALA = { cooperativa: '3049', conta: '24424', contaDv: '4', codigoCliente: '0580490' };
+
+test('Embala Minas: DV com o codigo do cliente bate com os boletos ja aceitos pelo banco', () => {
+  const esperados: Array<[number, number]> = [
+    [4062, 4], [4063, 1], [4064, 9], [4065, 6], [4066, 3], [4067, 0], [4068, 8], [4069, 5], [4070, 3],
+  ];
+  for (const [nn, dv] of esperados) {
+    assert.equal(dvNossoNumeroSicoob(nn, SICOOB_EMBALA), dv, `nosso numero ${nn}`);
+  }
+  assert.equal(nossoNumeroSicoobComDv(4070, SICOOB_EMBALA), '0000040703');
+  // Codigo do cliente com ou sem zero/hifen da no mesmo.
+  assert.equal(dvNossoNumeroSicoob(4070, { ...SICOOB_EMBALA, codigoCliente: '58049-0' }), 3);
+  // O campo livre do codigo de barras usa o mesmo DV.
+  const campo = campoLivreSicoob({ ...SICOOB_EMBALA, modalidade: '01', nossoNumero: 4070 });
+  assert.equal(campo.slice(14, 22), '00040703');
+});
+
+test('Sol Life: informar o codigo do cliente nao muda nenhum DV ja confirmado', () => {
+  const comCodigo = { ...SICOOB_REAL, codigoCliente: '1318772' };
+  for (const nn of [903, 918, 922, 995, 1002, 1200, 1201, 1202, 1203, 1250, 1282, 1283, 1300, 1330, 1401, 4471]) {
+    assert.equal(dvNossoNumeroSicoob(nn, comCodigo), dvNossoNumeroSicoob(nn, SICOOB_REAL), `nosso numero ${nn}`);
+  }
+});

@@ -28,9 +28,12 @@ import {
   gerarParcelasAPrazo,
 } from '../../utils/financeDomain';
 import {
+  FORMAS_PAGAMENTO_PADRAO,
   bancoSugerido,
   chaveBancoDoDia,
+  ehConsumidorFinal,
   erroDasParcelasAPrazo,
+  formasParaConsumidorFinal,
   lerBancoDoDia,
   resumoDasParcelas,
   type ConfigBancoPadrao,
@@ -106,6 +109,9 @@ interface PaymentsEditorProps {
   /** Formas na ordem da empresa, ja sem as que ela escondeu (Configuracoes).
    *  Ausente = lista padrao do codigo, como sempre foi. */
   formasConfiguradas?: PaymentMethod[];
+  /** Formas liberadas para CONSUMIDOR FINAL (Configuracoes, 23/11/2026).
+   *  Ausente = o padrao (dinheiro, Pix e cartoes). Ver formasParaConsumidorFinal. */
+  formasConsumidorFinal?: string[];
   /** "+ Dividir pagamento" visivel? Decisao do dono (2026-09-21): quem nao
    *  usa pagamento misto desliga em Configuracoes e a tela fica limpa. */
   permitirDividirPagamento?: boolean;
@@ -366,6 +372,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   onUpdatePayment,
   pagamentoCartaoSimplificadoAtivo = false,
   formasConfiguradas,
+  formasConsumidorFinal,
   permitirDividirPagamento = true,
   creditoDisponivelCentavos = 0,
   cashbackDisponivel = null,
@@ -423,7 +430,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const paymentDoModalCheque = drafts.find((d) => d.id === chequeModalPaymentId) || null;
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeiras);
   const informedCents = drafts.reduce((sum, payment) => sum + toCents(payment.valor), 0);
-  const isFinalConsumer = customerName.toLowerCase().includes('consumidor final');
+  const isFinalConsumer = ehConsumidorFinal(customerName);
   const temCreditoDisponivel = creditoDisponivelCentavos > 0
     || drafts.some((d) => d.forma === 'Crédito de Devolução');
   // Cashback: so' com saldo que de' para usar nesta venda (R$ > 0 ou alguma
@@ -434,13 +441,15 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   const temCashbackDisponivel = !isFinalConsumer && cashbackDisponivel !== null
     && (cashbackDisponivel.modelo === 'reais' ? cashbackDisponivel.saldoCentavos > 0 : faixasDoCashback.length > 0);
   const ofereceCashback = temCashbackDisponivel || drafts.some((d) => d.forma === 'Cashback');
-  // Consumidor final continua so' com dinheiro/Pix (regra fiscal, nao e'
-  // preferencia da loja) -- a ordem configurada so' vale pro resto.
+  const formasDaVenda: PaymentMethod[] = formasConfiguradas && formasConfiguradas.length > 0
+    ? formasConfiguradas
+    : FORMAS_PAGAMENTO_PADRAO;
+  // Consumidor final (23/11/2026): as formas que o dono liberou em Configuracoes
+  // (padrao: dinheiro, Pix e cartoes), nunca boleto nem a prazo -- antes era fixo
+  // em dinheiro/Pix e a loja nao conseguia passar cartao.
   const metodosBase: PaymentMethod[] = isFinalConsumer
-    ? (['Dinheiro', 'Pix'] as PaymentMethod[])
-    : (formasConfiguradas && formasConfiguradas.length > 0
-      ? formasConfiguradas
-      : (['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Boleto', 'Pagamento a Prazo', 'Outros'] as PaymentMethod[]));
+    ? formasParaConsumidorFinal(formasDaVenda, formasConsumidorFinal)
+    : formasDaVenda;
   const availableMethods: PaymentMethod[] = [
     ...metodosBase,
     ...(temCreditoDisponivel ? (['Crédito de Devolução'] as PaymentMethod[]) : []),

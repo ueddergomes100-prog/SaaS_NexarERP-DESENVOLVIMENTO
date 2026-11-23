@@ -249,3 +249,58 @@ export const resumoDasParcelas = (parcelas: ParcelaAPrazo[], intervaloDias: numb
   const lista = dias.length <= 4 ? dias.join('/') : `${dias.slice(0, 3).join('/')}...${dias[dias.length - 1]}`;
   return `${parcelas.length}x de ${intervaloDias} em ${intervaloDias} dias (${lista})`;
 };
+
+// ---------------------------------------------------------------------------
+// CONSUMIDOR FINAL (23/11/2026, pedido do dono)
+// ---------------------------------------------------------------------------
+
+/**
+ * Formas que a venda para CONSUMIDOR FINAL (cliente nao identificado) oferece.
+ *
+ * Antes era fixo no codigo: so' Dinheiro e Pix, com um comentario dizendo que
+ * era "regra fiscal" -- e nao e': cartao de debito e credito para consumidor
+ * final e' o dia a dia do balcao, inclusive na NFC-e. A Embala Minas nao
+ * conseguia passar cartao. Agora o dono escolhe em Configuracoes da filial ›
+ * Formas de Pagamento (coluna "Consumidor final"); sem nada gravado vale o
+ * padrao abaixo, ja' com os cartoes.
+ *
+ * Boleto e Pagamento a Prazo ficam SEMPRE de fora: sao venda fiada, e sem
+ * cliente identificado nao ha' de quem cobrar (nem para quem emitir o boleto).
+ * Nao aparecem nem para marcar.
+ */
+export const FORMAS_NUNCA_PARA_CONSUMIDOR_FINAL: readonly string[] = ['Boleto', 'Pagamento a Prazo'];
+
+export const FORMAS_CONSUMIDOR_FINAL_PADRAO: PaymentMethod[] = ['Dinheiro', 'Pix', 'Cartão de Débito', 'Cartão de Crédito'];
+
+export const MENSAGEM_CONSUMIDOR_FINAL_SEM_FORMA = 'Marque ao menos uma forma de pagamento na coluna "Consumidor final", senão a venda para consumidor final fica sem forma de pagamento.';
+
+/** O cliente da venda e' o consumidor final (sem cadastro identificado)? */
+export const ehConsumidorFinal = (nomeDoCliente: unknown): boolean => (
+  String(nomeDoCliente ?? '').toLowerCase().includes('consumidor final')
+);
+
+/**
+ * Le a escolha gravada (`formasConsumidorFinal`). Sem nada gravado (empresa que
+ * nunca abriu a tela) = o padrao, com os cartoes. Boleto e a prazo nunca entram.
+ */
+export const parseFormasConsumidorFinal = (raw: unknown): string[] => {
+  if (!Array.isArray(raw)) return [...FORMAS_CONSUMIDOR_FINAL_PADRAO];
+  return parseOrdemFormasPagamento(raw).filter((forma) => !FORMAS_NUNCA_PARA_CONSUMIDOR_FINAL.includes(forma));
+};
+
+/**
+ * Formas oferecidas na venda para consumidor final: as da empresa (na ordem e
+ * sem as escondidas) que o dono liberou para consumidor final. Se nada sobrar
+ * (ex.: a empresa escondeu todas as liberadas), vale o que a empresa usa, menos
+ * boleto e a prazo -- a venda nunca fica sem forma nenhuma.
+ */
+export const formasParaConsumidorFinal = (
+  formasDaEmpresaNaOrdem: readonly PaymentMethod[],
+  liberadas: readonly string[] | null | undefined,
+): PaymentMethod[] => {
+  const permitidas = new Set(liberadas ?? FORMAS_CONSUMIDOR_FINAL_PADRAO);
+  const semFiado = formasDaEmpresaNaOrdem.filter((forma) => !FORMAS_NUNCA_PARA_CONSUMIDOR_FINAL.includes(forma));
+  const escolhidas = semFiado.filter((forma) => permitidas.has(forma));
+  if (escolhidas.length > 0) return escolhidas;
+  return semFiado.length > 0 ? semFiado : ['Dinheiro'];
+};

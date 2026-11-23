@@ -37,6 +37,9 @@ import {
   DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
   ordenarFormasPagamento,
   parseFormasOcultas,
+  parseFormasConsumidorFinal,
+  FORMAS_NUNCA_PARA_CONSUMIDOR_FINAL,
+  MENSAGEM_CONSUMIDOR_FINAL_SEM_FORMA,
   parseOrdemFormasPagamento,
   parsePermitirDividirPagamento,
   parseConfigBancoPadrao,
@@ -317,6 +320,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   { campo: 'formasPrecoAVista', rotulo: 'Formas que usam o preço à vista', formatar: listaHistorico },
   { campo: 'ordemFormasPagamento', rotulo: 'Ordem das formas de pagamento', formatar: listaHistorico },
   { campo: 'formasPagamentoOcultas', rotulo: 'Formas de pagamento ocultas', formatar: listaHistorico },
+  { campo: 'formasConsumidorFinal', rotulo: 'Formas de pagamento do consumidor final', formatar: listaHistorico },
   { campo: 'lembrarBancoDoDia', rotulo: 'Lembrar o banco do dia', formatar: simNaoHistorico },
   // Fiscal
   { campo: 'controlaFiscal', rotulo: 'Controla a parte fiscal', formatar: simNaoHistorico },
@@ -488,6 +492,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     lembrarBancoDoDia: false,
     ordemFormasPagamento: [] as string[],
     formasPagamentoOcultas: [] as string[],
+    formasConsumidorFinal: parseFormasConsumidorFinal(undefined),
     tipoDescontoPadrao: DEFAULT_TIPO_DESCONTO_PADRAO as DescontoTipo,
     modoValidacaoCliente: DEFAULT_MODO_VALIDACAO_CLIENTE,
     trabalhaComLimiteCredito: false,
@@ -677,6 +682,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             lembrarBancoDoDia: parseConfigBancoPadrao(data).lembrarDoDia,
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
             formasPagamentoOcultas: parseFormasOcultas(data.formasPagamentoOcultas),
+            formasConsumidorFinal: parseFormasConsumidorFinal(data.formasConsumidorFinal),
             tipoDescontoPadrao: parseTipoDescontoPadrao(data.tipoDescontoPadrao),
             modoValidacaoCliente: parseModoValidacaoCliente(data.modoValidacaoCliente),
             trabalhaComLimiteCredito: parseTrabalhaComLimiteCredito(data.trabalhaComLimiteCredito),
@@ -1170,6 +1176,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       }
     }
 
+    // Consumidor final (23/11/2026): sem nenhuma forma, a venda sem cliente nao fecha.
+    if (formData.formasConsumidorFinal.length === 0) {
+      showError('Formas de pagamento', MENSAGEM_CONSUMIDOR_FINAL_SEM_FORMA);
+      return;
+    }
+
     // QR Code Pix no pedido (23/11/2026): ligado, a chave (ou o CNPJ) e a cidade
     // tem de servir -- um QR que nao paga nao pode ir para o papel do cliente.
     if (formData.pixNoPedidoAtivo) {
@@ -1563,6 +1575,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     const nova = [...formasDePagamentoOrdenadas];
     [nova[indice], nova[destino]] = [nova[destino], nova[indice]];
     setFormData({ ...formData, ordemFormasPagamento: nova });
+  };
+
+  /** Coluna "Consumidor final" (23/11/2026): quais formas a venda sem cliente identificado oferece. */
+  const alternarFormaConsumidorFinal = (forma: string) => {
+    const atuais = formData.formasConsumidorFinal;
+    setFormData({ ...formData, formasConsumidorFinal: atuais.includes(forma) ? atuais.filter((f) => f !== forma) : [...atuais, forma] });
   };
 
   const alternarFormaOculta = (forma: string) => {
@@ -4011,6 +4029,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     A <strong>primeira da lista</strong> é a que já vem escolhida na venda. Loja que fecha tudo a prazo põe
                     Pagamento a Prazo em cima; loja de varejo põe o cartão. Vale para Pedido de Venda, OS e Orçamento.
                     Desmarcar <strong>Usa</strong> tira a forma da tela — <strong>venda já gravada não muda</strong>.
+                    A coluna <strong>Consumidor final</strong> diz quais formas aparecem na venda sem cliente identificado
+                    (boleto e a prazo nunca aparecem: é venda fiada, sem de quem cobrar).
                   </p>
                 </div>
 
@@ -4043,6 +4063,28 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                           />
                           Usa
                         </label>
+                        {FORMAS_NUNCA_PARA_CONSUMIDOR_FINAL.includes(forma) ? (
+                          <span
+                            title="Venda fiada: nunca para consumidor final (sem cliente identificado não há de quem cobrar)"
+                            style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: '118px', textAlign: 'center' }}
+                          >
+                            —
+                          </span>
+                        ) : (
+                          <label
+                            title="Aparece na venda para consumidor final (cliente não identificado)"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary)', minWidth: '118px', cursor: isEditingMode ? 'pointer' : 'default' }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={formData.formasConsumidorFinal.includes(forma)}
+                              onChange={() => alternarFormaConsumidorFinal(forma)}
+                              disabled={!isEditingMode}
+                              style={{ accentColor: 'var(--accent-purple)', width: '15px', height: '15px' }}
+                            />
+                            Consumidor final
+                          </label>
+                        )}
                         <button
                           type="button"
                           onClick={() => moverFormaPagamento(indice, -1)}

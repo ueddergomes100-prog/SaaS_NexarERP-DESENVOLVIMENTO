@@ -17,6 +17,11 @@ import {
   parseOrdemFormasPagamento,
   parsePermitirDividirPagamento,
   resumoDasParcelas,
+  FORMAS_CONSUMIDOR_FINAL_PADRAO,
+  MENSAGEM_CONSUMIDOR_FINAL_SEM_FORMA,
+  ehConsumidorFinal,
+  formasParaConsumidorFinal,
+  parseFormasConsumidorFinal,
 } from '../src/utils/formasPagamentoDomain';
 import { MAX_PARCELAS_A_PRAZO, gerarParcelasAPrazo, type PaymentMethod } from '../src/utils/financeDomain';
 
@@ -223,4 +228,32 @@ test('banco do dia guardado: chave por empresa/usuario/forma e leitura tolerante
   assert.equal(lerBancoDoDia(null), null);
   assert.equal(lerBancoDoDia({ data: '', bancoId: 'bb' }), null);
   assert.equal(lerBancoDoDia('lixo'), null);
+});
+
+// ------------------------------------------------------------------ Consumidor final (23/11/2026)
+
+test('consumidor final: sem nada gravado ja vem com dinheiro, Pix e os dois cartoes', () => {
+  assert.deepEqual(parseFormasConsumidorFinal(undefined), ['Dinheiro', 'Pix', 'Cartão de Débito', 'Cartão de Crédito']);
+  assert.deepEqual(parseFormasConsumidorFinal('lixo'), FORMAS_CONSUMIDOR_FINAL_PADRAO);
+  assert.deepEqual(parseFormasConsumidorFinal(['Pix', 'Cheque']), ['Pix', 'Cheque'], 'o dono escolheu');
+  assert.deepEqual(parseFormasConsumidorFinal(['Pix', 'Boleto', 'Pagamento a Prazo']), ['Pix'], 'boleto e a prazo nunca entram');
+  assert.deepEqual(parseFormasConsumidorFinal([]), [], 'lista vazia gravada continua vazia (a tela de Configuracoes nao deixa salvar)');
+});
+
+test('consumidor final: oferece as formas da empresa, na ordem dela, que o dono liberou', () => {
+  const daEmpresa = formasDaEmpresa(['Cartão de Crédito', 'Pix'], ['Cheque']);
+  assert.deepEqual(formasParaConsumidorFinal(daEmpresa, undefined), ['Cartão de Crédito', 'Pix', 'Dinheiro', 'Cartão de Débito'], 'cartoes liberados por padrao');
+  assert.deepEqual(formasParaConsumidorFinal(daEmpresa, ['Pix', 'Dinheiro']), ['Pix', 'Dinheiro'], 'como era antes, se o dono quiser');
+  assert.deepEqual(formasParaConsumidorFinal(daEmpresa, ['Pix', 'Cheque']), ['Pix'], 'forma escondida pela empresa nao volta');
+  assert.deepEqual(formasParaConsumidorFinal(daEmpresa, ['Boleto', 'Pagamento a Prazo']).includes('Boleto'), false, 'fiado nunca');
+  assert.deepEqual(formasParaConsumidorFinal(['Boleto', 'Pix'], ['Dinheiro']), ['Pix'], 'nada liberado sobrou: o que a empresa usa, menos fiado');
+  assert.deepEqual(formasParaConsumidorFinal(['Boleto', 'Pagamento a Prazo'], []), ['Dinheiro'], 'nunca fica sem forma');
+});
+
+test('consumidor final: reconhece pelo nome do cliente, sem ligar para maiuscula', () => {
+  assert.equal(ehConsumidorFinal('CONSUMIDOR FINAL'), true);
+  assert.equal(ehConsumidorFinal('Consumidor Final'), true);
+  assert.equal(ehConsumidorFinal('PADARIA SAO JOSE'), false);
+  assert.equal(ehConsumidorFinal(undefined), false);
+  assert.match(MENSAGEM_CONSUMIDOR_FINAL_SEM_FORMA, /coluna "Consumidor final"/);
 });

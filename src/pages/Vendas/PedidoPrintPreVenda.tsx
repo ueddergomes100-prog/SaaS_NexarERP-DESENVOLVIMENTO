@@ -14,6 +14,7 @@ import {
   vendedorMinuta,
 } from '../../utils/minutaDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
+import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos, type PagamentoImpresso } from '../../utils/pagamentoImpressoDomain';
 import './PedidoPrintPreVenda.css';
 
 interface PedidoPrintPreVendaProps {
@@ -37,6 +38,36 @@ const numero = (valor: number, casas = 2) =>
 /** Total que so' aparece quando existe: o papel antigo deixa em branco o que
  * e' zero (desconto, frete, encargos), em vez de imprimir "0,00" em tudo. */
 const totalOuVazio = (valor: number) => (Number(valor || 0) !== 0 ? numero(valor) : '');
+
+/**
+ * Valor de cada forma e, separado, o que ficou a prazo (23/11/2026, Jomarly
+ * 0339): so' o "Vr Liquido" fazia parecer que o cliente pagou tudo.
+ */
+const LinhasDePagamento: React.FC<{ pagamento: PagamentoImpresso }> = ({ pagamento }) => {
+  if (pagamento.formas.length === 0) return null;
+  return (
+    <div className="pv-pagamentos">
+      <div>
+        <span className="pv-rotulo">Pagamento:</span>{' '}
+        {pagamento.formas.map((forma, i) => {
+          const vencimentos = forma.aPrazo ? textoDosVencimentos(forma) : '';
+          return (
+            <span key={forma.forma}>
+              {i > 0 && ' · '}
+              {rotuloDaForma(forma)} <strong>{numero(forma.valorCentavos / 100)}</strong>{vencimentos && ` (${vencimentos})`}
+            </span>
+          );
+        })}
+      </div>
+      {pagamento.temAPrazo && (
+        <div className="pv-pagamentos-totais">
+          <span><span className="pv-rotulo">À vista:</span> <strong>{numero(pagamento.pagoNaCompraCentavos / 100)}</strong></span>
+          <span><span className="pv-rotulo">A prazo:</span> <strong>{numero(pagamento.aPrazoCentavos / 100)}</strong></span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /**
  * Modelo de impressao "Pre-venda" (pedido da Sol Natus, 2026-09-21): a folha
@@ -85,6 +116,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
   const enderecoEmpresa = [formatCompanyAddress(configData), cidadeEmpresa, formatarCepMinuta(configData?.cep)]
     .filter(Boolean).join(', ');
   const condicao = condicaoPagamentoMinuta(pedidoData.pagamentos) || String(pedidoData.formaPagamento || '');
+  const pagamento = pagamentoImpresso(pedidoData.pagamentos);
   const foneCliente = [formatarTelefoneMinuta(clientData?.telefone), formatarTelefoneMinuta(clientData?.celular)]
     .filter(Boolean).join(' / ');
   const enderecoCliente = [clientData?.endereco, clientData?.numero].filter(Boolean).join(', ');
@@ -229,6 +261,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
             <span><span className="pv-rotulo">Vr Outros:</span></span>
             <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
           </div>
+          <LinhasDePagamento pagamento={pagamento} />
           <div className="pv-obs">
             <span className="pv-rotulo">Observações:</span> {String(pedidoData.observacao || '')}
           </div>
@@ -247,6 +280,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
           <span><span className="pv-rotulo">Vr Outros:</span></span>
           <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
         </div>
+        <LinhasDePagamento pagamento={pagamento} />
         <div className="pv-rodape">
           <span>{preVenda ? 'Pré-Venda' : 'Pedido'}: {numeroPedido}/UN</span>
           <span>Estação: {nomeEmpresa.replace(/\s+/g, '').toUpperCase().slice(0, 20)} - Usuário: {extras.usuarioNome.toUpperCase()}</span>

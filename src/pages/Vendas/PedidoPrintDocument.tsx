@@ -2,6 +2,9 @@ import React from 'react';
 import { mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { ehPreVenda } from '../../utils/preVendaDomain';
+import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos } from '../../utils/pagamentoImpressoDomain';
+
+const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
 
 interface PedidoPrintDocumentProps {
   pedidoData: any;
@@ -19,6 +22,7 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
   const companyAddressRows = getCompanyAddressRows(configData);
   const itens = pedidoData.itens || [];
   const valorTotal = pedidoData.valorTotal || 0;
+  const pagamento = pagamentoImpresso(pedidoData.pagamentos);
 
   return (
     <div className="a4-page">
@@ -55,8 +59,25 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
         </div>
       </div>
 
+      {/* Valor de cada forma e o vencimento do que ficou a prazo (23/11/2026):
+          so' o nome das formas fazia o recibo parecer pago por inteiro. */}
       <div className="a4-section">
-        <p><strong>Forma de Pagamento:</strong> {pedidoData.formaPagamento}</p>
+        {pagamento.formas.length > 0 ? (
+          <>
+            <p><strong>Pagamento:</strong></p>
+            {pagamento.formas.map((forma) => {
+              const vencimentos = forma.aPrazo ? textoDosVencimentos(forma) : '';
+              return (
+                <p key={forma.forma}>
+                  {rotuloDaForma(forma)}{forma.aPrazo && !/prazo/i.test(forma.forma) ? ' (a prazo)' : ''}:<strong>{moeda(forma.valorCentavos / 100)}</strong>
+                  {vencimentos && ` — ${vencimentos}`}
+                </p>
+              );
+            })}
+          </>
+        ) : (
+          <p><strong>Forma de Pagamento:</strong> {pedidoData.formaPagamento}</p>
+        )}
       </div>
 
       <div className="a4-section">
@@ -133,6 +154,18 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}
               </td>
             </tr>
+            {pagamento.temAPrazo && (
+              <>
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'right', fontSize: '13px' }}>À vista:</td>
+                  <td style={{ textAlign: 'right', fontSize: '13px' }}>{moeda(pagamento.pagoNaCompraCentavos / 100)}</td>
+                </tr>
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'right', fontSize: '13px', fontWeight: 'bold' }}>A prazo:</td>
+                  <td style={{ textAlign: 'right', fontSize: '13px', fontWeight: 'bold' }}>{moeda(pagamento.aPrazoCentavos / 100)}</td>
+                </tr>
+              </>
+            )}
           </tfoot>
         </table>
       </div>

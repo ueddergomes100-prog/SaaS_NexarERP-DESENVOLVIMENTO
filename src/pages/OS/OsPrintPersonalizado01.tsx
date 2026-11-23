@@ -10,6 +10,7 @@ import {
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { resolverDescontoImpressaoOS, totalComDescontoOS } from '../../utils/osDescontoImpressao';
+import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos } from '../../utils/pagamentoImpressoDomain';
 import instagramIcon from '../../assets/instagram-icon.webp';
 import whatsappIcon from '../../assets/whatsapp-icon.webp';
 import hennderIcon from '../../assets/hennder-icon.webp';
@@ -78,6 +79,7 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
   );
   const subtotalItens = totalServicos + totalPecas;
   const descontoOS = resolverDescontoImpressaoOS(osData.desconto);
+  const pagamento = pagamentoImpresso(osData.pagamentos);
   const totalGeral = totalComDescontoOS(subtotalItens, descontoOS);
   const numeroOS = osData.numeroOS || osData.id?.substring(0, 6).toUpperCase();
   const companyDetails: Array<{ type: 'text' | 'instagram' | 'whatsapp'; value: string }> = [
@@ -281,12 +283,31 @@ const OsPrintPersonalizado01: React.FC<OsPrintPersonalizado01Props> = ({
         <div className="os-custom-summary-card">
           <CreditCard size={20} />
           <span>Condições de pagamento</span>
-          <p>
-            {osData.condicoesPagamento ||
-              `${displayValue(osData.formaPagamento)} - ${
-                osData.status === 'Finalizada' ? 'Pagamento registrado' : displayValue(osData.statusPagamento)
-              }`}
-          </p>
+          {/* Valor de cada forma e o que ficou a prazo (23/11/2026): "Pagamento
+              registrado" fazia a OS parecer paga por inteiro. */}
+          {pagamento.formas.length > 0 && !osData.condicoesPagamento ? (
+            <>
+              {pagamento.formas.map((forma) => {
+                const vencimentos = forma.aPrazo ? textoDosVencimentos(forma) : '';
+                return (
+                  <p key={forma.forma}>
+                    {rotuloDaForma(forma)}{forma.aPrazo && !/prazo/i.test(forma.forma) ? ' (a prazo)' : ''}:<strong>{currency(forma.valorCentavos / 100)}</strong>
+                    {vencimentos && ` — ${vencimentos}`}
+                  </p>
+                );
+              })}
+              {pagamento.temAPrazo && (
+                <p>À vista: <strong>{currency(pagamento.pagoNaCompraCentavos / 100)}</strong> · A prazo: <strong>{currency(pagamento.aPrazoCentavos / 100)}</strong></p>
+              )}
+            </>
+          ) : (
+            <p>
+              {osData.condicoesPagamento ||
+                `${displayValue(osData.formaPagamento)} - ${
+                  osData.status === 'Finalizada' ? 'Pagamento registrado' : displayValue(osData.statusPagamento)
+                }`}
+            </p>
+          )}
         </div>
         <div className="os-custom-total-card">
           {descontoOS.temDesconto && (

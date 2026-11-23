@@ -175,6 +175,21 @@
   margin-top: 8px;
 }
 
+/* Valor de cada forma e o que ficou a prazo (23/11/2026). */
+.pv-pagamentos {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  page-break-inside: avoid;
+}
+
+.pv-pagamentos-totais {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+}
+
 .pv-fim {
   margin-top: auto;
   page-break-inside: avoid;

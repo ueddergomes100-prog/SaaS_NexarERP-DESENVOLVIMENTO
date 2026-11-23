@@ -4,6 +4,7 @@ import { formatCompanyAddress } from '../../utils/companyAddress';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 import { ehPreVenda, STATUS_PRE_VENDA, STATUS_EM_ANALISE, STATUS_FINALIZADA, STATUS_CANCELADA } from '../../utils/preVendaDomain';
 import { qrPixDoPedido } from '../../utils/pixPedidoDomain';
+import { pagamentoImpresso, rotuloDaForma } from '../../utils/pagamentoImpressoDomain';
 import QrCodePix from '../../components/common/QrCodePix';
 import './PedidoPrintMeiaFolha.css';
 
@@ -95,6 +96,7 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
   const endereco = formatCompanyAddress(configData);
   // QR Code Pix (23/11/2026, pixPedidoDomain.ts): ligado por empresa, so' no que falta pagar.
   const pix = qrPixDoPedido(configData, pedidoData);
+  const pagamento = pagamentoImpresso(pedidoData.pagamentos);
 
   // Endereco do cliente montado das partes que existirem: cadastro sem
   // numero ou sem bairro nao pode imprimir "RUA X, - " com sobra de
@@ -197,7 +199,37 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
         <div className="mf-payment-left">
           <p><strong>CONDIÇÃO DE PAGAMENTO:</strong> {pedidoData.formaPagamento || '---'}</p>
 
-          {parcelas.length > 0 && (
+          {/* Valor de cada forma; o que ficou a prazo sai com o vencimento
+              (23/11/2026). A tabela antiga vinha do financeiro e listava o
+              debito como "parcela 1", como se tudo fosse parcelado. */}
+          {pagamento.formas.length > 0 ? (
+            <table className="mf-parcelas-table">
+              <thead>
+                <tr>
+                  <th>FORMA</th>
+                  <th>VENCIMENTO</th>
+                  <th style={{ textAlign: 'right' }}>VALOR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagamento.formas.flatMap((forma) => (forma.aPrazo && forma.parcelas.length > 0
+                  ? forma.parcelas.map((parcela, i) => (
+                    <tr key={`${forma.forma}-${i}`}>
+                      <td>{forma.parcelas.length > 1 ? `${forma.forma} ${i + 1}/${forma.parcelas.length}` : forma.forma}</td>
+                      <td>{parcela.dataVencimento ? formatDate(parcela.dataVencimento) : 'A PRAZO'}</td>
+                      <td style={{ textAlign: 'right' }}>{formatNumber(parcela.valorCentavos / 100)}</td>
+                    </tr>
+                  ))
+                  : [(
+                    <tr key={forma.forma}>
+                      <td>{rotuloDaForma(forma)}</td>
+                      <td>{forma.aPrazo ? 'A PRAZO' : 'À VISTA'}</td>
+                      <td style={{ textAlign: 'right' }}>{formatNumber(forma.valorCentavos / 100)}</td>
+                    </tr>
+                  )]))}
+              </tbody>
+            </table>
+          ) : parcelas.length > 0 && (
             <table className="mf-parcelas-table">
               <thead>
                 <tr>
@@ -224,6 +256,12 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
           <p>Frete: <span>{formatNumber(frete)}</span></p>
           <p>Valor Desconto: <span>{formatNumber(valorDesconto)}</span></p>
           <p className="mf-total-final">Valor Total: <span>{formatNumber(valorTotal)}</span></p>
+          {pagamento.temAPrazo && (
+            <>
+              <p>À vista: <span>{formatNumber(pagamento.pagoNaCompraCentavos / 100)}</span></p>
+              <p><strong>A prazo:</strong> <span><strong>{formatNumber(pagamento.aPrazoCentavos / 100)}</strong></span></p>
+            </>
+          )}
         </div>
       </div>
 

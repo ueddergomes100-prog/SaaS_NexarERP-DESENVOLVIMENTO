@@ -14,7 +14,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { enviarOrcamentoPorWhatsApp } from './enviarOrcamentoPdf';
+import { enviarOrcamentoPorWhatsApp, prepararEnvioDeOrcamento } from './enviarOrcamentoPdf';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
@@ -257,6 +257,9 @@ const Orcamentos: React.FC = () => {
       }
     }
   };
+
+  // Gerador do PDF baixado ao abrir a lista: o primeiro envio nao espera por ele.
+  useEffect(() => { prepararEnvioDeOrcamento(); }, []);
 
   // Envia o PDF do orcamento em nome da empresa (23/11/2026; antes so' um texto "da Hennder ERP").
   const handleShareWhatsApp = (orcamento: Orcamento) => {

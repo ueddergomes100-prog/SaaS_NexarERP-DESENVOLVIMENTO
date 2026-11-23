@@ -1,0 +1,18 @@
+/* Ajustes dos modelos de orcamento sobre o visual dos modelos de pedido (23/11/2026). */
+
+.orc-mf .orc-mf-titulo .mf-order-label {
+  letter-spacing: 0.08em;
+}
+
+.orc-mf .orc-mf-data {
+  min-width: 28mm;
+}
+
+.orc-simples .orc-simples-titulo {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.orc-simples .orc-simples-total strong {
+  font-size: 12.5px;
+}

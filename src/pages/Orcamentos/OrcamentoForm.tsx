@@ -15,7 +15,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
-import { enviarOrcamentoPorWhatsApp } from './enviarOrcamentoPdf';
+import { enviarOrcamentoPorWhatsApp, prepararEnvioDeOrcamento } from './enviarOrcamentoPdf';
 import { parseParametrosVenda, validadeOrcamentoPadrao } from '../../utils/parametrosVendaDomain';
 import { formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
@@ -273,12 +273,21 @@ const OrcamentoForm: React.FC = () => {
     setAprovacaoDesconto(null);
   }, [itens, descontoInput]);
 
+  // Catalogos (veiculos, servicos, estoque) em PARALELO e sem segurar a tela
+  // (23/11/2026): antes o orcamento so' aparecia depois de baixar o estoque
+  // inteiro, um catalogo esperando o outro. Agora a tela abre com o
+  // orcamento e a busca de produto fica pronta logo em seguida.
   useEffect(() => {
-    const fetchInitialData = async () => {
-      if (!currentUser || !tenantId) return;
-
-      try {
-        const snapV = await obterCatalogo('veiculos', tenantId);
+    if (!currentUser || !tenantId) return undefined;
+    let cancelado = false;
+    const carregarCatalogos = async () => {
+      const [snapV, snapS, snapE] = await Promise.all([
+        obterCatalogo('veiculos', tenantId).catch((err) => { console.error('Erro ao carregar veículos do orçamento:', err); return null; }),
+        obterCatalogo('servicos', tenantId).catch((err) => { console.error('Erro ao carregar serviços do orçamento:', err); return null; }),
+        obterCatalogoEstoque(tenantId).catch((err) => { console.error('Erro ao carregar o estoque do orçamento:', err); return null; }),
+      ]);
+      if (cancelado) return;
+      if (snapV) {
         const dataV: VeiculoBasico[] = [];
         // Campos opcionais no cadastro de veiculo (Ano, Cor) podem faltar no
         // documento -- sem o fallback, o autofill do orcamento copiava
@@ -293,13 +302,13 @@ const OrcamentoForm: React.FC = () => {
           clienteId: doc.data().clienteId || '',
         }));
         setVeiculosDisponiveis(dataV);
-
-        const snapS = await obterCatalogo('servicos', tenantId);
+      }
+      if (snapS) {
         const dataS: ServicoData[] = [];
         snapS.forEach((doc) => dataS.push({ id: doc.id, nome: doc.data().nome, preco: doc.data().preco }));
         setServicosCatalogo(dataS);
-
-        const snapE = await obterCatalogoEstoque(tenantId);
+      }
+      if (snapE) {
         const dataE: PecaOrcamento[] = [];
         snapE.forEach((doc) => {
           const data = doc.data();
@@ -332,12 +341,29 @@ const OrcamentoForm: React.FC = () => {
           });
         });
         setPecasEstoque(dataE);
+      }
+    };
+    void carregarCatalogos();
+    return () => { cancelado = true; };
+  }, [currentUser, tenantId]);
 
-        // Fetch Configurações
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      if (!currentUser || !tenantId) return;
+
+      try {
+        // Configuracoes, vendedores e o orcamento (ou o numero do novo) juntos.
+        const [configSnap, snapU, docSnap, contagem] = await Promise.all([
+          getDoc(doc(db, 'configuracoes', tenantId)).catch((err) => { console.error(err); return null; }),
+          getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)))
+            .catch((err) => { console.error('Erro ao carregar vendedores do orçamento:', err); return null; }),
+          isEditing && id ? getDoc(doc(db, 'orcamentos', id)) : Promise.resolve(null),
+          !isEditing ? getCountFromServer(query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId))) : Promise.resolve(null),
+        ]);
+
+        // Configurações
         try {
-          const configRef = doc(db, 'configuracoes', tenantId);
-          const configSnap = await getDoc(configRef);
-          if (configSnap.exists()) {
+          if (configSnap?.exists()) {
             const config = configSnap.data();
             setPermitirVendaSemEstoque(config.venderSemEstoque === true);
             setVenderPorEmbalagem(config.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
@@ -362,9 +388,8 @@ const OrcamentoForm: React.FC = () => {
 
         // Vendedores: os mesmos do Pedido de Venda (usuarios com login; vendedor de balcao fica fora).
         try {
-          const snapU = await getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)));
           const lista: Array<{ id: string; nome: string }> = [];
-          snapU.forEach((documento) => {
+          snapU?.forEach((documento) => {
             const usuario = documento.data();
             if (isRegistroDeVendedor(usuario)) return;
             lista.push({ id: documento.id, nome: usuario.nome || usuario.nomeResponsavel || usuario.email || 'Usuário sem nome' });
@@ -374,9 +399,7 @@ const OrcamentoForm: React.FC = () => {
         } catch (err) { console.error('Erro ao carregar vendedores do orçamento:', err); }
 
         if (isEditing && id) {
-          const docRef = doc(db, 'orcamentos', id);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
+          if (docSnap?.exists()) {
             const data = docSnap.data();
             setRecusaInfo(data.status === 'Recusado'
               ? { nome: String(data.recusadoPorNome || ''), quando: data.recusadoEm || data.alteradoEm || data.updatedAt || null }
@@ -415,8 +438,7 @@ const OrcamentoForm: React.FC = () => {
             }
           }
         } else {
-          const snap = await getCountFromServer(query(collection(db, 'orcamentos'), where('tenantId', '==', tenantId)));
-          const nextNum = String(snap.data().count + 1).padStart(4, '0');
+          const nextNum = String((contagem?.data().count ?? 0) + 1).padStart(4, '0');
           setFormData(prev => ({ ...prev, numeroOrcamento: nextNum }));
         }
       } catch (error) {
@@ -913,6 +935,8 @@ const OrcamentoForm: React.FC = () => {
     if (!confirm.isConfirmed) return;
     await openTab(`/pedidos-venda/novo?doOrcamento=${id}`, `Venda do orçamento #${formData.numeroOrcamento}`);
   };
+
+  useEffect(() => { prepararEnvioDeOrcamento(); }, []);
 
   // Envia o PDF do orcamento GRAVADO em nome da empresa (23/11/2026; antes so'
   // um texto "da Sistema Nexus"). Igual ao Imprimir: vale o que esta' salvo.

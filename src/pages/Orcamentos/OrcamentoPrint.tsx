@@ -6,7 +6,8 @@ import { db } from '../../services/firebase';
 import { buscarClienteDoDocumento } from '../../services/clienteDoDocumentoService';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
-import OrcamentoPrintDocument from './OrcamentoPrintDocument';
+import { showError } from '../../utils/alerts';
+import OrcamentoPrintModelo from './OrcamentoPrintModelo';
 import '../OS/OsPrint.css';
 
 const OrcamentoPrint: React.FC = () => {
@@ -22,8 +23,12 @@ const OrcamentoPrint: React.FC = () => {
     const fetchData = async () => {
       if (!id || !tenantId) return;
       try {
-        const docRef = doc(db, 'orcamentos', id);
-        const docSnap = await getDoc(docRef);
+        // Orcamento e configuracao juntos (23/11/2026): antes um esperava o outro.
+        const [docSnap, configSnap] = await Promise.all([
+          getDoc(doc(db, 'orcamentos', id)),
+          currentUser ? getDoc(doc(db, 'configuracoes', tenantId)) : Promise.resolve(null),
+        ]);
+        if (configSnap?.exists()) setConfigData(configSnap.data());
 
         if (docSnap.exists()) {
           const orcData = { id: docSnap.id, ...docSnap.data() } as any;
@@ -34,16 +39,8 @@ const OrcamentoPrint: React.FC = () => {
           const cliente = await buscarClienteDoDocumento(tenantId, orcData);
           if (cliente) setClientData(cliente);
         } else {
-          alert('Orçamento não encontrado!');
+          showError('Orçamento não encontrado', 'Ele pode ter sido apagado. Volte à lista de Orçamentos e confira.');
           navigate('/orcamentos');
-        }
-
-        if (currentUser) {
-          const configRef = doc(db, 'configuracoes', tenantId || '');
-          const configSnap = await getDoc(configRef);
-          if (configSnap.exists()) {
-            setConfigData(configSnap.data());
-          }
         }
       } catch (error) {
         console.error("Erro ao buscar dados", error);
@@ -75,7 +72,7 @@ const OrcamentoPrint: React.FC = () => {
         </button>
       </div>
 
-      <OrcamentoPrintDocument data={data} clientData={clientData} configData={configData} />
+      <OrcamentoPrintModelo data={data} clientData={clientData} configData={configData} />
     </div>
   );
 };

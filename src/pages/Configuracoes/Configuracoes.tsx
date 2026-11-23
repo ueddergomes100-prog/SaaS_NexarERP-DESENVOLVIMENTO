@@ -26,6 +26,7 @@ import { isCnpjValido } from '../../utils/documentoValidacao';
 import { avisoDaSituacao, ehMeiNaReceita, preenchimentoPelaReceita, regimeSugerido, soOsVazios, type CamposDaEmpresa } from '../../utils/cnpjPreenchimentoDomain';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
+import { ORCAMENTO_PRINT_MODELS, modeloDeImpressaoDoOrcamento } from '../../utils/orcamentoPrintModels';
 import { normalizarChavePix, parseConfigPixPedido } from '../../utils/pixPedidoDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
@@ -236,6 +237,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   { campo: 'diasNotificacaoLembrete', rotulo: 'Antecedência dos lembretes preventivos (dias)', formatar: numeroHistorico },
   { campo: 'modeloImpressaoOS', rotulo: 'Modelo de impressão da OS' },
   { campo: 'modeloImpressaoPedidoVenda', rotulo: 'Modelo de impressão do pedido' },
+  { campo: 'modeloImpressaoOrcamento', rotulo: 'Modelo de impressão do orçamento' },
   { campo: 'pixNoPedidoAtivo', rotulo: 'QR Code Pix no pedido', formatar: simNaoHistorico },
   { campo: 'pixNoPedidoChave', rotulo: 'Chave Pix do QR Code do pedido' },
   // Parametros de venda
@@ -556,6 +558,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     mostrarValorListaOS: DEFAULT_MOSTRAR_VALOR_LISTA_OS,
     mostrarResumoEstoque: DEFAULT_MOSTRAR_RESUMO_ESTOQUE,
     modeloImpressaoPedidoVenda: DEFAULT_PEDIDO_PRINT_MODEL,
+    modeloImpressaoOrcamento: modeloDeImpressaoDoOrcamento(null) as string,
     observacoesPadraoPedido: '',
     pixNoPedidoAtivo: false,
     pixNoPedidoChave: '',
@@ -757,6 +760,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             mostrarValorListaOS: parseMostrarValorListaOS(data.mostrarValorListaOS),
             mostrarResumoEstoque: parseMostrarResumoEstoque(data.mostrarResumoEstoque),
             modeloImpressaoPedidoVenda: data.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL,
+            modeloImpressaoOrcamento: modeloDeImpressaoDoOrcamento(data) as string,
             observacoesPadraoPedido: data.observacoesPadraoPedido || '',
             pixNoPedidoAtivo: parseConfigPixPedido(data).ativo,
             pixNoPedidoChave: parseConfigPixPedido(data).chave,
@@ -2393,6 +2397,51 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   Eles ocupam a primeira dobra inteira da tela — quem usa o Estoque para consultar produto ganha a busca e a
                   lista mais acima ao desligar. Nenhum número deixa de ser calculado, apenas não aparece.
                 </p>
+              </div>
+
+              {/* Modelo do ORCAMENTO (23/11/2026): vale para imprimir e para o PDF enviado ao cliente. */}
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                  <LayoutTemplate size={18} style={{ color: 'var(--accent-purple)' }} />
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)' }}>Modelo de impressão do Orçamento</h4>
+                    <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>Usado ao imprimir o orçamento e no PDF enviado ao cliente pelo WhatsApp.</p>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
+                  {ORCAMENTO_PRINT_MODELS.map(modelo => {
+                    const selected = formData.modeloImpressaoOrcamento === modelo.id;
+                    return (
+                      <label
+                        key={modelo.id}
+                        style={{
+                          display: 'flex',
+                          gap: '12px',
+                          alignItems: 'flex-start',
+                          padding: '14px',
+                          borderRadius: '8px',
+                          border: `1px solid ${selected ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                          backgroundColor: selected ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
+                          cursor: isEditingMode ? 'pointer' : 'default',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="modeloImpressaoOrcamento"
+                          value={modelo.id}
+                          checked={selected}
+                          onChange={handleChange}
+                          disabled={!isEditingMode}
+                          style={{ marginTop: '3px', accentColor: 'var(--accent-purple)' }}
+                        />
+                        <span>
+                          <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>{modelo.name}</strong>
+                          <span style={{ display: 'block', fontSize: '12px', lineHeight: 1.45, color: 'var(--text-muted)' }}>{modelo.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>

@@ -187,6 +187,8 @@ export interface LinhaServicoPdf {
 }
 
 export interface LinhaProdutoPdf {
+  /** Codigo do produto no estoque; vazio em peca avulsa. */
+  codigo: string;
   nome: string;
   quantidade: number;
   unidade: string;
@@ -195,6 +197,7 @@ export interface LinhaProdutoPdf {
 }
 
 interface ItemGravado {
+  codigo?: string | number;
   nome?: string;
   preco?: number;
   quantidade?: number;
@@ -213,7 +216,7 @@ export const linhasDoPdfDoOrcamento = (orcamento: { servicos?: ItemGravado[]; pe
   produtos: (Array.isArray(orcamento.pecas) ? orcamento.pecas : []).map((p) => {
     const quantidade = Number(p.quantidade || 0) || 0;
     const unitario = Number(p.preco || 0);
-    return { nome: String(p.nome || ''), quantidade, unidade: String(p.unidadeMedidaSigla || 'UN'), unitario, total: unitario * quantidade };
+    return { codigo: String(p.codigo ?? '').trim(), nome: String(p.nome || ''), quantidade, unidade: String(p.unidadeMedidaSigla || 'UN'), unitario, total: unitario * quantidade };
   }),
 });
 

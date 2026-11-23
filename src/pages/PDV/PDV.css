@@ -1137,3 +1137,204 @@
     text-align: left;
   }
 }
+
+/* ------------------------------------------------ pre-venda no caixa (23/11/2026) */
+
+/* Faixa acima do cupom: qual pre-venda esta' no caixa e de qual vendedor ela e'. */
+.pdv-prevenda-faixa {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--brand-softer);
+  border: 1px solid var(--brand-600);
+  color: var(--brand-ink);
+}
+
+.pdv-prevenda-faixa > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.pdv-prevenda-faixa div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pdv-prevenda-faixa strong {
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.pdv-prevenda-faixa span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Cupom travado: quantidade e desconto da pre-venda como texto. */
+.pdv-cart-fixo {
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pdv-cart-fixo--qtd {
+  text-align: center;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* Cliente e vendedor da pre-venda: informam, nao abrem nada. */
+.pdv-summary .pdv-client-card--fixo,
+.pdv-summary .pdv-client-card--fixo:hover {
+  cursor: default;
+  border-color: var(--border-color);
+}
+
+/* Janela "Pré-vendas em aberto" (F8). */
+.pdv-prevendas-modal {
+  width: min(920px, 100%);
+}
+
+.pdv-prevendas-atualizar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--brand-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pdv-prevendas-atualizar:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pdv-prevendas-lista {
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.pdv-prevendas-cabecalho,
+.pdv-prevendas-linha {
+  display: grid;
+  grid-template-columns: 84px 92px minmax(160px, 1.6fr) minmax(110px, 1fr) 112px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.pdv-prevendas-cabecalho {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pdv-prevendas-cabecalho span:last-child,
+.pdv-prevendas-linha b {
+  text-align: right;
+}
+
+.pdv-prevendas-linha {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pdv-prevendas-linha:last-child {
+  border-bottom: 0;
+}
+
+.pdv-prevendas-linha:hover {
+  background: var(--brand-softer);
+}
+
+.pdv-prevendas-linha.marcada {
+  background: var(--brand-soft);
+}
+
+.pdv-prevendas-linha:focus-visible {
+  outline: 2px solid var(--brand-600);
+  outline-offset: -2px;
+}
+
+.pdv-prevendas-linha.parada {
+  opacity: 0.55;
+}
+
+.pdv-prevendas-linha span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.pdv-prevendas-linha .pdv-prevendas-cliente {
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+  white-space: normal;
+}
+
+.pdv-prevendas-cliente small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pdv-prevendas-erro {
+  color: var(--status-red);
+}
+
+.pdv-prevendas-rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.pdv-prevendas-rodape .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .pdv-prevendas-cabecalho {
+    display: none;
+  }
+
+  .pdv-prevendas-linha {
+    grid-template-columns: 1fr 1fr;
+  }
+}

@@ -393,6 +393,133 @@ test('PDV: caixa fechado, de outro operador ou inexistente recusa sem gravar nad
   );
 });
 
+// ------------------------------------------------------------------ Pre-venda faturada na Frente de Caixa (23/11/2026)
+
+// Quem recebe no caixa: opera o PDV e pode transformar pre-venda em venda. Nao e' o vendedor.
+const CAIXA = { uid: 'cx_op', tenantId: 'loja', email: 'c@loja', permissoes: ['vendas.so_caixa', 'vendas.pre_venda_finalizar'] };
+const caixaDoOperador = {
+  'usuarios/cx_op': { tenantId: 'loja', nome: 'OPERADORA DO CAIXA', recebeComissaoPecas: true, comissaoPercentualPecas: 50 },
+  'caixas_pdv/cx1': { tenantId: 'loja', operadorId: 'cx_op', status: 'aberto', saldoInicialCentavos: 0 },
+};
+const preVendaGravada = (extra = {}) => ({
+  'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 5, quantidadeReservada: 4 },
+  'pedidos_venda/pv1': {
+    tenantId: 'loja', status: 'Pré-venda', numeroPedido: '0042', origem: 'balcao', estoqueReservado: true,
+    vendedorId: 'vend1', vendedorNome: 'VENDEDOR UM', usuarioResponsavelId: 'vend1',
+    itens: [{ id: 'p1', nome: 'RAÇÃO', quantidade: 2 }], createdAt: 'antes', criadoPor: 'vend1', statusConferencia: 'conferido', conferidoPor: 'exp1',
+    ...extra,
+  },
+});
+// O que o caixa manda: a pre-venda, a sessao do caixa e -- de proposito, errado -- o operador como vendedor.
+const corpoDoCaixa = (extra = {}) => corpo({ idDocumento: undefined, pedidoId: 'pv1', pdvSessionId: 'cx1', vendedorId: 'cx_op', ...extra });
+
+test('pre-venda no caixa: fatura sobre a propria pre-venda e o vendedor (e a comissao) continua o da pre-venda', async () => {
+  const fake = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada(), 'configuracoes/loja': { tenantId: 'loja', conferenciaMercadoria: true } }), { consultas: true });
+  const r = await carregar(fake.db).finalizarVenda({ user: CAIXA, tenantId: 'loja', corpo: corpoDoCaixa() });
+  assert.equal(r.numeroPedido, '0042', 'nao cria pedido novo: o numero e\' o da pre-venda');
+  assert.equal(r.pedidoId, 'pv1');
+  assert.equal(r.preVendaNoCaixa, true);
+  assert.equal(r.dePreVenda, true);
+  assert.equal(r.vendedorId, 'vend1');
+  assert.equal(r.vendedorNome, 'VENDEDOR UM');
+
+  const pedido = fake.ler('pedidos_venda/pv1');
+  assert.equal(pedido.status, 'Finalizada', 'sai das pre-vendas em aberto');
+  assert.equal(pedido.vendedorId, 'vend1', 'o vendedor que a tela mandou (o operador) nao vale');
+  assert.equal(pedido.vendedorNome, 'VENDEDOR UM');
+  assert.equal(pedido.comissao.vendedorId, 'vend1');
+  assert.equal(pedido.comissao.valorOriginalCentavos, 100, '5% do vendedor sobre R$ 20,00 -- nao os 50% do operador');
+  assert.equal(pedido.usuarioResponsavelId, 'cx_op', 'quem faturou fica registrado');
+  assert.equal(pedido.origem, 'balcao', 'continua venda do Pedido de Venda');
+  assert.equal(pedido.sourceOrigin, undefined);
+  assert.equal(pedido.pdvSessionId, 'cx1', 'o caixa que recebeu');
+  assert.equal(pedido.faturadoNoCaixa, true);
+  assert.equal(pedido.statusConferencia, 'conferido', 'a conferencia da expedicao fica');
+  assert.equal(pedido.conferidoPor, 'exp1');
+  assert.equal(pedido.createdAt, 'antes');
+  assert.equal(pedido.estoqueReservado, false);
+
+  const p1 = fake.ler('estoque/p1');
+  assert.equal(p1.quantidade, 3, 'baixa os 2 da pre-venda');
+  assert.equal(p1.quantidadeReservada, 2, 'consome so\' a reserva dela');
+
+  const titulo = fake.ler('transacoes/pv1');
+  assert.equal(titulo.vendedorId, 'vend1');
+  assert.equal(titulo.pdvSessionId, 'cx1', 'o fechamento do caixa soma por aqui');
+  assert.equal(titulo.sourceOrigin, 'pdv');
+  assert.equal(titulo.movimentaCaixaFisico, true);
+  assert.equal(titulo.status, 'Paga');
+  assert.equal(fake.ler('contadores/loja/sequencias/pedidos_venda'), undefined, 'nao gasta numero novo');
+});
+
+test('pre-venda no caixa: sem vendedor gravado vale quem gravou a pre-venda; vendedor que saiu da empresa trava com o que fazer', async () => {
+  const semVendedor = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada({ vendedorId: undefined, vendedorNome: undefined }) }), { consultas: true });
+  await carregar(semVendedor.db).finalizarVenda({ user: CAIXA, tenantId: 'loja', corpo: corpoDoCaixa() });
+  assert.equal(semVendedor.ler('pedidos_venda/pv1').vendedorId, 'vend1');
+
+  const saiu = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada({ vendedorId: 'demitido' }) }), { consultas: true });
+  await assert.rejects(
+    () => carregar(saiu.db).finalizarVenda({ user: CAIXA, tenantId: 'loja', corpo: corpoDoCaixa() }),
+    (erro) => erro.status === 400 && /vendedor da pré-venda #0042 não está mais cadastrado/.test(erro.message) && /Pré-vendas em Aberto/.test(erro.message),
+  );
+  assert.equal(saiu.ler('pedidos_venda/pv1').status, 'Pré-venda');
+  assert.equal(saiu.ler('estoque/p1').quantidade, 5);
+});
+
+test('pre-venda no caixa: exige a permissao de finalizar pre-venda e o caixa aberto do operador', async () => {
+  const soCaixa = { ...CAIXA, permissoes: ['vendas.so_caixa'] };
+  const semPermissao = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada() }), { consultas: true });
+  await assert.rejects(
+    () => carregar(semPermissao.db).finalizarVenda({ user: soCaixa, tenantId: 'loja', corpo: corpoDoCaixa() }),
+    (erro) => erro.status === 403 && /finalizar pré-venda/.test(erro.message),
+  );
+  assert.equal(semPermissao.ler('pedidos_venda/pv1').status, 'Pré-venda');
+
+  const caixaFechado = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada(), 'caixas_pdv/cx1': { tenantId: 'loja', operadorId: 'cx_op', status: 'fechado' } }), { consultas: true });
+  await assert.rejects(
+    () => carregar(caixaFechado.db).finalizarVenda({ user: CAIXA, tenantId: 'loja', corpo: corpoDoCaixa() }),
+    (erro) => erro.status === 409 && /já foi fechado/.test(erro.message),
+  );
+  assert.equal(caixaFechado.ler('pedidos_venda/pv1').status, 'Pré-venda');
+});
+
+test('pre-venda no caixa: pedido do agente, bonificacao, entrega futura e pre-venda ja\' faturada ficam fora, sem gravar', async () => {
+  const gestor = { ...CAIXA, isTenantManager: true };
+  const recusa = async (extra, padrao) => {
+    const fake = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada(extra) }), { consultas: true });
+    await assert.rejects(
+      () => carregar(fake.db).finalizarVenda({ user: gestor, tenantId: 'loja', corpo: corpoDoCaixa() }),
+      (erro) => erro.status === 409 && padrao.test(erro.message),
+    );
+    assert.equal(fake.ler('estoque/p1').quantidade, 5);
+    assert.equal(fake.ler('transacoes/pv1'), undefined);
+  };
+  await recusa({ status: 'Em Análise', origem: 'agente' }, /não é uma pré-venda do balcão/);
+  await recusa({ tipoPedido: 'bonificacao' }, /é de bonificação/);
+  await recusa({ entregaFutura: true }, /entrega futura/);
+  await recusa({ status: 'Finalizada' }, /já foi finalizado ou cancelado/);
+});
+
+test('pre-venda no caixa: desconto pelo limite do Pedido de Venda (nao o do PDV) e sem pedir identificacao do vendedor', async () => {
+  // 10% de desconto: passa no Pedido (limite 15%), nao passaria no PDV (limite 5%).
+  const config = {
+    tenantId: 'loja', modoLimiteDesconto: 'bloquear', exigirIdentificacaoVendedor: true,
+    limiteDescontoPedido: { tipo: 'percentual', valor: 15 }, limiteDescontoPdv: { tipo: 'percentual', valor: 5 },
+  };
+  const comDesconto = { descontoGeral: { tipo: 'valor', valorInformado: 2 }, pagamentos: [pagamento({ valor: '18' })] };
+  const fake = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada(), 'configuracoes/loja': config }), { consultas: true });
+  const r = await carregar(fake.db).finalizarVenda({ user: CAIXA, tenantId: 'loja', corpo: corpoDoCaixa(comDesconto) });
+  assert.equal(r.totalCentavos, 1800);
+  assert.equal(fake.ler('pedidos_venda/pv1').vendedorId, 'vend1');
+
+  // A venda direta do PDV continua no limite do PDV.
+  const direta = criarBancoFalso(base({ ...caixaDoOperador, 'configuracoes/loja': config }), { consultas: true });
+  await assert.rejects(
+    () => carregar(direta.db).finalizarVenda({ user: CAIXA, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1', vendedorId: 'cx_op', ...comDesconto }) }),
+    (erro) => erro.status === 409 && /configurado para PDV/.test(erro.message),
+  );
+});
+
 test('total arredondado por linha (kg): duas linhas fracionadas fecham com o valor que o PDV mostra', async () => {
   // 0,355 kg x R$ 12,90 = 4,5795 -> R$ 4,58 por linha; duas linhas = R$ 9,16 (somando sem arredondar daria R$ 9,16 tambem
   // aqui, entao usa um caso que diverge: 3 x 0,005 kg x R$ 1,00 = 0,005 cada -> 0,01 por linha = R$ 0,03; sem arredondar = R$ 0,02).

@@ -102,6 +102,8 @@ export interface PdvTotals {
   totalCentavos: number;
   itemCount: number;
   volumeCount: number;
+  /** Frete + encargos da pre-venda faturada no caixa (23/11/2026); a venda direta do PDV nao tem. */
+  acrescimosCentavos?: number;
 }
 
 /** 'total' (15/10/2026): digita o total combinado e o desconto sai da diferenca. */

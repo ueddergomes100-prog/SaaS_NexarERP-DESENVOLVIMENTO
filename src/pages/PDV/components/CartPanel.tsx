@@ -16,6 +16,11 @@ interface CartPanelProps {
    * preenchido quando a chave venderPorEmbalagem esta ligada. */
   unitOptionsByItemId?: Record<string, OpcaoUnidadeVenda[]>;
   onUnitChange?: (id: string, embalagemId: string) => void;
+  /**
+   * Pre-venda puxada para o caixa (23/11/2026): os itens sao os da pre-venda e
+   * nao mudam aqui -- quantidade e desconto viram texto e a lixeira some.
+   */
+  somenteLeitura?: boolean;
 }
 
 const CartPanel: React.FC<CartPanelProps> = ({
@@ -27,6 +32,7 @@ const CartPanel: React.FC<CartPanelProps> = ({
   onRemoveItem,
   unitOptionsByItemId,
   onUnitChange,
+  somenteLeitura = false,
 }) => (
   <section className="pdv-panel pdv-cart-panel">
     <div className="pdv-section-title">
@@ -56,7 +62,7 @@ const CartPanel: React.FC<CartPanelProps> = ({
         // Produto com uma unidade so nao ganha seletor -- seria um select
         // de uma opcao, ocupando espaco no cupom sem servir pra nada.
         const unitOptions = unitOptionsByItemId?.[item.id];
-        const showUnitSelect = Boolean(onUnitChange) && (unitOptions?.length ?? 0) > 1;
+        const showUnitSelect = !somenteLeitura && Boolean(onUnitChange) && (unitOptions?.length ?? 0) > 1;
         // Meio metro, lata: a venda sai na unidade do estoque -- mostra quanto da' (21/11/2026).
         const naUnidadeDoEstoque = embalagemFracionaria(item) && unitOptions?.[0]
           ? `= ${toBaseQuantity(item.quantidade, item.fatorConversao).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} ${unitOptions[0].sigla} na venda`
@@ -97,40 +103,54 @@ const CartPanel: React.FC<CartPanelProps> = ({
               </div>
             </div>
 
-            <div className="pdv-quantity-control">
-              <button type="button" onClick={(event) => { event.stopPropagation(); onQuantityChange(item.id, item.quantidade - 1); }}>
-                <Minus size={14} />
-              </button>
+            {somenteLeitura ? (
+              <span className="pdv-cart-fixo pdv-cart-fixo--qtd" title="Quantidade da pré-venda">
+                {item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 6 })}
+              </span>
+            ) : (
+              <div className="pdv-quantity-control">
+                <button type="button" onClick={(event) => { event.stopPropagation(); onQuantityChange(item.id, item.quantidade - 1); }}>
+                  <Minus size={14} />
+                </button>
+                <input
+                  value={String(item.quantidade)}
+                  inputMode="decimal"
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => onQuantityChange(item.id, Number(event.target.value.replace(',', '.')) || 0)}
+                />
+                <button type="button" onClick={(event) => { event.stopPropagation(); onQuantityChange(item.id, item.quantidade + 1); }}>
+                  <Plus size={14} />
+                </button>
+              </div>
+            )}
+
+            {somenteLeitura ? (
+              <span className="pdv-cart-fixo" title="Desconto do item na pré-venda">
+                {item.descontoCentavos > 0 ? `- ${currency.format(fromCents(item.descontoCentavos))}` : '—'}
+              </span>
+            ) : (
               <input
-                value={String(item.quantidade)}
+                className="pdv-money-input"
+                value={toCurrencyInput(item.descontoCentavos)}
                 inputMode="decimal"
                 onClick={(event) => event.stopPropagation()}
-                onChange={(event) => onQuantityChange(item.id, Number(event.target.value.replace(',', '.')) || 0)}
+                onChange={(event) => onDiscountChange(item.id, Math.min(fromCurrencyInput(event.target.value), lineGrossCents))}
+                aria-label={`Desconto do item ${item.nome}`}
               />
-              <button type="button" onClick={(event) => { event.stopPropagation(); onQuantityChange(item.id, item.quantidade + 1); }}>
-                <Plus size={14} />
-              </button>
-            </div>
-
-            <input
-              className="pdv-money-input"
-              value={toCurrencyInput(item.descontoCentavos)}
-              inputMode="decimal"
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => onDiscountChange(item.id, Math.min(fromCurrencyInput(event.target.value), lineGrossCents))}
-              aria-label={`Desconto do item ${item.nome}`}
-            />
+            )}
 
             <strong className="pdv-line-total">{currency.format(fromCents(lineNetCents))}</strong>
 
-            <button
-              type="button"
-              className="pdv-row-action"
-              title="Cancelar item"
-              onClick={(event) => { event.stopPropagation(); onRemoveItem(item.id); }}
-            >
-              <Trash2 size={16} />
-            </button>
+            {somenteLeitura ? <span /> : (
+              <button
+                type="button"
+                className="pdv-row-action"
+                title="Cancelar item"
+                onClick={(event) => { event.stopPropagation(); onRemoveItem(item.id); }}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
           </div>
         );
       })}

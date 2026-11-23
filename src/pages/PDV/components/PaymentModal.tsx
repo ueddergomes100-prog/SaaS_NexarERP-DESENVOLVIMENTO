@@ -30,6 +30,10 @@ interface PaymentModalProps {
   saving?: boolean;
   /** Cashback do cliente (20/10/2026): so' com saldo que de' para usar neste cupom e venda pelo servidor. */
   cashbackDisponivel?: CashbackDisponivel | null;
+  /** Pre-venda faturada no caixa (23/11/2026): a observacao ja' abre com a da pre-venda. */
+  observacaoInicial?: string;
+  /** Texto do botao de finalizar (a pre-venda diz "Receber e faturar"). */
+  rotuloFinalizar?: string;
   onClose: () => void;
   onFinalize: (drafts: PaymentDraft[], observation: string) => void;
 }
@@ -55,6 +59,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   tenantId,
   saving,
   cashbackDisponivel = null,
+  observacaoInicial = '',
+  rotuloFinalizar = 'Finalizar venda',
   onClose,
   onFinalize,
 }) => {
@@ -68,9 +74,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   useEffect(() => {
     if (open) {
       setDrafts([makePaymentDraft('pdv-payment-1', totalCents, financeConfig.defaultTermDays)]);
-      setObservation('');
+      setObservation(observacaoInicial);
     }
-  }, [financeConfig.defaultTermDays, open, totalCents]);
+  }, [financeConfig.defaultTermDays, open, totalCents, observacaoInicial]);
 
   const paidCents = useMemo(() => drafts.reduce((sum, draft) => sum + toCents(draft.valor), 0), [drafts]);
   const remainingCents = totalCents - paidCents;
@@ -274,7 +280,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
           disabled={!canFinalize}
         >
           <CreditCard size={20} />
-          {saving ? 'Finalizando...' : 'Finalizar venda'}
+          {saving ? 'Finalizando...' : rotuloFinalizar}
         </button>
       </div>
 

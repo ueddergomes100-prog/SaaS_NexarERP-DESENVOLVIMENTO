@@ -49,7 +49,8 @@ router.post('/finalizar', async (req, res) => {
       registrarLog({ ...req.user, tenantId }, {
         modulo: 'vendas',
         acao: resultado.pdv ? 'criar_pdv' : 'criacao',
-        descricao: `${resultado.pdv ? 'Venda PDV' : 'Venda'} #${resultado.numeroPedido} finalizada pelo servidor no valor de ${reais(resultado.totalCentavos)} (${resultado.formaPagamento}). Cliente: ${String(req.body?.clienteNome || 'CONSUMIDOR FINAL').toUpperCase()}. Vendedor: ${resultado.vendedorNome}.`,
+        // Pre-venda faturada na Frente de Caixa (23/11/2026): o registro diz que veio da pre-venda.
+        descricao: `${resultado.preVendaNoCaixa ? 'Pré-venda faturada na Frente de Caixa: venda' : resultado.pdv ? 'Venda PDV' : 'Venda'} #${resultado.numeroPedido} finalizada pelo servidor no valor de ${reais(resultado.totalCentavos)} (${resultado.formaPagamento}). Cliente: ${String(req.body?.clienteNome || 'CONSUMIDOR FINAL').toUpperCase()}. Vendedor: ${resultado.vendedorNome}.`,
         registroId: resultado.pedidoId,
       });
     }

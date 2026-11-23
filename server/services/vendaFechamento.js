@@ -24,6 +24,18 @@
  * `sourceOrigin: 'pdv'` e o `pdvSessionId` (o fechamento do caixa soma por ele)
  * e nao entram na fila de conferencia (no balcao a mercadoria sai na hora).
  *
+ * PRE-VENDA FATURADA NA FRENTE DE CAIXA (23/11/2026): `pdvSessionId` + `pedidoId`.
+ * O caixa so' recebe; a venda continua sendo a do vendedor. Por isso:
+ *  - o VENDEDOR e' o da pre-venda gravada, nunca o que a tela mandou nem o
+ *    operador do caixa (a comissao e' de quem vendeu);
+ *  - desconto e preco seguem as regras do PEDIDO DE VENDA (onde o desconto foi
+ *    dado), nao as do PDV; a identificacao do vendedor nao e' pedida (o caixa
+ *    nao escolhe vendedor);
+ *  - a conferencia da mercadoria, a origem e o numero da pre-venda ficam;
+ *  - a venda e os lancamentos levam o `pdvSessionId` (o dinheiro entrou nesse
+ *    caixa) e a venda leva `faturadoNoCaixa: true`.
+ * Pedido do agente, bonificacao e entrega futura continuam so' no Pedido de Venda.
+ *
  * Desconto, liberacao e vendedor (19/10/2026): o servidor confere o limite do
  * produto e o da tela (Configuracoes), no modo da empresa; no modo "senha" a
  * venda gasta o comprovante de liberacao (services/liberacaoDesconto.js) e,
@@ -305,7 +317,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   });
 
   // Desconto total contra o limite da tela, no modo da empresa (19/10/2026).
-  const tela = pedido.pdvSessionId ? 'pdv' : 'pedido';
+  // Pre-venda faturada no caixa: o desconto foi dado no Pedido de Venda, vale o limite de la'.
+  const tela = pedido.pdvSessionId && !pedido.pedidoId ? 'pdv' : 'pedido';
   const configDesconto = cd.configDoDesconto(config, tela);
   const baseDoDescontoCentavos = fin.toCents(totais.valorTotalItens) + precos.diferencaTotalCentavos;
   const descontoTotalCentavos = fin.toCents(totais.valorTotalDescontos) + precos.diferencaTotalCentavos;
@@ -320,8 +333,9 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const indiceComDiferenca = precos.itens.findIndex((p) => p.diferencaCentavos > 0);
   const explicacaoDoPreco = indiceComDiferenca >= 0 ? cp.explicacaoDaDiferenca(pedido.itens[indiceComDiferenca], precos.itens[indiceComDiferenca]) : '';
   if (situacaoDesconto.erro) throw new ErroVenda(409, `${explicacaoDoPreco}${situacaoDesconto.erro}`);
-  // Identificacao do vendedor: so' o Pedido de Venda pede (o PDV nao).
-  const exigeIdentificacao = tela === 'pedido' && cd.exigeIdentificacaoDoVendedor(config);
+  // Identificacao do vendedor: so' o Pedido de Venda pede. O PDV nao -- nem na
+  // pre-venda faturada no caixa, em que o vendedor vem da pre-venda gravada.
+  const exigeIdentificacao = !pedido.pdvSessionId && cd.exigeIdentificacaoDoVendedor(config);
 
   // Atraso e limite de credito (venda a prazo). Saldo lido FORA da transacao
   // (consulta); a versao do credito do cliente e' reconferida la dentro.
@@ -421,6 +435,20 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
 
     // Venda do PDV: o caixa tem de estar aberto e ser de quem esta' vendendo.
     const pdv = Boolean(pedido.pdvSessionId);
+    // Pre-venda faturada na Frente de Caixa (23/11/2026): so' a pre-venda comum.
+    const preVendaNoCaixa = pdv && Boolean(aberto);
+    if (preVendaNoCaixa) {
+      const numero = aberto.numeroPedido || '';
+      if (aberto.status !== STATUS_PRE_VENDA) {
+        throw new ErroVenda(409, `O pedido #${numero} não é uma pré-venda do balcão. Finalize este pedido em Comercial › Pedidos de Venda.`);
+      }
+      if (bonif.ehPedidoDeBonificacao(aberto)) {
+        throw new ErroVenda(409, `O pedido #${numero} é de bonificação (mercadoria sem cobrança). Fature a bonificação em Comercial › Pré-vendas em Aberto.`);
+      }
+      if (aberto.entregaFutura === true) {
+        throw new ErroVenda(409, `A pré-venda #${numero} é para entrega futura. Fature esta pré-venda em Comercial › Pré-vendas em Aberto.`);
+      }
+    }
     if (pdv) {
       const caixaSnap = await tx.get(db.collection('caixas_pdv').doc(pedido.pdvSessionId));
       const caixa = caixaSnap.exists ? caixaSnap.data() : null;
@@ -437,10 +465,17 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
 
     const [seqSnap, seqLegadaSnap] = pedido.pedidoId ? [null, null] : await Promise.all([tx.get(refSequencia(tenantId)), tx.get(refSequenciaLegada(tenantId))]);
 
-    const vendedorId = pedido.vendedorId || user.uid;
+    // Pre-venda faturada no caixa: o vendedor e' o da pre-venda GRAVADA. O que a
+    // tela mandou nao vale -- o caixa nao troca o vendedor (a comissao e' dele).
+    const vendedorDaPreVenda = preVendaNoCaixa ? String(aberto.vendedorId || aberto.usuarioResponsavelId || '') : '';
+    const vendedorId = vendedorDaPreVenda || pedido.vendedorId || user.uid;
     const vendedorSnap = await tx.get(db.collection('usuarios').doc(vendedorId));
     const vendedor = vendedorSnap.exists ? vendedorSnap.data() : {};
-    if (!vendedorSnap.exists || vendedor.tenantId !== tenantId) throw new ErroVenda(400, 'O vendedor selecionado não pertence à empresa ativa.');
+    if (!vendedorSnap.exists || vendedor.tenantId !== tenantId) {
+      throw new ErroVenda(400, vendedorDaPreVenda
+        ? `O vendedor da pré-venda #${aberto.numeroPedido || ''} não está mais cadastrado nesta empresa. Abra a pré-venda em Comercial › Pré-vendas em Aberto, escolha o vendedor e grave de novo.`
+        : 'O vendedor selecionado não pertence à empresa ativa.');
+    }
     const vendedorNome = vendedor.nome || vendedor.nomeResponsavel || user.nome || user.email || 'Vendedor';
 
     // Comprovantes do servidor (19/10/2026): liberacao do desconto e PIN do vendedor.
@@ -694,8 +729,9 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       totalLiquidoFinanceiroCentavos: resumo.financialNetCents,
       dataVenda: pedido.dataVenda,
       status: 'Finalizada',
-      // PDV: mercadoria sai no balcao, nao entra na fila de conferencia.
-      ...(conferenciaAtiva && !pdv ? { statusConferencia: (aberto && aberto.statusConferencia) || 'aguardando' } : {}),
+      // PDV: mercadoria sai no balcao, nao entra na fila de conferencia. A
+      // pre-venda faturada no caixa ja' estava na fila: mantem o que a expedicao marcou.
+      ...(conferenciaAtiva && (!pdv || preVendaNoCaixa) ? { statusConferencia: (aberto && aberto.statusConferencia) || 'aguardando' } : {}),
       ...(aberto && aberto.conferidoPor ? { conferidoPor: aberto.conferidoPor } : {}),
       ...(aberto && aberto.conferidoPorNome ? { conferidoPorNome: aberto.conferidoPorNome } : {}),
       ...(aberto && aberto.conferidoEm ? { conferidoEm: aberto.conferidoEm } : {}),
@@ -704,8 +740,12 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       vendedorId,
       vendedorNome,
       comissao,
-      origem: pdv ? 'pdv' : origemDoAberto,
-      ...(pdv ? { sourceOrigin: 'pdv', pdvSessionId: pedido.pdvSessionId } : {}),
+      // Pre-venda faturada no caixa: continua sendo venda do Pedido de Venda (origem,
+      // relatorios, desconto); o caixa que recebeu fica em `pdvSessionId`.
+      origem: pdv && !preVendaNoCaixa ? 'pdv' : origemDoAberto,
+      ...(pdv && !preVendaNoCaixa ? { sourceOrigin: 'pdv' } : {}),
+      ...(pdv ? { pdvSessionId: pedido.pdvSessionId } : {}),
+      ...(preVendaNoCaixa ? { faturadoNoCaixa: true } : {}),
       // Entrega futura: a reserva FICA (a entrega baixa depois); venda comum nao reserva mais nada.
       estoqueReservado: entregaFutura,
       entregaFutura,
@@ -808,7 +848,7 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       });
     });
 
-    return { jaEnviado: false, pedidoId: pedidoRef.id, numeroPedido, vendedorId, vendedorNome, pdv, dePreVenda: Boolean(aberto && aberto.status === STATUS_PRE_VENDA) };
+    return { jaEnviado: false, pedidoId: pedidoRef.id, numeroPedido, vendedorId, vendedorNome, pdv, preVendaNoCaixa, dePreVenda: Boolean(aberto && aberto.status === STATUS_PRE_VENDA) };
   });
 
   // Cashback (20/10/2026): venda a vista ja' nasce paga -- gera agora, em

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Banknote, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
+import { Banknote, ClipboardList, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -65,6 +65,25 @@ import PaymentModal from './components/PaymentModal';
 import PdvSummary from './components/PdvSummary';
 import ProductSearch from './components/ProductSearch';
 import SangriaModal from './components/SangriaModal';
+import PreVendasModal from './components/PreVendasModal';
+import { mostrarAlertaDoCliente } from '../../components/common/AlertaDoCliente';
+import { useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
+import { avisoFaturarSemConferencia, conferenciaPendenteParaFaturar } from '../../utils/conferenciaDomain';
+import { MENSAGEM_VENDA_DE_OUTRO_USUARIO, TITULO_VENDA_DE_OUTRO_USUARIO, isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
+import { formatDateInputPtBr } from '../../utils/dateTime';
+import {
+  ONDE_FATURAR_NO_SISTEMA,
+  carregarPreVendaNoCaixa,
+  corpoDoFaturamentoNoCaixa,
+  descontoDaPreVendaParaOLimite,
+  linhasDoCupomDaPreVenda,
+  podeFaturarPreVendaNoCaixa,
+  reprecificarPreVenda,
+  totaisDaPreVenda,
+  type ItemDaPreVenda,
+  type PreVendaCarregada,
+  type PreVendaDoCaixa,
+} from '../../utils/preVendaNoCaixaDomain';
 import {
   sessaoDoDocumento,
   buildPdvFinanceConfig,
@@ -80,7 +99,7 @@ import {
 } from './pdvHelpers';
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, type CamposDePrecoDoItem } from '../../utils/precoComPromocaoDomain';
-import { FORMAS_A_VISTA_PADRAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico } from '../../utils/precoVendaDomain';
+import { FORMAS_A_VISTA_PADRAO, ROTULO_CONDICAO, condicaoDoPagamento, parseFormasAVista, precoAutomatico } from '../../utils/precoVendaDomain';
 import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, formatarCashback, lerResumoCashback, type CashbackDisponivel } from '../../utils/cashbackDomain';
 import {
   DEFAULT_VENDER_POR_EMBALAGEM,
@@ -157,6 +176,9 @@ const PDV: React.FC = () => {
     loteModoSaida,
     loteAvisarVencido,
     configCashback,
+    trabalhaComPreVenda,
+    vendasVisiveisDeUsuarioId,
+    conferenciaMercadoriaAtiva,
   } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
@@ -175,6 +197,8 @@ const PDV: React.FC = () => {
   const idVendaServidorRef = useRef('');
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [limiteDescontoPdv, setLimiteDescontoPdv] = useState<LimiteDescontoConfig | null>(null);
+  // Limite do Pedido de Venda: e' o que vale para a pre-venda faturada aqui (o desconto foi dado la').
+  const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>(DEFAULT_MODO_LIMITE_DESCONTO);
   const [showAprovacaoDesconto, setShowAprovacaoDesconto] = useState(false);
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
@@ -191,7 +215,19 @@ const PDV: React.FC = () => {
   // finalizeSale: nunca muda o total em silencio.
   const CONDICAO_PDV = 'vista' as const;
   const [formasPrecoAVista, setFormasPrecoAVista] = useState<string[]>(FORMAS_A_VISTA_PADRAO);
-  const { tabelaDe, quantidadeLiberada } = usePromocoesVigentes(tenantId);
+  // PRE-VENDA NO CAIXA (23/11/2026, preVendaNoCaixaDomain.ts): quem pode
+  // transformar pre-venda em venda puxa uma pre-venda em aberto para o cupom,
+  // recebe e fatura sobre ela, pelo servidor. Itens, cliente, descontos e
+  // VENDEDOR sao os da pre-venda: no caixa so' entra o pagamento.
+  const [preVenda, setPreVenda] = useState<PreVendaCarregada | null>(null);
+  const [preVendasModalOpen, setPreVendasModalOpen] = useState(false);
+  const [puxandoPreVenda, setPuxandoPreVenda] = useState(false);
+  // Base e desconto (com o que o preco esta' abaixo do sistema) da liberacao pedida para a pre-venda.
+  const [liberacaoDaPreVenda, setLiberacaoDaPreVenda] = useState<{ baseCentavos: number; descontoCentavos: number; percentual: number } | null>(null);
+  const podePreVendaNoCaixa = podeFaturarPreVendaNoCaixa({ trabalhaComPreVenda, role: userRole, isOwner, permissoes: userPermissions });
+  // Trava de edicao (um documento aberto por vez): a pre-venda no caixa fica com este operador.
+  const travaDaPreVenda = useTravaDeEdicao({ tipo: 'pedido_venda', registroId: preVenda?.id, ativa: Boolean(preVenda) });
+  const { tabelaDe, quantidadeLiberada, promocoes, hoje: hojeDasPromocoes, vendidoPorPromocao } = usePromocoesVigentes(tenantId, preVenda?.id);
   const cartItemsRef = useRef<PdvCartItem[]>([]);
   useEffect(() => { cartItemsRef.current = cartItems; }, [cartItems]);
   const [selectedItemId, setSelectedItemId] = useState('');
@@ -234,9 +270,11 @@ const PDV: React.FC = () => {
   // fecha agora (vai para o fechamento, com a contagem do dinheiro) ou sai e
   // deixa aberto para o proximo login.
   const sairDoCaixa = async () => {
-    const vendaEmAndamento = cartItemsRef.current.length > 0
-      ? ' A venda em andamento, que ainda não foi finalizada, é perdida.'
-      : '';
+    const vendaEmAndamento = preVenda
+      ? ` A pré-venda #${preVenda.numeroPedido} que está no caixa continua em aberto, sem alteração.`
+      : cartItemsRef.current.length > 0
+        ? ' A venda em andamento, que ainda não foi finalizada, é perdida.'
+        : '';
     // Troca de usuario rapida (22/11/2026): no computador ativado, quem sai
     // volta para o codigo e a senha do proximo funcionario.
     const proximo = terminalDoCaixa
@@ -293,8 +331,9 @@ const PDV: React.FC = () => {
   const operatorName = nomeDoCadastro || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Operador';
 
   const totals = useMemo(
-    () => calculatePdvTotals(cartItems, saleDiscountCents),
-    [cartItems, saleDiscountCents],
+    // Pre-venda: a conta do servidor (desconto geral e frete da pre-venda), nao a do cupom.
+    () => (preVenda ? totaisDaPreVenda(preVenda) : calculatePdvTotals(cartItems, saleDiscountCents)),
+    [cartItems, saleDiscountCents, preVenda],
   );
 
   // Nivel 2 (sistema): desconto TOTAL do cupom (itens + desconto geral)
@@ -303,12 +342,12 @@ const PDV: React.FC = () => {
     // Ate o percentual do cadastro do cliente o desconto passa direto --
     // e' autorizacao ja dada pelo dono. Acima disso vale o limite do PDV.
     () => checarLimiteComCliente(
-      limiteDescontoPdv,
+      preVenda ? limiteDescontoPedido : limiteDescontoPdv,
       totals.subtotalCentavos,
       totals.descontoTotalCentavos,
       descontoPadraoDoCliente(selectedClient),
     ),
-    [limiteDescontoPdv, totals.subtotalCentavos, totals.descontoTotalCentavos, selectedClient],
+    [preVenda, limiteDescontoPedido, limiteDescontoPdv, totals.subtotalCentavos, totals.descontoTotalCentavos, selectedClient],
   );
 
   // Uma aprovacao de senha so vale pro carrinho do momento -- mudar item ou
@@ -418,6 +457,7 @@ const PDV: React.FC = () => {
         setFormasPrecoAVista(parseFormasAVista(configData?.formasPrecoAVista));
         setVenderPorEmbalagem(configData?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
         setLimiteDescontoPdv(parseLimiteDescontoConfig(configData?.limiteDescontoPdv));
+        setLimiteDescontoPedido(parseLimiteDescontoConfig(configData?.limiteDescontoPedido));
         setModoLimiteDesconto(parseModoLimiteDesconto(configData?.modoLimiteDesconto));
         setProductSearchMode(configData?.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
         setFinanceConfig(buildPdvFinanceConfig(configData));
@@ -467,6 +507,10 @@ const PDV: React.FC = () => {
 
   const resetSale = useCallback(() => {
     idVendaServidorRef.current = '';
+    // Pre-venda que estava no caixa: so' sai da tela (continua em aberto; a trava e' solta sozinha).
+    setPreVenda(null);
+    setLiberacaoDaPreVenda(null);
+    setPreVendasModalOpen(false);
     setSearch('');
     setSelectedProduct(null);
     setCartItems([]);
@@ -628,7 +672,9 @@ const PDV: React.FC = () => {
     if (cartItems.length > 0) {
       const confirmation = await NexusSwal.fire({
         title: 'Fechar caixa?',
-        text: 'Existe uma venda em andamento. Ela será limpa antes do fechamento.',
+        text: preVenda
+          ? `A pré-venda #${preVenda.numeroPedido} está no caixa e ainda não foi faturada. Ela sai da tela e continua em aberto.`
+          : 'Existe uma venda em andamento. Ela será limpa antes do fechamento.',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Fechar caixa',
@@ -861,6 +907,10 @@ const PDV: React.FC = () => {
       void openSession();
       return;
     }
+    if (preVenda) {
+      showWarning('Pré-venda no caixa', `Os itens são os da pré-venda #${preVenda.numeroPedido}. Para incluir ou tirar item, edite a pré-venda em ${ONDE_FATURAR_NO_SISTEMA}; para fazer outra venda, solte a pré-venda.`);
+      return;
+    }
 
     const opcaoFinal = opcao || buildOpcoesUnidadeVenda(product)[0];
     const lineId = makeCartLineId(product.id, opcaoFinal.embalagemId);
@@ -899,7 +949,7 @@ const PDV: React.FC = () => {
     // Item lancado: a consulta some e a busca fica pronta para o proximo.
     setSelectedProduct(null);
     setSearch('');
-  }, [openSession, session, validateQuantity, precificarLinha]);
+  }, [openSession, session, validateQuantity, precificarLinha, preVenda]);
 
   const updateItemQuantity = useCallback((itemId: string, quantity: number) => {
     // Quantidade nova pode entrar (ou sair) da faixa de atacado e da quota da
@@ -1024,6 +1074,18 @@ const PDV: React.FC = () => {
   }, [selectedItemId]);
 
   const clearSale = async () => {
+    if (preVenda) {
+      const soltar = await NexusSwal.fire({
+        title: `Soltar a pré-venda #${preVenda.numeroPedido}?`,
+        text: 'Ela sai do caixa e continua em aberto, do jeito que estava. Nada é cancelado nem faturado.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Soltar pré-venda',
+        cancelButtonText: 'Voltar',
+      });
+      if (soltar.isConfirmed) resetSale();
+      return;
+    }
     if (cartItems.length === 0) return;
     const result = await NexusSwal.fire({
       title: 'Limpar venda?',
@@ -1037,7 +1099,7 @@ const PDV: React.FC = () => {
   };
 
   const askSelectedItemQuantity = useCallback(async () => {
-    if (!selectedItem) return;
+    if (!selectedItem || preVenda) return;
     const result = await NexusSwal.fire({
       title: 'Alterar quantidade',
       text: selectedItem.nome,
@@ -1051,9 +1113,250 @@ const PDV: React.FC = () => {
     if (result.isConfirmed) {
       updateItemQuantity(selectedItem.id, Number(result.value || 0));
     }
-  }, [selectedItem, updateItemQuantity]);
+  }, [selectedItem, updateItemQuantity, preVenda]);
+
+  // ------------------------------------------------------------------ Pre-venda no caixa (23/11/2026)
+
+  const produtosPorId = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p])), [products]);
+
+  /** Poe a pre-venda (ou os itens dela com o preco recalculado) no cupom, so' para mostrar. */
+  const mostrarPreVendaNoCupom = useCallback((carregada: PreVendaCarregada) => {
+    const linhas: PdvCartItem[] = linhasDoCupomDaPreVenda(carregada.itens, produtosPorId);
+    setPreVenda(carregada);
+    setCartItems(linhas);
+    setSelectedItemId('');
+    setSaleDiscountCents(0);
+  }, [produtosPorId]);
+
+  /** F8 / botao "Pré-vendas": so' com o caixa aberto e o cupom vazio. */
+  const abrirPreVendas = useCallback(() => {
+    if (!podePreVendaNoCaixa) return;
+    if (!session) {
+      void openSession();
+      return;
+    }
+    if (!vendaPeloServidor) {
+      showError('Pré-venda no caixa indisponível', `Faturar pré-venda na Frente de Caixa depende da "Venda pelo servidor" ligada para a empresa. Peça ao suporte para ligar. Enquanto isso, fature em ${ONDE_FATURAR_NO_SISTEMA}.`);
+      return;
+    }
+    if (preVenda) {
+      showWarning('Já há uma pré-venda no caixa', `Fature ou solte a pré-venda #${preVenda.numeroPedido} antes de puxar outra.`);
+      return;
+    }
+    if (cartItemsRef.current.length > 0) {
+      showWarning('Venda em andamento', 'Finalize ou limpe a venda que está no cupom antes de puxar uma pré-venda.');
+      return;
+    }
+    setPreVendasModalOpen(true);
+  }, [openSession, podePreVendaNoCaixa, preVenda, session, vendaPeloServidor]);
+
+  /** Le a pre-venda de novo (a lista pode estar velha) e poe no cupom. */
+  const puxarPreVenda = useCallback(async (linha: PreVendaDoCaixa) => {
+    if (!tenantId || !session || puxandoPreVenda) return;
+    setPuxandoPreVenda(true);
+    try {
+      const snap = await getDoc(doc(db, 'pedidos_venda', linha.id));
+      const dados = snap.exists() && snap.data().tenantId === tenantId ? snap.data() : null;
+      // Visibilidade de vendas: quem so' ve as proprias nao puxa a do colega pelo caixa.
+      if (dados && vendasVisiveisDeUsuarioId && !isVendaDoUsuario(dados, vendasVisiveisDeUsuarioId)) {
+        showError(TITULO_VENDA_DE_OUTRO_USUARIO, MENSAGEM_VENDA_DE_OUTRO_USUARIO);
+        return;
+      }
+      const idDoVendedor = String(dados?.vendedorId || dados?.usuarioResponsavelId || '');
+      const resultado = carregarPreVendaNoCaixa(linha.id, dados, idDoVendedor && linha.vendedorNome !== 'Não identificado' ? { [idDoVendedor]: linha.vendedorNome } : {});
+      if ('erro' in resultado) {
+        showError('Esta pré-venda não pode ser faturada no caixa', resultado.erro);
+        return;
+      }
+      const carregada = resultado.preVenda;
+      const cliente = carregada.clienteId
+        ? clients.find((c) => c.id === carregada.clienteId) || { id: carregada.clienteId, nome: carregada.clienteNome }
+        : null;
+      setSearch('');
+      setSelectedProduct(null);
+      setSelectedClient(cliente);
+      mostrarPreVendaNoCupom(carregada);
+      setPreVendasModalOpen(false);
+      if (cliente) mostrarAlertaDoCliente(cliente);
+    } catch (error) {
+      console.error('Erro ao abrir a pré-venda no caixa:', error);
+      showError('Não foi possível abrir a pré-venda', 'Confira a conexão e puxe a pré-venda de novo.');
+    } finally {
+      setPuxandoPreVenda(false);
+    }
+  }, [clients, mostrarPreVendaNoCupom, puxandoPreVenda, session, tenantId, vendasVisiveisDeUsuarioId]);
+
+  // Outra pessoa abriu (ou um gerente liberou) a pre-venda: ela sai do caixa, sem faturar.
+  useEffect(() => {
+    if (!preVenda || travaDaPreVenda.situacao !== 'de_outro') return;
+    showError('Pré-venda aberta por outra pessoa', travaDaPreVenda.mensagem || 'Outra pessoa está com esta pré-venda aberta. Espere ela terminar e puxe a pré-venda de novo.');
+    resetSale();
+  }, [preVenda, travaDaPreVenda.situacao, travaDaPreVenda.mensagem, resetSale]);
+
+  /**
+   * Recebe e fatura a pre-venda que esta' no caixa, SOBRE a propria pre-venda
+   * (pedidoId + pdvSessionId), pelo servidor. O vendedor enviado e' o da
+   * pre-venda -- nunca o operador -- e o servidor ainda usa o do pedido gravado.
+   */
+  const faturarPreVenda = async (carregada: PreVendaCarregada, drafts: PaymentDraft[], observation: string) => {
+    if (saleLockRef.current) return;
+    if (!currentUser || !tenantId || !session) return;
+    const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda no PDV');
+    if (travaDoBalanco) {
+      showError('Balanço em andamento', travaDoBalanco);
+      return;
+    }
+
+    // O preco acompanha a forma de pagamento (a vista / a prazo), pela mesma
+    // regra do Pedido de Venda -- e nunca em silencio: a pessoa escolhe
+    // recalcular e confere o total de novo.
+    const condicaoEscolhida = condicaoDoPagamento(drafts, formasPrecoAVista);
+    const reprecificada = reprecificarPreVenda(carregada.itens, condicaoEscolhida);
+    if (reprecificada.alterados > 0) {
+      const valor = currency.format(fromCents(Math.abs(reprecificada.diferencaCentavos)));
+      const escolha = await NexusSwal.fire({
+        title: condicaoEscolhida === 'vista' ? 'Pagamento à vista' : 'Pagamento a prazo',
+        text: `${reprecificada.alterados} item(ns) da pré-venda têm outro preço ${ROTULO_CONDICAO[condicaoEscolhida]}. Com este pagamento o total ${reprecificada.diferencaCentavos >= 0 ? 'sobe' : 'cai'} ${valor}. Recalcular os preços e abrir o pagamento de novo?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Recalcular preços',
+        cancelButtonText: 'Voltar',
+      });
+      if (escolha.isConfirmed) {
+        mostrarPreVendaNoCupom({ ...carregada, itens: reprecificada.itens });
+        setPaymentModalOpen(false);
+        showWarning(`Preços recalculados para ${ROTULO_CONDICAO[condicaoEscolhida]}`, 'Confira o total e abra o pagamento de novo (F6).');
+      }
+      return;
+    }
+
+    // Desconto: vale o limite do PEDIDO DE VENDA (onde ele foi dado), com o que o
+    // preco esta' abaixo do sistema -- a mesma conta do servidor.
+    const paraOLimite = descontoDaPreVendaParaOLimite({
+      preVenda: carregada, produtos: produtosPorId, promocoes, hoje: hojeDasPromocoes, condicao: condicaoEscolhida, vendidoPorPromocao,
+    });
+    const checagem = checarLimiteComCliente(limiteDescontoPedido, paraOLimite.baseCentavos, paraOLimite.descontoCentavos, descontoPadraoDoCliente(selectedClient));
+    if (checagem.excedeu) {
+      const percentual = checagem.percentualAplicado.toFixed(1);
+      if (modoLimiteDesconto === 'bloquear') {
+        showError('Desconto acima do limite', `O desconto da pré-venda #${carregada.numeroPedido} (${percentual}%) passa do limite configurado para Pedido de Venda. Reduza o desconto da pré-venda em ${ONDE_FATURAR_NO_SISTEMA} e puxe de novo.`);
+        return;
+      }
+      if (modoLimiteDesconto === 'senha' && !aprovacaoDesconto) {
+        setLiberacaoDaPreVenda({ ...paraOLimite, percentual: checagem.percentualAplicado });
+        setShowAprovacaoDesconto(true);
+        return;
+      }
+      if (modoLimiteDesconto === 'avisar') {
+        const confirma = await NexusSwal.fire({
+          title: 'Desconto acima do limite',
+          text: `O desconto da pré-venda #${carregada.numeroPedido} (${percentual}%) passa do limite configurado para Pedido de Venda. Faturar mesmo assim?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Faturar mesmo assim',
+          cancelButtonText: 'Voltar',
+        });
+        if (!confirma.isConfirmed) return;
+      }
+    }
+
+    // Mercadoria ainda nao conferida pela expedicao: avisa, como no Pedido de Venda.
+    if (conferenciaPendenteParaFaturar(conferenciaMercadoriaAtiva, carregada.statusConferencia)) {
+      const aviso = avisoFaturarSemConferencia(carregada.statusConferencia);
+      const semConferencia = await NexusSwal.fire({
+        title: aviso.title,
+        text: aviso.text,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: aviso.confirmButtonText,
+        cancelButtonText: 'Voltar',
+        confirmButtonColor: '#f59e0b',
+        reverseButtons: true,
+      });
+      if (!semConferencia.isConfirmed) return;
+    }
+
+    const totalDaPreVenda = totaisDaPreVenda(carregada).totalCentavos;
+    try {
+      normalizePayments(totalDaPreVenda, drafts, {
+        saleDate: getDateInputInTimeZone(),
+        operationLabel: 'venda PDV',
+        maxCreditInstallments: financeConfig.maxCreditInstallments || undefined,
+        creditFeePercentByInstallment: financeConfig.creditFeePercentByInstallment,
+        debitFeePercent: financeConfig.debitFeePercent,
+        creditSettlementDays: financeConfig.creditSettlementDays,
+        debitSettlementDays: financeConfig.debitSettlementDays,
+        cardFeeSchedulesByBrand,
+        pagamentoCartaoSimplificadoAtivo: financeConfig.pagamentoCartaoSimplificadoAtivo,
+        bancoPadraoSimplificado,
+      });
+    } catch (error) {
+      showError('Pagamento inválido', error instanceof Error ? error.message : 'Revise os pagamentos.');
+      return;
+    }
+
+    const fatorDoItem = (item: ItemDaPreVenda) => (Number(item.fatorConversao) > 0 ? Number(item.fatorConversao) : undefined);
+    saleLockRef.current = true;
+    setSaving(true);
+    try {
+      // Lote e Validade: so' o produto que controla lote entra; os demais seguem so' com o estoque.
+      const planoLotes = await prepararBaixaDeLotes({
+        db,
+        tenantId,
+        linhas: linhasParaLote(carregada.itens.map((item) => ({ id: item.id, nome: item.nome, quantidade: item.quantidade, fatorConversao: fatorDoItem(item) }))),
+        modo: loteModoSaida,
+        avisarVencido: loteAvisarVencido,
+      });
+      if (planoLotes === null) return; // quem recebe cancelou a escolha do lote
+
+      const resposta = await finalizarVendaNoServidor(corpoDoFaturamentoNoCaixa({
+        preVenda: carregada,
+        pdvSessionId: session.id,
+        // Vale o dia do faturamento (decisao do dono de 15/10/2026), como no Pedido de Venda.
+        dataVenda: getDateInputInTimeZone(),
+        pagamentos: drafts,
+        observacao: observation,
+        lotesDoItem: (indice) => camposDeLoteDoItem(planoLotes, String(indice)),
+        excedeuLimite: checagem.excedeu,
+        aprovacao: checagem.excedeu ? aprovacaoDesconto : null,
+      }));
+
+      // Espelha na tela a baixa (e a reserva consumida) que o servidor gravou.
+      const vendidoPorProduto = new Map<string, number>();
+      carregada.itens.forEach((item) => {
+        vendidoPorProduto.set(item.id, (vendidoPorProduto.get(item.id) || 0) + toBaseQuantity(item.quantidade, fatorDoItem(item)));
+      });
+      setProducts((current) => current.map((product) => {
+        const vendido = vendidoPorProduto.get(product.id) || 0;
+        if (!(vendido > 0)) return product;
+        return {
+          ...product,
+          quantidade: Math.max(0, product.quantidade - vendido),
+          ...(carregada.estoqueReservado ? { quantidadeReservada: Math.max(0, Number(product.quantidadeReservada || 0) - vendido) } : {}),
+        };
+      }));
+      showSuccess(`Pré-venda #${resposta.numeroPedido} faturada. Vendedor: ${resposta.vendedorNome}`);
+      resetSale();
+    } catch (error) {
+      console.error('Erro ao faturar a pré-venda no caixa:', error);
+      // Liberacao que o servidor nao aceitou (vencida, usada, de outro valor): o proximo Finalizar pede de novo.
+      if (error instanceof VendaServidorError && error.status === STATUS_PEDIR_DE_NOVO) setAprovacaoDesconto(null);
+      showError(
+        'Erro ao faturar a pré-venda',
+        describeTransactionError(error) || (error instanceof Error ? error.message : 'Tente novamente.'),
+      );
+    } finally {
+      setSaving(false);
+      saleLockRef.current = false;
+    }
+  };
 
   const finalizeSale = async (drafts: PaymentDraft[], observation: string) => {
+    // Pre-venda no caixa: fatura sobre ela, com o vendedor dela (faturarPreVenda).
+    if (preVenda) {
+      await faturarPreVenda(preVenda, drafts, observation);
+      return;
+    }
     // Cashback so' e' consumido pelo servidor: gravado pela tela, o cupom nao
     // pode levar essa forma (o saldo do cliente ficaria sem baixa).
     if (!vendaPeloServidor && drafts.some((d) => d.forma === FORMA_PAGAMENTO_CASHBACK)) {
@@ -1493,19 +1796,22 @@ const PDV: React.FC = () => {
   useEffect(() => {
     const handleShortcuts = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (paymentModalOpen || discountModalOpen || clientModalOpen) {
+        if (paymentModalOpen || discountModalOpen || clientModalOpen || preVendasModalOpen) {
           setPaymentModalOpen(false);
           setDiscountModalOpen(false);
           setClientModalOpen(false);
+          if (!puxandoPreVenda) setPreVendasModalOpen(false);
         }
         return;
       }
 
       if (!hasPdvAccess) return;
-      if (event.key === 'F2') { event.preventDefault(); setClientModalOpen(true); }
+      // Com a pre-venda no caixa, cliente, desconto e quantidade sao os dela: os atalhos nao mexem.
+      if (event.key === 'F2') { event.preventDefault(); if (!preVenda) setClientModalOpen(true); }
       if (event.key === 'F3') { event.preventDefault(); productInputRef.current?.focus(); }
-      if (event.key === 'F4') { event.preventDefault(); if (cartItems.length > 0) setDiscountModalOpen(true); }
+      if (event.key === 'F4') { event.preventDefault(); if (cartItems.length > 0 && !preVenda) setDiscountModalOpen(true); }
       if (event.key === 'F5') { event.preventDefault(); void askSelectedItemQuantity(); }
+      if (event.key === 'F8' && podePreVendaNoCaixa) { event.preventDefault(); abrirPreVendas(); }
       if (event.key === 'F6' || event.key === 'F7') {
         event.preventDefault();
         if (cartItems.length > 0 && session) setPaymentModalOpen(true);
@@ -1514,7 +1820,17 @@ const PDV: React.FC = () => {
 
     window.addEventListener('keydown', handleShortcuts);
     return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [askSelectedItemQuantity, cartItems.length, clientModalOpen, discountModalOpen, hasPdvAccess, paymentModalOpen, session]);
+  }, [abrirPreVendas, askSelectedItemQuantity, cartItems.length, clientModalOpen, discountModalOpen, hasPdvAccess, paymentModalOpen, podePreVendaNoCaixa, preVenda, preVendasModalOpen, puxandoPreVenda, session]);
+
+  const preVendaNoResumo = useMemo(
+    () => (preVenda ? { numeroPedido: preVenda.numeroPedido, clienteNome: preVenda.clienteNome, vendedorNome: preVenda.vendedorNome } : null),
+    [preVenda],
+  );
+  // Liberacao de desconto: a da pre-venda vale para o Pedido de Venda (com a
+  // diferenca de preco conferida ao faturar); a da venda direta, para o PDV.
+  const liberacaoAtual = preVenda && liberacaoDaPreVenda
+    ? { tela: 'pedido' as const, baseCentavos: liberacaoDaPreVenda.baseCentavos, descontoCentavos: liberacaoDaPreVenda.descontoCentavos, percentual: liberacaoDaPreVenda.percentual }
+    : { tela: (preVenda ? 'pedido' : 'pdv') as 'pedido' | 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos, percentual: checagemLimiteDesconto.percentualAplicado };
 
   if (needsTenantSelection) {
     return (
@@ -1565,6 +1881,11 @@ const PDV: React.FC = () => {
           </div>
           {session ? (
             <>
+              {podePreVendaNoCaixa && (
+                <button type="button" className="pdv-topbar-button" onClick={abrirPreVendas} title="Ver as pré-vendas em aberto e puxar uma para receber (F8)">
+                  <ClipboardList size={16} aria-hidden="true" /> Pré-vendas
+                </button>
+              )}
               <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
                 <Banknote size={16} aria-hidden="true" /> Sangria
               </button>
@@ -1619,11 +1940,26 @@ const PDV: React.FC = () => {
               itemSelecionado={selectedItem ? { item: selectedItem, produto: products.find((p) => p.id === selectedItem.productId) || null } : null}
               inputRef={productInputRef}
               mode={productSearchMode}
-              disabled={!session}
+              disabled={!session || Boolean(preVenda)}
               onChange={(texto) => { setSearch(texto); if (!texto.trim()) setSelectedProduct(null); }}
               onSelect={(product) => addProductToCart(product, 1, resolveScannedUnit(product))}
               onDestacado={setSelectedProduct}
             />
+
+            {preVenda && (
+              <div className="pdv-prevenda-faixa" role="status">
+                <ClipboardList size={20} aria-hidden="true" />
+                <div>
+                  <strong>Pré-venda #{preVenda.numeroPedido} · Vendedor: {preVenda.vendedorNome}</strong>
+                  <span>
+                    {preVenda.dataDaPreVenda ? `Gravada em ${formatDateInputPtBr(preVenda.dataDaPreVenda)}. ` : ''}
+                    Itens, preços, descontos e vendedor são os da pré-venda: no caixa você só recebe.
+                    {preVenda.pagamentoCombinado ? ` Pagamento anotado na pré-venda: ${preVenda.pagamentoCombinado}.` : ''}
+                    {preVenda.pedidoBonificacaoId ? ` Esta venda tem um pedido de bonificação, que é faturado em ${ONDE_FATURAR_NO_SISTEMA}.` : ''}
+                  </span>
+                </div>
+              </div>
+            )}
 
             <CartPanel
               items={cartItems}
@@ -1633,7 +1969,8 @@ const PDV: React.FC = () => {
               onDiscountChange={updateItemDiscount}
               onRemoveItem={removeItem}
               unitOptionsByItemId={unitOptionsByItemId}
-              onUnitChange={venderPorEmbalagem ? changeItemUnit : undefined}
+              onUnitChange={venderPorEmbalagem && !preVenda ? changeItemUnit : undefined}
+              somenteLeitura={Boolean(preVenda)}
             />
 
             {!session && (
@@ -1652,6 +1989,8 @@ const PDV: React.FC = () => {
             disabled={cartItems.length === 0}
             discountWarning={checagemLimiteDesconto.excedeu ? `Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% acima do limite configurado.` : undefined}
             cashbackTexto={cashbackDoCliente ? formatarCashback(cashbackDoCliente.modelo, cashbackDoCliente.saldoCentavos, cashbackDoCliente.saldoPontos) : null}
+            preVenda={preVendaNoResumo}
+            atalhoPreVendas={podePreVendaNoCaixa}
             onOpenClient={() => setClientModalOpen(true)}
             onOpenDiscount={() => setDiscountModalOpen(true)}
             onOpenPayment={() => setPaymentModalOpen(true)}
@@ -1678,14 +2017,17 @@ const PDV: React.FC = () => {
       <SolicitarAprovacaoDescontoModal
         open={showAprovacaoDesconto}
         tenantId={tenantId}
-        motivo={`Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste cupom, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
+        motivo={preVenda
+          ? `Desconto de ${liberacaoAtual.percentual.toFixed(1)}% na pré-venda #${preVenda.numeroPedido}, acima do limite configurado para Pedido de Venda. Confirme com a senha de um aprovador para faturar.`
+          : `Desconto de ${checagemLimiteDesconto.percentualAplicado.toFixed(1)}% neste cupom, acima do limite configurado. Confirme com a senha de um aprovador para finalizar.`}
         onClose={() => setShowAprovacaoDesconto(false)}
         onAprovado={(aprovacao) => setAprovacaoDesconto(aprovacao)}
         liberacaoNoServidor={vendaPeloServidor
-          ? { tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos }
+          ? { tela: liberacaoAtual.tela, baseCentavos: liberacaoAtual.baseCentavos, descontoCentavos: liberacaoAtual.descontoCentavos }
           : null}
         pedirAoGerente={{
-          tela: 'pdv', baseCentavos: totals.subtotalCentavos, descontoCentavos: totals.descontoTotalCentavos, documento: `Cupom no PDV — ${selectedClient?.nome || 'CONSUMIDOR FINAL'}`,
+          tela: liberacaoAtual.tela, baseCentavos: liberacaoAtual.baseCentavos, descontoCentavos: liberacaoAtual.descontoCentavos,
+          documento: preVenda ? `Pré-venda #${preVenda.numeroPedido} — ${preVenda.clienteNome}` : `Cupom no PDV — ${selectedClient?.nome || 'CONSUMIDOR FINAL'}`,
           itens: cartItems.map((i) => ({ nome: i.nome, quantidade: i.quantidade, totalCentavos: Math.round(i.precoUnitarioCentavos * i.quantidade) - (i.descontoCentavos || 0) })),
         }}
       />
@@ -1706,8 +2048,18 @@ const PDV: React.FC = () => {
         tenantId={tenantId}
         saving={saving}
         cashbackDisponivel={cashbackDoCliente}
+        observacaoInicial={preVenda?.observacao || ''}
+        rotuloFinalizar={preVenda ? 'Receber e faturar' : undefined}
         onClose={() => setPaymentModalOpen(false)}
         onFinalize={finalizeSale}
+      />
+
+      <PreVendasModal
+        open={preVendasModalOpen}
+        tenantId={tenantId}
+        puxando={puxandoPreVenda}
+        onClose={() => setPreVendasModalOpen(false)}
+        onEscolher={(linha) => void puxarPreVenda(linha)}
       />
     </div>
   );

@@ -113,12 +113,13 @@ test('fatia 3c: bruto arredondado por linha, igual ao PDV e a NF-e', () => {
   assert.equal(subtotalDaLinha({ precoUnitario: 12.9, quantidade: 0.355, desconto: 0.08 }), 4.5);
 });
 
-test('fatia 3c: o PDV manda a sessão do caixa; venda do PDV é sempre nova', () => {
+test('fatia 3c: o PDV manda a sessão do caixa; com pedidoId é pré-venda faturada no caixa (23/11)', () => {
   const base = { idDocumento: 'v1', dataVenda: '2026-10-19', itens: [{ id: 'p1', nome: 'X', precoUnitario: 1, quantidade: 1 }], pagamentos: [{ forma: 'Dinheiro' }] };
   const ok = lerPedidoDeFechamento({ ...base, pdvSessionId: 'cx_1' });
   assert.ok('pedido' in ok && ok.pedido.pdvSessionId === 'cx_1');
   const semPdv = lerPedidoDeFechamento(base);
   assert.ok('pedido' in semPdv && semPdv.pedido.pdvSessionId === null);
   assert.match(String((lerPedidoDeFechamento({ ...base, pdvSessionId: '../x' }) as { erro: string }).erro), /Caixa do PDV inválido/);
-  assert.match(String((lerPedidoDeFechamento({ ...base, idDocumento: undefined, pedidoId: 'pv1', pdvSessionId: 'cx_1' }) as { erro: string }).erro), /sempre nova/);
+  const preVenda = lerPedidoDeFechamento({ ...base, idDocumento: undefined, pedidoId: 'pv1', pdvSessionId: 'cx_1' });
+  assert.ok('pedido' in preVenda && preVenda.pedido.pedidoId === 'pv1' && preVenda.pedido.pdvSessionId === 'cx_1' && preVenda.pedido.idDocumento === null);
 });

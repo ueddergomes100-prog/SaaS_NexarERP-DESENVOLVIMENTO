@@ -151,7 +151,11 @@ export interface PedidoDeFechamento {
   transporte: Record<string, unknown> | null;
   pagamentos: Array<Record<string, unknown>>;
   orcamentoId: string | null;
-  /** Venda do PDV (fatia 3c, 19/10/2026): sessao de caixa aberta do operador. */
+  /**
+   * Venda do PDV (fatia 3c, 19/10/2026): sessao de caixa aberta do operador.
+   * Junto com `pedidoId` (23/11/2026) = pre-venda faturada na Frente de Caixa: o
+   * servidor fatura sobre a propria pre-venda e mantem o vendedor dela.
+   */
   pdvSessionId: string | null;
   /** Comprovante do PIN do vendedor (identificacao exigida, 19/10/2026). */
   comprovanteVendedorId: string | null;
@@ -271,7 +275,6 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
   if (orcamentoId && !ID_VALIDO.test(orcamentoId)) return { erro: 'Orçamento de origem inválido.' };
   const pdvSessionId = c.pdvSessionId ? String(c.pdvSessionId) : null;
   if (pdvSessionId && !ID_VALIDO.test(pdvSessionId)) return { erro: 'Caixa do PDV inválido. Feche e abra o PDV de novo.' };
-  if (pdvSessionId && pedidoId) return { erro: 'Venda do PDV é sempre nova. Atualize a tela e tente de novo.' };
   const comprovanteVendedorId = c.comprovanteVendedorId ? String(c.comprovanteVendedorId) : null;
   if (comprovanteVendedorId && !ID_VALIDO.test(comprovanteVendedorId)) return { erro: 'Identificação do vendedor inválida. Finalize de novo e digite o código e a senha.' };
 

@@ -71,6 +71,8 @@ import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
 import BootSplash from './BootSplash';
 import { usePilulaDoMenu } from '../../hooks/usePilulaDoMenu';
+import { NexusSwal } from '../../utils/alerts';
+import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
 import './Layout.css';
 
 type NavItem = {
@@ -464,10 +466,40 @@ const Sidebar: React.FC = () => {
     openTab(to, label);
   };
 
-  const handleLogout = useCallback(() => {
+  /**
+   * Sair do sistema (22/11/2026, pedido do dono: troca de usuario rapida e
+   * fluida): toda saida -- seta do menu, "Sair do Sistema" -- pergunta se e'
+   * para TROCAR DE USUARIO (sai na hora, sem a animacao de despedida, e o login
+   * ja' abre no codigo e senha quando o computador esta' ativado) ou SAIR.
+   */
+  const trocarUsuario = useCallback(() => {
+    void logout();
+  }, [logout]);
+
+  const sairDeVez = useCallback(() => {
     setIsLoggingOut(true);
     setTimeout(() => logout(), 1500);
   }, [logout]);
+
+  const handleLogout = useCallback(async () => {
+    const computadorAtivado = Boolean(await lerTerminalGuardado().catch(() => null));
+    const resposta = await NexusSwal.fire({
+      title: 'Trocar de usuário ou sair?',
+      text: computadorAtivado
+        ? 'Trocar usuário abre na hora a tela de código e senha para o próximo funcionário.'
+        : 'Trocar usuário abre na hora a tela de login para outra pessoa entrar.',
+      icon: 'question',
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: 'Trocar usuário',
+      denyButtonText: 'Sair do sistema',
+      // Sair e' normal, nao e' perigo: cor neutra.
+      denyButtonColor: '#475569',
+      cancelButtonText: 'Voltar',
+    });
+    if (resposta.isConfirmed) trocarUsuario();
+    else if (resposta.isDenied) sairDeVez();
+  }, [trocarUsuario, sairDeVez]);
 
   const handleGoHome = () => {
     if (currentPath === '/dashboard') return;
@@ -486,10 +518,16 @@ const Sidebar: React.FC = () => {
   };
 
   useEffect(() => {
-    const onTriggerLogout = () => handleLogout();
+    const onTriggerLogout = () => { void handleLogout(); };
+    // "Trocar usuario" do menu do usuario (TopBar): ja' escolhido, sem pergunta.
+    const onTrocarUsuario = () => trocarUsuario();
     window.addEventListener('trigger-logout', onTriggerLogout);
-    return () => window.removeEventListener('trigger-logout', onTriggerLogout);
-  }, [handleLogout]);
+    window.addEventListener('trigger-trocar-usuario', onTrocarUsuario);
+    return () => {
+      window.removeEventListener('trigger-logout', onTriggerLogout);
+      window.removeEventListener('trigger-trocar-usuario', onTrocarUsuario);
+    };
+  }, [handleLogout, trocarUsuario]);
 
   useEffect(() => {
     document.body.classList.toggle('mini-sidebar', miniSidebar);
@@ -741,7 +779,7 @@ const Sidebar: React.FC = () => {
                 <strong>{userName}</strong>
                 <span title={tenantName}>{tenantName}</span>
               </div>
-              <button type="button" onClick={handleLogout} title="Sair do sistema" aria-label="Sair do sistema">
+              <button type="button" onClick={() => { void handleLogout(); }} title="Trocar de usuário ou sair" aria-label="Trocar de usuário ou sair do sistema">
                 <LogOut size={15} />
               </button>
             </div>

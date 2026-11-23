@@ -747,7 +747,7 @@ const TopBar: React.FC = () => {
                 {computadorAtivado && (
                   <button
                     type="button"
-                    onClick={() => { setShowProfileDropdown(false); window.dispatchEvent(new Event('trigger-logout')); }}
+                    onClick={() => { setShowProfileDropdown(false); window.dispatchEvent(new Event('trigger-trocar-usuario')); }}
                     title="Sai deste usuário e volta para a tela de código e senha, para o próximo funcionário entrar"
                     style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px', fontWeight: 500 }}
                     onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}

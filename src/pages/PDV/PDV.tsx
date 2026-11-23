@@ -237,25 +237,30 @@ const PDV: React.FC = () => {
     const vendaEmAndamento = cartItemsRef.current.length > 0
       ? ' A venda em andamento, que ainda não foi finalizada, é perdida.'
       : '';
+    // Troca de usuario rapida (22/11/2026): no computador ativado, quem sai
+    // volta para o codigo e a senha do proximo funcionario.
+    const proximo = terminalDoCaixa
+      ? 'O próximo funcionário entra com o código e a senha dele.'
+      : 'Abre a tela de login para outra pessoa entrar.';
     if (!session) {
       const resposta = await NexusSwal.fire({
-        title: 'Sair da Frente de Caixa?',
-        text: `O caixa está fechado.${vendaEmAndamento}`,
+        title: 'Trocar de usuário ou sair?',
+        text: `O caixa está fechado. ${proximo}${vendaEmAndamento}`,
         icon: 'question',
         showCancelButton: true,
-        confirmButtonText: 'Sair',
+        confirmButtonText: 'Trocar usuário',
         cancelButtonText: 'Voltar',
       });
       if (!resposta.isConfirmed) return;
     } else {
       const resposta = await NexusSwal.fire({
         title: 'O caixa está aberto',
-        text: `Feche o caixa agora (contagem do dinheiro e fechamento) ou saia e deixe o caixa aberto para o próximo login.${vendaEmAndamento}`,
+        text: `Feche o seu caixa agora (contagem do dinheiro e fechamento) ou troque de usuário deixando o caixa aberto, para voltar a ele depois. ${proximo}${vendaEmAndamento}`,
         icon: 'question',
         showCancelButton: true,
         showDenyButton: true,
-        confirmButtonText: 'Fechar o caixa agora',
-        denyButtonText: 'Sair e manter aberto',
+        confirmButtonText: 'Fechar caixa e trocar usuário',
+        denyButtonText: 'Trocar usuário, caixa aberto',
         // Sair mantendo aberto e' normal (troca de turno), nao e' perigo: cor neutra.
         denyButtonColor: '#475569',
         cancelButtonText: 'Voltar',

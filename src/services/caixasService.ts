@@ -16,6 +16,18 @@ export interface CaixaResumo {
   saldoInicialCentavos: number;
   ativo: boolean;
   padrao: boolean;
+  /** Chave "dinheiro das vendas na gaveta" ligada: o saldo ja' soma vendas, sangrias e fechamento. */
+  recebeDinheiroDasVendas?: boolean;
+}
+
+/** Saldo da gaveta para conferir o fechamento do PDV (utils/gavetaDinheiroDomain.ts). */
+export interface ResumoDaGaveta {
+  ativo: boolean;
+  desde: string;
+  caixaId: string;
+  caixaNome: string;
+  saldoCentavos: number | null;
+  caixasAbertos: number;
 }
 
 export interface BancoResumo {
@@ -35,14 +47,21 @@ export interface LancamentoDoCaixa {
   criadoEmIso: string;
 }
 
-export const listarCaixasEBancos = () => chamarServidor<{ caixas: CaixaResumo[]; bancos: BancoResumo[] }>('GET', 'caixas');
+export const listarCaixasEBancos = () => (
+  chamarServidor<{ caixas: CaixaResumo[]; bancos: BancoResumo[]; gaveta?: { ativo: boolean; desde: string } }>('GET', 'caixas')
+);
+
+export const resumoDaGaveta = () => chamarServidor<ResumoDaGaveta>('GET', 'caixas/gaveta', undefined, {
+  falhou: 'Não foi possível consultar o saldo da gaveta para conferir o fechamento. Confira a internet e tente de novo.',
+});
 
 export const salvarCaixa = (corpo: { nome: string; descricao: string; saldoInicialCentavos?: number; ativo: boolean }, id?: string) => (
   chamarServidor<{ ok: true; id: string; nome: string }>('POST', id ? `caixas/${encodeURIComponent(id)}` : 'caixas', { ...corpo })
 );
 
-export const extratoDoCaixa = async (id: string) => (
-  (await chamarServidor<{ lancamentos: LancamentoDoCaixa[] }>('GET', `caixas/${encodeURIComponent(id)}/extrato`)).lancamentos
+/** `dias`: quantos dias de dinheiro das vendas trazer (so' vale no CAIXA com a chave ligada). */
+export const extratoDoCaixa = async (id: string, dias = 30) => (
+  (await chamarServidor<{ lancamentos: LancamentoDoCaixa[] }>('GET', `caixas/${encodeURIComponent(id)}/extrato?dias=${dias}`)).lancamentos
 );
 
 export const lancarNoCaixa = (id: string, corpo: { direcao: 'credito' | 'debito'; valorCentavos: number; descricao: string; data: string }) => (

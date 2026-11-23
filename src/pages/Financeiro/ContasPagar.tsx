@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
-import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { PERMISSAO_DESCONTO_NA_BAIXA } from '../../utils/ajustesDaBaixaDomain';
@@ -246,6 +246,18 @@ const ContasPagar: React.FC = () => {
   const FORMAS_PAGAMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Outros'];
 
   const handleConciliar = async (t: TransacaoData) => {
+    if (!currentUser || !tenantId) return;
+    // Banco na mesma janela (23/11/2026): tudo que nao e' dinheiro sai de um banco.
+    const formasComBanco = FORMAS_PAGAMENTO.filter((forma) => forma !== 'Dinheiro');
+    let bancosDisponiveis: Array<{ id: string; nome: string }>;
+    try {
+      const snapBancos = await getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)));
+      bancosDisponiveis = snapBancos.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }));
+    } catch (erro) {
+      console.error('Contas a Pagar: não foi possível ler os bancos.', erro);
+      showError('Não foi possível ler os bancos', 'Confira a internet e tente de novo.');
+      return;
+    }
     const dados = await pedirDadosBaixa({
       titulo: 'Confirmar Pagamento?',
       texto: `Valor de R$ ${Number(t.valor).toFixed(2)} referente a ${t.descricao}.`,
@@ -262,38 +274,13 @@ const ContasPagar: React.FC = () => {
       mensagemSemForma: 'Escolha como foi pago antes de confirmar.',
       rotuloData: 'Data do pagamento',
       textoConfirmar: 'Sim, confirmar pagamento',
+      banco: { bancos: bancosDisponiveis, formas: formasComBanco, rotulo: () => 'De qual banco saiu?' },
     });
     if (!dados) return;
-    if (!currentUser || !tenantId) return;
     const formaPgto = dados.forma;
     const dataPagamento = dados.data;
-
-    let bancoId: string | undefined;
-    if (formaPgto !== 'Dinheiro') {
-      const qBancos = query(
-        collection(db, 'bancos'),
-        where('tenantId', '==', tenantId),
-        where('ativo', '==', true),
-      );
-      const snapBancos = await getDocs(qBancos);
-      const bancosDisponiveis = snapBancos.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }));
-      if (bancosDisponiveis.length === 0) {
-        showError('Nenhum banco cadastrado', 'Cadastre um banco em Cadastros > Bancos antes de confirmar este pagamento.');
-        return;
-      }
-      const bancoResult = await NexusSwal.fire({
-        title: 'De qual banco saiu?',
-        input: 'select',
-        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, escaparHtml(b.nome)])),
-        inputPlaceholder: 'Selecione o banco',
-        showCancelButton: true,
-        confirmButtonText: 'Confirmar',
-        cancelButtonText: 'Cancelar',
-        inputValidator: (value) => (value ? undefined : 'Selecione um banco.'),
-      });
-      if (!bancoResult.isConfirmed) return;
-      bancoId = bancoResult.value as string;
-    }
+    // O banco veio da mesma janela (pedirDadosBaixa).
+    const bancoId: string | undefined = formaPgto !== 'Dinheiro' ? dados.bancoId : undefined;
 
     try {
       // Titulo + saldo do banco gravados pelo servidor (services/baixaFinanceiraService).

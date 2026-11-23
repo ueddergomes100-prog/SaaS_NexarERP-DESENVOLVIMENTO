@@ -7,6 +7,11 @@ import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './rela
  * abertura, sangrias e o fechamento (esperado x informado x diferenca).
  * Secao opcional com cada sangria.
  *
+ * CAIXA ABERTO AO VIVO (pedido do dono, 23/11/2026): "no relatorio aparecer os
+ * lancamentos e valores do caixa sem ter que esperar fechar". O caixa aberto
+ * sai com o esperado calculado na hora, e duas secoes novas mostram cada
+ * lancamento dele e o total por forma de pagamento.
+ *
  * Regra pura: a tela entrega as sessoes com as datas ja' convertidas.
  */
 
@@ -30,6 +35,54 @@ export interface SessaoCaixaDoRelatorio {
   saldoFinalInformadoCentavos: number | null;
   diferencaCentavos: number | null;
   sangrias: SangriaDoRelatorio[];
+  /** Caixa aberto: saldo esperado calculado agora (a tela faz a conta). */
+  esperadoAoVivoCentavos?: number | null;
+  /** Caixa aberto: o que ja' passou por ele (titulos da sessao). */
+  lancamentos?: LancamentoDoCaixaAberto[];
+}
+
+/** Titulo gerado por uma venda do caixa (colecao `transacoes`, pela sessao). */
+export interface LancamentoDoCaixaAberto {
+  id: string;
+  descricao: string;
+  clienteNome: string;
+  formaPagamento: string;
+  valorCentavos: number;
+  criadoEm: Date | null;
+  /** Venda cancelada/estornada: aparece na lista, fora dos totais. */
+  cancelado: boolean;
+  /** A prazo/boleto ainda nao recebido. */
+  pendente: boolean;
+}
+
+export interface TotalPorForma {
+  formaPagamento: string;
+  quantidade: number;
+  valorCentavos: number;
+}
+
+/** Total por forma de pagamento, maior primeiro; cancelados ficam fora. */
+export const totaisPorForma = (lancamentos: ReadonlyArray<LancamentoDoCaixaAberto>): TotalPorForma[] => {
+  const mapa = new Map<string, TotalPorForma>();
+  lancamentos.filter((l) => !l.cancelado).forEach((l) => {
+    const forma = l.formaPagamento || 'Sem forma';
+    const atual = mapa.get(forma) || { formaPagamento: forma, quantidade: 0, valorCentavos: 0 };
+    mapa.set(forma, { ...atual, quantidade: atual.quantidade + 1, valorCentavos: atual.valorCentavos + l.valorCentavos });
+  });
+  return [...mapa.values()].sort((a, b) => b.valorCentavos - a.valorCentavos || a.formaPagamento.localeCompare(b.formaPagamento, 'pt-BR'));
+};
+
+/** Quanto ja' passou pelo caixa aberto (todas as formas, sem os cancelados). */
+export const totalDoCaixaAberto = (lancamentos: ReadonlyArray<LancamentoDoCaixaAberto>): number => (
+  lancamentos.filter((l) => !l.cancelado).reduce((soma, l) => soma + l.valorCentavos, 0)
+);
+
+interface LinhaDeLancamento extends LancamentoDoCaixaAberto {
+  operadorNome: string;
+}
+
+interface LinhaDeForma extends TotalPorForma {
+  operadorNome: string;
 }
 
 interface LinhaDeSangria extends SangriaDoRelatorio {
@@ -77,7 +130,9 @@ export const montarDocumentoCaixaPdv = (
     { id: 'inicial', titulo: 'Saldo inicial', tipo: 'moeda', total: 'nenhum', valor: (s) => s.saldoInicialCentavos },
     { id: 'qtdSangrias', titulo: 'Nº sangrias', tipo: 'inteiro', padrao: false, valor: (s) => s.sangrias.length },
     { id: 'sangrias', titulo: 'Sangrias', tipo: 'moeda', valor: (s) => s.totalSangriasCentavos },
-    { id: 'esperado', titulo: 'Esperado', tipo: 'moeda', total: 'nenhum', valor: (s) => (fechada(s) ? s.saldoEsperadoCentavos : null) },
+    // Caixa aberto: o esperado de agora (23/11/2026); informado e diferenca so' existem depois de fechar.
+    { id: 'vendido', titulo: 'Vendido (aberto)', tipo: 'moeda', padrao: false, valor: (s) => (!fechada(s) && s.lancamentos ? totalDoCaixaAberto(s.lancamentos) : null) },
+    { id: 'esperado', titulo: 'Esperado', tipo: 'moeda', total: 'nenhum', valor: (s) => (fechada(s) ? s.saldoEsperadoCentavos : s.esperadoAoVivoCentavos ?? null) },
     { id: 'informado', titulo: 'Informado', tipo: 'moeda', total: 'nenhum', valor: (s) => (fechada(s) ? s.saldoFinalInformadoCentavos : null) },
     { id: 'diferenca', titulo: 'Diferença', tipo: 'moeda', valor: (s) => (fechada(s) ? Number(s.diferencaCentavos || 0) : null) },
     { id: 'resultado', titulo: 'Resultado', tipo: 'texto', largura: 30, valor: resultadoDoFechamento },
@@ -92,6 +147,27 @@ export const montarDocumentoCaixaPdv = (
     { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (g) => g.valorCentavos },
   ];
 
+  // Caixa aberto ao vivo: cada lancamento e o total por forma de pagamento.
+  const abertas = lista.filter((s) => !fechada(s));
+  const linhasLancamento: LinhaDeLancamento[] = abertas.flatMap((s) => (s.lancamentos || []).map((l) => ({ ...l, operadorNome: s.operadorNome })));
+  const colunasLancamento: ColunaRelatorio<LinhaDeLancamento>[] = [
+    { id: 'horario', titulo: 'Horário', tipo: 'dataHora', largura: 30, valor: (l) => l.criadoEm },
+    { id: 'operador', titulo: 'Caixa de', tipo: 'texto', largura: 30, valor: (l) => l.operadorNome || '' },
+    { id: 'descricao', titulo: 'Lançamento', tipo: 'texto', largura: 62, valor: (l) => l.descricao || '' },
+    { id: 'cliente', titulo: 'Cliente', tipo: 'texto', largura: 44, padrao: false, valor: (l) => l.clienteNome || '' },
+    { id: 'forma', titulo: 'Forma', tipo: 'texto', largura: 30, valor: (l) => l.formaPagamento || '' },
+    { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 24, valor: (l) => (l.cancelado ? 'Cancelado' : l.pendente ? 'A receber' : 'Recebido') },
+    { id: 'valor', titulo: 'Valor', tipo: 'moeda', total: 'nenhum', valor: (l) => l.valorCentavos },
+  ];
+  const linhasForma: LinhaDeForma[] = abertas.flatMap((s) => totaisPorForma(s.lancamentos || []).map((f) => ({ ...f, operadorNome: s.operadorNome })));
+  const colunasForma: ColunaRelatorio<LinhaDeForma>[] = [
+    { id: 'operador', titulo: 'Caixa de', tipo: 'texto', largura: 40, valor: (f) => f.operadorNome || '' },
+    { id: 'forma', titulo: 'Forma de pagamento', tipo: 'texto', largura: 60, valor: (f) => f.formaPagamento },
+    { id: 'quantidade', titulo: 'Lançamentos', tipo: 'inteiro', valor: (f) => f.quantidade },
+    { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (f) => f.valorCentavos },
+  ];
+  const vendidoNosAbertos = abertas.reduce((soma, s) => soma + totalDoCaixaAberto(s.lancamentos || []), 0);
+
   return {
     titulo: 'Caixa (Sessões PDV)',
     periodo: opcoes.periodo,
@@ -99,6 +175,7 @@ export const montarDocumentoCaixaPdv = (
     indicadores: [
       { rotulo: 'Sessões', valor: String(lista.length) },
       { rotulo: 'Abertas agora', valor: String(lista.length - fechadas.length) },
+      ...(abertas.length > 0 ? [{ rotulo: 'Vendido nos caixas abertos', valor: moeda(vendidoNosAbertos) }] : []),
       { rotulo: 'Sangrias', valor: moeda(sangrias) },
       { rotulo: 'Diferença no fechamento', valor: comSinal(diferenca) },
       { rotulo: 'Fechamentos com diferença', valor: String(comDiferenca) },
@@ -107,6 +184,14 @@ export const montarDocumentoCaixaPdv = (
       {
         id: 'sessoes', titulo: 'Sessões de caixa', colunas, linhas: lista, opcional: true, padrao: true,
         unidade: ['sessão', 'sessões'], mensagemVazia: 'Nenhuma sessão de caixa no período.',
+      } as SecaoRelatorio,
+      {
+        id: 'formasAbertos', titulo: 'Caixas abertos: total por forma de pagamento', colunas: colunasForma, linhas: linhasForma, opcional: true, padrao: abertas.length > 0,
+        unidade: ['forma', 'formas'], mensagemVazia: 'Nenhum lançamento nos caixas abertos.',
+      } as SecaoRelatorio,
+      {
+        id: 'lancamentosAbertos', titulo: 'Caixas abertos: lançamentos', colunas: colunasLancamento, linhas: linhasLancamento, opcional: true, padrao: abertas.length > 0,
+        unidade: ['lançamento', 'lançamentos'], mensagemVazia: 'Nenhum lançamento nos caixas abertos.',
       } as SecaoRelatorio,
       {
         id: 'sangrias', titulo: 'Sangrias', colunas: colunasSangria, linhas: linhasSangria, opcional: true, padrao: false,

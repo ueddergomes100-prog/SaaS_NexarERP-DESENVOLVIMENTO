@@ -14,6 +14,7 @@ const { PERMISSOES_QUE_OPERAM_O_CAIXA } = require('../domain/frenteDeCaixaDomain
  *   POST /api/caixas/:id/lancamento     { direcao, valorCentavos, descricao, data }
  *   POST /api/caixas/transferir         { origem:{tipo,id}, destino:{tipo,id}, valorCentavos, data, descricao }
  *   POST /api/caixas/sangria-deposito   PDV: { bancoId, valorCentavos, sessaoId, data }
+ *   GET  /api/caixas/gaveta             saldo da gaveta para conferir o fechamento do PDV
  * Permissao: "Financeiro: Caixas e Transferências" (dono/gestor sempre); a
  * sangria aceita tambem quem opera o PDV.
  */
@@ -47,6 +48,16 @@ router.get('/', async (req, res) => {
     return res.json(await caixas.listar({ user: req.user, tenantId: req.user.tenantId }));
   } catch (erro) {
     return responderErro(res, erro, 'ler os caixas');
+  }
+});
+
+// Fechamento do caixa (23/11/2026): quem opera o PDV ou ve as sessoes consulta o saldo da gaveta.
+router.get('/gaveta', async (req, res) => {
+  if (!exigir(req, res, [PERMISSAO, 'financeiro.caixa_registros', ...PERMISSOES_QUE_OPERAM_O_CAIXA])) return undefined;
+  try {
+    return res.json(await caixas.resumoDaGaveta({ user: req.user, tenantId: req.user.tenantId }));
+  } catch (erro) {
+    return responderErro(res, erro, 'consultar o saldo da gaveta');
   }
 });
 
@@ -112,7 +123,7 @@ router.post('/:id', async (req, res) => {
 router.get('/:id/extrato', async (req, res) => {
   if (!exigir(req, res, [PERMISSAO])) return undefined;
   try {
-    return res.json({ lancamentos: await caixas.extrato({ tenantId: req.user.tenantId, caixaId: req.params.id }) });
+    return res.json({ lancamentos: await caixas.extrato({ tenantId: req.user.tenantId, caixaId: req.params.id, dias: Number(req.query.dias) }) });
   } catch (erro) {
     return responderErro(res, erro, 'ler o extrato do caixa');
   }

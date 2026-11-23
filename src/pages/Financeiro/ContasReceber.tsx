@@ -462,6 +462,22 @@ const ContasReceber: React.FC = () => {
     const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, getDateInputInTimeZone());
     const semPercentuais = parametrosVenda.juros.aoMesPercentual <= 0 && parametrosVenda.juros.multaPercentual <= 0;
     const vencido = diasDeAtraso(t.dataVencimento, getDateInputInTimeZone()) > 0;
+    // Banco na mesma janela (23/11/2026): as formas que creditam um banco pedem
+    // o banco logo abaixo da forma, em vez de uma segunda janela depois.
+    const formasComBanco = formas.filter((forma) => forma !== FORMA_BOLETO
+      && paymentRequiresBankAccount(forma as PaymentMethod)
+      && !isSimplifiedChequePayment(forma as PaymentMethod, pagamentoSimplificado));
+    let bancosDisponiveis: Array<{ id: string; nome: string }> = [];
+    if (formasComBanco.length > 0) {
+      try {
+        const snapBancos = await getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)));
+        bancosDisponiveis = snapBancos.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }));
+      } catch (erro) {
+        console.error('Contas a Receber: não foi possível ler os bancos.', erro);
+        showError('Não foi possível ler os bancos', 'Confira a internet e tente de novo.');
+        return;
+      }
+    }
     const dados = await pedirDadosBaixa({
       titulo: 'Confirmar Recebimento?',
       texto: `Valor líquido de R$ ${transactionNetAmount(t).toFixed(2)} referente a ${t.descricao}.`,
@@ -482,6 +498,11 @@ const ContasReceber: React.FC = () => {
       mensagemSemForma: 'Escolha como foi recebido antes de confirmar.',
       rotuloData: 'Data do recebimento (para cheque, vale a data de compensação)',
       textoConfirmar: 'Confirmar recebimento',
+      banco: {
+        bancos: bancosDisponiveis,
+        formas: formasComBanco,
+        rotulo: (forma) => (forma === 'Cheque' ? 'Em qual banco vai cair quando compensar?' : 'Em qual banco caiu?'),
+      },
     });
     if (!dados) return;
     if (dados.forma === FORMA_BOLETO) {
@@ -491,34 +512,9 @@ const ContasReceber: React.FC = () => {
     const formaPgto = dados.forma as PaymentMethod;
     const dataRecebimento = dados.data;
 
-    let bancoId: string | undefined;
-    let bancoNome: string | undefined;
-    if (paymentRequiresBankAccount(formaPgto) && !isSimplifiedChequePayment(formaPgto, pagamentoSimplificado)) {
-      const qBancos = query(
-        collection(db, 'bancos'),
-        where('tenantId', '==', tenantId),
-        where('ativo', '==', true),
-      );
-      const snapBancos = await getDocs(qBancos);
-      const bancosDisponiveis = snapBancos.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }));
-      if (bancosDisponiveis.length === 0) {
-        showError('Nenhum banco cadastrado', 'Cadastre um banco em Cadastros > Bancos antes de confirmar este recebimento.');
-        return;
-      }
-      const bancoResult = await NexusSwal.fire({
-        title: formaPgto === 'Cheque' ? 'Em qual banco vai cair quando compensar?' : 'Em qual banco caiu?',
-        input: 'select',
-        inputOptions: Object.fromEntries(bancosDisponiveis.map((b) => [b.id, escaparHtml(b.nome)])),
-        inputPlaceholder: 'Selecione o banco',
-        showCancelButton: true,
-        confirmButtonText: 'Confirmar',
-        cancelButtonText: 'Cancelar',
-        inputValidator: (value) => (value ? undefined : 'Selecione um banco.'),
-      });
-      if (!bancoResult.isConfirmed) return;
-      bancoId = bancoResult.value as string;
-      bancoNome = bancosDisponiveis.find((b) => b.id === bancoId)?.nome;
-    }
+    // O banco veio da mesma janela (pedirDadosBaixa) quando a forma pede banco.
+    const bancoId: string | undefined = formasComBanco.includes(formaPgto) ? dados.bancoId : undefined;
+    const bancoNome: string | undefined = bancoId ? bancosDisponiveis.find((b) => b.id === bancoId)?.nome : undefined;
 
     // Cheque nunca confirma na hora -- abre o modal de digitação, e só
     // quando confirmado lá é que registra (Pendente, aguardando

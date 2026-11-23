@@ -2,6 +2,8 @@ import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { DEFAULT_CONFIG_CASHBACK, LIMITE_DE_FAIXAS, ROTULO_MODELO_CASHBACK, parseConfigCashback, type ConfigCashback, type FaixaDePontos, type ModeloCashback } from '../../utils/cashbackDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, TRIBUTACAO_TRANSFERENCIA_PADRAO, parseTributacaoTransferencia, type TributacaoTransferencia } from '../../utils/notaTransferenciaDomain';
 import { PARAMETROS_VENDA_PADRAO, parametrosVendaDoForm, parametrosVendaParaForm, parseParametrosVenda, type ParametrosVendaForm } from '../../utils/parametrosVendaDomain';
+import { lerConfigGaveta, montarConfigGaveta, type ConfigGavetaDinheiro } from '../../utils/gavetaDinheiroDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { DOCUMENTOS_COM_MENSAGEM, LIMITE_MENSAGEM_PADRAO, MENSAGENS_PADRAO_VAZIAS, parseMensagensPadrao, type MensagensPadrao } from '../../utils/mensagensPadraoDomain';
 import { DOCUMENTOS_DE_COBRANCA, EMISSAO_DOCUMENTOS_PADRAO, MODOS_DE_EMISSAO, VIAS_MAXIMAS, parseEmissaoDocumentos, type EmissaoDocumentos, type ModoEmissao } from '../../utils/documentosCobrancaDomain';
 import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoService';
@@ -486,6 +488,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     mensagensPadrao: { ...MENSAGENS_PADRAO_VAZIAS } as MensagensPadrao,
     emissaoDocumentos: parseEmissaoDocumentos(EMISSAO_DOCUMENTOS_PADRAO) as EmissaoDocumentos,
     maquinasPesadas: configMaquinasParaForm(CONFIG_MAQUINAS_PESADAS_PADRAO) as ConfigMaquinasPesadasForm,
+    // Dinheiro das vendas na gaveta (23/11/2026): utils/gavetaDinheiroDomain.ts.
+    gavetaDinheiro: { ativo: false, desde: '' } as ConfigGavetaDinheiro,
     configOrcamento: { ...CONFIG_ORCAMENTO_PADRAO } as ConfigOrcamento,
     permitirDescontoPorItem: DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
@@ -678,6 +682,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             mensagensPadrao: parseMensagensPadrao(data.mensagensPadrao),
             emissaoDocumentos: parseEmissaoDocumentos(data.emissaoDocumentos),
             maquinasPesadas: configMaquinasParaForm(parseConfigMaquinasPesadas(data.maquinasPesadas)),
+            gavetaDinheiro: lerConfigGaveta(data),
             configOrcamento: parseConfigOrcamento(data.configOrcamento),
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
@@ -1340,6 +1345,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         mensagensPadrao: parseMensagensPadrao(formData.mensagensPadrao),
         emissaoDocumentos: parseEmissaoDocumentos(formData.emissaoDocumentos),
         maquinasPesadas: maquinasResultado.config,
+        // A data nasce na primeira vez que liga e nao muda mais (montarConfigGaveta).
+        gavetaDinheiro: montarConfigGaveta(formData.gavetaDinheiro.ativo, formData.gavetaDinheiro, getDateInputInTimeZone()),
         configOrcamento: parseConfigOrcamento(formData.configOrcamento),
         diasCrediario: creditTerms.join(', '),
         maxParcelasCartao: maxCardInstallments,
@@ -3328,6 +3335,24 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     </label>
                   </div>
                   <p style={dica}>Ao receber um título vencido em Contas a Receber, o sistema sugere os juros (proporcionais aos dias de atraso) e a multa; quem recebe pode ajustar ou tirar. O valor entra como lançamento próprio "Juros e multa" no financeiro, e sai junto se o recebimento for estornado. Em branco: não sugere.</p>
+                </div>
+
+                {/* Dinheiro das vendas na gaveta (23/11/2026, pedido do dono): regra em utils/gavetaDinheiroDomain.ts. */}
+                <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.gavetaDinheiro.ativo}
+                      onChange={(e) => { const ativo = e.target.checked; setFormData((atual) => ({ ...atual, gavetaDinheiro: { ...atual.gavetaDinheiro, ativo } })); }}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                    />
+                    Dinheiro das vendas na gaveta: somar no CAIXA todo o dinheiro recebido
+                    {formData.gavetaDinheiro.ativo && formData.gavetaDinheiro.desde && (
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>(contando desde {formData.gavetaDinheiro.desde.split('-').reverse().join('/')})</span>
+                    )}
+                  </label>
+                  <p style={dica}>Ligado: o CAIXA de Financeiro › Caixas e Transferências passa a somar sozinho as vendas em dinheiro da Frente de Caixa e do Pedido de Venda, as contas recebidas em dinheiro e o que foi pago em dinheiro, menos as sangrias. O fechamento do caixa confere o valor contado com esse saldo, e a sobra ou a falta entra no extrato; depois é só transferir do CAIXA para o COFRE. Conta a partir do dia em que for ligado. Desligado: o CAIXA só muda com transferências e lançamentos a mão, como sempre. Vale para lojas com uma gaveta; com mais de um caixa aberto ao mesmo tempo, cada fechamento confere só as vendas daquele caixa.</p>
                 </div>
               </div>
             );

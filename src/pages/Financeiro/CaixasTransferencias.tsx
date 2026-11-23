@@ -7,6 +7,7 @@ import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { formatarReais, type ContaRef } from '../../utils/contasDinheiroDomain';
+import { ROTULO_MOVIMENTO_GAVETA } from '../../utils/gavetaDinheiroDomain';
 import {
   extratoDoCaixa,
   lancarNoCaixa,
@@ -33,7 +34,17 @@ const ROTULO_TIPO_LANCAMENTO: Record<string, string> = {
   ajuste: 'Lançamento',
   transferencia_entrada: 'Transferência recebida',
   transferencia_saida: 'Transferência enviada',
+  // Dinheiro das vendas na gaveta (23/11/2026): montado pelo servidor no CAIXA.
+  ...ROTULO_MOVIMENTO_GAVETA,
 };
+
+/** Periodo do dinheiro das vendas no extrato do CAIXA (so' com a chave ligada). */
+const PERIODOS_DO_EXTRATO = [
+  { dias: 1, rotulo: 'Hoje e ontem' },
+  { dias: 7, rotulo: 'Últimos 7 dias' },
+  { dias: 30, rotulo: 'Últimos 30 dias' },
+  { dias: 90, rotulo: 'Últimos 90 dias' },
+];
 
 const estiloFundo: React.CSSProperties = { position: 'fixed', inset: 0, zIndex: 1200, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' };
 const estiloJanela: React.CSSProperties = { width: '100%', maxWidth: '480px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', padding: '22px', display: 'flex', flexDirection: 'column', gap: '14px' };
@@ -73,6 +84,9 @@ const CaixasTransferencias: React.FC = () => {
   const [carregando, setCarregando] = useState(true);
   const [caixaAberto, setCaixaAberto] = useState<CaixaResumo | null>(null);
   const [extrato, setExtrato] = useState<LancamentoDoCaixa[] | null>(null);
+  const [diasDoExtrato, setDiasDoExtrato] = useState(30);
+  // Chave "dinheiro das vendas na gaveta" (Configuracoes da Filial): muda o texto de ajuda.
+  const [gavetaAtiva, setGavetaAtiva] = useState(false);
   const [janela, setJanela] = useState<'transferir' | 'caixa' | 'lancar' | null>(null);
   const [editando, setEditando] = useState<CaixaResumo | null>(null);
   const [salvando, setSalvando] = useState(false);
@@ -87,6 +101,7 @@ const CaixasTransferencias: React.FC = () => {
       const r = await listarCaixasEBancos();
       setCaixas(r.caixas);
       setBancos(r.bancos);
+      setGavetaAtiva(Boolean(r.gaveta?.ativo));
     } catch (erro) {
       showError('Não foi possível carregar os caixas', erro instanceof Error ? erro.message : 'Tente de novo.');
     } finally {
@@ -96,11 +111,11 @@ const CaixasTransferencias: React.FC = () => {
 
   useEffect(() => { if (tenantId) void carregar(); }, [tenantId, carregar]);
 
-  const abrirExtrato = async (caixa: CaixaResumo) => {
+  const abrirExtrato = async (caixa: CaixaResumo, dias = diasDoExtrato) => {
     setCaixaAberto(caixa);
     setExtrato(null);
     try {
-      setExtrato(await extratoDoCaixa(caixa.id));
+      setExtrato(await extratoDoCaixa(caixa.id, dias));
     } catch (erro) {
       showError('Não foi possível ler o extrato', erro instanceof Error ? erro.message : 'Tente de novo.');
       setExtrato([]);
@@ -180,6 +195,9 @@ const CaixasTransferencias: React.FC = () => {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{c.nome}</div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{c.tipo === 'caixa' ? (c.descricao || 'Caixa') : 'Banco'}</div>
+          {c.tipo === 'caixa' && c.recebeDinheiroDasVendas && (
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#10b981', marginTop: '2px' }}>Recebe o dinheiro das vendas</div>
+          )}
         </div>
       </div>
       <div style={{ fontSize: '22px', fontWeight: 800, color: c.saldoCentavos < 0 ? '#ef4444' : 'var(--text-primary)' }}>{mostrarValor(formatarReais(c.saldoCentavos))}</div>
@@ -241,7 +259,10 @@ const CaixasTransferencias: React.FC = () => {
             </div>
           )}
           <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: 0 }}>
-            O saldo do caixa vem do saldo inicial, das transferências e dos lançamentos feitos aqui. A venda em dinheiro continua no Fluxo de Caixa, como sempre. O extrato do banco fica em Cadastros Auxiliares › Bancos.
+            {gavetaAtiva
+              ? 'O CAIXA soma sozinho todo o dinheiro recebido (vendas da Frente de Caixa, pedidos de venda e contas recebidas em dinheiro), menos o que foi pago em dinheiro, as sangrias e as transferências. No fechamento do caixa, a sobra ou a falta entra aqui. Para guardar o dinheiro do dia, use Transferir do CAIXA para o COFRE. Para desligar: Configurações da Filial › Parâmetros de venda.'
+              : 'O saldo do caixa vem do saldo inicial, das transferências e dos lançamentos feitos aqui. A venda em dinheiro continua no Fluxo de Caixa. Para o CAIXA somar sozinho o dinheiro das vendas, ligue "Dinheiro das vendas na gaveta" em Configurações da Filial › Parâmetros de venda.'}
+            {' '}O extrato do banco fica em Cadastros Auxiliares › Bancos.
           </p>
         </>
       )}
@@ -250,7 +271,20 @@ const CaixasTransferencias: React.FC = () => {
         <div className="card list-container" style={{ marginTop: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid var(--border-color)' }}>
             <strong>Extrato — {caixaAberto.nome}</strong>
-            <button type="button" onClick={() => { setCaixaAberto(null); setExtrato(null); }} aria-label="Fechar extrato" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={18} /></button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {caixaAberto.recebeDinheiroDasVendas && (
+                <select
+                  value={diasDoExtrato}
+                  aria-label="Período do dinheiro das vendas no extrato"
+                  title="Período do dinheiro das vendas (transferências e lançamentos a mão aparecem sempre)"
+                  onChange={(e) => { const dias = Number(e.target.value); setDiasDoExtrato(dias); void abrirExtrato(caixaAberto, dias); }}
+                  style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px 10px', borderRadius: 'var(--radius-md)', fontSize: '13px' }}
+                >
+                  {PERIODOS_DO_EXTRATO.map((p) => <option key={p.dias} value={p.dias}>{p.rotulo}</option>)}
+                </select>
+              )}
+              <button type="button" onClick={() => { setCaixaAberto(null); setExtrato(null); }} aria-label="Fechar extrato" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
           </div>
           <div className="table-wrapper">
             <table className="data-table" style={{ width: '100%' }}>

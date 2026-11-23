@@ -49,6 +49,15 @@ import {
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { sangriaParaDeposito } from '../../services/caixasService';
+import {
+  calcularEsperadoDoFechamento,
+  ErroDoFechamento,
+  gravarFechamentoDoCaixa,
+  mensagemDoErroDeFechamento,
+  mensagemDoFechamento,
+  pedirValorContado,
+} from '../../services/fechamentoCaixaPdvService';
+import type { EsperadoNoFechamento } from '../../utils/gavetaDinheiroDomain';
 import { finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
@@ -691,75 +700,53 @@ const PDV: React.FC = () => {
       if (!confirmation.isConfirmed) return false;
     }
 
-    let saldoEsperadoCentavos = session.saldoInicialCentavos - session.totalSangriasCentavos;
+    // Conta e gravacao em services/fechamentoCaixaPdvService (23/11/2026): a mesma
+    // do fechamento pela tela Caixa (Sessoes PDV). Com "dinheiro das vendas na
+    // gaveta" ligado, o esperado e' o saldo da gaveta.
+    let esperado: EsperadoNoFechamento;
     try {
-      const qVendasEmDinheiro = query(
-        collection(db, 'transacoes'),
-        where('tenantId', '==', tenantId),
-        where('pdvSessionId', '==', session.id),
-        where('movimentaCaixaFisico', '==', true),
-      );
-      const snapVendas = await getDocs(qVendasEmDinheiro);
-      snapVendas.forEach((docSnap) => {
-        const t = docSnap.data();
-        // Venda cancelada nesta sessao: o dinheiro voltou ao cliente (19/10/2026).
-        if (t.estornada === true || t.status === 'Cancelada') return;
-        saldoEsperadoCentavos += Number(t.valorCentavos || 0);
-      });
+      esperado = await calcularEsperadoDoFechamento(tenantId, session);
     } catch (error) {
       console.error('Erro ao calcular saldo esperado do caixa:', error);
+      showError('Não foi possível calcular o saldo esperado', mensagemDoErroDeFechamento(error));
+      return false;
     }
 
-    const result = await NexusSwal.fire({
-      title: 'Fechar caixa',
-      text: `Saldo esperado em dinheiro: ${currency.format(fromCents(saldoEsperadoCentavos))}. Informe o valor contado fisicamente no caixa.`,
-      input: 'number',
-      inputValue: toCurrencyInput(saldoEsperadoCentavos),
-      inputAttributes: { min: '0', step: '0.01' },
-      showCancelButton: true,
-      confirmButtonText: 'Fechar caixa',
-      cancelButtonText: 'Cancelar',
-    });
+    const saldoFinalInformadoCentavos = await pedirValorContado(esperado);
+    if (saldoFinalInformadoCentavos === null) return false;
 
-    if (!result.isConfirmed) return false;
-
-    const saldoFinalInformadoCentavos = fromCurrencyInput(result.value || 0);
-    const diferencaCentavos = saldoFinalInformadoCentavos - saldoEsperadoCentavos;
-
-    try {
-      await updateDoc(doc(db, 'caixas_pdv', session.id), {
-        status: 'fechado',
-        fechadoEm: serverTimestamp(),
-        saldoFinalInformadoCentavos,
-        saldoEsperadoCentavos,
-        diferencaCentavos,
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Caixa fechado'),
-      });
-
-      const { createAuditLog } = await import('../../services/logService');
-      createAuditLog({
-        tenantId,
-        usuarioId: currentUser.uid,
-        usuarioEmail: currentUser.email || '',
-        modulo: 'financeiro',
-        acao: 'fechar_caixa',
-        descricao: `Caixa fechado por ${operatorName}. Esperado: ${currency.format(fromCents(saldoEsperadoCentavos))}, informado: ${currency.format(fromCents(saldoFinalInformadoCentavos))}, diferença: ${currency.format(fromCents(diferencaCentavos))}.`,
-        registroRelacionadoId: session.id,
-        status: 'sucesso',
-      });
-
+    const limparCaixaDaTela = () => {
       resetSale();
       setSession(null);
       localStorage.removeItem(sessionStorageKey);
+    };
+
+    try {
+      const diferencaCentavos = await gravarFechamentoDoCaixa({
+        tenantId,
+        sessaoId: session.id,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || '',
+        fechadoPorNome: operatorName,
+        esperado,
+        saldoInformadoCentavos: saldoFinalInformadoCentavos,
+      });
+
+      limparCaixaDaTela();
       if (terminalDoCaixa) {
         try {
           localStorage.setItem(chaveDoUltimoFechamento(terminalDoCaixa.terminalId), JSON.stringify({ saldoCentavos: saldoFinalInformadoCentavos, operadorNome: operatorName }));
         } catch { /* sem armazenamento local: so' perde a sugestao */ }
       }
-      showSuccess('Caixa fechado');
+      showSuccess(mensagemDoFechamento(diferencaCentavos, esperado.modo));
       return true;
     } catch (error) {
+      if (error instanceof ErroDoFechamento) {
+        // Fechado por outra tela (dono/administrador em Caixa (Sessoes PDV)): este computador so' sai do caixa.
+        limparCaixaDaTela();
+        showWarning('Este caixa já tinha sido fechado pela tela Caixa (Sessões PDV). Abra um caixa novo para continuar vendendo.');
+        return true;
+      }
       console.error('Erro ao fechar caixa:', error);
       showError('Erro ao fechar caixa', 'Não foi possível fechar o caixa. Tente novamente.');
       return false;

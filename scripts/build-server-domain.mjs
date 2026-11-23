@@ -134,6 +134,8 @@ const MODULOS = [
   'src/utils/liberacaoRemotaDomain.ts',
   // Caixas e transferencias entre contas (21/10/2026).
   'src/utils/contasDinheiroDomain.ts',
+  // Dinheiro das vendas na gaveta (23/11/2026): o servidor monta o saldo e o extrato do CAIXA.
+  'src/utils/gavetaDinheiroDomain.ts',
   // Compras: cotacao e pedido de compra (22/10/2026).
   'src/utils/comprasDomain.ts',
   // Historico de alteracoes (09/11/2026): o servidor monta o registro igual a tela.

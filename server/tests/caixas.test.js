@@ -111,3 +111,100 @@ test('cheque recebido: depositar escolhe o banco e marca; devolvido; voltar para
   // Cheque emitido (conta a pagar) nao passa nem pela leitura do titulo de entrada.
   await assert.rejects(() => s.cheque.depositarCheque({ user: USER, tenantId: 'loja', corpo: { transacaoId: 'ch2', bancoId: 'b1' }, hoje: HOJE }), (e) => e.status === 400);
 });
+
+/*
+ * Dinheiro das vendas na gaveta (23/11/2026, Embala Minas): com a chave da
+ * empresa ligada, o CAIXA soma os titulos pagos em dinheiro, as sangrias e a
+ * diferenca do fechamento do PDV -- montados dos documentos.
+ */
+const { getDateInputInTimeZone, addDaysToDateInput } = require('../domain/dateTime');
+
+const baseDaGaveta = (extra = {}) => {
+  const hoje = getDateInputInTimeZone();
+  const ontem = addDaysToDateInput(hoje, -1);
+  const antes = addDaysToDateInput(hoje, -3);
+  return base({
+    'configuracoes/loja': { tenantId: 'loja', gavetaDinheiro: { ativo: true, desde: ontem } },
+    // Venda em dinheiro no PDV e no pedido de venda; conta paga em dinheiro; venda cancelada + estorno.
+    'transacoes/pdv': { tenantId: 'loja', tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, valorCentavos: 30000, descricao: 'Venda Direta #0031 - Dinheiro', dataPagamento: hoje, data: hoje, pdvSessionId: 's1' },
+    'transacoes/pedido': { tenantId: 'loja', tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, valorCentavos: 20000, descricao: 'Pedido #0032 - Dinheiro', dataPagamento: ontem, data: ontem },
+    'transacoes/despesa': { tenantId: 'loja', tipo: 'saida', status: 'Paga', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, valorCentavos: 4000, descricao: 'Motoboy', dataPagamento: hoje, data: hoje },
+    'transacoes/cancelada': { tenantId: 'loja', tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, valorCentavos: 9000, descricao: 'Venda Direta #0033 - Dinheiro', dataPagamento: hoje, data: hoje, estornada: true },
+    'transacoes/estorno': { tenantId: 'loja', tipo: 'saida', status: 'Paga', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, valorCentavos: 9000, descricao: 'Estorno da venda #0033', data: hoje },
+    // Fora: pix, em aberto, antes de ligar a chave, outra empresa.
+    'transacoes/pix': { tenantId: 'loja', tipo: 'entrada', status: 'Paga', formaPagamento: 'Pix', movimentaCaixaFisico: false, valorCentavos: 77700, dataPagamento: hoje, data: hoje },
+    'transacoes/aberta': { tenantId: 'loja', tipo: 'entrada', status: 'Pendente', formaPagamento: 'Dinheiro', valorCentavos: 55500, data: hoje },
+    'transacoes/antiga': { tenantId: 'loja', tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, valorCentavos: 99900, dataPagamento: antes, data: antes },
+    'transacoes/vizinha': { tenantId: 'outra', tipo: 'entrada', status: 'Paga', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, valorCentavos: 11100, dataPagamento: hoje, data: hoje },
+    // Caixa aberto com sangria; caixa fechado agora ha pouco pela gaveta com falta de R$ 2,50.
+    'caixas_pdv/s1': { tenantId: 'loja', status: 'aberto', operadorNome: 'CAIXA', terminalNome: 'Caixa 1', sangrias: [{ id: 'g1', valorCentavos: 5000, motivo: 'Troco', registradoEm: new Date().toISOString() }], totalSangriasCentavos: 5000 },
+    'caixas_pdv/s0': { tenantId: 'loja', status: 'fechado', operadorNome: 'CAIXA', sangrias: [], diferencaCentavos: -250, fechamentoPelaGaveta: true, fechadoEm: new Date() },
+    ...extra,
+  });
+};
+
+// 300,00 + 200,00 - 40,00 + (90,00 - 90,00) - 50,00 de sangria - 2,50 de falta.
+const MONTADO = 30000 + 20000 - 4000 - 5000 - 250;
+
+test('gaveta ligada: o CAIXA soma dinheiro das vendas, sangria e diferenca; COFRE nao muda', async () => {
+  const fake = criarBancoFalso(baseDaGaveta(), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.caixas.listar({ user: USER, tenantId: 'loja' });
+  const caixa = r.caixas.find((c) => c.nome === 'CAIXA');
+  const cofre = r.caixas.find((c) => c.nome === 'COFRE');
+  assert.equal(r.gaveta.ativo, true);
+  assert.equal(caixa.saldoCentavos, MONTADO);
+  assert.equal(caixa.recebeDinheiroDasVendas, true);
+  assert.equal(cofre.saldoCentavos, 0);
+  assert.equal(cofre.recebeDinheiroDasVendas, undefined);
+  assert.equal(fake.ler(`caixas/${caixa.id}`).saldoCentavos, 0, 'nada e gravado no caixa: e montado dos documentos');
+
+  const extrato = await s.caixas.extrato({ tenantId: 'loja', caixaId: caixa.id });
+  const tipos = extrato.map((l) => l.tipo);
+  assert.equal(tipos.filter((t) => t === 'dinheiro_entrada').length, 3);
+  assert.equal(tipos.filter((t) => t === 'dinheiro_saida').length, 2);
+  assert.equal(tipos.filter((t) => t === 'sangria_pdv').length, 1);
+  assert.equal(tipos.filter((t) => t === 'diferenca_fechamento').length, 1);
+  assert.ok(!extrato.some((l) => /antiga|vizinha/.test(l.id)), 'antes da chave e outra empresa ficam fora');
+  assert.deepEqual(await s.caixas.extrato({ tenantId: 'loja', caixaId: cofre.id }), [], 'o extrato do COFRE nao recebe as vendas');
+});
+
+test('gaveta ligada: transferir para o cofre usa o dinheiro das vendas; alem do saldo e recusado', async () => {
+  const fake = criarBancoFalso(baseDaGaveta({ 'caixas_pdv/s0': { tenantId: 'loja', status: 'fechado', sangrias: [], diferencaCentavos: 0, fechamentoPelaGaveta: true, fechadoEm: new Date() } }), { consultas: true });
+  const s = carregar(fake.db);
+  const { caixas } = await s.caixas.listar({ user: USER, tenantId: 'loja' });
+  const caixa = caixas.find((c) => c.nome === 'CAIXA');
+  const cofre = caixas.find((c) => c.nome === 'COFRE');
+  const disponivel = 30000 + 20000 - 4000 - 5000;
+  assert.equal(caixa.saldoCentavos, disponivel);
+  const hoje = getDateInputInTimeZone();
+
+  await assert.rejects(
+    () => s.caixas.transferir({ user: USER, tenantId: 'loja', corpo: { origem: { tipo: 'caixa', id: caixa.id }, destino: { tipo: 'caixa', id: cofre.id }, valorCentavos: disponivel + 1, data: hoje } }),
+    (e) => e.status === 409 && /CAIXA tem R\$ 410,00/.test(e.message),
+  );
+  await s.caixas.transferir({ user: USER, tenantId: 'loja', corpo: { origem: { tipo: 'caixa', id: caixa.id }, destino: { tipo: 'caixa', id: cofre.id }, valorCentavos: 40000, data: hoje } });
+  assert.equal(fake.ler(`caixas/${cofre.id}`).saldoCentavos, 40000);
+  const depois = await s.caixas.listar({ user: USER, tenantId: 'loja' });
+  assert.equal(depois.caixas.find((c) => c.nome === 'CAIXA').saldoCentavos, disponivel - 40000);
+  assert.equal(depois.caixas.find((c) => c.nome === 'COFRE').saldoCentavos, 40000);
+  // Lancamento de saida a mao tambem enxerga o dinheiro das vendas.
+  await s.caixas.lancar({ user: USER, tenantId: 'loja', caixaId: caixa.id, corpo: { direcao: 'debito', valorCentavos: 1000, descricao: 'Acerto', data: hoje } });
+  await assert.rejects(() => s.caixas.lancar({ user: USER, tenantId: 'loja', caixaId: caixa.id, corpo: { direcao: 'debito', valorCentavos: 1, descricao: 'Acerto', data: hoje } }), (e) => e.status === 409);
+
+  const resumo = await s.caixas.resumoDaGaveta({ user: USER, tenantId: 'loja' });
+  assert.deepEqual([resumo.ativo, resumo.caixaNome, resumo.saldoCentavos, resumo.caixasAbertos], [true, 'CAIXA', 0, 1]);
+});
+
+test('gaveta desligada: tudo como antes (venda em dinheiro nao entra no CAIXA)', async () => {
+  const fake = criarBancoFalso(baseDaGaveta({ 'configuracoes/loja': { tenantId: 'loja' } }), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.caixas.listar({ user: USER, tenantId: 'loja' });
+  const caixa = r.caixas.find((c) => c.nome === 'CAIXA');
+  assert.equal(r.gaveta.ativo, false);
+  assert.equal(caixa.saldoCentavos, 0);
+  assert.deepEqual(await s.caixas.extrato({ tenantId: 'loja', caixaId: caixa.id }), []);
+  const resumo = await s.caixas.resumoDaGaveta({ user: USER, tenantId: 'loja' });
+  assert.deepEqual([resumo.ativo, resumo.saldoCentavos], [false, null]);
+  await assert.rejects(() => s.caixas.transferir({ user: USER, tenantId: 'loja', corpo: { origem: { tipo: 'caixa', id: caixa.id }, destino: { tipo: 'banco', id: 'b1' }, valorCentavos: 100, data: getDateInputInTimeZone() } }), (e) => e.status === 409);
+});

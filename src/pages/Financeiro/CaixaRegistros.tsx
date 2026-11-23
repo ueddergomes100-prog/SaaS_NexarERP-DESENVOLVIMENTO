@@ -1,15 +1,25 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useAuth } from '../../contexts/AuthContext';
-import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote, FileText, MonitorCheck, User } from 'lucide-react';
+import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote, FileText, Lock, MonitorCheck, User } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
-import { montarDocumentoCaixaPdv } from '../../utils/relatorioCaixaPdvDomain';
-import { fromCents } from '../../utils/financeDomain';
+import { montarDocumentoCaixaPdv, totaisPorForma, totalDoCaixaAberto, type LancamentoDoCaixaAberto } from '../../utils/relatorioCaixaPdvDomain';
+import { fromCents, toCents, transactionMovesPhysicalCash } from '../../utils/financeDomain';
+import { esperadoNoFechamento, lerConfigGaveta } from '../../utils/gavetaDinheiroDomain';
+import { resumoDaGaveta, type ResumoDaGaveta } from '../../services/caixasService';
+import {
+  calcularEsperadoDoFechamento,
+  gravarFechamentoDoCaixa,
+  mensagemDoErroDeFechamento,
+  mensagemDoFechamento,
+  pedirValorContado,
+} from '../../services/fechamentoCaixaPdvService';
+import { showError, showSuccess } from '../../utils/alerts';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { nomeDoOperador } from '../../utils/frenteDeCaixaDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
@@ -42,6 +52,9 @@ interface CaixaSessaoData {
   /** Computador onde o caixa foi aberto (entrada com codigo e senha, 22/11/2026). */
   terminalNome?: string;
 }
+
+/** Titulo de uma venda do caixa aberto, com a marca de dinheiro (entra no esperado). */
+type LancamentoDaSessao = LancamentoDoCaixaAberto & { dinheiro: boolean };
 
 interface VendaVinculada {
   id: string;
@@ -82,6 +95,11 @@ const CaixaRegistros: React.FC = () => {
   const [loadingVendas, setLoadingVendas] = useState<string | null>(null);
   // Relatorio (16/10/2026): caixas abertos + historico do periodo escolhido.
   const [previewAberto, setPreviewAberto] = useState(false);
+  // Caixa aberto ao vivo (23/11/2026): o que ja' passou por cada caixa aberto, sem esperar fechar.
+  const [lancamentosPorSessao, setLancamentosPorSessao] = useState<Record<string, LancamentoDaSessao[]>>({});
+  // "Dinheiro das vendas na gaveta" ligado: o fechamento confere contra o saldo da gaveta.
+  const [gaveta, setGaveta] = useState<ResumoDaGaveta | null>(null);
+  const [fechandoId, setFechandoId] = useState<string | null>(null);
 
   // Caixas abertos de qualquer data + os fechados nos ultimos N dias do
   // filtro (0 = todos), direto no banco (otimizacao de leituras, 2026-10-14)
@@ -99,6 +117,103 @@ const CaixaRegistros: React.FC = () => {
     () => [...sessoesLidas].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
     [sessoesLidas],
   );
+
+  const idsDosAbertos = useMemo(
+    () => sessoesLidas.filter((s) => s.status === 'aberto').map((s) => s.id).sort().join('|'),
+    [sessoesLidas],
+  );
+  const carregarAoVivo = useCallback(async () => {
+    if (!tenantId) return;
+    const ids = idsDosAbertos ? idsDosAbertos.split('|') : [];
+    try {
+      const pares = await Promise.all(ids.map(async (id) => {
+        const snap = await getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', id)));
+        const lista: LancamentoDaSessao[] = snap.docs
+          .filter((d) => d.data().tipo !== 'saida')
+          .map((d) => {
+            const t = d.data();
+            return {
+              id: d.id,
+              descricao: String(t.descricao || ''),
+              clienteNome: String(t.clienteNome || ''),
+              formaPagamento: String(t.formaPagamento || ''),
+              valorCentavos: Number.isFinite(Number(t.valorCentavos)) && t.valorCentavos !== null && t.valorCentavos !== undefined ? Number(t.valorCentavos) : toCents(Number(t.valor || 0)),
+              criadoEm: toDate(t.createdAt),
+              cancelado: t.estornada === true || t.status === 'Cancelada',
+              pendente: t.status === 'Pendente',
+              dinheiro: transactionMovesPhysicalCash(t),
+            };
+          })
+          .sort((a, b) => (a.criadoEm?.getTime() || 0) - (b.criadoEm?.getTime() || 0));
+        return [id, lista] as const;
+      }));
+      setLancamentosPorSessao(Object.fromEntries(pares));
+    } catch (erro) {
+      console.error('Caixa (Sessões PDV): não foi possível ler os lançamentos dos caixas abertos.', erro);
+    }
+    try {
+      const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
+      const ligada = lerConfigGaveta(configSnap.exists() ? configSnap.data() : null).ativo;
+      setGaveta(ligada ? await resumoDaGaveta() : null);
+    } catch (erro) {
+      console.error('Caixa (Sessões PDV): não foi possível consultar o saldo da gaveta.', erro);
+      setGaveta(null);
+    }
+  }, [tenantId, idsDosAbertos]);
+  useEffect(() => { void carregarAoVivo(); }, [carregarAoVivo]);
+
+  const totalDeAbertos = idsDosAbertos ? idsDosAbertos.split('|').length : 0;
+  /** Dinheiro das vendas do caixa e o saldo esperado de agora; null enquanto os lancamentos nao chegaram. */
+  const aoVivo = (s: CaixaSessaoData): { vendidoCentavos: number; dinheiroCentavos: number; esperadoCentavos: number } | null => {
+    const lancamentos = lancamentosPorSessao[s.id];
+    if (!lancamentos) return null;
+    const dinheiroCentavos = lancamentos.filter((l) => l.dinheiro && !l.cancelado).reduce((soma, l) => soma + l.valorCentavos, 0);
+    const esperado = esperadoNoFechamento({
+      gavetaAtiva: Boolean(gaveta?.ativo),
+      saldoDaGavetaCentavos: gaveta?.ativo ? gaveta.saldoCentavos : null,
+      caixasAbertos: totalDeAbertos,
+      saldoInicialCentavos: Number(s.saldoInicialCentavos || 0),
+      dinheiroDaSessaoCentavos: dinheiroCentavos,
+      totalSangriasCentavos: Number(s.totalSangriasCentavos || 0),
+    });
+    return { vendidoCentavos: totalDoCaixaAberto(lancamentos), dinheiroCentavos, esperadoCentavos: esperado.saldoEsperadoCentavos };
+  };
+
+  // Fechar o caixa por aqui (pedido do dono, 23/11/2026): so' dono/administrador. A conta e a
+  // gravacao sao as mesmas do PDV (services/fechamentoCaixaPdvService).
+  const fecharCaixa = async (sessao: CaixaSessaoData) => {
+    if (!currentUser || !tenantId || fechandoId) return;
+    setFechandoId(sessao.id);
+    try {
+      const esperado = await calcularEsperadoDoFechamento(tenantId, {
+        id: sessao.id,
+        saldoInicialCentavos: Number(sessao.saldoInicialCentavos || 0),
+        totalSangriasCentavos: Number(sessao.totalSangriasCentavos || 0),
+      });
+      const contado = await pedirValorContado(
+        esperado,
+        `Fechar o caixa de ${nomeDaSessao(sessao) || 'operador'}`,
+        'O computador desse caixa sai do caixa na próxima venda ou ao atualizar a tela, e pede para abrir um caixa novo.',
+      );
+      if (contado === null) return;
+      const diferenca = await gravarFechamentoDoCaixa({
+        tenantId,
+        sessaoId: sessao.id,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || '',
+        fechadoPorNome: currentUser.displayName || currentUser.email?.split('@')[0] || 'Responsável',
+        pelaTelaDeSessoes: true,
+        esperado,
+        saldoInformadoCentavos: contado,
+      });
+      showSuccess(mensagemDoFechamento(diferenca, esperado.modo));
+    } catch (erro) {
+      console.error('Erro ao fechar o caixa pela tela de sessões:', erro);
+      showError('Não foi possível fechar o caixa', mensagemDoErroDeFechamento(erro));
+    } finally {
+      setFechandoId(null);
+    }
+  };
 
   // Operador pelo nome do CADASTRO (pedido do dono, 20/10/2026): as sessoes
   // antigas gravaram o login ("50672123000147-uedder"). Um cadastro por
@@ -170,6 +285,10 @@ const CaixaRegistros: React.FC = () => {
             saldoFinalInformadoCentavos: s.saldoFinalInformadoCentavos ?? null,
             diferencaCentavos: s.diferencaCentavos ?? null,
             sangrias: Array.isArray(s.sangrias) ? s.sangrias : [],
+            // Caixa aberto: esperado de agora e o que ja' passou por ele (23/11/2026).
+            ...(s.status === 'aberto' && lancamentosPorSessao[s.id]
+              ? { esperadoAoVivoCentavos: aoVivo(s)?.esperadoCentavos ?? null, lancamentos: lancamentosPorSessao[s.id] }
+              : {}),
           })),
           { periodo: rotuloPeriodo, filtrosAplicados: operadorFiltro ? [`Operador: ${operadores.find(([chave]) => chave === operadorFiltro)?.[1] || ''}`] : [] },
         )}
@@ -243,6 +362,22 @@ const CaixaRegistros: React.FC = () => {
             </div>
           )}
 
+          {sessao.status === 'aberto' && lancamentosPorSessao[sessao.id] && lancamentosPorSessao[sessao.id].length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '13px', fontWeight: 700 }}>
+                <Banknote size={16} color="#10b981" /> Recebido até agora, por forma de pagamento
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {totaisPorForma(lancamentosPorSessao[sessao.id]).map((forma) => (
+                  <span key={forma.formaPagamento} style={{ padding: '6px 10px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', fontSize: '13px' }}>
+                    {forma.formaPagamento}: <strong>{currencyFormat(fromCents(forma.valorCentavos))}</strong>
+                    <span style={{ color: 'var(--text-muted)' }}> ({forma.quantidade})</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '13px', fontWeight: 700 }}>
             <Wallet size={16} color="#37d7ff" /> Vendas vinculadas
           </div>
@@ -292,7 +427,8 @@ const CaixaRegistros: React.FC = () => {
             texto: 'Relatório', Icone: FileText,
             titulo: 'Abre em PDF os caixas abertos e as sessões fechadas no período escolhido (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
             desabilitado: loading,
-            onClick: () => setPreviewAberto(true),
+            // Rele os caixas abertos antes de abrir: o relatorio sai com os valores de agora.
+            onClick: () => { void carregarAoVivo().finally(() => setPreviewAberto(true)); },
           }, {
             texto: 'Computadores do caixa', Icone: MonitorCheck,
             titulo: 'Computadores onde cada funcionário entra com código e senha; dá para desativar um deles',
@@ -309,6 +445,11 @@ const CaixaRegistros: React.FC = () => {
           <Clock size={20} color="#10b981" />
           <h3 style={{ margin: 0 }}>Caixas abertos agora</h3>
         </div>
+        {gaveta?.ativo && gaveta.saldoCentavos !== null && (
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Dinheiro das vendas na gaveta ligado: o {gaveta.caixaNome || 'CAIXA'} tem agora <strong style={{ color: 'var(--text-primary)' }}>{currencyFormat(fromCents(gaveta.saldoCentavos))}</strong> (vendas em dinheiro do caixa e dos pedidos, menos sangrias e transferências).
+          </p>
+        )}
 
         <div className="table-wrapper">
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -317,26 +458,50 @@ const CaixaRegistros: React.FC = () => {
                 <th style={{ padding: '12px 8px' }}>Operador</th>
                 <th style={{ padding: '12px 8px' }}>Aberto em</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Saldo inicial</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }} title="Tudo que já passou por este caixa, em todas as formas de pagamento">Vendido</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }} title="Vendas em dinheiro deste caixa">Em dinheiro</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Total sangrias</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }} title="Quanto deve ter de dinheiro no caixa agora">Esperado agora</th>
                 <th style={{ padding: '12px 8px', textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : caixasAbertos.length === 0 ? (
-                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Nenhum caixa aberto no momento.</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Nenhum caixa aberto no momento.</td></tr>
               ) : (
-                caixasAbertos.flatMap((sessao) => [
-                  <tr key={sessao.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => toggleExpand(sessao)}>
-                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{rotuloDoOperador(sessao)}</td>
-                    <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.createdAt)}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{currencyFormat(fromCents(sessao.saldoInicialCentavos))}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', color: '#f59e0b' }}>{currencyFormat(fromCents(sessao.totalSangriasCentavos))}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'center' }}>{expandedId === sessao.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</td>
-                  </tr>,
-                  renderExpandedRow(sessao, 5),
-                ])
+                caixasAbertos.flatMap((sessao) => {
+                  const vivo = aoVivo(sessao);
+                  const valorAoVivo = (centavos: number | undefined) => (centavos === undefined ? '…' : currencyFormat(fromCents(centavos)));
+                  return [
+                    <tr key={sessao.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => toggleExpand(sessao)}>
+                      <td style={{ padding: '10px 8px', fontWeight: 500 }}>{rotuloDoOperador(sessao)}</td>
+                      <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.createdAt)}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'right' }}>{currencyFormat(fromCents(sessao.saldoInicialCentavos))}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'right' }}>{valorAoVivo(vivo?.vendidoCentavos)}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'right', color: '#10b981' }}>{valorAoVivo(vivo?.dinheiroCentavos)}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'right', color: '#f59e0b' }}>{currencyFormat(fromCents(sessao.totalSangriasCentavos))}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700 }}>{valorAoVivo(vivo?.esperadoCentavos)}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        {ehGerente && (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={fechandoId !== null}
+                            title="Fecha este caixa por aqui: confere o valor contado com o esperado"
+                            onClick={(e) => { e.stopPropagation(); void fecharCaixa(sessao); }}
+                            style={{ padding: '6px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '8px' }}
+                          >
+                            <Lock size={14} /> {fechandoId === sessao.id ? 'Fechando...' : 'Fechar caixa'}
+                          </button>
+                        )}
+                        {expandedId === sessao.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </td>
+                    </tr>,
+                    renderExpandedRow(sessao, 8),
+                  ];
+                })
               )}
             </tbody>
           </table>

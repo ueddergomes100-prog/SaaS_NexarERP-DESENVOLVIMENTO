@@ -34,6 +34,21 @@ export interface DadosBaixa {
    * PARCIAL (16/10/2026): a conta fica em aberto com o resto.
    */
   valorRecebidoCentavos: number;
+  /** Banco escolhido na mesma janela (so' quando a forma pede banco). */
+  bancoId?: string;
+}
+
+/**
+ * Banco na mesma janela da baixa (23/11/2026, pedido do dono na Embala Minas:
+ * "no recebimento pix tem que informar em qual banco foi, cade?"). Antes o
+ * banco vinha numa segunda janela depois de confirmar, e parecia nao existir.
+ */
+export interface EscolhaDeBancoNaBaixa {
+  bancos: Array<{ id: string; nome: string }>;
+  /** Formas que exigem o banco (o campo so' aparece nelas). */
+  formas: string[];
+  /** Pergunta mostrada para a forma escolhida (ex.: "Em qual banco caiu?"). */
+  rotulo: (forma: string) => string;
 }
 
 /** Sugestao de juros e multa para titulo em atraso (parametrosVendaDomain.acrescimoPorAtraso). */
@@ -83,6 +98,8 @@ export const pedirDadosBaixa = async (args: {
   formasSemAjuste?: string[];
   /** Motivo de a conta nao aceitar pagamento parcial ('' / ausente = aceita). */
   bloqueioParcial?: string;
+  /** Escolha do banco na propria janela, para as formas que pedem banco. */
+  banco?: EscolhaDeBancoNaBaixa;
 }): Promise<DadosBaixa | null> => {
   const hoje = getDateInputInTimeZone();
   const saldo = Math.max(0, Math.round(args.valorCentavos));
@@ -124,6 +141,13 @@ export const pedirDadosBaixa = async (args: {
       <select id="baixa-forma" class="swal2-select" style="${ESTILO_CAMPO}">
         <option value="">Selecione...</option>${opcoes}
       </select>
+      ${args.banco ? `<div id="baixa-banco-bloco" style="display:none;">
+        <label id="baixa-banco-rotulo" for="baixa-banco" style="${ESTILO_ROTULO}"></label>
+        ${args.banco.bancos.length > 0
+          ? `<select id="baixa-banco" class="swal2-select" style="${ESTILO_CAMPO}"><option value="">Selecione o banco...</option>${args.banco.bancos
+            .map((b) => `<option value="${escaparHtml(b.id)}">${escaparHtml(b.nome)}</option>`).join('')}</select>`
+          : `<div style="text-align:left;font-size:13px;color:#ef4444;margin-top:6px;">Nenhum banco ativo. Cadastre em Cadastros Auxiliares › Bancos.</div>`}
+      </div>` : ''}
       <label for="baixa-data" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloData)}</label>
       <input id="baixa-data" type="date" class="swal2-input" value="${hoje}" max="${hoje}" style="${ESTILO_CAMPO}" />
       <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">
@@ -186,6 +210,18 @@ export const pedirDadosBaixa = async (args: {
       ['baixa-juros', 'baixa-multa', 'baixa-desconto'].forEach((id) => document.getElementById(id)?.addEventListener('input', aoMexerNosAjustes));
       document.getElementById('baixa-valor')?.addEventListener('input', aoMexerNoValor);
       resumo();
+      // Banco aparece logo abaixo da forma, so' nas formas que pedem banco.
+      const mostrarBanco = () => {
+        const bloco = document.getElementById('baixa-banco-bloco');
+        if (!bloco || !args.banco) return;
+        const forma = (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.value || '';
+        const pede = args.banco.formas.includes(forma);
+        bloco.style.display = pede ? 'block' : 'none';
+        const rotulo = document.getElementById('baixa-banco-rotulo');
+        if (rotulo && pede) rotulo.textContent = args.banco.rotulo(forma);
+      };
+      document.getElementById('baixa-forma')?.addEventListener('change', mostrarBanco);
+      mostrarBanco();
       // Comeca pela forma (juros/multa/desconto sao o caso menos comum).
       (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.focus();
     },
@@ -200,6 +236,19 @@ export const pedirDadosBaixa = async (args: {
         NexusSwal.showValidationMessage(args.mensagemSemForma);
         return false;
       }
+      let bancoId = '';
+      if (args.banco?.formas.includes(forma)) {
+        if (args.banco.bancos.length === 0) {
+          NexusSwal.showValidationMessage('Nenhum banco ativo. Cadastre um banco em Cadastros Auxiliares › Bancos antes de confirmar.');
+          return false;
+        }
+        bancoId = (document.getElementById('baixa-banco') as HTMLSelectElement | null)?.value || '';
+        if (!bancoId) {
+          NexusSwal.showValidationMessage(`${args.banco.rotulo(forma)} Escolha o banco antes de confirmar.`);
+          return false;
+        }
+      }
+      const comBanco = bancoId ? { bancoId } : {};
       const erroData = validarDataBaixa(data, hoje);
       if (erroData) {
         NexusSwal.showValidationMessage(erroData);
@@ -227,7 +276,7 @@ export const pedirDadosBaixa = async (args: {
           NexusSwal.showValidationMessage(`Em ${nome}, a conta é baixada pelo valor inteiro, sem juros, multa ou desconto. Deixe os três campos em branco e o valor como veio.`);
           return false;
         }
-        return { forma, data, ajustes: { jurosCentavos: 0, multaCentavos: 0, descontoCentavos: 0 }, valorRecebidoCentavos: saldo } as DadosBaixa;
+        return { forma, data, ajustes: { jurosCentavos: 0, multaCentavos: 0, descontoCentavos: 0 }, valorRecebidoCentavos: saldo, ...comBanco } as DadosBaixa;
       }
       const erroAjustes = erroDosAjustes(saldo, ajustes, { podeDescontar: args.podeDescontar });
       if (erroAjustes) {
@@ -239,7 +288,7 @@ export const pedirDadosBaixa = async (args: {
         NexusSwal.showValidationMessage(erroValor);
         return false;
       }
-      return { forma, data, ajustes, valorRecebidoCentavos: recebido } as DadosBaixa;
+      return { forma, data, ajustes, valorRecebidoCentavos: recebido, ...comBanco } as DadosBaixa;
     },
   });
 

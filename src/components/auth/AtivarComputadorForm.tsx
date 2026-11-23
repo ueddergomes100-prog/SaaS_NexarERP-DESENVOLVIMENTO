@@ -69,7 +69,7 @@ const AtivarComputadorForm: React.FC<Props> = ({ cnpjInicial, persistenciaLocal,
     <form className="auth-form" onSubmit={ativar}>
       <div className="auth-info-panel">
         <strong>Login do dono ou de um administrador</strong>
-        <span>Isso é feito uma vez. Depois, cada funcionário entra neste computador só com o código e a senha dele (cadastrados em Usuários).</span>
+        <span>Isso é feito uma vez. O dono entra com o e-mail do cadastro; o administrador, com o usuário dele. Depois, cada funcionário entra neste computador só com o código e a senha dele (cadastrados em Usuários).</span>
       </div>
       <div className="auth-input-group">
         <label htmlFor="ativar-cnpj">CNPJ da empresa</label>
@@ -80,7 +80,7 @@ const AtivarComputadorForm: React.FC<Props> = ({ cnpjInicial, persistenciaLocal,
         </div>
       </div>
       <div className="auth-input-group">
-        <label htmlFor="ativar-usuario">Usuário</label>
+        <label htmlFor="ativar-usuario">E-mail ou usuário</label>
         <div className="auth-input-wrapper">
           <User size={18} className="auth-input-icon" />
           <input id="ativar-usuario" className="auth-input" type="text" autoComplete="username" value={usuario}

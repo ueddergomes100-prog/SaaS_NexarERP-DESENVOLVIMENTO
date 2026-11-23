@@ -29,6 +29,13 @@ export class LoginFuncionarioError extends Error {
  * false = nao mexe no "lembrar login" (a tela de login do sistema e' por aba);
  * `filialPadrao` false = nao troca a filial de quem entrou (o computador fica
  * na filial em que o gerente esta').
+ *
+ * E-MAIL NO LUGAR DO USUARIO (23/11/2026): o DONO da empresa nasce no
+ * cadastro com e-mail e senha e nao tem linha no indice `usernames` (so' quem
+ * e' criado em Usuarios tem). Sem isto ele nunca era encontrado aqui, e a tela
+ * "Ativar este computador" pede justamente o login do dono. Mesma regra do
+ * login do sistema (AuthPage.tsx): com "@" e' e-mail e entra direto; sem "@"
+ * e' usuario de funcionario e precisa do CNPJ.
  */
 export const entrarComUsuarioESenha = async (
   dados: { cnpj: string; usuario: string; senha: string },
@@ -37,17 +44,24 @@ export const entrarComUsuarioESenha = async (
   const { persistenciaLocal = true, filialPadrao = true } = opcoes;
   const cnpj = normalizarCnpj(dados.cnpj);
   const usuario = dados.usuario.trim().toLowerCase();
-  if (cnpj.length !== 14 || !usuario || !dados.senha) {
+  const porEmail = usuario.includes('@');
+  if (!usuario || !dados.senha || (!porEmail && cnpj.length !== 14)) {
     throw new LoginFuncionarioError('Preencha o CNPJ da empresa, o usuário e a senha.');
   }
-  const indice = await getDoc(doc(db, 'usernames', montarChaveUsername(cnpj, usuario)));
-  if (!indice.exists()) throw new LoginFuncionarioError('Usuário ou CNPJ da empresa não encontrado.');
+  let email = usuario;
+  if (!porEmail) {
+    const indice = await getDoc(doc(db, 'usernames', montarChaveUsername(cnpj, usuario)));
+    if (!indice.exists()) {
+      throw new LoginFuncionarioError('Usuário ou CNPJ da empresa não encontrado. Confira os dois. O dono da empresa entra com o e-mail do cadastro no lugar do usuário.');
+    }
+    email = String(indice.data().email || '');
+  }
 
   if (persistenciaLocal) await setPersistence(auth, browserLocalPersistence);
   try {
-    await signInWithEmailAndPassword(auth, String(indice.data().email || ''), dados.senha);
+    await signInWithEmailAndPassword(auth, email, dados.senha);
   } catch {
-    throw new LoginFuncionarioError('Usuário ou senha incorretos.');
+    throw new LoginFuncionarioError(porEmail ? 'E-mail ou senha incorretos.' : 'Usuário ou senha incorretos.');
   }
   // Filial padrao (15/10/2026): o app tambem comeca na filial padrao do
   // usuario. Falha aqui nao impede o login (fica na ultima filial).

@@ -14,7 +14,7 @@ import {
   vendedorMinuta,
 } from '../../utils/minutaDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
-import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos, type PagamentoImpresso } from '../../utils/pagamentoImpressoDomain';
+import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos, valorLiquidoDoPapel, type PagamentoImpresso } from '../../utils/pagamentoImpressoDomain';
 import './PedidoPrintPreVenda.css';
 
 interface PedidoPrintPreVendaProps {
@@ -59,12 +59,6 @@ const LinhasDePagamento: React.FC<{ pagamento: PagamentoImpresso }> = ({ pagamen
           );
         })}
       </div>
-      {pagamento.temAPrazo && (
-        <div className="pv-pagamentos-totais">
-          <span><span className="pv-rotulo">À vista:</span> <strong>{numero(pagamento.pagoNaCompraCentavos / 100)}</strong></span>
-          <span><span className="pv-rotulo">A prazo:</span> <strong>{numero(pagamento.aPrazoCentavos / 100)}</strong></span>
-        </div>
-      )}
     </div>
   );
 };
@@ -117,6 +111,8 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
     .filter(Boolean).join(', ');
   const condicao = condicaoPagamentoMinuta(pedidoData.pagamentos) || String(pedidoData.formaPagamento || '');
   const pagamento = pagamentoImpresso(pedidoData.pagamentos);
+  // Vr Liquido = o que entrou; o a prazo sai em "Vr a Prazo" (23/11/2026).
+  const liquido = valorLiquidoDoPapel(pedidoData.valorTotal, pagamento);
   const foneCliente = [formatarTelefoneMinuta(clientData?.telefone), formatarTelefoneMinuta(clientData?.celular)]
     .filter(Boolean).join(' / ');
   const enderecoCliente = [clientData?.endereco, clientData?.numero].filter(Boolean).join(', ');
@@ -259,7 +255,8 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
             <span><span className="pv-rotulo">Vr Frete:</span> {totalOuVazio(pedidoData.frete)}</span>
             <span><span className="pv-rotulo">Vr Encargos:</span> {totalOuVazio(pedidoData.encargos)}</span>
             <span><span className="pv-rotulo">Vr Outros:</span></span>
-            <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
+            {pagamento.temAPrazo && <span><span className="pv-rotulo">Vr a Prazo:</span> <strong>{numero(pagamento.aPrazoCentavos / 100)}</strong></span>}
+            <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(liquido)}</strong></span>
           </div>
           <LinhasDePagamento pagamento={pagamento} />
           <div className="pv-obs">
@@ -278,7 +275,8 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
           <span><span className="pv-rotulo">Vr Frete:</span> {totalOuVazio(pedidoData.frete)}</span>
           <span><span className="pv-rotulo">Vr Encargos:</span> {totalOuVazio(pedidoData.encargos)}</span>
           <span><span className="pv-rotulo">Vr Outros:</span></span>
-          <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(pedidoData.valorTotal)}</strong></span>
+          {pagamento.temAPrazo && <span><span className="pv-rotulo">Vr a Prazo:</span> <strong>{numero(pagamento.aPrazoCentavos / 100)}</strong></span>}
+          <span><span className="pv-rotulo">Vr Liquido:</span> <strong>{numero(liquido)}</strong></span>
         </div>
         <LinhasDePagamento pagamento={pagamento} />
         <div className="pv-rodape">

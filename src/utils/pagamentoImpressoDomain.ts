@@ -97,6 +97,17 @@ export const pagamentoImpresso = (pagamentos: unknown): PagamentoImpresso => {
   return { formas, pagoNaCompraCentavos, aPrazoCentavos, temAPrazo: aPrazoCentavos > 0 };
 };
 
+/**
+ * "Vr Liquido" do papel (23/11/2026, pedido do dono): o que entrou na compra.
+ * O que ficou a prazo NAO e' liquido -- sai em "Vr a Prazo". Conta pelo total
+ * do documento menos o a prazo (e nao pela soma do pago), para troco e
+ * arredondamento nunca mudarem o numero. Nunca negativo.
+ */
+export const valorLiquidoDoPapel = (valorTotal: unknown, pagamento: PagamentoImpresso): number => {
+  const totalCentavos = Math.round((Number(valorTotal) || 0) * 100);
+  return Math.max(0, totalCentavos - pagamento.aPrazoCentavos) / 100;
+};
+
 /** "23/12/2026" a partir de "2026-12-23". */
 export const dataBrDoVencimento = (iso: string): string => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);

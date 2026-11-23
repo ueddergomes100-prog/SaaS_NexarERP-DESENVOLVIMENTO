@@ -4,7 +4,22 @@ import {
   pagamentoImpresso,
   rotuloDaForma,
   textoDosVencimentos,
+  valorLiquidoDoPapel,
 } from '../src/utils/pagamentoImpressoDomain.js';
+
+test('pagamento impresso: Vr Liquido e o que entrou -- a prazo fica de fora (Jomarly 0339)', () => {
+  const r = pagamentoImpresso([
+    { formaPagamento: 'Cartão de Débito', valorCentavos: 41200 },
+    { formaPagamento: 'Pagamento a Prazo', valorCentavos: 3000, dataVencimento: '2026-12-23' },
+  ]);
+  assert.equal(valorLiquidoDoPapel(442, r), 412);
+  // Tudo a vista: liquido = total.
+  assert.equal(valorLiquidoDoPapel(100, pagamentoImpresso([{ formaPagamento: 'Pix', valor: 100 }])), 100);
+  // Tudo a prazo: liquido zero, nunca negativo.
+  assert.equal(valorLiquidoDoPapel(30, pagamentoImpresso([{ formaPagamento: 'Boleto', valor: 50 }])), 0);
+  // Sem pagamentos gravados: o total.
+  assert.equal(valorLiquidoDoPapel(55.5, pagamentoImpresso(undefined)), 55.5);
+});
 
 test('pagamento impresso: debito + a prazo separados (caso Jomarly 0339, 23/11/2026)', () => {
   const r = pagamentoImpresso([

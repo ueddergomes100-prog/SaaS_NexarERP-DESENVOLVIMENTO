@@ -184,12 +184,6 @@
   page-break-inside: avoid;
 }
 
-.pv-pagamentos-totais {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-}
-
 .pv-fim {
   margin-top: auto;
   page-break-inside: avoid;

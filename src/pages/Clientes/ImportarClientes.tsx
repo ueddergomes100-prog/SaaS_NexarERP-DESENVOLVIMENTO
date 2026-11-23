@@ -114,6 +114,7 @@ const GRUPOS_MAPEAMENTO: Array<{ titulo: string; campos: CampoMapeamento[] }> = 
     titulo: 'Outros',
     campos: [
       { campo: 'dtUltimaCompra', rotulo: 'Data da Última Compra (só histórico, não editável depois)' },
+      { campo: 'alerta', rotulo: 'Alerta (recado que aparece ao escolher o cliente na venda)' },
     ],
   },
 ];
@@ -392,6 +393,7 @@ const ImportarClientes: React.FC = () => {
                 cepEntrega: cliente.cepEntrega,
                 referenciaEntrega: cliente.referenciaEntrega,
                 dtUltimaCompra: cliente.dtUltimaCompra,
+                alerta: cliente.alerta,
               },
               tenantId,
               currentUser.uid,

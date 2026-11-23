@@ -131,7 +131,7 @@ const MAPEAMENTO_VAZIO: MapeamentoColunasCliente = {
   cidadeCobranca: null, estadoCobranca: null, cepCobranca: null,
   enderecoEntrega: null, numeroEntrega: null, bairroEntrega: null,
   cidadeEntrega: null, estadoEntrega: null, cepEntrega: null, referenciaEntrega: null,
-  dtUltimaCompra: null,
+  dtUltimaCompra: null, alerta: null,
 };
 
 const CLIENTE_VAZIO: ClienteParaImportar = {
@@ -142,7 +142,7 @@ const CLIENTE_VAZIO: ClienteParaImportar = {
   cidadeCobranca: '', estadoCobranca: '', cepCobranca: '',
   enderecoEntrega: '', numeroEntrega: '', bairroEntrega: '',
   cidadeEntrega: '', estadoEntrega: '', cepEntrega: '', referenciaEntrega: '',
-  dtUltimaCompra: '', codigoIbge: '',
+  dtUltimaCompra: '', alerta: '', codigoIbge: '',
 };
 
 test('processarLinhasClientes ignora linha em branco e a linha "CONSUMIDOR FINAL" (ja existe por padrao no sistema)', () => {
@@ -212,4 +212,37 @@ test('código IBGE pela cidade: UF que o IBGE não respondeu fica sem código, s
   const { codigosIbgePorCidade } = await import('../src/utils/importacaoClientesDomain');
   const mapa = codigosIbgePorCidade([{ cidade: 'MANHUACU', estado: 'MG' }], new Map());
   assert.equal(mapa.size, 0);
+});
+
+test('coluna Alerta: vira o alerta do cliente, ligado; sem texto fica desligado e sem undefined', async () => {
+  const dominio = await import('../src/utils/importacaoClientesDomain');
+  const cabecalho = ['Nome', 'CPF/CNPJ', 'Cidade', 'UF', 'Alerta'];
+  const mapa = dominio.inferirMapeamentoColunasCliente(cabecalho, []);
+  assert.equal(mapa.alerta, 4);
+  const lista = dominio.processarLinhasClientes([
+    ['MARIA DA SILVA', '', 'MANHUACU', 'MG', '  BLOQUEADO no sistema antigo.   Vender somente à vista '],
+    ['JOSE DE SOUZA', '', 'MANHUACU', 'MG', ''],
+    ['ANA LONGA', '', 'MANHUACU', 'MG', 'x'.repeat(700)],
+  ], mapa);
+  assert.equal(lista[0].alerta, 'BLOQUEADO no sistema antigo. Vender somente à vista');
+  assert.equal(lista[1].alerta, '');
+  assert.equal(lista[2].alerta.length, 500);
+  const base = { codigo: '1', codigoIbge: '' };
+  const comAlerta = dominio.montarClienteImportado({ ...lista[0], ...base } as never, 'T', 'U', 'TS');
+  assert.equal(comAlerta.alertaAtivo, true);
+  assert.equal(comAlerta.alertaTexto, 'BLOQUEADO no sistema antigo. Vender somente à vista');
+  const semAlerta = dominio.montarClienteImportado({ ...lista[1], ...base } as never, 'T', 'U', 'TS');
+  assert.equal(semAlerta.alertaAtivo, false);
+  assert.equal(semAlerta.alertaTexto, '');
+  assert.equal(Object.values(semAlerta).includes(undefined), false);
+});
+
+test('planilha sem coluna Alerta: cliente entra sem alerta, como sempre', async () => {
+  const dominio = await import('../src/utils/importacaoClientesDomain');
+  const mapa = dominio.inferirMapeamentoColunasCliente(['Nome', 'CPF/CNPJ'], []);
+  assert.equal(mapa.alerta, null);
+  const [cliente] = dominio.processarLinhasClientes([['MARIA DA SILVA', '']], mapa);
+  const gravado = dominio.montarClienteImportado({ ...cliente, codigo: '1', codigoIbge: '' } as never, 'T', 'U', 'TS');
+  assert.equal(gravado.alertaAtivo, false);
+  assert.equal(gravado.alertaTexto, '');
 });

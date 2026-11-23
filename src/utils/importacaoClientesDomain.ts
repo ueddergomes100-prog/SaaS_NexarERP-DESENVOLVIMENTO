@@ -1,5 +1,6 @@
 import { isCpfValido, isCnpjValido, tipoDocumento } from './documentoValidacao';
 import { acharCodigoIbge, normalizarNomeCidade } from './filialDomain';
+import { ALERTA_TAMANHO_MAXIMO, camposDoAlertaParaGravar } from './clienteAlertaDomain';
 
 // Funcoes puras da importacao em massa de clientes. Sem Firestore -- leitura
 // de arquivo, upload e gravacao ficam em src/pages/Clientes/ImportarClientes.tsx.
@@ -41,7 +42,7 @@ export type CampoColunaCliente =
   | 'endereco' | 'numero' | 'bairro' | 'cidade' | 'estado' | 'cep' | 'referencia'
   | 'enderecoCobranca' | 'numeroCobranca' | 'bairroCobranca' | 'cidadeCobranca' | 'estadoCobranca' | 'cepCobranca'
   | 'enderecoEntrega' | 'numeroEntrega' | 'bairroEntrega' | 'cidadeEntrega' | 'estadoEntrega' | 'cepEntrega' | 'referenciaEntrega'
-  | 'dtUltimaCompra';
+  | 'dtUltimaCompra' | 'alerta';
 
 export interface MapeamentoColunasCliente {
   nome: number;
@@ -78,6 +79,9 @@ export interface MapeamentoColunasCliente {
   cepEntrega: number | null;
   referenciaEntrega: number | null;
   dtUltimaCompra: number | null;
+  /** Recado que aparece ao escolher o cliente na venda (clienteAlertaDomain): o "bloqueado",
+   * o "so' vende a vista" que o sistema antigo guardava no cadastro. */
+  alerta: number | null;
 }
 
 /** Sinonimos de cabecalho por campo -- cobre tanto a planilha antiga
@@ -118,6 +122,7 @@ const SINONIMOS: Record<Exclude<CampoColunaCliente, 'telefone' | 'celular'> | 't
   cepEntrega: ['cep_entrega'],
   referenciaEntrega: ['referencia_entrega', 'referência entrega'],
   dtUltimaCompra: ['dtultcompra', 'ultima compra', 'última compra'],
+  alerta: ['alerta'],
 };
 
 const normalizarTextoComparacao = (valor: string): string => valor
@@ -165,6 +170,7 @@ export const MAPEAMENTO_CLIENTE_VAZIO: MapeamentoColunasCliente = {
   enderecoCobranca: null, numeroCobranca: null, bairroCobranca: null, cidadeCobranca: null, estadoCobranca: null, cepCobranca: null,
   enderecoEntrega: null, numeroEntrega: null, bairroEntrega: null, cidadeEntrega: null, estadoEntrega: null, cepEntrega: null, referenciaEntrega: null,
   dtUltimaCompra: null,
+  alerta: null,
 };
 
 /** Chuta qual coluna e qual campo comparando o cabecalho com os sinonimos.
@@ -233,6 +239,7 @@ export const inferirMapeamentoColunasCliente = (
     cepEntrega: encontrar(SINONIMOS.cepEntrega) >= 0 ? encontrar(SINONIMOS.cepEntrega) : null,
     referenciaEntrega: encontrar(SINONIMOS.referenciaEntrega) >= 0 ? encontrar(SINONIMOS.referenciaEntrega) : null,
     dtUltimaCompra: encontrar(SINONIMOS.dtUltimaCompra) >= 0 ? encontrar(SINONIMOS.dtUltimaCompra) : null,
+    alerta: encontrar(SINONIMOS.alerta) >= 0 ? encontrar(SINONIMOS.alerta) : null,
   };
 };
 
@@ -418,6 +425,8 @@ export interface ClienteImportado {
   cepEntrega: string;
   referenciaEntrega: string;
   dtUltimaCompra: string;
+  /** Texto do alerta do cliente; vazio = sem alerta. */
+  alerta: string;
   status: StatusClienteImportado;
   motivo: string;
 }
@@ -505,6 +514,8 @@ export const processarLinhasClientes = (
       cepEntrega: col(mapeamento.cepEntrega).replace(/\D/g, ''),
       referenciaEntrega: col(mapeamento.referenciaEntrega),
       dtUltimaCompra: col(mapeamento.dtUltimaCompra),
+      // Alerta maior que o limite do cadastro entra cortado (o cadastro recusaria salvar depois).
+      alerta: col(mapeamento.alerta).replace(/\s+/g, ' ').trim().slice(0, ALERTA_TAMANHO_MAXIMO),
       status,
       motivo,
     };
@@ -559,6 +570,8 @@ export const montarClienteImportado = (
   cepEntrega: cliente.cepEntrega,
   referenciaEntrega: cliente.referenciaEntrega,
   dtUltimaCompraSistemaAntigo: cliente.dtUltimaCompra,
+  // Sempre as duas chaves (nunca undefined): com texto o alerta ja' entra ligado.
+  ...camposDoAlertaParaGravar(Boolean(cliente.alerta), cliente.alerta || ''),
   limiteDeCredito: null,
   tenantId,
   createdAt: timestamp,

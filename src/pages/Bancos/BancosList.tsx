@@ -680,11 +680,16 @@ const BancosList: React.FC = () => {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           zIndex: 9999, padding: '20px',
         }}>
+          {/* Com "Emite boleto" marcado o formulario quase dobra (23/11/2026): o popup passava da
+              altura da tela e os ultimos campos e o Salvar ficavam fora do alcance. Agora ele
+              alarga, rola por dentro e o rodape com Cancelar/Salvar fica sempre a' vista. */}
           <div style={{
-            width: '100%', maxWidth: '480px', backgroundColor: 'var(--bg-secondary)',
+            width: '100%', maxWidth: modalForm.boletoAtivo ? '640px' : '480px', backgroundColor: 'var(--bg-secondary)',
             border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)',
             padding: '24px', position: 'relative', boxShadow: 'var(--shadow-card)',
             animation: 'pageFadeIn 0.2s ease-out',
+            maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', overscrollBehavior: 'contain',
+            transition: 'max-width 0.15s ease-out',
           }}>
             <button
               onClick={closeModal}
@@ -930,7 +935,11 @@ const BancosList: React.FC = () => {
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+              <div style={{
+                display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)',
+                position: 'sticky', bottom: '-24px', zIndex: 2, backgroundColor: 'var(--bg-secondary)',
+                padding: '16px 0 24px', marginBottom: '-24px',
+              }}>
                 <button type="button" className="btn-secondary" onClick={closeModal} disabled={modalLoading}>
                   Cancelar
                 </button>

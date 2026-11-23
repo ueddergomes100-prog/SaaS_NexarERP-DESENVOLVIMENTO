@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { buscarClienteDoDocumento } from '../../services/clienteDoDocumentoService';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintModelo from '../Vendas/PedidoPrintModelo';
 import { parcelasParaImpressao } from '../../utils/parcelasExibicaoDomain';
@@ -34,8 +35,9 @@ const VendedorPedidoImprimir: React.FC = () => {
           return;
         }
 
-        const [snapCliente, snapConfig] = await Promise.all([
-          getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('nome', '==', data.clienteNome))),
+        // Cliente pelo id que o pedido guardou (clienteDoDocumentoDomain.ts, 23/11/2026).
+        const [clienteDoPedido, snapConfig] = await Promise.all([
+          buscarClienteDoDocumento(tenantId, data),
           getDoc(doc(db, 'configuracoes', tenantId)),
         ]);
 
@@ -54,7 +56,7 @@ const VendedorPedidoImprimir: React.FC = () => {
 
         if (cancelado) return;
         setPedidoData(data);
-        setClientData(snapCliente.empty ? null : snapCliente.docs[0].data());
+        setClientData(clienteDoPedido);
         setConfigData(snapConfig.exists() ? snapConfig.data() : null);
         setParcelas(parcelasParaImpressao(parcelasCarregadas, data.pagamentos as never));
       } catch {

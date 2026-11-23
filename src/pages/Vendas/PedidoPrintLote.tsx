@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { buscarClienteDoDocumento } from '../../services/clienteDoDocumentoService';
 import { useAuth } from '../../contexts/AuthContext';
 import PedidoPrintModelo from './PedidoPrintModelo';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
@@ -18,7 +19,7 @@ const PedidoPrintLote: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [pedidos, setPedidos] = useState<any[]>([]);
-  const [clientsById, setClientsById] = useState<Record<string, any>>({});
+  const [clientsByPedidoId, setClientsByPedidoId] = useState<Record<string, any>>({});
   const [parcelasByPedidoId, setParcelasByPedidoId] = useState<Record<string, Array<{ numero: number; dataVencimento: string; valor: number }>>>({});
   const [configData, setConfigData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -50,21 +51,13 @@ const PedidoPrintLote: React.FC = () => {
         );
         setPedidos(loadedPedidos);
 
-        const clienteNomes = Array.from(
-          new Set(loadedPedidos.map((p) => p.clienteNome).filter(Boolean)),
-        );
+        // Cadastro do cliente de CADA pedido, pelo id que o pedido guardou.
+        // Agrupar pelo nome imprimia o mesmo CNPJ em pedidos de clientes
+        // homonimos (matriz x filial, Jomarly 23/11/2026).
         const clientEntries = await Promise.all(
-          clienteNomes.map(async (nome) => {
-            const qC = query(
-              collection(db, 'clientes'),
-              where('tenantId', '==', tenantId),
-              where('nome', '==', nome),
-            );
-            const snapC = await getDocs(qC);
-            return [nome, snapC.empty ? null : snapC.docs[0].data()] as const;
-          }),
+          loadedPedidos.map(async (pedido) => [pedido.id, await buscarClienteDoDocumento(tenantId, pedido)] as const),
         );
-        setClientsById(Object.fromEntries(clientEntries));
+        setClientsByPedidoId(Object.fromEntries(clientEntries));
 
         // Parcelas de cada pedido -- gravadas em documentos separados na
         // colecao 'transacoes', usadas so pelo modelo meia-folha.
@@ -163,7 +156,7 @@ const PedidoPrintLote: React.FC = () => {
         <div className="print-batch-item" key={pedidoData.id}>
           <PedidoPrintModelo
             pedidoData={pedidoData}
-            clientData={clientsById[pedidoData.clienteNome] || null}
+            clientData={clientsByPedidoId[pedidoData.id] || null}
             configData={configData}
             parcelas={parcelasByPedidoId[pedidoData.id] || []}
           />

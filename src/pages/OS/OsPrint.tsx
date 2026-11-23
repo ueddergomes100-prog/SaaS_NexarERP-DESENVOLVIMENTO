@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { buscarClienteDoDocumento } from '../../services/clienteDoDocumentoService';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePrintAndClose } from '../../hooks/usePrintAndClose';
 import OsPrintDocument from './OsPrintDocument';
@@ -29,16 +30,10 @@ const OsPrint: React.FC = () => {
           const data = { id: docSnap.id, ...docSnap.data() } as any;
           setOsData(data);
 
-          // Buscar dados detalhados do cliente
-          const qC = query(
-            collection(db, 'clientes'), 
-            where('tenantId', '==', tenantId),
-            where('nome', '==', data.clienteNome)
-          );
-          const snapC = await getDocs(qC);
-          if (!snapC.empty) {
-            setClientData(snapC.docs[0].data());
-          }
+          // Cadastro do cliente pelo id que a OS guardou -- pelo nome saia
+          // o homonimo errado (clienteDoDocumentoDomain.ts, 23/11/2026).
+          const cliente = await buscarClienteDoDocumento(tenantId, data);
+          if (cliente) setClientData(cliente);
 
           if (data.placa) {
             const qV = query(

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { buscarClienteDoDocumento } from '../../services/clienteDoDocumentoService';
 import { useAuth } from '../../contexts/AuthContext';
 import OsPrintDocument from '../OS/OsPrintDocument';
 import VendedorImpressaoLayout from './VendedorImpressaoLayout';
@@ -30,8 +31,9 @@ const VendedorOsImprimir: React.FC = () => {
           return;
         }
 
-        const [snapCliente, snapVeiculo, snapConfig] = await Promise.all([
-          getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where('nome', '==', osData.clienteNome))),
+        // Cliente pelo id que a OS guardou (clienteDoDocumentoDomain.ts, 23/11/2026).
+        const [clienteDaOs, snapVeiculo, snapConfig] = await Promise.all([
+          buscarClienteDoDocumento(tenantId, osData),
           osData.placa
             ? getDocs(query(collection(db, 'veiculos'), where('tenantId', '==', tenantId), where('placa', '==', osData.placa)))
             : Promise.resolve(null),
@@ -41,7 +43,7 @@ const VendedorOsImprimir: React.FC = () => {
         if (cancelado) return;
         setDados({
           osData,
-          clientData: snapCliente.empty ? null : snapCliente.docs[0].data(),
+          clientData: clienteDaOs,
           vehicleData: snapVeiculo && !snapVeiculo.empty ? snapVeiculo.docs[0].data() : null,
           configData: snapConfig.exists() ? snapConfig.data() : null,
         });

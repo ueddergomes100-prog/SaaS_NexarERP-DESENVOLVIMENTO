@@ -106,6 +106,23 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
     buscaRef.current?.blur();
   };
 
+  /**
+   * Toque na lista com o teclado aberto (23/11/2026, Android): o toque tirava
+   * o foco da busca ANTES do clique, o teclado fechava, a tela pulava e o
+   * clique se perdia -- o vendedor tinha de tocar duas vezes para marcar o
+   * item. Segurando o foco no toque, o clique chega inteiro; o teclado fecha
+   * depois, ja' com o item marcado (fecharTecladoDaBusca). Campos dentro da
+   * lista (quantidade, unidade) continuam recebendo foco normalmente.
+   */
+  const manterFocoNaBusca = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('input, select, textarea')) return;
+    e.preventDefault();
+  };
+
+  const fecharTecladoDaBusca = () => {
+    if (document.activeElement === buscaRef.current) buscaRef.current?.blur();
+  };
+
   const alternarSelecao = (produtoId: string) => {
     setSelecionados((atual) => {
       if (produtoId in atual) {
@@ -258,13 +275,13 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
             Nenhum produto encontrado para &quot;{produtoBusca}&quot;.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} onMouseDown={manterFocoNaBusca}>
             {resultado.items.map((produto) => {
               const marcado = produto.id in selecionados;
               return (
                 <div
                   key={produto.id}
-                  onClick={() => alternarSelecao(produto.id)}
+                  onClick={() => { alternarSelecao(produto.id); fecharTecladoDaBusca(); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderRadius: '14px', cursor: 'pointer',
                     backgroundColor: marcado ? 'rgba(153,100,240,0.14)' : 'var(--bg-elevated)',
@@ -350,6 +367,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
           e "Fechar lista" para voltar aos itens do pedido. */}
       {(termo || totalSelecionados > 0) && (
         <div
+          onMouseDown={manterFocoNaBusca}
           style={{
             position: 'sticky', bottom: '-16px', zIndex: 5, margin: '0 -20px', padding: '10px 20px 12px', display: 'flex', gap: '10px',
             backgroundColor: 'var(--bg-primary)', borderTop: '1px solid var(--border-color)', boxShadow: '0 -8px 18px rgba(0,0,0,0.18)',

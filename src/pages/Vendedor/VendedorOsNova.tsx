@@ -136,7 +136,7 @@ const VendedorOsNova: React.FC = () => {
               <button type="button" className="btn-secondary" onClick={() => { setCliente(null); setEquipamentoId(''); setEquipamento(EQUIPAMENTO_CAMPO_VAZIO); }} style={{ height: '38px' }}>Trocar</button>
             </div>
           ) : (
-            <VendedorSeletorCliente clientes={clientesAtivos} onConfirmar={(c) => { setCliente(c); setEquipamentoId(''); setEquipamento(EQUIPAMENTO_CAMPO_VAZIO); }} />
+            <VendedorSeletorCliente clientes={clientesAtivos} mostrarDebitos={configMaquinas.tecnicoVeValores} onConfirmar={(c) => { setCliente(c); setEquipamentoId(''); setEquipamento(EQUIPAMENTO_CAMPO_VAZIO); }} />
           )}
         </section>
 

@@ -1,5 +1,8 @@
-import React, { useEffect } from 'react';
-import { AlertTriangle, FileText, MapPin, Phone } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AlertTriangle, FileText, MapPin, Phone, Wallet } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { situacaoEmAbertoDoCliente } from '../../utils/contasReceberQuery';
+import { MENSAGEM_DEBITOS_INDISPONIVEIS, resumoDosDebitos, type ResumoDosDebitos } from '../../utils/debitosClienteAppDomain';
 import { mascaraDocumento, mascaraTelefone } from '../../utils/clienteCadastroMobileDomain';
 import { camposDeEnderecoQueFaltam, clienteComCodigo, enderecoEmLinhas } from '../../utils/pedidoVendedorDomain';
 
@@ -38,7 +41,17 @@ interface VendedorConfirmarClienteModalProps {
   cliente: ClienteConfirmavel | null;
   onConfirmar: () => void;
   onCancelar: () => void;
+  /** Debitos do cliente (23/11/2026). A OS do tecnico desliga quando a empresa esconde os valores dele. Padrao: mostra. */
+  mostrarDebitos?: boolean;
 }
+
+type EstadoDosDebitos = { estado: 'carregando' } | { estado: 'pronto'; resumo: ResumoDosDebitos } | { estado: 'erro' };
+
+const COR_DOS_DEBITOS: Record<ResumoDosDebitos['nivel'], { borda: string; icone: string }> = {
+  'sem-debito': { borda: 'rgba(16,185,129,0.45)', icone: '#10b981' },
+  'em-aberto': { borda: 'rgba(245,158,11,0.5)', icone: '#f59e0b' },
+  atrasado: { borda: 'rgba(239,68,68,0.6)', icone: '#ef4444' },
+};
 
 const linhaDado = (icone: React.ReactNode, conteudo: React.ReactNode) => (
   <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
@@ -47,7 +60,27 @@ const linhaDado = (icone: React.ReactNode, conteudo: React.ReactNode) => (
   </div>
 );
 
-const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps> = ({ cliente, onConfirmar, onCancelar }) => {
+const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps> = ({ cliente, onConfirmar, onCancelar, mostrarDebitos = true }) => {
+  const { tenantId, grupo } = useAuth();
+  const [debitos, setDebitos] = useState<EstadoDosDebitos>({ estado: 'carregando' });
+  const clienteId = cliente?.id || '';
+
+  // Debitos do cliente (23/11/2026): a mesma conta do limite de credito e da
+  // Consulta de Cliente. Consulta a cada cliente aberto; resposta de um
+  // cliente anterior que chegue atrasada e' descartada.
+  useEffect(() => {
+    if (!clienteId || !tenantId || !mostrarDebitos) return undefined;
+    let vivo = true;
+    setDebitos({ estado: 'carregando' });
+    situacaoEmAbertoDoCliente(tenantId, clienteId, Boolean(grupo))
+      .then((situacao) => { if (vivo) setDebitos({ estado: 'pronto', resumo: resumoDosDebitos(situacao) }); })
+      .catch((erro) => {
+        console.warn('Nao foi possivel consultar os debitos do cliente:', erro);
+        if (vivo) setDebitos({ estado: 'erro' });
+      });
+    return () => { vivo = false; };
+  }, [clienteId, tenantId, grupo, mostrarDebitos]);
+
   useEffect(() => {
     if (!cliente) return undefined;
     const aoTeclar = (evento: KeyboardEvent) => {
@@ -123,6 +156,28 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
             </>,
           )}
         </div>
+
+        {mostrarDebitos && (() => {
+          const nivel = debitos.estado === 'pronto' ? debitos.resumo.nivel : null;
+          const cor = nivel ? COR_DOS_DEBITOS[nivel] : { borda: 'var(--border-color)', icone: 'var(--text-muted)' };
+          return (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{ display: 'flex', gap: '10px', padding: '11px 13px', borderRadius: '12px', border: `1px solid ${cor.borda}`, fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.45 }}
+            >
+              <Wallet size={18} color={cor.icone} style={{ flexShrink: 0, marginTop: '1px' }} />
+              {debitos.estado === 'carregando' && <span style={{ color: 'var(--text-muted)' }}>Consultando débitos do cliente…</span>}
+              {debitos.estado === 'erro' && <span style={{ color: 'var(--text-muted)' }}>{MENSAGEM_DEBITOS_INDISPONIVEIS}</span>}
+              {debitos.estado === 'pronto' && (
+                <div>
+                  <div style={{ fontWeight: 700 }}>{debitos.resumo.titulo}</div>
+                  {debitos.resumo.detalhe && <div style={{ color: nivel === 'atrasado' ? '#ef4444' : 'var(--text-secondary)', fontSize: '13.5px' }}>{debitos.resumo.detalhe}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {faltando.length > 0 && (
           <div

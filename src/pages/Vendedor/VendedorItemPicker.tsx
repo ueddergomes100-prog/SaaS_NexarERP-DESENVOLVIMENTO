@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Search, Check, Trash2, Gift, Pencil } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Search, Check, Trash2, Gift, Pencil, X } from 'lucide-react';
 import ProdutoOpcaoBusca from '../../components/common/ProdutoOpcaoBusca';
 import { LISTAR_TUDO_TERM, searchProducts } from '../../utils/productSearch';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
@@ -91,6 +91,20 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
   const [precoEmEdicao, setPrecoEmEdicao] = useState<{ index: number; valor: string } | null>(null);
 
   const totalSelecionados = Object.keys(selecionados).length;
+  const buscaRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * Fecha a lista de produtos (23/11/2026, pedido do dono: "pra adicionar tem
+   * que descer la embaixo, e os itens marcados ficam embaixo de tudo"). A
+   * lista aberta empurrava os itens do pedido para o fim da tela; fechada, os
+   * itens aparecem logo abaixo da busca. O que estava marcado continua marcado.
+   */
+  const fecharLista = () => {
+    setProdutoBusca('');
+    setFocado(false);
+    setLimite(RESULTADOS_LIMITE);
+    buscaRef.current?.blur();
+  };
 
   const alternarSelecao = (produtoId: string) => {
     setSelecionados((atual) => {
@@ -191,7 +205,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
     foraDaPromocao.forEach((aviso) => showWarning(aviso));
     setSelecionados({});
     setUnidadesEscolhidas({});
-    setProdutoBusca('');
+    fecharLista();
   };
 
   const handleRemover = (index: number) => {
@@ -223,6 +237,7 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
       <div style={{ position: 'relative' }}>
         <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
         <input
+          ref={buscaRef}
           type="text"
           value={produtoBusca}
           onChange={(e) => { setProdutoBusca(e.target.value); setLimite(RESULTADOS_LIMITE); }}
@@ -330,19 +345,51 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
         )
       )}
 
-      {totalSelecionados > 0 && (
-        <button
-          type="button"
-          onClick={handleAdicionarSelecionados}
+      {/* Barra FIXA no pe' da tela enquanto a lista esta' aberta ou ha' produto
+          marcado (23/11/2026): "Adicionar" sem precisar descer a lista inteira
+          e "Fechar lista" para voltar aos itens do pedido. */}
+      {(termo || totalSelecionados > 0) && (
+        <div
           style={{
-            width: '100%', height: '48px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: 'pointer',
-            background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
+            position: 'sticky', bottom: '-16px', zIndex: 5, margin: '0 -20px', padding: '10px 20px 12px', display: 'flex', gap: '10px',
+            backgroundColor: 'var(--bg-primary)', borderTop: '1px solid var(--border-color)', boxShadow: '0 -8px 18px rgba(0,0,0,0.18)',
           }}
         >
-          <Check size={18} />
-          Adicionar {totalSelecionados} {totalSelecionados === 1 ? 'item' : 'itens'} ao pedido
-        </button>
+          {termo && (
+            <button
+              type="button"
+              onClick={fecharLista}
+              style={{
+                flex: totalSelecionados > 0 ? '0 0 auto' : 1, height: '48px', padding: '0 16px', borderRadius: '14px', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: '6px', fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                color: 'var(--text-primary)', backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+              }}
+            >
+              <X size={17} />
+              {totalSelecionados > 0 ? 'Fechar' : `Fechar lista${itens.length > 0 ? ` · ver ${itens.length} ${itens.length === 1 ? 'item adicionado' : 'itens adicionados'}` : ''}`}
+            </button>
+          )}
+          {totalSelecionados > 0 && (
+            <button
+              type="button"
+              onClick={handleAdicionarSelecionados}
+              style={{
+                flex: 1, height: '48px', borderRadius: '14px', border: 'none', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, color: '#fff', cursor: 'pointer',
+                background: 'linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%)',
+              }}
+            >
+              <Check size={18} />
+              Adicionar {totalSelecionados} {totalSelecionados === 1 ? 'item' : 'itens'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {itens.length > 0 && (
+        <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '4px' }}>
+          Itens adicionados ({itens.length})
+        </div>
       )}
 
       {itens.length === 0 ? (

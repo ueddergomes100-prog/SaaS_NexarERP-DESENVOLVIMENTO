@@ -17,9 +17,11 @@ interface VendedorSeletorClienteProps<T extends ClienteDaLista> {
   clientes: T[];
   /** Chamado so' quando o vendedor toca em "Confirmar" no pop-up. */
   onConfirmar: (cliente: T) => void;
+  /** Debitos do cliente no pop-up (padrao: mostra). */
+  mostrarDebitos?: boolean;
 }
 
-function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirmar }: VendedorSeletorClienteProps<T>) {
+function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirmar, mostrarDebitos = true }: VendedorSeletorClienteProps<T>) {
   const [busca, setBusca] = useState('');
   /** Muda a cada cancelamento: refaz o campo (o autocomplete trava depois de escolher). */
   const [tentativa, setTentativa] = useState(0);
@@ -54,6 +56,7 @@ function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirma
         cliente={emConfirmacao}
         onConfirmar={() => { if (emConfirmacao) onConfirmar(emConfirmacao); }}
         onCancelar={cancelar}
+        mostrarDebitos={mostrarDebitos}
       />
     </>
   );

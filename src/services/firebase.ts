@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { ehAppDoCaixa } from '../utils/frenteDeCaixaDomain';
+import { persistenciaDoLogin } from '../utils/loginPersistenciaDomain';
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { browserLocalPersistence, browserSessionPersistence, indexedDBLocalPersistence, initializeAuth, setPersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
@@ -67,9 +67,8 @@ if (appCheck && urlDoServidor) {
 // guardado numa maquina compartilhada.
 const isAppVendedorExterno = window.location.pathname.startsWith('/vendedor');
 // Frente de Caixa como app (/caixa, 19/10/2026): login persistente como o app do
-// vendedor (o caixa fica logado entre um dia e outro), mas Firestore em
-// memoria -- o balcao quer o dado vivo.
-const isAppDoCaixa = ehAppDoCaixa(window.location.pathname);
+// vendedor (o caixa fica logado entre um dia e outro; ver persistenciaDoLogin
+// mais abaixo), mas Firestore em memoria -- o balcao quer o dado vivo.
 export const db = isAppVendedorExterno
   ? initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })
   : getFirestore(app);
@@ -101,8 +100,17 @@ export const auth = initializeAuth(app, {
  * VendedorLoginPage.tsx tambem chama setPersistence(local) antes do login
  * de proposito -- redundante com isto aqui, mas inofensivo, e cobre a
  * mesma garantia se algum dia essa rota mudar de prefixo.
+ *
+ * Maquina de desenvolvimento (23/11/2026): com `npm run dev` em localhost o
+ * sistema tambem guarda o login, para quem testa nao redigitar a senha a cada
+ * aba. Regra (e por que nenhum site publicado muda) em loginPersistenciaDomain.ts.
  */
-export const authPersistenceReady = setPersistence(auth, isAppVendedorExterno || isAppDoCaixa ? browserLocalPersistence : browserSessionPersistence).catch((error) => {
+const loginFicaGuardado = persistenciaDoLogin({
+  pathname: window.location.pathname,
+  hostname: window.location.hostname,
+  modoDesenvolvimento: import.meta.env.DEV,
+}) === 'local';
+export const authPersistenceReady = setPersistence(auth, loginFicaGuardado ? browserLocalPersistence : browserSessionPersistence).catch((error) => {
   console.error('Erro ao configurar persistencia de sessao:', error);
 });
 export const storage = getStorage(app);

@@ -42,7 +42,7 @@ const chaveTexto = (texto) => semAcento(String(texto ?? '')).toLowerCase().repla
 const chaveNomeProduto = (nome) => (semAcento(String(nome ?? '')).toUpperCase().replace(/[^A-Z0-9/%,.]+/g, ' ').replace(/\s+/g, ' ').trim());
 exports.chaveNomeProduto = chaveNomeProduto;
 const mapeamentoVazio = () => ({
-    codigo: null, produto: null, codigoBarras: null, ncm: null, cest: null,
+    codigo: null, referencia: null, produto: null, codigoBarras: null, ncm: null, cest: null,
     cfop: null, csosn: null, cfopInterestadual: null, csosnInterestadual: null, origem: null, cstPis: null, cstCofins: null, cstIpi: null, enquadramentoIpi: null,
     percentualTributosFederal: null, percentualTributosEstadual: null, percentualTributosMunicipal: null, percentualTributos: null,
 });
@@ -74,6 +74,9 @@ const inferirMapeamentoFiscal = (cabecalho) => {
     mapa.percentualTributosEstadual = achar((h) => /estadua/.test(h));
     mapa.percentualTributosMunicipal = achar((h) => /municipa/.test(h));
     mapa.percentualTributos = achar((h) => /tribut/.test(h));
+    // Referencia: o codigo do produto no sistema antigo (na migracao ele vai para o campo
+    // Referencia do cadastro). Acha o produto certo mesmo quando dois tem o mesmo nome.
+    mapa.referencia = achar((h) => /^refer/.test(h));
     mapa.produto = achar((h) => /produto|descri|^nome/.test(h));
     mapa.codigo = achar((h) => /^(codigo|cod|id)( do produto)?$/.test(h) || /^codigo\b/.test(h));
     return mapa;
@@ -237,6 +240,8 @@ const normalizarCampo = (campo, bruto, regime) => {
     }
 };
 const semZerosEsquerda = (texto) => texto.replace(/^0+(?=\d)/, '');
+/** Referencia para comparar: sem espaco nas pontas, sem diferenca de caixa. */
+const chaveReferencia = (texto) => String(texto ?? '').trim().toUpperCase();
 /** Valor atual do produto, na mesma forma do valor normalizado da planilha (pra comparar). */
 const valorAtual = (produto, campo) => {
     const bruto = String(produto[campo] ?? '').trim();
@@ -268,7 +273,11 @@ const planejarImportacaoFiscal = (args) => {
     const { linhas, produtos, sobrescrever, regime } = args;
     const porCodigo = new Map();
     const porNome = new Map();
+    const porReferencia = new Map();
     produtos.forEach((p) => {
+        const ref = chaveReferencia(p.referencia);
+        if (ref)
+            porReferencia.set(ref, [...(porReferencia.get(ref) || []), p]);
         const cod = semZerosEsquerda(String(p.codigo || '').trim());
         if (cod)
             porCodigo.set(cod, [...(porCodigo.get(cod) || []), p]);
@@ -304,6 +313,12 @@ const planejarImportacaoFiscal = (args) => {
             else
                 problemas.push(`Nenhum produto com o código ${linha.codigo} no cadastro.`);
         }
+        else if ((porReferencia.get(chaveReferencia(linha.referencia)) || []).length === 1) {
+            // Referencia que aponta para UM produto so'. Sem produto com ela (ou com mais de um),
+            // a linha segue pelo nome, como sempre foi.
+            produto = porReferencia.get(chaveReferencia(linha.referencia))[0];
+            achado = 'ok';
+        }
         else if (linha.produto) {
             const candidatos = porNome.get((0, exports.chaveNomeProduto)(linha.produto)) || [];
             if (candidatos.length === 1) {
@@ -312,7 +327,7 @@ const planejarImportacaoFiscal = (args) => {
             }
             else if (candidatos.length > 1) {
                 achado = 'ambiguo';
-                problemas.push(`Há ${candidatos.length} produtos com o nome "${linha.produto}". Use a coluna Código para escolher.`);
+                problemas.push(`Há ${candidatos.length} produtos com o nome "${linha.produto}". Use a coluna Código (ou a coluna Referência) para escolher.`);
             }
             else
                 problemas.push(`Nenhum produto com o nome "${linha.produto}" no cadastro.`);
@@ -504,6 +519,7 @@ const planejarImportacaoIbpt = (args) => {
 exports.planejarImportacaoIbpt = planejarImportacaoIbpt;
 const NOMES_CAMPOS = {
     codigo: 'Código',
+    referencia: 'Referência',
     produto: 'Produto',
     codigoBarras: 'Código de barras',
     ncm: 'NCM',

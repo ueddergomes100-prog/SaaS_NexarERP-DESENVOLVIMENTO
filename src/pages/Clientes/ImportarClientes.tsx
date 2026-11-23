@@ -19,6 +19,8 @@ import {
   parseDelimitedText,
 } from '../../utils/importacaoEstoqueDomain';
 import {
+  chaveCidadeUf,
+  codigosIbgePorCidade,
   ehConsumidorFinal,
   inferirMapeamentoColunasCliente,
   montarClienteImportado,
@@ -29,6 +31,7 @@ import {
   type MapeamentoColunasCliente,
 } from '../../utils/importacaoClientesDomain';
 import { obterCatalogo } from '../../services/catalogoEstoqueService';
+import { municipiosDaUf } from '../../services/municipiosIbgeService';
 
 /**
  * Importacao em massa de clientes a partir do cadastro do sistema antigo
@@ -154,6 +157,25 @@ const resolverCodigosIbgePorCep = async (
 
   await Promise.all(Array.from({ length: Math.min(CONCORRENCIA, unicos.length) }, worker));
   return resultado;
+};
+
+/** Para quem ficou sem codigo IBGE pelo CEP (CEP generico da cidade, CEP
+ * errado, sem CEP): casa a cidade pelo nome na lista de municipios da UF, na
+ * API publica do IBGE (vai so' a sigla da UF). UF que o IBGE nao responder
+ * fica sem codigo e NAO trava a importacao, igual ao CEP. */
+const resolverCodigosIbgePorCidade = async (
+  clientes: Array<{ cidade: string; estado: string }>,
+): Promise<Map<string, string>> => {
+  const ufs = Array.from(new Set(clientes.map((c) => c.estado.trim().toUpperCase()).filter((uf) => /^[A-Z]{2}$/.test(uf))));
+  const municipiosPorUf = new Map<string, Array<{ id: number | string; nome: string }>>();
+  await Promise.all(ufs.map(async (uf) => {
+    try {
+      municipiosPorUf.set(uf, await municipiosDaUf(uf));
+    } catch (error) {
+      console.error(`Erro ao buscar os municípios de ${uf} no IBGE:`, error);
+    }
+  }));
+  return codigosIbgePorCidade(clientes, municipiosPorUf);
 };
 
 /** Entre linhas com o mesmo documento (CPF/CNPJ), mantem so a PRIMEIRA
@@ -317,6 +339,9 @@ const ImportarClientes: React.FC = () => {
         linhasAtivas.map((c) => c.cep),
         (atual, total) => setProgressoIbge({ atual, total }),
       );
+      const mapaIbgePorCidade = await resolverCodigosIbgePorCidade(
+        linhasAtivas.filter((c) => !mapaIbgePorCep.get(c.cep)),
+      );
       setProgressoIbge(null);
 
       let proximoCodigo = Number.parseInt(await getProximoCodigoCliente(tenantId), 10);
@@ -351,7 +376,7 @@ const ImportarClientes: React.FC = () => {
                 cidade: cliente.cidade,
                 estado: cliente.estado,
                 cep: cliente.cep,
-                codigoIbge: mapaIbgePorCep.get(cliente.cep) || '',
+                codigoIbge: mapaIbgePorCep.get(cliente.cep) || mapaIbgePorCidade.get(chaveCidadeUf(cliente.cidade, cliente.estado)) || '',
                 referencia: cliente.referencia,
                 enderecoCobranca: cliente.enderecoCobranca,
                 numeroCobranca: cliente.numeroCobranca,

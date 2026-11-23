@@ -36,7 +36,7 @@ export const CAMPOS_TRIBUTACAO = [
 ] as const;
 export type CampoTributacao = typeof CAMPOS_TRIBUTACAO[number];
 export type CampoGravavel = 'codigoBarras' | 'ncm' | 'cest' | CampoTributacao;
-export type CampoFiscal = 'codigo' | 'produto' | CampoGravavel;
+export type CampoFiscal = 'codigo' | 'referencia' | 'produto' | CampoGravavel;
 export type MapeamentoFiscal = Record<CampoFiscal, number | null>;
 
 const CAMPOS_PERCENTUAIS: CampoTributacao[] = ['percentualTributosFederal', 'percentualTributosEstadual', 'percentualTributosMunicipal', 'percentualTributos'];
@@ -50,7 +50,7 @@ export const chaveNomeProduto = (nome: string): string => (
 );
 
 export const mapeamentoVazio = (): MapeamentoFiscal => ({
-  codigo: null, produto: null, codigoBarras: null, ncm: null, cest: null,
+  codigo: null, referencia: null, produto: null, codigoBarras: null, ncm: null, cest: null,
   cfop: null, csosn: null, cfopInterestadual: null, csosnInterestadual: null, origem: null, cstPis: null, cstCofins: null, cstIpi: null, enquadramentoIpi: null,
   percentualTributosFederal: null, percentualTributosEstadual: null, percentualTributosMunicipal: null, percentualTributos: null,
 });
@@ -81,12 +81,15 @@ export const inferirMapeamentoFiscal = (cabecalho: string[]): MapeamentoFiscal =
   mapa.percentualTributosEstadual = achar((h) => /estadua/.test(h));
   mapa.percentualTributosMunicipal = achar((h) => /municipa/.test(h));
   mapa.percentualTributos = achar((h) => /tribut/.test(h));
+  // Referencia: o codigo do produto no sistema antigo (na migracao ele vai para o campo
+  // Referencia do cadastro). Acha o produto certo mesmo quando dois tem o mesmo nome.
+  mapa.referencia = achar((h) => /^refer/.test(h));
   mapa.produto = achar((h) => /produto|descri|^nome/.test(h));
   mapa.codigo = achar((h) => /^(codigo|cod|id)( do produto)?$/.test(h) || /^codigo\b/.test(h));
   return mapa;
 };
 
-export type LinhaFiscal = { linha: number; codigo: string; produto: string } & Record<CampoGravavel, string>;
+export type LinhaFiscal = { linha: number; codigo: string; referencia: string; produto: string } & Record<CampoGravavel, string>;
 
 export const lerLinhasFiscais = (linhas: string[][], mapa: MapeamentoFiscal): LinhaFiscal[] => {
   const celula = (l: string[], indice: number | null) => (indice === null ? '' : String(l[indice] ?? '').trim());
@@ -251,6 +254,8 @@ export type ProdutoFiscalAtual = {
   id: string;
   codigo: string;
   nome: string;
+  /** Referencia do cadastro (codigo do sistema antigo, quando o produto veio de migracao). */
+  referencia?: string;
   /** Codigos de barras das embalagens: tambem contam como "ja usado". */
   embalagensBarras: string[];
   /**
@@ -293,6 +298,8 @@ export interface ResumoFiscal {
 }
 
 const semZerosEsquerda = (texto: string) => texto.replace(/^0+(?=\d)/, '');
+/** Referencia para comparar: sem espaco nas pontas, sem diferenca de caixa. */
+const chaveReferencia = (texto: unknown) => String(texto ?? '').trim().toUpperCase();
 
 /** Valor atual do produto, na mesma forma do valor normalizado da planilha (pra comparar). */
 const valorAtual = (produto: ProdutoFiscalAtual, campo: CampoGravavel): string => {
@@ -333,7 +340,10 @@ export const planejarImportacaoFiscal = (args: {
 
   const porCodigo = new Map<string, ProdutoFiscalAtual[]>();
   const porNome = new Map<string, ProdutoFiscalAtual[]>();
+  const porReferencia = new Map<string, ProdutoFiscalAtual[]>();
   produtos.forEach((p) => {
+    const ref = chaveReferencia(p.referencia);
+    if (ref) porReferencia.set(ref, [...(porReferencia.get(ref) || []), p]);
     const cod = semZerosEsquerda(String(p.codigo || '').trim());
     if (cod) porCodigo.set(cod, [...(porCodigo.get(cod) || []), p]);
     const nome = chaveNomeProduto(p.nome);
@@ -369,10 +379,15 @@ export const planejarImportacaoFiscal = (args: {
       if (candidatos.length === 1) { produto = candidatos[0]; achado = 'ok'; }
       else if (candidatos.length > 1) { achado = 'ambiguo'; problemas.push(`Há ${candidatos.length} produtos com o código ${linha.codigo} no cadastro.`); }
       else problemas.push(`Nenhum produto com o código ${linha.codigo} no cadastro.`);
+    } else if ((porReferencia.get(chaveReferencia(linha.referencia)) || []).length === 1) {
+      // Referencia que aponta para UM produto so'. Sem produto com ela (ou com mais de um),
+      // a linha segue pelo nome, como sempre foi.
+      produto = porReferencia.get(chaveReferencia(linha.referencia))![0];
+      achado = 'ok';
     } else if (linha.produto) {
       const candidatos = porNome.get(chaveNomeProduto(linha.produto)) || [];
       if (candidatos.length === 1) { produto = candidatos[0]; achado = 'ok'; }
-      else if (candidatos.length > 1) { achado = 'ambiguo'; problemas.push(`Há ${candidatos.length} produtos com o nome "${linha.produto}". Use a coluna Código para escolher.`); }
+      else if (candidatos.length > 1) { achado = 'ambiguo'; problemas.push(`Há ${candidatos.length} produtos com o nome "${linha.produto}". Use a coluna Código (ou a coluna Referência) para escolher.`); }
       else problemas.push(`Nenhum produto com o nome "${linha.produto}" no cadastro.`);
     } else {
       problemas.push('Linha sem código nem nome do produto.');
@@ -555,6 +570,7 @@ export const planejarImportacaoIbpt = (args: {
 
 const NOMES_CAMPOS: Record<CampoFiscal, string> = {
   codigo: 'Código',
+  referencia: 'Referência',
   produto: 'Produto',
   codigoBarras: 'Código de barras',
   ncm: 'NCM',

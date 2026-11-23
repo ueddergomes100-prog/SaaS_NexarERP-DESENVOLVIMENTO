@@ -180,3 +180,36 @@ test('montarClienteImportado grava sem chave undefined e sem inventar dado', () 
   assert.equal(doc.tenantId, 'tenant-1');
   assert.ok(!Object.values(doc).includes(undefined));
 });
+
+test('código IBGE pela cidade: casa pelo nome sem acento, dentro da UF certa', async () => {
+  const { chaveCidadeUf, codigosIbgePorCidade } = await import('../src/utils/importacaoClientesDomain');
+  const municipios = new Map([
+    ['MG', [{ id: 3139409, nome: 'Manhuaçu' }, { id: 3162708, nome: 'São João do Manhuaçu' }]],
+    ['ES', [{ id: 3203007, nome: 'Iúna' }]],
+  ]);
+  const mapa = codigosIbgePorCidade(
+    [
+      { cidade: 'MANHUACU', estado: 'MG' },
+      { cidade: 'manhuaçu', estado: 'mg' },
+      { cidade: 'SAO JOAO DO MANHUACU', estado: 'MG' },
+      { cidade: 'IUNA', estado: 'ES' },
+      { cidade: 'IUNA', estado: 'MG' },
+      { cidade: 'CIDADE QUE NAO EXISTE', estado: 'MG' },
+      { cidade: 'MANHUACU', estado: '' },
+    ],
+    municipios,
+  );
+  assert.equal(mapa.get(chaveCidadeUf('Manhuaçu', 'MG')), '3139409');
+  assert.equal(mapa.get(chaveCidadeUf('SAO JOAO DO MANHUACU', 'MG')), '3162708');
+  assert.equal(mapa.get(chaveCidadeUf('IUNA', 'ES')), '3203007');
+  assert.equal(mapa.has(chaveCidadeUf('IUNA', 'MG')), false);
+  assert.equal(mapa.has(chaveCidadeUf('CIDADE QUE NAO EXISTE', 'MG')), false);
+  assert.equal(chaveCidadeUf('MANHUACU', ''), '');
+  assert.equal(mapa.size, 3);
+});
+
+test('código IBGE pela cidade: UF que o IBGE não respondeu fica sem código, sem quebrar', async () => {
+  const { codigosIbgePorCidade } = await import('../src/utils/importacaoClientesDomain');
+  const mapa = codigosIbgePorCidade([{ cidade: 'MANHUACU', estado: 'MG' }], new Map());
+  assert.equal(mapa.size, 0);
+});

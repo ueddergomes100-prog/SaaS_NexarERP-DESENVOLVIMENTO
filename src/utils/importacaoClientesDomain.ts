@@ -1,4 +1,5 @@
 import { isCpfValido, isCnpjValido, tipoDocumento } from './documentoValidacao';
+import { acharCodigoIbge, normalizarNomeCidade } from './filialDomain';
 
 // Funcoes puras da importacao em massa de clientes. Sem Firestore -- leitura
 // de arquivo, upload e gravacao ficam em src/pages/Clientes/ImportarClientes.tsx.
@@ -568,3 +569,37 @@ export const montarClienteImportado = (
   alteradoEm: timestamp,
   origemImportacao: 'migracao_cadastro',
 });
+
+// ---------------------------------------------------------------------------
+// Codigo IBGE pela cidade (quando o CEP nao resolve)
+// ---------------------------------------------------------------------------
+
+/** Chave "UF|CIDADE" (sem acento nem pontuacao) para guardar o codigo IBGE de cada cidade da planilha. */
+export const chaveCidadeUf = (cidade: unknown, uf: unknown): string => {
+  const sigla = String(uf ?? '').trim().toUpperCase();
+  const nome = normalizarNomeCidade(cidade);
+  return sigla.length === 2 && nome ? `${sigla}|${nome}` : '';
+};
+
+/**
+ * Codigo IBGE de cada cidade da planilha, casado pelo NOME na lista de
+ * municipios da UF (API do IBGE). Cobre o CEP que o ViaCEP nao conhece -- o
+ * caso comum e' o CEP generico da cidade (36900-000), que o sistema antigo
+ * gravava em quase todo cadastro: sem isto o cliente entrava sem o codigo e
+ * a NF-e dele so' saia depois de editar o cadastro. Cidade que nao esta' na
+ * lista da UF (nome errado) continua sem codigo: o cadastro resolve.
+ */
+export const codigosIbgePorCidade = (
+  clientes: Array<{ cidade: string; estado: string }>,
+  municipiosPorUf: Map<string, Array<{ id: number | string; nome: string }>>,
+): Map<string, string> => {
+  const resultado = new Map<string, string>();
+  clientes.forEach((cliente) => {
+    const chave = chaveCidadeUf(cliente.cidade, cliente.estado);
+    if (!chave || resultado.has(chave)) return;
+    const lista = municipiosPorUf.get(String(cliente.estado).trim().toUpperCase());
+    const codigo = lista ? acharCodigoIbge(lista, cliente.cidade) : '';
+    if (codigo) resultado.set(chave, codigo);
+  });
+  return resultado;
+};

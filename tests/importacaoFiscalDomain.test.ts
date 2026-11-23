@@ -21,7 +21,7 @@ const produto = (extra: Partial<ProdutoFiscalAtual> & { id: string; codigo: stri
   codigoBarras: '', ncm: '', cest: '', embalagensBarras: [], ...extra,
 });
 const linha = (extra: Partial<LinhaFiscal> & { linha?: number }): LinhaFiscal => ({
-  linha: 2, codigo: '', produto: '', codigoBarras: '', ncm: '', cest: '',
+  linha: 2, codigo: '', referencia: '', produto: '', codigoBarras: '', ncm: '', cest: '',
   cfop: '', csosn: '', cfopInterestadual: '', csosnInterestadual: '', origem: '', cstPis: '', cstCofins: '', cstIpi: '', enquadramentoIpi: '',
   percentualTributosFederal: '', percentualTributosEstadual: '', percentualTributosMunicipal: '', percentualTributos: '', ...extra,
 });
@@ -192,7 +192,7 @@ test('CEST sem NCM (na planilha e no produto) avisa', () => {
 test('tributação: cabeçalho do modelo é reconhecido coluna a coluna', () => {
   const m = inferirMapeamentoFiscal(['Código', 'Produto', 'Código de barras', 'NCM', 'CEST', 'CFOP', 'CSOSN/CST ICMS', 'CFOP interestadual', 'CSOSN/CST interestadual', 'Origem', 'CST PIS', 'CST COFINS', 'CST IPI', 'Enquadramento IPI', '% Tributos']);
   assert.deepEqual(m, {
-    codigo: 0, produto: 1, codigoBarras: 2, ncm: 3, cest: 4, cfop: 5, csosn: 6, cfopInterestadual: 7, csosnInterestadual: 8, origem: 9, cstPis: 10, cstCofins: 11, cstIpi: 12, enquadramentoIpi: 13,
+    codigo: 0, referencia: null, produto: 1, codigoBarras: 2, ncm: 3, cest: 4, cfop: 5, csosn: 6, cfopInterestadual: 7, csosnInterestadual: 8, origem: 9, cstPis: 10, cstCofins: 11, cstIpi: 12, enquadramentoIpi: 13,
     percentualTributosFederal: null, percentualTributosEstadual: null, percentualTributosMunicipal: null, percentualTributos: 14,
   });
 });
@@ -263,4 +263,56 @@ test('produto inativo não entra na gravação (o Firestore recusaria o lote int
   const tabela = { porNcm: new Map([['11041200', { nacionalFederal: 4, importadosFederal: 6, estadual: 9, municipal: 0 }]]), versao: '', vigenciaFim: '' };
   const ibpt = planejarImportacaoIbpt({ tabela, produtos: [produto({ id: 'b', codigo: '2', nome: 'X', ncm: '11041200', inativo: true })] });
   assert.equal(ibpt.resultados[0].status, 'erro');
+});
+
+test('Referência acha o produto certo quando dois têm o mesmo nome', () => {
+  const produtos = [
+    produto({ id: 'a', codigo: '10', nome: 'SACO PAPEL MIX 02 KG C/500', referencia: '484' }),
+    produto({ id: 'b', codigo: '11', nome: 'SACO PAPEL MIX 02 KG C/500', referencia: '3781' }),
+  ];
+  const { resultados } = planejarImportacaoFiscal({
+    linhas: [
+      linha({ linha: 2, referencia: '3781', produto: 'SACO PAPEL MIX 02 KG C/500', ncm: '48194000' }),
+      linha({ linha: 3, referencia: ' 484 ', produto: 'SACO PAPEL MIX 02 KG C/500', ncm: '48193000' }),
+    ],
+    produtos,
+    sobrescrever: false,
+  });
+  assert.equal(resultados[0].status, 'atualizar');
+  assert.equal(resultados[0].produto?.id, 'b');
+  assert.equal(resultados[0].grava.ncm, '48194000');
+  assert.equal(resultados[1].produto?.id, 'a');
+  assert.equal(resultados[1].grava.ncm, '48193000');
+});
+
+test('Referência que não existe no cadastro não atrapalha: a linha segue pelo nome', () => {
+  const produtos = [produto({ id: 'a', codigo: '10', nome: 'ACUCAR MASCAVO 500G', referencia: '' })];
+  const { resultados } = planejarImportacaoFiscal({
+    linhas: [linha({ referencia: 'XYZ-1', produto: 'Açúcar mascavo 500g', ncm: '17011300' })],
+    produtos,
+    sobrescrever: false,
+  });
+  assert.equal(resultados[0].status, 'atualizar');
+  assert.equal(resultados[0].produto?.id, 'a');
+});
+
+test('Referência repetida em dois produtos não decide sozinha: sem nome único, fica ambíguo', () => {
+  const produtos = [
+    produto({ id: 'a', codigo: '10', nome: 'POTE 300 ML', referencia: '77' }),
+    produto({ id: 'b', codigo: '11', nome: 'POTE 300 ML', referencia: '77' }),
+  ];
+  const { resultados } = planejarImportacaoFiscal({
+    linhas: [linha({ referencia: '77', produto: 'POTE 300 ML', ncm: '39241000' })],
+    produtos,
+    sobrescrever: false,
+  });
+  assert.equal(resultados[0].status, 'ambiguo');
+});
+
+test('cabeçalho: a coluna Referência é reconhecida e não rouba a coluna Código', () => {
+  const mapa = inferirMapeamentoFiscal(['Referência', 'Produto', 'NCM', 'CEST', 'CFOP', 'CSOSN/CST ICMS', 'Origem']);
+  assert.equal(mapa.referencia, 0);
+  assert.equal(mapa.produto, 1);
+  assert.equal(mapa.codigo, null);
+  assert.equal(mapa.ncm, 2);
 });

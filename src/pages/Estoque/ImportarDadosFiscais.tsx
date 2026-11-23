@@ -59,6 +59,7 @@ const COR_STATUS: Record<StatusLinhaFiscal, { fundo: string; cor: string }> = {
 
 const CAMPOS_MAPA: { campo: CampoFiscal; rotulo: string }[] = [
   { campo: 'codigo', rotulo: 'Código do produto' },
+  { campo: 'referencia', rotulo: 'Referência' },
   { campo: 'produto', rotulo: 'Nome do produto' },
   { campo: 'codigoBarras', rotulo: 'Código de barras' },
   { campo: 'ncm', rotulo: 'NCM' },
@@ -140,6 +141,7 @@ const ImportarDadosFiscais: React.FC = () => {
         id: d.id,
         codigo: String(dados.codigo ?? ''),
         nome: String(dados.nome ?? ''),
+        referencia: String(dados.referencia ?? '').trim(),
         codigoBarras: String(dados.codigoBarras ?? '').trim(),
         ncm: String(dados.ncm || dados.fiscal?.ncm || ''),
         cest: String(dados.cest || dados.fiscal?.cest || ''),
@@ -208,8 +210,8 @@ const ImportarDadosFiscais: React.FC = () => {
       setTabelaIbpt(null);
 
       const mapaInferido = inferirMapeamentoFiscal(cab);
-      if (mapaInferido.codigo === null && mapaInferido.produto === null) {
-        showError('Faltou a coluna do produto', 'Não achei nenhuma coluna Código nem Produto no cabeçalho. Confira a primeira linha ou use "Baixar modelo".');
+      if (mapaInferido.codigo === null && mapaInferido.referencia === null && mapaInferido.produto === null) {
+        showError('Faltou a coluna do produto', 'Não achei nenhuma coluna Código, Referência nem Produto no cabeçalho. Confira a primeira linha ou use "Baixar modelo".');
         return;
       }
       if (mapaInferido.codigoBarras === null && mapaInferido.ncm === null && mapaInferido.cest === null && CAMPOS_TRIBUTACAO.every((c) => mapaInferido[c] === null)) {
@@ -317,7 +319,7 @@ const ImportarDadosFiscais: React.FC = () => {
           <div>
             <h2 style={{ fontSize: '18px', marginBottom: '6px' }}>1. Envie a planilha</h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-              A primeira linha é o cabeçalho. Colunas: <strong>Código</strong> (o código do produto aqui no sistema) ou <strong>Produto</strong> (o nome), e as que quiser atualizar: <strong>Código de barras</strong>, <strong>NCM</strong>, <strong>CEST</strong>, <strong>CFOP</strong>, <strong>CSOSN/CST ICMS</strong>, <strong>CFOP interestadual</strong> e <strong>CSOSN/CST interestadual</strong> (produto com ST vendido para outro estado), <strong>Origem</strong>, <strong>CST PIS</strong>, <strong>CST COFINS</strong>, <strong>CST IPI</strong>, <strong>Enquadramento IPI</strong> e <strong>% Tributos</strong>. Aceita Excel (.xlsx) e CSV.
+              A primeira linha é o cabeçalho. Colunas: <strong>Código</strong> (o código do produto aqui no sistema), <strong>Referência</strong> (a referência do cadastro) ou <strong>Produto</strong> (o nome), e as que quiser atualizar: <strong>Código de barras</strong>, <strong>NCM</strong>, <strong>CEST</strong>, <strong>CFOP</strong>, <strong>CSOSN/CST ICMS</strong>, <strong>CFOP interestadual</strong> e <strong>CSOSN/CST interestadual</strong> (produto com ST vendido para outro estado), <strong>Origem</strong>, <strong>CST PIS</strong>, <strong>CST COFINS</strong>, <strong>CST IPI</strong>, <strong>Enquadramento IPI</strong> e <strong>% Tributos</strong>. Aceita Excel (.xlsx) e CSV.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>

@@ -7,6 +7,7 @@ import { UFS, acharCodigoIbge, lerDadosDaFilial, type DadosDaFilial, type Filial
 import { showError, showSuccess } from '../../utils/alerts';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
+import { municipiosDaUf } from '../../services/municipiosIbgeService';
 
 interface FilialFormModalProps {
   aberto: boolean;
@@ -36,26 +37,9 @@ const estiloSecao: React.CSSProperties = {
 /** ViaCEP responde em menos de 1 s; mais de 10 s e' instabilidade dele. */
 const TEMPO_LIMITE_CEP_MS = 10_000;
 
-/**
- * Municipios de cada UF na API publica do IBGE (sem chave), guardados por
- * UF enquanto a tela estiver aberta. A NF-e de transferencia precisa do
- * codigo IBGE da cidade de destino; o ViaCEP ja' traz o codigo, e quem digita
- * a cidade na mao recebe o codigo casado pelo nome.
- */
-const municipiosPorUf = new Map<string, Promise<Array<{ id: number; nome: string }>>>();
-const municipiosDaUf = (uf: string) => {
-  const chave = uf.toUpperCase();
-  if (!municipiosPorUf.has(chave)) {
-    const pedido = fetchComTimeout(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${chave}/municipios?orderBy=nome`, {}, TEMPO_LIMITE_CEP_MS)
-      .then(async (r) => {
-        if (!r.ok) throw new Error('IBGE indisponível');
-        return (await r.json()) as Array<{ id: number; nome: string }>;
-      })
-      .catch((erro) => { municipiosPorUf.delete(chave); throw erro; });
-    municipiosPorUf.set(chave, pedido);
-  }
-  return municipiosPorUf.get(chave)!;
-};
+// A NF-e de transferencia precisa do codigo IBGE da cidade de destino; o ViaCEP
+// ja' traz o codigo, e quem digita a cidade na mao recebe o codigo casado pelo
+// nome (lista do IBGE em services/municipiosIbgeService).
 
 type SituacaoIbge = '' | 'buscando' | 'ok' | 'nao_achou' | 'erro';
 

@@ -1265,7 +1265,8 @@ const PedidoVendaForm: React.FC = () => {
             // em vez de decidir sozinho (ver resolverDataVendaParaGravar).
             dataVendaEscolhidaPeloUsuario.current = true;
             setNumeroPedido(p.numeroPedido || '');
-            setPedidoImportado(ehPedidoDoSistemaAnterior(p));
+            // So' a venda FATURADA importada e' so' consulta; a pre-venda importada fatura e cancela normalmente.
+            setPedidoImportado(ehPedidoDoSistemaAnterior(p) && p.status !== 'Pré-venda');
             setNumeroNoSistemaAnterior(String(p.sistemaAnterior?.numero || ''));
             setStatus(p.status || 'Finalizada');
             setCancelamentoInfo(p.status === 'Cancelada'
@@ -5954,7 +5955,7 @@ const PedidoVendaForm: React.FC = () => {
                 >
                   <Eye size={18} /> Visualizar Nota Fiscal (NFC-e{nfeDoc.number ? ` nº ${numeroDaNota(nfeDoc.number)}` : ''})
                 </button>
-              ) : comNotaFiscalPedido === false ? null /* pedido SEM nota fiscal (23/10/2026): nao oferece emitir */ : documentoFiscalVenda === 'nfce' ? (
+              ) : (comNotaFiscalPedido === false || pedidoImportado) ? null /* pedido SEM nota fiscal (23/10/2026) ou venda do sistema anterior: nao oferece emitir */ : documentoFiscalVenda === 'nfce' ? (
                 nfeDoc && nfeDoc.status !== 'canceled' ? (
                   <button
                     className="btn-primary"
@@ -6039,7 +6040,7 @@ const PedidoVendaForm: React.FC = () => {
                       <ItemMaisAcoes Icone={History} texto="Histórico de alterações" titulo="Quem criou, alterou e cancelou este pedido, com data, hora e motivo"
                         onClick={() => { setMaisAcoesAberto(false); setAuditoriaAberta(true); }} />
                     )}
-                    {canEditVenda && (
+                    {canEditVenda && !pedidoImportado && (
                       <>
                         <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '6px 0' }} />
                         <ItemMaisAcoes Icone={XCircle} texto="Estornar/Cancelar venda" cor="#ef4444"
@@ -6348,7 +6349,7 @@ const PedidoVendaForm: React.FC = () => {
             {/* "Com nota / Sem nota" (23/10/2026, igual ao app): so' em empresa que
                 emite nota. Obrigatorio ao gravar e ao finalizar; depois de finalizado,
                 a troca vai pelo servidor (quem altera pedidos) e fica registrada. */}
-            {controlaFiscal && status !== 'Cancelada' && (() => {
+            {controlaFiscal && status !== 'Cancelada' && !pedidoImportado && (() => {
               const travado = trocandoNotaFiscal || (notaFiscalTrocaPeloServidor && !podeTrocarNotaFiscalGravada) || (isViewing && !notaFiscalTrocaPeloServidor && !isPreVendaAberta && !isPendingFromAgent);
               return (
                 <div id="pedido-nota-fiscal" className="input-group" style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>

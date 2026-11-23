@@ -95,7 +95,11 @@ const PreVendasModal: React.FC<PreVendasModalProps> = ({ open, tenantId, puxando
   }, [open, carregar]);
 
   const filtradas = useMemo(() => filtrarPreVendasDoCaixa(linhas, busca), [linhas, busca]);
-  const marcada = filtradas.find((linha) => linha.id === marcadaId) || filtradas[0] || null;
+  // Sem escolha feita, a marca comeca na primeira que da' para puxar (Enter puxa direto).
+  const marcada = filtradas.find((linha) => linha.id === marcadaId)
+    || filtradas.find((linha) => !linha.soNoSistema && !travas.has(linha.id))
+    || filtradas[0]
+    || null;
 
   if (!open) return null;
 

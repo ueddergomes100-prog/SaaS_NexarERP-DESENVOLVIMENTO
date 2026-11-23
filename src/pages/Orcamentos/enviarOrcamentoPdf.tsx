@@ -1,13 +1,14 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../services/firebase';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
+import { db, storage } from '../../services/firebase';
 import { buscarClienteDoDocumento } from '../../services/clienteDoDocumentoService';
 import { gerarPdfDaFolha, nomeDeArquivoPdf } from '../Vendedor/folhaParaPdf';
 import { enviarMinutaPorWhatsApp, telefoneParaWhatsApp } from '../Vendedor/vendedorMinutaPdf';
 import { linhasDoPdfDoOrcamento, totaisDoPdfDoOrcamento } from '../../utils/orcamentoModeloDomain';
 import { mensagemDoOrcamentoParaCliente, nomeDaEmpresaNoDocumento, numeroDoOrcamentoParaTexto } from '../../utils/orcamentoEnvioDomain';
-import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import OrcamentoPrintModelo from './OrcamentoPrintModelo';
 
 /**
@@ -16,9 +17,10 @@ import OrcamentoPrintModelo from './OrcamentoPrintModelo';
  * Antes o botao so' abria o WhatsApp com um texto "da Hennder ERP", sem o
  * orcamento. Agora monta a mesma folha da impressao (OrcamentoPrintModelo)
  * fora da tela, vira PDF (folhaParaPdf, o mesmo do app Vendas) e:
- * - no computador: baixa o PDF e abre a conversa do cliente com o texto em
- *   nome da empresa -- o link do WhatsApp nao aceita anexo, entao o usuario
- *   arrasta o arquivo baixado para a conversa;
+ * - no computador: guarda o PDF e abre a conversa do cliente com o texto em
+ *   nome da empresa e o LINK do PDF na mensagem -- o link do WhatsApp nao
+ *   aceita anexo (23/11/2026). Sem link (falha ao guardar), baixa o PDF para
+ *   o usuario anexar;
  * - no celular/tablet: abre o menu de compartilhar com o PDF (WhatsApp ja'
  *   com o arquivo); se o aparelho recusar, cai no download + conversa.
  */
@@ -160,12 +162,37 @@ const prepararEnvio = async (orcamentoId: string, tenantId: string) => {
   const configData = configSnap.exists() ? configSnap.data() : null;
 
   const total = totaisDoPdfDoOrcamento(linhasDoPdfDoOrcamento(data), data).total;
-  const mensagem = mensagemDoOrcamentoParaCliente({ numero: data.numeroOrcamento, empresa: nomeDaEmpresaNoDocumento(configData), total });
+  const empresa = nomeDaEmpresaNoDocumento(configData);
   const telefone = data.clienteTelefone || clientData?.whatsapp || clientData?.celular || clientData?.telefone || '';
   const nomeArquivo = nomeDeArquivoPdf('Orcamento', numeroDoOrcamentoParaTexto(data.numeroOrcamento), data.clienteNome);
 
   const pdf = await gerarPdfDoOrcamento(data, clientData, configData);
-  return { pdf, nomeArquivo, telefone, mensagem };
+  const montarMensagem = (link?: string) => mensagemDoOrcamentoParaCliente({ numero: data.numeroOrcamento, empresa, total, link });
+  return { pdf, nomeArquivo, telefone, montarMensagem };
+};
+
+/**
+ * Guarda o PDF e devolve o link para ir NA mensagem (23/11/2026, pedido do
+ * dono: "nao ta indo anexado no zap"). O link do WhatsApp (wa.me) so' leva
+ * texto -- nenhum site consegue anexar arquivo por ele. O link do arquivo
+ * tem token: o cliente abre sem login, e so' quem recebe a mensagem o tem.
+ * Um arquivo por envio (nome com a hora): link enviado antes continua
+ * abrindo o PDF que foi mandado naquele dia. Falhou (sem internet, regra do
+ * armazenamento ainda nao publicada): devolve '' e o envio segue baixando.
+ */
+const guardarPdfParaLink = async (tenantId: string, orcamentoId: string, pdf: Blob, nomeArquivo: string): Promise<string> => {
+  try {
+    const destino = storageRef(storage, `empresas/${tenantId}/orcamentos/${orcamentoId}/${Date.now()}.pdf`);
+    await uploadBytes(destino, pdf, {
+      contentType: 'application/pdf',
+      contentDisposition: `inline; filename="${nomeArquivo}"`,
+      cacheControl: 'private, max-age=31536000',
+    });
+    return await getDownloadURL(destino);
+  } catch (erro) {
+    console.error('Não foi possível guardar o PDF do orçamento para o link:', erro);
+    return '';
+  }
 };
 
 /**
@@ -190,29 +217,37 @@ export const enviarOrcamentoPorWhatsApp = async (orcamentoId: string, tenantId: 
       : 'Verifique a internet e tente de novo. Se continuar, use Imprimir e salve como PDF.');
     return 'cancelado';
   }
-  NexusSwal.close();
-  const { pdf, nomeArquivo, telefone, mensagem } = envio;
+  const { pdf, nomeArquivo, telefone, montarMensagem } = envio;
 
+  // Celular: o menu de compartilhar leva o PDF anexado de verdade.
   if (!noComputador()) {
-    return await enviarMinutaPorWhatsApp(pdf, nomeArquivo, telefone, mensagem, true) as ResultadoEnvioOrcamento;
+    NexusSwal.close();
+    return await enviarMinutaPorWhatsApp(pdf, nomeArquivo, telefone, montarMensagem(), true) as ResultadoEnvioOrcamento;
   }
 
-  baixarPdf(pdf, nomeArquivo);
-  const url = `https://wa.me/${telefoneParaWhatsApp(telefone)}?text=${encodeURIComponent(mensagem)}`;
+  // Computador: o PDF vai como link dentro da mensagem.
+  const link = await guardarPdfParaLink(tenantId, orcamentoId, pdf, nomeArquivo);
+  NexusSwal.close();
+  if (!link) baixarPdf(pdf, nomeArquivo);
+  const url = `https://wa.me/${telefoneParaWhatsApp(telefone)}?text=${encodeURIComponent(montarMensagem(link || undefined))}`;
+  const avisoDoPdf = link
+    ? 'O link do PDF já está na mensagem: é só enviar.'
+    : `Não foi possível gerar o link do PDF; o arquivo ${nomeArquivo} foi baixado. Anexe na conversa.`;
   const aberta = window.open(url, '_blank');
   if (aberta) {
-    showSuccess('PDF baixado. Anexe o arquivo na conversa do WhatsApp que abriu.');
-    return 'baixado';
+    if (link) showSuccess('Conversa aberta com o link do PDF. É só enviar.');
+    else showWarning('PDF baixado', avisoDoPdf);
+    return link ? 'compartilhado' : 'baixado';
   }
   // Navegador bloqueou a janela (o PDF demorou e o clique "venceu"): um clique novo abre.
   await NexusSwal.fire({
     icon: 'success',
-    title: 'PDF do orçamento baixado',
-    text: `Abra a conversa do cliente e anexe o arquivo ${nomeArquivo}.`,
+    title: 'Orçamento pronto para enviar',
+    text: avisoDoPdf,
     confirmButtonText: 'Abrir WhatsApp',
     showCancelButton: true,
     cancelButtonText: 'Fechar',
     preConfirm: () => { window.open(url, '_blank'); },
   });
-  return 'baixado';
+  return link ? 'compartilhado' : 'baixado';
 };

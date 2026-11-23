@@ -18,10 +18,18 @@ export const numeroDoOrcamentoParaTexto = (numero: unknown): string => {
   return /^\d+$/.test(n) ? n.padStart(4, '0') : n;
 };
 
-/** Texto que acompanha o PDF. Sem nome de empresa cadastrado, nao cita empresa nenhuma (nunca "Hennder ERP"). */
-export const mensagemDoOrcamentoParaCliente = (args: { numero: unknown; empresa: string; total: number }): string => {
+/**
+ * Texto que acompanha o PDF. Sem nome de empresa cadastrado, nao cita empresa
+ * nenhuma (nunca "Hennder ERP"). Com `link` (23/11/2026), o PDF vai como link
+ * na propria mensagem -- o link do WhatsApp nao aceita anexo.
+ */
+export const mensagemDoOrcamentoParaCliente = (args: { numero: unknown; empresa: string; total: number; link?: string }): string => {
   const numero = numeroDoOrcamentoParaTexto(args.numero);
   const empresa = args.empresa.trim();
   const titulo = `Olá! Segue o orçamento${numero ? ` nº ${numero}` : ''}${empresa ? ` da *${empresa}*` : ''}.`;
-  return `${titulo}\n\n*Total:* ${reais(args.total)}\n\nO PDF com todos os detalhes vai em anexo. Aguardamos sua aprovação!`;
+  const link = String(args.link || '').trim();
+  const pdf = link
+    ? `Orçamento completo em PDF:\n${link}`
+    : 'O PDF com todos os detalhes vai em anexo.';
+  return `${titulo}\n\n*Total:* ${reais(args.total)}\n\n${pdf}\n\nAguardamos sua aprovação!`;
 };

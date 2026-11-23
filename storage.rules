@@ -45,6 +45,19 @@ service firebase.storage {
       allow delete: if request.auth != null && usuarioDaEmpresa(tenantId);
     }
 
+    // PDF do orcamento enviado ao cliente pelo WhatsApp (2026-11-23): a
+    // mensagem leva o link com token do arquivo, e o cliente abre sem login
+    // (link com token nao passa por estas regras). Gravacao so' pela PROPRIA
+    // empresa, so' PDF, ate' 10 MB. Caminho montado em enviarOrcamentoPdf.tsx.
+    match /empresas/{tenantId}/orcamentos/{orcamentoId}/{arquivo} {
+      allow read: if request.auth != null && usuarioDaEmpresa(tenantId);
+      allow create, update: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf'
+        && usuarioDaEmpresa(tenantId);
+      allow delete: if request.auth != null && usuarioDaEmpresa(tenantId);
+    }
+
     function usuarioDaEmpresa(tenantId) {
       return request.auth.uid == tenantId
         || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('filialAtiva', firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId) == tenantId;

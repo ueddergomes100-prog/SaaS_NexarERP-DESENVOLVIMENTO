@@ -177,6 +177,8 @@ const carregarComBancoFalso = (db, ...servicos) => {
       contas.set(email, uid);
       return { uid, email };
     },
+    // Token de entrada (caixa com codigo e senha, 22/11/2026): "custom:<uid>:<marcas em JSON>".
+    createCustomToken: async (uid, marcas) => `custom:${uid}:${JSON.stringify(marcas || {})}`,
     // Token falso "falso:<uid>:<auth_time em segundos>" (liberacao de desconto, 19/10/2026).
     verifyIdToken: async (token) => {
       const [marca, uid, authTime] = String(token).split(':');

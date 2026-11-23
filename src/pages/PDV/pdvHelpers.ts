@@ -12,7 +12,7 @@ import {
   productMatchesSearch as sharedProductMatchesSearch,
 } from '../../utils/productSearch';
 import { toBaseQuantity, type OpcaoUnidadeVenda } from '../../utils/embalagemDomain';
-import type { PdvCartItem, PdvProduct, PdvTotals } from './types';
+import type { PdvCartItem, PdvProduct, PdvSession, PdvTotals } from './types';
 
 export const currency = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -145,3 +145,47 @@ export const makeCartItemFromProduct = (
       }
     : {}),
 });
+
+const paraIso = (valor: unknown): string | null => {
+  if (!valor) return null;
+  if (typeof valor === 'string') return valor;
+  const comToDate = valor as { toDate?: () => Date };
+  if (typeof comToDate.toDate === 'function') return comToDate.toDate().toISOString();
+  return valor instanceof Date ? valor.toISOString() : null;
+};
+
+/**
+ * Caixa ja' aberto no banco (outro computador, ou deixado aberto) virando a
+ * sessao da tela (22/11/2026: um caixa aberto por pessoa -- quem ja' tem um
+ * continua nele em vez de abrir outro).
+ */
+export const sessaoDoDocumento = (id: string, dados: Record<string, unknown>): PdvSession => {
+  const numero = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const numeroOuNulo = (v: unknown) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
+  const sangrias = Array.isArray(dados.sangrias) ? dados.sangrias as Array<Record<string, unknown>> : [];
+  return {
+    id,
+    tenantId: String(dados.tenantId || ''),
+    operadorId: String(dados.operadorId || ''),
+    operadorNome: String(dados.operadorNome || ''),
+    status: dados.status === 'fechado' ? 'fechado' : 'aberto',
+    saldoInicialCentavos: numero(dados.saldoInicialCentavos),
+    saldoAnteriorSugeridoCentavos: numeroOuNulo(dados.saldoAnteriorSugeridoCentavos),
+    saldoAnteriorConfirmado: dados.saldoAnteriorConfirmado === true,
+    abertoEm: paraIso(dados.createdAt) || new Date().toISOString(),
+    fechadoEm: paraIso(dados.fechadoEm),
+    saldoFinalInformadoCentavos: numeroOuNulo(dados.saldoFinalInformadoCentavos),
+    saldoEsperadoCentavos: numeroOuNulo(dados.saldoEsperadoCentavos),
+    diferencaCentavos: numeroOuNulo(dados.diferencaCentavos),
+    sangrias: sangrias.map((x, i) => ({
+      id: String(x.id || `sangria-${i + 1}`),
+      valorCentavos: numero(x.valorCentavos),
+      motivo: String(x.motivo || ''),
+      registradoEm: paraIso(x.registradoEm) || '',
+      registradoPor: String(x.registradoPor || ''),
+      registradoPorNome: String(x.registradoPorNome || ''),
+      ...(x.bancoId ? { bancoId: String(x.bancoId), bancoNome: String(x.bancoNome || '') } : {}),
+    })),
+    totalSangriasCentavos: numero(dados.totalSangriasCentavos),
+  };
+};

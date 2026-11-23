@@ -4,7 +4,7 @@ import { db } from '../../services/firebase';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useAuth } from '../../contexts/AuthContext';
-import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote, FileText } from 'lucide-react';
+import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote, FileText, MonitorCheck, User } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -12,6 +12,8 @@ import { montarDocumentoCaixaPdv } from '../../utils/relatorioCaixaPdvDomain';
 import { fromCents } from '../../utils/financeDomain';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { nomeDoOperador } from '../../utils/frenteDeCaixaDomain';
+import { hasTenantFullAccess } from '../../utils/roles';
+import ComputadoresDoCaixaModal from './ComputadoresDoCaixaModal';
 import './Financeiro.css';
 
 interface SangriaData {
@@ -37,6 +39,8 @@ interface CaixaSessaoData {
   totalSangriasCentavos: number;
   createdAt?: any;
   fechadoEm?: any;
+  /** Computador onde o caixa foi aberto (entrada com codigo e senha, 22/11/2026). */
+  terminalNome?: string;
 }
 
 interface VendaVinculada {
@@ -67,8 +71,12 @@ const formatDateTime = (value: any): string => {
 };
 
 const CaixaRegistros: React.FC = () => {
-  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId, userRole, isOwner } = useAuth();
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
+  // Filtro por operador (22/11/2026): o caixa de cada funcionario na troca de turno.
+  const [operadorFiltro, setOperadorFiltro] = useState('');
+  const [computadoresAberto, setComputadoresAberto] = useState(false);
+  const ehGerente = hasTenantFullAccess(userRole, isOwner);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [vendasPorSessao, setVendasPorSessao] = useState<Record<string, VendaVinculada[]>>({});
   const [loadingVendas, setLoadingVendas] = useState<string | null>(null);
@@ -111,19 +119,37 @@ const CaixaRegistros: React.FC = () => {
     return () => { ativo = false; };
   }, [idsDosOperadores]);
   const nomeDaSessao = (s: CaixaSessaoData): string => (s.operadorId && nomesDosOperadores[s.operadorId]) || s.operadorNome || '';
+  const chaveDoOperador = (s: CaixaSessaoData) => s.operadorId || `nome:${s.operadorNome || ''}`;
+  const operadores = useMemo(() => {
+    const mapa = new Map<string, string>();
+    sessoes.forEach((s) => { if (!mapa.has(chaveDoOperador(s))) mapa.set(chaveDoOperador(s), nomeDaSessao(s) || 'Sem nome'); });
+    return [...mapa.entries()].sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessoes, nomesDosOperadores]);
+  const doOperador = (s: CaixaSessaoData) => !operadorFiltro || chaveDoOperador(s) === operadorFiltro;
+  const rotuloDoOperador = (s: CaixaSessaoData) => (
+    <>
+      {nomeDaSessao(s)}
+      {s.terminalNome && (
+        <span style={{ display: 'block', fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{s.terminalNome}</span>
+      )}
+    </>
+  );
 
-  const caixasAbertos = useMemo(() => sessoes.filter((s) => s.status === 'aberto'), [sessoes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const caixasAbertos = useMemo(() => sessoes.filter((s) => s.status === 'aberto' && doOperador(s)), [sessoes, operadorFiltro]);
 
   const historico = useMemo(() => {
     const limite = diasFiltro > 0 ? new Date() : null;
     if (limite) limite.setDate(limite.getDate() - diasFiltro);
     return sessoes.filter((s) => {
-      if (s.status !== 'fechado') return false;
+      if (s.status !== 'fechado' || !doOperador(s)) return false;
       if (!limite) return true;
       const data = toDate(s.fechadoEm);
       return data ? data >= limite : true;
     });
-  }, [sessoes, diasFiltro]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessoes, diasFiltro, operadorFiltro]);
 
   if (previewAberto) {
     const rotuloPeriodo = diasFiltro > 0 ? `Fechadas nos últimos ${diasFiltro} dias + caixas abertos` : 'Todo o período + caixas abertos';
@@ -145,7 +171,7 @@ const CaixaRegistros: React.FC = () => {
             diferencaCentavos: s.diferencaCentavos ?? null,
             sangrias: Array.isArray(s.sangrias) ? s.sangrias : [],
           })),
-          { periodo: rotuloPeriodo, filtrosAplicados: [] },
+          { periodo: rotuloPeriodo, filtrosAplicados: operadorFiltro ? [`Operador: ${operadores.find(([chave]) => chave === operadorFiltro)?.[1] || ''}`] : [] },
         )}
         nomeArquivo={nomeArquivoRelatorio('Caixa Sessões PDV', diasFiltro > 0 ? addDaysToDateInput(hoje, -diasFiltro) : '', hoje)}
         onFechar={() => setPreviewAberto(false)}
@@ -267,9 +293,16 @@ const CaixaRegistros: React.FC = () => {
             titulo: 'Abre em PDF os caixas abertos e as sessões fechadas no período escolhido (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
             desabilitado: loading,
             onClick: () => setPreviewAberto(true),
+          }, {
+            texto: 'Computadores do caixa', Icone: MonitorCheck,
+            titulo: 'Computadores onde cada funcionário entra com código e senha; dá para desativar um deles',
+            oculto: !ehGerente,
+            separadorAntes: true,
+            onClick: () => setComputadoresAberto(true),
           }]}
         />
       </div>
+      {computadoresAberto && <ComputadoresDoCaixaModal onFechar={() => setComputadoresAberto(false)} />}
 
       <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', padding: '24px', marginBottom: '24px' }}>
         <div className="section-header" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -296,7 +329,7 @@ const CaixaRegistros: React.FC = () => {
               ) : (
                 caixasAbertos.flatMap((sessao) => [
                   <tr key={sessao.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => toggleExpand(sessao)}>
-                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{nomeDaSessao(sessao)}</td>
+                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{rotuloDoOperador(sessao)}</td>
                     <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.createdAt)}</td>
                     <td style={{ padding: '10px 8px', textAlign: 'right' }}>{currencyFormat(fromCents(sessao.saldoInicialCentavos))}</td>
                     <td style={{ padding: '10px 8px', textAlign: 'right', color: '#f59e0b' }}>{currencyFormat(fromCents(sessao.totalSangriasCentavos))}</td>
@@ -316,7 +349,17 @@ const CaixaRegistros: React.FC = () => {
             <History size={20} color="#37d7ff" />
             <h3 style={{ margin: 0 }}>Histórico de sessões</h3>
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <User size={18} style={{ color: 'var(--text-muted)' }} />
+            <select
+              value={operadorFiltro}
+              onChange={(e) => setOperadorFiltro(e.target.value)}
+              aria-label="Filtrar por operador"
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: 'var(--radius-md)' }}
+            >
+              <option value="">Todos os operadores</option>
+              {operadores.map(([chave, nome]) => <option key={chave} value={chave}>{nome}</option>)}
+            </select>
             <Calendar size={18} style={{ color: 'var(--text-muted)' }} />
             <select
               value={diasFiltro}
@@ -356,7 +399,7 @@ const CaixaRegistros: React.FC = () => {
                   const diferenca = sessao.diferencaCentavos || 0;
                   return [
                     <tr key={sessao.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => toggleExpand(sessao)}>
-                      <td style={{ padding: '10px 8px', fontWeight: 500 }}>{nomeDaSessao(sessao)}</td>
+                      <td style={{ padding: '10px 8px', fontWeight: 500 }}>{rotuloDoOperador(sessao)}</td>
                       <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.createdAt)}</td>
                       <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{formatDateTime(sessao.fechadoEm)}</td>
                       <td style={{ padding: '10px 8px', textAlign: 'right' }}>{currencyFormat(fromCents(sessao.saldoInicialCentavos))}</td>

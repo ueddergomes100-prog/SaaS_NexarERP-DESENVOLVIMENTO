@@ -24,6 +24,7 @@ const sessionRoutes = require('./routes/session.routes');
 const onboardingRoutes = require('./routes/onboarding.routes');
 const vendedorPinRoutes = require('./routes/vendedorPin.routes');
 const vendedorMobileAuthRoutes = require('./routes/vendedorMobileAuth.routes');
+const terminaisCaixaRoutes = require('./routes/terminaisCaixa.routes');
 const usuariosRoutes = require('./routes/usuarios.routes');
 const documentosRoutes = require('./routes/documentos.routes');
 const cadastrosRoutes = require('./routes/cadastros.routes');
@@ -196,6 +197,8 @@ app.use('/api/onboarding', onboardingRoutes);
 // token Firebase -- ver vendedorPin.routes.js.
 app.use('/api/vendedor-pin', vendedorPinRoutes);
 app.use('/api/vendedor', vendedorMobileAuthRoutes);
+// Computador do caixa + entrada com codigo e senha (22/11/2026). /entrar e' publica (como o login do app Vendas).
+app.use('/api/caixa-terminal', terminaisCaixaRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 // Consulta de CNPJ (Receita Federal) pra validar Cliente/Fornecedor ja
 // cadastrado. Todas as rotas exigem token Firebase -- ver documentos.routes.js.

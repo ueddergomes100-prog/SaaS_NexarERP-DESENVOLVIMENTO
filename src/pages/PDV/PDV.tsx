@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Banknote, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
@@ -22,7 +22,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
-import { CAMINHO_INSTALACAO_CAIXA, CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, nomeDoOperador, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
+import { CAMINHO_INSTALACAO_CAIXA, CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, ehAppDoCaixa, nomeDoOperador, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
+import { chaveDoUltimoFechamento, lerUltimoFechamento, type TerminalDoCaixa } from '../../utils/terminalCaixaDomain';
+import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
 import { estaInstalado } from '../../utils/pwaInstalado';
 import {
   applyStockAdjustments,
@@ -64,6 +66,7 @@ import PdvSummary from './components/PdvSummary';
 import ProductSearch from './components/ProductSearch';
 import SangriaModal from './components/SangriaModal';
 import {
+  sessaoDoDocumento,
   buildPdvFinanceConfig,
   calculatePdvTotals,
   clampDiscountCents,
@@ -130,6 +133,16 @@ const horaDeAbertura = (iso: string | null | undefined): string => {
 
 const PDV: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  /** Computador ativado como caixa (22/11/2026): cada funcionario entra com codigo e senha. So' no app do caixa. */
+  const [terminalDoCaixa, setTerminalDoCaixa] = useState<TerminalDoCaixa | null>(null);
+  const noAppDoCaixa = ehAppDoCaixa(location.pathname);
+  useEffect(() => {
+    if (!noAppDoCaixa) return;
+    let ativo = true;
+    void lerTerminalGuardado().then((terminal) => { if (ativo) setTerminalDoCaixa(terminal); });
+    return () => { ativo = false; };
+  }, [noAppDoCaixa]);
   const {
     currentUser,
     logout,
@@ -463,8 +476,51 @@ const PDV: React.FC = () => {
   const openSession = useCallback(async () => {
     if (!currentUser || !tenantId) return;
 
-    let saldoAnteriorSugeridoCentavos: number | null = null;
+    // Um caixa aberto por pessoa (22/11/2026): quem ja' tem um (em outro
+    // computador, ou que ficou aberto) continua nele -- dois caixas abertos da
+    // mesma pessoa dividiriam as vendas e o fechamento nao bateria.
     try {
+      const jaAberto = await getDocs(query(
+        collection(db, 'caixas_pdv'),
+        where('tenantId', '==', tenantId),
+        where('operadorId', '==', currentUser.uid),
+        where('status', '==', 'aberto'),
+        limit(1),
+      ));
+      if (!jaAberto.empty) {
+        const documento = jaAberto.docs[0];
+        const sessaoAberta = sessaoDoDocumento(documento.id, documento.data());
+        const onde = typeof documento.data().terminalNome === 'string' && documento.data().terminalNome
+          ? ` no computador "${documento.data().terminalNome}"`
+          : '';
+        const desde = horaDeAbertura(sessaoAberta.abertoEm);
+        const resposta = await NexusSwal.fire({
+          title: 'Você já tem um caixa aberto',
+          text: `Ele foi aberto${onde}${desde ? ` às ${desde}` : ''} e ainda não foi fechado. Continue nele: as vendas e o fechamento ficam juntos.`,
+          icon: 'info',
+          showCancelButton: true,
+          confirmButtonText: 'Continuar nesse caixa',
+          cancelButtonText: 'Voltar',
+        });
+        if (!resposta.isConfirmed) return;
+        setSession(sessaoAberta);
+        localStorage.setItem(sessionStorageKey, JSON.stringify(sessaoAberta));
+        showSuccess('Caixa retomado');
+        return;
+      }
+    } catch (error) {
+      console.error('Erro ao conferir se já existe caixa aberto:', error);
+    }
+
+    let saldoAnteriorSugeridoCentavos: number | null = null;
+    // Computador ativado: o dinheiro que ficou na gaveta DESTE computador no
+    // ultimo fechamento (de qualquer operador) e' o que o proximo encontra.
+    let ultimoFechamentoDaGaveta: { saldoCentavos: number; operadorNome: string } | null = null;
+    if (terminalDoCaixa) {
+      try { ultimoFechamentoDaGaveta = lerUltimoFechamento(localStorage.getItem(chaveDoUltimoFechamento(terminalDoCaixa.terminalId))); } catch { /* sem armazenamento local */ }
+    }
+    if (ultimoFechamentoDaGaveta) saldoAnteriorSugeridoCentavos = ultimoFechamentoDaGaveta.saldoCentavos;
+    if (!ultimoFechamentoDaGaveta) try {
       const qUltimoFechamento = query(
         collection(db, 'caixas_pdv'),
         where('tenantId', '==', tenantId),
@@ -483,9 +539,11 @@ const PDV: React.FC = () => {
 
     const result = await NexusSwal.fire({
       title: 'Abrir caixa',
-      text: saldoAnteriorSugeridoCentavos !== null
-        ? `Saldo do último fechamento: ${currency.format(fromCents(saldoAnteriorSugeridoCentavos))}. Confirme ou ajuste o saldo inicial em dinheiro.`
-        : 'Informe o saldo inicial em dinheiro.',
+      text: ultimoFechamentoDaGaveta
+        ? `Ficou na gaveta deste computador no último fechamento${ultimoFechamentoDaGaveta.operadorNome ? ` (${ultimoFechamentoDaGaveta.operadorNome})` : ''}: ${currency.format(fromCents(ultimoFechamentoDaGaveta.saldoCentavos))}. Confirme ou ajuste o saldo inicial em dinheiro.`
+        : saldoAnteriorSugeridoCentavos !== null
+          ? `Saldo do último fechamento: ${currency.format(fromCents(saldoAnteriorSugeridoCentavos))}. Confirme ou ajuste o saldo inicial em dinheiro.`
+          : 'Informe o saldo inicial em dinheiro.',
       input: 'number',
       inputValue: saldoAnteriorSugeridoCentavos !== null ? toCurrencyInput(saldoAnteriorSugeridoCentavos) : '0.00',
       inputAttributes: { min: '0', step: '0.01' },
@@ -508,6 +566,8 @@ const PDV: React.FC = () => {
         saldoInicialCentavos,
         saldoAnteriorSugeridoCentavos,
         saldoAnteriorConfirmado,
+        // Computador onde o caixa foi aberto (relatorio e aviso de caixa ja' aberto).
+        ...(terminalDoCaixa ? { terminalId: terminalDoCaixa.terminalId, terminalNome: terminalDoCaixa.nome } : {}),
         fechadoEm: null,
         saldoFinalInformadoCentavos: null,
         saldoEsperadoCentavos: null,
@@ -554,7 +614,7 @@ const PDV: React.FC = () => {
       console.error('Erro ao abrir caixa:', error);
       showError('Erro ao abrir caixa', 'Não foi possível abrir o caixa. Tente novamente.');
     }
-  }, [currentUser, operatorName, sessionStorageKey, tenantId]);
+  }, [currentUser, operatorName, sessionStorageKey, tenantId, terminalDoCaixa]);
 
   /** Devolve true quando o caixa foi fechado (o X do topo so' sai depois disso). */
   const closeSession = async (): Promise<boolean> => {
@@ -633,6 +693,11 @@ const PDV: React.FC = () => {
       resetSale();
       setSession(null);
       localStorage.removeItem(sessionStorageKey);
+      if (terminalDoCaixa) {
+        try {
+          localStorage.setItem(chaveDoUltimoFechamento(terminalDoCaixa.terminalId), JSON.stringify({ saldoCentavos: saldoFinalInformadoCentavos, operadorNome: operatorName }));
+        } catch { /* sem armazenamento local: so' perde a sugestao */ }
+      }
       showSuccess('Caixa fechado');
       return true;
     } catch (error) {
@@ -640,6 +705,18 @@ const PDV: React.FC = () => {
       showError('Erro ao fechar caixa', 'Não foi possível fechar o caixa. Tente novamente.');
       return false;
     }
+  };
+
+  /**
+   * Troca de turno (22/11/2026, decisao do dono: "fecha e o proximo abre"): no
+   * computador ativado, quem fecha o caixa sai, e a tela volta para o codigo
+   * e a senha do proximo funcionario.
+   */
+  const fecharCaixaDoBotao = async () => {
+    const fechou = await closeSession();
+    if (!fechou || !terminalDoCaixa) return;
+    await logout();
+    navigate(CAMINHO_LOGIN_CAIXA, { replace: true });
   };
 
   const [sangriaModalOpen, setSangriaModalOpen] = useState(false);
@@ -1486,7 +1563,12 @@ const PDV: React.FC = () => {
               <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
                 <Banknote size={16} aria-hidden="true" /> Sangria
               </button>
-              <button type="button" className="pdv-topbar-button" onClick={() => void closeSession()} title="Contar o dinheiro e fechar o caixa">
+              <button
+                type="button"
+                className="pdv-topbar-button"
+                onClick={() => void fecharCaixaDoBotao()}
+                title={terminalDoCaixa ? 'Contar o dinheiro e fechar o seu caixa; depois o próximo funcionário entra com o código e a senha dele' : 'Contar o dinheiro e fechar o caixa'}
+              >
                 Fechar caixa
               </button>
             </>

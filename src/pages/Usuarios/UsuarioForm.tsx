@@ -483,7 +483,7 @@ const UsuarioForm: React.FC = () => {
             style={{ width: '100%' }}
           />
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Usado no popup de identificação a cada venda, quando essa opção estiver ligada em Configurações da filial. Opcional — deixe vazio se este usuário não vende. Vendedor que <strong>não precisa entrar no sistema</strong> é cadastrado em Cadastros Auxiliares → Vendedores, e não ocupa vaga do plano.
+            Usado no popup de identificação a cada venda, quando essa opção estiver ligada em Configurações da filial, e para <strong>entrar na Frente de Caixa</strong> nos computadores ativados como caixa (código + senha, sem usuário e e-mail). Opcional — deixe vazio se este usuário não vende nem opera o caixa. Vendedor que <strong>não precisa entrar no sistema</strong> é cadastrado em Cadastros Auxiliares → Vendedores, e não ocupa vaga do plano.
           </span>
         </div>
 

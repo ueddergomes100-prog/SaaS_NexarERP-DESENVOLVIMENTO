@@ -72,6 +72,8 @@ import { useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import { avisoFaturarSemConferencia, conferenciaPendenteParaFaturar } from '../../utils/conferenciaDomain';
 import { MENSAGEM_VENDA_DE_OUTRO_USUARIO, TITULO_VENDA_DE_OUTRO_USUARIO, isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { formatDateInputPtBr } from '../../utils/dateTime';
+import { documentoDoCupomDoCaixa } from '../../utils/cupomDoCaixaDomain';
+import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal } from './cupomDoCaixa';
 import {
   ONDE_FATURAR_NO_SISTEMA,
   carregarPreVendaNoCaixa,
@@ -180,6 +182,7 @@ const PDV: React.FC = () => {
     trabalhaComPreVenda,
     vendasVisiveisDeUsuarioId,
     conferenciaMercadoriaAtiva,
+    controlaFiscal,
   } = useAuth();
   const { items: bandeirasCartao } = useTenantCollection<BandeiraCartao>('bandeiras_cartao', tenantId);
   const { items: bancosDisponiveis } = useTenantCollection<Banco>('bancos', tenantId);
@@ -198,6 +201,8 @@ const PDV: React.FC = () => {
   const idVendaServidorRef = useRef('');
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
   const [limiteDescontoPdv, setLimiteDescontoPdv] = useState<LimiteDescontoConfig | null>(null);
+  // Cadastro da empresa (cabecalho do cupom) e quais documentos fiscais ela emite (cupomDoCaixaDomain).
+  const [configDaEmpresa, setConfigDaEmpresa] = useState<Record<string, unknown> | null>(null);
   // Limite do Pedido de Venda: e' o que vale para a pre-venda faturada aqui (o desconto foi dado la').
   const [limiteDescontoPedido, setLimiteDescontoPedido] = useState<LimiteDescontoConfig | null>(null);
   const [modoLimiteDesconto, setModoLimiteDesconto] = useState<ModoLimiteDesconto>(DEFAULT_MODO_LIMITE_DESCONTO);
@@ -462,6 +467,7 @@ const PDV: React.FC = () => {
         setModoLimiteDesconto(parseModoLimiteDesconto(configData?.modoLimiteDesconto));
         setProductSearchMode(configData?.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
         setFinanceConfig(buildPdvFinanceConfig(configData));
+        setConfigDaEmpresa(configData);
       } catch (error) {
         console.error('Erro ao carregar dados do PDV:', error);
         showError('Erro ao carregar PDV', 'Não foi possível buscar produtos, clientes e configurações.');
@@ -1187,6 +1193,65 @@ const PDV: React.FC = () => {
     }
   }, [clients, mostrarPreVendaNoCupom, puxandoPreVenda, session, tenantId, vendasVisiveisDeUsuarioId]);
 
+  /**
+   * CUPOM NO FIM DA VENDA (23/11/2026, cupomDoCaixaDomain.ts): NFC-e quando a
+   * empresa emite cupom fiscal; senao (ou venda "Sem nota fiscal"), o cupom nao
+   * fiscal sai na bobina. Roda DEPOIS de a venda estar gravada e o caixa limpo:
+   * falha aqui nunca desfaz a venda, so' avisa o que fazer.
+   */
+  const entregarCupom = useCallback(async (venda: { pedidoId: string; numeroPedido: string; clienteId: string | null; comNotaFiscal: boolean | null }) => {
+    if (!tenantId || !currentUser) return;
+    const documentoDoCliente = venda.clienteId ? (clients.find((c) => c.id === venda.clienteId)?.documento || '') : '';
+    const naoFiscal = async () => {
+      try {
+        await imprimirCupomNaoFiscal({ pedidoId: venda.pedidoId, empresa: configDaEmpresa, documentoDoCliente, operador: operatorName });
+      } catch (erro) {
+        console.error('Erro ao imprimir o cupom não fiscal:', erro);
+        showError('Cupom não impresso', `A venda #${venda.numeroPedido} está gravada. ${erro instanceof Error ? erro.message : 'Confira a impressora e reimprima pelo sistema, em Pedidos de Venda.'}`);
+      }
+    };
+    const documento = documentoDoCupomDoCaixa({ controlaFiscal, documentosFiscais: configDaEmpresa, comNotaFiscal: venda.comNotaFiscal });
+    if (documento === 'nao_fiscal') {
+      await naoFiscal();
+      return;
+    }
+
+    void NexusSwal.fire({
+      title: 'Emitindo cupom fiscal (NFC-e)...',
+      text: `Venda #${venda.numeroPedido}: enviando para a SEFAZ.`,
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      didOpen: () => NexusSwal.showLoading(),
+    });
+    let falha: string;
+    try {
+      const resultado = await emitirCupomFiscalDoCaixa({ pedidoId: venda.pedidoId, tenantId, usuario: { uid: currentUser.uid, email: currentUser.email } });
+      NexusSwal.close();
+      if (resultado.situacao === 'autorizado') {
+        showSuccess(`Cupom fiscal ${resultado.numero ? `nº ${resultado.numero} ` : ''}autorizado`);
+        return;
+      }
+      if (resultado.situacao === 'aguardando') {
+        showWarning('Cupom fiscal aguardando a SEFAZ', `A venda #${venda.numeroPedido} está gravada e o cupom foi enviado, mas a SEFAZ ainda não respondeu. Imprima depois em Fiscal › Notas emitidas.`);
+        return;
+      }
+      falha = `A SEFAZ rejeitou o cupom fiscal: ${resultado.motivo}`;
+    } catch (erro) {
+      console.error('Erro ao emitir a NFC-e na Frente de Caixa:', erro);
+      NexusSwal.close();
+      falha = erro instanceof Error && erro.message ? erro.message : 'Não foi possível transmitir o cupom fiscal.';
+    }
+    const resposta = await NexusSwal.fire({
+      title: 'Cupom fiscal não emitido',
+      text: `${falha} A venda #${venda.numeroPedido} está gravada; emita o cupom fiscal depois pelo sistema, em Pedidos de Venda. Imprimir agora o cupom não fiscal para o cliente?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Imprimir cupom não fiscal',
+      cancelButtonText: 'Não imprimir',
+    });
+    if (resposta.isConfirmed) await naoFiscal();
+  }, [clients, configDaEmpresa, controlaFiscal, currentUser, operatorName, tenantId]);
+
   // Outra pessoa abriu (ou um gerente liberou) a pre-venda: ela sai do caixa, sem faturar.
   useEffect(() => {
     if (!preVenda || travaDaPreVenda.situacao !== 'de_outro') return;
@@ -1338,6 +1403,7 @@ const PDV: React.FC = () => {
       }));
       showSuccess(`Pré-venda #${resposta.numeroPedido} faturada. Vendedor: ${resposta.vendedorNome}`);
       resetSale();
+      void entregarCupom({ pedidoId: resposta.pedidoId, numeroPedido: resposta.numeroPedido, clienteId: carregada.clienteId, comNotaFiscal: carregada.comNotaFiscal });
     } catch (error) {
       console.error('Erro ao faturar a pré-venda no caixa:', error);
       // Liberacao que o servidor nao aceitou (vencida, usada, de outro valor): o proximo Finalizar pede de novo.
@@ -1530,7 +1596,9 @@ const PDV: React.FC = () => {
         idVendaServidorRef.current = '';
         showSuccess(`Venda PDV #${resposta.numeroPedido} finalizada`);
         espelharBaixaNaTela();
+        const clienteDoCupom = selectedClient?.id || null;
         resetSale();
+        void entregarCupom({ pedidoId: resposta.pedidoId, numeroPedido: resposta.numeroPedido, clienteId: clienteDoCupom, comNotaFiscal: null });
         setPaymentModalOpen(false);
         return;
       }
@@ -1773,7 +1841,9 @@ const PDV: React.FC = () => {
 
       showSuccess(`Venda PDV #${finalNumeroPedido} finalizada`);
       espelharBaixaNaTela();
+      const clienteDoCupom = selectedClient?.id || null;
       resetSale();
+      if (newPedidoId) void entregarCupom({ pedidoId: newPedidoId, numeroPedido: finalNumeroPedido, clienteId: clienteDoCupom, comNotaFiscal: null });
       setPaymentModalOpen(false);
       if (newPedidoId) {
         console.info('Venda PDV criada:', newPedidoId);

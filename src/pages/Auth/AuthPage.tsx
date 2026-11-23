@@ -43,6 +43,13 @@ import {
   type PublicCnpjData,
   type StartOnboardingResponse
 } from '../../services/onboardingService';
+import {
+  ESPERAS_CONSULTA_ENVIO_MS,
+  avisoDoEstadoDeEnvio,
+  deveConsultarEnvioDeNovo,
+  type AvisoEnvioCodigo,
+  type EstadoEnvioCodigo
+} from '../../utils/envioCodigoDomain';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
 import monogramDark from '../../assets/hennder-monogram.webp';
@@ -127,10 +134,10 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 
 const getPasswordError = (password: string, confirmPassword: string) => {
   if (password.length < 8) return 'A senha deve ter pelo menos 8 caracteres.';
-  if (!/[a-z]/.test(password)) return 'A senha precisa conter pelo menos uma letra minuscula.';
-  if (!/[A-Z]/.test(password)) return 'A senha precisa conter pelo menos uma letra maiuscula.';
-  if (!/\d/.test(password)) return 'A senha precisa conter pelo menos um numero.';
-  if (password !== confirmPassword) return 'As senhas nao conferem.';
+  if (!/[a-z]/.test(password)) return 'A senha precisa conter pelo menos uma letra minúscula.';
+  if (!/[A-Z]/.test(password)) return 'A senha precisa conter pelo menos uma letra maiúscula.';
+  if (!/\d/.test(password)) return 'A senha precisa conter pelo menos um número.';
+  if (password !== confirmPassword) return 'As senhas não conferem.';
   return '';
 };
 
@@ -519,11 +526,60 @@ const AuthPage: React.FC = () => {
   const [resending, setResending] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState('');
+  // "O codigo chegou?" -- o servico de e-mail aceita o pedido de envio mesmo
+  // quando o endereco nao existe ou esta bloqueado, entao "Enviamos o codigo"
+  // sozinho nao garante nada. `envioSeq` sobe a cada envio/reenvio e dispara
+  // as consultas abaixo; `avisoEnvio` e' o aviso de codigo nao entregue.
+  // Regra e textos em utils/envioCodigoDomain.ts.
+  const [envioSeq, setEnvioSeq] = useState(0);
+  const [avisoEnvio, setAvisoEnvio] = useState<AvisoEnvioCodigo | null>(null);
 
   const clearMessages = () => {
     setSignupError('');
     setSignupSuccess('');
   };
+
+  const onboardingIdAtual = onboarding?.onboardingId || '';
+  const emailMascarado = onboarding?.maskedEmail || '';
+
+  useEffect(() => {
+    if (!onboardingIdAtual || envioSeq === 0 || signupStep !== 'codes' || emailVerified) {
+      return;
+    }
+
+    let cancelado = false;
+    let timer: number | undefined;
+
+    const agendarConsulta = (consultasFeitas: number) => {
+      timer = window.setTimeout(async () => {
+        let estado: EstadoEnvioCodigo = 'desconhecido';
+        try {
+          estado = await onboardingService.statusEnvio(onboardingIdAtual);
+        } catch {
+          // Consulta que falha nao vira erro na tela: o cadastro segue igual.
+        }
+        if (cancelado) return;
+
+        const aviso = avisoDoEstadoDeEnvio(estado, emailMascarado);
+        if (aviso) {
+          setAvisoEnvio(aviso);
+          // "Enviamos o codigo" deixou de ser verdade.
+          setSignupSuccess('');
+          return;
+        }
+        if (deveConsultarEnvioDeNovo(estado, consultasFeitas + 1)) {
+          agendarConsulta(consultasFeitas + 1);
+        }
+      }, ESPERAS_CONSULTA_ENVIO_MS[consultasFeitas]);
+    };
+
+    agendarConsulta(0);
+
+    return () => {
+      cancelado = true;
+      window.clearTimeout(timer);
+    };
+  }, [envioSeq, onboardingIdAtual, emailMascarado, signupStep, emailVerified]);
 
   const handleStart = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -533,15 +589,15 @@ const AuthPage: React.FC = () => {
     const phoneDigits = telefone.replace(/\D/g, '');
 
     if (!nomeOficina.trim() || !nomeResponsavel.trim() || !cnpjDigits || !email.trim() || !phoneDigits) {
-      setSignupError('Preencha todos os campos obrigatorios.');
+      setSignupError('Preencha todos os campos obrigatórios.');
       return;
     }
     if (cnpjDigits.length !== 14) {
-      setSignupError('O CNPJ deve conter 14 digitos validos.');
+      setSignupError('O CNPJ deve conter 14 dígitos válidos.');
       return;
     }
     if (phoneDigits.length < 10 || phoneDigits.length > 11) {
-      setSignupError('Informe um telefone celular valido com DDD.');
+      setSignupError('Informe um telefone celular válido com DDD.');
       return;
     }
 
@@ -560,10 +616,12 @@ const AuthPage: React.FC = () => {
       setDevCodes(response.devCodes || {});
       setEmailVerified(false);
       setEmailCode('');
+      setAvisoEnvio(null);
+      setEnvioSeq(atual => atual + 1);
       setSignupStep('codes');
-      setSignupSuccess('CNPJ validado. Enviamos o codigo de confirmacao.');
+      setSignupSuccess('CNPJ validado. Enviamos o código de confirmação.');
     } catch (err) {
-      setSignupError(getErrorMessage(err, 'Nao foi possivel iniciar o cadastro seguro.'));
+      setSignupError(getErrorMessage(err, 'Não foi possível iniciar o cadastro seguro.'));
     } finally {
       setSignupLoading(false);
     }
@@ -573,7 +631,7 @@ const AuthPage: React.FC = () => {
     if (!onboarding?.onboardingId) return;
 
     if (emailCode.trim().length < 6) {
-      setSignupError('Informe o codigo de 6 digitos.');
+      setSignupError('Informe o código de 6 dígitos.');
       return;
     }
 
@@ -585,7 +643,7 @@ const AuthPage: React.FC = () => {
       setSignupStep('password');
       setSignupSuccess('E-mail confirmado. Agora crie a senha de acesso.');
     } catch (err) {
-      setSignupError(getErrorMessage(err, 'Codigo invalido ou expirado.'));
+      setSignupError(getErrorMessage(err, 'Código inválido ou expirado.'));
     } finally {
       setVerifying(false);
     }
@@ -601,9 +659,12 @@ const AuthPage: React.FC = () => {
       if (response.devCode) {
         setDevCodes(current => ({ ...current, email: response.devCode }));
       }
-      setSignupSuccess('Novo codigo enviado para o e-mail.');
+      // Envio novo: o aviso do anterior sai e as consultas recomecam.
+      setAvisoEnvio(null);
+      setEnvioSeq(atual => atual + 1);
+      setSignupSuccess('Novo código enviado para o e-mail.');
     } catch (err) {
-      setSignupError(getErrorMessage(err, 'Nao foi possivel reenviar o codigo.'));
+      setSignupError(getErrorMessage(err, 'Não foi possível reenviar o código.'));
     } finally {
       setResending(false);
     }
@@ -661,11 +722,11 @@ const AuthPage: React.FC = () => {
         window.setTimeout(() => navigate('/dashboard', { replace: true }), 1000);
       } catch (sessionErr) {
         console.error('Erro ao entrar automaticamente apos o cadastro:', sessionErr);
-        setSignupSuccess('Cadastro aprovado. Faca login para acessar o sistema.');
+        setSignupSuccess('Cadastro aprovado. Faça login para acessar o sistema.');
         window.setTimeout(() => navigate('/login', { replace: true }), 1300);
       }
     } catch (err) {
-      setSignupError(getErrorMessage(err, 'Nao foi possivel finalizar o cadastro.'));
+      setSignupError(getErrorMessage(err, 'Não foi possível finalizar o cadastro.'));
     } finally {
       setSignupLoading(false);
     }
@@ -679,7 +740,7 @@ const AuthPage: React.FC = () => {
       </span>
       <span className={`auth-step-pill ${signupStep === 'codes' ? 'active' : ''} ${signupStep === 'password' ? 'done' : ''}`}>
         <ShieldCheck size={14} />
-        Validacao
+        Validação
       </span>
       <span className={`auth-step-pill ${signupStep === 'password' ? 'active' : ''}`}>
         <KeyRound size={14} />
@@ -730,14 +791,14 @@ const AuthPage: React.FC = () => {
             onClick={() => handleResend()}
             disabled={emailVerified || resending}
           >
-            {resending ? 'Reenviando...' : 'Reenviar codigo'}
+            {resending ? 'Reenviando...' : 'Reenviar código'}
           </button>
         </div>
       </div>
 
       {devCodes.email && (
         <div className="auth-dev-codes">
-          <strong>Codigos de desenvolvimento</strong>
+          <strong>Códigos de desenvolvimento</strong>
           <span>E-mail: {devCodes.email}</span>
         </div>
       )}
@@ -762,7 +823,7 @@ const AuthPage: React.FC = () => {
   const renderPasswordStep = () => (
     <form className="auth-form" onSubmit={handleComplete}>
       <div className="auth-info-panel">
-        <strong>Validacoes concluidas</strong>
+        <strong>Validações concluídas</strong>
         <span>Crie uma senha forte para liberar o acesso da empresa.</span>
       </div>
 
@@ -952,7 +1013,7 @@ const AuthPage: React.FC = () => {
 
       <form className="auth-form" onSubmit={handleStart}>
         <div className="auth-input-group">
-          <label>Nome da Empresa / Negocio *</label>
+          <label>Nome da Empresa / Negócio *</label>
           <div className="auth-input-wrapper">
             <Store size={18} className="auth-input-icon" />
             <input
@@ -1027,7 +1088,7 @@ const AuthPage: React.FC = () => {
 
         <button type="submit" className={`auth-button ${signupLoading ? 'auth-button-loading' : ''}`} disabled={signupLoading}>
           {signupLoading ? <Loader2 size={18} className="spin-icon" /> : <ShieldCheck size={18} />}
-          {signupLoading ? 'Validando empresa...' : 'Validar e Enviar Codigo'}
+          {signupLoading ? 'Validando empresa...' : 'Validar e Enviar Código'}
         </button>
       </form>
 
@@ -1139,19 +1200,25 @@ const AuthPage: React.FC = () => {
           <div className="auth-header">
             <HennderWordmark className="auth-logo" />
             <h1>Crie sua conta</h1>
-            <p>Cadastre sua empresa com validacao de CNPJ e e-mail.</p>
+            <p>Cadastre sua empresa com validação de CNPJ e e-mail.</p>
           </div>
 
           {renderStepHeader()}
 
           {signupError && <div className="auth-error">{signupError}</div>}
           {signupSuccess && <div className="auth-success">{signupSuccess}</div>}
+          {signupStep === 'codes' && avisoEnvio && !emailVerified && (
+            <div className="auth-error auth-aviso-envio" role="alert">
+              <strong>{avisoEnvio.titulo}</strong>
+              <span>{avisoEnvio.texto}</span>
+            </div>
+          )}
 
           {signupStep === 'codes' && renderCodesStep()}
           {signupStep === 'password' && renderPasswordStep()}
 
           <div className="auth-footer">
-            Ja tem uma conta?
+            Já tem uma conta?
             <button className="auth-link" onClick={() => { setSignupStep('company'); handleToggleMode(); }} disabled={signupLoading}>
               Fazer login
             </button>

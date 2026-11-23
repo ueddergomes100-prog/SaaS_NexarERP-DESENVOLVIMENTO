@@ -469,6 +469,16 @@ body.light-theme .auth-input-wrapper:focus-within .auth-input-icon {
   text-align: center;
 }
 
+/* Aviso de codigo nao entregue (cadastro): titulo + o que fazer, alinhado a
+   esquerda porque e' texto de ler, nao uma linha so'. */
+.auth-aviso-envio {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  line-height: 1.45;
+}
+
 .auth-success {
   background-color: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.32);

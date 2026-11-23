@@ -1,4 +1,5 @@
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
+import { normalizarEstadoEnvio, type EstadoEnvioCodigo } from '../utils/envioCodigoDomain';
 
 const rawApiUrl = (import.meta.env.VITE_BACKEND_API_URL || '').trim();
 const API_URL = rawApiUrl ? rawApiUrl.replace(/\/$/, '') : (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -43,7 +44,7 @@ export interface CompleteOnboardingInput {
 
 const ensureApiUrl = () => {
   if (!API_URL) {
-    throw new Error('Backend nao configurado. Configure VITE_BACKEND_API_URL para liberar cadastros seguros.');
+    throw new Error('Backend não configurado. Configure VITE_BACKEND_API_URL para liberar cadastros seguros.');
   }
   return API_URL;
 };
@@ -82,7 +83,7 @@ export const onboardingService = {
     return postJson<{ ok: boolean; cnpj: PublicCnpjData }>(
       '/validate-cnpj',
       { cnpj },
-      'Nao foi possivel validar o CNPJ.'
+      'Não foi possível validar o CNPJ.'
     );
   },
 
@@ -90,7 +91,7 @@ export const onboardingService = {
     return postJson<StartOnboardingResponse>(
       '/start',
       input,
-      'Nao foi possivel iniciar o cadastro seguro.'
+      'Não foi possível iniciar o cadastro seguro.'
     );
   },
 
@@ -98,7 +99,7 @@ export const onboardingService = {
     return postJson<{ ok: boolean }>(
       '/verify-email',
       input,
-      'Nao foi possivel validar o codigo de e-mail.'
+      'Não foi possível validar o código de e-mail.'
     );
   },
 
@@ -106,15 +107,28 @@ export const onboardingService = {
     return postJson<{ ok: boolean; devCode?: string }>(
       '/resend-code',
       { onboardingId },
-      'Nao foi possivel reenviar o codigo.'
+      'Não foi possível reenviar o código.'
     );
+  },
+
+  /**
+   * O código foi entregue? O servidor devolve só o estado do último envio
+   * daquele cadastro (ver utils/envioCodigoDomain.ts).
+   */
+  async statusEnvio(onboardingId: string): Promise<EstadoEnvioCodigo> {
+    const resposta = await postJson<{ ok: boolean; estado?: unknown }>(
+      '/status-envio',
+      { onboardingId },
+      'Não foi possível consultar o envio do código.'
+    );
+    return normalizarEstadoEnvio(resposta.estado);
   },
 
   complete(input: CompleteOnboardingInput) {
     return postJson<{ ok: boolean; email: string }>(
       '/complete',
       input,
-      'Nao foi possivel finalizar o cadastro.'
+      'Não foi possível finalizar o cadastro.'
     );
   }
 };

@@ -5,6 +5,13 @@ const { onlyDigits, isValidCnpj, fetchCnpjData } = require('../utils/cnpjLookup'
 const { fetchComTimeout, PERFIS } = require('../utils/fetchComTimeout');
 const { ipDoCliente } = require('../utils/requestIp');
 const { limitadorPublico, limitadorPorChave, limitadorTotal, MINUTO_MS } = require('../middleware/rateLimit');
+const {
+  ESTADO_ENVIO,
+  MOTIVO_ESTADO_DESCONHECIDO,
+  consultarEnvioNoResend,
+  estadoDeEnvioEhFinal,
+  respostaPublicaDoEnvio,
+} = require('../services/envioCodigoCadastro');
 
 const router = express.Router();
 
@@ -15,7 +22,7 @@ const MAX_CODE_ATTEMPTS = 5;
 
 const requireFirebaseAdmin = () => {
   if (!admin || !auth || !db) {
-    const error = new Error('Firebase Admin SDK nao configurado no backend.');
+    const error = new Error('Firebase Admin SDK não configurado no backend.');
     error.status = 503;
     throw error;
   }
@@ -59,6 +66,20 @@ const tetoConsultaCnpj = limitadorTotal('onboarding-cnpj', {
   limite: 300,
   mensagem: 'A validação de CNPJ recebeu pedidos demais na última hora. Tente de novo mais tarde.',
 });
+// "O codigo foi entregue?" (/status-envio). A tela pergunta ate' 3 vezes por
+// envio; cada pergunta sem resposta guardada vira uma consulta ao Resend, que
+// tem limite por CONTA (10 por segundo, somando com os envios) -- por isso,
+// alem do IP e do cadastro, um teto total.
+const limiteStatusEnvioPorIp = limitadorPublico('onboarding-status-envio', { limite: 60 });
+const limiteStatusEnvioPorCadastro = limitadorPorChave('onboarding-status-envio', (req) => String(req.body?.onboardingId || ''), {
+  limite: 40,
+  janelaMs: 60 * MINUTO_MS,
+  mensagem: 'Muitas consultas sobre o envio do código. Aguarde alguns minutos e tente de novo.',
+});
+const tetoConsultaEnvio = limitadorTotal('onboarding-status-envio', {
+  limite: 1500,
+  mensagem: 'A consulta de envio de código recebeu pedidos demais na última hora. Tente de novo mais tarde.',
+});
 
 const normalizePhone = (phone = '') => {
   const digits = onlyDigits(phone);
@@ -98,7 +119,7 @@ const getCodeSecret = () => {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    const error = new Error('ONBOARDING_CODE_SECRET deve ser configurado em producao.');
+    const error = new Error('ONBOARDING_CODE_SECRET deve ser configurado em produção.');
     error.status = 500;
     throw error;
   }
@@ -120,13 +141,13 @@ const assertPasswordPolicy = (password = '') => {
     return 'A senha deve ter pelo menos 8 caracteres.';
   }
   if (!/[a-z]/.test(password)) {
-    return 'A senha precisa conter pelo menos uma letra minuscula.';
+    return 'A senha precisa conter pelo menos uma letra minúscula.';
   }
   if (!/[A-Z]/.test(password)) {
-    return 'A senha precisa conter pelo menos uma letra maiuscula.';
+    return 'A senha precisa conter pelo menos uma letra maiúscula.';
   }
   if (!/\d/.test(password)) {
-    return 'A senha precisa conter pelo menos um numero.';
+    return 'A senha precisa conter pelo menos um número.';
   }
   return null;
 };
@@ -137,7 +158,7 @@ const validateCnpjForOnboarding = async (cnpjInput) => {
   const cnpj = onlyDigits(cnpjInput);
 
   if (!isValidCnpj(cnpj)) {
-    const error = new Error('CNPJ invalido.');
+    const error = new Error('CNPJ inválido.');
     error.status = 400;
     throw error;
   }
@@ -148,14 +169,14 @@ const validateCnpjForOnboarding = async (cnpjInput) => {
   ]);
 
   if (registrySnap.exists || !usersSnap.empty) {
-    const error = new Error('Este CNPJ ja esta cadastrado no SaaS.');
+    const error = new Error('Este CNPJ já está cadastrado no sistema.');
     error.status = 409;
     throw error;
   }
 
   const cnpjData = await fetchCnpjData(cnpj);
   if (!cnpjData.ativo) {
-    const error = new Error(`CNPJ encontrado, mas a situacao cadastral nao esta ativa (${cnpjData.situacao}).`);
+    const error = new Error(`CNPJ encontrado, mas a situação cadastral não está ativa (${cnpjData.situacao}).`);
     error.status = 422;
     throw error;
   }
@@ -164,16 +185,16 @@ const validateCnpjForOnboarding = async (cnpjInput) => {
 };
 
 const sendEmailCode = async ({ email, code, companyName }) => {
-  const subject = 'Codigo de verificacao Hennder ERP';
-  const text = `Seu codigo de verificacao Hennder ERP para ${companyName} e: ${code}. Ele expira em 10 minutos.`;
+  const subject = 'Código de verificação Hennder ERP';
+  const text = `Seu código de verificação Hennder ERP para ${companyName} é: ${code}. Ele expira em 10 minutos.`;
   const safeCompanyName = escapeHtml(companyName);
   const safeCode = escapeHtml(code);
   const html = `
     <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;">
       <h2>Confirme seu e-mail</h2>
-      <p>Use o codigo abaixo para continuar o cadastro da empresa <strong>${safeCompanyName}</strong>.</p>
+      <p>Use o código abaixo para continuar o cadastro da empresa <strong>${safeCompanyName}</strong>.</p>
       <div style="font-size:28px;font-weight:700;letter-spacing:6px;margin:20px 0;">${safeCode}</div>
-      <p>Este codigo expira em 10 minutos. Se voce nao solicitou este cadastro, ignore esta mensagem.</p>
+      <p>Este código expira em 10 minutos. Se você não solicitou este cadastro, ignore esta mensagem.</p>
     </div>
   `;
 
@@ -193,11 +214,19 @@ const sendEmailCode = async ({ email, code, companyName }) => {
       })
     }, PERFIS.email);
 
+    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.message || 'Nao foi possivel enviar o codigo por e-mail.');
+      // O texto do Resend (em ingles, tecnico) fica so' no log do servidor;
+      // para a tela vai a mensagem em portugues (regra 2 do CLAUDE.md).
+      console.error(`[Onboarding] Resend recusou o envio do codigo: HTTP ${response.status} ${data.name || ''} ${data.message || ''}`.trim());
+      const error = new Error('Não foi possível enviar o código por e-mail. Tente de novo em instantes; se continuar, fale com o suporte.');
+      error.status = 502;
+      throw error;
     }
-    return { delivered: true };
+    // 200 aqui e' "pedido aceito", NAO "entregue": endereco na lista de
+    // bloqueio do Resend tambem devolve 200. O id serve para a tela perguntar
+    // depois o que aconteceu (ver services/envioCodigoCadastro.js).
+    return { delivered: true, provedor: 'resend', envioId: typeof data.id === 'string' && data.id ? data.id : null };
   }
 
   if (process.env.SENDGRID_API_KEY && process.env.EMAIL_FROM) {
@@ -219,7 +248,7 @@ const sendEmailCode = async ({ email, code, companyName }) => {
     }, PERFIS.email);
 
     if (!response.ok) {
-      throw new Error('Nao foi possivel enviar o codigo por e-mail.');
+      throw new Error('Não foi possível enviar o código por e-mail.');
     }
     return { delivered: true };
   }
@@ -242,14 +271,14 @@ const sendEmailCode = async ({ email, code, companyName }) => {
     + `SENDGRID_API_KEY=${process.env.SENDGRID_API_KEY ? `presente (${process.env.SENDGRID_API_KEY.length} caracteres)` : 'AUSENTE'}`
   );
 
-  const error = new Error('Servico de e-mail nao configurado.');
+  const error = new Error('Serviço de e-mail não configurado.');
   error.status = 503;
   throw error;
 };
 
 const loadPending = async (onboardingId) => {
   if (!onboardingId || typeof onboardingId !== 'string') {
-    const error = new Error('Cadastro pendente invalido.');
+    const error = new Error('Cadastro pendente inválido.');
     error.status = 400;
     throw error;
   }
@@ -257,7 +286,7 @@ const loadPending = async (onboardingId) => {
   const ref = db.collection('onboarding_pendentes').doc(onboardingId);
   const snap = await ref.get();
   if (!snap.exists) {
-    const error = new Error('Cadastro pendente nao encontrado.');
+    const error = new Error('Cadastro pendente não encontrado.');
     error.status = 404;
     throw error;
   }
@@ -270,7 +299,7 @@ const loadPending = async (onboardingId) => {
   }
 
   if (data.status === 'completed') {
-    const error = new Error('Este cadastro ja foi finalizado.');
+    const error = new Error('Este cadastro já foi finalizado.');
     error.status = 409;
     throw error;
   }
@@ -315,13 +344,13 @@ router.post('/start', limiteStartPorIp, limitePorEmail, tetoConsultaCnpj, async 
     const nomeOficinaInput = String(req.body?.nomeOficina || '').trim();
 
     if (!nomeResponsavel || nomeResponsavel.length < 3) {
-      return res.status(400).json({ error: 'Informe o nome do responsavel.' });
+      return res.status(400).json({ error: 'Informe o nome do responsável.' });
     }
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ error: 'Informe um e-mail valido.' });
+      return res.status(400).json({ error: 'Informe um e-mail válido.' });
     }
     if (!telefone) {
-      return res.status(400).json({ error: 'Informe um telefone celular valido com DDD.' });
+      return res.status(400).json({ error: 'Informe um telefone celular válido com DDD.' });
     }
 
     const [emailUser, phoneUser] = await Promise.all([
@@ -329,10 +358,10 @@ router.post('/start', limiteStartPorIp, limitePorEmail, tetoConsultaCnpj, async 
       auth.getUserByPhoneNumber(telefone).catch(() => null)
     ]);
     if (emailUser) {
-      return res.status(409).json({ error: 'Este e-mail ja esta cadastrado.' });
+      return res.status(409).json({ error: 'Este e-mail já está cadastrado.' });
     }
     if (phoneUser) {
-      return res.status(409).json({ error: 'Este telefone ja esta cadastrado.' });
+      return res.status(409).json({ error: 'Este telefone já está cadastrado.' });
     }
 
     const cnpjData = await validateCnpjForOnboarding(req.body?.cnpj);
@@ -371,6 +400,16 @@ router.post('/start', limiteStartPorIp, limitePorEmail, tetoConsultaCnpj, async 
 
     const emailDelivery = await sendEmailCode({ email, code: emailCode, companyName });
 
+    // Guarda o id do envio para o /status-envio. Se esta gravacao falhar, o
+    // codigo ja' saiu e o cadastro segue: so' ficamos sem saber o estado.
+    if (emailDelivery.envioId) {
+      await pendingRef.update({
+        'emailVerification.envioId': emailDelivery.envioId,
+        'emailVerification.envioProvedor': emailDelivery.provedor,
+        'emailVerification.envioEstado': null
+      }).catch((erro) => console.warn('[Onboarding start] Nao foi possivel guardar o id do envio:', erro.message));
+    }
+
     return res.json({
       ok: true,
       onboardingId,
@@ -399,7 +438,7 @@ router.post('/resend-code', limiteResendPorIp, limiteReenvioPorCadastro, async (
     const sentAtMillis = verification.sentAt?.toMillis ? verification.sentAt.toMillis() : 0;
 
     if (sentAtMillis && Date.now() - sentAtMillis < RESEND_COOLDOWN_MS) {
-      return res.status(429).json({ error: 'Aguarde 60 segundos para reenviar o codigo.' });
+      return res.status(429).json({ error: 'Aguarde 60 segundos para reenviar o código.' });
     }
 
     const code = generateCode();
@@ -410,7 +449,12 @@ router.post('/resend-code', limiteResendPorIp, limiteReenvioPorCadastro, async (
       [`${field}.codeHash`]: hashCode(req.body.onboardingId, 'email', code),
       [`${field}.attempts`]: 0,
       [`${field}.sentAt`]: admin.firestore.FieldValue.serverTimestamp(),
-      [`${field}.expiresAt`]: timestampFromMillis(Date.now() + CODE_TTL_MS)
+      [`${field}.expiresAt`]: timestampFromMillis(Date.now() + CODE_TTL_MS),
+      // Envio novo: o estado guardado do anterior nao vale mais. `null` (e
+      // nunca undefined) quando o provedor nao devolve id.
+      [`${field}.envioId`]: delivery.envioId || null,
+      [`${field}.envioProvedor`]: delivery.provedor || null,
+      [`${field}.envioEstado`]: null
     });
 
     return res.json({
@@ -419,7 +463,55 @@ router.post('/resend-code', limiteResendPorIp, limiteReenvioPorCadastro, async (
     });
   } catch (error) {
     console.error('[Onboarding resend-code]', error.message);
-    return res.status(error.status || 500).json({ error: error.message || 'Erro ao reenviar codigo.' });
+    return res.status(error.status || 500).json({ error: error.message || 'Erro ao reenviar o código.' });
+  }
+});
+
+// O codigo foi entregue? Devolve SO' o estado do ultimo envio daquele cadastro
+// pendente -- nunca endereco, assunto ou qualquer dado do e-mail. Quem chama
+// precisa do onboardingId (UUID aleatorio que so' a tela que iniciou o
+// cadastro conhece).
+router.post('/status-envio', limiteStatusEnvioPorIp, limiteStatusEnvioPorCadastro, tetoConsultaEnvio, async (req, res) => {
+  try {
+    requireFirebaseAdmin();
+
+    const { ref, data } = await loadPending(req.body?.onboardingId);
+    const verification = data.emailVerification || {};
+
+    // Quem ja' digitou o codigo certo recebeu o e-mail.
+    if (verification.verifiedAt) {
+      return res.json(respostaPublicaDoEnvio(ESTADO_ENVIO.ENTREGUE));
+    }
+    // Estado final ja' guardado: nao gasta consulta no Resend.
+    if (estadoDeEnvioEhFinal(verification.envioEstado)) {
+      return res.json(respostaPublicaDoEnvio(verification.envioEstado));
+    }
+    // SendGrid, codigo de desenvolvimento ou cadastro iniciado antes desta
+    // versao: nao ha' id para consultar. A tela segue como sempre foi.
+    if (verification.envioProvedor !== 'resend' || !verification.envioId) {
+      return res.json(respostaPublicaDoEnvio(ESTADO_ENVIO.DESCONHECIDO));
+    }
+
+    const { estado, motivo } = await consultarEnvioNoResend(verification.envioId);
+
+    if (motivo === MOTIVO_ESTADO_DESCONHECIDO.CHAVE_SEM_PERMISSAO) {
+      console.warn('[Onboarding status-envio] O Resend recusou a consulta do envio: a RESEND_API_KEY parece ser de "Sending access". '
+        + 'Troque por uma chave "Full access" para o cadastro perceber e-mail devolvido ou bloqueado.');
+    } else if (motivo) {
+      console.warn(`[Onboarding status-envio] Estado do envio nao obtido (${motivo}).`);
+    }
+
+    if (estadoDeEnvioEhFinal(estado)) {
+      if (estado !== ESTADO_ENVIO.ENTREGUE) {
+        console.warn(`[Onboarding status-envio] Codigo NAO entregue (${estado}) para ${maskEmail(data.email || '')} -- cadastro ${req.body.onboardingId}.`);
+      }
+      await ref.update({ 'emailVerification.envioEstado': estado }).catch(() => {});
+    }
+
+    return res.json(respostaPublicaDoEnvio(estado));
+  } catch (error) {
+    console.error('[Onboarding status-envio]', error.message);
+    return res.status(error.status || 500).json({ error: error.message || 'Erro ao consultar o envio do código.' });
   }
 });
 
@@ -432,17 +524,17 @@ const verifyCode = async ({ onboardingId, code }) => {
     return { alreadyVerified: true };
   }
   if (!code || typeof code !== 'string') {
-    const error = new Error('Informe o codigo de verificacao.');
+    const error = new Error('Informe o código de verificação.');
     error.status = 400;
     throw error;
   }
   if (verification.expiresAt?.toMillis && verification.expiresAt.toMillis() < Date.now()) {
-    const error = new Error('Codigo expirado. Solicite um novo codigo.');
+    const error = new Error('Código expirado. Solicite um novo código.');
     error.status = 410;
     throw error;
   }
   if ((verification.attempts || 0) >= MAX_CODE_ATTEMPTS) {
-    const error = new Error('Limite de tentativas excedido. Solicite um novo codigo.');
+    const error = new Error('Limite de tentativas excedido. Solicite um novo código.');
     error.status = 429;
     throw error;
   }
@@ -454,7 +546,7 @@ const verifyCode = async ({ onboardingId, code }) => {
     await ref.update({
       [`${field}.attempts`]: (verification.attempts || 0) + 1
     });
-    const error = new Error('Codigo invalido.');
+    const error = new Error('Código inválido.');
     error.status = 400;
     throw error;
   }
@@ -500,9 +592,9 @@ router.post('/complete', limiteCompletePorIp, async (req, res) => {
       auth.getUserByPhoneNumber(data.telefone).catch(() => null),
       db.collection('usuarios').where('cnpj', '==', data.cnpj).limit(1).get()
     ]);
-    if (emailUser) return res.status(409).json({ error: 'Este e-mail ja esta cadastrado.' });
-    if (phoneUser) return res.status(409).json({ error: 'Este telefone ja esta cadastrado.' });
-    if (!legacyCnpjSnap.empty) return res.status(409).json({ error: 'Este CNPJ ja esta cadastrado.' });
+    if (emailUser) return res.status(409).json({ error: 'Este e-mail já está cadastrado.' });
+    if (phoneUser) return res.status(409).json({ error: 'Este telefone já está cadastrado.' });
+    if (!legacyCnpjSnap.empty) return res.status(409).json({ error: 'Este CNPJ já está cadastrado.' });
 
     const displayName = data.nomeResponsavel || data.nomeOficina;
     const userRecord = await auth.createUser({
@@ -528,7 +620,7 @@ router.post('/complete', limiteCompletePorIp, async (req, res) => {
     await db.runTransaction(async (transaction) => {
       const cnpjSnap = await transaction.get(cnpjRef);
       if (cnpjSnap.exists) {
-        throw new Error('Este CNPJ ja esta cadastrado.');
+        throw new Error('Este CNPJ já está cadastrado.');
       }
 
       transaction.set(cnpjRef, {

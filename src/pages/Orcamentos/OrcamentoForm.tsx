@@ -15,6 +15,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { enviarOrcamentoPorWhatsApp } from './enviarOrcamentoPdf';
 import { parseParametrosVenda, validadeOrcamentoPadrao } from '../../utils/parametrosVendaDomain';
 import { formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
@@ -913,13 +914,11 @@ const OrcamentoForm: React.FC = () => {
     await openTab(`/pedidos-venda/novo?doOrcamento=${id}`, `Venda do orçamento #${formData.numeroOrcamento}`);
   };
 
+  // Envia o PDF do orcamento GRAVADO em nome da empresa (23/11/2026; antes so'
+  // um texto "da Sistema Nexus"). Igual ao Imprimir: vale o que esta' salvo.
   const handleShareWhatsApp = () => {
-    const texto = `Olá! Segue o seu orçamento *#${formData.numeroOrcamento}* da *Sistema Nexus*.\n\n` +
-      `*Cliente:* ${formData.clienteNome}\n` +
-      `*Total:* R$ ${totalGeral.toFixed(2)}\n\n` +
-      `Aguardamos sua aprovação!`;
-    const url = `https://wa.me/${formData.clienteTelefone.replace(/\D/g, '')}?text=${encodeURIComponent(texto)}`;
-    window.open(url, '_blank');
+    if (!id || !tenantId) return;
+    void enviarOrcamentoPorWhatsApp(id, tenantId);
   };
 
   if (isFetching) {
@@ -961,7 +960,7 @@ const OrcamentoForm: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           {isEditing && (
             <>
-              <button className="btn-secondary" onClick={handleShareWhatsApp} title="Compartilhar WhatsApp">
+              <button className="btn-secondary" onClick={handleShareWhatsApp} title="Enviar o PDF ao cliente pelo WhatsApp">
                 <Share2 size={18} />
               </button>
               <button className="btn-secondary" onClick={() => navigate(`/orcamentos/print/${id}`)}>

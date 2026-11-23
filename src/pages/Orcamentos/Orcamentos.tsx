@@ -14,6 +14,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { enviarOrcamentoPorWhatsApp } from './enviarOrcamentoPdf';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
@@ -257,14 +258,10 @@ const Orcamentos: React.FC = () => {
     }
   };
 
+  // Envia o PDF do orcamento em nome da empresa (23/11/2026; antes so' um texto "da Hennder ERP").
   const handleShareWhatsApp = (orcamento: Orcamento) => {
-    const texto = `Olá! Segue o seu orçamento *#${orcamento.numeroOrcamento}* da *Hennder ERP*.\n\n` +
-      `*Cliente:* ${orcamento.clienteNome}\n` +
-      `*Total:* R$ ${orcamento.valorTotal.toFixed(2)}\n\n` +
-      `Aguardamos sua aprovação!`;
-    const fone = orcamento.clienteTelefone?.replace(/\D/g, '') || '';
-    const url = `https://wa.me/${fone}?text=${encodeURIComponent(texto)}`;
-    window.open(url, '_blank');
+    if (!tenantId) return;
+    void enviarOrcamentoPorWhatsApp(orcamento.id, tenantId);
   };
 
   const statusExistentes = Array.from(new Set(orcamentos.map((o) => o.status).filter(Boolean))).sort();
@@ -405,7 +402,7 @@ const Orcamentos: React.FC = () => {
                       <td style={{ padding: '16px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                           <button
-                            title="Compartilhar WhatsApp"
+                            title="Enviar o PDF ao cliente pelo WhatsApp"
                             onClick={() => handleShareWhatsApp(orc)}
                             style={{ padding: '8px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'none', cursor: 'pointer' }}
                           >

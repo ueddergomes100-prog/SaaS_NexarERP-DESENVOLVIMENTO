@@ -45,7 +45,7 @@ const mesmoHash = (a, b) => {
 /** Entrar no SISTEMA completo (nao so' no caixa) pede senha mais longa (decisao do dono, 22/11/2026). */
 const DIGITOS_MINIMOS_NO_SISTEMA = 4;
 
-const MENSAGEM_TERMINAL_INVALIDO = 'Este computador não está mais ativado como caixa. Peça ao responsável para ativar de novo (na tela de entrada do caixa, "Ativar este computador").';
+const MENSAGEM_TERMINAL_INVALIDO = 'Este computador não está mais ativado para entrar com código e senha. Entre com usuário e senha, ou peça ao dono ou a um administrador para ativar de novo ("Ativar de novo", embaixo do login).';
 
 /** Gerente: dono, administrador da empresa ou equipe da plataforma. */
 const ehGerente = (user) => Boolean(user && (user.dono || user.isTenantManager || user.isPlatformAdmin));

@@ -69,7 +69,7 @@ test('entrar: segredo errado, computador desconhecido ou desativado nao deixa ne
   ]) {
     await assert.rejects(
       terminais.entrarComCodigo({ ...tentativa, codigo: '07', pin: '4826' }),
-      (e) => e.status === 401 && /não está mais ativado/.test(e.message),
+      (e) => e.status === 401 && /não está mais ativado para entrar com código/.test(e.message),
     );
   }
   assert.equal(JSON.stringify(fake.ler('usuarios_pin/ana')), pinAntes, 'nenhuma tentativa contada no funcionario');

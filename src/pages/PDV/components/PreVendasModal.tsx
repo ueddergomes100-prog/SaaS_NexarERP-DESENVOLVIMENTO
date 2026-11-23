@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardList, Loader2, RefreshCw, Search, X } from 'lucide-react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../../services/firebase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useTravasAtivas } from '../../../hooks/useTravaDeEdicao';
@@ -19,6 +19,7 @@ import { currency } from '../pdvHelpers';
  * O caixa acha a pre-venda pelo numero ou pelo cliente e puxa para o cupom,
  * para receber e faturar sem sair do caixa. A lista mostra o VENDEDOR de cada
  * uma: e' ele que continua na venda (regra em preVendaNoCaixaDomain.ts).
+ * A lista e' AO VIVO enquanto a janela esta' aberta: nao tem "Atualizar".
  * Pre-venda aberta por outra pessoa fica cinza e nao e' puxada (trava de
  * edicao, um documento aberto por vez).
  */
@@ -42,58 +43,67 @@ interface PedidoDaLista {
 const PreVendasModal: React.FC<PreVendasModalProps> = ({ open, tenantId, puxando = false, onClose, onEscolher }) => {
   const { vendasVisiveisDeUsuarioId } = useAuth();
   const travas = useTravasAtivas('pedido_venda', open);
-  const [linhas, setLinhas] = useState<PreVendaDoCaixa[]>([]);
+  const [pedidos, setPedidos] = useState<PedidoDaLista[]>([]);
+  const [nomes, setNomes] = useState<Record<string, string> | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
+  const [tentativa, setTentativa] = useState(0);
   const [busca, setBusca] = useState('');
   const [marcadaId, setMarcadaId] = useState('');
   const buscaRef = useRef<HTMLInputElement | null>(null);
-  const pedidoAtual = useRef(0);
 
-  const carregar = useCallback(async () => {
-    if (!tenantId) return;
-    const pedido = ++pedidoAtual.current;
+  // AO VIVO (pedido do dono, 23/11/2026): com a janela aberta, pre-venda nova
+  // entra na lista e a faturada/cancelada/alterada some ou muda sozinha, sem
+  // "Atualizar" nem recarregar a pagina. A escuta so' existe enquanto a janela
+  // esta' aberta (fechou, parou de ler) e, depois da primeira leitura, cada
+  // mudanca custa so' o documento que mudou.
+  useEffect(() => {
+    if (!open || !tenantId) return undefined;
     setCarregando(true);
     setErro('');
-    try {
-      const snap = await getDocs(query(
-        collection(db, 'pedidos_venda'),
-        where('tenantId', '==', tenantId),
-        where('status', '==', STATUS_PRE_VENDA),
-      ));
-      const pedidos = filtrarVendasVisiveis(
-        snap.docs.map((documento) => ({ id: documento.id, ...documento.data() } as PedidoDaLista)),
-        vendasVisiveisDeUsuarioId,
-      );
-      // Pre-venda antiga sem o nome do vendedor gravado: busca o nome no cadastro (so' quando precisa).
-      let nomes: Record<string, string> = {};
-      if (pedidos.some((p) => !String(p.vendedorNome || '').trim())) {
-        try {
-          const usuarios = await getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)));
-          nomes = Object.fromEntries(usuarios.docs.map((u) => [u.id, String(u.data().nome || u.data().nomeResponsavel || '')]));
-        } catch (falha) {
-          console.warn('Não foi possível ler os nomes dos vendedores:', falha);
-        }
-      }
-      if (pedido !== pedidoAtual.current) return;
-      setLinhas(preVendasDoCaixa(pedidos, nomes));
-    } catch (falha) {
-      console.error('Erro ao carregar as pré-vendas em aberto:', falha);
-      if (pedido === pedidoAtual.current) setErro('Não foi possível carregar as pré-vendas em aberto. Confira a conexão e toque em Atualizar.');
-    } finally {
-      if (pedido === pedidoAtual.current) setCarregando(false);
-    }
-  }, [tenantId, vendasVisiveisDeUsuarioId]);
+    return onSnapshot(
+      query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('status', '==', STATUS_PRE_VENDA)),
+      (snap) => {
+        setPedidos(filtrarVendasVisiveis(
+          snap.docs.map((documento) => ({ id: documento.id, ...documento.data() } as PedidoDaLista)),
+          vendasVisiveisDeUsuarioId,
+        ));
+        setCarregando(false);
+        setErro('');
+      },
+      (falha) => {
+        console.error('Erro ao acompanhar as pré-vendas em aberto:', falha);
+        setCarregando(false);
+        setErro('Não foi possível carregar as pré-vendas em aberto. Confira a conexão e toque em Tentar de novo.');
+      },
+    );
+  }, [open, tenantId, vendasVisiveisDeUsuarioId, tentativa]);
 
-  // Cada abertura le de novo: a lista de ontem nao serve para faturar hoje.
+  // Cada abertura comeca com a busca limpa e o cursor nela.
   useEffect(() => {
     if (!open) return;
     setBusca('');
     setMarcadaId('');
-    void carregar();
     buscaRef.current?.focus();
-  }, [open, carregar]);
+  }, [open]);
 
+  // Pre-venda antiga sem o nome do vendedor gravado: busca os nomes no cadastro, uma vez e so' quando precisa.
+  const faltaNomeDeVendedor = open && nomes === null && pedidos.some((p) => !String(p.vendedorNome || '').trim());
+  useEffect(() => {
+    if (!faltaNomeDeVendedor || !tenantId) return undefined;
+    let ativo = true;
+    getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)))
+      .then((usuarios) => {
+        if (ativo) setNomes(Object.fromEntries(usuarios.docs.map((u) => [u.id, String(u.data().nome || u.data().nomeResponsavel || '')])));
+      })
+      .catch((falha) => {
+        console.warn('Não foi possível ler os nomes dos vendedores:', falha);
+        if (ativo) setNomes({});
+      });
+    return () => { ativo = false; };
+  }, [faltaNomeDeVendedor, tenantId]);
+
+  const linhas = useMemo(() => preVendasDoCaixa(pedidos, nomes || {}), [pedidos, nomes]);
   const filtradas = useMemo(() => filtrarPreVendasDoCaixa(linhas, busca), [linhas, busca]);
   // Sem escolha feita, a marca comeca na primeira que da' para puxar (Enter puxa direto).
   const marcada = filtradas.find((linha) => linha.id === marcadaId)
@@ -152,15 +162,17 @@ const PreVendasModal: React.FC<PreVendasModalProps> = ({ open, tenantId, puxando
             aria-label="Buscar pré-venda pelo número ou pelo cliente"
             title="Busque pelo número da pré-venda ou pelo nome do cliente. Setas escolhem, Enter puxa para o caixa."
           />
-          <button type="button" className="pdv-prevendas-atualizar" onClick={() => void carregar()} disabled={carregando} title="Ler a lista de novo">
-            <RefreshCw size={16} aria-hidden="true" /> Atualizar
-          </button>
         </div>
 
         {carregando && linhas.length === 0 ? (
           <div className="pdv-modal-empty"><Loader2 className="spin-animation" size={20} /> Carregando pré-vendas...</div>
         ) : erro ? (
-          <div className="pdv-modal-empty pdv-prevendas-erro">{erro}</div>
+          <div className="pdv-modal-empty pdv-prevendas-erro">
+            <p>{erro}</p>
+            <button type="button" className="pdv-prevendas-atualizar" onClick={() => setTentativa((n) => n + 1)}>
+              <RefreshCw size={16} aria-hidden="true" /> Tentar de novo
+            </button>
+          </div>
         ) : filtradas.length === 0 ? (
           <div className="pdv-modal-empty">
             <ClipboardList size={26} aria-hidden="true" />
@@ -205,10 +217,11 @@ const PreVendasModal: React.FC<PreVendasModalProps> = ({ open, tenantId, puxando
         )}
 
         <div className="pdv-prevendas-rodape">
-          <span>
+          <span title="A lista acompanha as pré-vendas ao vivo: não precisa atualizar a página">
             {filtradas.length === linhas.length
               ? `${linhas.length} pré-venda(s) em aberto`
               : `${filtradas.length} de ${linhas.length} pré-venda(s)`}
+            {!erro && !carregando ? ' · atualiza sozinha' : ''}
           </span>
           <button type="button" className="btn-primary" onClick={() => escolher(marcada)} disabled={!marcada || puxando}>
             {puxando ? <Loader2 className="spin-animation" size={18} /> : <ClipboardList size={18} aria-hidden="true" />}

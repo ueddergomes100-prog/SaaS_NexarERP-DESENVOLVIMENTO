@@ -50,6 +50,7 @@ import monogramDark from '../../assets/hennder-monogram.webp';
 // violeta claro, senao ela desaparece contra o painel.
 import monogramOnBrand from '../../assets/hennder-monogram-onbrand.webp';
 import BootSplash from '../../components/layout/BootSplash';
+import VersaoDoSistema from '../../components/common/VersaoDoSistema';
 import './Auth.css';
 
 // Assinatura oficial da marca. Sao dois arquivos porque o wordmark tem tinta
@@ -934,6 +935,7 @@ const AuthPage: React.FC = () => {
             : <>Vários funcionários usam este computador? <button type="button" className="auth-link" onClick={() => trocarModoLogin('ativar')}>Ative-o</button> e cada um entra só com código e senha.</>}
         </p>
       )}
+      <VersaoDoSistema style={{ display: 'block', textAlign: 'center', marginTop: '14px' }} />
     </>
   );
 

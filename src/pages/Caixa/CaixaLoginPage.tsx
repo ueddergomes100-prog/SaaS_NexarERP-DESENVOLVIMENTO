@@ -14,6 +14,7 @@ import EntrarComCodigoForm from '../../components/auth/EntrarComCodigoForm';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
 import '../Auth/Auth.css';
+import VersaoDoSistema from '../../components/common/VersaoDoSistema';
 
 /**
  * Entrada da Frente de Caixa como app separado (/caixa/login).
@@ -223,6 +224,7 @@ const CaixaLoginPage: React.FC = () => {
               : <>Vários funcionários usam este computador? <button type="button" className="auth-link" onClick={() => trocarModo('ativar')}>Ative-o</button> e cada um entra só com código e senha.</>}
           </div>
         )}
+        <VersaoDoSistema style={{ display: 'block', textAlign: 'center', marginTop: '14px' }} />
       </div>
     </div>
   );

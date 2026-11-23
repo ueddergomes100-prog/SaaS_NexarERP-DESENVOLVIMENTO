@@ -66,6 +66,7 @@ import PdvSummary from './components/PdvSummary';
 import ProductSearch from './components/ProductSearch';
 import SangriaModal from './components/SangriaModal';
 import PreVendasModal from './components/PreVendasModal';
+import VersaoDoSistema from '../../components/common/VersaoDoSistema';
 import { mostrarAlertaDoCliente } from '../../components/common/AlertaDoCliente';
 import { useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import { avisoFaturarSemConferencia, conferenciaPendenteParaFaturar } from '../../utils/conferenciaDomain';
@@ -1871,6 +1872,7 @@ const PDV: React.FC = () => {
             <small>{selectedTenant?.nomeOficina || 'Hennder Company'}</small>
             <strong>Frente de Caixa</strong>
           </span>
+          <VersaoDoSistema style={{ alignSelf: 'flex-end', marginBottom: '3px' }} />
         </div>
         <div className="pdv-window-actions">
           <div className={session ? 'pdv-status' : 'pdv-status pdv-status--fechado'}>

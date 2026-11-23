@@ -15,6 +15,7 @@ import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { comOrigem } from './navegacaoApp';
 import { podeConferirNoApp } from '../../utils/conferenciaDomain';
+import VersaoDoSistema from '../../components/common/VersaoDoSistema';
 
 interface PedidoRecente {
   id: string;
@@ -128,6 +129,7 @@ const VendedorHome: React.FC = () => {
         </div>
         <div className="app-heroi__ola">{saudacaoPorHora()}, {primeiroNome}</div>
         <div className="app-heroi__sub">{subtitulo}</div>
+        <VersaoDoSistema style={{ display: 'block', marginTop: '6px' }} />
       </div>
 
       <div className="app-inicio__corpo">

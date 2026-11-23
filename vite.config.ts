@@ -1,10 +1,32 @@
+import { execSync } from 'child_process'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+/**
+ * Carimbo do build para a versao que aparece no cabecalho (23/11/2026, regra em
+ * src/utils/versaoDoSistemaDomain.ts): quando o sistema foi montado e, se der
+ * para saber, o codigo curto da alteracao. O codigo vem da variavel do servidor
+ * de publicacao (Vercel/GitHub) ou do proprio git; onde nao ha' git (alguns
+ * servidores publicam sem a pasta .git) fica vazio e o cabecalho mostra so' a data.
+ */
+const codigoDaAlteracao = (): string => {
+  const doAmbiente = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || process.env.COMMIT_SHA || ''
+  if (doAmbiente) return doAmbiente.trim().slice(0, 7)
+  try {
+    return execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    return ''
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __VERSAO_CONSTRUIDA_EM__: JSON.stringify(new Date().toISOString()),
+    __VERSAO_COMMIT__: JSON.stringify(codigoDaAlteracao()),
+  },
   build: {
     rollupOptions: {
       // Duas entradas HTML pro mesmo app React (src/main.tsx): vendedor.html

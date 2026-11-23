@@ -27,6 +27,7 @@ import {
 } from '../../utils/aniversarioClienteDomain';
 import { formatarTelefoneGravado } from '../../utils/clienteCadastroMobileDomain';
 import { NexusSwal, escaparHtml } from '../../utils/alerts';
+import VersaoDoSistema from '../common/VersaoDoSistema';
 
 const TopBar: React.FC = () => {
   const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, userNome } = useAuth();
@@ -563,6 +564,9 @@ const TopBar: React.FC = () => {
       </div>
       
       <div className="topbar-actions">
+        {/* Versao do sistema desta aba (23/11/2026): para saber se a atualizacao ja' chegou. */}
+        {/* Mesma cor do texto secundario do cabecalho (o nome da empresa, ao lado do usuario). */}
+        <VersaoDoSistema style={{ color: 'rgba(255, 255, 255, 0.72)', opacity: 1 }} />
         {isPlatformAdmin && (
           <button
             className="action-btn"

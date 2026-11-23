@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Banknote, ClipboardList, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
+import { Banknote, ClipboardList, History, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -72,8 +72,9 @@ import { useTravaDeEdicao } from '../../hooks/useTravaDeEdicao';
 import { avisoFaturarSemConferencia, conferenciaPendenteParaFaturar } from '../../utils/conferenciaDomain';
 import { MENSAGEM_VENDA_DE_OUTRO_USUARIO, TITULO_VENDA_DE_OUTRO_USUARIO, isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { formatDateInputPtBr } from '../../utils/dateTime';
-import { documentoDoCupomDoCaixa } from '../../utils/cupomDoCaixaDomain';
-import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal } from './cupomDoCaixa';
+import { MENSAGEM_SEM_PERMISSAO_NFCE, acaoDeReimpressao, documentoDoCupomDoCaixa, podeEmitirCupomFiscal, type VendaDoCaixa } from '../../utils/cupomDoCaixaDomain';
+import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal, reabrirCupomFiscal } from './cupomDoCaixa';
+import VendasDoCaixaModal from './components/VendasDoCaixaModal';
 import {
   ONDE_FATURAR_NO_SISTEMA,
   carregarPreVendaNoCaixa,
@@ -1193,6 +1194,71 @@ const PDV: React.FC = () => {
     }
   }, [clients, mostrarPreVendaNoCupom, puxandoPreVenda, session, tenantId, vendasVisiveisDeUsuarioId]);
 
+  /** Cupom nao fiscal na bobina (2a via quando vem do historico). Erro so' avisa: a venda ja' esta' gravada. */
+  const imprimirNaoFiscalDaVenda = useCallback(async (venda: { pedidoId: string; numeroPedido: string; clienteId: string | null }, segundaVia = false) => {
+    const documentoDoCliente = venda.clienteId ? (clients.find((c) => c.id === venda.clienteId)?.documento || '') : '';
+    try {
+      await imprimirCupomNaoFiscal({ pedidoId: venda.pedidoId, empresa: configDaEmpresa, documentoDoCliente, operador: operatorName, segundaVia });
+    } catch (erro) {
+      console.error('Erro ao imprimir o cupom não fiscal:', erro);
+      showError('Cupom não impresso', `A venda #${venda.numeroPedido} está gravada. ${erro instanceof Error ? erro.message : 'Confira a impressora e reimprima pelas Vendas do caixa (F9).'}`);
+    }
+  }, [clients, configDaEmpresa, operatorName]);
+
+  const podeEmitirFiscal = podeEmitirCupomFiscal({ role: userRole, isOwner, permissoes: userPermissions });
+  const documentoDaEmpresa = documentoDoCupomDoCaixa({ controlaFiscal, documentosFiscais: configDaEmpresa, comNotaFiscal: null });
+  // Muda a cada NFC-e emitida: o historico le de novo a situacao das notas.
+  const [versaoDasNotas, setVersaoDasNotas] = useState(0);
+
+  /**
+   * Emite a NFC-e de uma venda gravada. Devolve null quando deu certo (autorizada
+   * ou aguardando a SEFAZ) ou o motivo, em portugues, quando nao saiu.
+   * Sem "Fiscal: Emitir Nota Fiscal" nem tenta: o servidor recusaria (spedyAcesso.js).
+   */
+  const emitirFiscalDaVenda = useCallback(async (venda: { pedidoId: string; numeroPedido: string }): Promise<string | null> => {
+    if (!tenantId || !currentUser) return 'Sua sessão expirou. Entre de novo no caixa.';
+    if (!podeEmitirFiscal) return MENSAGEM_SEM_PERMISSAO_NFCE;
+    void NexusSwal.fire({
+      title: 'Emitindo cupom fiscal (NFC-e)...',
+      text: `Venda #${venda.numeroPedido}: enviando para a SEFAZ.`,
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      didOpen: () => NexusSwal.showLoading(),
+    });
+    try {
+      const resultado = await emitirCupomFiscalDoCaixa({ pedidoId: venda.pedidoId, tenantId, usuario: { uid: currentUser.uid, email: currentUser.email } });
+      NexusSwal.close();
+      setVersaoDasNotas((n) => n + 1);
+      if (resultado.situacao === 'autorizado') {
+        showSuccess(`Cupom fiscal ${resultado.numero ? `nº ${resultado.numero} ` : ''}autorizado`);
+        return null;
+      }
+      if (resultado.situacao === 'aguardando') {
+        showWarning('Cupom fiscal aguardando a SEFAZ', `A venda #${venda.numeroPedido} está gravada e o cupom foi enviado, mas a SEFAZ ainda não respondeu. Reimprima pelas Vendas do caixa (F9) daqui a pouco.`);
+        return null;
+      }
+      return `A SEFAZ rejeitou o cupom fiscal: ${resultado.motivo}`;
+    } catch (erro) {
+      console.error('Erro ao emitir a NFC-e na Frente de Caixa:', erro);
+      NexusSwal.close();
+      setVersaoDasNotas((n) => n + 1);
+      return erro instanceof Error && erro.message ? erro.message : 'Não foi possível transmitir o cupom fiscal.';
+    }
+  }, [currentUser, podeEmitirFiscal, tenantId]);
+
+  /** Cupom fiscal falhou: a venda segue gravada; oferece o nao fiscal para o cliente nao sair sem papel. */
+  const oferecerNaoFiscalNaFalha = useCallback(async (venda: { pedidoId: string; numeroPedido: string; clienteId: string | null }, falha: string) => {
+    const resposta = await NexusSwal.fire({
+      title: 'Cupom fiscal não emitido',
+      text: `${falha} A venda #${venda.numeroPedido} está gravada; emita o cupom fiscal depois em Vendas do caixa (F9). Imprimir agora o cupom não fiscal para o cliente?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Imprimir cupom não fiscal',
+      cancelButtonText: 'Não imprimir',
+    });
+    if (resposta.isConfirmed) await imprimirNaoFiscalDaVenda(venda);
+  }, [imprimirNaoFiscalDaVenda]);
+
   /**
    * CUPOM NO FIM DA VENDA (23/11/2026, cupomDoCaixaDomain.ts): NFC-e quando a
    * empresa emite cupom fiscal; senao (ou venda "Sem nota fiscal"), o cupom nao
@@ -1201,56 +1267,56 @@ const PDV: React.FC = () => {
    */
   const entregarCupom = useCallback(async (venda: { pedidoId: string; numeroPedido: string; clienteId: string | null; comNotaFiscal: boolean | null }) => {
     if (!tenantId || !currentUser) return;
-    const documentoDoCliente = venda.clienteId ? (clients.find((c) => c.id === venda.clienteId)?.documento || '') : '';
-    const naoFiscal = async () => {
-      try {
-        await imprimirCupomNaoFiscal({ pedidoId: venda.pedidoId, empresa: configDaEmpresa, documentoDoCliente, operador: operatorName });
-      } catch (erro) {
-        console.error('Erro ao imprimir o cupom não fiscal:', erro);
-        showError('Cupom não impresso', `A venda #${venda.numeroPedido} está gravada. ${erro instanceof Error ? erro.message : 'Confira a impressora e reimprima pelo sistema, em Pedidos de Venda.'}`);
-      }
-    };
     const documento = documentoDoCupomDoCaixa({ controlaFiscal, documentosFiscais: configDaEmpresa, comNotaFiscal: venda.comNotaFiscal });
     if (documento === 'nao_fiscal') {
-      await naoFiscal();
+      await imprimirNaoFiscalDaVenda(venda);
       return;
     }
+    const falha = await emitirFiscalDaVenda(venda);
+    if (falha) await oferecerNaoFiscalNaFalha(venda, falha);
+  }, [configDaEmpresa, controlaFiscal, currentUser, emitirFiscalDaVenda, imprimirNaoFiscalDaVenda, oferecerNaoFiscalNaFalha, tenantId]);
 
-    void NexusSwal.fire({
-      title: 'Emitindo cupom fiscal (NFC-e)...',
-      text: `Venda #${venda.numeroPedido}: enviando para a SEFAZ.`,
-      allowOutsideClick: false,
-      showConfirmButton: false,
-      didOpen: () => NexusSwal.showLoading(),
-    });
-    let falha: string;
-    try {
-      const resultado = await emitirCupomFiscalDoCaixa({ pedidoId: venda.pedidoId, tenantId, usuario: { uid: currentUser.uid, email: currentUser.email } });
-      NexusSwal.close();
-      if (resultado.situacao === 'autorizado') {
-        showSuccess(`Cupom fiscal ${resultado.numero ? `nº ${resultado.numero} ` : ''}autorizado`);
-        return;
-      }
-      if (resultado.situacao === 'aguardando') {
-        showWarning('Cupom fiscal aguardando a SEFAZ', `A venda #${venda.numeroPedido} está gravada e o cupom foi enviado, mas a SEFAZ ainda não respondeu. Imprima depois em Fiscal › Notas emitidas.`);
-        return;
-      }
-      falha = `A SEFAZ rejeitou o cupom fiscal: ${resultado.motivo}`;
-    } catch (erro) {
-      console.error('Erro ao emitir a NFC-e na Frente de Caixa:', erro);
-      NexusSwal.close();
-      falha = erro instanceof Error && erro.message ? erro.message : 'Não foi possível transmitir o cupom fiscal.';
+  // ------------------------------------------------------------------ Vendas do caixa (F9): reimprimir
+
+  const [vendasModalOpen, setVendasModalOpen] = useState(false);
+  const [ocupadoNoHistorico, setOcupadoNoHistorico] = useState<string | null>(null);
+
+  const reimprimirVenda = useCallback(async (venda: VendaDoCaixa) => {
+    const acao = acaoDeReimpressao(venda);
+    if (acao.tipo === 'bloqueada') {
+      showWarning('Cupom não reimpresso', acao.motivo);
+      return;
     }
-    const resposta = await NexusSwal.fire({
-      title: 'Cupom fiscal não emitido',
-      text: `${falha} A venda #${venda.numeroPedido} está gravada; emita o cupom fiscal depois pelo sistema, em Pedidos de Venda. Imprimir agora o cupom não fiscal para o cliente?`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Imprimir cupom não fiscal',
-      cancelButtonText: 'Não imprimir',
-    });
-    if (resposta.isConfirmed) await naoFiscal();
-  }, [clients, configDaEmpresa, controlaFiscal, currentUser, operatorName, tenantId]);
+    setOcupadoNoHistorico(venda.id);
+    try {
+      if (acao.tipo === 'pdf_nfce') {
+        if (!podeEmitirFiscal) {
+          showError('Cupom fiscal não reaberto', `A venda #${venda.numeroPedido} tem cupom fiscal (NFC-e). ${MENSAGEM_SEM_PERMISSAO_NFCE}`);
+          return;
+        }
+        try {
+          await reabrirCupomFiscal(acao.spedyId);
+        } catch (erro) {
+          console.error('Erro ao reabrir o cupom fiscal:', erro);
+          showError('Cupom fiscal não reaberto', `${erro instanceof Error && erro.message ? erro.message : 'Não foi possível baixar o cupom fiscal.'} A venda #${venda.numeroPedido} continua com a nota; tente de novo em instantes.`);
+        }
+        return;
+      }
+      await imprimirNaoFiscalDaVenda({ pedidoId: venda.id, numeroPedido: venda.numeroPedido, clienteId: venda.clienteId }, true);
+    } finally {
+      setOcupadoNoHistorico(null);
+    }
+  }, [imprimirNaoFiscalDaVenda, podeEmitirFiscal]);
+
+  const emitirFiscalDoHistorico = useCallback(async (venda: VendaDoCaixa) => {
+    setOcupadoNoHistorico(venda.id);
+    try {
+      const falha = await emitirFiscalDaVenda({ pedidoId: venda.id, numeroPedido: venda.numeroPedido });
+      if (falha) showError('Cupom fiscal não emitido', `${falha} A venda #${venda.numeroPedido} continua gravada.`);
+    } finally {
+      setOcupadoNoHistorico(null);
+    }
+  }, [emitirFiscalDaVenda]);
 
   // Outra pessoa abriu (ou um gerente liberou) a pre-venda: ela sai do caixa, sem faturar.
   useEffect(() => {
@@ -1867,11 +1933,12 @@ const PDV: React.FC = () => {
   useEffect(() => {
     const handleShortcuts = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (paymentModalOpen || discountModalOpen || clientModalOpen || preVendasModalOpen) {
+        if (paymentModalOpen || discountModalOpen || clientModalOpen || preVendasModalOpen || vendasModalOpen) {
           setPaymentModalOpen(false);
           setDiscountModalOpen(false);
           setClientModalOpen(false);
           if (!puxandoPreVenda) setPreVendasModalOpen(false);
+          if (!ocupadoNoHistorico) setVendasModalOpen(false);
         }
         return;
       }
@@ -1883,6 +1950,8 @@ const PDV: React.FC = () => {
       if (event.key === 'F4') { event.preventDefault(); if (cartItems.length > 0 && !preVenda) setDiscountModalOpen(true); }
       if (event.key === 'F5') { event.preventDefault(); void askSelectedItemQuantity(); }
       if (event.key === 'F8' && podePreVendaNoCaixa) { event.preventDefault(); abrirPreVendas(); }
+      // Vendas deste caixa (23/11/2026): reimprimir o cupom.
+      if (event.key === 'F9' && session) { event.preventDefault(); setVendasModalOpen(true); }
       if (event.key === 'F6' || event.key === 'F7') {
         event.preventDefault();
         if (cartItems.length > 0 && session) setPaymentModalOpen(true);
@@ -1891,7 +1960,7 @@ const PDV: React.FC = () => {
 
     window.addEventListener('keydown', handleShortcuts);
     return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [abrirPreVendas, askSelectedItemQuantity, cartItems.length, clientModalOpen, discountModalOpen, hasPdvAccess, paymentModalOpen, podePreVendaNoCaixa, preVenda, preVendasModalOpen, puxandoPreVenda, session]);
+  }, [abrirPreVendas, askSelectedItemQuantity, cartItems.length, clientModalOpen, discountModalOpen, hasPdvAccess, ocupadoNoHistorico, paymentModalOpen, podePreVendaNoCaixa, preVenda, preVendasModalOpen, puxandoPreVenda, session, vendasModalOpen]);
 
   const preVendaNoResumo = useMemo(
     () => (preVenda ? { numeroPedido: preVenda.numeroPedido, clienteNome: preVenda.clienteNome, vendedorNome: preVenda.vendedorNome } : null),
@@ -1958,6 +2027,9 @@ const PDV: React.FC = () => {
                   <ClipboardList size={16} aria-hidden="true" /> Pré-vendas
                 </button>
               )}
+              <button type="button" className="pdv-topbar-button" onClick={() => setVendasModalOpen(true)} title="Ver as vendas deste caixa e reimprimir o cupom (F9)">
+                <History size={16} aria-hidden="true" /> Vendas
+              </button>
               <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
                 <Banknote size={16} aria-hidden="true" /> Sangria
               </button>
@@ -2124,6 +2196,18 @@ const PDV: React.FC = () => {
         rotuloFinalizar={preVenda ? 'Receber e faturar' : undefined}
         onClose={() => setPaymentModalOpen(false)}
         onFinalize={finalizeSale}
+      />
+
+      <VendasDoCaixaModal
+        open={vendasModalOpen}
+        tenantId={tenantId}
+        sessaoId={session?.id || null}
+        documentoDaEmpresa={documentoDaEmpresa}
+        ocupadoId={ocupadoNoHistorico}
+        versaoDasNotas={versaoDasNotas}
+        onClose={() => setVendasModalOpen(false)}
+        onReimprimir={(venda) => void reimprimirVenda(venda)}
+        onEmitirFiscal={(venda) => void emitirFiscalDoHistorico(venda)}
       />
 
       <PreVendasModal

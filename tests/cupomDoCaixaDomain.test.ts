@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dataHoraDoCupom, documentoDoCupomDoCaixa, htmlDoCupomNaoFiscal, montarCupomNaoFiscal } from '../src/utils/cupomDoCaixaDomain';
+import {
+  MENSAGEM_SEM_PERMISSAO_NFCE,
+  acaoDeReimpressao,
+  dataHoraDoCupom,
+  documentoDoCupomDoCaixa,
+  filtrarVendasDoCaixa,
+  htmlDoCupomNaoFiscal,
+  montarCupomNaoFiscal,
+  ofereceEmitirCupomFiscal,
+  podeEmitirCupomFiscal,
+  quandoDaVendaNoCaixa,
+  vendasDoCaixa,
+} from '../src/utils/cupomDoCaixaDomain';
 
 /* Cupom no fim da venda da Frente de Caixa (23/11/2026). */
 
@@ -129,4 +141,92 @@ test('papel: consumidor final sai como NAO IDENTIFICADO; zero vira "- - -"; sem 
 
 test('data e hora do cupom em Brasilia, mesmo perto da meia-noite UTC', () => {
   assert.equal(dataHoraDoCupom(new Date('2026-11-24T02:10:00.000Z')), '23/11/2026 23:10');
+});
+
+// ------------------------------------------------------------------ Vendas do caixa (F9) e reimpressao
+
+const ts = (iso: string) => ({ toDate: () => new Date(iso) });
+
+test('NFC-e no caixa exige "Fiscal: Emitir Nota Fiscal" (o servidor recusa sem ela); dono e administrador sempre', () => {
+  assert.equal(podeEmitirCupomFiscal({ role: 'Funcionario', isOwner: false, permissoes: ['vendas.so_caixa'] }), false);
+  assert.equal(podeEmitirCupomFiscal({ role: 'Funcionario', isOwner: false, permissoes: ['vendas.so_caixa', 'fiscal.emitir'] }), true);
+  assert.equal(podeEmitirCupomFiscal({ role: 'Funcionario', isOwner: true, permissoes: [] }), true);
+  assert.equal(podeEmitirCupomFiscal({ role: 'Admin', isOwner: false, permissoes: null }), true);
+  assert.match(MENSAGEM_SEM_PERMISSAO_NFCE, /"Fiscal: Emitir Nota Fiscal"/);
+});
+
+test('hora da venda no caixa: venda direta = criacao; pre-venda faturada no caixa = o faturamento', () => {
+  assert.equal(quandoDaVendaNoCaixa({ criadoEm: ts('2026-11-23T15:00:00Z'), alteradoEm: ts('2026-11-23T16:00:00Z') })?.toISOString(), '2026-11-23T15:00:00.000Z');
+  assert.equal(quandoDaVendaNoCaixa({ faturadoNoCaixa: true, criadoEm: ts('2026-10-21T12:00:00Z'), alteradoEm: ts('2026-11-23T15:12:00Z') })?.toISOString(), '2026-11-23T15:12:00.000Z');
+  assert.equal(quandoDaVendaNoCaixa({}), null);
+});
+
+const vendasDoTurno = [
+  { id: 'v1', numeroPedido: '0201', criadoEm: ts('2026-11-23T13:00:00Z'), clienteNome: 'MARIA', clienteId: 'c1', vendedorNome: 'ANA', valorTotalCentavos: 1000, status: 'Finalizada', pagamentos: [{ formaPagamento: 'Pix', valorCentavos: 1000 }] },
+  { id: 'v2', numeroPedido: '0202', criadoEm: ts('2026-11-23T14:00:00Z'), clienteNome: 'JOÃO', valorTotalCentavos: 3000, status: 'Finalizada', pagamentos: [{ formaPagamento: 'Cartão de Crédito', valorCentavos: 1500, cartao: { totalParcelas: 2 } }, { formaPagamento: 'Cartão de Crédito', valorCentavos: 1500, cartao: { totalParcelas: 2 } }] },
+  { id: 'v3', numeroPedido: '0203', criadoEm: ts('2026-11-23T15:00:00Z'), clienteNome: 'CONSUMIDOR FINAL', valorTotalCentavos: 500, status: 'Cancelada', pagamentos: [{ formaPagamento: 'Dinheiro', valorCentavos: 500 }] },
+  { id: 'v4', numeroPedido: '0154', faturadoNoCaixa: true, criadoEm: ts('2026-10-21T12:00:00Z'), alteradoEm: ts('2026-11-23T15:30:00Z'), clienteNome: 'PADARIA', valorTotalCentavos: 990, status: 'Finalizada', comNotaFiscal: false, pagamentos: [{ formaPagamento: 'Dinheiro', valorCentavos: 990 }] },
+];
+const notasDoTurno = [
+  { tipo: 'NFC-e', pedidoId: 'v1', status: 'rejected', spedyId: 'r1', number: null },
+  { tipo: 'NFC-e', pedidoId: 'v1', status: 'authorized', spedyId: 'sp1', number: 77 },
+  { tipo: 'NFC-e', pedidoId: 'v2', status: 'rejected', spedyId: 'r2', number: null },
+  { tipo: 'NFC-e', pedidoId: 'v2', status: 'authorized', spedyId: 'dev1', number: 5, finalidade: 'devolucao' },
+  { tipo: 'NF-e', pedidoId: 'v2', status: 'authorized', spedyId: 'nfe1', number: 9 },
+];
+
+test('historico do caixa: mais nova primeiro, formas agrupadas, a melhor NFC-e de cada venda (sem devolucao nem NF-e)', () => {
+  const lista = vendasDoCaixa(vendasDoTurno, notasDoTurno);
+  assert.deepEqual(lista.map((v) => v.numeroPedido), ['0154', '0203', '0202', '0201'], 'a pre-venda faturada agora entra pela hora do faturamento');
+  const [preVenda, cancelada, joao, maria] = lista;
+  assert.deepEqual(maria.nota, { spedyId: 'sp1', numero: '77', situacao: 'autorizada' }, 'autorizada vence a rejeitada');
+  assert.equal(maria.formas, 'Pix');
+  assert.equal(maria.clienteId, 'c1');
+  assert.equal(maria.vendedorNome, 'ANA');
+  assert.deepEqual(joao.nota, { spedyId: 'r2', numero: '', situacao: 'rejeitada' }, 'nota de devolucao e NF-e nao contam');
+  assert.equal(joao.formas, 'Cartão de Crédito (2x)');
+  assert.equal(joao.totalCentavos, 3000);
+  assert.equal(cancelada.cancelada, true);
+  assert.equal(cancelada.nota, null);
+  assert.equal(preVenda.comNotaFiscal, false);
+});
+
+test('busca do historico: numero sem os zeros, com #, ou cliente sem acento', () => {
+  const lista = vendasDoCaixa(vendasDoTurno, notasDoTurno);
+  const numeros = (b: string) => filtrarVendasDoCaixa(lista, b).map((v) => v.numeroPedido).sort();
+  assert.deepEqual(numeros(''), ['0154', '0201', '0202', '0203']);
+  assert.deepEqual(numeros('#202'), ['0202']);
+  assert.deepEqual(numeros('201'), ['0201']);
+  assert.deepEqual(numeros('joao'), ['0202']);
+  assert.deepEqual(numeros('padaria'), ['0154']);
+});
+
+test('reimprimir: com NFC-e autorizada reabre o cupom fiscal; sem nota, 2a via do nao fiscal; cancelada nao reimprime', () => {
+  const [preVenda, cancelada, joao, maria] = vendasDoCaixa(vendasDoTurno, notasDoTurno);
+  assert.deepEqual(acaoDeReimpressao(maria), { tipo: 'pdf_nfce', spedyId: 'sp1' });
+  assert.deepEqual(acaoDeReimpressao(joao), { tipo: 'nao_fiscal' }, 'nota rejeitada: o cliente leva o nao fiscal');
+  assert.deepEqual(acaoDeReimpressao(preVenda), { tipo: 'nao_fiscal' });
+  const bloqueada = acaoDeReimpressao(cancelada);
+  assert.equal(bloqueada.tipo, 'bloqueada');
+  assert.match(bloqueada.tipo === 'bloqueada' ? bloqueada.motivo : '', /#0203 foi cancelada/);
+});
+
+test('emitir cupom fiscal pelo historico: so empresa com NFC-e, venda sem nota boa, nao cancelada nem Sem nota', () => {
+  const [preVenda, cancelada, joao, maria] = vendasDoCaixa(vendasDoTurno, notasDoTurno);
+  assert.equal(ofereceEmitirCupomFiscal(joao, 'nfce'), true, 'rejeitada na hora: emite de novo');
+  assert.equal(ofereceEmitirCupomFiscal(maria, 'nfce'), false, 'ja tem autorizada');
+  assert.equal(ofereceEmitirCupomFiscal(cancelada, 'nfce'), false);
+  assert.equal(ofereceEmitirCupomFiscal(preVenda, 'nfce'), false, 'Sem nota fiscal');
+  assert.equal(ofereceEmitirCupomFiscal(joao, 'nao_fiscal'), false, 'empresa que nao emite NFC-e');
+  const aguardando = vendasDoCaixa([vendasDoTurno[1]], [{ tipo: 'NFC-e', pedidoId: 'v2', status: 'processing', spedyId: 'p1' }])[0];
+  assert.equal(ofereceEmitirCupomFiscal(aguardando, 'nfce'), false, 'ainda na SEFAZ: nao emite duas vezes');
+});
+
+test('2a via do nao fiscal: marcada e com a hora da reimpressao; a 1a via nao leva a marca', () => {
+  const cupom = montarCupomNaoFiscal({ venda: vendaGravada, empresa, operador: '', emitidoEm });
+  const segunda = htmlDoCupomNaoFiscal(cupom, 80, { reimpressoEm: '23/11/2026 18:40' });
+  assert.match(segunda, /2ª VIA/);
+  assert.match(segunda, /Reimpresso em 23\/11\/2026 18:40/);
+  assert.match(segunda, /23\/11\/2026 14:32 - Via Consumidor/, 'a data da venda continua a da venda');
+  assert.doesNotMatch(htmlDoCupomNaoFiscal(cupom), /2ª VIA|Reimpresso/);
 });

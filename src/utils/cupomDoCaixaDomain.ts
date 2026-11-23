@@ -21,6 +21,8 @@ import { formatCompanyAddress } from './companyAddress';
 import { fromCents, toCents } from './financeDomain';
 import { formatarTelefoneGravado } from './clienteCadastroMobileDomain';
 import { formatarDocumento } from './documentoValidacao';
+import { hasModuleAccess } from './roles';
+import { normalizeSearchText } from './textSearch';
 
 export type DocumentoDoCupom = 'nfce' | 'nao_fiscal';
 
@@ -210,7 +212,12 @@ const quantidadeEscrita = (q: number): string => q.toLocaleString('pt-BR', { max
  * cupom nao fiscal com elas se passaria por nota fiscal. No lugar, em destaque,
  * "DOCUMENTO SEM VALOR FISCAL".
  */
-export const htmlDoCupomNaoFiscal = (cupom: CupomNaoFiscal, largura: LarguraDaBobina = 80): string => {
+export const htmlDoCupomNaoFiscal = (
+  cupom: CupomNaoFiscal,
+  largura: LarguraDaBobina = 80,
+  /** Reimpressao pelo historico do caixa: "2a VIA" e quando foi reimpresso ("dd/mm/aaaa hh:mm"). */
+  segundaVia: { reimpressoEm: string } | null = null,
+): string => {
   const e = (v: string) => escapar(v);
   const vazio = '- - -';
   const linha = (rotulo: string, valor: string, classe = '') => (
@@ -259,6 +266,7 @@ export const htmlDoCupomNaoFiscal = (cupom: CupomNaoFiscal, largura: LarguraDaBo
   td.desc { word-break: break-word; }
   .numero { font-size: 1.35em; font-weight: 700; }
   .aviso { font-size: 1.1em; font-weight: 700; }
+  .grande2 { font-size: 1.2em; margin-top: 2px; }
   p { margin: 0; }
 </style></head>
 <body>
@@ -269,6 +277,7 @@ export const htmlDoCupomNaoFiscal = (cupom: CupomNaoFiscal, largura: LarguraDaBo
   <div class="centro forte">CUPOM NÃO FISCAL</div>
   <div class="centro forte">Comprovante de venda ao consumidor</div>
   <div class="centro forte">Não tem valor fiscal</div>
+  ${segundaVia ? `<div class="centro forte grande2">2ª VIA</div><div class="centro peq">Reimpresso em ${e(segundaVia.reimpressoEm)}</div>` : ''}
   <div class="sep"></div>
   <div class="centro forte">DETALHE DA VENDA</div>
   <table>
@@ -299,3 +308,152 @@ export const htmlDoCupomNaoFiscal = (cupom: CupomNaoFiscal, largura: LarguraDaBo
   <p class="centro peq" style="margin-top:6px">Obrigado pela preferência!</p>
 </body></html>`;
 };
+
+// ---------------------------------------------------------------------------
+// Permissao para a NFC-e no caixa
+// ---------------------------------------------------------------------------
+
+/** A mesma permissao que o servidor confere para emitir (e baixar o PDF da) nota: server/services/spedyAcesso.js. */
+export const PERMISSAO_EMITIR_NOTA = 'fiscal.emitir';
+
+export const podeEmitirCupomFiscal = (perfil: { role: unknown; isOwner: boolean; permissoes: string[] | null | undefined }): boolean => (
+  hasModuleAccess({ role: perfil.role, isOwner: perfil.isOwner, permissions: perfil.permissoes, requiredPermission: PERMISSAO_EMITIR_NOTA })
+);
+
+/** Cadastro do usuario incompleto para a NFC-e: bloqueia com o que fazer (CLAUDE.md: nunca contornar). */
+export const MENSAGEM_SEM_PERMISSAO_NFCE = 'Este usuário não tem permissão para emitir cupom fiscal. Peça ao dono ou ao gerente para liberar "Fiscal: Emitir Nota Fiscal" no seu usuário, em Equipe & Acessos.';
+
+// ---------------------------------------------------------------------------
+// Historico de vendas do caixa (reimprimir)
+// ---------------------------------------------------------------------------
+
+export type SituacaoDaNotaNoCaixa = 'autorizada' | 'aguardando' | 'rejeitada';
+
+export interface NotaDaVendaNoCaixa {
+  spedyId: string;
+  numero: string;
+  situacao: SituacaoDaNotaNoCaixa;
+}
+
+export interface VendaDoCaixa {
+  id: string;
+  numeroPedido: string;
+  /** Quando a venda foi fechada no caixa (Date) -- null se nao der para saber. */
+  quando: Date | null;
+  clienteId: string | null;
+  clienteNome: string;
+  vendedorNome: string;
+  totalCentavos: number;
+  /** "Dinheiro + Pix", "Cartão de Crédito (3x)". */
+  formas: string;
+  cancelada: boolean;
+  /** "Com nota / Sem nota" da venda (null = nao informado). */
+  comNotaFiscal: boolean | null;
+  /** A melhor nota da venda (autorizada vence aguardando, que vence rejeitada). */
+  nota: NotaDaVendaNoCaixa | null;
+}
+
+const paraData = (valor: unknown): Date | null => {
+  if (!valor) return null;
+  const comToDate = valor as { toDate?: () => Date; seconds?: number };
+  if (typeof comToDate.toDate === 'function') return comToDate.toDate();
+  if (typeof comToDate.seconds === 'number') return new Date(comToDate.seconds * 1000);
+  const data = new Date(valor as string);
+  return Number.isNaN(data.getTime()) ? null : data;
+};
+
+/**
+ * Quando a venda aconteceu no caixa. Venda direta: quando foi criada. Pre-venda
+ * faturada no caixa: o documento nasceu antes (na pre-venda), entao vale a
+ * ultima alteracao -- a do faturamento.
+ */
+export const quandoDaVendaNoCaixa = (venda: Registro): Date | null => (
+  venda.faturadoNoCaixa === true
+    ? paraData(venda.alteradoEm) || paraData(venda.updatedAt) || paraData(venda.criadoEm) || paraData(venda.createdAt)
+    : paraData(venda.criadoEm) || paraData(venda.createdAt)
+);
+
+const situacaoDaNota = (status: unknown): SituacaoDaNotaNoCaixa | null => {
+  const s = texto(status);
+  if (s === 'authorized') return 'autorizada';
+  if (s === 'rejected' || s === 'denied') return 'rejeitada';
+  if (s === 'enqueued' || s === 'processing' || s === 'created') return 'aguardando';
+  return null;
+};
+const PESO_DA_SITUACAO: Record<SituacaoDaNotaNoCaixa, number> = { autorizada: 0, aguardando: 1, rejeitada: 2 };
+
+/**
+ * Vendas do caixa aberto, da mais nova para a mais antiga, com a nota de cada
+ * uma (notas de devolucao e canceladas ficam de fora: o cupom da venda e' o que
+ * se reimprime).
+ */
+export const vendasDoCaixa = (
+  vendas: ReadonlyArray<Registro & { id: string }>,
+  notas: ReadonlyArray<Registro> = [],
+): VendaDoCaixa[] => {
+  const notaPorPedido = new Map<string, NotaDaVendaNoCaixa>();
+  notas.forEach((n) => {
+    if (texto(n.tipo) !== 'NFC-e' || n.finalidade === 'devolucao') return;
+    const pedidoId = texto(n.pedidoId);
+    const situacao = situacaoDaNota(n.status);
+    if (!pedidoId || !situacao) return;
+    const nota: NotaDaVendaNoCaixa = { spedyId: texto(n.spedyId), numero: texto(n.number), situacao };
+    const atual = notaPorPedido.get(pedidoId);
+    if (!atual || PESO_DA_SITUACAO[situacao] < PESO_DA_SITUACAO[atual.situacao]) notaPorPedido.set(pedidoId, nota);
+  });
+  return vendas
+    .map((v): VendaDoCaixa => ({
+      id: v.id,
+      numeroPedido: texto(v.numeroPedido),
+      quando: quandoDaVendaNoCaixa(v),
+      clienteId: texto(v.clienteId) || null,
+      clienteNome: texto(v.clienteNome) || 'CONSUMIDOR FINAL',
+      vendedorNome: texto(v.vendedorNome),
+      totalCentavos: centavos(v.valorTotalCentavos, v.valorTotal),
+      formas: pagamentosDoCupom(v.pagamentos).map((p) => `${p.forma}${p.parcelas > 1 ? ` (${p.parcelas}x)` : ''}`).join(' + '),
+      cancelada: texto(v.status) === 'Cancelada',
+      comNotaFiscal: typeof v.comNotaFiscal === 'boolean' ? v.comNotaFiscal : null,
+      nota: notaPorPedido.get(v.id) || null,
+    }))
+    .sort((a, b) => (b.quando?.getTime() || 0) - (a.quando?.getTime() || 0) || b.numeroPedido.localeCompare(a.numeroPedido));
+};
+
+/** Busca do historico: numero da venda (sem os zeros da frente) ou cliente, sem acento. */
+export const filtrarVendasDoCaixa = (vendas: ReadonlyArray<VendaDoCaixa>, busca: string): VendaDoCaixa[] => {
+  const termo = normalizeSearchText(String(busca || '').replace(/^\s*#/, ''));
+  if (!termo) return [...vendas];
+  const soNumero = /^\d+$/.test(termo) ? termo.replace(/^0+(?=\d)/, '') : '';
+  return vendas.filter((v) => (
+    (soNumero !== '' && v.numeroPedido.replace(/^0+(?=\d)/, '').includes(soNumero))
+    || normalizeSearchText(v.clienteNome).includes(termo)
+  ));
+};
+
+export type AcaoDeReimpressao =
+  | { tipo: 'pdf_nfce'; spedyId: string }
+  | { tipo: 'nao_fiscal' }
+  | { tipo: 'bloqueada'; motivo: string };
+
+/**
+ * O que "Reimprimir" faz: com NFC-e autorizada, reabre o cupom FISCAL (nao se
+ * imprime nao fiscal de venda que tem nota); sem nota, a 2a via do nao fiscal.
+ * Venda cancelada nao reimprime.
+ */
+export const acaoDeReimpressao = (venda: VendaDoCaixa): AcaoDeReimpressao => {
+  if (venda.cancelada) return { tipo: 'bloqueada', motivo: `A venda #${venda.numeroPedido} foi cancelada: não se reimprime cupom de venda cancelada.` };
+  if (venda.nota?.situacao === 'autorizada' && venda.nota.spedyId) return { tipo: 'pdf_nfce', spedyId: venda.nota.spedyId };
+  return { tipo: 'nao_fiscal' };
+};
+
+/**
+ * Oferece "Emitir cupom fiscal" na venda: empresa que emite NFC-e, venda nao
+ * cancelada, nao marcada "Sem nota" e sem nota autorizada ou ainda na SEFAZ
+ * (a emissao falhou ou foi rejeitada na hora da venda).
+ */
+export const ofereceEmitirCupomFiscal = (venda: VendaDoCaixa, documentoDaEmpresa: DocumentoDoCupom): boolean => (
+  documentoDaEmpresa === 'nfce'
+  && !venda.cancelada
+  && venda.comNotaFiscal !== false
+  && venda.nota?.situacao !== 'autorizada'
+  && venda.nota?.situacao !== 'aguardando'
+);

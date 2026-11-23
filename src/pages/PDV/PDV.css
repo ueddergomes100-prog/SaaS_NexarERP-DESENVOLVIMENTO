@@ -1338,3 +1338,79 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ------------------------------------------------ vendas do caixa (F9, 23/11/2026): reimprimir */
+
+.pdv-vendas-modal {
+  width: min(980px, 100%);
+}
+
+.pdv-prevendas-cabecalho.pdv-vendas-linha,
+.pdv-vendas-item {
+  display: grid;
+  grid-template-columns: 72px 56px minmax(180px, 1fr) 100px auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.pdv-vendas-item {
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.pdv-vendas-item:last-child {
+  border-bottom: 0;
+}
+
+.pdv-vendas-item > span {
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.pdv-vendas-item .pdv-prevendas-cliente {
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+}
+
+.pdv-vendas-item b,
+.pdv-prevendas-cabecalho.pdv-vendas-linha span:nth-child(4) {
+  text-align: right;
+}
+
+.pdv-vendas-item.parada {
+  opacity: 0.55;
+}
+
+.pdv-vendas-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pdv-vendas-acoes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .pdv-prevendas-cabecalho.pdv-vendas-linha {
+    display: none;
+  }
+
+  .pdv-vendas-item {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pdv-vendas-acoes {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+}

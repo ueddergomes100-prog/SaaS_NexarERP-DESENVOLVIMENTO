@@ -5,7 +5,7 @@ import { spedyService } from '../../services/spedyService';
 import { createAuditLog } from '../../services/logService';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { numeroDaNota } from '../../utils/nomeArquivoDomain';
-import { htmlDoCupomNaoFiscal, montarCupomNaoFiscal, type LarguraDaBobina } from '../../utils/cupomDoCaixaDomain';
+import { dataHoraDoCupom, htmlDoCupomNaoFiscal, montarCupomNaoFiscal, quandoDaVendaNoCaixa, type LarguraDaBobina } from '../../utils/cupomDoCaixaDomain';
 
 /**
  * Cupom no fim da venda da Frente de Caixa (23/11/2026). Regra de qual cupom
@@ -61,18 +61,25 @@ export const imprimirCupomNaoFiscal = async (args: {
   documentoDoCliente?: string;
   operador: string;
   largura?: LarguraDaBobina;
+  /** Reimpressao pelo historico: sai "2a VIA", com a hora da venda e a da reimpressao. */
+  segundaVia?: boolean;
 }): Promise<void> => {
   const venda = await lerVendaGravada(args.pedidoId);
   if (!venda) throw new Error('A venda não foi encontrada para imprimir o cupom. Reimprima pelo sistema, em Pedidos de Venda.');
+  const agora = new Date();
   const cupom = montarCupomNaoFiscal({
     venda,
     empresa: args.empresa,
     documentoDoCliente: args.documentoDoCliente,
+    // Operador da 2a via e' quem reimprime; a hora do cupom continua a da venda.
     operador: args.operador,
-    emitidoEm: new Date(),
+    emitidoEm: args.segundaVia ? (quandoDaVendaNoCaixa(venda) || agora) : agora,
   });
-  await imprimirNaBobina(htmlDoCupomNaoFiscal(cupom, args.largura || 80));
+  await imprimirNaBobina(htmlDoCupomNaoFiscal(cupom, args.largura || 80, args.segundaVia ? { reimpressoEm: dataHoraDoCupom(agora) } : null));
 };
+
+/** Reabre o cupom fiscal (PDF da NFC-e) ja' autorizado, para imprimir de novo. */
+export const reabrirCupomFiscal = (spedyId: string): Promise<void> => spedyService.openFiscalFile(spedyId, 'consumer', 'pdf');
 
 export type ResultadoDoCupomFiscal =
   | { situacao: 'autorizado'; numero: string }

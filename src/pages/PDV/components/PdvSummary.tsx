@@ -129,6 +129,7 @@ const PdvSummary: React.FC<PdvSummaryProps> = ({
       <span><kbd>F6</kbd> Pagamento</span>
       <span><kbd>F7</kbd> Finalizar</span>
       {atalhoPreVendas && <span><kbd>F8</kbd> Pré-vendas</span>}
+      <span><kbd>F9</kbd> Vendas</span>
       <span><kbd>Esc</kbd> Fechar janela</span>
       <span><kbd>Enter</kbd> Confirmar</span>
     </div>

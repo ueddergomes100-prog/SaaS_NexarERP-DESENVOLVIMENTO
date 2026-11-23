@@ -105,12 +105,20 @@ export const auth = initializeAuth(app, {
  * sistema tambem guarda o login, para quem testa nao redigitar a senha a cada
  * aba. Regra (e por que nenhum site publicado muda) em loginPersistenciaDomain.ts.
  */
-const loginFicaGuardado = persistenciaDoLogin({
+const escolhaDoLogin = persistenciaDoLogin({
   pathname: window.location.pathname,
   hostname: window.location.hostname,
   modoDesenvolvimento: import.meta.env.DEV,
-}) === 'local';
-export const authPersistenceReady = setPersistence(auth, loginFicaGuardado ? browserLocalPersistence : browserSessionPersistence).catch((error) => {
+});
+/**
+ * Onde fica o login "guardado" neste ambiente. As telas de login (caixa, app
+ * Vendas, ativar computador) usam ESTE valor, nunca browserLocalPersistence
+ * direto: no desenvolvimento todas as telas tem de guardar no mesmo lugar,
+ * senao uma aba derruba a outra (loginPersistenciaDomain.ts). No site
+ * publicado e' o localStorage de sempre.
+ */
+export const persistenciaGuardada = escolhaDoLogin === 'guardado_no_dev' ? indexedDBLocalPersistence : browserLocalPersistence;
+export const authPersistenceReady = setPersistence(auth, escolhaDoLogin === 'sessao' ? browserSessionPersistence : persistenciaGuardada).catch((error) => {
   console.error('Erro ao configurar persistencia de sessao:', error);
 });
 export const storage = getStorage(app);

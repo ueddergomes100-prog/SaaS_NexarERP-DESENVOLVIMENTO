@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, KeyRound, Loader2, Lock, LogIn, User } from 'lucide-react';
-import { browserLocalPersistence, setPersistence, signInWithCustomToken } from 'firebase/auth';
-import { auth } from '../../services/firebase';
+import { setPersistence, signInWithCustomToken } from 'firebase/auth';
+import { auth, persistenciaGuardada } from '../../services/firebase';
 import { loginVendedorMobile, VendedorMobileAuthError } from '../../services/vendedorMobileAuthService';
 import { entrarComUsuarioESenha, LoginFuncionarioError } from '../../services/loginFuncionarioService';
 import { CNPJ_LEMBRADO_STORAGE_KEY, CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY, formatarCnpj, normalizarCnpj } from '../../utils/loginIdentidadeDomain';
@@ -73,7 +73,7 @@ const VendedorLoginPage: React.FC = () => {
       // sistema, ver services/firebase.ts): o app instalado na tela de
       // inicio do celular precisa continuar logado depois de fechado e
       // reaberto, diferente do desktop compartilhado.
-      await setPersistence(auth, browserLocalPersistence);
+      await setPersistence(auth, persistenciaGuardada);
       await signInWithCustomToken(auth, token);
       navigate('/vendedor', { replace: true });
     } catch (error) {

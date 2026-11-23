@@ -1,6 +1,6 @@
-import { browserLocalPersistence, setPersistence, signInWithEmailAndPassword } from 'firebase/auth';
+import { setPersistence, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth, db, persistenciaGuardada } from './firebase';
 import { entrarNaFilialPadrao } from './filialService';
 import { montarChaveUsername, normalizarCnpj } from '../utils/loginIdentidadeDomain';
 
@@ -57,7 +57,7 @@ export const entrarComUsuarioESenha = async (
     email = String(indice.data().email || '');
   }
 
-  if (persistenciaLocal) await setPersistence(auth, browserLocalPersistence);
+  if (persistenciaLocal) await setPersistence(auth, persistenciaGuardada);
   try {
     await signInWithEmailAndPassword(auth, email, dados.senha);
   } catch {

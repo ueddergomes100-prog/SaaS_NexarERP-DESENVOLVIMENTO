@@ -19,10 +19,15 @@ test('site publicado: o sistema vale so\' para a aba; app Vendas e Frente de Cai
 });
 
 test('maquina de desenvolvimento (npm run dev em localhost): o sistema tambem guarda o login', () => {
-  assert.equal(persistenciaDoLogin({ ...maquinaDeDev, pathname: '/pedidos-venda' }), 'local');
-  assert.equal(persistenciaDoLogin({ ...maquinaDeDev, pathname: '/login' }), 'local');
-  assert.equal(persistenciaDoLogin({ ...maquinaDeDev, pathname: '/caixa' }), 'local');
-  assert.equal(persistenciaDoLogin({ pathname: '/pre-vendas', hostname: '127.0.0.1', modoDesenvolvimento: true }), 'local');
+  assert.equal(persistenciaDoLogin({ ...maquinaDeDev, pathname: '/pedidos-venda' }), 'guardado_no_dev');
+  assert.equal(persistenciaDoLogin({ ...maquinaDeDev, pathname: '/login' }), 'guardado_no_dev');
+  assert.equal(persistenciaDoLogin({ pathname: '/pre-vendas', hostname: '127.0.0.1', modoDesenvolvimento: true }), 'guardado_no_dev');
+});
+
+test('maquina de desenvolvimento: sistema, caixa e app Vendas guardam o login no MESMO lugar (uma aba nao derruba a outra)', () => {
+  const lugares = ['/pedidos-venda', '/caixa', '/caixa/login', '/vendedor', '/vendedor/pedidos']
+    .map((pathname) => persistenciaDoLogin({ ...maquinaDeDev, pathname }));
+  assert.deepEqual([...new Set(lugares)], ['guardado_no_dev']);
 });
 
 test('precisa das duas coisas: modo de desenvolvimento E endereco local -- nenhum site publicado muda', () => {

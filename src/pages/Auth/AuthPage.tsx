@@ -16,10 +16,10 @@ import {
   User,
   Zap
 } from 'lucide-react';
-import { browserLocalPersistence, getIdTokenResult, setPersistence, signInWithCustomToken, signInWithEmailAndPassword, signOut, type User as UsuarioDoLogin } from 'firebase/auth';
+import { getIdTokenResult, setPersistence, signInWithCustomToken, signInWithEmailAndPassword, signOut, type User as UsuarioDoLogin } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
-import { auth, authPersistenceReady, db } from '../../services/firebase';
+import { auth, authPersistenceReady, db, persistenciaGuardada } from '../../services/firebase';
 import { clearStoredSessionId, createSessionId, setStoredSessionId } from '../../utils/session';
 import {
   buildActiveSessionWarningHtml,
@@ -318,7 +318,7 @@ const AuthPage: React.FC = () => {
     }
 
     if (entraNoCaixa) {
-      await setPersistence(auth, browserLocalPersistence);
+      await setPersistence(auth, persistenciaGuardada);
     } else {
       // Cria um ID de sessão local único
       const newSessionId = createSessionId();

@@ -1,6 +1,6 @@
-import { browserLocalPersistence, setPersistence, signInWithCustomToken } from 'firebase/auth';
+import { setPersistence, signInWithCustomToken } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth, db, persistenciaGuardada } from './firebase';
 import { API_URL, chamarServidor, ErroDoServidor } from './apiServidor';
 import { entrarNaFilial } from './filialService';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
@@ -82,7 +82,7 @@ export const abrirFilialDoComputador = async (uid: string, terminal: TerminalDoC
  */
 export const entrarNoCaixaComCodigo = async (terminal: TerminalDoCaixa, codigo: string, pin: string): Promise<{ operadorNome: string }> => {
   const { token, operadorNome } = await pedirEntradaPorCodigo(terminal, codigo, pin, 'caixa');
-  await setPersistence(auth, browserLocalPersistence);
+  await setPersistence(auth, persistenciaGuardada);
   const credencial = await signInWithCustomToken(auth, token);
   await abrirFilialDoComputador(credencial.user.uid, terminal);
   return { operadorNome };

@@ -15,10 +15,18 @@
  * protege nada numa maquina de desenvolvimento. Precisa das DUAS coisas -- o
  * modo de desenvolvimento do Vite e o endereco local --, entao nenhum site
  * publicado (producao, nem o dev da Vercel, que e' build de producao) muda.
+ *
+ * Por que 'guardado_no_dev' e nao simplesmente 'local': o Firebase, ao abrir
+ * cada aba, prefere o banco do navegador (IndexedDB) e MUDA o login de lugar
+ * quando a tela pede outro (localStorage ou sessao). Cada mudanca apaga o login
+ * do lugar antigo, e as outras abas abertas entendem "saiu" -- foi assim que
+ * abrir o caixa jogava o sistema para a tela de login (e o contrario). No
+ * desenvolvimento, sistema, caixa e app Vendas ficam todos no MESMO lugar (o
+ * IndexedDB, que o Firebase ja' prefere): nada muda de lugar, nenhuma aba cai.
  */
 import { ehAppDoCaixa } from './frenteDeCaixaDomain';
 
-export type PersistenciaDoLogin = 'local' | 'sessao';
+export type PersistenciaDoLogin = 'local' | 'sessao' | 'guardado_no_dev';
 
 const ENDERECOS_LOCAIS = ['localhost', '127.0.0.1', '[::1]', '::1'];
 
@@ -36,7 +44,8 @@ export const persistenciaDoLogin = (args: {
   /** `import.meta.env.DEV`: true so' no `npm run dev`, nunca no site publicado. */
   modoDesenvolvimento: boolean;
 }): PersistenciaDoLogin => {
+  // Antes dos apps: no desenvolvimento os tres (sistema, caixa, app Vendas) usam o mesmo lugar.
+  if (args.modoDesenvolvimento === true && ehEnderecoLocal(args.hostname)) return 'guardado_no_dev';
   if (ehAppVendas(args.pathname) || ehAppDoCaixa(args.pathname)) return 'local';
-  if (args.modoDesenvolvimento === true && ehEnderecoLocal(args.hostname)) return 'local';
   return 'sessao';
 };

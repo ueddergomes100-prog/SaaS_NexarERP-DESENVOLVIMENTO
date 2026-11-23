@@ -33,6 +33,7 @@ const MODULOS = [
   'src/utils/embalagemDomain.ts',
   'src/utils/unidadeMedidaDomain.ts',
   'src/utils/preVendaDomain.ts',
+  'src/utils/importacaoPedidosAnterioresDomain.ts',
   'src/utils/condicionalDomain.ts',
   'src/utils/filialDomain.ts',
   'src/utils/cadastroGrupoDomain.ts',

@@ -28,6 +28,7 @@ const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domai
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { ErroVenda, temPermissao } = require('./vendaFechamento');
 const { registrarLogNaTransacao } = require('./auditoria');
+const { ehPedidoDoSistemaAnterior, mensagemPedidoDoSistemaAnterior } = require('../domain/importacaoPedidosAnterioresDomain');
 
 const reaisDoHistorico = (centavos) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(centavos) || 0) / 100);
 
@@ -89,6 +90,8 @@ const cancelarVenda = async ({ user, tenantId, corpo }) => {
     // ---------------- LEITURAS ----------------
     const pedidoRef = db.collection('pedidos_venda').doc(pedidoId);
     const venda = lerPedido(await tx.get(pedidoRef), tenantId, 'A venda');
+    // Venda importada do sistema anterior (23/11/2026): estoque e financeiro dela ficaram no sistema antigo.
+    if (ehPedidoDoSistemaAnterior(venda)) throw new ErroVenda(409, mensagemPedidoDoSistemaAnterior('cancelada'));
     const numeroPedido = String(venda.numeroPedido || '');
     if (venda.status === 'Cancelada') throw new ErroVenda(409, 'Esta venda já foi cancelada.');
     if (venda.status !== 'Finalizada') {
@@ -335,6 +338,7 @@ const alterarPagamento = async ({ user, tenantId, corpo }) => {
 
   // Total e data vem da venda GRAVADA, nunca da tela.
   const vendaAntes = lerPedido(await db.collection('pedidos_venda').doc(pedidoId).get(), tenantId);
+  if (ehPedidoDoSistemaAnterior(vendaAntes)) throw new ErroVenda(409, mensagemPedidoDoSistemaAnterior('ter o pagamento alterado'));
   const totalCentavos = Number(vendaAntes.valorTotalCentavos ?? fin.toCents(Number(vendaAntes.valorTotal || 0)));
   const financeiro = configFinanceiraDaEmpresa(config);
   const [bandeirasSnap, bancosSnap] = await Promise.all([

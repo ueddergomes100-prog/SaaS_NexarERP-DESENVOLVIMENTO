@@ -83,6 +83,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import DevolucaoVendaModal from './DevolucaoVendaModal';
+import { ehPedidoDoSistemaAnterior, mensagemPedidoDoSistemaAnterior } from '../../utils/importacaoPedidosAnterioresDomain';
 import {
   buildCardFeeSchedulesByBrand,
   buildCommissionSnapshotFromItems,
@@ -538,6 +539,11 @@ const PedidoVendaForm: React.FC = () => {
   const [status, setStatus] = useState('Aberta');
   // Quem cancelou e quando (aviso no topo do pedido cancelado, 09/11/2026).
   const [cancelamentoInfo, setCancelamentoInfo] = useState<{ nome: string; quando: unknown; motivo: string } | null>(null);
+  // Venda importada do sistema anterior (23/11/2026): so' consulta e impressao. Estoque e financeiro
+  // dela ficaram no sistema antigo -- cancelar, devolver, emitir nota ou alterar pagamento aqui
+  // estornaria o que o Hennder nunca lancou. O servidor recusa tambem.
+  const [pedidoImportado, setPedidoImportado] = useState(false);
+  const [numeroNoSistemaAnterior, setNumeroNoSistemaAnterior] = useState('');
   const [itens, setItens] = useState<ItemVenda[]>([]);
   const [orcamentoId, setOrcamentoId] = useState('');
   const [showDevolucaoModal, setShowDevolucaoModal] = useState(false);
@@ -791,7 +797,7 @@ const PedidoVendaForm: React.FC = () => {
 
   const { baixarLotesNaTransacao, camposDeLoteDoItem, conferirLotesDoEstornoNaTransacao, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, estornarLotesDaDevolucaoNaTransacao, linhasParaLote, prepararBaixaDeLotes } = loteBaixa;
   const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
-  const canReturnVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao'));
+  const canReturnVenda = !pedidoImportado && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao')));
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
   // (nenhuma tela deste sistema grava esse texto). Fica editavel/finalizavel
   // atras da permissao mestre; as 4 granulares abaixo so controlam campos
@@ -971,6 +977,7 @@ const PedidoVendaForm: React.FC = () => {
   const vendaTemDevolucao = itens.some((item) => (item.quantidadeJaDevolvida || 0) > 0);
   const canAlterarPagamentoFinalizada = isViewing
     && status === 'Finalizada'
+    && !pedidoImportado
     && alterarPagamentoAtivo
     && temPermissao('vendas.alterar_pagamento_finalizada');
   const motivoBloqueioAlterarPagamento = nfceAutorizada
@@ -1258,6 +1265,8 @@ const PedidoVendaForm: React.FC = () => {
             // em vez de decidir sozinho (ver resolverDataVendaParaGravar).
             dataVendaEscolhidaPeloUsuario.current = true;
             setNumeroPedido(p.numeroPedido || '');
+            setPedidoImportado(ehPedidoDoSistemaAnterior(p));
+            setNumeroNoSistemaAnterior(String(p.sistemaAnterior?.numero || ''));
             setStatus(p.status || 'Finalizada');
             setCancelamentoInfo(p.status === 'Cancelada'
               ? { nome: String(p.canceladaPorNome || ''), quando: p.canceladaEm || p.alteradoEm || p.updatedAt || null, motivo: String(p.motivoCancelamento || p.motivoRecusa || '') }
@@ -4733,6 +4742,10 @@ const PedidoVendaForm: React.FC = () => {
 
   const handleEmitirCupomVendaExistente = async () => {
     if (!currentUser || !tenantId || !id) return;
+    if (pedidoImportado) {
+      showError('Venda do sistema anterior', mensagemPedidoDoSistemaAnterior('faturada com nota'));
+      return;
+    }
 
     // Nota so' sai de PEDIDO finalizado -- pre-venda espera virar pedido. O
     // botao ja' so' aparece na venda finalizada; esta trava cobre qualquer
@@ -4951,6 +4964,10 @@ const PedidoVendaForm: React.FC = () => {
   const handleCancelarVenda = async () => {
     if (submitLockRef.current) return;
     if (!currentUser || !tenantId || !id) return;
+    if (pedidoImportado) {
+      showError('Venda do sistema anterior', mensagemPedidoDoSistemaAnterior('cancelada'));
+      return;
+    }
 
     const temDevolucao = itens.some(item => (item.quantidadeJaDevolvida || 0) > 0);
     if (temDevolucao) {
@@ -5783,6 +5800,12 @@ const PedidoVendaForm: React.FC = () => {
                 <AvisoQuemFez texto={`${textoQuemEQuando('Cancelado', cancelamentoInfo.nome, cancelamentoInfo.quando)}${cancelamentoInfo.motivo ? `. Motivo: ${cancelamentoInfo.motivo}` : ''}`} />
               </div>
             )}
+            {isViewing && pedidoImportado && (
+              <div role="status" style={{ marginTop: '8px', padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(139,92,246,0.45)', fontSize: '13.5px', color: 'var(--text-primary)', lineHeight: 1.45 }}>
+                <strong>Venda do sistema anterior{numeroNoSistemaAnterior ? ` (pedido ${numeroNoSistemaAnterior})` : ''}.</strong>{' '}
+                Só para consulta e impressão: o estoque e o financeiro dela ficaram no sistema antigo, então não dá para cancelar, devolver, emitir nota nem alterar o pagamento aqui.
+              </div>
+            )}
             {/* Numero da NF-e da venda sempre a' vista (2026-09-30). Autorizada: clica e abre o PDF. */}
             {!isViewing && !copiarDe && !doOrcamento && (
               <button
@@ -5954,7 +5977,10 @@ const PedidoVendaForm: React.FC = () => {
               ) : documentoFiscalVenda === 'nfe' ? (
                 <button
                   className="btn-primary"
-                  onClick={() => navigate(rotaEmissaoNFe(id!))}
+                  onClick={() => {
+                    if (pedidoImportado) { showError('Venda do sistema anterior', mensagemPedidoDoSistemaAnterior('faturada com nota')); return; }
+                    navigate(rotaEmissaoNFe(id!));
+                  }}
                   style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
                   title={nfeVinculada && (nfeVinculada.status === 'rejected' || nfeVinculada.status === 'denied')
                     ? 'A NF-e desta venda foi rejeitada — abre a tela de Nota Fiscal para corrigir e transmitir'

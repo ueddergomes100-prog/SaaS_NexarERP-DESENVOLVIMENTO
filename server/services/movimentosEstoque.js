@@ -12,6 +12,7 @@
 const { db } = require('../config/firebase');
 const md = require('../domain/movimentosEstoqueDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
+const { ehPedidoDoSistemaAnterior } = require('../domain/importacaoPedidosAnterioresDomain');
 
 /** Timestamp do Firestore, ISO ou Date -> ms (null quando nao ha' data). */
 const ms = (v) => {
@@ -55,7 +56,10 @@ const lerOrigens = async ({ tenantId, de, ateYmd, inicioTs, fimTs }) => {
   };
 
   const linhas = [];
-  unicos(pedidosNoPeriodo, pedidosCancelados).forEach((p) => linhas.push(...md.movimentosDoPedido({ ...p, canceladaEmMillis: ms(p.canceladaEm) })));
+  // Venda importada do sistema anterior (23/11/2026) nao mexeu no estoque do Hennder: o saldo veio pronto
+  // na migracao. Entra so' depois de faturada aqui (a pre-venda importada perde a marca ao faturar).
+  unicos(pedidosNoPeriodo, pedidosCancelados).filter((p) => !ehPedidoDoSistemaAnterior(p))
+    .forEach((p) => linhas.push(...md.movimentosDoPedido({ ...p, canceladaEmMillis: ms(p.canceladaEm) })));
   docs(devolucoesVenda).forEach((d) => linhas.push(...md.movimentosDaDevolucaoVenda({ ...d, createdAtMillis: ms(d.createdAt), estornadaEmMillis: ms(d.estornadaEm) })));
   docs(osNoPeriodo).forEach((o) => linhas.push(...md.movimentosDaOS({ ...o, finalizadaEmMillis: ms(o.finalizadaEm) })));
   docs(entregasFuturas).forEach((e) => linhas.push(...md.movimentosDaEntregaFutura({ ...e, createdAtMillis: ms(e.createdAt) ?? ms(e.criadoEmIso) })));

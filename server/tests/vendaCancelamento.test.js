@@ -271,3 +271,35 @@ test('a parte paga com credito de devolucao nao muda por aqui', async () => {
     (erro) => erro.status === 409 && /crédito de devolução/.test(erro.message),
   );
 });
+
+// ------------------------------------------------------------- venda importada do sistema anterior (23/11/2026)
+
+test('venda importada do sistema anterior: nao cancela nem altera pagamento; nada volta ao estoque', async () => {
+  const importada = () => criarBancoFalso(base({
+    'pedidos_venda/v1': venda({ importadoSistemaAnterior: true, numeroPedido: '113500', pagamentos: [] }),
+    'transacoes/v1': undefined,
+  }), { consultas: true });
+  const a = importada();
+  await assert.rejects(
+    () => carregar(a.db).cancelarVenda({ user: GERENTE, tenantId: 'loja', corpo: { pedidoId: 'v1', motivo: 'teste' } }),
+    (erro) => erro.status === 409 && /sistema anterior/.test(erro.message) && /cancelada/.test(erro.message),
+  );
+  assert.equal(a.ler('pedidos_venda/v1').status, 'Finalizada');
+  assert.equal(a.ler('estoque/p1').quantidade, 8);
+  const b = importada();
+  await assert.rejects(
+    () => carregar(b.db).alterarPagamento({ user: GERENTE, tenantId: 'loja', corpo: { pedidoId: 'v1', pagamentos: [pagamento()] } }),
+    (erro) => erro.status === 409 && /sistema anterior/.test(erro.message),
+  );
+  assert.equal(b.ler('bancos/b1').saldoCentavos, 100000);
+});
+
+test('pre-venda importada do sistema anterior cancela normalmente e libera a reserva', async () => {
+  const fake = criarBancoFalso(base({
+    'pedidos_venda/v1': venda({ status: 'Pré-venda', estoqueReservado: true, importadoSistemaAnterior: true }),
+    'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 10, quantidadeReservada: 2 },
+  }), { consultas: true });
+  const r = await carregar(fake.db).cancelarPreVenda({ user: GERENTE, tenantId: 'loja', corpo: { pedidoId: 'v1' } });
+  assert.equal(r.reservaLiberada, true);
+  assert.equal(fake.ler('estoque/p1').quantidadeReservada, 0);
+});

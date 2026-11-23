@@ -4,6 +4,7 @@ import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/fire
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import DevolucaoVendaModal from './DevolucaoVendaModal';
+import { ehPedidoDoSistemaAnterior } from '../../utils/importacaoPedidosAnterioresDomain';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
@@ -57,7 +58,8 @@ const DevolucoesVenda: React.FC = () => {
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const lista: PedidoVendaResumo[] = [];
-      snapshot.forEach((docSnap) => lista.push({ id: docSnap.id, ...docSnap.data() } as PedidoVendaResumo));
+      // Venda importada do sistema anterior nao se devolve aqui (o estoque e o financeiro dela ficaram la).
+      snapshot.forEach((docSnap) => { if (!ehPedidoDoSistemaAnterior(docSnap.data())) lista.push({ id: docSnap.id, ...docSnap.data() } as PedidoVendaResumo); });
       lista.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setPedidos(lista);
       setLoading(false);

@@ -248,6 +248,7 @@ const ClientesList: React.FC = () => {
               },
               { texto: 'Importar clientes', Icone: Upload, onClick: () => openTab('/clientes/importar', 'Importar Clientes'), separadorAntes: true },
               { texto: 'Importar histórico do sistema anterior', Icone: Upload, onClick: () => openTab('/clientes/importar-historico', 'Importar Histórico') },
+              { texto: 'Importar pedidos do sistema anterior', Icone: Upload, onClick: () => openTab('/clientes/importar-pedidos-anteriores', 'Importar Pedidos') },
               { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
             ]}
           />

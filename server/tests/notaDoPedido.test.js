@@ -77,3 +77,15 @@ test('trocar com/sem nota: permissao, registro e pedido com nota nao vira sem no
   const igual = await s.definirComNotaFiscal({ user: gerente, tenantId: 'loja', pedidoId: 'p3', comNotaFiscal: true });
   assert.equal(igual.mudou, false);
 });
+
+test('venda importada do sistema anterior (23/11/2026): nao emite NF-e nem NFC-e e nao trava', async () => {
+  const fake = criarBancoFalso({ 'pedidos_venda/p1': pedido({ importadoSistemaAnterior: true, comNotaFiscal: true }) }, { consultas: true });
+  const s = carregar(fake.db);
+  for (const tipo of ['NF-e', 'NFC-e']) {
+    await assert.rejects(
+      () => s.travarEmissao({ tenantId: 'loja', pedidoId: 'p1', tipo, integrationId: 'x', uid: 'u1' }),
+      (e) => e.status === 409 && /sistema anterior/.test(e.message),
+    );
+  }
+  assert.equal(fake.ler('pedidos_venda/p1').notaEmissaoEmAndamento, undefined);
+});

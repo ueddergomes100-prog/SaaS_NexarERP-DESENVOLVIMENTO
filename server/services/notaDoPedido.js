@@ -13,6 +13,7 @@
  */
 const { admin, db } = require('../config/firebase');
 const nd = require('../domain/notaDoPedidoDomain');
+const { ehPedidoDoSistemaAnterior, mensagemPedidoDoSistemaAnterior } = require('../domain/importacaoPedidosAnterioresDomain');
 
 class ErroNotaDoPedido extends Error {
   constructor(status, message) {
@@ -60,6 +61,8 @@ const travarEmissao = async ({ tenantId, pedidoId, tipo, integrationId, uid }) =
     const notasSnap = await tx.get(db.collection('notas_fiscais')
       .where('tenantId', '==', tenantId)
       .where('pedidoId', '==', pedidoId.trim()));
+    // Venda importada do sistema anterior (23/11/2026): a nota dela, se teve, saiu no sistema antigo.
+    if (ehPedidoDoSistemaAnterior(pedido)) throw new ErroNotaDoPedido(409, mensagemPedidoDoSistemaAnterior('faturada com nota'));
     const motivo = nd.motivoParaNaoEmitir({
       numeroPedido: pedido.numeroPedido || null,
       status: pedido.status || null,

@@ -3,6 +3,8 @@ import { mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { formatarDocumento } from '../../utils/documentoValidacao';
 import { ehPreVenda, STATUS_PRE_VENDA, STATUS_EM_ANALISE, STATUS_FINALIZADA, STATUS_CANCELADA } from '../../utils/preVendaDomain';
+import { qrPixDoPedido } from '../../utils/pixPedidoDomain';
+import QrCodePix from '../../components/common/QrCodePix';
 import './PedidoPrintMeiaFolha.css';
 
 interface Parcela {
@@ -91,6 +93,8 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
   }, []);
 
   const endereco = formatCompanyAddress(configData);
+  // QR Code Pix (23/11/2026, pixPedidoDomain.ts): ligado por empresa, so' no que falta pagar.
+  const pix = qrPixDoPedido(configData, pedidoData);
 
   // Endereco do cliente montado das partes que existirem: cadastro sem
   // numero ou sem bairro nao pode imprimir "RUA X, - " com sobra de
@@ -223,21 +227,43 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
         </div>
       </div>
 
-      <p className="mf-situacao"><strong>Situação Atual:</strong> {situacao}</p>
+      {/* Cadastro incompleto para o Pix: o aviso aparece so' na tela, nunca no papel do cliente. */}
+      {pix && 'problema' in pix && <p className="mf-pix-aviso no-print">{pix.problema}</p>}
 
-      {configData?.observacoesPadraoPedido && (
-        <div className="mf-observacoes">
-          <strong>Observações:</strong>
-          <p>{configData.observacoesPadraoPedido}</p>
+      {/* Rodape em duas colunas (23/11/2026): situacao, observacoes e assinaturas a
+          esquerda; o QR Code Pix no canto de baixo a direita, embaixo do total --
+          lado a lado, o papel quase nao cresce. */}
+      <div className="mf-rodape">
+        <div className="mf-rodape-texto">
+          <p className="mf-situacao"><strong>Situação Atual:</strong> {situacao}</p>
+
+          {configData?.observacoesPadraoPedido && (
+            <div className="mf-observacoes">
+              <strong>Observações:</strong>
+              <p>{configData.observacoesPadraoPedido}</p>
+            </div>
+          )}
+          {mensagemDoDocumento(configData, 'recibo') && (
+            <p className="mf-situacao" style={{ whiteSpace: 'pre-line' }}>{mensagemDoDocumento(configData, 'recibo')}</p>
+          )}
+
+          <div className="mf-signatures">
+            <p>Assinatura: <span className="mf-sig-line" /></p>
+            <p>Despacho: <span className="mf-sig-line" /></p>
+          </div>
         </div>
-      )}
-      {mensagemDoDocumento(configData, 'recibo') && (
-        <p className="mf-situacao" style={{ whiteSpace: 'pre-line' }}>{mensagemDoDocumento(configData, 'recibo')}</p>
-      )}
 
-      <div className="mf-signatures">
-        <p>Assinatura: <span className="mf-sig-line" /></p>
-        <p>Despacho: <span className="mf-sig-line" /></p>
+        {pix && 'copiaECola' in pix && (
+          <div className="mf-pix">
+            <div className="mf-pix-texto">
+              <strong>Pague com Pix</strong>
+              <span>Aponte a câmera do celular no app do banco</span>
+              <b>R$ {formatNumber(pix.valorCentavos / 100)}</b>
+              <span>{pix.chaveParaMostrar}</span>
+            </div>
+            <QrCodePix texto={pix.copiaECola} tamanho="22mm" titulo={`QR Code Pix de R$ ${formatNumber(pix.valorCentavos / 100)}`} />
+          </div>
+        )}
       </div>
 
       <p className="mf-footer-brand">Desenvolvido por Hennder ERP</p>

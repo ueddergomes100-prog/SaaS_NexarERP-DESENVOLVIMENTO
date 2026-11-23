@@ -26,6 +26,7 @@ import { isCnpjValido } from '../../utils/documentoValidacao';
 import { avisoDaSituacao, ehMeiNaReceita, preenchimentoPelaReceita, regimeSugerido, soOsVazios, type CamposDaEmpresa } from '../../utils/cnpjPreenchimentoDomain';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
 import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
+import { normalizarChavePix, parseConfigPixPedido } from '../../utils/pixPedidoDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { MODULE_GROUPS } from '../../utils/moduleCatalog';
 import { PERMISSION_CATALOG, desmarcarPermissoes, estadoDaSelecao, marcarPermissoes, permissionLabelMap } from '../../utils/permissionCatalog';
@@ -232,6 +233,8 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   { campo: 'diasNotificacaoLembrete', rotulo: 'Antecedência dos lembretes preventivos (dias)', formatar: numeroHistorico },
   { campo: 'modeloImpressaoOS', rotulo: 'Modelo de impressão da OS' },
   { campo: 'modeloImpressaoPedidoVenda', rotulo: 'Modelo de impressão do pedido' },
+  { campo: 'pixNoPedidoAtivo', rotulo: 'QR Code Pix no pedido', formatar: simNaoHistorico },
+  { campo: 'pixNoPedidoChave', rotulo: 'Chave Pix do QR Code do pedido' },
   // Parametros de venda
   { campo: 'venderSemEstoque', rotulo: 'Permitir venda sem estoque', formatar: simNaoHistorico },
   { campo: 'venderPorEmbalagem', rotulo: 'Vender por embalagem', formatar: simNaoHistorico },
@@ -549,6 +552,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     mostrarResumoEstoque: DEFAULT_MOSTRAR_RESUMO_ESTOQUE,
     modeloImpressaoPedidoVenda: DEFAULT_PEDIDO_PRINT_MODEL,
     observacoesPadraoPedido: '',
+    pixNoPedidoAtivo: false,
+    pixNoPedidoChave: '',
     spedyEnabled: false,
     spedyApiKey: '',
     spedyEnvironment: 'sandbox',
@@ -747,6 +752,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             mostrarResumoEstoque: parseMostrarResumoEstoque(data.mostrarResumoEstoque),
             modeloImpressaoPedidoVenda: data.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL,
             observacoesPadraoPedido: data.observacoesPadraoPedido || '',
+            pixNoPedidoAtivo: parseConfigPixPedido(data).ativo,
+            pixNoPedidoChave: parseConfigPixPedido(data).chave,
             spedyEnabled: data.spedyEnabled ?? false,
             spedyApiKey: privateSpedyApiKey,
             spedyEnvironment: data.spedyEnvironment ?? 'sandbox',
@@ -1159,6 +1166,22 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const cnpjLimpo = formData.cnpj.replace(/\D/g, '');
       if (cnpjLimpo.length !== 14) {
         showError('Atenção', 'O CNPJ deve conter 14 dígitos válidos.');
+        return;
+      }
+    }
+
+    // QR Code Pix no pedido (23/11/2026): ligado, a chave (ou o CNPJ) e a cidade
+    // tem de servir -- um QR que nao paga nao pode ir para o papel do cliente.
+    if (formData.pixNoPedidoAtivo) {
+      const chaveDoPix = normalizarChavePix(formData.pixNoPedidoChave.trim() || formData.cnpj || '');
+      if ('erro' in chaveDoPix) {
+        showError('QR Code Pix no pedido', formData.pixNoPedidoChave.trim()
+          ? chaveDoPix.erro
+          : 'A chave Pix em branco usa o CNPJ da empresa, e ele não está preenchido. Informe o CNPJ ou a chave Pix.');
+        return;
+      }
+      if (!String(formData.nfseCidadeNome || '').trim()) {
+        showError('QR Code Pix no pedido', 'O Pix leva a cidade de quem recebe. Preencha "Cidade da empresa" (na parte de Nota Fiscal) e salve de novo.');
         return;
       }
     }
@@ -2408,6 +2431,44 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     disabled={!isEditingMode}
                     style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', resize: 'vertical' }}
                   />
+                </div>
+
+                {/* QR Code Pix no pedido (23/11/2026, pixPedidoDomain.ts): liga por empresa. */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '13px', color: 'var(--text-primary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.pixNoPedidoAtivo === true}
+                      onChange={(e) => setFormData({ ...formData, pixNoPedidoAtivo: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                    />
+                    <span>
+                      <strong>Imprimir QR Code Pix no pedido</strong>
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                        O pedido em <strong>meia folha</strong> sai com um QR Code Pix já com o valor: o cliente escaneia no app do banco e paga.
+                        Sai só no que falta pagar: na pré-venda, o total; na venda, o que ficou em boleto ou a prazo. Venda paga na hora
+                        (dinheiro, Pix, cartão) e venda cancelada saem sem QR.
+                      </span>
+                    </span>
+                  </label>
+                  {formData.pixNoPedidoAtivo && (
+                    <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '26px' }}>
+                      <label htmlFor="pixNoPedidoChave" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Chave Pix (em branco = o CNPJ da empresa)</label>
+                      <input
+                        id="pixNoPedidoChave"
+                        value={formData.pixNoPedidoChave}
+                        // Sem caixa alta: chave aleatoria e e-mail vao como o banco cadastrou.
+                        onChange={(e) => setFormData({ ...formData, pixNoPedidoChave: e.target.value })}
+                        disabled={!isEditingMode}
+                        autoComplete="off"
+                        style={{ maxWidth: '420px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
+                      />
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        Use a chave cadastrada no banco que recebe: CNPJ, CPF, e-mail, telefone ou chave aleatória. Confira com um Pix de teste antes de entregar ao cliente.
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </>

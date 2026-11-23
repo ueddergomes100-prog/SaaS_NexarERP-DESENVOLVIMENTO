@@ -228,7 +228,9 @@
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  padding-top: 18px;
+  /* Mais espaco acima da linha (23/11/2026, pedido da Embala Minas): com 18px a
+     linha ficava grudada no texto de cima e nao sobrava lugar para assinar. */
+  padding-top: 30px;
   font-size: 9.5px;
 }
 
@@ -289,5 +291,65 @@
 
   .mf-page:last-child {
     page-break-after: auto;
+  }
+}
+
+/* -- rodape com o QR Code Pix (23/11/2026) -------------------------------------
+   O rodape vira duas colunas: texto + assinaturas a esquerda, QR a direita. E'
+   ele que ocupa a sobra da pagina (flex: 1) para as assinaturas continuarem
+   embaixo, como antes. Sem QR, a coluna da esquerda ocupa tudo e nada muda. */
+.mf-rodape {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  min-height: 0;
+}
+
+.mf-rodape-texto {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mf-pix {
+  align-self: flex-end;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.mf-pix-texto {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: 1px;
+  font-size: 8px;
+  line-height: 1.2;
+}
+
+.mf-pix-texto strong {
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.mf-pix-texto b {
+  font-size: 11px;
+}
+
+.mf-pix-aviso {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border: 1px dashed #b45309;
+  color: #b45309;
+  font-size: 10px;
+}
+
+@media print {
+  .mf-pix-aviso {
+    display: none !important;
   }
 }

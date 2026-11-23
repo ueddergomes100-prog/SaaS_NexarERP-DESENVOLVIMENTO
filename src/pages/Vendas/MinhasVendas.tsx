@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, Loader2, Printer, UserCheck } from 'lucide-react';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { TabActiveContext, useTabs } from '../../contexts/TabsContext';
@@ -130,10 +130,14 @@ const MinhasVendas: React.FC = () => {
     setLoading(true);
     setErro('');
 
+    // Velocidade (23/11/2026): as 500 mais recentes, nao todas -- vendedor com historico importado
+    // da migracao chega a 5 mil vendas. Indice tenantId + vendedorId + createdAt (o do app Vendas).
     getDocs(query(
       collection(db, 'pedidos_venda'),
       where('tenantId', '==', tenantId),
       where('vendedorId', '==', vendedor.vendedorId),
+      orderBy('createdAt', 'desc'),
+      limit(500),
     )).then((snap) => {
       if (cancelado) return;
       setVendas(snap.docs.map((documento) => ({ id: documento.id, ...documento.data() } as VendaData)));

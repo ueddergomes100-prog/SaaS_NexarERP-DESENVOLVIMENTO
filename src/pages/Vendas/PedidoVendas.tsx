@@ -37,6 +37,7 @@ import { tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
 import AvatarIniciais from '../../components/common/AvatarIniciais';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
+import { LINHAS_POR_VEZ } from '../../hooks/useTermoAdiado';
 import AlcaLarguraColuna, { useLarguraColuna } from '../../components/common/AlcaLarguraColuna';
 import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { descreverTrava, mensagemDeBloqueio } from '../../utils/travaEdicaoDomain';
@@ -496,6 +497,10 @@ const PedidoVendas: React.FC = () => {
   const filtroDataValeNestaAba = !abaDePedidosEmAberto || periodoEscolhido;
   const periodoAplicado = filtroDataValeNestaAba ? periodoDataFiltro : null;
 
+  // Velocidade (23/11/2026): a tabela desenha LINHAS_POR_VEZ linhas e "Mostrar mais" traz as
+  // outras (mesmo padrao de Clientes/Estoque). Desenhar 450+ linhas de uma vez travava a tela
+  // por ~1 s. Totais, abas e "selecionar todos" continuam sobre a lista inteira.
+  const [limiteNaTela, setLimiteNaTela] = useState(LINHAS_POR_VEZ);
   const filteredPedidos = pedidosDoContexto.filter(p => {
     if (filtroVendedor && chaveVendedorFiltro(p.vendedorNome || '') !== chaveVendedorFiltro(filtroVendedor)) return false;
     if (filtroFormaPagamento && p.formaPagamento !== filtroFormaPagamento) return false;
@@ -991,7 +996,7 @@ const PedidoVendas: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredPedidos.map(p => (
+                filteredPedidos.slice(0, limiteNaTela).map(p => (
                   // 1 clique seleciona, 2 cliques abrem o pedido -- mesmo padrao
                   // de Estoque/Clientes/OS/Orcamentos. Esta tela abria com 1
                   // clique so; passou a exigir 2 pra ficar consistente com as
@@ -1114,6 +1119,13 @@ const PedidoVendas: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {!loading && filteredPedidos.length > limiteNaTela && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px' }}>
+            <button type="button" className="btn-secondary" onClick={() => setLimiteNaTela((n) => n + LINHAS_POR_VEZ)}>
+              Mostrar mais ({(filteredPedidos.length - limiteNaTela).toLocaleString('pt-BR')} restantes)
+            </button>
+          </div>
+        )}
       </div>
 
       {!loading && filteredPedidos.length > 0 && (

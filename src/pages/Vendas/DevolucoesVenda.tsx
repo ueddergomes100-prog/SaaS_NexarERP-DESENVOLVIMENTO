@@ -5,6 +5,17 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import DevolucaoVendaModal from './DevolucaoVendaModal';
 import { ehPedidoDoSistemaAnterior } from '../../utils/importacaoPedidosAnterioresDomain';
+import { getDateInputInTimeZone } from '../../utils/dateTime';
+
+/** Velocidade (23/11/2026): a lista lia AO VIVO todas as vendas finalizadas da empresa -- com o
+ *  historico importado da migracao, sao 15 mil documentos a cada abertura. Agora le os ultimos
+ *  DIAS_PADRAO_DEVOLUCAO dias, ou desde o "De" do filtro quando ele e' mais antigo. */
+const DIAS_PADRAO_DEVOLUCAO = 180;
+const inicioPadraoDevolucao = (): string => {
+  const d = new Date(`${getDateInputInTimeZone()}T12:00:00`);
+  d.setDate(d.getDate() - DIAS_PADRAO_DEVOLUCAO);
+  return d.toISOString().slice(0, 10);
+};
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
@@ -49,12 +60,16 @@ const DevolucoesVenda: React.FC = () => {
   const [periodoAte, setPeriodoAte] = useState('');
   const [pedidoSelecionado, setPedidoSelecionado] = useState<PedidoVendaResumo | null>(null);
 
+  const padrao = inicioPadraoDevolucao();
+  const inicioDaConsulta = /^\d{4}-\d{2}-\d{2}$/.test(periodoDe) && periodoDe < padrao ? periodoDe : padrao;
+
   useEffect(() => {
     if (!tenantId) return;
     const q = query(
       collection(db, 'pedidos_venda'),
       where('tenantId', '==', tenantId),
       where('status', '==', 'Finalizada'),
+      where('dataVenda', '>=', inicioDaConsulta),
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const lista: PedidoVendaResumo[] = [];
@@ -68,7 +83,7 @@ const DevolucoesVenda: React.FC = () => {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [tenantId]);
+  }, [tenantId, inicioDaConsulta]);
 
   const termo = searchTerm.trim().toLowerCase();
   const podeDevolver = (p: PedidoVendaResumo) => (p.itens || []).some((item) => (item.quantidade - (item.quantidadeJaDevolvida || 0)) > 0);

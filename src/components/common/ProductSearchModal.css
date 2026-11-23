@@ -359,6 +359,11 @@
   border-bottom: 0;
 }
 
+/* Atacado na ficha (23/11/2026): mesma linha das outras, valor na cor de destaque. */
+.product-search-modal__dados > div.is-atacado dd {
+  color: var(--accent-purple, #7c3aed);
+}
+
 .product-search-modal__dados dt {
   color: var(--text-secondary);
 }

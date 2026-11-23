@@ -1,6 +1,7 @@
 import React from 'react';
 import { destacarTrechosDaBusca, nivelDeEstoque } from '../../utils/buscaProdutoOpcaoDomain';
 import { resumoDeReserva } from '../../utils/estoqueReservaDomain';
+import { atacadoParaBusca } from '../../utils/fichaProdutoBuscaDomain';
 
 /**
  * A linha de produto na busca -- autocomplete e popup "Ver mais".
@@ -52,6 +53,8 @@ export interface ProdutoParaOpcaoBusca {
   quantidadeReservada?: number | null;
   unidadeMedidaSigla?: string | null;
   unidadeMedidaCasasDecimais?: number | null;
+  /** Aba "Atacado" do cadastro: a menor faixa aparece embaixo do preco. */
+  atacado?: unknown;
 }
 
 const ROTULO_ESTOQUE: Record<ReturnType<typeof nivelDeEstoque>, string> = {
@@ -84,6 +87,8 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
   // Reserva visivel em TODA busca (maquinas pesadas, fase 2): quem tem
   // estoque reservado ve o disponivel de verdade, nao so o total.
   const reserva = resumoDeReserva(produto);
+  // Atacado (23/11/2026): a primeira faixa embaixo do preco, na coluna do preco.
+  const atacado = atacadoParaBusca(produto)[0];
 
   return (
     <>
@@ -95,7 +100,15 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
         ))}
       </span>
 
-      <span className="produto-opcao__preco">{formatarPreco(produto.precoVenda)}</span>
+      <span className="produto-opcao__preco">
+        {formatarPreco(produto.precoVenda)}
+        {atacado && (
+          <span className="produto-opcao__atacado" title={`Preço de atacado: ${formatarPreco(atacado.preco)} ${atacado.quantidade}`}>
+            <span>Atacado {formatarPreco(atacado.preco)}</span>
+            <span>{atacado.quantidade}</span>
+          </span>
+        )}
+      </span>
 
       <span className="produto-opcao__meta">
         <span className={`produto-opcao__estoque is-${nivel}`}>

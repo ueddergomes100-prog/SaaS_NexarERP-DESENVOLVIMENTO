@@ -314,8 +314,8 @@ function ProductSearchModalInner<T extends SearchableProduct & { id: string }>({
 
               {ficha.linhas.length > 0 && (
                 <dl className="product-search-modal__dados">
-                  {ficha.linhas.map((linha) => (
-                    <div key={linha.id}>
+                  {ficha.linhas.map((linha, indice) => (
+                    <div key={`${linha.id}-${indice}`} className={linha.id === 'atacado' ? 'is-atacado' : undefined}>
                       <dt>{linha.rotulo}</dt>
                       <dd className={linha.nivel ? `is-${linha.nivel}` : undefined}>{linha.valor}</dd>
                     </div>

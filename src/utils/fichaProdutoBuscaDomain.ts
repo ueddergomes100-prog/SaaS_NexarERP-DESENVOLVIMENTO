@@ -1,5 +1,6 @@
 import { nivelDeEstoque, type NivelEstoque } from './buscaProdutoOpcaoDomain';
 import { resumoDeReserva } from './estoqueReservaDomain';
+import { faixasDeAtacadoDoProduto } from './precoVendaDomain';
 
 /**
  * Ficha do produto na janela de consulta ("Buscar produto", 21/11/2026).
@@ -34,10 +35,12 @@ export interface ProdutoDaFicha {
   unidadeMedidaCasasDecimais?: unknown;
   localizacaoEstoque?: unknown;
   estoqueConfig?: unknown;
+  /** Aba "Atacado" do cadastro (precoVendaDomain.faixasDeAtacadoDoProduto). */
+  atacado?: unknown;
 }
 
 export interface LinhaDaFicha {
-  id: 'disponivel' | 'reservado' | 'local' | 'unidade' | 'marca' | 'referencia' | 'barras';
+  id: 'disponivel' | 'reservado' | 'atacado' | 'local' | 'unidade' | 'marca' | 'referencia' | 'barras';
   rotulo: string;
   valor: string;
   /** So' a linha do disponivel tem cor (mesmos tres niveis da lista). */
@@ -76,6 +79,43 @@ const formatarQuantidade = (valor: number, casas: number, unidade: string): stri
   `${valor.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}${unidade ? ` ${unidade}` : ''}`
 );
 
+/** Uma faixa de atacado pronta para a busca: preco e a quantidade em texto. */
+export interface AtacadoNaBusca {
+  preco: number;
+  /** "a partir de 20 PCT" ou "de 20 a 49 PCT". */
+  quantidade: string;
+}
+
+/**
+ * PRECO DE ATACADO NA BUSCA (23/11/2026, pedido do dono no treinamento da
+ * Embala Minas): o vendedor precisa ver, antes de lancar o item, que o
+ * produto tem atacado e a partir de quantas unidades ele vale.
+ *
+ * As faixas vem da MESMA funcao que o Pedido de Venda usa para aplicar o
+ * atacado (faixasDeAtacadoDoProduto), entao o que a busca mostra e' o que a
+ * venda cobra. A lista e a ficha mostram o produto na unidade do estoque
+ * (fator 1). Produto sem atacado ligado, ou sem faixa com preco, devolve
+ * lista vazia e nada aparece. Ordem: da menor quantidade para a maior.
+ */
+export const atacadoParaBusca = (produto: { atacado?: unknown; unidadeMedidaSigla?: unknown; unidadeMedidaCasasDecimais?: unknown }): AtacadoNaBusca[] => {
+  const unidade = texto(produto.unidadeMedidaSigla);
+  const casasBrutas = numero(produto.unidadeMedidaCasasDecimais);
+  const casas = casasBrutas !== null && casasBrutas >= 0 && casasBrutas <= 4 ? Math.trunc(casasBrutas) : 0;
+  const qtd = (valor: number) => valor.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: Math.max(casas, 3) });
+  const sufixo = unidade ? ` ${unidade}` : '';
+  return faixasDeAtacadoDoProduto(produto)
+    .slice()
+    .sort((a, b) => a.aPartirDe - b.aPartirDe)
+    .map((faixa) => ({
+      preco: faixa.preco,
+      quantidade: faixa.ate === null
+        ? `a partir de ${qtd(faixa.aPartirDe)}${sufixo}`
+        : `de ${qtd(faixa.aPartirDe)} a ${qtd(faixa.ate)}${sufixo}`,
+    }));
+};
+
+const formatarReais = (valor: number): string => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 export const fichaDoProduto = (produto: ProdutoDaFicha): FichaDoProduto => {
   const unidade = texto(produto.unidadeMedidaSigla);
   const casasBrutas = numero(produto.unidadeMedidaCasasDecimais);
@@ -103,6 +143,10 @@ export const fichaDoProduto = (produto: ProdutoDaFicha): FichaDoProduto => {
     if (reserva.temReserva) {
       linhas.push({ id: 'reservado', rotulo: 'Reservado', valor: formatarQuantidade(reserva.reservada, casas, unidade) });
     }
+  }
+  // Atacado logo abaixo do estoque: e' o que decide a quantidade a lancar.
+  for (const faixa of atacadoParaBusca(produto)) {
+    linhas.push({ id: 'atacado', rotulo: `Atacado ${faixa.quantidade}`, valor: formatarReais(faixa.preco) });
   }
   const local = localDoProduto(produto);
   if (local) linhas.push({ id: 'local', rotulo: 'Local no depósito', valor: local });

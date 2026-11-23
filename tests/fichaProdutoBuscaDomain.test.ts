@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fichaDoProduto } from '../src/utils/fichaProdutoBuscaDomain';
+import { atacadoParaBusca, fichaDoProduto } from '../src/utils/fichaProdutoBuscaDomain';
 
 const completo = {
   nome: 'PARAFUSO AUTO BROCANTE 5,5 X 1.1/2', codigo: '1508', marca: 'FIXTIL', categoria: 'Fixadores',
@@ -69,4 +69,36 @@ test('local vem do campo direto ou da configuracao de estoque; codigo cai para o
   assert.equal(fichaDoProduto({ nome: 'X', estoqueConfig: { localizacao: 'PRATELEIRA 3' } }).linhas[0].valor, 'PRATELEIRA 3');
   assert.equal(fichaDoProduto({ nome: 'X', skuSistema: 'SKU-9' }).subtitulo, 'Cód. SKU-9');
   assert.equal(fichaDoProduto({}).nome, '');
+});
+
+test('atacado: faixa do cadastro vira linha da ficha logo abaixo do estoque (23/11/2026)', () => {
+  const ficha = fichaDoProduto({
+    nome: 'COPO DESC TRANSP 300 ML PS C/100', codigo: '84', precoVenda: 11.9, quantidade: 259,
+    unidadeMedidaSigla: 'PCT', referencia: '1447',
+    atacado: { ativo: true, quantidadeMinima: 20, faixas: [{ quantidadeInicial: 20, ilimitado: true, preco: 9.26 }] },
+  });
+  assert.deepEqual(ficha.linhas.map((l) => [l.id, l.rotulo, l.valor]), [
+    ['disponivel', 'Disponível', '259 PCT'],
+    ['atacado', 'Atacado a partir de 20 PCT', 'R$ 9,26'],
+    ['unidade', 'Unidade de venda', 'PCT'],
+    ['referencia', 'Referência', '1447'],
+  ]);
+});
+
+test('atacado: varias faixas em ordem, faixa com fim e atacado desligado ou sem preco nao aparecem', () => {
+  const faixas = atacadoParaBusca({
+    unidadeMedidaSigla: 'UN',
+    atacado: { ativo: true, faixas: [
+      { quantidadeInicial: 50, ilimitado: true, preco: 3.1 },
+      { quantidadeInicial: 10, quantidadeFinal: 49, preco: 3.5 },
+      { quantidadeInicial: 100, ilimitado: true, preco: 0 },
+    ] },
+  });
+  assert.deepEqual(faixas, [
+    { preco: 3.5, quantidade: 'de 10 a 49 UN' },
+    { preco: 3.1, quantidade: 'a partir de 50 UN' },
+  ]);
+  assert.deepEqual(atacadoParaBusca({ atacado: { ativo: false, faixas: [{ quantidadeInicial: 10, ilimitado: true, preco: 2 }] } }), []);
+  assert.deepEqual(atacadoParaBusca({}), []);
+  assert.deepEqual(fichaDoProduto({ nome: 'X', quantidade: 5, atacado: { ativo: true, faixas: [] } }).linhas.map((l) => l.id), ['disponivel']);
 });

@@ -42,6 +42,9 @@ const mesmoHash = (a, b) => {
   return x.length === y.length && x.length > 0 && crypto.timingSafeEqual(x, y);
 };
 
+/** Entrar no SISTEMA completo (nao so' no caixa) pede senha mais longa (decisao do dono, 22/11/2026). */
+const DIGITOS_MINIMOS_NO_SISTEMA = 4;
+
 const MENSAGEM_TERMINAL_INVALIDO = 'Este computador não está mais ativado como caixa. Peça ao responsável para ativar de novo (na tela de entrada do caixa, "Ativar este computador").';
 
 /** Gerente: dono, administrador da empresa ou equipe da plataforma. */
@@ -98,7 +101,13 @@ async function conferirTerminal({ terminalId, segredo }) {
   return { id, ...dados };
 }
 
-async function entrarComCodigo({ terminalId, segredo, codigo, pin }) {
+/**
+ * `destino`: 'caixa' (Frente de Caixa: exige acesso ao caixa) ou 'sistema'
+ * (sistema completo, 22/11/2026: senha de 4 digitos ou mais; vendedor de
+ * balcao, que nao tem acesso ao sistema, fica de fora).
+ */
+async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'caixa' }) {
+  const noSistema = destino === 'sistema';
   const terminal = await conferirTerminal({ terminalId, segredo });
 
   // Hash scrypt + status Ativo + bloqueio por tentativas: tudo do validarPin.
@@ -111,12 +120,18 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin }) {
     throw new ErroTerminal(403, 'Este cadastro é de administrador: entre pelo usuário e senha ("Entrar com usuário e senha", logo abaixo).');
   }
   const permissoes = Array.isArray(usuario.permissoes) ? usuario.permissoes : [];
-  if (!podeUsarFrenteDeCaixa({ role: papel, isOwner: false, permissoes })) {
+  if (noSistema && usuario.tipoRegistro === 'vendedor') {
+    throw new ErroTerminal(403, `${identificado.vendedorNome} é vendedor de balcão: a senha dele serve para identificar a venda, não para entrar no sistema.`);
+  }
+  if (noSistema && String(pin || '').length < DIGITOS_MINIMOS_NO_SISTEMA) {
+    throw new ErroTerminal(403, `A sua senha tem menos de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos. Para entrar no sistema com código e senha, peça ao responsável uma senha nova de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos ou mais, em Usuários (ou entre com usuário e senha).`);
+  }
+  if (!noSistema && !podeUsarFrenteDeCaixa({ role: papel, isOwner: false, permissoes })) {
     throw new ErroTerminal(403, `${identificado.vendedorNome} não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no cadastro dele, em Usuários.`);
   }
 
   // Vendedor de balcao (sem login de e-mail) so' entra com a marca isVendedorBalcao (middleware/auth.js).
-  const marcas = { viaTerminalCaixa: terminal.id, ...(usuario.tipoRegistro === 'vendedor' ? { isVendedorBalcao: true } : {}) };
+  const marcas = { viaTerminalCaixa: terminal.id, ...(!noSistema && usuario.tipoRegistro === 'vendedor' ? { isVendedorBalcao: true } : {}) };
   const token = await admin.auth().createCustomToken(identificado.vendedorId, marcas);
 
   await db.collection(COLECAO).doc(terminal.id).update({
@@ -170,6 +185,7 @@ module.exports = {
   desativarTerminal,
   ErroTerminal,
   COLECAO,
+  DIGITOS_MINIMOS_NO_SISTEMA,
   // expostos pros testes
   hashDoSegredo,
   ehGerente,

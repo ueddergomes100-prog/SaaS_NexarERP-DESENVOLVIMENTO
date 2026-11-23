@@ -16,7 +16,7 @@ import {
   User,
   Zap
 } from 'lucide-react';
-import { browserLocalPersistence, getIdTokenResult, setPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { browserLocalPersistence, getIdTokenResult, setPersistence, signInWithCustomToken, signInWithEmailAndPassword, signOut, type User as UsuarioDoLogin } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { auth, authPersistenceReady, db } from '../../services/firebase';
@@ -31,6 +31,11 @@ import {
 import { isPlatformAdminRole } from '../../utils/roles';
 import { destinoAposLogin, entraDiretoNoCaixa, type PerfilParaOCaixa } from '../../utils/frenteDeCaixaDomain';
 import { entrarNaFilialPadrao } from '../../services/filialService';
+import { abrirFilialDoComputador, pedirEntradaPorCodigo } from '../../services/terminalCaixaService';
+import type { TerminalDoCaixa } from '../../utils/terminalCaixaDomain';
+import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
+import AtivarComputadorForm from '../../components/auth/AtivarComputadorForm';
+import EntrarComCodigoForm from '../../components/auth/EntrarComCodigoForm';
 import { limparAbasSalvas } from '../../contexts/TabsContext';
 import { CNPJ_LEMBRADO_STORAGE_KEY, formatarCnpj } from '../../utils/loginIdentidadeDomain';
 import {
@@ -193,6 +198,240 @@ const AuthPage: React.FC = () => {
 
   const loadingMessage = LOGIN_LOADING_STEPS[loadingStep];
 
+  // Computador ativado (22/11/2026, decisao do dono: valer para o sistema todo):
+  // cada funcionario entra com codigo + senha (4 digitos ou mais no sistema).
+  const [terminal, setTerminal] = useState<TerminalDoCaixa | null>(null);
+  const [modoLogin, setModoLogin] = useState<'senha' | 'codigo' | 'ativar'>('senha');
+  const [avisoLogin, setAvisoLogin] = useState('');
+  useEffect(() => {
+    let ativo = true;
+    void lerTerminalGuardado().then((guardado) => {
+      if (!ativo || !guardado) return;
+      setTerminal(guardado);
+      setModoLogin('codigo');
+    });
+    return () => { ativo = false; };
+  }, []);
+  const trocarModoLogin = (novo: 'senha' | 'codigo' | 'ativar') => {
+    setLoginError('');
+    setAvisoLogin('');
+    setModoLogin(novo);
+  };
+
+  /**
+   * Depois de entrar -- por usuario e senha OU por codigo e senha num
+   * computador ativado (22/11/2026): perfil, sessao unica, filial, historico
+   * de acesso e para onde a pessoa vai. Um caminho so' para os dois jeitos.
+   */
+  const concluirLogin = async (user: UsuarioDoLogin, origem: { lembrarCnpj: boolean; terminal?: TerminalDoCaixa | null }) => {
+    const token = await getIdTokenResult(user);
+    const hasPlatformClaim =
+      token.claims.nexarAdmin === true ||
+      token.claims.superAdmin === true ||
+      token.claims.role === 'NexarAdmin' ||
+      token.claims.role === 'SuperAdmin';
+
+    // Buscar tenantId do usuario no Firestore para salvar o log na empresa correta
+    let userTenantId = 'geral';
+    let activeSessionId = '';
+    let activeSession: ActiveSessionInfo | null = null;
+    let hasUserProfile = false;
+    let isPlatformLogin = hasPlatformClaim;
+    let perfilDoLogin: PerfilParaOCaixa = {};
+    try {
+      const userDoc = await getDoc(doc(db, 'usuarios', user.uid));
+      if (userDoc.exists()) {
+        hasUserProfile = true;
+        const userData = userDoc.data() as Record<string, unknown>;
+        isPlatformLogin = isPlatformLogin || isPlatformAdminRole(userData.role);
+        perfilDoLogin = {
+          role: userData.role,
+          isOwner: user.uid === (typeof userData.tenantId === 'string' && userData.tenantId ? userData.tenantId : user.uid),
+          permissoes: Array.isArray(userData.permissoes) ? userData.permissoes.filter((p): p is string => typeof p === 'string') : [],
+        };
+
+        if (hasIncompleteOnboarding(userData)) {
+          clearStoredSessionId();
+          await signOut(auth);
+          setLoginError('Cadastro ainda nao validado. Confirme CNPJ e e-mail antes de acessar.');
+          setLoginLoading(false);
+          return;
+        }
+
+        // Filiais (07/10): o log de login vai para a filial em que a pessoa esta
+        // trabalhando (filialAtiva); as rules so' deixam gravar nela.
+        userTenantId = typeof userData.filialAtiva === 'string' && userData.filialAtiva
+          ? userData.filialAtiva
+          : (typeof userData.tenantId === 'string' ? userData.tenantId : 'geral');
+        activeSessionId = typeof userData.activeSessionId === 'string' ? userData.activeSessionId : '';
+        activeSession = (userData.activeSession as ActiveSessionInfo | undefined) || null;
+      } else if (!isPlatformLogin) {
+        clearStoredSessionId();
+        await signOut(auth);
+        setLoginError('Usuario sem perfil ativo. Fale com o administrador.');
+        setLoginLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.error('Erro ao obter tenantId para log de login:', e);
+      clearStoredSessionId();
+      await signOut(auth);
+      setLoginError('Nao foi possivel validar seu perfil de acesso. Tente novamente.');
+      setLoginLoading(false);
+      return;
+    }
+
+    // Login de plataforma nao escolhe empresa aqui (ver comentario no topo
+    // do arquivo). userTenantId segue 'geral' pro log de auditoria, que e' o
+    // certo: e' um acesso de plataforma, nao de uma empresa especifica.
+
+    // Sessao pendurada DESTE mesmo aparelho nao vira pergunta: e' o caso de
+    // quem fechou o PWA no X e esta abrindo de novo. A resposta seria sempre
+    // "encerrar a outra e entrar" -- e logo abaixo o login ja grava uma
+    // sessao nova por cima, que e' exatamente o que o botao faria.
+    const sessaoPenduradaDesteAparelho = isSessionFromThisDevice(activeSession);
+    // Funcionario caixa (19/10/2026): cai direto na Frente de Caixa, que fica
+    // FORA do controle de sessao unica (o caixa fica aberto o dia inteiro e
+    // nao pode cair quando a mesma pessoa abre o sistema em outra aba) e com
+    // login persistente, como o app do vendedor.
+    const entraNoCaixa = hasUserProfile && !isPlatformLogin && entraDiretoNoCaixa(perfilDoLogin);
+
+    if (hasUserProfile && !entraNoCaixa && !sessaoPenduradaDesteAparelho && isSessionRecentlyActive(activeSessionId, activeSession)) {
+      const result = await Swal.fire({
+        title: 'Sessão ativa detectada',
+        html: buildActiveSessionWarningHtml(activeSession),
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#8b5cf6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Encerrar outra e entrar',
+        cancelButtonText: 'Manter a outra ativa'
+      });
+
+      if (!result.isConfirmed) {
+        // Desloga o usuário e aborta o login
+        clearStoredSessionId();
+        await signOut(auth);
+        setLoginLoading(false);
+        return;
+      }
+    }
+
+    if (entraNoCaixa) {
+      await setPersistence(auth, browserLocalPersistence);
+    } else {
+      // Cria um ID de sessão local único
+      const newSessionId = createSessionId();
+      setStoredSessionId(newSessionId);
+      const sessionMetadata = await buildSessionMetadata(user);
+
+      // Atualiza no Firestore
+      try {
+        if (!hasUserProfile) {
+          throw new Error('skip_platform_session_profile');
+        }
+
+        await updateDoc(doc(db, 'usuarios', user.uid), {
+          activeSessionId: newSessionId,
+          activeSession: {
+            ...sessionMetadata,
+            sessionId: newSessionId,
+            startedAt: serverTimestamp(),
+            lastSeenAt: serverTimestamp(),
+            lastSeenClientAt: new Date().toISOString()
+          }
+        });
+      } catch (e) {
+        if (isPlatformLogin && e instanceof Error && e.message === 'skip_platform_session_profile') {
+          // Usuário máximo pode existir apenas via custom claim; a sessão fica controlada pelo Firebase Auth.
+        } else {
+        console.error('Erro ao registrar nova sessao no firestore:', e);
+        clearStoredSessionId();
+        await signOut(auth);
+        setLoginError('Nao foi possivel registrar a sessao. Tente novamente.');
+        setLoginLoading(false);
+        return;
+        }
+      }
+    }
+
+    // Filial padrao (15/10/2026): cada login comeca na filial padrao do
+    // usuario (ou na de cadastro). Falha aqui nao impede o login: ele so'
+    // entra na ultima filial em que estava.
+    if (hasUserProfile && !isPlatformLogin) {
+      try {
+        // Codigo e senha num computador ativado: a filial e' a do computador.
+        const { mudou } = origem.terminal
+          ? { mudou: await abrirFilialDoComputador(user.uid, origem.terminal) }
+          : await entrarNaFilialPadrao();
+        // Abas abertas de outra filial nao voltam (mesmo cuidado do seletor Filial).
+        if (mudou) limparAbasSalvas();
+      } catch (erroFilial) {
+        console.warn('Não foi possível abrir a filial padrão no login:', erroFilial);
+      }
+    }
+
+    const { createAuditLog } = await import('../../services/logService');
+    createAuditLog({
+      tenantId: userTenantId,
+      usuarioId: user.uid,
+      usuarioEmail: user.email || user.uid,
+      modulo: 'autenticacao',
+      acao: 'login',
+      descricao: 'Usuário realizou login com sucesso.',
+      status: 'sucesso'
+    });
+
+    // Save CNPJ if employee login
+    if (origem.lembrarCnpj) {
+      localStorage.setItem(CNPJ_LEMBRADO_STORAGE_KEY, empresa);
+    }
+
+    // Splash de transicao. Antes daqui saia um setTimeout fixo de 2s --
+    // tempo morto que nao media nada e, pior, ficava invisivel no login
+    // (o splash so era renderizado no return do fluxo de cadastro, nunca
+    // no early return do painel dividido). Agora: dispara o carregamento
+    // do chunk do Dashboard em paralelo e navega assim que ele estiver
+    // pronto, com um piso curto pra animacao nao dar um flash. O
+    // ProtectedRoute continua exibindo o MESMO splash enquanto o
+    // AuthContext resolve perfil/tenant, entao a tela nao pisca no meio.
+    // Quem e' da plataforma cai no Painel da Plataforma, nao no ERP de um
+    // tenant: entrar e ver o sistema de um cliente qualquer era justamente
+    // a confusao relatada pelo usuario. O ERP continua a um clique, pelo
+    // botao "Ir para o ERP" do painel.
+    const destino = destinoAposLogin(perfilDoLogin, isPlatformLogin);
+    setShowSplash(true);
+    const splashFloor = new Promise((resolve) => window.setTimeout(resolve, 600));
+    const telaChunk = (isPlatformLogin
+      ? import('../Admin/SuperAdmin')
+      : entraNoCaixa
+        ? import('../PDV/PDV')
+        : import('../Dashboard/Dashboard')
+    ).catch(() => {
+      // Falha de preload nao bloqueia o login -- o Suspense do App cobre.
+    });
+    await Promise.all([splashFloor, telaChunk]);
+    navigate(destino, { replace: true });
+  };
+
+  /** Codigo + senha no computador ativado: o servidor confere (4 digitos ou mais no sistema) e devolve a entrada. */
+  const handleLoginComCodigo = async (codigo: string, pin: string) => {
+    if (!terminal) return;
+    const { token } = await pedirEntradaPorCodigo(terminal, codigo, pin, 'sistema');
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      await authPersistenceReady;
+      const credencial = await signInWithCustomToken(auth, token);
+      await concluirLogin(credencial.user, { lembrarCnpj: false, terminal });
+    } catch (err) {
+      console.error(err);
+      setLoginError('Não foi possível entrar. Tente novamente.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginStr || !password) {
@@ -229,191 +468,7 @@ const AuthPage: React.FC = () => {
       await authPersistenceReady;
       const userCredential = await signInWithEmailAndPassword(auth, finalEmail, password);
       const user = userCredential.user;
-      const token = await getIdTokenResult(user);
-      const hasPlatformClaim =
-        token.claims.nexarAdmin === true ||
-        token.claims.superAdmin === true ||
-        token.claims.role === 'NexarAdmin' ||
-        token.claims.role === 'SuperAdmin';
-
-      // Buscar tenantId do usuario no Firestore para salvar o log na empresa correta
-      let userTenantId = 'geral';
-      let activeSessionId = '';
-      let activeSession: ActiveSessionInfo | null = null;
-      let hasUserProfile = false;
-      let isPlatformLogin = hasPlatformClaim;
-      let perfilDoLogin: PerfilParaOCaixa = {};
-      try {
-        const userDoc = await getDoc(doc(db, 'usuarios', user.uid));
-        if (userDoc.exists()) {
-          hasUserProfile = true;
-          const userData = userDoc.data() as Record<string, unknown>;
-          isPlatformLogin = isPlatformLogin || isPlatformAdminRole(userData.role);
-          perfilDoLogin = {
-            role: userData.role,
-            isOwner: user.uid === (typeof userData.tenantId === 'string' && userData.tenantId ? userData.tenantId : user.uid),
-            permissoes: Array.isArray(userData.permissoes) ? userData.permissoes.filter((p): p is string => typeof p === 'string') : [],
-          };
-
-          if (hasIncompleteOnboarding(userData)) {
-            clearStoredSessionId();
-            await signOut(auth);
-            setLoginError('Cadastro ainda nao validado. Confirme CNPJ e e-mail antes de acessar.');
-            setLoginLoading(false);
-            return;
-          }
-
-          // Filiais (07/10): o log de login vai para a filial em que a pessoa esta
-          // trabalhando (filialAtiva); as rules so' deixam gravar nela.
-          userTenantId = typeof userData.filialAtiva === 'string' && userData.filialAtiva
-            ? userData.filialAtiva
-            : (typeof userData.tenantId === 'string' ? userData.tenantId : 'geral');
-          activeSessionId = typeof userData.activeSessionId === 'string' ? userData.activeSessionId : '';
-          activeSession = (userData.activeSession as ActiveSessionInfo | undefined) || null;
-        } else if (!isPlatformLogin) {
-          clearStoredSessionId();
-          await signOut(auth);
-          setLoginError('Usuario sem perfil ativo. Fale com o administrador.');
-          setLoginLoading(false);
-          return;
-        }
-      } catch (e) {
-        console.error('Erro ao obter tenantId para log de login:', e);
-        clearStoredSessionId();
-        await signOut(auth);
-        setLoginError('Nao foi possivel validar seu perfil de acesso. Tente novamente.');
-        setLoginLoading(false);
-        return;
-      }
-
-      // Login de plataforma nao escolhe empresa aqui (ver comentario no topo
-      // do arquivo). userTenantId segue 'geral' pro log de auditoria, que e' o
-      // certo: e' um acesso de plataforma, nao de uma empresa especifica.
-
-      // Sessao pendurada DESTE mesmo aparelho nao vira pergunta: e' o caso de
-      // quem fechou o PWA no X e esta abrindo de novo. A resposta seria sempre
-      // "encerrar a outra e entrar" -- e logo abaixo o login ja grava uma
-      // sessao nova por cima, que e' exatamente o que o botao faria.
-      const sessaoPenduradaDesteAparelho = isSessionFromThisDevice(activeSession);
-      // Funcionario caixa (19/10/2026): cai direto na Frente de Caixa, que fica
-      // FORA do controle de sessao unica (o caixa fica aberto o dia inteiro e
-      // nao pode cair quando a mesma pessoa abre o sistema em outra aba) e com
-      // login persistente, como o app do vendedor.
-      const entraNoCaixa = hasUserProfile && !isPlatformLogin && entraDiretoNoCaixa(perfilDoLogin);
-
-      if (hasUserProfile && !entraNoCaixa && !sessaoPenduradaDesteAparelho && isSessionRecentlyActive(activeSessionId, activeSession)) {
-        const result = await Swal.fire({
-          title: 'Sessão ativa detectada',
-          html: buildActiveSessionWarningHtml(activeSession),
-          icon: 'warning',
-          showCancelButton: true,
-          confirmButtonColor: '#8b5cf6',
-          cancelButtonColor: '#d33',
-          confirmButtonText: 'Encerrar outra e entrar',
-          cancelButtonText: 'Manter a outra ativa'
-        });
-
-        if (!result.isConfirmed) {
-          // Desloga o usuário e aborta o login
-          clearStoredSessionId();
-          await signOut(auth);
-          setLoginLoading(false);
-          return;
-        }
-      }
-
-      if (entraNoCaixa) {
-        await setPersistence(auth, browserLocalPersistence);
-      } else {
-        // Cria um ID de sessão local único
-        const newSessionId = createSessionId();
-        setStoredSessionId(newSessionId);
-        const sessionMetadata = await buildSessionMetadata(user);
-
-        // Atualiza no Firestore
-        try {
-          if (!hasUserProfile) {
-            throw new Error('skip_platform_session_profile');
-          }
-
-          await updateDoc(doc(db, 'usuarios', user.uid), {
-            activeSessionId: newSessionId,
-            activeSession: {
-              ...sessionMetadata,
-              sessionId: newSessionId,
-              startedAt: serverTimestamp(),
-              lastSeenAt: serverTimestamp(),
-              lastSeenClientAt: new Date().toISOString()
-            }
-          });
-        } catch (e) {
-          if (isPlatformLogin && e instanceof Error && e.message === 'skip_platform_session_profile') {
-            // Usuário máximo pode existir apenas via custom claim; a sessão fica controlada pelo Firebase Auth.
-          } else {
-          console.error('Erro ao registrar nova sessao no firestore:', e);
-          clearStoredSessionId();
-          await signOut(auth);
-          setLoginError('Nao foi possivel registrar a sessao. Tente novamente.');
-          setLoginLoading(false);
-          return;
-          }
-        }
-      }
-
-      // Filial padrao (15/10/2026): cada login comeca na filial padrao do
-      // usuario (ou na de cadastro). Falha aqui nao impede o login: ele so'
-      // entra na ultima filial em que estava.
-      if (hasUserProfile && !isPlatformLogin) {
-        try {
-          const { mudou } = await entrarNaFilialPadrao();
-          // Abas abertas de outra filial nao voltam (mesmo cuidado do seletor Filial).
-          if (mudou) limparAbasSalvas();
-        } catch (erroFilial) {
-          console.warn('Não foi possível abrir a filial padrão no login:', erroFilial);
-        }
-      }
-
-      const { createAuditLog } = await import('../../services/logService');
-      createAuditLog({
-        tenantId: userTenantId,
-        usuarioId: user.uid,
-        usuarioEmail: user.email || user.uid,
-        modulo: 'autenticacao',
-        acao: 'login',
-        descricao: 'Usuário realizou login com sucesso.',
-        status: 'sucesso'
-      });
-
-      // Save CNPJ if employee login
-      if (!loginStr.trim().includes('@')) {
-        localStorage.setItem(CNPJ_LEMBRADO_STORAGE_KEY, empresa);
-      }
-
-      // Splash de transicao. Antes daqui saia um setTimeout fixo de 2s --
-      // tempo morto que nao media nada e, pior, ficava invisivel no login
-      // (o splash so era renderizado no return do fluxo de cadastro, nunca
-      // no early return do painel dividido). Agora: dispara o carregamento
-      // do chunk do Dashboard em paralelo e navega assim que ele estiver
-      // pronto, com um piso curto pra animacao nao dar um flash. O
-      // ProtectedRoute continua exibindo o MESMO splash enquanto o
-      // AuthContext resolve perfil/tenant, entao a tela nao pisca no meio.
-      // Quem e' da plataforma cai no Painel da Plataforma, nao no ERP de um
-      // tenant: entrar e ver o sistema de um cliente qualquer era justamente
-      // a confusao relatada pelo usuario. O ERP continua a um clique, pelo
-      // botao "Ir para o ERP" do painel.
-      const destino = destinoAposLogin(perfilDoLogin, isPlatformLogin);
-      setShowSplash(true);
-      const splashFloor = new Promise((resolve) => window.setTimeout(resolve, 600));
-      const telaChunk = (isPlatformLogin
-        ? import('../Admin/SuperAdmin')
-        : entraNoCaixa
-          ? import('../PDV/PDV')
-          : import('../Dashboard/Dashboard')
-      ).catch(() => {
-        // Falha de preload nao bloqueia o login -- o Suspense do App cobre.
-      });
-      await Promise.all([splashFloor, telaChunk]);
-      navigate(destino, { replace: true });
+      await concluirLogin(user, { lembrarCnpj: !loginStr.trim().includes('@') });
 
     } catch (err: any) {
       console.error(err);
@@ -775,6 +830,33 @@ const AuthPage: React.FC = () => {
         </div>
       )}
 
+      {modoLogin === 'codigo' && terminal && (
+        <>
+          <p className="auth-computador">Computador “{terminal.nome}”{terminal.empresa ? ` · ${terminal.empresa}` : ''}</p>
+          <EntrarComCodigoForm
+            aviso={avisoLogin}
+            textoDoBotao="Entrar no Sistema"
+            dica="No sistema, a senha precisa ter 4 dígitos ou mais."
+            entrar={handleLoginComCodigo}
+            onUsarSenha={() => trocarModoLogin('senha')}
+          />
+        </>
+      )}
+
+      {modoLogin === 'ativar' && (
+        <AtivarComputadorForm
+          cnpjInicial={empresa}
+          persistenciaLocal={false}
+          onAtivado={(ativado) => {
+            setTerminal(ativado);
+            trocarModoLogin('codigo');
+            setAvisoLogin(`Computador ativado como "${ativado.nome}". Agora cada funcionário entra só com o código e a senha dele (cadastrados em Usuários).`);
+          }}
+          onVoltar={() => trocarModoLogin(terminal ? 'codigo' : 'senha')}
+        />
+      )}
+
+      {modoLogin === 'senha' && (<>
       <form className="auth-form" onSubmit={handleLogin}>
         <div className="auth-input-group">
           <label>CNPJ da Empresa <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 'normal' }}>(Deixe em branco se for logar com E-mail)</span></label>
@@ -834,10 +916,24 @@ const AuthPage: React.FC = () => {
           {loginLoading ? <span className="auth-btn-spinner" aria-hidden="true" /> : <LogIn size={18} />}
           {loginLoading ? loadingMessage : 'Entrar no Sistema'}
         </button>
+        {terminal && (
+          <button type="button" className="auth-link" style={{ margin: '0 auto' }} onClick={() => trocarModoLogin('codigo')} disabled={loginLoading}>
+            Entrar com código e senha
+          </button>
+        )}
       </form>
 
       <p className="auth-switch-social-label">Ou entre com</p>
       <SocialIcons />
+      </>)}
+
+      {modoLogin !== 'ativar' && (
+        <p className="auth-computador">
+          {terminal
+            ? <>Este computador é o “{terminal.nome}”. <button type="button" className="auth-link" onClick={() => trocarModoLogin('ativar')}>Ativar de novo</button></>
+            : <>Vários funcionários usam este computador? <button type="button" className="auth-link" onClick={() => trocarModoLogin('ativar')}>Ative-o</button> e cada um entra só com código e senha.</>}
+        </p>
+      )}
     </>
   );
 

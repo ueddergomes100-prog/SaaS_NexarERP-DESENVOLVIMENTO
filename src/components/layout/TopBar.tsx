@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck, Cake } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck, Cake, UserRoundCog } from 'lucide-react';
 import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
 import { proximaPreferenciaTema, tituloDoBotaoDeTema } from '../../utils/temaDomain';
 import FilialSeletor from './FilialSeletor';
@@ -12,6 +12,7 @@ import { isTenantManagerRole } from '../../utils/roles';
 import { type SearchableProduct } from '../../utils/productSearch';
 import { consultasDaBusca, fimDoPrefixo, LIMITE_POR_CONSULTA } from '../../utils/buscaGlobalDomain';
 import PerfilModal from './PerfilModal';
+import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
 import './Layout.css';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { assinarComReserva, lerComReserva } from '../../services/consultaComReserva';
@@ -40,6 +41,13 @@ const TopBar: React.FC = () => {
   const [userData, setUserData] = useState<any>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  // Computador ativado (22/11/2026): "Trocar usuario" volta para o codigo e a senha do proximo funcionario.
+  const [computadorAtivado, setComputadorAtivado] = useState(false);
+  useEffect(() => {
+    let ativo = true;
+    void lerTerminalGuardado().then((terminal) => { if (ativo) setComputadorAtivado(Boolean(terminal)); });
+    return () => { ativo = false; };
+  }, []);
   const [showPerfilModal, setShowPerfilModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
@@ -736,6 +744,18 @@ const TopBar: React.FC = () => {
               </div>
 
               <div style={{ padding: '8px', borderTop: '1px solid var(--border-color)' }}>
+                {computadorAtivado && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowProfileDropdown(false); window.dispatchEvent(new Event('trigger-logout')); }}
+                    title="Sai deste usuário e volta para a tela de código e senha, para o próximo funcionário entrar"
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px', fontWeight: 500 }}
+                    onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                  >
+                    <UserRoundCog size={16} /> Trocar usuário
+                  </button>
+                )}
                 <button 
                   onClick={() => { setShowProfileDropdown(false); window.dispatchEvent(new Event('trigger-logout')); }}
                   style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px', fontWeight: 500 }}

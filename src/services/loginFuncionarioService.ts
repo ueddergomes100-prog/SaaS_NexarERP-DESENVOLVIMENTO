@@ -24,7 +24,17 @@ export class LoginFuncionarioError extends Error {
   }
 }
 
-export const entrarComUsuarioESenha = async (dados: { cnpj: string; usuario: string; senha: string }): Promise<void> => {
+/**
+ * `opcoes` (22/11/2026, ativar o computador do caixa): `persistenciaLocal`
+ * false = nao mexe no "lembrar login" (a tela de login do sistema e' por aba);
+ * `filialPadrao` false = nao troca a filial de quem entrou (o computador fica
+ * na filial em que o gerente esta').
+ */
+export const entrarComUsuarioESenha = async (
+  dados: { cnpj: string; usuario: string; senha: string },
+  opcoes: { persistenciaLocal?: boolean; filialPadrao?: boolean } = {},
+): Promise<void> => {
+  const { persistenciaLocal = true, filialPadrao = true } = opcoes;
   const cnpj = normalizarCnpj(dados.cnpj);
   const usuario = dados.usuario.trim().toLowerCase();
   if (cnpj.length !== 14 || !usuario || !dados.senha) {
@@ -33,7 +43,7 @@ export const entrarComUsuarioESenha = async (dados: { cnpj: string; usuario: str
   const indice = await getDoc(doc(db, 'usernames', montarChaveUsername(cnpj, usuario)));
   if (!indice.exists()) throw new LoginFuncionarioError('Usuário ou CNPJ da empresa não encontrado.');
 
-  await setPersistence(auth, browserLocalPersistence);
+  if (persistenciaLocal) await setPersistence(auth, browserLocalPersistence);
   try {
     await signInWithEmailAndPassword(auth, String(indice.data().email || ''), dados.senha);
   } catch {
@@ -41,5 +51,5 @@ export const entrarComUsuarioESenha = async (dados: { cnpj: string; usuario: str
   }
   // Filial padrao (15/10/2026): o app tambem comeca na filial padrao do
   // usuario. Falha aqui nao impede o login (fica na ultima filial).
-  await entrarNaFilialPadrao().catch((erro) => console.warn('Não foi possível abrir a filial padrão no login:', erro));
+  if (filialPadrao) await entrarNaFilialPadrao().catch((erro) => console.warn('Não foi possível abrir a filial padrão no login:', erro));
 };

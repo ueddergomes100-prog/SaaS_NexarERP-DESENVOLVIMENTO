@@ -25,15 +25,15 @@ test('terminal: le objeto ou JSON; recusa o que falta ou esta torto', () => {
   assert.equal(lerTerminalDoCaixa({ ...TERMINAL, nome: '' })?.nome, 'Caixa', 'sem nome vale "Caixa"');
 });
 
-test('cookie: vai e volta, so nas paginas do caixa, e apaga', () => {
+test('cookie: vai e volta (site todo: login do sistema e do caixa) e apaga', () => {
   const cookie = cookieDoTerminal(lerTerminalDoCaixa(TERMINAL), true);
-  assert.match(cookie, /Path=\/caixa; SameSite=Strict; Secure$/);
+  assert.match(cookie, /Path=\/; SameSite=Strict; Secure$/);
   assert.match(cookie, /Max-Age=315360000/);
   const valor = cookie.split(';')[0];
   assert.equal(terminalDoCookie(`outro=1; ${valor}; mais=2`)?.terminalId, 'abc123');
   assert.equal(terminalDoCookie('outro=1'), null);
   assert.equal(terminalDoCookie(`${CHAVE_TERMINAL_CAIXA}=%E0%A4%A`), null, 'cookie corrompido nao derruba a tela');
-  assert.match(cookieDoTerminal(null, false), new RegExp(`^${CHAVE_TERMINAL_CAIXA}=; Max-Age=0; Path=/caixa; SameSite=Strict$`));
+  assert.match(cookieDoTerminal(null, false), new RegExp(`^${CHAVE_TERMINAL_CAIXA}=; Max-Age=0; Path=/; SameSite=Strict$`));
 });
 
 test('o primeiro lugar que sobreviveu vale (local apagado, banco interno ainda tem)', () => {

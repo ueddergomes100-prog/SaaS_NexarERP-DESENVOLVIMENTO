@@ -24,8 +24,8 @@ export interface TerminalDoCaixa {
 }
 
 export const CHAVE_TERMINAL_CAIXA = 'hennder_caixa_terminal';
-/** Cookie so' nas paginas do caixa (/caixa/...). */
-export const CAMINHO_DO_COOKIE_DO_CAIXA = '/caixa';
+/** Cookie no site todo: o login do sistema (/login) e o do caixa (/caixa/login) leem o mesmo computador. */
+export const CAMINHO_DO_COOKIE_DO_CAIXA = '/';
 const DEZ_ANOS_EM_SEGUNDOS = 10 * 365 * 24 * 60 * 60;
 
 const texto = (valor: unknown, maximo = 200): string => (typeof valor === 'string' ? valor.trim().slice(0, maximo) : '');
@@ -63,7 +63,7 @@ export const terminalDoCookie = (cookies: string): TerminalDoCaixa | null => {
   }
 };
 
-/** Cookie que guarda o terminal por 10 anos, so' nas paginas do caixa. `null` apaga. */
+/** Cookie que guarda o terminal por 10 anos. `null` apaga. */
 export const cookieDoTerminal = (terminal: TerminalDoCaixa | null, seguro: boolean): string => {
   const base = `Path=${CAMINHO_DO_COOKIE_DO_CAIXA}; SameSite=Strict${seguro ? '; Secure' : ''}`;
   if (!terminal) return `${CHAVE_TERMINAL_CAIXA}=; Max-Age=0; ${base}`;

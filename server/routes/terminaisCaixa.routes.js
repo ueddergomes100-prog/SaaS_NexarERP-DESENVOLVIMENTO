@@ -6,7 +6,7 @@ const terminais = require('../services/terminaisCaixa');
 
 /**
  * COMPUTADOR DO CAIXA (22/11/2026) -- ver services/terminaisCaixa.js.
- *   POST /api/caixa-terminal/entrar          PUBLICA: { terminalId, segredo, codigo, pin } -> { token }
+ *   POST /api/caixa-terminal/entrar          PUBLICA: { terminalId, segredo, codigo, pin, destino: 'caixa'|'sistema' } -> { token }
  *   POST /api/caixa-terminal/ativar          logado (dono/admin): { nome } -> terminal + segredo
  *   GET  /api/caixa-terminal                 logado (dono/admin): computadores da empresa
  *   POST /api/caixa-terminal/:id/desativar   logado (dono/admin)
@@ -35,6 +35,7 @@ router.post('/entrar', limitePorIp, limitePorTerminal, async (req, res) => {
       segredo: req.body?.segredo,
       codigo: req.body?.codigo,
       pin: req.body?.pin,
+      destino: req.body?.destino === 'sistema' ? 'sistema' : 'caixa',
     });
     return res.json(resultado);
   } catch (erro) {

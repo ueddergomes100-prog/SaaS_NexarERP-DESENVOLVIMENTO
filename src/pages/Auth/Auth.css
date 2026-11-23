@@ -1065,3 +1065,15 @@ body.light-theme .auth-eyebrow {
 .auth-container select {
   text-transform: none;
 }
+
+/* Computador ativado (22/11/2026): qual computador e o atalho para ativar. */
+.auth-computador {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.auth-computador .auth-link {
+  margin-left: 2px;
+}

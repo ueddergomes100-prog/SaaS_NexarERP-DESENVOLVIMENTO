@@ -102,3 +102,25 @@ test('listar e desativar: so gerente, so da propria empresa', async () => {
   await terminais.desativarTerminal({ user: GERENTE, terminalId: terminal.terminalId });
   assert.equal(fake.ler(`terminais_caixa/${terminal.terminalId}`).ativo, false);
 });
+
+test('entrar no SISTEMA: senha de 4 digitos ou mais; sem exigir caixa; vendedor de balcao fica de fora', async () => {
+  const { terminais, terminal } = await preparar();
+  const comSistema = (codigo, pin) => terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo, pin, destino: 'sistema' });
+  // BIA nao opera o caixa, mas entra no sistema (as permissoes dela valem la dentro).
+  const bia = await comSistema('08', '4826');
+  assert.match(bia.token, /^custom:bia:/);
+  assert.deepEqual(JSON.parse(bia.token.split(':').slice(2).join(':')), { viaTerminalCaixa: terminal.terminalId });
+  await assert.rejects(comSistema('10', '4826'), (e) => e.status === 403 && /vendedor de balcão/.test(e.message));
+  await assert.rejects(comSistema('09', '4826'), (e) => e.status === 403 && /administrador/.test(e.message));
+  // Senha curta: identifica venda e entra no caixa, mas nao no sistema.
+  const fake2 = criarBancoFalso(BASE, { consultas: true });
+  const { terminais: t2, pin } = carregar(fake2.db);
+  await pin.definirPin({ tenantId: 'loja', usuarioId: 'ana', pin: '73', autorId: 'dono' });
+  const term2 = await t2.ativarTerminal({ user: GERENTE, nome: 'Caixa 2' });
+  await assert.rejects(
+    t2.entrarComCodigo({ terminalId: term2.terminalId, segredo: term2.segredo, codigo: '07', pin: '73', destino: 'sistema' }),
+    (e) => e.status === 403 && /menos de 4 dígitos/.test(e.message),
+  );
+  const noCaixa = await t2.entrarComCodigo({ terminalId: term2.terminalId, segredo: term2.segredo, codigo: '07', pin: '73' });
+  assert.match(noCaixa.token, /^custom:ana:/);
+});

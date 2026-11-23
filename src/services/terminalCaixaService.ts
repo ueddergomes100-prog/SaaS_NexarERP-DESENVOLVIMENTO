@@ -36,36 +36,55 @@ export const desativarComputadorDoCaixa = (id: string) => (
 );
 
 /**
- * Codigo + senha do funcionario neste computador -> login do PROPRIO
- * funcionario (persistencia local, como o login do caixa por usuario e senha).
- * Grupo de filiais: o caixa abre na filial do computador.
+ * Codigo + senha neste computador -> token do PROPRIO funcionario.
+ * `destino` 'sistema' (22/11/2026) pede senha de 4 digitos ou mais no servidor.
  */
-export const entrarNoCaixaComCodigo = async (terminal: TerminalDoCaixa, codigo: string, pin: string): Promise<{ operadorNome: string }> => {
+export const pedirEntradaPorCodigo = async (
+  terminal: TerminalDoCaixa,
+  codigo: string,
+  pin: string,
+  destino: 'caixa' | 'sistema',
+): Promise<{ token: string; operadorNome: string }> => {
   if (!API_URL) throw new ErroDoServidor('O servidor não está configurado neste ambiente. Avise o suporte.', 0);
   let resposta: Response;
   try {
     resposta = await fetchComTimeout(`${API_URL}/api/caixa-terminal/entrar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo, pin }),
+      body: JSON.stringify({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo, pin, destino }),
     });
   } catch (erro) {
     throw new ErroDoServidor(mensagemDeFalhaDeRede(erro), 0, { cause: erro });
   }
   const dados = await resposta.json().catch(() => ({}));
   if (!resposta.ok) throw new ErroDoServidor(dados.error || 'Não foi possível entrar. Confira o código e a senha e tente de novo.', resposta.status);
+  return { token: String(dados.token || ''), operadorNome: String(dados.operadorNome || '') };
+};
 
-  await setPersistence(auth, browserLocalPersistence);
-  const credencial = await signInWithCustomToken(auth, String(dados.token || ''));
-
-  // Filial do computador: so' troca quando o funcionario esta' em outra.
+/** Abre a filial do computador quando o funcionario esta' em outra (grupo de filiais). Nunca derruba o login. */
+export const abrirFilialDoComputador = async (uid: string, terminal: TerminalDoCaixa): Promise<boolean> => {
   try {
-    const cadastro = await getDoc(doc(db, 'usuarios', credencial.user.uid));
+    const cadastro = await getDoc(doc(db, 'usuarios', uid));
     const dadosDoCadastro = cadastro.exists() ? cadastro.data() : {};
     const filialAtual = String(dadosDoCadastro.filialAtiva || dadosDoCadastro.tenantId || '');
-    if (filialAtual && filialAtual !== terminal.tenantId) await entrarNaFilial(terminal.tenantId);
+    if (!filialAtual || filialAtual === terminal.tenantId) return false;
+    await entrarNaFilial(terminal.tenantId);
+    return true;
   } catch (erro) {
-    console.warn('Não foi possível abrir a filial deste computador no login do caixa:', erro);
+    console.warn('Não foi possível abrir a filial deste computador no login:', erro);
+    return false;
   }
-  return { operadorNome: String(dados.operadorNome || '') };
 };
+
+/**
+ * Frente de Caixa: codigo + senha -> login do PROPRIO funcionario
+ * (persistencia local, como o login do caixa por usuario e senha).
+ */
+export const entrarNoCaixaComCodigo = async (terminal: TerminalDoCaixa, codigo: string, pin: string): Promise<{ operadorNome: string }> => {
+  const { token, operadorNome } = await pedirEntradaPorCodigo(terminal, codigo, pin, 'caixa');
+  await setPersistence(auth, browserLocalPersistence);
+  const credencial = await signInWithCustomToken(auth, token);
+  await abrirFilialDoComputador(credencial.user.uid, terminal);
+  return { operadorNome };
+};
+

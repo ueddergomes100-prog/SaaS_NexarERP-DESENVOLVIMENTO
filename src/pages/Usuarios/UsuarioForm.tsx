@@ -483,7 +483,7 @@ const UsuarioForm: React.FC = () => {
             style={{ width: '100%' }}
           />
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Usado no popup de identificação a cada venda, quando essa opção estiver ligada em Configurações da filial, e para <strong>entrar na Frente de Caixa</strong> nos computadores ativados como caixa (código + senha, sem usuário e e-mail). Opcional — deixe vazio se este usuário não vende nem opera o caixa. Vendedor que <strong>não precisa entrar no sistema</strong> é cadastrado em Cadastros Auxiliares → Vendedores, e não ocupa vaga do plano.
+            Usado no popup de identificação a cada venda, quando essa opção estiver ligada em Configurações da filial, e para <strong>entrar no sistema e na Frente de Caixa</strong> nos computadores ativados (código + senha, sem usuário e e-mail). Opcional — deixe vazio se este usuário não vende nem opera o caixa. Vendedor que <strong>não precisa entrar no sistema</strong> é cadastrado em Cadastros Auxiliares → Vendedores, e não ocupa vaga do plano.
           </span>
         </div>
 
@@ -510,7 +510,7 @@ const UsuarioForm: React.FC = () => {
               </button>
             </div>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Cadastre aqui também quando o funcionário <strong>esquecer a senha</strong> — salvar uma nova substitui a antiga e destrava na hora quem estiver bloqueado por tentativas.
+              Cadastre aqui também quando o funcionário <strong>esquecer a senha</strong> — salvar uma nova substitui a antiga e destrava na hora quem estiver bloqueado por tentativas. Para <strong>entrar no sistema</strong> com código e senha nos computadores ativados, a senha precisa ter 4 dígitos ou mais (na Frente de Caixa vale qualquer tamanho).
             </span>
           </div>
         )}

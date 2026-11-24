@@ -20,7 +20,7 @@ import { getIdTokenResult, setPersistence, signInWithCustomToken, signInWithEmai
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { auth, authPersistenceReady, db, persistenciaGuardada } from '../../services/firebase';
-import { clearStoredSessionId, createSessionId, setStoredSessionId } from '../../utils/session';
+import { clearStoredSessionId, createSessionId, marcarSessaoDeEstacao, setStoredSessionId } from '../../utils/session';
 import {
   buildActiveSessionWarningHtml,
   buildSessionMetadata,
@@ -303,8 +303,11 @@ const AuthPage: React.FC = () => {
     // nao pode cair quando a mesma pessoa abre o sistema em outra aba) e com
     // login persistente, como o app do vendedor.
     const entraNoCaixa = hasUserProfile && !isPlatformLogin && entraDiretoNoCaixa(perfilDoLogin);
+    // Computador ativado (Caixa 1, Balcao...) com codigo e senha (24/11/2026): fora
+    // da sessao unica. Nao pergunta, nao derruba a outra e nao e' derrubado.
+    const daEstacao = Boolean(origem.terminal) && hasUserProfile && !isPlatformLogin;
 
-    if (hasUserProfile && !entraNoCaixa && !sessaoPenduradaDesteAparelho && isSessionRecentlyActive(activeSessionId, activeSession)) {
+    if (hasUserProfile && !entraNoCaixa && !daEstacao && !sessaoPenduradaDesteAparelho && isSessionRecentlyActive(activeSessionId, activeSession)) {
       const result = await Swal.fire({
         title: 'Sessão ativa detectada',
         html: buildActiveSessionWarningHtml(activeSession),
@@ -327,6 +330,10 @@ const AuthPage: React.FC = () => {
 
     if (entraNoCaixa) {
       await setPersistence(auth, persistenciaGuardada);
+    } else if (daEstacao) {
+      // Nao grava activeSessionId: a sessao "oficial" da pessoa continua a de onde ela estiver.
+      clearStoredSessionId();
+      marcarSessaoDeEstacao(origem.terminal?.nome || '');
     } else {
       // Cria um ID de sessão local único
       const newSessionId = createSessionId();

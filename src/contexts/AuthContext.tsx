@@ -4,7 +4,7 @@ import { getIdTokenResult, onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, doc, getDoc, limit, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import Swal from 'sweetalert2';
 import { auth, db } from '../services/firebase';
-import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from '../utils/session';
+import { clearStoredSessionId, ehSessaoDeEstacao, getStoredSessionId, setStoredSessionId } from '../utils/session';
 import { permissoesEfetivas } from '../utils/permissoesAppDomain';
 import { modulosBloqueadosEfetivos } from '../utils/moduleCatalog';
 import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../utils/cashbackDomain';
@@ -386,7 +386,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             // O app da Frente de Caixa (/caixa, 19/10/2026) fica fora da sessao
             // unica: nao adota nem derruba a sessao do sistema aberto em outra aba.
-            if (serverSession && !ehAppDoCaixa(window.location.pathname)) {
+            // Computador ativado com codigo e senha (24/11/2026) tambem.
+            if (serverSession && !ehAppDoCaixa(window.location.pathname) && !ehSessaoDeEstacao()) {
               if (!currentLocalSession) {
                 setStoredSessionId(serverSession);
               } else if (serverSession !== currentLocalSession) {
@@ -651,8 +652,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [tenantId]);
 
   useEffect(() => {
-    // O app da Frente de Caixa nao tem sessao unica para manter viva nem encerrar.
-    if (!currentUser || ehAppDoCaixa(window.location.pathname)) {
+    // O app da Frente de Caixa e o computador ativado nao tem sessao unica para manter viva nem encerrar.
+    if (!currentUser || ehAppDoCaixa(window.location.pathname) || ehSessaoDeEstacao()) {
       sessionCloseTokenRef.current = '';
       return;
     }
@@ -725,9 +726,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Sair do app da Frente de Caixa nao encerra a sessao do sistema (que pode
     // estar aberto em outra aba, com a mesma pessoa) nem apaga as abas dele.
     const noAppDoCaixa = ehAppDoCaixa(window.location.pathname);
+    // Computador ativado (24/11/2026): sair dele nao encerra a sessao da pessoa em outro lugar.
+    const naEstacao = ehSessaoDeEstacao();
     if (currentUser && tenantId) {
       try {
-        if (!noAppDoCaixa) {
+        if (!noAppDoCaixa && !naEstacao) {
           const localSessionId = getStoredSessionId();
           const userRef = doc(db, 'usuarios', currentUser.uid);
           await runTransaction(db, async (transaction) => {

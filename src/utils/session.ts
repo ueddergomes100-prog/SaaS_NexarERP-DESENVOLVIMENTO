@@ -16,6 +16,31 @@ const SESSION_STORAGE_KEY = 'nexus_session_id';
  */
 const DEVICE_STORAGE_KEY = 'nexus_device_id';
 
+/**
+ * Sessao aberta num COMPUTADOR ATIVADO (Caixa 1, Balcao...), com codigo e senha
+ * (24/11/2026, pedido do dono). Ela fica FORA da sessao unica, como o app da
+ * Frente de Caixa: nao derruba a sessao da pessoa em outro lugar e nao e'
+ * derrubada por ela. O gerente ativou o computador, entao a maquina e' da loja.
+ * Fica na aba (sessionStorage), como a propria sessao do sistema.
+ */
+const ESTACAO_STORAGE_KEY = 'nexus_sessao_estacao';
+
+export const marcarSessaoDeEstacao = (nomeDoComputador: string) => {
+  try {
+    sessionStorage.setItem(ESTACAO_STORAGE_KEY, nomeDoComputador || 'computador ativado');
+  } catch {
+    // Sem armazenamento: a sessao segue as regras de sempre (sessao unica).
+  }
+};
+
+export const ehSessaoDeEstacao = (): boolean => {
+  try {
+    return Boolean(sessionStorage.getItem(ESTACAO_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+};
+
 export const createSessionId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -50,6 +75,11 @@ export const setStoredSessionId = (sessionId: string) => {
 export const clearStoredSessionId = () => {
   sessionStorage.removeItem(SESSION_STORAGE_KEY);
   localStorage.removeItem(SESSION_STORAGE_KEY);
+  try {
+    sessionStorage.removeItem(ESTACAO_STORAGE_KEY);
+  } catch {
+    // nada a limpar
+  }
 };
 
 /**

@@ -6,7 +6,7 @@ import { hasTenantFullAccess } from '../../utils/roles';
 import { resolveRouteAccess } from '../../utils/routeAccess';
 import { podeGerenciarPermissoesDeEquipe } from '../../utils/visibilidadeVendasDomain';
 import { appRoutesConfig } from '../../routes/appRoutesConfig';
-import { TabActiveContext, TabIdContext, singleSessionPrefixFor, useTabs, type Tab } from '../../contexts/TabsContext';
+import { TabActiveContext, TabIdContext, singleSessionPrefixFor, useTabs, useTabsState, type Tab } from '../../contexts/TabsContext';
 import { ErrorBoundary } from '../ErrorBoundary';
 import PageLoader from './PageLoader';
 import BarraDeAcaoRapida from './BarraDeAcaoRapida';
@@ -57,7 +57,17 @@ import BarraDeAcaoRapida from './BarraDeAcaoRapida';
 const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActive }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const element = useRoutes(appRoutesConfig, tab.path);
+  const elementoDaRota = useRoutes(appRoutesConfig, tab.path);
+  // A TELA SO' E' MONTADA DE NOVO QUANDO O ENDERECO DA ABA MUDA (24/11/2026).
+  // O useRoutes devolve um elemento NOVO a cada render deste componente -- e ele
+  // renderiza a cada mudanca de endereco do navegador, ou seja, a cada troca de
+  // aba. Elemento novo = contextos de rota novos = o React redesenhava a tela
+  // inteira de TODAS as abas abertas a cada troca (medido com 8 abas: ~180 ms
+  // presos por troca). O elemento so' depende de `tab.path`; guardando o do
+  // endereco atual, trocar de aba nao redesenha a tela de ninguem.
+  const [rotaGuardada, setRotaGuardada] = useState({ path: tab.path, element: elementoDaRota });
+  if (rotaGuardada.path !== tab.path) setRotaGuardada({ path: tab.path, element: elementoDaRota });
+  const element = rotaGuardada.path === tab.path ? rotaGuardada.element : elementoDaRota;
   const { updateTabLocation } = useTabs();
   const { blockedModules, userRole, userPermissions, isOwner, isPlatformAdmin, nivelAcesso } = useAuth();
 
@@ -191,7 +201,7 @@ const TabPane: React.FC<{ tab: Tab; isActive: boolean }> = React.memo(({ tab, is
 
 /** Renderiza uma TabPane por aba aberta -- todas ficam montadas o tempo todo. */
 export const TabPanesArea: React.FC = () => {
-  const { tabs, activeTabId } = useTabs();
+  const { tabs, activeTabId } = useTabsState();
   return (
     <>
       {tabs.map((tab) => (

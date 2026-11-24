@@ -29,8 +29,9 @@ export const usePrintAndClose = (fallbackPath: string) => {
   return useCallback(() => {
     window.print();
     if (tabsCtx && tabId) {
-      const aba = tabsCtx.tabs.find((tab) => tab.id === tabId);
-      const abaDeOrigem = aba?.parentTabId && tabsCtx.tabs.some((tab) => tab.id === aba.parentTabId)
+      const abas = tabsCtx.getTabs();
+      const aba = abas.find((tab) => tab.id === tabId);
+      const abaDeOrigem = aba?.parentTabId && abas.some((tab) => tab.id === aba.parentTabId)
         ? aba.parentTabId
         : null;
       tabsCtx.closeTab(tabId);

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTabs } from '../../contexts/TabsContext';
+import { useTabs, useTabsState } from '../../contexts/TabsContext';
 import {
   Award,
   BarChart2,
@@ -116,7 +116,8 @@ const Sidebar: React.FC = () => {
     nivelAcesso,
     grupo
   } = useAuth();
-  const { tabs, activeTabId, openTab } = useTabs();
+  const { openTab } = useTabs();
+  const { tabs, activeTabId } = useTabsState();
   const currentPath = tabs.find((tab) => tab.id === activeTabId)?.path || '';
 
   const searchInputRef = useRef<HTMLInputElement>(null);

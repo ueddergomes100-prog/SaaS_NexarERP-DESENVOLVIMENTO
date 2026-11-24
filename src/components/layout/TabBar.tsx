@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import { useTabs } from '../../contexts/TabsContext';
+import { useTabs, useTabsState } from '../../contexts/TabsContext';
 
 const TabBar: React.FC = () => {
-  const { tabs, activeTabId, activateTab, requestCloseTab, reorderTab } = useTabs();
+  const { activateTab, requestCloseTab, reorderTab } = useTabs();
+  const { tabs, activeTabId } = useTabsState();
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 

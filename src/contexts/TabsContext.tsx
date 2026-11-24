@@ -22,9 +22,21 @@ export interface Tab {
   parentTabId?: string;
 }
 
+/**
+ * O QUE AS TELAS USAM (24/11/2026): so' as ACOES das abas, que nunca mudam de
+ * identidade. A lista de abas e a aba ativa ficam num contexto separado
+ * (TabsStateContext / useTabsState), lido so' pelo menu, pela barra de abas e
+ * pela area das abas.
+ *
+ * Por que separar: quase toda tela chama useTabs() so' para pegar o openTab.
+ * Com tudo num contexto so', cada troca de aba mudava o valor e o React
+ * redesenhava a tela de TODAS as abas abertas (medido: ~110 ms presos por
+ * troca com 8 abas, mais ~70 ms na sequencia). Agora trocar de aba so' mexe
+ * no menu, na barra de abas e nas duas abas envolvidas.
+ */
 interface TabsContextValue {
-  tabs: Tab[];
-  activeTabId: string;
+  /** As abas abertas AGORA, para ler na hora de uma acao (clique). Nao redesenha quem chama. */
+  getTabs: () => Tab[];
   /** Reaproveita a aba que ja estiver mostrando esse path; senao cria uma
    * nova e ativa. Pros modulos single-session (ver singleSessionPrefixFor),
    * reaproveita qualquer aba do mesmo modulo, nao so path identico. */
@@ -52,6 +64,14 @@ interface TabsContextValue {
  * de lancar erro (useTabs lanca de proposito nos outros usos, pra pegar
  * bug de tela usada fora do lugar certo cedo). */
 export const TabsContext = createContext<TabsContextValue | null>(null);
+
+interface TabsStateValue {
+  tabs: Tab[];
+  activeTabId: string;
+}
+
+/** Lista de abas e aba ativa: muda a cada troca. So' o menu e a barra de abas leem daqui. */
+const TabsStateContext = createContext<TabsStateValue | null>(null);
 
 /** Sinaliza se o conteudo atual esta dentro da aba ativa -- usado por
  * useKeyboardShortcuts/useEscapeLayer pra nao reagir em abas escondidas
@@ -308,8 +328,15 @@ export const TabsProvider: React.FC<{ children: React.ReactNode; dono: string }>
   // precisam nascer consistentes um com o outro. O inicializador passado
   // pro useState so roda uma vez, no mount, garantido pelo proprio React.
   const [state, setState] = useState<TabsState>(() => initialTabsState(dono));
-  const { tabs, activeTabId } = state;
+  const { tabs } = state;
+  // O navigate do react-router muda de identidade a cada mudanca de endereco.
+  // Guardado num ref, o openTab nao depende dele e as acoes ficam estaveis
+  // (senao toda navegacao voltava a redesenhar quem usa as abas).
   const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  useEffect(() => {
+    navigateRef.current = navigate;
+  }, [navigate]);
 
   // As abas sao gravadas com o dono (usuario + empresa) para nao reabrirem
   // em outra conta no mesmo navegador.
@@ -360,7 +387,7 @@ export const TabsProvider: React.FC<{ children: React.ReactNode; dono: string }>
         // a troca externa de tab.path; sem isso a URL ficaria atrasada.
         // Se a aba ainda nao for a ativa, isso e inocuo (a URL some da
         // tela ate a aba ativar, no mesmo lote de render).
-        navigate(path, { replace: true });
+        navigateRef.current(path, { replace: true });
         setState((current) => ({
           ...current,
           tabs: current.tabs.map((tab) => (
@@ -393,7 +420,9 @@ export const TabsProvider: React.FC<{ children: React.ReactNode; dono: string }>
       const newTab: Tab = { id: makeTabId(), path, label: label || resolveTabLabel(path), labelExplicito: Boolean(label), parentTabId };
       return { tabs: [...current.tabs, newTab], activeTabId: newTab.id };
     });
-  }, [navigate]);
+  }, []);
+
+  const getTabs = useCallback(() => tabsRef.current, []);
 
   const activateTab = useCallback((id: string) => {
     setState((current) => (current.activeTabId === id ? current : { ...current, activeTabId: id }));
@@ -537,12 +566,24 @@ export const TabsProvider: React.FC<{ children: React.ReactNode; dono: string }>
     });
   }, []);
 
-  const value = useMemo(
-    () => ({ tabs, activeTabId, openTab, activateTab, closeTab, requestCloseTab, setTabDirty, reorderTab, updateTabLocation }),
-    [tabs, activeTabId, openTab, activateTab, closeTab, requestCloseTab, setTabDirty, reorderTab, updateTabLocation],
+  // Todas as acoes sao estaveis: este valor e' criado uma vez por TabsProvider.
+  const acoes = useMemo(
+    () => ({ getTabs, openTab, activateTab, closeTab, requestCloseTab, setTabDirty, reorderTab, updateTabLocation }),
+    [getTabs, openTab, activateTab, closeTab, requestCloseTab, setTabDirty, reorderTab, updateTabLocation],
   );
 
-  return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
+  return (
+    <TabsContext.Provider value={acoes}>
+      <TabsStateContext.Provider value={state}>{children}</TabsStateContext.Provider>
+    </TabsContext.Provider>
+  );
+};
+
+/** Lista de abas e aba ativa. Quem chama e' redesenhado a cada troca de aba: so' para o menu e a barra de abas. */
+export const useTabsState = (): TabsStateValue => {
+  const estado = useContext(TabsStateContext);
+  if (!estado) throw new Error('useTabsState deve ser usado dentro de TabsProvider');
+  return estado;
 };
 
 export const useTabs = (): TabsContextValue => {
@@ -558,7 +599,7 @@ export const useTabs = (): TabsContextValue => {
   const currentTabId = useContext(TabIdContext);
   const openTab = useCallback(
     (path: string, label?: string) => ctx.openTab(path, label, currentTabId ?? undefined),
-    [ctx.openTab, currentTabId],
+    [ctx, currentTabId],
   );
 
   return useMemo(() => ({ ...ctx, openTab }), [ctx, openTab]);

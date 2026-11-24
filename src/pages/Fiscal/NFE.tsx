@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Receipt, Plus, Search, CheckCircle,
   XCircle, AlertCircle, Eye, Download, RefreshCw, X, Ban, Settings,
-  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail, Printer
+  ChevronLeft, ChevronRight, MessageCircle, Loader2, FilePenLine, RotateCcw, Mail, Printer, Trash2
 } from 'lucide-react';
 import { juntarPdfs } from '../../utils/juntarPdfs';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -73,6 +73,14 @@ import { definirComNotaFiscalNoServidor } from '../../services/vendaServidorServ
 import { useCfopsDesativados } from '../../hooks/useCfopsDesativados';
 import { createAuditLog } from '../../services/logService';
 import { rotuloStatusNota } from '../../utils/notaTransferenciaDomain';
+import ProductAutocomplete from '../../components/common/ProductAutocomplete';
+import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
+import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
+import {
+  adicionarProdutoNaNotaManual, comTotalAtualizado, descricaoDaNotaManual, lerNumeroDigitado,
+  totalDaLinhaManual, totalDaNotaManual, validarItensDaNotaManual,
+} from '../../utils/notaManualItensDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -185,9 +193,31 @@ interface PedidoVendaItem {
   percentualTributos?: number;
   /** Unidade em que o item foi vendido (vem do pedido). */
   unidadeMedidaSigla?: string;
+  /** Nota "na mao" com itens (24/11/2026): se a unidade aceita quantidade quebrada. */
+  unidadeMedidaFracionado?: boolean;
+  unidadeMedidaCasasDecimais?: number;
   embalagemId?: string;
   /** Dados fiscais lidos do cadastro do produto (e nao item avulso/produto apagado). */
   doCadastro?: boolean;
+}
+
+/** Produto do catalogo oferecido na busca da nota "na mao" (24/11/2026). */
+interface ProdutoDaNotaManual {
+  id: string;
+  nome: string;
+  codigo?: string;
+  codigoBarras?: string;
+  referencia?: string;
+  marca?: string;
+  categoria?: string;
+  embalagens?: unknown;
+  ativo?: boolean;
+  temGrade?: boolean;
+  precoVenda?: number;
+  quantidade?: number;
+  unidadeMedidaSigla?: string;
+  unidadeMedidaFracionado?: boolean;
+  unidadeMedidaCasasDecimais?: number;
 }
 
 /** Campos fiscais do item que a pessoa pode corrigir na propria nota (aba Produtos). */
@@ -731,47 +761,96 @@ const NFE: React.FC = () => {
     loadConfigAndClients();
   }, [tenantId, vendasVisiveisDeUsuarioId]);
 
-  // Sincroniza campos avulsos/manuais com importedPedidoItens quando não há pedido nem OS selecionado
+  /*
+   * NOTA "NA MAO" COM ITENS (24/11/2026, pedido do dono): sem pedido nem OS, a
+   * NF-e e' montada escolhendo produtos do estoque (preco de venda editavel; so'
+   * produtos cadastrados) e o total vai sendo somado. Nao baixa estoque nem gera
+   * financeiro -- so' transmite. Regra em notaManualItensDomain.ts. Antes era uma
+   * linha so' digitada (descricao + valor + NCM/CFOP/CSOSN).
+   */
+  const notaManualComItens = !importedPedidoId && !importedOsId && formData.tipo === 'NF-e';
+  const [buscaProdutoNota, setBuscaProdutoNota] = useState('');
+  const [produtosDaNota, setProdutosDaNota] = useState<ProdutoDaNotaManual[]>([]);
+  const [adicionandoProduto, setAdicionandoProduto] = useState(false);
+
+  // Catalogo compartilhado (mesma escuta das outras telas): so' enquanto a nota "na mao" esta' aberta.
   useEffect(() => {
-    if (!importedPedidoId && !importedOsId && isModalOpen) {
-      const timer = setTimeout(() => {
-        setImportedPedidoItens(prev => {
-          const currentAvulso = prev[0];
-          const newNome = formData.descricao || 'Manual NF-e Item';
-          const newPreco = Number(formData.valor) || 0;
-          const newNcm = formData.ncm || '';
-          const newCfop = formData.cfop || '5102';
-          const newCsosn = formData.csosn || '';
+    if (!tenantId || !isModalOpen || !notaManualComItens) return;
+    return acompanharCatalogoEstoque(tenantId, (snap) => setProdutosDaNota(
+      // produtoRevenda === false = uso interno (insumo, peca de veiculo): nao vai em nota de venda.
+      snap.docs.filter((d) => d.data().produtoRevenda !== false).map((d) => {
+        const p = d.data();
+        return {
+          id: d.id,
+          nome: String(p.nome || ''),
+          codigo: p.codigo,
+          codigoBarras: p.codigoBarras,
+          referencia: p.referencia,
+          marca: p.marca,
+          categoria: p.categoria,
+          embalagens: p.embalagens,
+          ativo: p.ativo,
+          temGrade: p.temGrade,
+          precoVenda: Number(p.precoVenda) || 0,
+          quantidade: Number(p.quantidade) || 0,
+          unidadeMedidaSigla: p.unidadeMedidaSigla,
+          unidadeMedidaFracionado: p.unidadeMedidaFracionado,
+          unidadeMedidaCasasDecimais: p.unidadeMedidaCasasDecimais,
+        };
+      }),
+    ), (erro) => console.error('Nao foi possivel carregar os produtos para a nota:', erro));
+  }, [tenantId, isModalOpen, notaManualComItens]);
 
-          if (currentAvulso &&
-              currentAvulso.id === 'avulso' &&
-              currentAvulso.nome === newNome &&
-              currentAvulso.precoUnitario === newPreco &&
-              currentAvulso.ncm === newNcm &&
-              currentAvulso.cfop === newCfop &&
-              currentAvulso.csosn === newCsosn) {
-            return prev;
-          }
+  // Valor Total e Descricao da nota vem dos itens escolhidos. Sem item nao mexe:
+  // retransmitir uma nota avulsa antiga (linha digitada) continua igual.
+  useEffect(() => {
+    if (!isModalOpen || !notaManualComItens) return;
+    if (importedPedidoItens.length === 0 && retransmittingInvoiceId) return;
+    const valor = importedPedidoItens.length ? totalDaNotaManual(importedPedidoItens).toFixed(2) : '';
+    const descricao = descricaoDaNotaManual(importedPedidoItens);
+    setFormData((prev) => (prev.valor === valor && prev.descricao === descricao ? prev : { ...prev, valor, descricao }));
+  }, [isModalOpen, notaManualComItens, importedPedidoItens, retransmittingInvoiceId]);
 
-          return [
-            {
-              id: 'avulso',
-              nome: newNome,
-              quantidade: 1,
-              precoUnitario: newPreco,
-              valorTotal: newPreco,
-              desconto: 0,
-              ncm: newNcm,
-              cfop: newCfop,
-              csosn: newCsosn,
-              origem: '0'
-            }
-          ];
-        });
-      }, 0);
-      return () => clearTimeout(timer);
+  const adicionarProdutoNaNota = async (produto: ProdutoDaNotaManual) => {
+    if (adicionandoProduto) return;
+    setAdicionandoProduto(true);
+    try {
+      const { itens, semUnidade, somouNaLinha } = adicionarProdutoNaNotaManual<PedidoVendaItem>(
+        importedPedidoItens,
+        produto,
+        (base) => ({ ...base, codigoProduto: produto.codigo || produto.id }),
+      );
+      if (somouNaLinha) {
+        setImportedPedidoItens(itens);
+      } else {
+        // Fiscal do item (NCM, CFOP, CST/CSOSN, aliquotas) do cadastro, como ao importar um pedido.
+        const novo = itens[itens.length - 1];
+        const [comFiscal] = await fetchPedidoItensTaxes([novo]);
+        setImportedPedidoItens((atuais) => [...atuais, { ...novo, ...comFiscal }]);
+        setFiscalDoCadastro((atuais) => [...atuais, ...fotografiaFiscal([{ ...novo, ...comFiscal }])]);
+        if (semUnidade) {
+          const aviso = avisoUnidadeMedidaAusente(produto.nome || 'Produto');
+          showWarning(aviso.title, aviso.text);
+        }
+      }
+      setBuscaProdutoNota('');
+    } finally {
+      setAdicionandoProduto(false);
     }
-  }, [formData.descricao, formData.valor, formData.ncm, formData.cfop, formData.csosn, importedPedidoId, importedOsId, isModalOpen]);
+  };
+
+  /** Quantidade, preco ou desconto digitados na linha da nota "na mao" (o total recalcula). */
+  const alterarValorDoItemManual = (index: number, campo: 'quantidade' | 'precoUnitario' | 'desconto', texto: string) => {
+    setImportedPedidoItens((atuais) => atuais.map((item, i) => (
+      i === index ? comTotalAtualizado({ ...item, [campo]: lerNumeroDigitado(texto) }) : item
+    )));
+  };
+
+  const removerItemManual = (index: number) => {
+    setImportedPedidoItens((atuais) => atuais.filter((_, i) => i !== index));
+    setFiscalDoCadastro((atuais) => atuais.filter((_, i) => i !== index));
+    setItemComProblema(null);
+  };
 
   const handleItemTaxChange = (index: number, field: string, value: string) => {
     const updated = [...importedPedidoItens];
@@ -780,17 +859,6 @@ const NFE: React.FC = () => {
       [field]: value
     };
     setImportedPedidoItens(updated);
-
-    // Se for item manual/avulso e for a única linha, sincroniza de volta ao formData
-    if (!importedPedidoId && index === 0) {
-      if (field === 'nome') {
-        setFormData(prev => ({ ...prev, descricao: value }));
-      } else if (field === 'precoUnitario') {
-        setFormData(prev => ({ ...prev, valor: value }));
-      } else {
-        setFormData(prev => ({ ...prev, [field]: value }));
-      }
-    }
   };
 
   /*
@@ -2345,6 +2413,15 @@ const NFE: React.FC = () => {
    * do DANFE: a previa passa pelo MESMO caminho da emissao.
    */
   const formularioProntoParaMontar = (): boolean => {
+    // Nota "na mao" com itens (24/11/2026): sem item escolhido nao monta. A
+    // retransmissao de uma nota avulsa antiga (linha digitada) segue pelo formulario.
+    if (notaManualComItens && (importedPedidoItens.length > 0 || !retransmittingInvoiceId)) {
+      const erroItens = validarItensDaNotaManual(importedPedidoItens);
+      if (erroItens) {
+        showError('Confira os produtos da nota', erroItens);
+        return false;
+      }
+    }
     if (!formData.clienteNome || !formData.documento || !formData.valor || !formData.descricao) {
       showError('Campos Incompletos', 'Preencha Nome do Cliente, Documento, Descrição e Valor.');
       return false;
@@ -2390,8 +2467,11 @@ const NFE: React.FC = () => {
       // Importar de um Pedido de Venda usa o cadastro completo de cada
       // produto (notaFiscalItemDomain) -- e o unico caminho correto pra
       // esses regimes hoje.
+      // Nota "na mao" com itens do estoque (24/11/2026) usa o cadastro completo
+      // de cada produto, como o pedido: a trava so' vale para linha digitada.
       const semPedidoImportado = !(importedPedidoId && importedPedidoItens.length > 0);
-      if (semPedidoImportado && !usesCsosn(regimeTributario)) {
+      const soItensDoCadastro = importedPedidoItens.length > 0 && importedPedidoItens.every((it) => it.doCadastro === true);
+      if (semPedidoImportado && !soItensDoCadastro && !usesCsosn(regimeTributario)) {
         showError(
           'Lançamento avulso não suporta este regime tributário',
           `A empresa está no regime "${REGIME_TRIBUTARIO_OPTIONS.find(r => r.value === regimeTributario)?.label || regimeTributario}", que exige CST real de ICMS/PIS/COFINS por produto -- o lançamento avulso só monta o formato simplificado de Simples Nacional (CSOSN) e a Spedy vai rejeitar (SPD003). Importe um Pedido de Venda pronto em vez de lançar avulso: ele já usa os dados fiscais reais cadastrados em cada produto.`
@@ -2441,7 +2521,7 @@ const NFE: React.FC = () => {
       const { payload, avisos } = await montarPayloadNfe({
         integrationId: 'previa',
         form: formData,
-        itens: importedPedidoId ? importedPedidoItens : [],
+        itens: importedPedidoId || notaManualComItens ? importedPedidoItens : [],
         pagamentos: importedPedidoId ? importedPedidoPagamentos : [],
         numeroPedido: pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido,
         referencedAccessKey,
@@ -2703,7 +2783,7 @@ const NFE: React.FC = () => {
         const { payload, itemsPayload, avisos: avisosNota } = await montarPayloadNfe({
           integrationId,
           form: formData,
-          itens: importedPedidoId ? importedPedidoItens : [],
+          itens: importedPedidoId || notaManualComItens ? importedPedidoItens : [],
           pagamentos: importedPedidoId ? importedPedidoPagamentos : [],
           numeroPedido: pedidosVenda.find((p) => p.id === importedPedidoId)?.numeroPedido,
           referencedAccessKey,
@@ -4208,9 +4288,14 @@ const NFE: React.FC = () => {
                       value={formData.valor}
                       onChange={(e) => setFormData({...formData, valor: e.target.value})}
                       required
-                      disabled={!!importedPedidoId || !!importedOsId}
-                      style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', opacity: (importedPedidoId || importedOsId) ? 0.7 : 1 }}
+                      disabled={!!importedPedidoId || !!importedOsId || notaManualComItens}
+                      style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', opacity: (importedPedidoId || importedOsId || notaManualComItens) ? 0.7 : 1 }}
                     />
+                    {notaManualComItens && (
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        Soma dos produtos escolhidos na aba "2. Detalhamento dos Produtos". Esta nota não baixa estoque nem gera conta a receber.
+                      </span>
+                    )}
                   </div>
 
                   {formData.tipo === 'NFS-e' && (
@@ -4356,8 +4441,8 @@ const NFE: React.FC = () => {
                       value={formData.descricao}
                       onChange={(e) => setFormData({...formData, descricao: e.target.value})}
                       required
-                      disabled={!!importedPedidoId}
-                      style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', resize: 'vertical', opacity: importedPedidoId ? 0.7 : 1 }}
+                      disabled={!!importedPedidoId || notaManualComItens}
+                      style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', resize: 'vertical', opacity: (importedPedidoId || notaManualComItens) ? 0.7 : 1 }}
                     />
                   </div>
 
@@ -4440,26 +4525,49 @@ const NFE: React.FC = () => {
                     />
                   )}
 
+                  {/* Nota "na mao" (24/11/2026): os itens saem do estoque, com o fiscal do cadastro. */}
+                  {notaManualComItens && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-purple)' }}>Adicionar produto do estoque</label>
+                      <ProductAutocomplete<ProdutoDaNotaManual>
+                        value={buscaProdutoNota}
+                        onChange={setBuscaProdutoNota}
+                        products={produtosDaNota}
+                        onSelect={(produto) => { void adicionarProdutoNaNota(produto); }}
+                        renderItem={renderProdutoOpcaoBusca}
+                        placeholder="Buscar…"
+                        ariaLabel="Buscar produto para a nota"
+                        travarAoSelecionar={false}
+                        disabled={adicionandoProduto}
+                      />
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        Entra o preço de venda do cadastro (dá para mudar na linha) e o NCM, CFOP e CST/CSOSN do produto. Escolher o mesmo produto de novo soma 1 na quantidade. Esta nota não baixa estoque nem gera conta a receber.
+                      </span>
+                    </div>
+                  )}
+
                   <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>
                           <th style={{ padding: '10px 8px' }}>Descrição</th>
-                          <th style={{ padding: '10px 8px', width: '60px', textAlign: 'center' }}>Qtd</th>
-                          <th style={{ padding: '10px 8px', width: '90px', textAlign: 'right' }}>V. Unit</th>
+                          <th style={{ padding: '10px 8px', width: notaManualComItens ? '80px' : '60px', textAlign: 'center' }}>Qtd</th>
+                          <th style={{ padding: '10px 8px', width: notaManualComItens ? '100px' : '90px', textAlign: 'right' }}>V. Unit</th>
+                          {notaManualComItens && <th style={{ padding: '10px 8px', width: '90px', textAlign: 'right' }}>Desconto</th>}
                           <th style={{ padding: '10px 8px', width: '90px', textAlign: 'right' }}>Total</th>
                           <th style={{ padding: '10px 8px', width: '110px' }}>NCM</th>
                           <th style={{ padding: '10px 8px', width: '95px' }}>CEST</th>
                           <th style={{ padding: '10px 8px', width: '120px' }}>CFOP</th>
                           <th style={{ padding: '10px 8px', width: '80px' }}>{usesCsosn(regimeTributario) ? 'CSOSN' : 'CST ICMS'}</th>
                           <th style={{ padding: '10px 8px', width: '140px' }}>Origem</th>
+                          {notaManualComItens && <th style={{ padding: '10px 8px', width: '40px' }} aria-label="Remover" />}
                         </tr>
                       </thead>
                       <tbody>
                         {importedPedidoItens.length === 0 ? (
                           <tr>
-                            <td colSpan={9} style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                              Nenhum produto cadastrado nesta nota.
+                            <td colSpan={notaManualComItens ? 11 : 9} style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              {notaManualComItens ? 'Nenhum produto ainda. Busque acima pelo nome, código ou "#".' : 'Nenhum produto cadastrado nesta nota.'}
                             </td>
                           </tr>
                         ) : (
@@ -4470,11 +4578,11 @@ const NFE: React.FC = () => {
                                   type="text"
                                   value={item.nome}
                                   onChange={(e) => handleItemTaxChange(idx, 'nome', e.target.value)}
-                                  disabled={!!importedPedidoId}
-                                  style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', opacity: importedPedidoId ? 0.7 : 1 }}
+                                  disabled={!!importedPedidoId || (notaManualComItens && item.doCadastro === true)}
+                                  style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', opacity: (importedPedidoId || (notaManualComItens && item.doCadastro)) ? 0.7 : 1 }}
                                 />
                                 {/* O que mais vai na nota, do cadastro do produto (conferencia rapida). */}
-                                {importedPedidoId && (
+                                {(importedPedidoId || (notaManualComItens && item.doCadastro)) && (
                                   <span style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
                                     {[
                                       item.unidadeMedidaSigla || 'UN (sem unidade no cadastro)',
@@ -4486,11 +4594,54 @@ const NFE: React.FC = () => {
                                   </span>
                                 )}
                               </td>
-                              <td style={{ padding: '8px', textAlign: 'center' }}>{item.quantidade}</td>
-                              <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-secondary)' }}>R$ {item.precoUnitario.toFixed(2)}</td>
-                              {/* O valor da linha que vai na nota [vProd] (07/11/2026): antes o
-                                  toFixed do ponto flutuante mostrava 244.33 e a nota saia 244,34. */}
-                              <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>R$ {valorDaLinhaDaNota(item.quantidade, item.precoUnitario).toFixed(2)}</td>
+                              {notaManualComItens ? (
+                                <>
+                                  {/* Digitado com virgula: grava ao sair do campo (key troca quando o valor muda por fora). */}
+                                  <td style={{ padding: '8px' }}>
+                                    <input
+                                      key={`q-${item.id}-${item.quantidade}`}
+                                      type="text"
+                                      inputMode="decimal"
+                                      defaultValue={String(item.quantidade).replace('.', ',')}
+                                      onBlur={(e) => alterarValorDoItemManual(idx, 'quantidade', e.target.value)}
+                                      aria-label={`Quantidade de ${item.nome}`}
+                                      title={item.unidadeMedidaSigla ? `Unidade ${item.unidadeMedidaSigla}${item.unidadeMedidaFracionado ? ' (aceita fração)' : ''}` : undefined}
+                                      style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', textAlign: 'center' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '8px' }}>
+                                    <input
+                                      key={`p-${item.id}-${item.precoUnitario}`}
+                                      type="text"
+                                      inputMode="decimal"
+                                      defaultValue={item.precoUnitario.toFixed(2).replace('.', ',')}
+                                      onBlur={(e) => alterarValorDoItemManual(idx, 'precoUnitario', e.target.value)}
+                                      aria-label={`Preço de ${item.nome}`}
+                                      style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', textAlign: 'right' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '8px' }}>
+                                    <input
+                                      key={`d-${item.id}-${item.desconto}`}
+                                      type="text"
+                                      inputMode="decimal"
+                                      defaultValue={(Number(item.desconto) || 0).toFixed(2).replace('.', ',')}
+                                      onBlur={(e) => alterarValorDoItemManual(idx, 'desconto', e.target.value)}
+                                      aria-label={`Desconto de ${item.nome}`}
+                                      style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', textAlign: 'right' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>R$ {totalDaLinhaManual(item).toFixed(2)}</td>
+                                </>
+                              ) : (
+                                <>
+                                  <td style={{ padding: '8px', textAlign: 'center' }}>{item.quantidade}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-secondary)' }}>R$ {item.precoUnitario.toFixed(2)}</td>
+                                  {/* O valor da linha que vai na nota [vProd] (07/11/2026): antes o
+                                      toFixed do ponto flutuante mostrava 244.33 e a nota saia 244,34. */}
+                                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>R$ {valorDaLinhaDaNota(item.quantidade, item.precoUnitario).toFixed(2)}</td>
+                                </>
+                              )}
                               <td style={{ padding: '8px' }}>
                                 <input
                                   type="text"
@@ -4580,10 +4731,37 @@ const NFE: React.FC = () => {
                                   <option value="8">8 - Nac. Conteúdo Importado Est.</option>
                                 </select>
                               </td>
+                              {notaManualComItens && (
+                                <td style={{ padding: '8px', textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    className="icon-btn"
+                                    onClick={() => removerItemManual(idx)}
+                                    title={`Tirar ${item.nome} da nota`}
+                                    aria-label={`Tirar ${item.nome} da nota`}
+                                    style={{ color: '#ef4444' }}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           ))
                         )}
                       </tbody>
+                      {notaManualComItens && importedPedidoItens.length > 0 && (
+                        <tfoot>
+                          <tr style={{ borderTop: '1px solid var(--border-color)' }}>
+                            <td colSpan={4} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600 }}>
+                              Total da nota ({importedPedidoItens.length} {importedPedidoItens.length === 1 ? 'item' : 'itens'})
+                            </td>
+                            <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 800, fontSize: '14px' }}>
+                              R$ {totalDaNotaManual(importedPedidoItens).toFixed(2).replace('.', ',')}
+                            </td>
+                            <td colSpan={6} />
+                          </tr>
+                        </tfoot>
+                      )}
                     </table>
                   </div>
                 </div>

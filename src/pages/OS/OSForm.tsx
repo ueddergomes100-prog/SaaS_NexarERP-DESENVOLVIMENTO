@@ -8,6 +8,7 @@ import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTim
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
+import { useEmitirBoletosNaHora } from '../../hooks/useEmitirBoletosNaHora';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { getServiceHours, getServiceTotal } from '../../utils/osServicePricing';
 import { linhasParaLote, prepararBaixaDeLotes } from '../../services/loteBaixaService';
@@ -403,6 +404,8 @@ const OSForm: React.FC = () => {
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido, grupo, userNome } = useAuth();
+  // "Emitir agora" do boleto, ao finalizar a OS: emite aqui e abre para imprimir (24/11/2026).
+  const { emitirBoletosNaHora, janelaDoBoleto } = useEmitirBoletosNaHora({ tenantId, uid: currentUser?.uid });
   // Quem cancelou e quando (aviso no topo da OS cancelada, 09/11/2026).
   const [cancelamentoInfo, setCancelamentoInfo] = useState<{ nome: string; quando: unknown; motivo: string } | null>(null);
   // Veiculos da empresa (colecao frota) para o deslocamento -- so no modo maquinas.
@@ -1745,18 +1748,18 @@ const OSForm: React.FC = () => {
 
       // Mesma oferta da venda: fechou em boleto, pergunta se emite agora.
       // "Deixar pendente" nao trava nada -- fica em Financeiro > Boletos.
+      // "Emitir agora" emite aqui e abre o boleto para imprimir (24/11/2026).
       if (paymentRecords.some((p) => p.formaPagamento === 'Boleto')) {
         const querEmitir = await NexusSwal.fire({
           title: 'Emitir o boleto agora?',
-          text: 'Você pode emitir depois em Financeiro → Boletos, quando quiser.',
+          text: 'O boleto sai aqui mesmo, pronto para imprimir. Se preferir, emita depois em Financeiro → Boletos.',
           icon: 'question',
           showCancelButton: true,
           confirmButtonText: 'Emitir agora',
           cancelButtonText: 'Deixar pendente',
         });
         if (querEmitir.isConfirmed) {
-          navigate('/financeiro/boletos');
-          return true;
+          await emitirBoletosNaHora({ osId: savedOsId });
         }
       }
 
@@ -2603,6 +2606,7 @@ const OSForm: React.FC = () => {
           {isLoading ? 'Salvando...' : 'SALVAR ORDEM DE SERVIÇO'}
         </button>
       </div>
+      {janelaDoBoleto}
     </div>
   );
 };

@@ -10,6 +10,8 @@ import {
   lerArquivoRetornoSicoob,
   numeroDaNotaParaOBoleto,
   parseLinhaRetornoSicoob,
+  resumoDaEmissaoNaHora,
+  separarTitulosDeBoletoDoDocumento,
   ROTULO_STATUS_BOLETO,
   statusBoletoEfetivo,
   tituloPassaNosFiltrosExtras,
@@ -323,4 +325,30 @@ test('filtro Faturados: hoje, ultimos N dias (contando hoje), periodo e titulo a
   assert.equal(faturadoNoPeriodo('2026-09-21', 'periodo', { de: '2026-09-10', ate: '2026-09-20' }, hoje), false);
   assert.equal(faturadoNoPeriodo('', '30dias', {}, hoje), false);
   assert.equal(faturadoNoPeriodo('', 'todos', {}, hoje), true);
+});
+
+// Boleto emitido na hora, na tela da venda (24/11/2026).
+test('separarTitulosDeBoletoDoDocumento: so boleto a receber em aberto, na ordem do vencimento', () => {
+  const titulos = [
+    { id: 'c', tipo: 'entrada', formaPagamento: 'Boleto', status: 'Pendente', dataVencimento: '2026-12-24', paymentIndex: 1 },
+    { id: 'a', tipo: 'entrada', formaPagamento: 'Boleto', status: 'Pendente', dataVencimento: '2026-11-24', paymentIndex: 0 },
+    { id: 'pix', tipo: 'entrada', formaPagamento: 'Pix', status: 'Paga', dataVencimento: '2026-11-24' },
+    { id: 'pago', tipo: 'entrada', formaPagamento: 'Boleto', status: 'Paga', dataVencimento: '2026-11-20' },
+    { id: 'cancelado', tipo: 'entrada', formaPagamento: 'Boleto', status: 'Cancelada', dataVencimento: '2026-11-20' },
+    { id: 'saida', tipo: 'saida', formaPagamento: 'Boleto', status: 'Pendente', dataVencimento: '2026-11-20' },
+    { id: 'b', tipo: 'entrada', formaPagamento: 'Boleto', status: 'Pendente', dataPrevistaRecebimento: '2026-12-01', boleto: { nossoNumero: '1203' } },
+  ];
+  const { paraEmitir, jaEmitidos } = separarTitulosDeBoletoDoDocumento(titulos);
+  assert.deepEqual(paraEmitir.map((t) => t.id), ['a', 'c']);
+  assert.deepEqual(jaEmitidos.map((t) => t.id), ['b']);
+  assert.deepEqual(separarTitulosDeBoletoDoDocumento([]), { paraEmitir: [], jaEmitidos: [] });
+});
+
+test('resumoDaEmissaoNaHora: diz quantos sairam', () => {
+  assert.equal(resumoDaEmissaoNaHora(1, 1), 'Boleto emitido.');
+  assert.equal(resumoDaEmissaoNaHora(3, 3), '3 boletos emitidos.');
+  assert.equal(resumoDaEmissaoNaHora(2, 3), '2 de 3 boletos emitidos.');
+  assert.equal(resumoDaEmissaoNaHora(0, 1), 'O boleto não foi emitido.');
+  assert.equal(resumoDaEmissaoNaHora(0, 2), 'Nenhum boleto foi emitido.');
+  assert.equal(resumoDaEmissaoNaHora(0, 0), 'Os boletos desta venda já estavam emitidos.');
 });

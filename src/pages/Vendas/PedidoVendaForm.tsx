@@ -11,6 +11,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { FORMA_PAGAMENTO_CASHBACK, cashbackDisponivelParaVenda, lerResumoCashback } from '../../utils/cashbackDomain';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
+import { useEmitirBoletosNaHora } from '../../hooks/useEmitirBoletosNaHora';
 import { creditoDaDevolucaoAposEstorno, planoDoEstornoDaDevolucao, type ItemDaDevolucao } from '../../utils/estornoDevolucaoDomain';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
 import { estornarCashbackDaVendaSemFalhar, gerarCashbackSemFalhar } from '../../services/cashbackService';
@@ -700,6 +701,8 @@ const PedidoVendaForm: React.FC = () => {
   // verdade, que envelhece se outra aba mexer na mesma pre-venda.
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId, controlaFiscal, devolucaoBotaoSeparado, loteModoSaida, loteAvisarVencido, grupo, configCashback, modoRotaPreVenda, configBonificacao, userNome } = useAuth();
+  // "Emitir agora" do boleto, no fim da venda: emite aqui e abre para imprimir (24/11/2026).
+  const { emitirBoletosNaHora, janelaDoBoleto } = useEmitirBoletosNaHora({ tenantId, uid: currentUser?.uid });
   // Bonificacao (30/10/2026): a empresa ligou e a pessoa pode bonificar (dono/gestor sempre).
   const podeBonificar = configBonificacao.ativa && (hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_BONIFICAR));
   // Rota na pre-venda (21/10/2026): pergunta "Rota 1 ou 2?" ao gravar a pre-venda (rotaPreVendaDomain.ts).
@@ -4371,19 +4374,20 @@ const PedidoVendaForm: React.FC = () => {
       // Venda fechada em boleto: oferece emitir na hora. Dizer "nao" nao
       // trava nada -- o titulo fica em Financeiro > Boletos, aba
       // "Aguardando emissao", pra emitir quando quiser (decisao do dono em
-      // 2026-09-22).
+      // 2026-09-22). "Emitir agora" emite AQUI e abre o boleto para imprimir
+      // (24/11/2026: antes so' abria a tela de Boletos e pedia outro clique);
+      // fechada a janela do boleto, o fim da venda segue (recibo, minuta, nota).
       if (paymentRecords.some((p) => p.formaPagamento === 'Boleto')) {
         const querEmitir = await NexusSwal.fire({
           title: 'Emitir o boleto agora?',
-          text: 'Você pode emitir depois em Financeiro → Boletos, quando quiser.',
+          text: 'O boleto sai aqui mesmo, pronto para imprimir. Se preferir, emita depois em Financeiro → Boletos.',
           icon: 'question',
           showCancelButton: true,
           confirmButtonText: 'Emitir agora',
           cancelButtonText: 'Deixar pendente',
         });
         if (querEmitir.isConfirmed) {
-          navigate('/financeiro/boletos');
-          return true;
+          await emitirBoletosNaHora({ pedidoId: newPedidoId });
         }
       }
 
@@ -6994,6 +6998,7 @@ const PedidoVendaForm: React.FC = () => {
         </div>
 
       </div>
+      {janelaDoBoleto}
     </div>
   );
 };

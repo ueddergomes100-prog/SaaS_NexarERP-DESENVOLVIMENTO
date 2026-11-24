@@ -19,7 +19,7 @@ import { linhaDigitavelDoCodigoBarras } from '../utils/boletoDomain';
 import { gerarPdfBoletos, type DadosPdfBoleto } from '../utils/boletoPdf';
 import { nomeArquivoDocumento } from '../utils/nomeArquivoDomain';
 import { formatCompanyAddress } from '../utils/companyAddress';
-import { documentoDoBoleto, erroDoConvenioBoleto, numeroDaNotaParaOBoleto, type NotaParaOBoleto } from '../utils/boletoEmissaoDomain';
+import { documentoDoBoleto, erroDoConvenioBoleto, numeroDaNotaParaOBoleto, separarTitulosDeBoletoDoDocumento, type NotaParaOBoleto } from '../utils/boletoEmissaoDomain';
 import { mensagensDoBoleto } from '../utils/boletoRemessaSicoobDomain';
 import { pagadorDoCadastro } from '../utils/cobrancaEmBoletoDomain';
 import { AVISO_SEGUNDA_VIA_SISTEMA_ANTERIOR } from '../utils/boletoSistemaAnteriorDomain';
@@ -370,3 +370,81 @@ export const nomePdfBoleto = (titulo: TituloBoleto) => nomeArquivoDocumento({
 export const gerarPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBoleto; bancosComBoleto: BancoBoleto[] }): Promise<{ blob: Blob; nome: string }> => (
   { blob: gerarPdfBoletos([await dadosPdfDoBoleto(a)]), nome: nomePdfBoleto(a.titulo) }
 );
+
+// ---------------------------------------------------------------------------
+// EMITIR NA HORA, NA TELA DA VENDA OU DA OS (24/11/2026, pedido do dono).
+// ---------------------------------------------------------------------------
+
+export interface BoletosEmitidosNaHora {
+  /** Titulos que estavam sem boleto e precisavam sair. */
+  pedidos: number;
+  /** Quantos sairam agora. */
+  emitidos: number;
+  /** Um texto em portugues por boleto que nao saiu (ou pelo PDF que nao montou). */
+  falhas: string[];
+  /** Um PDF so' com todos os boletos do documento (os de agora e os que ja' existiam), ou null. */
+  pdf: { blob: Blob; nome: string } | null;
+}
+
+/**
+ * Emite os boletos de UMA venda (ou OS) recem-fechada, um de cada vez (a reserva
+ * do nosso numero e' atomica por banco), e monta um PDF so' com todos. Mesmo
+ * caminho da tela de Boletos: os titulos passam a aparecer la' na aba "Emitidos".
+ * Nao mostra nada na tela: quem chama decide (hooks/useEmitirBoletosNaHora).
+ */
+export const emitirBoletosDoDocumento = async (a: { tenantId: string; uid: string; pedidoId?: string; osId?: string }): Promise<BoletosEmitidosNaHora> => {
+  const campo = a.pedidoId ? 'pedidoId' : 'osId';
+  const documentoId = a.pedidoId || a.osId || '';
+  if (!documentoId) throw new Error('Não consegui identificar a venda para emitir o boleto. Emita em Financeiro → Boletos, aba "Aguardando emissão".');
+
+  const snap = await getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', a.tenantId), where(campo, '==', documentoId)));
+  const brutos = snap.docs.map((d) => ({ id: d.id, dados: d.data() }));
+  const { paraEmitir, jaEmitidos } = separarTitulosDeBoletoDoDocumento(brutos.map(({ id, dados }) => ({
+    id,
+    tipo: dados.tipo,
+    formaPagamento: dados.formaPagamento,
+    status: dados.status,
+    boleto: dados.boleto,
+    dataVencimento: dados.dataVencimento,
+    dataPrevistaRecebimento: dados.dataPrevistaRecebimento,
+    paymentIndex: dados.paymentIndex,
+  })));
+  if (paraEmitir.length + jaEmitidos.length === 0) {
+    throw new Error('Não encontrei título em boleto em aberto nesta venda. Confira em Financeiro → Boletos, aba "Aguardando emissão".');
+  }
+
+  const tituloDe = (id: string): TituloBoleto => paraTituloBoleto(id, brutos.find((b) => b.id === id)!.dados);
+  const bancosComBoleto = await carregarBancosComBoleto(a.tenantId);
+  const prontos: TituloBoleto[] = jaEmitidos.map((t) => tituloDe(t.id));
+  const falhas: string[] = [];
+  let emitidos = 0;
+  for (const item of paraEmitir) {
+    const titulo = tituloDe(item.id);
+    try {
+      const banco = validarTituloParaEmissao(titulo, bancosComBoleto);
+      const boleto = await emitirUmTitulo({ tenantId: a.tenantId, uid: a.uid, titulo, banco });
+      prontos.push({ ...titulo, boleto, bancoId: banco.id, bancoNome: banco.nome });
+      emitidos += 1;
+    } catch (erro) {
+      const semPermissao = (erro as { code?: string })?.code === 'permission-denied';
+      falhas.push(semPermissao
+        ? 'Seu usuário não tem permissão para emitir boleto. Peça a quem cuida do financeiro para emitir em Financeiro → Boletos.'
+        : ((erro as Error)?.message || 'Não foi possível emitir este boleto. Tente de novo em Financeiro → Boletos.'));
+      // Sem banco preparado ou sem permissao, os outros dariam o mesmo erro: uma mensagem so'.
+      if (semPermissao || bancosComBoleto.length === 0) break;
+    }
+  }
+
+  let pdf: BoletosEmitidosNaHora['pdf'] = null;
+  if (prontos.length > 0) {
+    try {
+      const paginas: DadosPdfBoleto[] = [];
+      for (const titulo of prontos) paginas.push(await dadosPdfDoBoleto({ tenantId: a.tenantId, titulo, bancosComBoleto }));
+      pdf = { blob: gerarPdfBoletos(paginas), nome: nomePdfBoleto(prontos[0]) };
+    } catch (erro) {
+      console.error('Boleto emitido, mas o PDF nao montou:', erro);
+      falhas.push(`O boleto foi emitido, mas o PDF não pôde ser montado agora (${(erro as Error)?.message || 'erro ao gerar'}). Imprima em Financeiro → Boletos, aba "Emitidos".`);
+    }
+  }
+  return { pedidos: paraEmitir.length, emitidos, falhas, pdf };
+};

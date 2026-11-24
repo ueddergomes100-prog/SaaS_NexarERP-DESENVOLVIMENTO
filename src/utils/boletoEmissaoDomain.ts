@@ -481,3 +481,49 @@ export const tituloPassaNosFiltrosExtras = (
   if (f.bancoId && titulo.bancoId !== f.bancoId) return false;
   return valorNaFaixa(titulo.valorCentavos, f.valorDe, f.valorAte);
 };
+
+// ---------------------------------------------------------------------------
+// BOLETO EMITIDO NA HORA, NA TELA DA VENDA (24/11/2026, pedido do dono).
+// "Emitir agora" no fim da venda/OS levava para Financeiro > Boletos e a pessoa
+// tinha de clicar em emitir de novo. Agora emite ali mesmo: estas funcoes dizem
+// QUAIS titulos do documento entram (regra pura; a gravacao e o PDF ficam em
+// services/boletoEmissaoService.ts, o mesmo caminho da tela de Boletos).
+// ---------------------------------------------------------------------------
+
+export interface TituloDoDocumentoParaBoleto {
+  id: string;
+  tipo?: unknown;
+  formaPagamento?: unknown;
+  status?: unknown;
+  /** Preenchido = boleto ja' emitido (vai so' para a impressao). */
+  boleto?: unknown;
+  dataVencimento?: string | null;
+  dataPrevistaRecebimento?: string | null;
+  paymentIndex?: unknown;
+}
+
+/**
+ * Dos titulos de uma venda (ou OS), os que sao boleto a receber e ainda estao
+ * em aberto: `paraEmitir` (sem boleto) e `jaEmitidos` (so' reimprime). Pago,
+ * cancelado, outra forma e conta a pagar ficam de fora. Ordem: vencimento,
+ * depois a ordem das parcelas na venda.
+ */
+export const separarTitulosDeBoletoDoDocumento = <T extends TituloDoDocumentoParaBoleto>(titulos: readonly T[]): { paraEmitir: T[]; jaEmitidos: T[] } => {
+  const vencimento = (t: T) => String(t.dataVencimento || t.dataPrevistaRecebimento || '');
+  const ordem = (t: T) => (typeof t.paymentIndex === 'number' && Number.isFinite(t.paymentIndex) ? t.paymentIndex : 0);
+  const deBoleto = titulos
+    .filter((t) => t.formaPagamento === 'Boleto' && t.status === 'Pendente' && (t.tipo === undefined || t.tipo === 'entrada'))
+    .sort((a, b) => vencimento(a).localeCompare(vencimento(b)) || ordem(a) - ordem(b) || a.id.localeCompare(b.id));
+  return {
+    paraEmitir: deBoleto.filter((t) => !t.boleto),
+    jaEmitidos: deBoleto.filter((t) => Boolean(t.boleto)),
+  };
+};
+
+/** Frase do resultado: "Boleto emitido." / "3 boletos emitidos." / "2 de 3 boletos emitidos." */
+export const resumoDaEmissaoNaHora = (emitidos: number, pedidos: number): string => {
+  if (pedidos <= 0) return 'Os boletos desta venda já estavam emitidos.';
+  if (emitidos === pedidos) return pedidos === 1 ? 'Boleto emitido.' : `${pedidos} boletos emitidos.`;
+  if (emitidos === 0) return pedidos === 1 ? 'O boleto não foi emitido.' : 'Nenhum boleto foi emitido.';
+  return `${emitidos} de ${pedidos} boletos emitidos.`;
+};

@@ -2,7 +2,8 @@ const { admin, db } = require('../config/firebase');
 const D = require('../domain/mensalidadeDomain');
 const { lerGrupo, lerPercentualFilial, mensalidadeComFiliais } = require('../domain/filialDomain');
 const { registrarLog } = require('./auditoria');
-const { enviarEmailPeloResend } = require('./emailResend');
+// Pelo objeto do modulo (nao desestruturado): os testes trocam o envio por um falso.
+const emailResend = require('./emailResend');
 
 /*
  * MENSALIDADES DAS EMPRESAS CLIENTES (24/11/2026). Regra e decisoes do dono em
@@ -65,10 +66,24 @@ const registrar = (user, matrizId, dados) => registrarLog(
 
 // ---------------------------------------------------------------- leituras
 
+const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const lerConfigGeral = async () => {
   const snap = await db.collection('plataforma').doc('cobranca').get();
   const dados = snap.exists ? snap.data() : {};
-  return { prazos: D.lerPrazos(dados.prazos), contato: D.lerContato(dados.contato) };
+  const emailAvisos = textoLimpo(dados.emailAvisos, 120).toLowerCase();
+  return {
+    prazos: D.lerPrazos(dados.prazos),
+    contato: D.lerContato(dados.contato),
+    // Para onde vai o aviso de vespera do bloqueio (o dono da plataforma).
+    emailAvisos: EMAIL_VALIDO.test(emailAvisos) ? emailAvisos : '',
+  };
+};
+
+/** E-mail da empresa cobrada: o do dono; sem ele, o das configuracoes. */
+const emailDaEmpresa = (dono, config) => {
+  const para = textoLimpo(dono.email, 200) || textoLimpo(config.email, 200);
+  return EMAIL_VALIDO.test(para) ? para : '';
 };
 
 /** Empresa (ou filial) -> matriz do grupo. O plano e a cobranca sao do grupo. */
@@ -369,7 +384,7 @@ const liberarAte = async ({ user, tenantId, ate, motivo, hoje = D.hojeEmBrasilia
 };
 
 /** Prazos padrao e contato da plataforma (vale para quem nao tem excecao). */
-const salvarConfigGeral = async ({ user, prazos, contato }) => {
+const salvarConfigGeral = async ({ user, prazos, contato, emailAvisos }) => {
   const p = {
     diasLembreteAntes: Number(prazos?.diasLembreteAntes),
     diasAvisoForte: Number(prazos?.diasAvisoForte),
@@ -378,9 +393,31 @@ const salvarConfigGeral = async ({ user, prazos, contato }) => {
   const erro = D.validarPrazos(p);
   if (erro) throw new ErroMensalidade(400, erro);
   const c = D.lerContato(contato);
-  await db.collection('plataforma').doc('cobranca').set({ prazos: p, contato: c, atualizadoEm: agora(), atualizadoPor: user.uid });
+  const avisos = textoLimpo(emailAvisos, 120).toLowerCase();
+  if (avisos && !EMAIL_VALIDO.test(avisos)) throw new ErroMensalidade(400, 'O e-mail do aviso de véspera não parece válido. Confira e salve de novo.');
+  await db.collection('plataforma').doc('cobranca').set({
+    prazos: p, contato: c, emailAvisos: avisos, atualizadoEm: agora(), atualizadoPor: user.uid,
+  });
   const resultado = await reprojetarTodas();
-  return { prazos: p, contato: c, ...resultado };
+  return { prazos: p, contato: c, emailAvisos: avisos, ...resultado };
+};
+
+/** Carne anual: cria de uma vez os meses pedidos (pula os que ja existem e diz quais). */
+const gerarAno = async ({ user, tenantId, primeiraCompetencia, quantidade = D.QUANTIDADE_MAXIMA_DO_CARNE, hoje = D.hojeEmBrasilia() }) => {
+  const meses = D.competenciasDoCarne(primeiraCompetencia, quantidade);
+  if (!meses.length) throw new ErroMensalidade(400, 'Escolha o primeiro mês do carnê.');
+  const criadas = [];
+  const puladas = [];
+  for (const competencia of meses) {
+    try {
+      await gerarMensalidade({ user, tenantId, competencia, hoje });
+      criadas.push(competencia);
+    } catch (erro) {
+      if (erro instanceof ErroMensalidade && erro.status === 409) puladas.push(competencia);
+      else throw erro;
+    }
+  }
+  return { criadas, puladas };
 };
 
 /** Cobranca por e-mail (Resend) e texto pronto para o WhatsApp. */
@@ -403,11 +440,11 @@ const enviarCobranca = async ({ user, id, porEmail, porWhatsapp }) => {
   const resultado = { emailPara: null, whatsapp: null };
   const canais = [];
   if (porEmail) {
-    const para = textoLimpo(dono.email, 200) || textoLimpo(config.email, 200);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) {
+    const para = emailDaEmpresa(dono, config);
+    if (!para) {
       throw new ErroMensalidade(400, `A empresa ${empresa || ''} não tem e-mail no cadastro. Envie pelo WhatsApp.`.replace('  ', ' '));
     }
-    await enviarEmailPeloResend({ para, assunto, texto });
+    await emailResend.enviarEmailPeloResend({ para, assunto, texto });
     resultado.emailPara = para;
     canais.push(`e-mail ${para}`);
   }
@@ -461,6 +498,96 @@ const reprojetarTodas = async () => {
   return { empresas: ids.length, alterados };
 };
 
+const ROTULO_LEMBRETE = { antes: 'lembrete antes do vencimento', dia: 'vencimento', atraso: 'atraso', bloqueio: 'bloqueio' };
+
+const emailConfigurado = () => Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
+
+/** Reserva o e-mail ANTES de mandar (duas rotinas juntas nao mandam duas vezes). */
+const reservarLembrete = (ref, tipo) => db.runTransaction(async (tx) => {
+  const snap = await tx.get(ref);
+  const dados = snap.exists ? snap.data() : null;
+  if (!dados || dados.situacao !== 'aberta' || (dados.lembretes && dados.lembretes[tipo])) return false;
+  tx.update(ref, { [`lembretes.${tipo}`]: new Date().toISOString() });
+  return true;
+});
+const desfazerReserva = (ref, tipo) => ref.update({ [`lembretes.${tipo}`]: apagar() }).catch(() => {});
+
+/**
+ * E-mails automaticos do dia (decisao do dono, 24/11): ao cliente, um de cada
+ * etapa por mensalidade (antes, no dia, com 3 dias de atraso, no bloqueio); ao
+ * dono da plataforma, a lista de quem bloqueia amanha. E-mail que nao saiu
+ * desfaz a reserva (tenta de novo amanha). Falha aqui nunca derruba a rotina.
+ */
+const enviarLembretesDoDia = async (hoje, config) => {
+  if (!emailConfigurado()) return { enviados: 0, falhas: 0, vespera: 0, semEmail: true };
+  const abertas = await db.collection(COLECAO).where('situacao', '==', 'aberta').get();
+  const empresas = new Map();
+  const vespera = [];
+  let enviados = 0;
+  let falhas = 0;
+  for (const doc of abertas.docs) {
+    const m = D.lerMensalidade(doc.id, doc.data());
+    if (!empresas.has(m.tenantId)) {
+      try {
+        const { dono } = await resolverMatriz(m.tenantId);
+        const cfg = await db.collection('configuracoes').doc(m.tenantId).get();
+        empresas.set(m.tenantId, { dono, config: cfg.exists ? cfg.data() : {} });
+      } catch {
+        empresas.set(m.tenantId, null);
+      }
+    }
+    const empresa = empresas.get(m.tenantId);
+    if (!empresa) continue;
+    const plano = D.lerPlanoCobranca(empresa.dono.planoCobranca);
+    const prazos = plano.prazos || config.prazos;
+    const nome = textoLimpo(empresa.dono.nomeOficina, 200);
+    if (D.ehVesperaDoBloqueio(m, prazos, plano.liberadoAte, hoje)) vespera.push({ ref: doc.ref, empresa: nome || m.tenantId, valor: m.valor, vencimento: m.vencimento });
+
+    const tipo = D.lembreteDoDia(m, prazos, plano.liberadoAte, hoje);
+    const para = tipo ? emailDaEmpresa(empresa.dono, empresa.config) : '';
+    if (!tipo || !para || !(await reservarLembrete(doc.ref, tipo))) continue;
+    try {
+      const { assunto, texto } = D.textoDoLembrete(tipo, {
+        empresa: nome,
+        competencia: m.competencia,
+        vencimento: m.vencimento,
+        valor: m.valor,
+        boleto: m.boleto,
+        bloqueioEm: D.dataDoBloqueioDaMensalidade(m.vencimento, prazos, plano.liberadoAte),
+      });
+      await emailResend.enviarEmailPeloResend({ para, assunto, texto });
+      enviados += 1;
+      await doc.ref.update({ eventos: admin.firestore.FieldValue.arrayUnion(evento(null, 'lembrete', `${ROTULO_LEMBRETE[tipo]}, para ${para}`)) }).catch(() => {});
+      registrar(null, m.tenantId, {
+        acao: 'mensalidade_lembrete',
+        descricao: `E-mail automático (${ROTULO_LEMBRETE[tipo]}) da mensalidade de ${D.rotuloCompetencia(m.competencia)} enviado para ${para}.`,
+        registroId: m.id,
+      });
+    } catch (erro) {
+      falhas += 1;
+      await desfazerReserva(doc.ref, tipo);
+      console.error(`[Mensalidades] e-mail automático (${tipo}) de ${m.id} falhou:`, erro.message);
+    }
+  }
+
+  let avisadas = 0;
+  if (config.emailAvisos && vespera.length) {
+    const reservadas = [];
+    for (const v of vespera) if (await reservarLembrete(v.ref, 'vespera')) reservadas.push(v);
+    if (reservadas.length) {
+      try {
+        const { assunto, texto } = D.textoDaVespera(reservadas, D.somarDias(hoje, 1));
+        await emailResend.enviarEmailPeloResend({ para: config.emailAvisos, assunto, texto });
+        avisadas = reservadas.length;
+      } catch (erro) {
+        await Promise.all(reservadas.map((v) => desfazerReserva(v.ref, 'vespera')));
+        console.error('[Mensalidades] aviso de véspera falhou:', erro.message);
+      }
+    }
+  }
+  return { enviados, falhas, vespera: avisadas };
+};
+
 /** Cria as mensalidades do mes que chegaram na antecedencia e recalcula tudo. Idempotente. */
 const rotinaDiariaDaCobranca = async (hoje = D.hojeEmBrasilia()) => {
   const { ativas } = await empresasComCobranca();
@@ -479,7 +606,13 @@ const rotinaDiariaDaCobranca = async (hoje = D.hojeEmBrasilia()) => {
     }
   }
   const projecao = await reprojetarTodas();
-  return { criadas, ...projecao };
+  let emails = null;
+  try {
+    emails = await enviarLembretesDoDia(hoje, await lerConfigGeral());
+  } catch (erro) {
+    console.error('[Mensalidades] e-mails automáticos falharam:', erro.message);
+  }
+  return { criadas, ...projecao, emails };
 };
 
 module.exports = {
@@ -490,6 +623,8 @@ module.exports = {
   desfazerPagamento,
   empresaBloqueada,
   enviarCobranca,
+  enviarLembretesDoDia,
+  gerarAno,
   gerarMensalidade,
   liberarAte,
   marcarPaga,

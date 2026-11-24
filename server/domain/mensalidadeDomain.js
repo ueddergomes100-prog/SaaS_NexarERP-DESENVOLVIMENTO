@@ -11,9 +11,15 @@
  *    calculava). Atrasou, o aviso e o bloqueio valem para o grupo todo.
  *  - A mensalidade de cada mes nasce sozinha (rotina diaria do servidor),
  *    `ANTECEDENCIA_DE_GERACAO_DIAS` antes do vencimento; o dono so' anexa o boleto.
- *  - Prazos padrao: lembrete 3 dias antes do vencimento, aviso forte com 5 dias
- *    de atraso, bloqueio no 10o dia de atraso. Padrao geral no SuperAdmin, com
+ *  - Prazos padrao: lembrete 3 dias antes do vencimento, aviso forte com 4 dias
+ *    de atraso, bloqueio no 7o dia de atraso. Padrao geral no SuperAdmin, com
  *    excecao por empresa.
+ *  - Mensalidade SEM boleto anexado nao avisa nem bloqueia: falta nossa nao
+ *    vira punicao do cliente (aparece no SuperAdmin como "Falta anexar o boleto").
+ *  - Carne anual: o dono pode gerar os 12 meses de uma vez e anexar os boletos
+ *    em lote, alem da criacao automatica mes a mes.
+ *  - E-mails automaticos na rotina diaria: lembrete antes, no dia, com 3 dias
+ *    de atraso e no bloqueio (cada um uma vez), e aviso de vespera ao dono.
  *  - Avisos so' para dono e administrador da empresa. O bloqueio e' tela
  *    inteira, automatico, em todos os apps (sistema, Frente de Caixa, app
  *    Vendas/tecnico/motorista). O SuperAdmin nunca e' bloqueado.
@@ -32,9 +38,11 @@
  * (server/domain e' gerado dele por scripts/build-server-domain.mjs).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.rotuloDaEtapa = exports.validarLiberacao = exports.validarDataDoPagamento = exports.textoDaCobranca = exports.MENSAGEM_SERVIDOR_BLOQUEADO = exports.TEXTO_BLOQUEIO_FUNCIONARIO = exports.textoDoAviso = exports.comoPagarOBoleto = exports.deveAbrirJanelaDeCobranca = exports.etapaComAviso = exports.veAvisoDeCobranca = exports.situacaoDaCobranca = exports.lerResumoDaCobranca = exports.montarResumoDaCobranca = exports.primeiraCompetencia = exports.competenciasParaGerar = exports.validarBoletoDigitado = exports.formatarLinhaDigitavel = exports.lerMensalidade = exports.temBoleto = exports.lerBoleto = exports.lerContato = exports.lerPlanoCobranca = exports.lerPrazos = exports.validarPrazos = exports.lerDiaVencimento = exports.idDaMensalidade = exports.formatarMoeda = exports.formatarDiaMes = exports.formatarData = exports.rotuloCompetencia = exports.vencimentoDaCompetencia = exports.competenciaSeguinte = exports.competenciaDaData = exports.inicioDoDiaEmBrasilia = exports.diasEntre = exports.somarDias = exports.hojeEmBrasilia = exports.competenciaValida = exports.dataValida = exports.LIBERACAO_MAXIMA_DIAS = exports.ANTECEDENCIA_DE_GERACAO_DIAS = exports.PRAZOS_PADRAO = void 0;
+exports.textoDoLembrete = exports.ehVesperaDoBloqueio = exports.lembreteDoDia = exports.dataDoBloqueioDaMensalidade = exports.DIAS_DO_LEMBRETE_DE_ATRASO = exports.casarArquivosComMensalidades = exports.competenciasDoCarne = exports.QUANTIDADE_MAXIMA_DO_CARNE = exports.validarLiberacao = exports.validarDataDoPagamento = exports.textoDaCobranca = exports.MENSAGEM_SERVIDOR_BLOQUEADO = exports.TEXTO_BLOQUEIO_FUNCIONARIO = exports.textoDoAviso = exports.comoPagarOBoleto = exports.deveAbrirJanelaDeCobranca = exports.etapaComAviso = exports.veAvisoDeCobranca = exports.situacaoDaCobranca = exports.lerResumoDaCobranca = exports.montarResumoDaCobranca = exports.primeiraCompetencia = exports.competenciasParaGerar = exports.validarBoletoDigitado = exports.formatarLinhaDigitavel = exports.lerMensalidade = exports.temBoleto = exports.lerBoleto = exports.lerContato = exports.lerPlanoCobranca = exports.lerPrazos = exports.validarPrazos = exports.lerDiaVencimento = exports.idDaMensalidade = exports.formatarMoeda = exports.formatarDiaMes = exports.formatarData = exports.rotuloCompetencia = exports.vencimentoDaCompetencia = exports.competenciaSeguinte = exports.competenciaDaData = exports.inicioDoDiaEmBrasilia = exports.diasEntre = exports.somarDias = exports.hojeEmBrasilia = exports.competenciaValida = exports.dataValida = exports.LIBERACAO_MAXIMA_DIAS = exports.ANTECEDENCIA_DE_GERACAO_DIAS = exports.PRAZOS_PADRAO = void 0;
+exports.rotuloDaEtapa = exports.textoDaVespera = void 0;
 exports.normalizarLinhaDigitavel = normalizarLinhaDigitavel;
-exports.PRAZOS_PADRAO = { diasLembreteAntes: 3, diasAvisoForte: 5, diasBloqueio: 10 };
+/** 24/11 (2a rodada, dono): bloqueio no 7o dia de atraso, aviso forte a partir do 4o. */
+exports.PRAZOS_PADRAO = { diasLembreteAntes: 3, diasAvisoForte: 4, diasBloqueio: 7 };
 /** A mensalidade do mes nasce 10 dias antes do vencimento (tempo de anexar o boleto antes do lembrete). */
 exports.ANTECEDENCIA_DE_GERACAO_DIAS = 10;
 /** Liberar sem pagamento: no maximo 30 dias para a frente. */
@@ -289,8 +297,9 @@ exports.primeiraCompetencia = primeiraCompetencia;
  * aberta MAIS ANTIGA. Sem mensalidade aberta, null (os campos saem do perfil).
  */
 const montarResumoDaCobranca = (params) => {
+    // So' conta a que tem boleto: sem boleto a falta e' nossa (decisao do dono, 24/11).
     const abertas = params.abertas
-        .filter((m) => m.situacao === 'aberta' && (0, exports.dataValida)(m.vencimento))
+        .filter((m) => m.situacao === 'aberta' && (0, exports.dataValida)(m.vencimento) && (0, exports.temBoleto)(m.boleto))
         .sort((a, b) => a.vencimento.localeCompare(b.vencimento));
     if (!abertas.length)
         return null;
@@ -469,6 +478,88 @@ const validarLiberacao = (ate, hoje) => {
     return null;
 };
 exports.validarLiberacao = validarLiberacao;
+// ---------------------------------------------------------------- carne anual
+exports.QUANTIDADE_MAXIMA_DO_CARNE = 12;
+/** Os meses do carne: a partir da primeira competencia, 1 a 12 meses seguidos. */
+const competenciasDoCarne = (primeira, quantidade) => {
+    if (!(0, exports.competenciaValida)(primeira))
+        return [];
+    const q = Math.min(exports.QUANTIDADE_MAXIMA_DO_CARNE, Math.max(1, Math.trunc(Number(quantidade)) || 0));
+    const lista = [primeira];
+    while (lista.length < q)
+        lista.push((0, exports.competenciaSeguinte)(lista[lista.length - 1]));
+    return lista;
+};
+exports.competenciasDoCarne = competenciasDoCarne;
+/**
+ * Anexar boletos do ano: casa os PDFs (em ordem de nome) com as mensalidades
+ * em aberto (em ordem de vencimento). O PicPay nomeia os arquivos por data,
+ * entao a ordem do nome costuma ser a do vencimento; a tela deixa trocar.
+ */
+const casarArquivosComMensalidades = (arquivos, mensalidades) => {
+    const pdfs = [...arquivos].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { numeric: true }));
+    return [...mensalidades]
+        .sort((a, b) => a.vencimento.localeCompare(b.vencimento))
+        .map((m, i) => ({ mensalidadeId: m.id, arquivo: pdfs[i] ?? null }));
+};
+exports.casarArquivosComMensalidades = casarArquivosComMensalidades;
+/** O lembrete de atraso sai com 3 dias de atraso. */
+exports.DIAS_DO_LEMBRETE_DE_ATRASO = 3;
+/** Primeiro dia bloqueado por esta mensalidade (com a liberacao "ate dd/mm", o dia seguinte a ela). */
+const dataDoBloqueioDaMensalidade = (vencimento, prazos, liberadoAte) => {
+    const normal = (0, exports.somarDias)(vencimento, prazos.diasBloqueio);
+    return liberadoAte && liberadoAte >= normal ? (0, exports.somarDias)(liberadoAte, 1) : normal;
+};
+exports.dataDoBloqueioDaMensalidade = dataDoBloqueioDaMensalidade;
+/**
+ * Qual e-mail a rotina manda hoje para esta mensalidade (cada tipo sai uma vez:
+ * quem chama confere o que ja' saiu). Rotina que ficou dias parada manda so' o
+ * da etapa atual. Sem boleto, nenhum (decisao do dono).
+ */
+const lembreteDoDia = (m, prazos, liberadoAte, hoje) => {
+    if (m.situacao !== 'aberta' || !(0, exports.temBoleto)(m.boleto) || !(0, exports.dataValida)(m.vencimento))
+        return null;
+    if (hoje >= (0, exports.dataDoBloqueioDaMensalidade)(m.vencimento, prazos, liberadoAte))
+        return 'bloqueio';
+    if (hoje >= (0, exports.somarDias)(m.vencimento, exports.DIAS_DO_LEMBRETE_DE_ATRASO))
+        return 'atraso';
+    if (hoje >= m.vencimento)
+        return 'dia';
+    if (prazos.diasLembreteAntes > 0 && hoje >= (0, exports.somarDias)(m.vencimento, -prazos.diasLembreteAntes))
+        return 'antes';
+    return null;
+};
+exports.lembreteDoDia = lembreteDoDia;
+/** Vespera do bloqueio: o dono da plataforma recebe a lista de quem bloqueia amanha. */
+const ehVesperaDoBloqueio = (m, prazos, liberadoAte, hoje) => (m.situacao === 'aberta' && (0, exports.temBoleto)(m.boleto) && (0, exports.dataValida)(m.vencimento)
+    && (0, exports.somarDias)((0, exports.dataDoBloqueioDaMensalidade)(m.vencimento, prazos, liberadoAte), -1) === hoje);
+exports.ehVesperaDoBloqueio = ehVesperaDoBloqueio;
+/** E-mail automatico ao cliente. */
+const textoDoLembrete = (tipo, params) => {
+    const base = (0, exports.textoDaCobranca)(params);
+    const mes = (0, exports.rotuloCompetencia)(params.competencia);
+    const venc = (0, exports.formatarData)(params.vencimento);
+    const bloqueio = (0, exports.formatarData)(params.bloqueioEm);
+    const [saudacao, ...resto] = base.texto.split('\n');
+    const abertura = {
+        antes: { assunto: `Lembrete: mensalidade Hennder ERP vence em ${venc}`, frase: `Lembrete: a mensalidade de ${mes} vence em ${venc}.` },
+        dia: { assunto: `Mensalidade Hennder ERP vence hoje (${venc})`, frase: `A mensalidade de ${mes} vence hoje.` },
+        atraso: { assunto: `Mensalidade Hennder ERP em atraso desde ${venc}`, frase: `A mensalidade de ${mes} venceu em ${venc} e ainda não consta como paga. Para evitar o bloqueio do sistema em ${bloqueio}, pague pelo boleto abaixo.` },
+        bloqueio: { assunto: 'Sistema Hennder ERP bloqueado por mensalidade em atraso', frase: `O sistema foi bloqueado hoje porque a mensalidade de ${mes}, vencida em ${venc}, não consta como paga. Pague pelo boleto abaixo e envie o comprovante ao suporte para liberar.` },
+    };
+    return { assunto: abertura[tipo].assunto, texto: [saudacao, abertura[tipo].frase, ...resto].join('\n') };
+};
+exports.textoDoLembrete = textoDoLembrete;
+/** E-mail de vespera para o dono da plataforma. */
+const textoDaVespera = (empresas, amanha) => ({
+    assunto: `Hennder: ${empresas.length} empresa(s) bloqueiam amanhã (${(0, exports.formatarData)(amanha)})`,
+    texto: [
+        `Estas empresas serão bloqueadas amanhã, ${(0, exports.formatarData)(amanha)}, se o pagamento não for registrado:`,
+        ...empresas.map((e) => `- ${e.empresa}: ${(0, exports.formatarMoeda)(e.valor)}, vencida em ${(0, exports.formatarData)(e.vencimento)}`),
+        'Para adiar, use "Liberar sem pagamento" na aba Mensalidades do Painel da Plataforma.',
+    ].join('\n'),
+});
+exports.textoDaVespera = textoDaVespera;
 /** Rotulo curto da situacao, para a lista do SuperAdmin. */
 const rotuloDaEtapa = (s) => {
     switch (s.etapa) {

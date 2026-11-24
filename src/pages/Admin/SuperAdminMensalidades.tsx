@@ -10,6 +10,8 @@ import { lerGrupo, lerPercentualFilial, mensalidadeComFiliais, type GrupoEmpresa
 import {
   ANTECEDENCIA_DE_GERACAO_DIAS,
   PRAZOS_PADRAO,
+  QUANTIDADE_MAXIMA_DO_CARNE,
+  casarArquivosComMensalidades,
   competenciaSeguinte,
   competenciaDaData,
   formatarData,
@@ -39,6 +41,7 @@ import {
   cancelarMensalidade,
   desfazerPagamento,
   enviarCobranca,
+  gerarCarne,
   gerarMensalidade,
   liberarEmpresaAte,
   marcarMensalidadePaga,
@@ -64,6 +67,8 @@ interface EmpresaDaTela {
   plano: PlanoCobranca;
   resumo: ResumoDaCobranca | null;
   mensalidades: MensalidadeDaTela[];
+  /** Em aberto sem boleto: nao avisa nem bloqueia o cliente (a falta e' nossa). */
+  semBoleto: number;
 }
 
 const ORDEM_DA_ETAPA: Record<EtapaDaCobranca, number> = {
@@ -87,7 +92,7 @@ const lerEventos = (v: unknown): EventoDaMensalidade[] => (Array.isArray(v) ? v 
   .filter((e): e is EventoDaMensalidade => Boolean(e && typeof e === 'object' && typeof (e as EventoDaMensalidade).em === 'string'))
   .sort((a, b) => b.em.localeCompare(a.em));
 
-const carregarTudo = async (): Promise<{ empresas: EmpresaDaTela[]; prazos: PrazosCobranca; contato: ContatoDaCobranca }> => {
+const carregarTudo = async (): Promise<{ empresas: EmpresaDaTela[]; prazos: PrazosCobranca; contato: ContatoDaCobranca; emailAvisos: string }> => {
   const [usuarios, grupos, mensalidades, config] = await Promise.all([
     getDocs(collection(db, 'usuarios')),
     getDocs(collection(db, 'grupos')).catch(() => null),
@@ -116,10 +121,16 @@ const carregarTudo = async (): Promise<{ empresas: EmpresaDaTela[]; prazos: Praz
       plano: lerPlanoCobranca(d.planoCobranca),
       resumo: lerResumoDaCobranca(d.cobrancaEmpresa),
       mensalidades: (porEmpresa.get(u.id) || []).sort((a, b) => b.competencia.localeCompare(a.competencia)),
+      semBoleto: (porEmpresa.get(u.id) || []).filter((m) => m.situacao === 'aberta' && !temBoleto(m.boleto)).length,
     });
   });
   const dadosConfig = config.exists() ? config.data() : {};
-  return { empresas, prazos: lerPrazos(dadosConfig.prazos), contato: lerContato(dadosConfig.contato) };
+  return {
+    empresas,
+    prazos: lerPrazos(dadosConfig.prazos),
+    contato: lerContato(dadosConfig.contato),
+    emailAvisos: typeof dadosConfig.emailAvisos === 'string' ? dadosConfig.emailAvisos : '',
+  };
 };
 
 const estiloSelo = (cor: string): React.CSSProperties => ({
@@ -133,6 +144,7 @@ const SuperAdminMensalidades: React.FC = () => {
   const [empresas, setEmpresas] = useState<EmpresaDaTela[]>([]);
   const [prazosPadrao, setPrazosPadrao] = useState<PrazosCobranca>(PRAZOS_PADRAO);
   const [contato, setContato] = useState<ContatoDaCobranca>({});
+  const [emailAvisos, setEmailAvisos] = useState('');
   const [busca, setBusca] = useState('');
   const [aberta, setAberta] = useState<string | null>(null);
   const [configAberta, setConfigAberta] = useState(false);
@@ -144,6 +156,7 @@ const SuperAdminMensalidades: React.FC = () => {
       setEmpresas(r.empresas);
       setPrazosPadrao(r.prazos);
       setContato(r.contato);
+      setEmailAvisos(r.emailAvisos);
     } catch (erro) {
       console.error('Mensalidades: falha ao carregar', erro);
       showError('Não foi possível carregar as mensalidades', 'Recarregue a página (F5). Se continuar, confira a conexão.');
@@ -169,6 +182,7 @@ const SuperAdminMensalidades: React.FC = () => {
       atrasadas: comSituacao.filter((x) => x === 'atrasada' || x === 'aviso_forte' || x === 'liberada').length,
       bloqueadas: comSituacao.filter((x) => x === 'bloqueada').length,
       ligadas: empresas.filter((e) => e.plano.ativa).length,
+      semBoleto: empresas.reduce((s, e) => s + e.semBoleto, 0),
     };
   }, [empresas, hoje]);
 
@@ -206,6 +220,7 @@ const SuperAdminMensalidades: React.FC = () => {
           { rotulo: 'Em aberto', valor: formatarMoeda(totais.emAberto), cor: 'var(--text-primary)' },
           { rotulo: 'Atrasadas', valor: String(totais.atrasadas), cor: '#f59e0b' },
           { rotulo: 'Bloqueadas', valor: String(totais.bloqueadas), cor: '#ef4444' },
+          { rotulo: 'Falta anexar boleto', valor: String(totais.semBoleto), cor: totais.semBoleto ? '#f59e0b' : 'var(--text-primary)' },
           { rotulo: 'Com cobrança ligada', valor: `${totais.ligadas} de ${empresas.length}`, cor: 'var(--text-primary)' },
         ].map((c) => (
           <div key={c.rotulo} className="card" style={{ padding: '18px 20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
@@ -256,7 +271,7 @@ const SuperAdminMensalidades: React.FC = () => {
                       {e.situacao.etapa === 'bloqueada' ? <Ban size={15} /> : e.situacao.etapa === 'em_dia' ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
                       {rotuloDaEtapa(e.situacao)}
                     </span>
-                    {e.resumo && !e.resumo.boleto ? <div style={{ fontSize: '12px', color: '#f59e0b' }}>Sem boleto anexado</div> : null}
+                    {e.semBoleto ? <div style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600 }}>Falta anexar o boleto ({e.semBoleto})</div> : null}
                   </td>
                   <td style={{ padding: '12px 8px', textAlign: 'right' }}>{e.resumo ? formatarMoeda(e.resumo.valorEmAberto) : '—'}</td>
                   <td style={{ padding: '12px 8px', textAlign: 'right' }}>
@@ -287,6 +302,7 @@ const SuperAdminMensalidades: React.FC = () => {
         <ConfigGeral
           prazos={prazosPadrao}
           contato={contato}
+          emailAvisos={emailAvisos}
           onFechar={() => setConfigAberta(false)}
           onSalvo={() => { setConfigAberta(false); void recarregar(); }}
         />
@@ -334,11 +350,12 @@ const CamposDosPrazos: React.FC<{ valor: PrazosCobranca; onChange: (p: PrazosCob
   </div>
 );
 
-const ConfigGeral: React.FC<{ prazos: PrazosCobranca; contato: ContatoDaCobranca; onFechar: () => void; onSalvo: () => void }> = ({ prazos, contato, onFechar, onSalvo }) => {
+const ConfigGeral: React.FC<{ prazos: PrazosCobranca; contato: ContatoDaCobranca; emailAvisos: string; onFechar: () => void; onSalvo: () => void }> = ({ prazos, contato, emailAvisos, onFechar, onSalvo }) => {
   const [rascunho, setRascunho] = useState<PrazosCobranca>(prazos);
   const [nome, setNome] = useState(contato.nome || '');
   const [whatsapp, setWhatsapp] = useState(contato.whatsapp || '');
   const [email, setEmail] = useState(contato.email || '');
+  const [avisos, setAvisos] = useState(emailAvisos);
   const [salvando, setSalvando] = useState(false);
 
   const salvar = async () => {
@@ -346,7 +363,7 @@ const ConfigGeral: React.FC<{ prazos: PrazosCobranca; contato: ContatoDaCobranca
     if (erro) { showError('Prazos inválidos', erro); return; }
     setSalvando(true);
     try {
-      await salvarConfigGeralDaCobranca(rascunho, { nome, whatsapp, email });
+      await salvarConfigGeralDaCobranca(rascunho, { nome, whatsapp, email }, avisos.trim());
       showSuccess('Prazos e contato salvos. As empresas já foram recalculadas.');
       onSalvo();
     } catch (e) {
@@ -367,6 +384,12 @@ const ConfigGeral: React.FC<{ prazos: PrazosCobranca; contato: ContatoDaCobranca
         <Campo rotulo="WhatsApp do suporte (com DDD)" largura="220px"><input value={whatsapp} inputMode="tel" onChange={(e) => setWhatsapp(e.target.value)} /></Campo>
         <Campo rotulo="E-mail do suporte" largura="220px"><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Campo>
       </div>
+      <Campo rotulo="Seu e-mail para o aviso de véspera (lista de quem bloqueia amanhã)" largura="420px">
+        <input type="email" value={avisos} onChange={(e) => setAvisos(e.target.value)} />
+      </Campo>
+      <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+        Todo dia, de madrugada, o cliente recebe por e-mail (uma vez cada): o lembrete antes do vencimento, o aviso no dia, com 3 dias de atraso e no bloqueio. Mensalidade sem boleto anexado não gera e-mail, aviso nem bloqueio.
+      </p>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
         <button type="button" className="btn-secondary" onClick={onFechar}>Cancelar</button>
         <button type="button" className="btn-primary" onClick={() => { void salvar(); }} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</button>
@@ -388,6 +411,8 @@ const CobrancaDaEmpresa: React.FC<{
   const [prazos, setPrazos] = useState<PrazosCobranca>(empresa.plano.prazos || prazosPadrao);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [boletoDe, setBoletoDe] = useState<MensalidadeDaTela | null>(null);
+  const [carneAberto, setCarneAberto] = useState(false);
+  const abertas = empresa.mensalidades.filter((m) => m.situacao === 'aberta');
   const [historicoDe, setHistoricoDe] = useState<string | null>(null);
   const situacao = situacaoDaCobranca(empresa.resumo, hoje);
 
@@ -430,6 +455,33 @@ const CobrancaDaEmpresa: React.FC<{
     });
     if (!r.isConfirmed) return;
     void rodar('gerar', () => gerarMensalidade(empresa.id, String(r.value)), `Mensalidade de ${rotuloCompetencia(String(r.value))} criada.`);
+  };
+
+  const pedirCarne = async () => {
+    const sugestao = empresa.mensalidades.length
+      ? competenciaSeguinte(empresa.mensalidades[0].competencia)
+      : competenciaDaData(hoje);
+    const r = await NexusSwal.fire({
+      title: 'Gerar o ano (carnê)',
+      text: `Cria ${QUANTIDADE_MAXIMA_DO_CARNE} mensalidades seguidas de ${empresa.nome} a partir do mês escolhido, no valor atual (${formatarMoeda(empresa.valorTotal)}). Mês que já existe é pulado. Depois, anexe os boletos em "Anexar boletos do ano".`,
+      input: 'month',
+      inputValue: sugestao,
+      showCancelButton: true,
+      confirmButtonText: 'Gerar o ano',
+      cancelButtonText: 'Cancelar',
+      inputValidator: (v) => (/^\d{4}-\d{2}$/.test(String(v || '')) ? null : 'Escolha o primeiro mês.'),
+    });
+    if (!r.isConfirmed) return;
+    setOcupado('carne');
+    try {
+      const res = await gerarCarne(empresa.id, String(r.value), QUANTIDADE_MAXIMA_DO_CARNE);
+      await onMudou();
+      showSuccess(`${res.criadas.length} mensalidade(s) criada(s)${res.puladas.length ? `; ${res.puladas.length} já existia(m)` : ''}.`);
+    } catch (e) {
+      showError('Não foi possível gerar o ano', msg(e));
+    } finally {
+      setOcupado(null);
+    }
   };
 
   const pedirPagamento = async (m: MensalidadeDaTela) => {
@@ -541,7 +593,9 @@ const CobrancaDaEmpresa: React.FC<{
           </button>
           <MenuMaisOpcoes
             itens={[
-              { texto: 'Liberar sem pagamento…', Icone: Clock, onClick: () => { void pedirLiberacao(); }, oculto: !empresa.resumo },
+              { texto: 'Gerar o ano (carnê de 12 meses)…', Icone: Receipt, onClick: () => { void pedirCarne(); }, desabilitado: !empresa.plano.diaVencimento || ocupado !== null },
+              { texto: 'Anexar boletos do ano…', Icone: FileText, onClick: () => setCarneAberto(true), oculto: !abertas.length },
+              { texto: 'Liberar sem pagamento…', Icone: Clock, onClick: () => { void pedirLiberacao(); }, oculto: !empresa.resumo, separadorAntes: true },
               {
                 texto: `Retirar a liberação (até ${formatarData(empresa.plano.liberadoAte)})`,
                 Icone: Ban,
@@ -594,7 +648,7 @@ const CobrancaDaEmpresa: React.FC<{
                   </span>
                   {m.situacao === 'aberta' && (
                     <span style={{ fontSize: '12px', color: temBoleto(m.boleto) ? 'var(--text-muted)' : '#f59e0b' }}>
-                      {temBoleto(m.boleto) ? `Boleto: ${[m.boleto.pdfUrl && 'PDF', m.boleto.linhaDigitavel && 'linha', m.boleto.link && 'link', m.boleto.pixCopiaECola && 'Pix'].filter(Boolean).join(', ')}` : 'Sem boleto'}
+                      {temBoleto(m.boleto) ? `Boleto: ${[m.boleto.pdfUrl && 'PDF', m.boleto.linhaDigitavel && 'linha', m.boleto.link && 'link', m.boleto.pixCopiaECola && 'Pix'].filter(Boolean).join(', ')}` : 'Falta anexar o boleto (não cobra o cliente)'}
                     </span>
                   )}
                 </div>
@@ -645,6 +699,13 @@ const CobrancaDaEmpresa: React.FC<{
         })}
       </section>
 
+      {carneAberto && (
+        <BoletosDoAnoJanela
+          mensalidades={abertas}
+          onFechar={() => setCarneAberto(false)}
+          onSalvo={async () => { setCarneAberto(false); await onMudou(); }}
+        />
+      )}
       {boletoDe && (
         <BoletoDaMensalidadeJanela
           mensalidade={boletoDe}
@@ -707,6 +768,113 @@ const BoletoDaMensalidadeJanela: React.FC<{ mensalidade: MensalidadeDaTela; onFe
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
         <button type="button" className="btn-secondary" onClick={onFechar}>Cancelar</button>
         <button type="button" className="btn-primary" onClick={() => { void salvar(); }} disabled={salvando}>{salvando ? 'Anexando…' : 'Anexar boleto'}</button>
+      </div>
+    </Janela>
+  );
+};
+
+/**
+ * Carne anual (24/11/2026): escolhe os PDFs do ano de uma vez; cada um casa
+ * com um mes em ordem de vencimento (o nome do arquivo manda a ordem) e da'
+ * para trocar e colar a linha digitavel de cada mes.
+ */
+const BoletosDoAnoJanela: React.FC<{ mensalidades: MensalidadeDaTela[]; onFechar: () => void; onSalvo: () => Promise<void> }> = ({ mensalidades, onFechar, onSalvo }) => {
+  const ordenadas = useMemo(() => [...mensalidades].sort((a, b) => a.vencimento.localeCompare(b.vencimento)), [mensalidades]);
+  const [arquivos, setArquivos] = useState<File[]>([]);
+  // indice do arquivo escolhido por mensalidade (-1 = nenhum)
+  const [escolha, setEscolha] = useState<Record<string, number>>({});
+  const [linhas, setLinhas] = useState<Record<string, string>>({});
+  const [salvando, setSalvando] = useState<string | null>(null);
+
+  const escolherArquivos = (lista: FileList | null) => {
+    const novos = Array.from(lista || []).filter((f) => f.type === 'application/pdf');
+    setArquivos(novos);
+    const casados = casarArquivosComMensalidades(novos, ordenadas);
+    setEscolha(Object.fromEntries(casados.map((c) => [c.mensalidadeId, c.arquivo ? novos.indexOf(c.arquivo) : -1])));
+  };
+
+  const salvar = async () => {
+    const pedidos = ordenadas
+      .map((m) => ({ m, arquivo: arquivos[escolha[m.id] ?? -1] || null, linha: (linhas[m.id] || '').trim() }))
+      .filter((p) => p.arquivo || p.linha);
+    if (!pedidos.length) { showError('Nada para anexar', 'Escolha os PDFs do PicPay ou cole a linha digitável de pelo menos um mês.'); return; }
+    for (const p of pedidos) {
+      const previa = validarBoletoDigitado({ pdfUrl: p.arquivo ? 'https://pendente' : p.m.boleto.pdfUrl, linhaDigitavel: p.linha || p.m.boleto.linhaDigitavel, link: p.m.boleto.link, pixCopiaECola: p.m.boleto.pixCopiaECola });
+      if ('erro' in previa) { showError(`Confira ${rotuloCompetencia(p.m.competencia)}`, previa.erro); return; }
+    }
+    let feitos = 0;
+    let mesAtual = '';
+    try {
+      for (const p of pedidos) {
+        mesAtual = rotuloCompetencia(p.m.competencia);
+        setSalvando(mesAtual);
+        const pdf = p.arquivo
+          ? await subirPdfDoBoleto(p.m.tenantId, p.m.id, p.arquivo)
+          : { pdfUrl: p.m.boleto.pdfUrl, pdfCaminho: p.m.boleto.pdfCaminho };
+        await anexarBoleto(p.m.id, { ...pdf, linhaDigitavel: p.linha || p.m.boleto.linhaDigitavel, link: p.m.boleto.link, pixCopiaECola: p.m.boleto.pixCopiaECola });
+        feitos += 1;
+      }
+      showSuccess(`${feitos} boleto(s) anexado(s).`);
+      await onSalvo();
+    } catch (e) {
+      showError(`Parou em ${mesAtual || 'um dos meses'}`, `${feitos} boleto(s) já foram anexados. ${msg(e)}`);
+      await onSalvo();
+    } finally {
+      setSalvando(null);
+    }
+  };
+
+  return (
+    <Janela titulo="Anexar boletos do ano" onFechar={onFechar} largura={860}>
+      <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        Escolha de uma vez os PDFs que o PicPay gerou. Cada arquivo vai para um mês, na ordem do nome do arquivo e do vencimento; troque o que estiver fora de ordem e cole a linha digitável de cada mês.
+      </p>
+      <Campo rotulo="PDFs dos boletos">
+        <input type="file" accept="application/pdf" multiple onChange={(e) => escolherArquivos(e.target.files)} />
+      </Campo>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }} data-sem-ajuste>
+        <thead>
+          <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '12px' }}>
+            <th style={{ padding: '6px' }}>Mês</th>
+            <th style={{ padding: '6px' }}>Vence</th>
+            <th style={{ padding: '6px' }}>PDF</th>
+            <th style={{ padding: '6px' }}>Linha digitável</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordenadas.map((m) => (
+            <tr key={m.id} style={{ borderTop: '1px solid var(--border-color)' }}>
+              <td style={{ padding: '6px', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>{rotuloCompetencia(m.competencia)}</td>
+              <td style={{ padding: '6px', whiteSpace: 'nowrap' }}>{formatarData(m.vencimento)}</td>
+              <td style={{ padding: '6px' }}>
+                <select
+                  aria-label={`PDF de ${rotuloCompetencia(m.competencia)}`}
+                  value={String(escolha[m.id] ?? -1)}
+                  onChange={(e) => setEscolha((atual) => ({ ...atual, [m.id]: Number(e.target.value) }))}
+                  style={{ maxWidth: '240px' }}
+                >
+                  <option value="-1">{m.boleto.pdfUrl ? 'Manter o PDF já anexado' : 'Sem PDF'}</option>
+                  {arquivos.map((a, i) => <option key={`${a.name}-${i}`} value={String(i)}>{a.name}</option>)}
+                </select>
+              </td>
+              <td style={{ padding: '6px' }}>
+                <input
+                  aria-label={`Linha digitável de ${rotuloCompetencia(m.competencia)}`}
+                  value={linhas[m.id] ?? (m.boleto.linhaDigitavel ? formatarLinhaDigitavel(m.boleto.linhaDigitavel) : '')}
+                  onChange={(e) => setLinhas((atual) => ({ ...atual, [m.id]: e.target.value }))}
+                  inputMode="numeric"
+                  style={{ width: '100%', minWidth: '260px' }}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+        <button type="button" className="btn-secondary" onClick={onFechar} disabled={salvando !== null}>Cancelar</button>
+        <button type="button" className="btn-primary" onClick={() => { void salvar(); }} disabled={salvando !== null}>
+          {salvando ? `Anexando ${salvando}…` : 'Anexar boletos'}
+        </button>
       </div>
     </Janela>
   );

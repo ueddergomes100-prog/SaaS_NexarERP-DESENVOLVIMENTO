@@ -16,7 +16,12 @@ export interface RespostaEnvio {
 
 const post = <T = unknown>(caminho: string, corpo: Record<string, unknown>) => chamarServidor<T>('POST', `mensalidades/${caminho}`, corpo);
 
-export const salvarConfigGeralDaCobranca = (prazos: PrazosCobranca, contato: ContatoDaCobranca) => post('config', { prazos, contato });
+export const salvarConfigGeralDaCobranca = (prazos: PrazosCobranca, contato: ContatoDaCobranca, emailAvisos: string) => post('config', { prazos, contato, emailAvisos });
+
+/** Carne anual: os 12 meses (ou menos) a partir do primeiro. */
+export const gerarCarne = (tenantId: string, primeiraCompetencia: string, quantidade: number) => (
+  post<{ criadas: string[]; puladas: string[] }>('gerar-ano', { tenantId, primeiraCompetencia, quantidade })
+);
 
 export const salvarPlanoDaEmpresa = (dados: { tenantId: string; ativa: boolean; diaVencimento: number | null; prazos: PrazosCobranca | null }) => post('empresa', dados);
 

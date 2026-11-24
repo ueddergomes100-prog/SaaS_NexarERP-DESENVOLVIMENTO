@@ -30,7 +30,13 @@ const responder = (acao) => async (req, res) => {
 
 const b = (req) => req.body || {};
 
-router.post('/config', responder((req) => M.salvarConfigGeral({ user: req.user, prazos: b(req).prazos, contato: b(req).contato })));
+router.post('/config', responder((req) => M.salvarConfigGeral({ user: req.user, prazos: b(req).prazos, contato: b(req).contato, emailAvisos: b(req).emailAvisos })));
+router.post('/gerar-ano', responder((req) => M.gerarAno({
+  user: req.user,
+  tenantId: b(req).tenantId,
+  primeiraCompetencia: b(req).primeiraCompetencia,
+  quantidade: b(req).quantidade,
+})));
 router.post('/empresa', responder((req) => M.salvarPlanoDaEmpresa({
   user: req.user,
   tenantId: b(req).tenantId,

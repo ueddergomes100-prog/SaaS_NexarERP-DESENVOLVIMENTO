@@ -21,8 +21,9 @@ let rodando = false;
 const rodarCobranca = async () => {
   try {
     const r = await rotinaDiariaDaCobranca();
-    if (r.criadas || r.alterados) {
-      console.log(`[Rotinas diárias] mensalidades: ${r.criadas} criada(s), ${r.alterados} perfil(is) atualizado(s) em ${r.empresas} empresa(s).`);
+    const emails = r.emails || {};
+    if (r.criadas || r.alterados || emails.enviados || emails.falhas || emails.vespera) {
+      console.log(`[Rotinas diárias] mensalidades: ${r.criadas} criada(s), ${r.alterados} perfil(is) atualizado(s) em ${r.empresas} empresa(s); e-mails: ${emails.enviados || 0} enviado(s), ${emails.falhas || 0} falha(s), véspera ${emails.vespera || 0}.`);
     }
     return r;
   } catch (erro) {

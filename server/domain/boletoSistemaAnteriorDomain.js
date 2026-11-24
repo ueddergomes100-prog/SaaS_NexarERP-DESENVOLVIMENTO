@@ -21,7 +21,9 @@ const boletoCnabDomain_1 = require("./boletoCnabDomain");
  * Nada de dinheiro muda: o titulo continua com o mesmo valor e vencimento.
  */
 exports.LIMITE_DE_BOLETOS_POR_ENVIO = 500;
-const CHAVE_VALIDA = /^[A-Za-z0-9_.:-]{1,80}$/;
+// A chave e' a da planilha de contas da migracao (texto livre: "clidoc-56992",
+// "SOLNATUS-CR-3778-33427-1/1"...); so' nao pode ter ";" nem passar de 120.
+const CHAVE_VALIDA = /^[^;\s](?:[^;]{0,118}[^;\s])?$/;
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const semAcento = (texto) => String(texto || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();

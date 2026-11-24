@@ -38,11 +38,14 @@ test('planilha: le as colunas pelo nome, aceita acento e BOM, aponta a linha com
     + 'clidoc-1;abc;23/11/2026;;10,00;;X\n'
     + 'clidoc-56993;3979-6;2026-11-30;;1.271,20;;\n'
     + 'clidoc-56993;3980-4;07/12/2026;;271,20;;\n'
+    + 'SOLNATUS-CR-3778-33427-1/1;3981-1;07/12/2026;;10,00;;\n'
     + '\n';
   const { linhas, erros } = lerPlanilhaBoletosAnteriores(texto);
   assert.deepEqual(linhas.map((l) => [l.chave, l.nossoNumero, l.vencimento, l.emissao, l.valorBoletoCentavos]), [
     ['clidoc-56992', '0000039789', '2026-11-23', '2026-10-10', 27120],
     ['clidoc-56993', '0000039796', '2026-11-30', '', 127120],
+    // Chave de outra migracao, com barra (Sol Natus).
+    ['SOLNATUS-CR-3778-33427-1/1', '0000039811', '2026-12-07', '', 1000],
   ]);
   assert.equal(linhas[0].arquivoRemessa, 'CNAB240_1.txt');
   assert.deepEqual(erros, [

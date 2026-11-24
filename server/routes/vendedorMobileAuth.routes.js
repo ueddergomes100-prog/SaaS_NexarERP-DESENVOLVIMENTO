@@ -3,6 +3,8 @@ const { admin, db } = require('../config/firebase');
 const { onlyDigits } = require('../utils/cnpjLookup');
 const { validarPin } = require('../services/vendedorPin');
 const { vagaNoApp } = require('../services/limitesDoPlano');
+const { empresaBloqueada } = require('../services/mensalidades');
+const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
 const { limitadorPublico, limitadorPorChave } = require('../middleware/rateLimit');
 
 const router = express.Router();
@@ -117,6 +119,13 @@ router.post('/mobile-login', limitePorIp, limitePorVendedor, async (req, res) =>
     if (semVaga) {
       const erro = new Error(semVaga);
       erro.status = 403;
+      throw erro;
+    }
+
+    // Mensalidade em atraso (24/11/2026): o app tambem fica bloqueado.
+    if (await empresaBloqueada(tenantId)) {
+      const erro = new Error(MENSAGEM_SERVIDOR_BLOQUEADO);
+      erro.status = 402;
       throw erro;
     }
 

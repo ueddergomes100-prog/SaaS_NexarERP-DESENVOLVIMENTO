@@ -58,6 +58,7 @@ const producaoRoutes = require('./routes/producao.routes');
 const relatorioContadorRoutes = require('./routes/relatorioContador.routes');
 const manutencaoRoutes = require('./routes/manutencao.routes');
 const plataformaRoutes = require('./routes/plataforma.routes');
+const mensalidadesRoutes = require('./routes/mensalidades.routes');
 const { iniciarEspelhoDosCadastros } = require('./services/espelhoCadastros');
 
 const app = express();
@@ -266,6 +267,8 @@ app.use('/api/relatorio-contador', relatorioContadorRoutes);
 app.use('/api/manutencao', manutencaoRoutes);
 // Painel da Plataforma (28/10/2026): modulos do plano gravados na empresa e nas filiais.
 app.use('/api/plataforma', plataformaRoutes);
+// Mensalidades das empresas clientes (24/11/2026): cobranca, boleto, pagamento e bloqueio.
+app.use('/api/mensalidades', mensalidadesRoutes);
 
 // Rota que nao existe: JSON em portugues, em vez do "Cannot GET /..." em HTML
 // do Express (que ainda entregava o nome do framework de brinde).

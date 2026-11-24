@@ -1,5 +1,14 @@
 const { auth, db } = require('../config/firebase');
 const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
+const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
+
+/** Timestamp do Firestore (ou Date) em ms; outra coisa = 0. */
+const instanteEmMs = (v) => {
+  if (!v) return 0;
+  if (typeof v.toMillis === 'function') return v.toMillis();
+  if (v instanceof Date) return v.getTime();
+  return 0;
+};
 
 const PLATFORM_ROLES = ['NexarAdmin', 'SuperAdmin'];
 const TENANT_MANAGER_ROLES = ['Master', 'Admin'];
@@ -81,6 +90,17 @@ async function authenticate(req, res, next) {
 
     if (isPlatformAdminRole(claimRole)) {
       role = claimRole;
+    }
+
+    // Mensalidade em atraso (24/11/2026): a partir do instante gravado pelo
+    // servidor no perfil (services/mensalidades.js), a empresa inteira fica
+    // sem servidor -- mesma regra de perfilAtivo() nas firestore.rules. O
+    // admin da plataforma nunca e' bloqueado.
+    if (userDoc.exists && !isPlatformAdminRole(role)) {
+      const bloqueioMs = instanteEmMs(userDoc.data().cobrancaBloqueioEm);
+      if (bloqueioMs && Date.now() >= bloqueioMs) {
+        return res.status(402).json({ error: MENSAGEM_SERVIDOR_BLOQUEADO, codigo: 'cobranca_bloqueada' });
+      }
     }
 
     if (!role) {

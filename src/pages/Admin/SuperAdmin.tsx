@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Ban, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet, ShieldCheck, ChevronDown, ChevronUp, KeyRound, Server } from 'lucide-react';
+import { LayoutDashboard, Users, TrendingUp, AlertTriangle, Building2, CheckCircle, Search, ExternalLink, Edit2, Trash2, Megaphone, Blocks, Wallet, ShieldCheck, ChevronDown, ChevronUp, KeyRound, Server } from 'lucide-react';
 import { collection, query, getDocs, updateDoc, doc, deleteDoc, where, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,6 +17,7 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import ModulosDaEmpresaModal from '../../components/admin/ModulosDaEmpresaModal';
+import { hojeEmBrasilia, lerResumoDaCobranca, rotuloDaEtapa, situacaoDaCobranca } from '../../utils/mensalidadeDomain';
 
 interface TenantInfo {
   id: string;
@@ -42,7 +43,12 @@ interface TenantInfo {
   valorTotal: number;
   /** Item 8, fatia 3: Finalizar do Pedido de Venda gravado pelo servidor. */
   vendaPeloServidor: boolean;
+  /** Situacao real da mensalidade (24/11/2026, aba Mensalidades): antes era simulada. */
+  rotuloFatura: string;
 }
+
+/** Atrasada, liberada por prazo ou bloqueada = inadimplente nos numeros do painel. */
+const ETAPAS_INADIMPLENTES = ['atrasada', 'aviso_forte', 'liberada', 'bloqueada'];
 
 const toDate = (value?: any): Date | null => {
   if (!value) return null;
@@ -167,11 +173,13 @@ const SuperAdmin: React.FC = () => {
 
           // Pega apenas contas "Admin", ou seja, donos de empresa (ignora funcionários/vendedores logados)
           if (data.role === 'Master' || data.role === 'Admin' || doc.id === data.tenantId) {
+            const fatura = situacaoDaCobranca(lerResumoDaCobranca(data.cobrancaEmpresa), hojeEmBrasilia());
             listOfTenants.push({
               id: doc.id,
               email: data.email || 'N/A',
               role: data.role,
-              status: data.status || 'Ativo',
+              status: ETAPAS_INADIMPLENTES.includes(fatura.etapa) ? 'Inadimplente' : 'Ativo',
+              rotuloFatura: rotuloDaEtapa(fatura),
               plano: data.plano || 'Pro',
               valor: data.valorMensalidade || 149.90,
               nomeOficina: data.nomeOficina || 'Sem Nome',
@@ -1083,26 +1091,18 @@ const SuperAdmin: React.FC = () => {
                       </div>
                     </td>
                     <td style={{ padding: '16px 0' }}>
-                      {tenant.status === 'Ativo' ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '14px', fontWeight: 500 }}>
-                          <CheckCircle size={16} /> Em dia
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', fontSize: '14px', fontWeight: 500 }}>
-                          <AlertTriangle size={16} /> Atrasado
-                        </div>
-                      )}
+                      {/* 24/11/2026: situacao real da aba Mensalidades (antes simulada). */}
+                      <button
+                        type="button"
+                        onClick={() => navigate('/superadmin/mensalidades')}
+                        title="Abrir as mensalidades"
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', color: tenant.status === 'Ativo' ? '#10b981' : '#ef4444', fontSize: '14px', fontWeight: 500, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                      >
+                        {tenant.status === 'Ativo' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />} {tenant.rotuloFatura}
+                      </button>
                     </td>
                     <td style={{ padding: '20px 0', textAlign: 'right' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
-                        {tenant.status === 'Inadimplente' ? (
-                          <button 
-                            className="btn-secondary" 
-                            style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '6px 12px', borderRadius: 'var(--radius-md)' }}
-                          >
-                            <Ban size={14} /> Suspender
-                          </button>
-                        ) : null}
                         <button
                           type="button"
                           className="icon-btn"
@@ -1137,8 +1137,8 @@ const SuperAdmin: React.FC = () => {
                             {
                               texto: 'Entrar no sistema da empresa',
                               Icone: ExternalLink,
+                              // 24/11/2026: o suporte entra mesmo com mensalidade atrasada (o admin da plataforma nunca e' bloqueado).
                               titulo: 'Abre o sistema desta empresa como gerente, para suporte e implantação.',
-                              oculto: tenant.status === 'Inadimplente',
                               onClick: () => { void handleAcessarDados(tenant.id, tenant.nomeOficina); },
                             },
                             {

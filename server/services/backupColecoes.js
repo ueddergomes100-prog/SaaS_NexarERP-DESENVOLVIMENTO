@@ -95,6 +95,10 @@ const CAMPOS_DA_PLATAFORMA = [
   'spedyEnabled',
   'spedyEnvironment',
   'spedyApiKeyConfigured',
+  // Mensalidades (24/11/2026): restaurar backup nunca volta a cobranca nem tira o bloqueio.
+  'planoCobranca',
+  'cobrancaEmpresa',
+  'cobrancaBloqueioEm',
 ];
 
 module.exports = { COLECOES_DA_EMPRESA, CAMPOS_DA_PLATAFORMA };

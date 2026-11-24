@@ -47,6 +47,7 @@ import { ehGestorDoGrupo, filiaisDoUsuario, lerGrupo, podeUsarOutrasFiliais, rot
 import { definirContextoDoHistorico } from '../services/historicoContexto';
 import { entrarNaFilial } from '../services/filialService';
 import { DEFAULT_TRABALHA_COM_CONDICIONAL, parseTrabalhaComCondicional } from '../utils/condicionalDomain';
+import { lerResumoDaCobranca, type ResumoDaCobranca } from '../utils/mensalidadeDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../utils/loteDomain';
 
 interface AuthContextType {
@@ -165,6 +166,10 @@ interface AuthContextType {
   /** "Meu Perfil" gravou um nome novo (11/11/2026): o topo, o historico e as
    *  impressoes passam a usar o nome novo na hora, sem esperar o proximo login. */
   atualizarNomeDoUsuario: (nome: string) => void;
+  /** Mensalidade da empresa em aberto (24/11/2026): resumo que o servidor grava
+   *  no proprio perfil (sem leitura a mais). null = nada em aberto. O admin da
+   *  plataforma nunca tem. Ver mensalidadeDomain.ts. */
+  cobrancaEmpresa: ResumoDaCobranca | null;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -203,6 +208,11 @@ const VALIDADE_PLANO_DO_DONO_MS = 5 * 60 * 1000;
 // Mesma ideia para a lista de empresas do admin da plataforma (le os usuarios
 // de TODAS as empresas).
 const VALIDADE_EMPRESAS_DA_PLATAFORMA_MS = 5 * 60 * 1000;
+
+// Mesma ideia do manterSeIgual para o resumo da mensalidade (24/11/2026).
+const cobrancaSeMudou = (nova: ResumoDaCobranca | null) => (atual: ResumoDaCobranca | null) => (
+  JSON.stringify(atual) === JSON.stringify(nova) ? atual : nova
+);
 
 const toStringArray = (value: unknown): string[] => {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
@@ -270,7 +280,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userNome, setUserNome] = useState('');
   const [loading, setLoading] = useState(true);
   const sessionCloseTokenRef = useRef('');
-  const planoDoDonoRef = useRef<{ homeTenant: string; lidoEmMs: number; bloqueados: string[]; limite: number } | null>(null);
+  const planoDoDonoRef = useRef<{ homeTenant: string; lidoEmMs: number; bloqueados: string[]; limite: number; cobranca: ResumoDaCobranca | null } | null>(null);
+  const [cobrancaEmpresa, setCobrancaEmpresaBruta] = useState<ResumoDaCobranca | null>(null);
   const empresasDaPlataformaRef = useRef<{ uid: string; lidoEmMs: number; opcoes: TenantOption[] } | null>(null);
 
   const setActiveTenantId = useCallback((nextTenantId: string): boolean => {
@@ -315,6 +326,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSelectedTenant(null);
         setAcessoAppMobile(false);
         setUserNome('');
+        setCobrancaEmpresaBruta(cobrancaSeMudou(null));
         planoDoDonoRef.current = null;
         empresasDaPlataformaRef.current = null;
         clearStoredSessionId();
@@ -341,6 +353,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setHomeTenantId(null);
         setBlockedModules(manterSeIgual<string>([]));
         setIsOwner(false);
+        // O admin da plataforma nunca e' bloqueado pela mensalidade (nem quando entra numa empresa).
+        setCobrancaEmpresaBruta(cobrancaSeMudou(null));
         setLoading(false);
       };
 
@@ -491,6 +505,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];
             let limiteFiliaisDoPlano = 0;
+            // Mensalidade (24/11/2026): o resumo vem no proprio perfil (o servidor
+            // grava em todos os logins da empresa). Perfil criado depois da
+            // ultima gravacao ainda nao tem: vale o do dono, ja' lido abaixo.
+            let cobranca = lerResumoDaCobranca(data.cobrancaEmpresa);
 
             // Modulos do plano: do dono da empresa CASA (na filial, o grupo
             // sobrepoe -- ver o efeito do grupo). Ler usuarios/{filial} dava
@@ -503,24 +521,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (guardado && Date.now() - guardado.lidoEmMs < VALIDADE_PLANO_DO_DONO_MS) {
                 finalBlockedModules = guardado.bloqueados;
                 limiteFiliaisDoPlano = guardado.limite;
+                cobranca = cobranca || guardado.cobranca;
               } else {
                 try {
                   const ownerDoc = await getDoc(doc(db, 'usuarios', homeTenant));
+                  let cobrancaDoDono: ResumoDaCobranca | null = null;
                   if (ownerDoc.exists()) {
                     finalBlockedModules = toStringArray(ownerDoc.data().modulosBloqueados);
                     limiteFiliaisDoPlano = lerLimiteFiliais(ownerDoc.data().limiteFiliais);
+                    cobrancaDoDono = lerResumoDaCobranca(ownerDoc.data().cobrancaEmpresa);
                   }
-                  planoDoDonoRef.current = { homeTenant, lidoEmMs: Date.now(), bloqueados: finalBlockedModules, limite: limiteFiliaisDoPlano };
+                  cobranca = cobranca || cobrancaDoDono;
+                  planoDoDonoRef.current = { homeTenant, lidoEmMs: Date.now(), bloqueados: finalBlockedModules, limite: limiteFiliaisDoPlano, cobranca: cobrancaDoDono };
                 } catch (error) {
                   console.error('Erro ao buscar modulos bloqueados do dono:', error);
                   // Falha de rede nao libera modulo: fica o ultimo plano lido.
                   if (guardado) {
                     finalBlockedModules = guardado.bloqueados;
                     limiteFiliaisDoPlano = guardado.limite;
+                    cobranca = cobranca || guardado.cobranca;
                   }
                 }
               }
             }
+            setCobrancaEmpresaBruta(cobrancaSeMudou(cobranca));
 
             setUserRole(finalRole);
             setUserPermissions(manterSeIgual(finalPermissions));
@@ -558,6 +582,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSelectedTenant(null);
         setAcessoAppMobile(false);
         setUserNome('');
+        setCobrancaEmpresaBruta(cobrancaSeMudou(null));
         setLoading(false);
       }
     });
@@ -865,7 +890,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser, userNome, userRole, nivelAcesso, isOwner, homeTenantId, tenantId, filialAtual, selectedTenant]);
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, venderPorEmbalagem, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, venderPorEmbalagem, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome, cobrancaEmpresa }}>
       {children}
     </AuthContext.Provider>
   );

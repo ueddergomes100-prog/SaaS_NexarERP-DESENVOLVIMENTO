@@ -58,6 +58,25 @@ service firebase.storage {
       allow delete: if request.auth != null && usuarioDaEmpresa(tenantId);
     }
 
+    // Boleto da mensalidade (24/11/2026): o PDF do PicPay que o admin da
+    // plataforma anexa no SuperAdmin. So' ele grava e le por aqui; a empresa
+    // abre pelo link com token (copiado no perfil pelo servidor), que nao passa
+    // por estas regras. So' PDF, ate' 10 MB. Caminho em SuperAdminMensalidades.tsx.
+    match /cobranca/{tenantId}/{arquivo} {
+      allow read, delete: if request.auth != null && adminDaPlataforma();
+      allow create, update: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf'
+        && adminDaPlataforma();
+    }
+
+    function adminDaPlataforma() {
+      return request.auth.token.get('role', '') in ['NexarAdmin', 'SuperAdmin']
+        || request.auth.token.get('nexarAdmin', false) == true
+        || request.auth.token.get('superAdmin', false) == true
+        || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('role', '') in ['NexarAdmin', 'SuperAdmin'];
+    }
+
     function usuarioDaEmpresa(tenantId) {
       return request.auth.uid == tenantId
         || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('filialAtiva', firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId) == tenantId;

@@ -117,7 +117,12 @@ service cloud.firestore {
         // outra empresa e leria os dados dela.
         'grupoId',
         'filialCodigo',
-        'filialAtiva'
+        'filialAtiva',
+        // Mensalidades (24/11/2026): plano de cobranca, resumo da mensalidade e
+        // o instante do bloqueio -- so' o servidor grava (services/mensalidades.js).
+        'planoCobranca',
+        'cobrancaEmpresa',
+        'cobrancaBloqueioEm'
       ];
     }
 
@@ -302,7 +307,16 @@ service cloud.firestore {
       return (
         perfil.get('status', 'Ativo') != 'Inativo' ||
         perfil.get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin']
-      ) && (perfil.get('tipoRegistro', '') != 'vendedor' || request.auth.token.get('isVendedorBalcao', false) == true);
+      ) && (perfil.get('tipoRegistro', '') != 'vendedor' || request.auth.token.get('isVendedorBalcao', false) == true)
+        && semBloqueioDeCobranca(perfil);
+    }
+
+    // Mensalidade em atraso (24/11/2026): a partir do instante que o servidor
+    // grava em TODO perfil da empresa (cobrancaBloqueioEm, platformManagedFields),
+    // a empresa inteira para -- dono e administrador tambem. Sem leitura a mais:
+    // recebe o perfil ja' lido. O admin da plataforma nunca recebe o campo.
+    function semBloqueioDeCobranca(perfil) {
+      return !('cobrancaBloqueioEm' in perfil) || request.time < perfil.cobrancaBloqueioEm;
     }
 
     // Cadastro de vendedor de balcao (sem login) so' entra pelo app, com o
@@ -605,6 +619,7 @@ service cloud.firestore {
       allow create: if isSuperAdmin() ||
         (
           isTenantAdmin() &&
+          semBloqueioDeCobranca(currentProfile()) &&
           request.resource.data.tenantId == currentTenantId() &&
           request.resource.data.role == 'Funcionario' &&
           request.resource.data.get('tipoRegistro', '') == 'vendedor' &&
@@ -629,6 +644,7 @@ service cloud.firestore {
       allow update: if isSuperAdmin() ||
         (
           isTenantAdmin() &&
+          semBloqueioDeCobranca(currentProfile()) &&
           resource.data.tenantId == currentTenantId() &&
           request.resource.data.tenantId == resource.data.tenantId &&
           request.resource.data.role == resource.data.role &&
@@ -768,7 +784,7 @@ service cloud.firestore {
     // configuracoes_privadas (dono/Admin), e os campos da plataforma seguem
     // travados por platformManagedFields.
     function canEditTenantConfig() {
-      return isTenantAdmin() || hasPermission('administrativo.config');
+      return (isTenantAdmin() || hasPermission('administrativo.config')) && semBloqueioDeCobranca(currentProfile());
     }
 
     // Segredo nao entra no documento que todos leem (19/10/2026): a chave da
@@ -830,7 +846,8 @@ service cloud.firestore {
         (
           isTenantAdmin() &&
           currentTenantId() == tenantId &&
-          request.resource.data.tenantId == tenantId
+          request.resource.data.tenantId == tenantId &&
+          semBloqueioDeCobranca(currentProfile())
         );
       allow delete: if isSuperAdmin();
     }
@@ -903,6 +920,15 @@ service cloud.firestore {
     match /system_alerts/{alertId} {
       allow read: if signedIn();
       allow write: if isSuperAdmin();
+    }
+
+    // Mensalidades das empresas clientes (24/11/2026). So' o admin da
+    // plataforma le; ninguem grava pelo navegador (o servidor grava tudo,
+    // services/mensalidades.js). A empresa ve o boleto pelo resumo que o
+    // servidor copia no proprio perfil (usuarios/{uid}.cobrancaEmpresa).
+    match /mensalidades/{mensalidadeId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
     }
 
     match /onboarding_pendentes/{documentId} {

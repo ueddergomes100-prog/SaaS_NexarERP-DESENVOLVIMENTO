@@ -16,6 +16,7 @@ const { normalizarCodigo } = require('./vendedorPin');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const permApp = require('../domain/permissoesAppDomain');
 const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
+const { camposDaCobrancaParaNovoUsuario } = require('./mensalidades');
 
 class ErroLimite extends Error {
   constructor(status, message) {
@@ -129,6 +130,8 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
     createdAt: agora(),
     createdBy: user.uid,
     status: 'Ativo',
+    // Mensalidade em atraso (24/11/2026): nasce com o bloqueio da empresa, se houver.
+    ...(await camposDaCobrancaParaNovoUsuario(tenantId)),
     ...buildDocumentMetadata(user.uid, agora()),
   });
   await db.collection('usernames').doc(chave).set({ email, tenantId });

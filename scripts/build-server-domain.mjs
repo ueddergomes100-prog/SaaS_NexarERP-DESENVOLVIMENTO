@@ -150,6 +150,8 @@ const MODULOS = [
   'src/utils/historicoAlteracoesDomain.ts',
   // Rotulo das permissoes no Historico de alteracoes, igual ao da tela.
   'src/utils/permissionCatalog.ts',
+  // Mensalidades das empresas clientes (24/11/2026): datas, avisos e bloqueio iguais na tela e no servidor.
+  'src/utils/mensalidadeDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

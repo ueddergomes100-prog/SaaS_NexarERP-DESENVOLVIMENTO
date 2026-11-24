@@ -1,0 +1,190 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  PRAZOS_PADRAO,
+  competenciasParaGerar,
+  deveAbrirJanelaDeCobranca,
+  formatarLinhaDigitavel,
+  formatarMoeda,
+  hojeEmBrasilia,
+  inicioDoDiaEmBrasilia,
+  lerBoleto,
+  lerMensalidade,
+  lerPlanoCobranca,
+  lerPrazos,
+  lerResumoDaCobranca,
+  montarResumoDaCobranca,
+  primeiraCompetencia,
+  situacaoDaCobranca,
+  textoDaCobranca,
+  textoDoAviso,
+  validarBoletoDigitado,
+  validarDataDoPagamento,
+  validarLiberacao,
+  validarPrazos,
+  vencimentoDaCompetencia,
+  veAvisoDeCobranca,
+  type MensalidadeLida,
+} from '../src/utils/mensalidadeDomain';
+
+const LINHA = '23793381286000000000300000000400184340000014990';
+
+const mensalidade = (competencia: string, vencimento: string, extra: Partial<MensalidadeLida> = {}): MensalidadeLida => ({
+  id: `dono_${competencia}`,
+  tenantId: 'dono',
+  competencia,
+  vencimento,
+  valor: 149.9,
+  situacao: 'aberta',
+  pagoEm: null,
+  boleto: {},
+  ...extra,
+});
+
+test('vencimento do mes: dia 31 em fevereiro cai no ultimo dia', () => {
+  assert.equal(vencimentoDaCompetencia('2026-02', 31), '2026-02-28');
+  assert.equal(vencimentoDaCompetencia('2028-02', 30), '2028-02-29');
+  assert.equal(vencimentoDaCompetencia('2026-11', 10), '2026-11-10');
+});
+
+test('hoje e inicio do dia em Brasilia (UTC-3)', () => {
+  assert.equal(hojeEmBrasilia(new Date('2026-11-25T02:59:00Z')), '2026-11-24');
+  assert.equal(hojeEmBrasilia(new Date('2026-11-25T03:00:00Z')), '2026-11-25');
+  assert.equal(inicioDoDiaEmBrasilia('2026-11-20').toISOString(), '2026-11-20T03:00:00.000Z');
+});
+
+test('prazos padrao 3/5/10 e prazos invalidos caem no padrao', () => {
+  assert.deepEqual(lerPrazos(undefined), PRAZOS_PADRAO);
+  assert.deepEqual(lerPrazos({ diasLembreteAntes: 2, diasAvisoForte: 7, diasBloqueio: 15 }), { diasLembreteAntes: 2, diasAvisoForte: 7, diasBloqueio: 15 });
+  assert.deepEqual(lerPrazos({ diasAvisoForte: 20, diasBloqueio: 10 }), PRAZOS_PADRAO, 'aviso depois do bloqueio nao vale');
+  assert.match(validarPrazos({ diasLembreteAntes: 3, diasAvisoForte: 12, diasBloqueio: 10 }) || '', /antes do bloqueio/);
+});
+
+test('geracao do mes: 10 dias antes do vencimento, a partir do inicio, sem repetir', () => {
+  const plano = lerPlanoCobranca({ ativa: true, diaVencimento: 10, inicioCompetencia: '2026-11' });
+  assert.deepEqual(competenciasParaGerar({ hoje: '2026-10-30', plano, existentes: [] }), [], 'falta mais de 10 dias');
+  assert.deepEqual(competenciasParaGerar({ hoje: '2026-10-31', plano, existentes: [] }), ['2026-11']);
+  assert.deepEqual(competenciasParaGerar({ hoje: '2026-11-30', plano, existentes: ['2026-11'] }), ['2026-12']);
+  assert.deepEqual(competenciasParaGerar({ hoje: '2027-06-01', plano, existentes: [] }).length, 3, 'no maximo 3 por vez');
+  assert.deepEqual(competenciasParaGerar({ hoje: '2026-11-05', plano: { ...plano, ativa: false }, existentes: [] }), []);
+});
+
+test('primeira competencia: o proximo vencimento a partir de hoje', () => {
+  assert.equal(primeiraCompetencia('2026-11-24', 10), '2026-12');
+  assert.equal(primeiraCompetencia('2026-11-24', 24), '2026-11');
+  assert.equal(primeiraCompetencia('2026-11-24', 31), '2026-11');
+});
+
+test('resumo usa a mensalidade aberta mais antiga e soma as abertas', () => {
+  const r = montarResumoDaCobranca({
+    matrizId: 'dono',
+    abertas: [
+      mensalidade('2026-12', '2026-12-10'),
+      mensalidade('2026-11', '2026-11-10', { boleto: { linhaDigitavel: LINHA, pdfCaminho: 'cobranca/dono/x.pdf' } }),
+      mensalidade('2026-10', '2026-10-10', { situacao: 'paga' }),
+    ],
+    prazos: PRAZOS_PADRAO,
+    liberadoAte: null,
+  });
+  assert.ok(r);
+  assert.equal(r.mensalidadeId, 'dono_2026-11');
+  assert.equal(r.valorEmAberto, 299.8);
+  assert.equal(r.quantidadeEmAberto, 2);
+  assert.equal(r.lembreteDesde, '2026-11-07');
+  assert.equal(r.avisoForteDesde, '2026-11-15');
+  assert.equal(r.bloqueioEm, '2026-11-20', 'bloqueio no 10o dia de atraso');
+  assert.deepEqual(r.boleto, { linhaDigitavel: LINHA }, 'o caminho do Storage nao vai para a empresa');
+  assert.equal('liberadoAte' in r, false, 'sem chave vazia (nunca undefined no Firestore)');
+  assert.equal(montarResumoDaCobranca({ matrizId: 'dono', abertas: [], prazos: PRAZOS_PADRAO, liberadoAte: null }), null);
+});
+
+test('liberar ate adia o bloqueio para o dia seguinte; liberacao antiga nao antecipa', () => {
+  const abertas = [mensalidade('2026-11', '2026-11-10')];
+  const liberado = montarResumoDaCobranca({ matrizId: 'dono', abertas, prazos: PRAZOS_PADRAO, liberadoAte: '2026-11-25' });
+  assert.equal(liberado?.bloqueioEm, '2026-11-26');
+  assert.equal(liberado?.liberadoAte, '2026-11-25');
+  const antiga = montarResumoDaCobranca({ matrizId: 'dono', abertas, prazos: PRAZOS_PADRAO, liberadoAte: '2026-11-12' });
+  assert.equal(antiga?.bloqueioEm, '2026-11-20');
+  assert.equal(antiga && 'liberadoAte' in antiga, false);
+});
+
+test('etapas: lembrete, vence hoje, atrasada, aviso forte, bloqueada', () => {
+  const r = montarResumoDaCobranca({ matrizId: 'dono', abertas: [mensalidade('2026-11', '2026-11-10')], prazos: PRAZOS_PADRAO, liberadoAte: null });
+  const etapa = (hoje: string) => situacaoDaCobranca(r, hoje).etapa;
+  assert.equal(etapa('2026-11-06'), 'em_dia');
+  assert.equal(etapa('2026-11-07'), 'lembrete');
+  assert.equal(etapa('2026-11-10'), 'vence_hoje');
+  assert.equal(etapa('2026-11-11'), 'atrasada');
+  assert.equal(etapa('2026-11-15'), 'aviso_forte');
+  assert.equal(etapa('2026-11-19'), 'aviso_forte');
+  assert.equal(etapa('2026-11-20'), 'bloqueada');
+  const s = situacaoDaCobranca(r, '2026-11-17');
+  assert.deepEqual([s.diasDeAtraso, s.diasParaBloqueio], [7, 3]);
+  assert.equal(situacaoDaCobranca(null, '2026-11-20').etapa, 'em_dia');
+});
+
+test('liberada mostra aviso ate o fim da liberacao e bloqueia no dia seguinte', () => {
+  const r = montarResumoDaCobranca({ matrizId: 'dono', abertas: [mensalidade('2026-11', '2026-11-10')], prazos: PRAZOS_PADRAO, liberadoAte: '2026-11-25' });
+  assert.equal(situacaoDaCobranca(r, '2026-11-21').etapa, 'liberada');
+  assert.equal(situacaoDaCobranca(r, '2026-11-26').etapa, 'bloqueada');
+});
+
+test('textos em portugues dizem o que fazer', () => {
+  const r = montarResumoDaCobranca({ matrizId: 'dono', abertas: [mensalidade('2026-11', '2026-11-10')], prazos: PRAZOS_PADRAO, liberadoAte: null })!;
+  const forte = textoDoAviso(r, situacaoDaCobranca(r, '2026-11-17'));
+  assert.equal(forte.tom, 'perigo');
+  assert.match(forte.texto, /será bloqueado em 3 dias, em 20\/11\/2026/);
+  assert.match(forte.texto, /boleto ainda não foi anexado/);
+  const comBoleto = { ...r, boleto: { linhaDigitavel: LINHA } };
+  assert.match(textoDoAviso(comBoleto, situacaoDaCobranca(comBoleto, '2026-11-08')).texto, /vence em 2 dias, em 10\/11\/2026\. Imprima o boleto/);
+});
+
+test('resumo lido do perfil: formato errado = sem cobranca', () => {
+  const r = montarResumoDaCobranca({ matrizId: 'dono', abertas: [mensalidade('2026-11', '2026-11-10')], prazos: PRAZOS_PADRAO, liberadoAte: null, contato: { whatsapp: '33999990000' } });
+  assert.deepEqual(lerResumoDaCobranca(JSON.parse(JSON.stringify(r))), r);
+  assert.equal(lerResumoDaCobranca({ vencimento: 'ontem' }), null);
+  assert.equal(lerResumoDaCobranca(null), null);
+});
+
+test('boleto: basta um dos itens; linha digitavel conferida', () => {
+  assert.deepEqual(validarBoletoDigitado({ linhaDigitavel: '2379 3381 2860 0000 0000 3000 0000 0400 1843 4000 0014 990' }), { boleto: { linhaDigitavel: LINHA } });
+  assert.match((validarBoletoDigitado({ linhaDigitavel: '123' }) as { erro: string }).erro, /tem 3 números/);
+  assert.match((validarBoletoDigitado({ link: 'picpay.me/x' }) as { erro: string }).erro, /https/);
+  assert.match((validarBoletoDigitado({}) as { erro: string }).erro, /Anexe o PDF/);
+  assert.deepEqual(lerBoleto({ pdfUrl: 'http://inseguro', link: 'https://picpay.me/x', pixCopiaECola: '' }), { link: 'https://picpay.me/x' });
+  assert.equal(formatarLinhaDigitavel(LINHA), '23793.38128 60000.000003 00000.000400 1 84340000014990');
+});
+
+test('texto da cobranca leva valor, vencimento e o que estiver anexado', () => {
+  const t = textoDaCobranca({ empresa: 'EMBALA MINAS', competencia: '2026-11', vencimento: '2026-11-10', valor: 1499, boleto: { link: 'https://picpay.me/x' } });
+  assert.match(t.assunto, /novembro\/2026/);
+  assert.match(t.texto, /R\$ 1\.499,00, vencimento em 10\/11\/2026/);
+  assert.match(t.texto, /Pagar pelo link: https:\/\/picpay\.me\/x/);
+  assert.doesNotMatch(t.texto, /Linha digitável/);
+  assert.equal(formatarMoeda(149.9), 'R$ 149,90');
+});
+
+test('pagamento e liberacao: datas conferidas', () => {
+  assert.equal(validarDataDoPagamento('2026-11-24', '2026-11-24'), null);
+  assert.match(validarDataDoPagamento('2026-11-25', '2026-11-24') || '', /depois de hoje/);
+  assert.match(validarLiberacao('2026-11-23', '2026-11-24') || '', /antes de hoje/);
+  assert.match(validarLiberacao('2027-01-30', '2026-11-24') || '', /no máximo/);
+  assert.equal(validarLiberacao('2026-12-01', '2026-11-24'), null);
+});
+
+test('quem ve o aviso e quando a janela abre', () => {
+  assert.equal(veAvisoDeCobranca('Master'), true);
+  assert.equal(veAvisoDeCobranca('Admin'), true);
+  assert.equal(veAvisoDeCobranca('Funcionario'), false);
+  assert.equal(deveAbrirJanelaDeCobranca('', '2026-11-24', 'atrasada'), true);
+  assert.equal(deveAbrirJanelaDeCobranca('2026-11-24', '2026-11-24', 'atrasada'), false);
+  assert.equal(deveAbrirJanelaDeCobranca('', '2026-11-24', 'em_dia'), false);
+  assert.equal(deveAbrirJanelaDeCobranca('', '2026-11-24', 'bloqueada'), false, 'bloqueada tem a tela propria');
+});
+
+test('mensalidade lida do banco: sem campo = valor seguro', () => {
+  const m = lerMensalidade('x', { tenantId: 'dono', competencia: '2026-11', vencimento: '2026-11-10', valor: '149.9', situacao: 'outra' });
+  assert.equal(m.situacao, 'aberta');
+  assert.equal(m.valor, 149.9);
+  assert.equal(m.pagoEm, null);
+});

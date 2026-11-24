@@ -7,6 +7,7 @@ import PlatformAdminRoute from './components/layout/PlatformAdminRoute';
 import PlatformAdminLayout from './components/layout/PlatformAdminLayout';
 import AppLayout from './components/layout/AppLayout';
 import PageLoader from './components/layout/PageLoader';
+import GuardaDaMensalidade from './components/cobranca/GuardaDaMensalidade';
 import CarregandoApp from './pages/Vendedor/CarregandoApp';
 
 // App Vendas (09/11/2026): enquanto a tela pedida baixa, a tela de carregamento
@@ -24,6 +25,7 @@ const CotacaoPublica = lazy(() => import('./pages/Compras/CotacaoPublica'));
 const SuperAdmin = lazy(() => import('./pages/Admin/SuperAdmin'));
 const SuperAdminBackup = lazy(() => import('./pages/Admin/SuperAdminBackup'));
 const SuperAdminManutencao = lazy(() => import('./pages/Admin/SuperAdminManutencao'));
+const SuperAdminMensalidades = lazy(() => import('./pages/Admin/SuperAdminMensalidades'));
 // App do vendedor externo (mobile): shell + login proprios, sem Sidebar/
 // TopBar nem Sistema de Abas -- mesmo motivo do painel da plataforma. O login fica
 // PUBLICO (fora de ProtectedRoute, que redireciona pro /login normal) e o
@@ -66,13 +68,13 @@ function App() {
                     ProtectedRoute e ANTES do coringa "/*" do AppLayout,
                     senao cairia no ERP normal (mesmo motivo do /superadmin
                     abaixo). */}
-                <Route path="/vendedor/*" element={<VendedorShell />} />
+                <Route path="/vendedor/*" element={<GuardaDaMensalidade><VendedorShell /></GuardaDaMensalidade>} />
 
                 {/* Frente de Caixa como app separado: mesma regra do /vendedor
                     (fora de ProtectedRoute e antes do coringa do AppLayout). */}
                 <Route path="/caixa/login" element={<CaixaLoginPage />} />
                 <Route path="/caixa.html" element={<CaixaInstalar />} />
-                <Route path="/caixa/*" element={<CaixaShell />} />
+                <Route path="/caixa/*" element={<GuardaDaMensalidade><CaixaShell /></GuardaDaMensalidade>} />
 
                 {/* Painel da plataforma -- shell proprio, sem sidebar de
                     modulos nem sistema de abas (esses sao conceitos de
@@ -83,11 +85,14 @@ function App() {
                     <Route index element={<SuperAdmin />} />
                     <Route path="backups" element={<SuperAdminBackup />} />
                     <Route path="manutencao" element={<SuperAdminManutencao />} />
+                    <Route path="mensalidades" element={<SuperAdminMensalidades />} />
                   </Route>
                 </Route>
 
                 {/* Rotas Protegidas (Exigem Login) */}
-                <Route element={<ProtectedRoute />}>
+                {/* Mensalidade em atraso (24/11/2026): o bloqueio cobre o sistema,
+                    a Frente de Caixa e o app Vendas; nunca o painel da plataforma. */}
+                <Route element={<GuardaDaMensalidade><ProtectedRoute /></GuardaDaMensalidade>}>
                   {/* AppLayout casa qualquer sub-rota; o conteudo real de
                       cada uma vem de appRoutesConfig, renderizado dentro
                       do MemoryRouter isolado de cada aba (ver TabPane). */}

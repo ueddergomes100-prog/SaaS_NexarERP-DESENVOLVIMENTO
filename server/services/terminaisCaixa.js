@@ -4,6 +4,8 @@ const { onlyDigits } = require('../utils/cnpjLookup');
 const { validarPin } = require('./vendedorPin');
 const { podeUsarFrenteDeCaixa } = require('../domain/frenteDeCaixaDomain');
 const { isTenantManagerRole } = require('../domain/roles');
+const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
+const { empresaBloqueada } = require('./mensalidades');
 
 /**
  * COMPUTADOR DO CAIXA + ENTRADA COM CODIGO E SENHA (22/11/2026, pedido do dono:
@@ -137,6 +139,11 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   }
   if (!noSistema && !gestor && !podeUsarFrenteDeCaixa({ role: papel, isOwner: false, permissoes })) {
     throw new ErroTerminal(403, `${identificado.vendedorNome} não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no cadastro dele, em Usuários.`);
+  }
+  // Mensalidade em atraso (24/11/2026): funcionario nem entra; dono e
+  // administrador entram e veem a tela de bloqueio com o boleto.
+  if (!gestor && await empresaBloqueada(terminal.tenantDosUsuarios)) {
+    throw new ErroTerminal(402, MENSAGEM_SERVIDOR_BLOQUEADO);
   }
 
   // Vendedor de balcao (sem login de e-mail) so' entra com a marca isVendedorBalcao (middleware/auth.js).

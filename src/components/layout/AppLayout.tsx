@@ -13,6 +13,7 @@ import { TabPanesArea } from './TabPane';
 import { useFaixaDoTopo } from './useFaixaDoTopo';
 import { useColunasAjustaveis } from './useColunasAjustaveis';
 import { useAtalhoSalvar } from './useAtalhoSalvar';
+import AvisoMensalidade from '../cobranca/AvisoMensalidade';
 import './Layout.css';
 // Design novo do desktop (14/10/2026): vem DEPOIS do Layout.css para vencer na cascata.
 import './visualDesktop.css';
@@ -49,6 +50,8 @@ const AppLayout: React.FC = () => {
 
   return (
     <div className="app-layout-wrapper">
+      {/* Mensalidade vencendo/atrasada (24/11/2026): so' dono e administrador. */}
+      <AvisoMensalidade />
       {globalAlert && !hideAlert && (
         <div className="global-alert-banner" style={{
           backgroundColor: '#f59e0b',

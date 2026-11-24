@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { Building2, Database, LogOut, ShieldCheck, Wrench } from 'lucide-react';
+import { Building2, Database, LogOut, Receipt, ShieldCheck, Wrench } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import hennderIcon from '../../assets/hennder-icon.webp';
 
@@ -55,6 +55,9 @@ const PlatformAdminLayout: React.FC = () => {
         <nav style={{ display: 'flex', gap: '8px' }}>
           <NavLink to="/superadmin" end style={linkStyle}>
             <Building2 size={16} /> Empresas
+          </NavLink>
+          <NavLink to="/superadmin/mensalidades" style={linkStyle}>
+            <Receipt size={16} /> Mensalidades
           </NavLink>
           <NavLink to="/superadmin/backups" style={linkStyle}>
             <Database size={16} /> Backups

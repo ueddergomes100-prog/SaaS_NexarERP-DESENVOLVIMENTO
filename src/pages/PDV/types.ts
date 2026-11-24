@@ -33,6 +33,8 @@ export interface PdvProduct {
   bloquearVendaSemEstoque?: boolean;
   /** Array cru do documento de estoque -- normalizado por embalagemDomain. */
   embalagens?: unknown;
+  /** So' vende na embalagem: a unidade solta nao e' oferecida (embalagemDomain). */
+  venderSoNaEmbalagem?: boolean;
   descontoMaximoPercentual?: number;
   /** Aba "Atacado" do produto: faixa de quantidade com preco proprio (precoVendaDomain). */
   atacado?: unknown;

@@ -118,6 +118,8 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
   findOpcaoUnidadeVenda,
+  opcaoInicialDaTela,
+  vendeSoNaEmbalagem,
   toBaseQuantity,
   toStockAdjustmentItems,
   type OpcaoUnidadeVenda,
@@ -427,6 +429,7 @@ const PDV: React.FC = () => {
               temGrade: data.temGrade === true,
               bloquearVendaSemEstoque: data.bloquearVendaSemEstoque === true,
               embalagens: data.embalagens,
+              venderSoNaEmbalagem: data.venderSoNaEmbalagem === true,
               descontoMaximoPercentual: data.descontoMaximoPercentual,
               ...(data.atacado ? { atacado: data.atacado } : {}),
             } as PdvProduct;
@@ -907,7 +910,8 @@ const PDV: React.FC = () => {
       return;
     }
 
-    const opcaoFinal = opcao || buildOpcoesUnidadeVenda(product)[0];
+    // Sem unidade bipada: a do cadastro, ou a primeira embalagem do produto que so' vende embalado (24/11/2026).
+    const opcaoFinal = opcao || opcaoInicialDaTela(product, venderPorEmbalagem);
     const lineId = makeCartLineId(product.id, opcaoFinal.embalagemId);
     // Fora do updater de proposito (ele pode rodar duas vezes no StrictMode e o aviso de quota sairia dobrado).
     const linhaAntes = cartItemsRef.current.find((item) => item.id === lineId);
@@ -944,7 +948,7 @@ const PDV: React.FC = () => {
     // Item lancado: a consulta some e a busca fica pronta para o proximo.
     setSelectedProduct(null);
     setSearch('');
-  }, [openSession, session, validateQuantity, precificarLinha, preVenda]);
+  }, [openSession, session, validateQuantity, precificarLinha, preVenda, venderPorEmbalagem]);
 
   const updateItemQuantity = useCallback((itemId: string, quantity: number) => {
     // Quantidade nova pode entrar (ou sair) da faixa de atacado e da quota da
@@ -981,6 +985,18 @@ const PDV: React.FC = () => {
     return cartItems.reduce<Record<string, OpcaoUnidadeVenda[]>>((mapa, item) => {
       const product = products.find((entry) => entry.id === item.productId);
       if (product) mapa[item.id] = buildOpcoesUnidadeVenda(product);
+      return mapa;
+    }, {});
+  }, [cartItems, products, venderPorEmbalagem]);
+
+  /** Linhas em que o seletor nao oferece a unidade solta: produto que so' vende
+   * na embalagem (24/11/2026). Linha que ja' esta' na unidade solta (pre-venda
+   * antiga) continua podendo ficar nela. */
+  const semUnidadeSoltaByItemId = useMemo(() => {
+    if (!venderPorEmbalagem) return {};
+    return cartItems.reduce<Record<string, boolean>>((mapa, item) => {
+      const product = products.find((entry) => entry.id === item.productId);
+      if (product && item.embalagemId && vendeSoNaEmbalagem(product)) mapa[item.id] = true;
       return mapa;
     }, {});
   }, [cartItems, products, venderPorEmbalagem]);
@@ -2100,6 +2116,7 @@ const PDV: React.FC = () => {
               onDiscountChange={updateItemDiscount}
               onRemoveItem={removeItem}
               unitOptionsByItemId={unitOptionsByItemId}
+              semUnidadeSoltaByItemId={semUnidadeSoltaByItemId}
               onUnitChange={venderPorEmbalagem && !preVenda ? changeItemUnit : undefined}
               somenteLeitura={Boolean(preVenda)}
             />

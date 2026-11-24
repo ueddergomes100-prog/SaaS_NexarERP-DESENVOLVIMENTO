@@ -132,6 +132,8 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   camposDeUnidadeDoItem,
   findOpcaoUnidadeVenda,
+  mostraSeletorDeUnidade,
+  opcaoInicialDaTela,
   opcaoNaUnidadeDoEstoque,
   opcoesDeUnidadeDaTela,
   toBaseQuantity,
@@ -185,6 +187,8 @@ interface PecaData {
   bloquearVendaSemEstoque?: boolean;
   /** Embalagens do cadastro (rolo, tubo, saco): vender em outra unidade (embalagemDomain.ts). */
   embalagens?: unknown;
+  /** So' vende na embalagem: a unidade solta nao e' oferecida (embalagemDomain). */
+  venderSoNaEmbalagem?: boolean;
   /** Aba "Atacado" do produto (precoVendaDomain). */
   atacado?: unknown;
 }
@@ -527,6 +531,7 @@ const OSForm: React.FC = () => {
           temGrade: doc.data().temGrade === true,
           bloquearVendaSemEstoque: doc.data().bloquearVendaSemEstoque === true,
           embalagens: doc.data().embalagens,
+          venderSoNaEmbalagem: doc.data().venderSoNaEmbalagem === true,
           ...(doc.data().atacado ? { atacado: doc.data().atacado } : {}),
         });
       });
@@ -2334,12 +2339,12 @@ const OSForm: React.FC = () => {
                     setPecaNomeInput(value);
                     setPecaEmbalagemId('');
                     const exists = pecasEstoque.find(p => p.nome.toLowerCase() === value.toLowerCase());
-                    if (exists) setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(exists), condicaoPagamento)));
+                    if (exists) setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(exists, unidadeDePrecoDaOpcao(opcaoInicialDaTela(exists, venderPorEmbalagem))), condicaoPagamento)));
                   }}
                   onSelect={(p) => {
                     setPecaNomeInput(p.nome);
                     setPecaEmbalagemId('');
-                    setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), condicaoPagamento)));
+                    setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p, unidadeDePrecoDaOpcao(opcaoInicialDaTela(p, venderPorEmbalagem))), condicaoPagamento)));
                   }}
                   mode={pecaSearchMode}
                   placeholder="Busque ou digite nova peça"
@@ -2365,7 +2370,7 @@ const OSForm: React.FC = () => {
                   onSelect={(p) => {
                     setPecaNomeInput(p.nome);
                     setPecaEmbalagemId('');
-                    setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), condicaoPagamento)));
+                    setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p, unidadeDePrecoDaOpcao(opcaoInicialDaTela(p, venderPorEmbalagem))), condicaoPagamento)));
                   }}
                   mode={pecaSearchMode}
                   renderItem={renderPecaRow}
@@ -2375,11 +2380,11 @@ const OSForm: React.FC = () => {
               </div>
 
               {/* Unidade (rolo, tubo, saco): so' quando a peca tem embalagem e a empresa vende por embalagem. */}
-              {opcoesDaPecaEscolhida.length > 1 && (
+              {mostraSeletorDeUnidade(opcoesDaPecaEscolhida) && (
                 <select
                   aria-label="Unidade da peça"
                   title="Unidade em que a peça sai"
-                  value={pecaEmbalagemId}
+                  value={findOpcaoUnidadeVenda(opcoesDaPecaEscolhida, pecaEmbalagemId).embalagemId}
                   onChange={(e) => {
                     setPecaEmbalagemId(e.target.value);
                     if (pecaEscolhida) {

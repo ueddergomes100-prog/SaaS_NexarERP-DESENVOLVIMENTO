@@ -9,7 +9,7 @@ import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import { lerPrecoDigitado, precificarNoApp, precoDaTabelaDoItem, promocaoParaMostrar, trocarPrecoDoItem, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
 import { bonificarItem, cobrarItem, ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
-import { camposDeUnidadeDoItem, findOpcaoUnidadeVenda, opcaoNaUnidadeDoEstoque, opcoesDeUnidadeDaTela, toBaseQuantity } from '../../utils/embalagemDomain';
+import { camposDeUnidadeDoItem, findOpcaoUnidadeVenda, mostraSeletorDeUnidade, opcaoNaUnidadeDoEstoque, opcoesDeUnidadeDaTela, toBaseQuantity } from '../../utils/embalagemDomain';
 
 export interface ProdutoVendedorExterno {
   id: string;
@@ -27,6 +27,8 @@ export interface ProdutoVendedorExterno {
   bloquearVendaSemEstoque?: boolean;
   /** Embalagens do cadastro (rolo, tubo, saco -- embalagemDomain.ts). */
   embalagens?: unknown;
+  /** So' vende na embalagem: a unidade solta nao e' oferecida (embalagemDomain). */
+  venderSoNaEmbalagem?: boolean;
   /** Aba "Atacado" do produto: faixa de quantidade com preco proprio (precoVendaDomain). */
   atacado?: unknown;
 }
@@ -313,10 +315,10 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                   {/* Unidade (rolo, tubo, saco): so' com embalagem e "Vender por embalagem" ligado (21/11/2026). */}
                   {marcado && (() => {
                     const opcoes = opcoesDeUnidadeDaTela(produto, venderPorEmbalagem);
-                    if (opcoes.length < 2) return null;
+                    if (!mostraSeletorDeUnidade(opcoes)) return null;
                     return (
                       <select
-                        value={unidadesEscolhidas[produto.id] || ''}
+                        value={findOpcaoUnidadeVenda(opcoes, unidadesEscolhidas[produto.id]).embalagemId}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => setUnidadesEscolhidas((atual) => ({ ...atual, [produto.id]: e.target.value }))}
                         aria-label={`Unidade de ${produto.nome}`}

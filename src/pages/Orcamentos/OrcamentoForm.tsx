@@ -58,6 +58,8 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   camposDeUnidadeDoItem,
   findOpcaoUnidadeVenda,
+  mostraSeletorDeUnidade,
+  opcaoInicialDaTela,
   opcaoNaUnidadeDoEstoque,
   opcoesDeUnidadeDaTela,
   toBaseQuantity,
@@ -148,6 +150,8 @@ interface PecaOrcamento {
   temGrade?: boolean;
   /** Embalagens do cadastro (embalagemDomain.ts). */
   embalagens?: unknown;
+  /** So' vende na embalagem: a unidade solta nao e' oferecida (embalagemDomain). */
+  venderSoNaEmbalagem?: boolean;
   /** Aba "Atacado" do produto (precoVendaDomain). */
   atacado?: unknown;
 }
@@ -337,6 +341,7 @@ const OrcamentoForm: React.FC = () => {
             ativo: data.ativo ?? data.statusAtivo ?? true,
             temGrade: data.temGrade === true,
             embalagens: data.embalagens,
+            venderSoNaEmbalagem: data.venderSoNaEmbalagem === true,
             ...(data.atacado ? { atacado: data.atacado } : {}),
           });
         });
@@ -1265,7 +1270,7 @@ const OrcamentoForm: React.FC = () => {
                 </>
               )}
 
-              <div className={`item-add-row${opcoesDaPecaEscolhida.length > 1 ? ' item-add-row--com-unidade' : ''}`}>
+              <div className={`item-add-row${mostraSeletorDeUnidade(opcoesDaPecaEscolhida) ? ' item-add-row--com-unidade' : ''}`}>
                 <div style={{ position: 'relative' }}>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Produto</label>
                   <ProductAutocomplete
@@ -1280,7 +1285,7 @@ const OrcamentoForm: React.FC = () => {
                     }}
                     onSelect={(p) => {
                       setPecaNomeInput(p.nome);
-                      setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), CONDICAO_ORCAMENTO)));
+                      setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p, unidadeDePrecoDaOpcao(opcaoInicialDaTela(p, venderPorEmbalagem))), CONDICAO_ORCAMENTO)));
                       setPecaSelecionada(p);
                       setPecaEmbalagemId('');
                     }}
@@ -1307,7 +1312,7 @@ const OrcamentoForm: React.FC = () => {
                     products={pecasEstoque}
                     onSelect={(p) => {
                       setPecaNomeInput(p.nome);
-                      setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p), CONDICAO_ORCAMENTO)));
+                      setPecaPrecoInput(String(precoSugeridoDoItem(tabelaDe(p, unidadeDePrecoDaOpcao(opcaoInicialDaTela(p, venderPorEmbalagem))), CONDICAO_ORCAMENTO)));
                       setPecaSelecionada(p);
                       setPecaEmbalagemId('');
                     }}
@@ -1317,12 +1322,12 @@ const OrcamentoForm: React.FC = () => {
                   />
                 </div>
                 {/* Unidade (rolo, tubo, saco): so' quando o produto tem embalagem e a empresa vende por embalagem. */}
-                {opcoesDaPecaEscolhida.length > 1 && pecaSelecionada && (
+                {mostraSeletorDeUnidade(opcoesDaPecaEscolhida) && pecaSelecionada && (
                   <div>
                     <label htmlFor="orcamento-unidade-peca" style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Unidade</label>
                     <select
                       id="orcamento-unidade-peca"
-                      value={pecaEmbalagemId}
+                      value={findOpcaoUnidadeVenda(opcoesDaPecaEscolhida, pecaEmbalagemId).embalagemId}
                       onChange={(e) => {
                         setPecaEmbalagemId(e.target.value);
                         const opcao = findOpcaoUnidadeVenda(opcoesDaPecaEscolhida, e.target.value);

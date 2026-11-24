@@ -9,7 +9,7 @@
 // quilo. Por isso a conversao acontece so na hora de mexer no estoque
 // (toStockAdjustmentItems), nunca no valor financeiro do item.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.embalagensComUnidadesAtuais = exports.margemSobreCusto = exports.custoDaEmbalagem = exports.unidadeDePrecoDaOpcao = exports.opcaoDoItemGravado = exports.opcaoDoItemDeOrigem = exports.linhaNaUnidadeDoEstoque = exports.opcaoNaUnidadeDoEstoque = exports.embalagemFracionaria = exports.camposDeUnidadeDoItem = exports.opcoesDeUnidadeDaTela = exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
+exports.embalagensComUnidadesAtuais = exports.margemSobreCusto = exports.custoDaEmbalagem = exports.unidadeDePrecoDaOpcao = exports.opcaoDoItemGravado = exports.opcaoDoItemDeOrigem = exports.linhaNaUnidadeDoEstoque = exports.opcaoNaUnidadeDoEstoque = exports.embalagemFracionaria = exports.camposDeUnidadeDoItem = exports.mostraSeletorDeUnidade = exports.opcaoInicialDaTela = exports.opcoesDeUnidadeDaTela = exports.vendeSoNaEmbalagem = exports.toStockAdjustmentItems = exports.toBaseQuantity = exports.findOpcaoUnidadeVenda = exports.buildOpcoesUnidadeVenda = exports.normalizeEmbalagens = exports.formatFatorConversao = exports.DEFAULT_VENDER_POR_EMBALAGEM = void 0;
 /** Casas decimais usadas ao converter para a unidade base. Existe so pra
  * absorver o erro de ponto flutuante de quantidade fracionada x fator (ex:
  * 0.1 * 3), nao pra limitar o que o usuario pode digitar -- esse limite e da
@@ -124,15 +124,34 @@ const toStockAdjustmentItems = (itens) => (itens.map((item) => ({
 })));
 exports.toStockAdjustmentItems = toStockAdjustmentItems;
 /**
+ * "Vender so' na embalagem" (24/11/2026, pedido do dono): produto que so' sai
+ * em pacote ou caixa (pacote com 10, caixa com 300) e nunca avulso. O estoque
+ * continua na unidade do cadastro; so' a VENDA deixa de oferecer a unidade
+ * solta. Sem embalagem ativa a marca nao vale: nao pode sobrar produto sem
+ * unidade nenhuma para vender.
+ */
+const vendeSoNaEmbalagem = (produto) => (produto?.venderSoNaEmbalagem === true
+    && (0, exports.normalizeEmbalagens)(produto?.embalagens).some((embalagem) => embalagem.ativo));
+exports.vendeSoNaEmbalagem = vendeSoNaEmbalagem;
+/**
  * As opcoes de unidade que a tela oferece: com "Vender por embalagem"
  * desligado nas Configuracoes, so' a unidade base (21/11/2026: mesma regra
  * do Pedido de Venda agora tambem no Orcamento, na OS e no app Vendas).
  */
 const opcoesDeUnidadeDaTela = (produto, venderPorEmbalagem) => {
     const opcoes = (0, exports.buildOpcoesUnidadeVenda)(produto);
-    return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
+    if (!venderPorEmbalagem)
+        return opcoes.slice(0, 1);
+    // Produto que so' vende na embalagem: a unidade solta (sempre a primeira) fica de fora.
+    return (0, exports.vendeSoNaEmbalagem)(produto) ? opcoes.slice(1) : opcoes;
 };
 exports.opcoesDeUnidadeDaTela = opcoesDeUnidadeDaTela;
+/** A unidade em que o item entra quando ninguem escolheu outra: a do cadastro, ou a primeira embalagem do produto que so' vende embalado. */
+const opcaoInicialDaTela = (produto, venderPorEmbalagem) => (0, exports.opcoesDeUnidadeDaTela)(produto, venderPorEmbalagem)[0];
+exports.opcaoInicialDaTela = opcaoInicialDaTela;
+/** O seletor "Unidade" aparece quando ha' o que escolher, ou quando a unica opcao e' uma embalagem (o vendedor precisa ver que e' pacote, nao unidade). */
+const mostraSeletorDeUnidade = (opcoes) => (opcoes.length > 1 || Boolean(opcoes[0]?.embalagemId));
+exports.mostraSeletorDeUnidade = mostraSeletorDeUnidade;
 /**
  * Campos de unidade do item lancado (venda, orcamento, OS, app). Na unidade
  * base o item nao ganha campo de embalagem nenhum -- fica igual ao que o

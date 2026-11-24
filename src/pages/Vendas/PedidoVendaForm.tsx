@@ -155,6 +155,10 @@ import {
   DEFAULT_VENDER_POR_EMBALAGEM,
   buildOpcoesUnidadeVenda,
   findOpcaoUnidadeVenda,
+  mostraSeletorDeUnidade,
+  opcaoInicialDaTela,
+  opcoesDeUnidadeDaTela,
+  embalagemFracionaria,
   opcaoDoItemDeOrigem,
   opcaoDoItemGravado,
   opcaoNaUnidadeDoEstoque,
@@ -291,6 +295,8 @@ interface ProdutoEstoque {
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
   embalagens?: unknown;
+  /** So' vende na embalagem: a unidade solta nao e' oferecida (embalagemDomain). */
+  venderSoNaEmbalagem?: boolean;
   descontoMaximoPercentual?: number;
   /** Comissao propria do produto -- vence o percentual do vendedor/sistema
    * quando configurada. Ver resolveComissaoPercentual em financeDomain.ts. */
@@ -1143,6 +1149,7 @@ const PedidoVendaForm: React.FC = () => {
           unidadeMedidaCasasDecimais: doc.data().unidadeMedidaCasasDecimais,
           unidadeMedidaFracionado: doc.data().unidadeMedidaFracionado,
           embalagens: doc.data().embalagens,
+          venderSoNaEmbalagem: doc.data().venderSoNaEmbalagem === true,
           descontoMaximoPercentual: doc.data().descontoMaximoPercentual,
           comissaoPercentual: doc.data().comissaoPercentual,
           ativo: doc.data().ativo ?? doc.data().statusAtivo ?? true,
@@ -1615,10 +1622,11 @@ const PedidoVendaForm: React.FC = () => {
   /** Opcoes do seletor "Unidade": a base do produto sempre, mais as
    * embalagens ativas quando a chave venderPorEmbalagem esta ligada. Com a
    * chave desligada so existe a base -- exatamente o comportamento antigo. */
-  const opcoesUnidadeVenda = useMemo(() => {
-    const opcoes = buildOpcoesUnidadeVenda(produtoSelecionado);
-    return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
-  }, [produtoSelecionado, venderPorEmbalagem]);
+  const opcoesUnidadeVenda = useMemo(
+    // Produto que so' vende na embalagem fica sem a unidade solta (24/11/2026).
+    () => opcoesDeUnidadeDaTela(produtoSelecionado, venderPorEmbalagem),
+    [produtoSelecionado, venderPorEmbalagem],
+  );
   const opcaoUnidadeSelecionada = findOpcaoUnidadeVenda(opcoesUnidadeVenda, embalagemSelecionadaId);
   // Total do item que esta' sendo digitado na barra (descontoDomain.ts).
   const totalDoItemDigitadoCents = totalDoItemEmDigitacaoCents({
@@ -1837,11 +1845,12 @@ const PedidoVendaForm: React.FC = () => {
     }
 
     // Produto achado por texto (sem passar pelo autocomplete) nao tem opcao de
-    // embalagem selecionada -- cai na unidade base dele, nao na do produto que
+    // embalagem selecionada -- cai na unidade inicial dele (a do cadastro, ou a
+    // primeira embalagem de quem so' vende embalado), nao na do produto que
     // por acaso estivesse selecionado antes.
     const opcaoUnidade = produtoEncontrado === produtoSelecionado
       ? opcaoUnidadeSelecionada
-      : buildOpcoesUnidadeVenda(produtoEncontrado)[0];
+      : opcaoInicialDaTela(produtoEncontrado, venderPorEmbalagem);
     const fatorConversao = opcaoUnidade?.fatorConversao ?? 1;
     // Estoque e sempre debitado na unidade base: 2 sacos de 20kg = 40kg.
     const quantidadeBase = toBaseQuantity(qtdNum, fatorConversao);
@@ -2202,7 +2211,15 @@ const PedidoVendaForm: React.FC = () => {
     const reservaQueTravou: Array<() => void> = [];
     const avisosDeReserva: Array<() => void> = [];
     lista.forEach(({ product, quantidade }) => {
-      const montado = montarItemDoCatalogo(product, quantidade);
+      // Varios de uma vez entram na unidade inicial: a do cadastro, ou a primeira
+      // embalagem do produto que so' vende embalado (24/11/2026). Embalagem
+      // fracionaria entra ja' na unidade do estoque, como no lancamento um a um.
+      const inicial = opcaoInicialDaTela(product, venderPorEmbalagem);
+      const montado = !inicial.embalagemId
+        ? montarItemDoCatalogo(product, quantidade)
+        : embalagemFracionaria(inicial)
+          ? montarItemDoCatalogo(product, toBaseQuantity(quantidade, inicial.fatorConversao), undefined, undefined, { embalagemId: inicial.embalagemId, sigla: inicial.sigla, fatorConversao: inicial.fatorConversao })
+          : montarItemDoCatalogo(product, quantidade, undefined, inicial.embalagemId);
       if ('erro' in montado) {
         recusados.push(montado.erro);
         if (montado.mostrarReserva) reservaQueTravou.push(montado.mostrarReserva);
@@ -6494,7 +6511,7 @@ const PedidoVendaForm: React.FC = () => {
                         setProdutoBusca(value);
                         const exists = produtosCatalogo.find(p => p.nome.toLowerCase() === value.toLowerCase() || p.codigo === value);
                         if (exists) {
-                          setProdutoPreco(precoSugerido(exists, buildOpcoesUnidadeVenda(exists)[0]));
+                          setProdutoPreco(precoSugerido(exists, opcaoInicialDaTela(exists, venderPorEmbalagem)));
                           setProdutoSelecionado(exists);
                         } else {
                           setProdutoSelecionado(null);
@@ -6503,9 +6520,9 @@ const PedidoVendaForm: React.FC = () => {
                       }}
                       onSelect={(p) => {
                         setProdutoBusca(p.nome);
-                        setProdutoPreco(precoSugerido(p, buildOpcoesUnidadeVenda(p)[0]));
+                        setProdutoPreco(precoSugerido(p, opcaoInicialDaTela(p, venderPorEmbalagem)));
                         setProdutoSelecionado(p);
-                        // Produto novo comeca sempre na unidade base.
+                        // Produto novo comeca na unidade inicial ('' = a primeira opcao da tela).
                         setEmbalagemSelecionadaId('');
                         // Escolheu (Enter ou clique): o cursor ja' vai pra Qtd,
                         // como no ERP antigo (codigo -> Enter -> quantidade).
@@ -6540,7 +6557,7 @@ const PedidoVendaForm: React.FC = () => {
                     products={produtosCatalogo}
                     onSelect={(p) => {
                       setProdutoBusca(p.nome);
-                      setProdutoPreco(precoSugerido(p, buildOpcoesUnidadeVenda(p)[0]));
+                      setProdutoPreco(precoSugerido(p, opcaoInicialDaTela(p, venderPorEmbalagem)));
                       setProdutoSelecionado(p);
                       setEmbalagemSelecionadaId('');
                       window.setTimeout(() => focarCampo(produtoQtdInputRef), 0);
@@ -6554,10 +6571,10 @@ const PedidoVendaForm: React.FC = () => {
                 </div>
 
                 {/* Embalagem: so' quando o produto tem mais de uma unidade de venda. */}
-                {opcoesUnidadeVenda.length > 1 && (
+                {mostraSeletorDeUnidade(opcoesUnidadeVenda) && (
                   <label className="lanc-seg lanc-seg-unidade">
                     <span className="lanc-rotulo">Unidade</span>
-                    <select className="lanc-select" value={embalagemSelecionadaId} onChange={(e) => handleSelecionarEmbalagem(e.target.value)}>
+                    <select className="lanc-select" value={opcaoUnidadeSelecionada.embalagemId} onChange={(e) => handleSelecionarEmbalagem(e.target.value)}>
                       {opcoesUnidadeVenda.map((opcao) => (
                         <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
                       ))}

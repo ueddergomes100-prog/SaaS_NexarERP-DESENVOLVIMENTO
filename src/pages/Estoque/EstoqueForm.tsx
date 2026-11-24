@@ -145,6 +145,7 @@ const produtoParaHistorico = (p: Record<string, any> | null | undefined): Record
     reservarEstoqueOrcamento: Boolean(d.reservarEstoqueOrcamento ?? d.estoqueConfig?.reservarEmOrcamento ?? true),
     controlarLote: Boolean(d.controlarLote ?? d.avancado?.controlarLote ?? false),
     bloquearVendaSemEstoque: Boolean(d.bloquearVendaSemEstoque ?? d.avancado?.bloquearVendaSemEstoque ?? false),
+    venderSoNaEmbalagem: d.venderSoNaEmbalagem === true,
     produtoRevenda: Boolean(d.produtoRevenda ?? d.avancado?.produtoRevenda ?? true),
     produzidoInternamente: Boolean(d.produzidoInternamente ?? d.avancado?.produzidoInternamente ?? false),
     permitirCashback: Boolean(d.permitirCashback ?? d.avancado?.permitirCashback ?? false),
@@ -201,6 +202,7 @@ const CAMPOS_DO_PRODUTO_NO_HISTORICO: CampoComparado[] = [
   { campo: 'reservarEstoqueOrcamento', rotulo: 'Reservar estoque no orçamento', formatar: simOuNao },
   { campo: 'controlarLote', rotulo: 'Controlar lote', formatar: simOuNao },
   { campo: 'bloquearVendaSemEstoque', rotulo: 'Bloquear venda sem estoque', formatar: simOuNao },
+  { campo: 'venderSoNaEmbalagem', rotulo: 'Vender só na embalagem', formatar: simOuNao },
   { campo: 'produtoRevenda', rotulo: 'Produto de revenda', formatar: simOuNao },
   { campo: 'produzidoInternamente', rotulo: 'Produzido internamente', formatar: simOuNao },
   { campo: 'permitirCashback', rotulo: 'Gera cashback', formatar: simOuNao },
@@ -454,6 +456,8 @@ interface ProdutoFormData {
   produtoRevenda: boolean;
   /** Trava deste produto mesmo com "Permitir venda sem estoque" ligado na filial (estoqueReservaDomain.ts). */
   bloquearVendaSemEstoque: boolean;
+  /** A venda nao oferece a unidade solta: so' as embalagens (embalagemDomain.vendeSoNaEmbalagem). */
+  venderSoNaEmbalagem: boolean;
   /** So' produto marcado baixa lote na saida (loteDomain.ts). Os lotes vivem em estoque_lotes. */
   controlarLote: boolean;
   permitirCashback: boolean;
@@ -604,6 +608,7 @@ const emptyFormData: ProdutoFormData = {
   produzidoInternamente: false,
   produtoRevenda: true,
   bloquearVendaSemEstoque: false,
+  venderSoNaEmbalagem: false,
   controlarLote: false,
   permitirCashback: false,
   cashbackTipo: '',
@@ -1126,6 +1131,7 @@ const EstoqueForm: React.FC = () => {
               produzidoInternamente: Boolean(data.produzidoInternamente ?? data.avancado?.produzidoInternamente ?? false),
               produtoRevenda: Boolean(data.produtoRevenda ?? data.avancado?.produtoRevenda ?? true),
               bloquearVendaSemEstoque: Boolean(data.bloquearVendaSemEstoque ?? data.avancado?.bloquearVendaSemEstoque ?? false),
+              venderSoNaEmbalagem: data.venderSoNaEmbalagem === true,
               controlarLote: Boolean(data.controlarLote ?? data.avancado?.controlarLote ?? false),
               permitirCashback: Boolean(data.permitirCashback ?? data.avancado?.permitirCashback ?? false),
               cashbackTipo: data.cashbackTipo === 'percentual' || data.cashbackTipo === 'valor' ? data.cashbackTipo : '',
@@ -3148,6 +3154,19 @@ const EstoqueForm: React.FC = () => {
                   <h3>Embalagens</h3>
                   <p>Formas alternativas de vender este produto. O estoque continua sendo controlado em {baseUnidadeSigla} — vender 1 embalagem baixa o fator de conversão dela.</p>
                 </div>
+              </div>
+
+              {/* Produto que so' sai em pacote ou caixa (24/11/2026): a venda nao oferece a unidade solta. */}
+              <div style={{ marginBottom: '16px' }}>
+                <label className="switch-row" title={`Marcado, a venda não oferece ${baseUnidadeSigla} avulso: o produto sai só nas embalagens abaixo, e a primeira já vem escolhida.`}>
+                  <input type="checkbox" checked={formData.venderSoNaEmbalagem} onChange={handleCheckbox('venderSoNaEmbalagem')} />
+                  <span>Vender só na embalagem</span>
+                </label>
+                <span className="field-hint">
+                  {formData.venderSoNaEmbalagem && embalagens.length === 0
+                    ? `Cadastre pelo menos uma embalagem abaixo. Enquanto não houver, o produto continua sendo vendido em ${baseUnidadeSigla}.`
+                    : `Para produto que não é vendido avulso (só o pacote, só a caixa). A venda mostra apenas as embalagens; o estoque e as compras continuam em ${baseUnidadeSigla}.`}
+                </span>
               </div>
 
               <div className="form-grid-3" style={{ alignItems: 'flex-end' }}>

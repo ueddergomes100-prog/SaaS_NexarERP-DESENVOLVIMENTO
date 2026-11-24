@@ -42,6 +42,8 @@ export interface ProdutoComEmbalagens {
   unidadeMedidaCasasDecimais?: number | null;
   unidadeMedidaFracionado?: boolean | null;
   embalagens?: unknown;
+  /** "Vender so' na embalagem" (24/11/2026): a venda nao oferece a unidade solta do produto. */
+  venderSoNaEmbalagem?: unknown;
 }
 
 /** Uma opcao do seletor "Unidade" da venda. `embalagemId` vazio = unidade base
@@ -204,6 +206,18 @@ export const toStockAdjustmentItems = (itens: ItemVendaParaEstoque[]): AjusteEst
 );
 
 /**
+ * "Vender so' na embalagem" (24/11/2026, pedido do dono): produto que so' sai
+ * em pacote ou caixa (pacote com 10, caixa com 300) e nunca avulso. O estoque
+ * continua na unidade do cadastro; so' a VENDA deixa de oferecer a unidade
+ * solta. Sem embalagem ativa a marca nao vale: nao pode sobrar produto sem
+ * unidade nenhuma para vender.
+ */
+export const vendeSoNaEmbalagem = (produto: ProdutoComEmbalagens | null | undefined): boolean => (
+  produto?.venderSoNaEmbalagem === true
+  && normalizeEmbalagens(produto?.embalagens).some((embalagem) => embalagem.ativo)
+);
+
+/**
  * As opcoes de unidade que a tela oferece: com "Vender por embalagem"
  * desligado nas Configuracoes, so' a unidade base (21/11/2026: mesma regra
  * do Pedido de Venda agora tambem no Orcamento, na OS e no app Vendas).
@@ -213,8 +227,21 @@ export const opcoesDeUnidadeDaTela = (
   venderPorEmbalagem: boolean,
 ): OpcaoUnidadeVenda[] => {
   const opcoes = buildOpcoesUnidadeVenda(produto);
-  return venderPorEmbalagem ? opcoes : opcoes.slice(0, 1);
+  if (!venderPorEmbalagem) return opcoes.slice(0, 1);
+  // Produto que so' vende na embalagem: a unidade solta (sempre a primeira) fica de fora.
+  return vendeSoNaEmbalagem(produto) ? opcoes.slice(1) : opcoes;
 };
+
+/** A unidade em que o item entra quando ninguem escolheu outra: a do cadastro, ou a primeira embalagem do produto que so' vende embalado. */
+export const opcaoInicialDaTela = (
+  produto: ProdutoComEmbalagens | null | undefined,
+  venderPorEmbalagem: boolean,
+): OpcaoUnidadeVenda => opcoesDeUnidadeDaTela(produto, venderPorEmbalagem)[0];
+
+/** O seletor "Unidade" aparece quando ha' o que escolher, ou quando a unica opcao e' uma embalagem (o vendedor precisa ver que e' pacote, nao unidade). */
+export const mostraSeletorDeUnidade = (opcoes: ReadonlyArray<OpcaoUnidadeVenda>): boolean => (
+  opcoes.length > 1 || Boolean(opcoes[0]?.embalagemId)
+);
 
 /**
  * Campos de unidade do item lancado (venda, orcamento, OS, app). Na unidade

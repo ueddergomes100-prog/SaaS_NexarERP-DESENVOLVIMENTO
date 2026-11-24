@@ -15,6 +15,8 @@ interface CartPanelProps {
   /** Opcoes de unidade de cada linha, indexadas pelo id da linha. So vem
    * preenchido quando a chave venderPorEmbalagem esta ligada. */
   unitOptionsByItemId?: Record<string, OpcaoUnidadeVenda[]>;
+  /** Linhas de produto que so' vende na embalagem: o seletor nao oferece a unidade solta (24/11/2026). */
+  semUnidadeSoltaByItemId?: Record<string, boolean>;
   onUnitChange?: (id: string, embalagemId: string) => void;
   /**
    * Pre-venda puxada para o caixa (23/11/2026): os itens sao os da pre-venda e
@@ -31,6 +33,7 @@ const CartPanel: React.FC<CartPanelProps> = ({
   onDiscountChange,
   onRemoveItem,
   unitOptionsByItemId,
+  semUnidadeSoltaByItemId,
   onUnitChange,
   somenteLeitura = false,
 }) => (
@@ -62,7 +65,9 @@ const CartPanel: React.FC<CartPanelProps> = ({
         // Produto com uma unidade so nao ganha seletor -- seria um select
         // de uma opcao, ocupando espaco no cupom sem servir pra nada.
         const unitOptions = unitOptionsByItemId?.[item.id];
-        const showUnitSelect = !somenteLeitura && Boolean(onUnitChange) && (unitOptions?.length ?? 0) > 1;
+        // A primeira opcao e' sempre a unidade do estoque; produto que so' vende embalado nao a oferece.
+        const opcoesDoSeletor = semUnidadeSoltaByItemId?.[item.id] ? (unitOptions ?? []).slice(1) : (unitOptions ?? []);
+        const showUnitSelect = !somenteLeitura && Boolean(onUnitChange) && opcoesDoSeletor.length > 1;
         // Meio metro, lata: a venda sai na unidade do estoque -- mostra quanto da' (21/11/2026).
         const naUnidadeDoEstoque = embalagemFracionaria(item) && unitOptions?.[0]
           ? `= ${toBaseQuantity(item.quantidade, item.fatorConversao).toLocaleString('pt-BR', { maximumFractionDigits: 6 })} ${unitOptions[0].sigla} na venda`
@@ -91,7 +96,7 @@ const CartPanel: React.FC<CartPanelProps> = ({
                       onChange={(event) => onUnitChange?.(item.id, event.target.value)}
                       aria-label={`Unidade de venda de ${item.nome}`}
                     >
-                      {unitOptions!.map((opcao) => (
+                      {opcoesDoSeletor.map((opcao) => (
                         <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
                       ))}
                     </select>

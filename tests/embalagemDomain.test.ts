@@ -13,6 +13,9 @@ import {
   findOpcaoUnidadeVenda,
   opcaoDoItemGravado,
   opcoesDeUnidadeDaTela,
+  opcaoInicialDaTela,
+  mostraSeletorDeUnidade,
+  vendeSoNaEmbalagem,
   unidadeDePrecoDaOpcao,
   formatFatorConversao,
   normalizeEmbalagens,
@@ -188,6 +191,57 @@ const tuboMetro = {
 test('opcoesDeUnidadeDaTela: com "Vender por embalagem" desligado, so a unidade do cadastro', () => {
   assert.deepEqual(opcoesDeUnidadeDaTela(tuboMetro, false).map((o) => o.sigla), ['MT']);
   assert.deepEqual(opcoesDeUnidadeDaTela(tuboMetro, true).map((o) => o.sigla), ['MT', 'TB']);
+});
+
+// "Vender so' na embalagem" (24/11/2026): pacote com 10 e caixa com 300, nunca avulso.
+const soEmbalado = {
+  precoVenda: 2,
+  unidadeMedidaSigla: 'UN',
+  unidadeMedidaCasasDecimais: 0,
+  unidadeMedidaFracionado: false,
+  venderSoNaEmbalagem: true,
+  embalagens: [
+    { id: 'emb-pct', unidadeMedidaId: 'pct', unidadeMedidaSigla: 'PCT', unidadeMedidaCasasDecimais: 0, unidadeMedidaFracionado: false, descricao: 'PACOTE', fatorConversao: 10, precoVenda: 18, precoAVista: 0, codigoBarras: '', ativo: true },
+    { id: 'emb-cx', unidadeMedidaId: 'cx', unidadeMedidaSigla: 'CX', unidadeMedidaCasasDecimais: 0, unidadeMedidaFracionado: false, descricao: 'CAIXA', fatorConversao: 300, precoVenda: 480, precoAVista: 0, codigoBarras: '', ativo: true },
+  ],
+};
+
+test('vender so na embalagem: a venda nao oferece a unidade solta e ja abre no pacote', () => {
+  assert.equal(vendeSoNaEmbalagem(soEmbalado), true);
+  assert.deepEqual(opcoesDeUnidadeDaTela(soEmbalado, true).map((o) => o.sigla), ['PCT', 'CX']);
+  const inicial = opcaoInicialDaTela(soEmbalado, true);
+  assert.equal(inicial.embalagemId, 'emb-pct');
+  assert.equal(inicial.fatorConversao, 10);
+  assert.equal(inicial.precoVenda, 18);
+  // Item novo sem unidade escolhida cai na primeira embalagem, nao na unidade solta.
+  assert.equal(findOpcaoUnidadeVenda(opcoesDeUnidadeDaTela(soEmbalado, true), '').embalagemId, 'emb-pct');
+  // 2 pacotes baixam 20 do estoque.
+  assert.equal(toBaseQuantity(2, inicial.fatorConversao), 20);
+});
+
+test('vender so na embalagem: a lista completa (documento antigo, conferencia de preco) continua com a unidade do cadastro', () => {
+  assert.deepEqual(buildOpcoesUnidadeVenda(soEmbalado).map((o) => o.sigla), ['UN', 'PCT', 'CX']);
+});
+
+test('vender so na embalagem: sem embalagem ativa, ou com "Vender por embalagem" desligado, vale a unidade do cadastro', () => {
+  const semAtiva = { ...soEmbalado, embalagens: soEmbalado.embalagens.map((e) => ({ ...e, ativo: false })) };
+  assert.equal(vendeSoNaEmbalagem(semAtiva), false);
+  assert.deepEqual(opcoesDeUnidadeDaTela(semAtiva, true).map((o) => o.sigla), ['UN']);
+  assert.equal(vendeSoNaEmbalagem({ ...soEmbalado, embalagens: [] }), false);
+  assert.deepEqual(opcoesDeUnidadeDaTela(soEmbalado, false).map((o) => o.sigla), ['UN']);
+  assert.equal(opcaoInicialDaTela(soEmbalado, false).embalagemId, '');
+  // Produto comum: nada muda.
+  assert.equal(vendeSoNaEmbalagem(tuboMetro), false);
+  assert.equal(opcaoInicialDaTela(tuboMetro, true).embalagemId, '');
+});
+
+test('mostraSeletorDeUnidade: aparece com mais de uma opcao ou quando a unica e uma embalagem', () => {
+  assert.equal(mostraSeletorDeUnidade(opcoesDeUnidadeDaTela(tuboMetro, false)), false);
+  assert.equal(mostraSeletorDeUnidade(opcoesDeUnidadeDaTela(tuboMetro, true)), true);
+  const soPacote = { ...soEmbalado, embalagens: [soEmbalado.embalagens[0]] };
+  assert.deepEqual(opcoesDeUnidadeDaTela(soPacote, true).map((o) => o.sigla), ['PCT']);
+  assert.equal(mostraSeletorDeUnidade(opcoesDeUnidadeDaTela(soPacote, true)), true);
+  assert.equal(mostraSeletorDeUnidade([]), false);
 });
 
 test('camposDeUnidadeDoItem: tubo grava sigla, casas, fator e a quantidade no estoque; metro nao ganha campo de embalagem', () => {

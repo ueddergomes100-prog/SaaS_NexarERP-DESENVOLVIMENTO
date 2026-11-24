@@ -48,16 +48,19 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { sangriaParaDeposito } from '../../services/caixasService';
+import { resumoDaGaveta, sangriaParaDeposito, type ResumoDaGaveta } from '../../services/caixasService';
 import {
   calcularEsperadoDoFechamento,
   ErroDoFechamento,
+  escolherDataDoFechamento,
   gravarFechamentoDoCaixa,
+  mandarAoCofreDepoisDeFechar,
   mensagemDoErroDeFechamento,
   mensagemDoFechamento,
   pedirValorContado,
+  type EsperadoDoFechamento,
 } from '../../services/fechamentoCaixaPdvService';
-import type { EsperadoNoFechamento } from '../../utils/gavetaDinheiroDomain';
+import { aberturaConfereComAGaveta, avisoDaAbertura, lerConfigGaveta } from '../../utils/gavetaDinheiroDomain';
 import { finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
@@ -589,7 +592,21 @@ const PDV: React.FC = () => {
       try { ultimoFechamentoDaGaveta = lerUltimoFechamento(localStorage.getItem(chaveDoUltimoFechamento(terminalDoCaixa.terminalId))); } catch { /* sem armazenamento local */ }
     }
     if (ultimoFechamentoDaGaveta) saldoAnteriorSugeridoCentavos = ultimoFechamentoDaGaveta.saldoCentavos;
-    if (!ultimoFechamentoDaGaveta) try {
+    // Dinheiro das vendas na gaveta ligado e nenhum outro caixa aberto (24/11/2026): a abertura
+    // confere contra o saldo da gaveta; a diferenca entra no extrato do CAIXA em nome do operador.
+    let gavetaNaAbertura: (ResumoDaGaveta & { saldoCentavos: number }) | null = null;
+    try {
+      const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
+      if (lerConfigGaveta(configSnap.exists() ? configSnap.data() : null).ativo) {
+        const resumo = await resumoDaGaveta();
+        if (aberturaConfereComAGaveta(resumo) && resumo.saldoCentavos !== null) gavetaNaAbertura = { ...resumo, saldoCentavos: resumo.saldoCentavos };
+      }
+    } catch (error) {
+      // Sem o saldo da gaveta a abertura segue como sempre (sugestao do ultimo fechamento).
+      console.error('Erro ao consultar o saldo da gaveta na abertura do caixa:', error);
+    }
+    if (gavetaNaAbertura) saldoAnteriorSugeridoCentavos = Math.max(0, gavetaNaAbertura.saldoCentavos);
+    if (!ultimoFechamentoDaGaveta && !gavetaNaAbertura) try {
       const qUltimoFechamento = query(
         collection(db, 'caixas_pdv'),
         where('tenantId', '==', tenantId),
@@ -608,7 +625,9 @@ const PDV: React.FC = () => {
 
     const result = await NexusSwal.fire({
       title: 'Abrir caixa',
-      text: ultimoFechamentoDaGaveta
+      text: gavetaNaAbertura
+        ? `Pelo sistema, o ${gavetaNaAbertura.caixaNome || 'CAIXA'} tem ${currency.format(fromCents(gavetaNaAbertura.saldoCentavos))} na gaveta. Conte o dinheiro e informe quanto há de fato.`
+        : ultimoFechamentoDaGaveta
         ? `Ficou na gaveta deste computador no último fechamento${ultimoFechamentoDaGaveta.operadorNome ? ` (${ultimoFechamentoDaGaveta.operadorNome})` : ''}: ${currency.format(fromCents(ultimoFechamentoDaGaveta.saldoCentavos))}. Confirme ou ajuste o saldo inicial em dinheiro.`
         : saldoAnteriorSugeridoCentavos !== null
           ? `Saldo do último fechamento: ${currency.format(fromCents(saldoAnteriorSugeridoCentavos))}. Confirme ou ajuste o saldo inicial em dinheiro.`
@@ -625,6 +644,18 @@ const PDV: React.FC = () => {
 
     const saldoInicialCentavos = fromCurrencyInput(result.value || 0);
     const saldoAnteriorConfirmado = saldoAnteriorSugeridoCentavos !== null && saldoInicialCentavos === saldoAnteriorSugeridoCentavos;
+    const avisoDaGaveta = gavetaNaAbertura ? avisoDaAbertura(gavetaNaAbertura.saldoCentavos, saldoInicialCentavos) : '';
+    if (avisoDaGaveta) {
+      const confirmacao = await NexusSwal.fire({
+        title: 'O dinheiro não bate com o sistema',
+        text: avisoDaGaveta,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Abrir caixa assim',
+        cancelButtonText: 'Contar de novo',
+      });
+      if (!confirmacao.isConfirmed) return;
+    }
 
     try {
       const novaSessaoRef = await addDoc(collection(db, 'caixas_pdv'), {
@@ -635,6 +666,11 @@ const PDV: React.FC = () => {
         saldoInicialCentavos,
         saldoAnteriorSugeridoCentavos,
         saldoAnteriorConfirmado,
+        ...(gavetaNaAbertura ? {
+          aberturaPelaGaveta: true,
+          saldoDaGavetaNaAberturaCentavos: gavetaNaAbertura.saldoCentavos,
+          diferencaAberturaCentavos: saldoInicialCentavos - gavetaNaAbertura.saldoCentavos,
+        } : {}),
         // Computador onde o caixa foi aberto (relatorio e aviso de caixa ja' aberto).
         ...(terminalDoCaixa ? { terminalId: terminalDoCaixa.terminalId, terminalNome: terminalDoCaixa.nome } : {}),
         fechadoEm: null,
@@ -675,7 +711,8 @@ const PDV: React.FC = () => {
         usuarioEmail: currentUser.email || '',
         modulo: 'financeiro',
         acao: 'abrir_caixa',
-        descricao: `Caixa aberto por ${operatorName} com saldo inicial de ${currency.format(fromCents(saldoInicialCentavos))}.`,
+        descricao: `Caixa aberto por ${operatorName} com saldo inicial de ${currency.format(fromCents(saldoInicialCentavos))}.`
+          + `${gavetaNaAbertura && saldoInicialCentavos !== gavetaNaAbertura.saldoCentavos ? ` A gaveta tinha ${currency.format(fromCents(gavetaNaAbertura.saldoCentavos))} pelo sistema; a diferença foi para o extrato do CAIXA.` : ''}`,
         registroRelacionadoId: novaSessaoRef.id,
         status: 'sucesso',
       });
@@ -706,17 +743,22 @@ const PDV: React.FC = () => {
     // Conta e gravacao em services/fechamentoCaixaPdvService (23/11/2026): a mesma
     // do fechamento pela tela Caixa (Sessoes PDV). Com "dinheiro das vendas na
     // gaveta" ligado, o esperado e' o saldo da gaveta.
-    let esperado: EsperadoNoFechamento;
+    // Caixa esquecido aberto de um dia para o outro (24/11/2026): escolhe com que data fecha.
+    const dataDoFechamento = await escolherDataDoFechamento(new Date(session.abertoEm));
+    if (dataDoFechamento === null) return false;
+
+    let esperado: EsperadoDoFechamento;
     try {
-      esperado = await calcularEsperadoDoFechamento(tenantId, session);
+      esperado = await calcularEsperadoDoFechamento(tenantId, session, dataDoFechamento);
     } catch (error) {
       console.error('Erro ao calcular saldo esperado do caixa:', error);
       showError('Não foi possível calcular o saldo esperado', mensagemDoErroDeFechamento(error));
       return false;
     }
 
-    const saldoFinalInformadoCentavos = await pedirValorContado(esperado);
-    if (saldoFinalInformadoCentavos === null) return false;
+    const contagem = await pedirValorContado(esperado, 'Fechar caixa', '', session.saldoInicialCentavos);
+    if (contagem === null) return false;
+    const saldoFinalInformadoCentavos = contagem.contadoCentavos;
 
     const limparCaixaDaTela = () => {
       resetSale();
@@ -736,12 +778,17 @@ const PDV: React.FC = () => {
       });
 
       limparCaixaDaTela();
+      // Gaveta ligada: o contado menos o troco vai para o COFRE (24/11/2026).
+      const cofre = contagem.trocoCentavos !== null ? await mandarAoCofreDepoisDeFechar(session.id, contagem.trocoCentavos) : null;
       if (terminalDoCaixa) {
         try {
-          localStorage.setItem(chaveDoUltimoFechamento(terminalDoCaixa.terminalId), JSON.stringify({ saldoCentavos: saldoFinalInformadoCentavos, operadorNome: operatorName }));
+          // Na gaveta fica o troco (gaveta ligada) ou o que foi contado.
+          const ficouNaGaveta = cofre?.ok && contagem.trocoCentavos !== null ? contagem.trocoCentavos : saldoFinalInformadoCentavos;
+          localStorage.setItem(chaveDoUltimoFechamento(terminalDoCaixa.terminalId), JSON.stringify({ saldoCentavos: ficouNaGaveta, operadorNome: operatorName }));
         } catch { /* sem armazenamento local: so' perde a sugestao */ }
       }
-      showSuccess(mensagemDoFechamento(diferencaCentavos, esperado.modo));
+      if (cofre && !cofre.ok) showWarning(`${mensagemDoFechamento(diferencaCentavos, esperado.modo)} ${cofre.texto}`);
+      else showSuccess(mensagemDoFechamento(diferencaCentavos, esperado.modo, cofre?.texto || ''));
       return true;
     } catch (error) {
       if (error instanceof ErroDoFechamento) {

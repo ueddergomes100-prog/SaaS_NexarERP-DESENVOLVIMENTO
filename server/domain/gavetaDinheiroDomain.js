@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resultadoDaContagem = exports.esperadoNoFechamento = exports.saldoDosMovimentos = exports.movimentoNoPeriodo = exports.movimentosDaSessao = exports.movimentoDoTitulo = exports.ROTULO_MOVIMENTO_GAVETA = exports.ehACaixaGaveta = exports.montarConfigGaveta = exports.lerConfigGaveta = exports.CAMPO_CONFIG_GAVETA = void 0;
+exports.avisoDaAbertura = exports.aberturaConfereComAGaveta = exports.tituloAteODia = exports.diasParaFechar = exports.DIAS_PARA_FECHAR_ATRASADO = exports.planejarAcerto = exports.lerPedidoDeAcerto = exports.lerPedidoDeCofreNoFechamento = exports.erroDoTroco = exports.saldoNoFimDoDia = exports.composicaoDaSessao = exports.comporPorDia = exports.inicioDaComposicao = exports.DIAS_DA_COMPOSICAO = exports.resultadoDaContagem = exports.esperadoNoFechamento = exports.saldoDosMovimentos = exports.movimentoNoPeriodo = exports.movimentosDaSessao = exports.movimentoDoTitulo = exports.ROTULO_MOVIMENTO_GAVETA = exports.ehACaixaGaveta = exports.montarConfigGaveta = exports.lerConfigGaveta = exports.CAMPO_CONFIG_GAVETA = void 0;
 /**
  * DINHEIRO DAS VENDAS NA GAVETA (pedido do dono, 23/11/2026, Embala Minas).
  *
@@ -70,6 +70,7 @@ exports.ROTULO_MOVIMENTO_GAVETA = {
     dinheiro_saida: 'Dinheiro pago',
     sangria_pdv: 'Sangria do PDV',
     diferenca_fechamento: 'Diferença no fechamento',
+    diferenca_abertura: 'Diferença na abertura',
 };
 const dataIso = (v) => (typeof v === 'string' && DATA_ISO.test(v.slice(0, 10)) ? v.slice(0, 10) : '');
 const inteiro = (v) => {
@@ -97,6 +98,7 @@ const movimentoDoTitulo = (id, t, criadoEmIso = '') => {
     if (!data)
         return null;
     const entrada = t.tipo === 'entrada';
+    const clienteNome = String(t.clienteNome || '').trim();
     return {
         id: `titulo:${id}`,
         tipo: entrada ? 'dinheiro_entrada' : 'dinheiro_saida',
@@ -105,6 +107,7 @@ const movimentoDoTitulo = (id, t, criadoEmIso = '') => {
         descricao: String(t.descricao || (entrada ? 'Recebimento em dinheiro' : 'Pagamento em dinheiro')),
         data,
         criadoEmIso,
+        ...(clienteNome ? { clienteNome } : {}),
     };
 };
 exports.movimentoDoTitulo = movimentoDoTitulo;
@@ -117,6 +120,18 @@ const movimentosDaSessao = (id, s) => {
     const movimentos = [];
     const caixa = nomeDoCaixaDaSessao(s);
     const sufixo = caixa ? ` (${caixa})` : '';
+    const naAbertura = inteiro(s.diferencaAberturaCentavos);
+    if (s.aberturaPelaGaveta === true && naAbertura !== 0 && s.abertoEm instanceof Date && !Number.isNaN(s.abertoEm.getTime())) {
+        movimentos.push({
+            id: `abertura:${id}`,
+            tipo: 'diferenca_abertura',
+            direcao: naAbertura > 0 ? 'credito' : 'debito',
+            valorCentavos: Math.abs(naAbertura),
+            descricao: `${naAbertura > 0 ? 'Sobra' : 'Falta'} na abertura do caixa${sufixo}`,
+            data: (0, dateTime_1.getDateInputInTimeZone)(s.abertoEm),
+            criadoEmIso: s.abertoEm.toISOString(),
+        });
+    }
     (Array.isArray(s.sangrias) ? s.sangrias : []).forEach((bruta, indice) => {
         const g = (bruta && typeof bruta === 'object' ? bruta : {});
         const valorCentavos = inteiro(g.valorCentavos);
@@ -189,3 +204,186 @@ const resultadoDaContagem = (diferencaCentavos) => {
         : `Faltou ${(0, contasDinheiroDomain_1.formatarReais)(Math.abs(diferencaCentavos))} em relação ao esperado.`;
 };
 exports.resultadoDaContagem = resultadoDaContagem;
+/** Ate' quantos dias para tras a composicao abre venda por venda. */
+exports.DIAS_DA_COMPOSICAO = 31;
+/**
+ * Primeiro dia da composicao: o dia da ultima conferencia da gaveta (fechamento
+ * pela gaveta ou acerto de um dia), senao o dia em que a chave foi ligada --
+ * nunca mais de DIAS_DA_COMPOSICAO para tras.
+ */
+const inicioDaComposicao = (args) => {
+    const limite = (0, dateTime_1.addDaysToDateInput)(args.hoje, -exports.DIAS_DA_COMPOSICAO);
+    return [args.desde, limite, DATA_ISO.test(args.ultimaConferencia) ? args.ultimaConferencia : '']
+        .filter(Boolean)
+        .reduce((maior, d) => (d > maior ? d : maior), '');
+};
+exports.inicioDaComposicao = inicioDaComposicao;
+/**
+ * Agrupa por dia (mais antigo primeiro). Os movimentos de antes de `inicio`
+ * viram o "saldo anterior" = saldo - soma do que foi listado, entao a soma das
+ * linhas sempre bate com o saldo.
+ */
+const comporPorDia = (saldoCentavos, movimentos, inicio) => {
+    const listados = movimentos
+        .filter((m) => m.data >= inicio)
+        .slice()
+        .sort((a, b) => a.data.localeCompare(b.data) || a.criadoEmIso.localeCompare(b.criadoEmIso));
+    const saldoAnteriorCentavos = inteiro(saldoCentavos) - (0, exports.saldoDosMovimentos)(listados);
+    const porDia = new Map();
+    listados.forEach((m) => porDia.set(m.data, [...(porDia.get(m.data) || []), m]));
+    let acumulado = saldoAnteriorCentavos;
+    const dias = [...porDia.entries()].map(([data, lista]) => {
+        const entradasCentavos = lista.filter((m) => m.direcao === 'credito').reduce((s, m) => s + m.valorCentavos, 0);
+        const saidasCentavos = lista.filter((m) => m.direcao === 'debito').reduce((s, m) => s + m.valorCentavos, 0);
+        acumulado += entradasCentavos - saidasCentavos;
+        return { data, entradasCentavos, saidasCentavos, liquidoCentavos: entradasCentavos - saidasCentavos, saldoNoFimCentavos: acumulado, movimentos: lista };
+    });
+    return { inicio, saldoAnteriorCentavos, dias, saldoCentavos: inteiro(saldoCentavos) };
+};
+exports.comporPorDia = comporPorDia;
+/**
+ * Caixa conferido POR SESSAO (chave desligada ou mais de um caixa aberto): o
+ * esperado e' saldo inicial + vendas em dinheiro do caixa - sangrias. Mesmo
+ * formato da composicao da gaveta, para a tela e o relatorio mostrarem igual.
+ */
+const composicaoDaSessao = (args) => {
+    const valida = (d) => d instanceof Date && !Number.isNaN(d.getTime());
+    const abertura = valida(args.abertoEm) ? args.abertoEm : new Date();
+    const movimentos = [];
+    if (inteiro(args.saldoInicialCentavos) !== 0) {
+        movimentos.push({
+            id: 'saldo_inicial', tipo: 'saldo_inicial', direcao: 'credito', valorCentavos: inteiro(args.saldoInicialCentavos),
+            descricao: 'Saldo inicial (contado na abertura)', data: (0, dateTime_1.getDateInputInTimeZone)(abertura), criadoEmIso: abertura.toISOString(),
+        });
+    }
+    args.lancamentosEmDinheiro.forEach((l) => {
+        const quando = valida(l.criadoEm) ? l.criadoEm : abertura;
+        const clienteNome = String(l.clienteNome || '').trim();
+        movimentos.push({
+            id: `titulo:${l.id}`, tipo: 'dinheiro_entrada', direcao: 'credito', valorCentavos: inteiro(l.valorCentavos),
+            descricao: l.descricao || 'Venda em dinheiro', data: (0, dateTime_1.getDateInputInTimeZone)(quando), criadoEmIso: quando.toISOString(),
+            ...(clienteNome ? { clienteNome } : {}),
+        });
+    });
+    args.sangrias.forEach((g, i) => {
+        const quando = g.registradoEm ? new Date(g.registradoEm) : null;
+        const certo = valida(quando) ? quando : abertura;
+        const motivo = String(g.motivo || '').trim();
+        movimentos.push({
+            id: `sangria:${g.id || i}`, tipo: 'sangria_pdv', direcao: 'debito', valorCentavos: inteiro(g.valorCentavos),
+            descricao: `Sangria${motivo ? `: ${motivo}` : ''}`, data: (0, dateTime_1.getDateInputInTimeZone)(certo), criadoEmIso: certo.toISOString(),
+        });
+    });
+    return (0, exports.comporPorDia)((0, exports.saldoDosMovimentos)(movimentos), movimentos, (0, dateTime_1.getDateInputInTimeZone)(abertura));
+};
+exports.composicaoDaSessao = composicaoDaSessao;
+/** Saldo da gaveta no fim de `dia`: o de agora menos o que entrou/saiu depois. */
+const saldoNoFimDoDia = (saldoAgoraCentavos, movimentosDepois, dia) => (inteiro(saldoAgoraCentavos) - (0, exports.saldoDosMovimentos)(movimentosDepois.filter((m) => m.data > dia)));
+exports.saldoNoFimDoDia = saldoNoFimDoDia;
+/** "R$ 1.060,68" (com ponto de milhar) para as mensagens do fechamento e da abertura. */
+const reais = (centavos) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Math.round(Number(centavos) || 0) / 100);
+// ---------------------------------------------------------------------------
+// TROCO E COFRE NO FECHAMENTO; ACERTO DE UM DIA ANTERIOR (24/11/2026)
+// ---------------------------------------------------------------------------
+//
+// Decisoes do dono: ao fechar, pergunta quanto fica de troco na gaveta e o
+// resto vai para o COFRE na hora (transferencia CAIXA -> COFRE). Para o dia que
+// ja' passou sem isso ("fechar o caixa de ontem"), o acerto conta o que ficou
+// daquele dia: sobra/falta e a ida ao COFRE entram COM A DATA daquele dia.
+const centavosNaoNegativos = (v) => {
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 0 ? n : null;
+};
+/** O troco nao passa do que foi contado; o resto vai ao COFRE. */
+const erroDoTroco = (contadoCentavos, trocoCentavos) => {
+    if (!Number.isInteger(trocoCentavos) || trocoCentavos < 0)
+        return 'Informe quanto fica de troco na gaveta (zero se for tudo para o COFRE).';
+    if (trocoCentavos > contadoCentavos)
+        return `O troco (${reais(trocoCentavos)}) não pode ser maior que o dinheiro contado (${reais(contadoCentavos)}).`;
+    return '';
+};
+exports.erroDoTroco = erroDoTroco;
+const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
+const lerPedidoDeCofreNoFechamento = (corpo) => {
+    const c = (corpo && typeof corpo === 'object' ? corpo : {});
+    const sessaoId = typeof c.sessaoId === 'string' && ID_VALIDO.test(c.sessaoId) ? c.sessaoId : '';
+    if (!sessaoId)
+        return { erro: 'Caixa inválido. Atualize a tela e tente de novo.' };
+    const trocoCentavos = centavosNaoNegativos(c.trocoCentavos);
+    if (trocoCentavos === null)
+        return { erro: 'Informe quanto fica de troco na gaveta (zero se for tudo para o COFRE).' };
+    return { pedido: { sessaoId, trocoCentavos } };
+};
+exports.lerPedidoDeCofreNoFechamento = lerPedidoDeCofreNoFechamento;
+const lerPedidoDeAcerto = (corpo, hoje, desde) => {
+    const c = (corpo && typeof corpo === 'object' ? corpo : {});
+    const data = typeof c.data === 'string' && DATA_ISO.test(c.data) ? c.data : '';
+    if (!data)
+        return { erro: 'Escolha o dia que vai acertar.' };
+    if (data >= hoje)
+        return { erro: 'O acerto é de um dia que já passou. O dinheiro de hoje se confere no fechamento do caixa.' };
+    if (desde && data < desde)
+        return { erro: `A gaveta só soma as vendas desde ${desde.split('-').reverse().join('/')}. Escolha um dia a partir dessa data.` };
+    const contadoCentavos = centavosNaoNegativos(c.contadoCentavos);
+    if (contadoCentavos === null)
+        return { erro: 'Informe quanto dinheiro havia na gaveta no fim daquele dia (zero se estava vazia).' };
+    const trocoCentavos = centavosNaoNegativos(c.trocoCentavos);
+    if (trocoCentavos === null)
+        return { erro: 'Informe quanto ficou de troco na gaveta (zero se foi tudo para o COFRE).' };
+    const erro = (0, exports.erroDoTroco)(contadoCentavos, trocoCentavos);
+    if (erro)
+        return { erro };
+    return { pedido: { data, contadoCentavos, trocoCentavos } };
+};
+exports.lerPedidoDeAcerto = lerPedidoDeAcerto;
+/** O que o acerto grava: a diferenca (sobra/falta) e quanto vai ao COFRE. */
+const planejarAcerto = (saldoDoSistemaCentavos, contadoCentavos, trocoCentavos) => ({
+    diferencaCentavos: contadoCentavos - inteiro(saldoDoSistemaCentavos),
+    paraCofreCentavos: contadoCentavos - trocoCentavos,
+});
+exports.planejarAcerto = planejarAcerto;
+// ---------------------------------------------------------------------------
+// FECHAR COM A DATA DE UM DIA ANTERIOR (caixa esquecido aberto, 24/11/2026)
+// ---------------------------------------------------------------------------
+/** Ate' quantos dias para tras o caixa esquecido aberto pode ser fechado. */
+exports.DIAS_PARA_FECHAR_ATRASADO = 7;
+/**
+ * Dias que podem ser a data do fechamento: do dia em que o caixa abriu ate'
+ * hoje (no maximo DIAS_PARA_FECHAR_ATRASADO para tras). Caixa aberto hoje: so' hoje.
+ */
+const diasParaFechar = (diaDaAbertura, hoje) => {
+    const primeiro = [diaDaAbertura, (0, dateTime_1.addDaysToDateInput)(hoje, -exports.DIAS_PARA_FECHAR_ATRASADO)].filter((d) => DATA_ISO.test(d)).reduce((maior, d) => (d > maior ? d : maior), '');
+    if (!primeiro || primeiro >= hoje)
+        return [hoje];
+    const dias = [];
+    for (let d = primeiro; d <= hoje && dias.length <= exports.DIAS_PARA_FECHAR_ATRASADO; d = (0, dateTime_1.addDaysToDateInput)(d, 1))
+        dias.push(d);
+    return dias;
+};
+exports.diasParaFechar = diasParaFechar;
+/** Titulo da sessao entra no esperado de um fechamento com data `ate`? (pela data do pagamento). */
+const tituloAteODia = (t, ate) => {
+    const data = dataIso(t.dataPagamento) || dataIso(t.data);
+    return !ate || !data || data <= ate;
+};
+exports.tituloAteODia = tituloAteODia;
+// ---------------------------------------------------------------------------
+// ABERTURA CONFERIDA CONTRA A GAVETA (24/11/2026)
+// ---------------------------------------------------------------------------
+//
+// A Embala abriu com R$ 77,10 contados enquanto a gaveta dizia R$ 1.060,68.
+// Decisao do dono: avisar e lancar a diferenca (sobra/falta no extrato do CAIXA,
+// com o nome do operador); o esperado parte do valor contado.
+/** Vale conferir a abertura contra a gaveta? (chave ligada e nenhum outro caixa aberto) */
+const aberturaConfereComAGaveta = (gaveta) => (Boolean(gaveta && gaveta.ativo && gaveta.saldoCentavos !== null && gaveta.caixasAbertos === 0));
+exports.aberturaConfereComAGaveta = aberturaConfereComAGaveta;
+/** Texto do aviso quando o contado nao bate com a gaveta; vazio quando bate. */
+const avisoDaAbertura = (saldoDaGavetaCentavos, contadoCentavos) => {
+    const diferenca = contadoCentavos - saldoDaGavetaCentavos;
+    if (diferenca === 0)
+        return '';
+    return `Pelo sistema, a gaveta tem ${reais(saldoDaGavetaCentavos)} e você contou ${reais(contadoCentavos)}: `
+        + `${diferenca > 0 ? 'sobram' : 'faltam'} ${reais(Math.abs(diferenca))}. `
+        + 'A diferença vai para o extrato do CAIXA em seu nome, e o caixa abre com o valor que você contou.';
+};
+exports.avisoDaAbertura = avisoDaAbertura;

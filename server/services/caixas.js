@@ -107,7 +107,7 @@ const movimentosMontados = async (tenantId, de, ate = '') => {
     if (vistos.has(`sessao:${docSnap.id}`)) return;
     vistos.add(`sessao:${docSnap.id}`);
     const s = docSnap.data();
-    movimentos.push(...gd.movimentosDaSessao(docSnap.id, { ...s, fechadoEm: paraData(s.fechadoEm) }));
+    movimentos.push(...gd.movimentosDaSessao(docSnap.id, { ...s, fechadoEm: paraData(s.fechadoEm), abertoEm: paraData(s.createdAt) }));
   });
   return movimentos.filter((m) => gd.movimentoNoPeriodo(m, de, ate));
 };
@@ -188,27 +188,109 @@ const listar = async ({ user, tenantId }) => {
   return { caixas, bancos, gaveta: { ativo: gaveta.ativo, desde: gaveta.desde } };
 };
 
+/** Lancamentos gravados de um caixa (saldo inicial, transferencias, a mao, acerto), no formato do extrato. */
+const lancamentosDoCaixa = async (tenantId, caixaId) => {
+  const snap = await db.collection(COLECAO_LANCAMENTOS).where('tenantId', '==', tenantId).where('caixaId', '==', caixaId).get();
+  return snap.docs.map((d) => {
+    const l = d.data();
+    return {
+      id: d.id,
+      tipo: String(l.tipo || ''),
+      direcao: l.direcao === 'debito' ? 'debito' : 'credito',
+      valorCentavos: Number(l.valorCentavos) || 0,
+      descricao: String(l.descricao || ''),
+      data: String(l.data || ''),
+      criadoEmIso: paraIso(l.createdAt),
+    };
+  });
+};
+
+const ehOCofre = (dados) => dados.padrao === true && dados.ativo !== false && String(dados.nome || '') === cd.CAIXAS_PADRAO[1].nome;
+
+/** CAIXA (a gaveta) e COFRE padrao da empresa; null quando nao existe/ativo. */
+const caixasPadraoDaEmpresa = async (tenantId) => {
+  const snap = await db.collection(COLECAO_CAIXAS).where('tenantId', '==', tenantId).get();
+  return {
+    gaveta: snap.docs.find((d) => gd.ehACaixaGaveta(d.data())) || null,
+    cofre: snap.docs.find((d) => ehOCofre(d.data())) || null,
+  };
+};
+
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * PDV e Caixa (Sessoes PDV): o saldo da gaveta para conferir o fechamento, e
  * quantos caixas estao abertos (com mais de um, o fechamento e' por sessao).
+ * `ate` (yyyy-mm-dd, antes de hoje): o saldo no FIM daquele dia -- caixa
+ * esquecido aberto fechado com a data de ontem, acerto de um dia (24/11/2026).
  */
-const resumoDaGaveta = async ({ user, tenantId }) => {
+const resumoDaGaveta = async ({ user, tenantId, ate = '' }) => {
   const gaveta = await gavetaDaEmpresa(tenantId);
-  if (!gaveta.ativo) return { ativo: false, desde: gaveta.desde, caixaId: '', caixaNome: '', saldoCentavos: null, caixasAbertos: 0 };
+  if (!gaveta.ativo) return { ativo: false, desde: gaveta.desde, caixaId: '', caixaNome: '', saldoCentavos: null, caixasAbertos: 0, ate: '' };
   await garantirPadrao(user, tenantId);
-  const [caixasSnap, abertasSnap] = await Promise.all([
-    db.collection(COLECAO_CAIXAS).where('tenantId', '==', tenantId).get(),
+  const [{ gaveta: doc }, abertasSnap] = await Promise.all([
+    caixasPadraoDaEmpresa(tenantId),
     db.collection('caixas_pdv').where('tenantId', '==', tenantId).where('status', '==', 'aberto').get(),
   ]);
-  const doc = caixasSnap.docs.find((d) => gd.ehACaixaGaveta(d.data()));
+  // Sem o CAIXA padrao ativo nao ha' gaveta para conferir: o fechamento segue por sessao.
+  let saldoCentavos = doc ? (Number(doc.data().saldoCentavos) || 0) + gaveta.montadoCentavos : null;
+  const hoje = getDateInputInTimeZone();
+  const dia = typeof ate === 'string' && DATA_ISO.test(ate) && ate < hoje ? ate : '';
+  if (doc && dia) {
+    const depoisDoDia = addDaysToDateInput(dia, 1);
+    const [lancados, montados] = await Promise.all([
+      lancamentosDoCaixa(tenantId, doc.id),
+      movimentosMontados(tenantId, depoisDoDia > gaveta.desde ? depoisDoDia : gaveta.desde),
+    ]);
+    saldoCentavos = gd.saldoNoFimDoDia(saldoCentavos, [...lancados, ...montados], dia);
+  }
   return {
     ativo: true,
     desde: gaveta.desde,
     caixaId: doc ? doc.id : '',
     caixaNome: doc ? String(doc.data().nome || '') : '',
-    // Sem o CAIXA padrao ativo nao ha' gaveta para conferir: o fechamento segue por sessao.
-    saldoCentavos: doc ? (Number(doc.data().saldoCentavos) || 0) + gaveta.montadoCentavos : null,
+    saldoCentavos,
     caixasAbertos: abertasSnap.size,
+    ate: dia,
+  };
+};
+
+/**
+ * O que compoe o saldo da gaveta (o "Esperado agora"), dia a dia (pedido do
+ * dono, 24/11/2026): do dia da ultima conferencia (fechamento pela gaveta ou
+ * acerto) ate' hoje, venda por venda; o que veio antes sai numa linha so'.
+ */
+const composicaoDaGaveta = async ({ user, tenantId }) => {
+  const config = await lerConfigDaGaveta(tenantId);
+  if (!config.ativo) return { ativo: false };
+  await garantirPadrao(user, tenantId);
+  const hoje = getDateInputInTimeZone();
+  const [{ gaveta: doc }, recentes] = await Promise.all([
+    caixasPadraoDaEmpresa(tenantId),
+    db.collection('caixas_pdv').where('tenantId', '==', tenantId)
+      .where('fechadoEm', '>=', dateInputToUtcStart(addDaysToDateInput(hoje, -gd.DIAS_DA_COMPOSICAO))).get(),
+  ]);
+  if (!doc) return { ativo: false };
+  const maior = (a, b) => (b > a ? b : a);
+  const ultimoFechamento = recentes.docs
+    .filter((d) => d.data().fechamentoPelaGaveta === true)
+    .map((d) => paraData(d.data().fechadoEm))
+    .filter((d) => d && !Number.isNaN(d.getTime()))
+    .map((d) => getDateInputInTimeZone(d))
+    .reduce(maior, '');
+  const conferidaAte = typeof doc.data().gavetaConferidaAte === 'string' ? doc.data().gavetaConferidaAte : '';
+  const inicio = gd.inicioDaComposicao({ desde: config.desde, hoje, ultimaConferencia: maior(ultimoFechamento, conferidaAte) });
+  const [lancados, montados, montadoTotal] = await Promise.all([
+    lancamentosDoCaixa(tenantId, doc.id),
+    movimentosMontados(tenantId, inicio),
+    saldoMontado(tenantId, config),
+  ]);
+  const saldoCentavos = (Number(doc.data().saldoCentavos) || 0) + montadoTotal;
+  return {
+    ativo: true,
+    caixaNome: String(doc.data().nome || ''),
+    desde: config.desde,
+    ...gd.comporPorDia(saldoCentavos, [...lancados, ...montados], inicio),
   };
 };
 
@@ -309,23 +391,11 @@ const DIAS_DO_EXTRATO_MAXIMO = 366;
 
 const extrato = async ({ tenantId, caixaId, dias }) => {
   const id = idValido(caixaId, 'Caixa inválido. Atualize a tela e tente de novo.');
-  const [snap, caixaSnap, config] = await Promise.all([
-    db.collection(COLECAO_LANCAMENTOS).where('tenantId', '==', tenantId).where('caixaId', '==', id).get(),
+  const [lancados, caixaSnap, config] = await Promise.all([
+    lancamentosDoCaixa(tenantId, id),
     db.collection(COLECAO_CAIXAS).doc(id).get(),
     lerConfigDaGaveta(tenantId),
   ]);
-  const lancados = snap.docs.map((d) => {
-    const l = d.data();
-    return {
-      id: d.id,
-      tipo: String(l.tipo || ''),
-      direcao: l.direcao === 'debito' ? 'debito' : 'credito',
-      valorCentavos: Number(l.valorCentavos) || 0,
-      descricao: String(l.descricao || ''),
-      data: String(l.data || ''),
-      criadoEmIso: paraIso(l.createdAt),
-    };
-  });
   // Chave ligada, no CAIXA: junta o dinheiro das vendas, sangrias e diferenca de
   // fechamento do periodo pedido (padrao: ultimos 30 dias; nunca antes da data em que ligou).
   let montados = [];
@@ -434,4 +504,133 @@ const sangriaParaDeposito = async ({ user, tenantId, corpo, operadorNome }) => {
   return { ...resumo, bancoId: sangria.bancoId, valorCentavos: sangria.valorCentavos };
 };
 
-module.exports = { COLECAO_CAIXAS, COLECAO_LANCAMENTOS, listar, salvar, lancar, extrato, transferir, sangriaParaDeposito, resumoDaGaveta };
+const dataBr = (iso) => String(iso || '').split('-').reverse().join('/');
+
+/** Par de lancamentos CAIXA -> COFRE (dentro da transacao, depois das leituras). */
+const mandarAoCofre = (tx, { tenantId, caixa, cofre, valorCentavos, data, descricao, uid }) => {
+  const saidaRef = db.collection(COLECAO_LANCAMENTOS).doc();
+  const entradaRef = db.collection(COLECAO_LANCAMENTOS).doc();
+  const textos = cd.descricoesDaTransferencia(caixa.nome, cofre.nome, descricao);
+  const comum = { tenantId, valorCentavos, data, createdBy: uid, createdAt: TS() };
+  tx.set(saidaRef, { ...comum, caixaId: caixa.ref.id, caixaNome: caixa.nome, tipo: 'transferencia_saida', direcao: 'debito', descricao: textos.saida, transferenciaParId: entradaRef.id });
+  tx.set(entradaRef, { ...comum, caixaId: cofre.ref.id, caixaNome: cofre.nome, tipo: 'transferencia_entrada', direcao: 'credito', descricao: textos.entrada, transferenciaParId: saidaRef.id });
+};
+
+const lerCaixaPadrao = async (tx, tenantId, doc) => {
+  const c = await lerCaixa(tx, tenantId, doc.id);
+  return { ref: c.ref, dados: c.dados, nome: String(c.dados.nome || ''), saldoCentavos: Number(c.dados.saldoCentavos) || 0 };
+};
+
+/**
+ * "Fechar o caixa de ontem" (decisao do dono, 24/11/2026): conta o dinheiro que
+ * ficou de um dia que ja' passou. A sobra/falta e a ida ao COFRE entram com a
+ * data daquele dia; o saldo da gaveta de hoje passa a partir do troco.
+ */
+const acertarDiaDaGaveta = async ({ user, tenantId, corpo }) => {
+  const config = await lerConfigDaGaveta(tenantId);
+  if (!config.ativo) throw new ErroBaixa(409, 'Ligue "Dinheiro das vendas na gaveta" nas Configurações para acertar a gaveta.');
+  const hoje = getDateInputInTimeZone();
+  const lido = gd.lerPedidoDeAcerto(corpo, hoje, config.desde);
+  if ('erro' in lido) throw new ErroBaixa(400, lido.erro);
+  const { pedido } = lido;
+  await garantirPadrao(user, tenantId);
+  const padrao = await caixasPadraoDaEmpresa(tenantId);
+  if (!padrao.gaveta) throw new ErroBaixa(409, 'O CAIXA não está ativo em Caixas e Transferências. Ative o CAIXA para acertar a gaveta.');
+  const { saldoCentavos: saldoDoSistemaCentavos } = await resumoDaGaveta({ user, tenantId, ate: pedido.data });
+  const plano = gd.planejarAcerto(saldoDoSistemaCentavos || 0, pedido.contadoCentavos, pedido.trocoCentavos);
+  if (plano.paraCofreCentavos > 0 && !padrao.cofre) {
+    throw new ErroBaixa(409, 'Não há COFRE ativo em Caixas e Transferências para receber o dinheiro. Ative o COFRE ou informe todo o valor como troco.');
+  }
+  const resumo = { ...pedido, saldoDoSistemaCentavos: saldoDoSistemaCentavos || 0, ...plano, caixaNome: '', cofreNome: '' };
+  await db.runTransaction(async (tx) => {
+    const caixa = await lerCaixaPadrao(tx, tenantId, padrao.gaveta);
+    const cofre = plano.paraCofreCentavos > 0 ? await lerCaixaPadrao(tx, tenantId, padrao.cofre) : null;
+    resumo.caixaNome = caixa.nome;
+    resumo.cofreNome = cofre ? cofre.nome : '';
+    if (plano.diferencaCentavos !== 0) {
+      tx.set(db.collection(COLECAO_LANCAMENTOS).doc(), {
+        tenantId,
+        caixaId: caixa.ref.id,
+        caixaNome: caixa.nome,
+        tipo: 'acerto_gaveta',
+        direcao: plano.diferencaCentavos > 0 ? 'credito' : 'debito',
+        valorCentavos: Math.abs(plano.diferencaCentavos),
+        descricao: `${plano.diferencaCentavos > 0 ? 'Sobra' : 'Falta'} na conferência da gaveta de ${dataBr(pedido.data)}`,
+        data: pedido.data,
+        createdBy: user.uid,
+        createdAt: TS(),
+      });
+    }
+    if (cofre) {
+      mandarAoCofre(tx, { tenantId, caixa, cofre, valorCentavos: plano.paraCofreCentavos, data: pedido.data, descricao: `Dinheiro da gaveta de ${dataBr(pedido.data)} para o ${cofre.nome}`, uid: user.uid });
+      tx.update(cofre.ref, { saldoCentavos: cofre.saldoCentavos + plano.paraCofreCentavos, updatedAt: TS(), ...buildDocumentUpdateMetadata(user.uid, TS(), `Dinheiro da gaveta de ${dataBr(pedido.data)}`) });
+    }
+    const anterior = typeof caixa.dados.gavetaConferidaAte === 'string' ? caixa.dados.gavetaConferidaAte : '';
+    tx.update(caixa.ref, {
+      saldoCentavos: caixa.saldoCentavos + plano.diferencaCentavos - plano.paraCofreCentavos,
+      gavetaConferidaAte: anterior > pedido.data ? anterior : pedido.data,
+      updatedAt: TS(),
+      ...buildDocumentUpdateMetadata(user.uid, TS(), `Acerto da gaveta de ${dataBr(pedido.data)}`),
+    });
+  });
+  return resumo;
+};
+
+/**
+ * Troco e COFRE no fechamento do caixa (decisao do dono, 24/11/2026): o que foi
+ * contado menos o troco vai para o COFRE, com a data do fechamento. Uma vez so'
+ * por sessao (repetir devolve o que ja' foi feito).
+ */
+const cofreNoFechamento = async ({ user, tenantId, corpo }) => {
+  const lido = gd.lerPedidoDeCofreNoFechamento(corpo);
+  if ('erro' in lido) throw new ErroBaixa(400, lido.erro);
+  const { pedido } = lido;
+  const config = await lerConfigDaGaveta(tenantId);
+  if (!config.ativo) throw new ErroBaixa(409, 'Ligue "Dinheiro das vendas na gaveta" nas Configurações para mandar o dinheiro ao COFRE no fechamento.');
+  await garantirPadrao(user, tenantId);
+  const padrao = await caixasPadraoDaEmpresa(tenantId);
+  const resumo = { jaFeito: false, valorCentavos: 0, trocoCentavos: pedido.trocoCentavos, cofreNome: '' };
+  await db.runTransaction(async (tx) => {
+    const sessaoRef = db.collection('caixas_pdv').doc(pedido.sessaoId);
+    const sessao = await tx.get(sessaoRef);
+    if (!sessao.exists || sessao.data().tenantId !== tenantId) throw new ErroBaixa(404, 'Este caixa não foi encontrado. Atualize a tela.');
+    const s = sessao.data();
+    if (s.status !== 'fechado') throw new ErroBaixa(409, 'Feche o caixa antes de mandar o dinheiro para o COFRE.');
+    if (s.cofreNoFechamento && typeof s.cofreNoFechamento === 'object') {
+      Object.assign(resumo, {
+        jaFeito: true,
+        valorCentavos: Number(s.cofreNoFechamento.valorCentavos) || 0,
+        trocoCentavos: Number(s.cofreNoFechamento.trocoCentavos) || 0,
+        cofreNome: String(s.cofreNoFechamento.cofreNome || ''),
+      });
+      return;
+    }
+    const contado = Number(s.saldoFinalInformadoCentavos) || 0;
+    const erro = gd.erroDoTroco(contado, pedido.trocoCentavos);
+    if (erro) throw new ErroBaixa(400, erro);
+    const valorCentavos = contado - pedido.trocoCentavos;
+    const fechadoEm = paraData(s.fechadoEm);
+    const data = fechadoEm && !Number.isNaN(fechadoEm.getTime()) ? getDateInputInTimeZone(fechadoEm) : getDateInputInTimeZone();
+    let cofreNome = '';
+    if (valorCentavos > 0) {
+      if (!padrao.gaveta || !padrao.cofre) {
+        throw new ErroBaixa(409, 'Não há CAIXA e COFRE ativos em Caixas e Transferências. O dinheiro ficou no caixa; ative o COFRE e faça a transferência por lá.');
+      }
+      const caixa = await lerCaixaPadrao(tx, tenantId, padrao.gaveta);
+      const cofre = await lerCaixaPadrao(tx, tenantId, padrao.cofre);
+      cofreNome = cofre.nome;
+      const quem = String(s.terminalNome || s.operadorNome || '').trim();
+      mandarAoCofre(tx, { tenantId, caixa, cofre, valorCentavos, data, descricao: `Fechamento do caixa${quem ? ` (${quem})` : ''}: dinheiro para o ${cofre.nome}`, uid: user.uid });
+      tx.update(caixa.ref, { saldoCentavos: caixa.saldoCentavos - valorCentavos, updatedAt: TS(), ...buildDocumentUpdateMetadata(user.uid, TS(), `Fechamento do caixa: dinheiro para o ${cofre.nome}`) });
+      tx.update(cofre.ref, { saldoCentavos: cofre.saldoCentavos + valorCentavos, updatedAt: TS(), ...buildDocumentUpdateMetadata(user.uid, TS(), 'Fechamento do caixa') });
+    }
+    tx.update(sessaoRef, {
+      cofreNoFechamento: { valorCentavos, trocoCentavos: pedido.trocoCentavos, cofreNome, data, registradoPorId: user.uid, registradoEm: TS() },
+      updatedAt: TS(),
+    });
+    Object.assign(resumo, { valorCentavos, cofreNome });
+  });
+  return resumo;
+};
+
+module.exports = { COLECAO_CAIXAS, COLECAO_LANCAMENTOS, listar, salvar, lancar, extrato, transferir, sangriaParaDeposito, resumoDaGaveta, composicaoDaGaveta, acertarDiaDaGaveta, cofreNoFechamento };

@@ -14,7 +14,10 @@ const { PERMISSOES_QUE_OPERAM_O_CAIXA } = require('../domain/frenteDeCaixaDomain
  *   POST /api/caixas/:id/lancamento     { direcao, valorCentavos, descricao, data }
  *   POST /api/caixas/transferir         { origem:{tipo,id}, destino:{tipo,id}, valorCentavos, data, descricao }
  *   POST /api/caixas/sangria-deposito   PDV: { bancoId, valorCentavos, sessaoId, data }
- *   GET  /api/caixas/gaveta             saldo da gaveta para conferir o fechamento do PDV
+ *   GET  /api/caixas/gaveta             saldo da gaveta para conferir o fechamento do PDV (?ate= no fim de um dia)
+ *   GET  /api/caixas/gaveta/composicao  o que compoe o saldo da gaveta, dia a dia
+ *   POST /api/caixas/gaveta/cofre       { sessaoId, trocoCentavos } fechamento: o resto vai ao COFRE
+ *   POST /api/caixas/gaveta/acerto      { data, contadoCentavos, trocoCentavos } acerto de um dia anterior
  * Permissao: "Financeiro: Caixas e Transferências" (dono/gestor sempre); a
  * sangria aceita tambem quem opera o PDV.
  */
@@ -52,12 +55,60 @@ router.get('/', async (req, res) => {
 });
 
 // Fechamento do caixa (23/11/2026): quem opera o PDV ou ve as sessoes consulta o saldo da gaveta.
+// `?ate=yyyy-mm-dd`: o saldo no fim daquele dia (fechar com a data de ontem, acerto de um dia; 24/11/2026).
 router.get('/gaveta', async (req, res) => {
   if (!exigir(req, res, [PERMISSAO, 'financeiro.caixa_registros', ...PERMISSOES_QUE_OPERAM_O_CAIXA])) return undefined;
   try {
-    return res.json(await caixas.resumoDaGaveta({ user: req.user, tenantId: req.user.tenantId }));
+    return res.json(await caixas.resumoDaGaveta({ user: req.user, tenantId: req.user.tenantId, ate: String(req.query.ate || '') }));
   } catch (erro) {
     return responderErro(res, erro, 'consultar o saldo da gaveta');
+  }
+});
+
+// O que compoe o "Esperado agora", dia a dia (24/11/2026).
+router.get('/gaveta/composicao', async (req, res) => {
+  if (!exigir(req, res, [PERMISSAO, 'financeiro.caixa_registros', ...PERMISSOES_QUE_OPERAM_O_CAIXA])) return undefined;
+  try {
+    return res.json(await caixas.composicaoDaGaveta({ user: req.user, tenantId: req.user.tenantId }));
+  } catch (erro) {
+    return responderErro(res, erro, 'montar o que compõe o saldo da gaveta');
+  }
+});
+
+// Fechamento: o que foi contado menos o troco vai para o COFRE (quem fecha o caixa, inclusive o operador).
+router.post('/gaveta/cofre', async (req, res) => {
+  if (!exigir(req, res, [PERMISSAO, 'financeiro.caixa_registros', ...PERMISSOES_QUE_OPERAM_O_CAIXA])) return undefined;
+  try {
+    const r = await caixas.cofreNoFechamento({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    if (!r.jaFeito && r.valorCentavos > 0) {
+      registrarLog(req.user, {
+        modulo: 'financeiro',
+        acao: 'transferencia',
+        descricao: `Fechamento do caixa: ${reais(r.valorCentavos)} para o ${r.cofreNome}; ficaram ${reais(r.trocoCentavos)} de troco na gaveta.`,
+        registroId: String(req.body?.sessaoId || ''),
+      });
+    }
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErro(res, erro, 'mandar o dinheiro do fechamento para o COFRE');
+  }
+});
+
+// Acerto de um dia que ja' passou ("fechar o caixa de ontem"): so' quem cuida de Caixas e Transferencias.
+router.post('/gaveta/acerto', async (req, res) => {
+  if (!exigir(req, res, [PERMISSAO])) return undefined;
+  try {
+    const r = await caixas.acertarDiaDaGaveta({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    registrarLog(req.user, {
+      modulo: 'financeiro',
+      acao: 'acerto_gaveta',
+      descricao: `Acerto da gaveta de ${dataBr(r.data)}: sistema ${reais(r.saldoDoSistemaCentavos)}, contado ${reais(r.contadoCentavos)}, `
+        + `diferença ${reais(r.diferencaCentavos)}, ${reais(r.paraCofreCentavos)} para o ${r.cofreNome || 'COFRE'}, troco ${reais(r.trocoCentavos)}.`,
+      registroId: '',
+    });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErro(res, erro, 'acertar a gaveta');
   }
 });
 

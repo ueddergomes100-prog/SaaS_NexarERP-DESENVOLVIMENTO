@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  DIAS_PARA_FECHAR_ATRASADO,
+  aberturaConfereComAGaveta,
+  avisoDaAbertura,
+  comporPorDia,
+  composicaoDaSessao,
+  diasParaFechar,
   ehACaixaGaveta,
+  erroDoTroco,
+  inicioDaComposicao,
+  lerPedidoDeAcerto,
+  lerPedidoDeCofreNoFechamento,
+  planejarAcerto,
+  saldoNoFimDoDia,
+  tituloAteODia,
   esperadoNoFechamento,
   lerConfigGaveta,
   montarConfigGaveta,
@@ -124,4 +137,82 @@ test('fechamento: pela gaveta com um caixa aberto; por sessao com mais de um ou 
   assert.match(resultadoDaContagem(0), /Conferido/);
   assert.match(resultadoDaContagem(250), /Sobrou R\$ 2,50/);
   assert.match(resultadoDaContagem(-1000), /Faltou R\$ 10,00/);
+});
+
+/*
+ * O que compoe o "Esperado agora", acerto de um dia, troco/COFRE, fechar com a
+ * data de ontem e abertura conferida (pedido do dono, 24/11/2026, Embala Minas).
+ */
+test('composicao por dia: saldo anterior + dias = saldo; caso Embala 1.060,68 + 184,95', () => {
+  const mov = (id: string, data: string, valorCentavos: number, direcao: 'credito' | 'debito' = 'credito') => ({ id, tipo: 'dinheiro_entrada', direcao, valorCentavos, descricao: id, data, criadoEmIso: `${data}T12:00:00.000Z` });
+  const c = comporPorDia(124563, [mov('pedidos de 23/11', '2026-11-23', 106068), mov('PDV #113733', '2026-11-24', 18495)], '2026-11-23');
+  assert.equal(c.saldoAnteriorCentavos, 0);
+  assert.deepEqual(c.dias.map((d) => [d.data, d.liquidoCentavos, d.saldoNoFimCentavos]), [['2026-11-23', 106068, 106068], ['2026-11-24', 18495, 124563]]);
+
+  // Comecando em 24/11, o dia 23 vira o "saldo anterior".
+  const c2 = comporPorDia(124563, [mov('a', '2026-11-23', 106068), mov('b', '2026-11-24', 20000), mov('c', '2026-11-24', 1505, 'debito')], '2026-11-24');
+  assert.equal(c2.saldoAnteriorCentavos, 106068);
+  assert.deepEqual([c2.dias[0].entradasCentavos, c2.dias[0].saidasCentavos, c2.dias[0].saldoNoFimCentavos], [20000, 1505, 124563]);
+  assert.equal(saldoNoFimDoDia(124563, [mov('a', '2026-11-23', 106068), mov('b', '2026-11-24', 18495)], '2026-11-23'), 106068);
+});
+
+test('inicio da composicao: ultima conferencia, senao a chave, nunca mais de 31 dias', () => {
+  assert.equal(inicioDaComposicao({ desde: '2026-11-23', hoje: '2026-11-24', ultimaConferencia: '' }), '2026-11-23');
+  assert.equal(inicioDaComposicao({ desde: '2026-11-23', hoje: '2026-11-30', ultimaConferencia: '2026-11-29' }), '2026-11-29');
+  assert.equal(inicioDaComposicao({ desde: '2026-01-10', hoje: '2026-11-24', ultimaConferencia: '' }), '2026-10-24');
+});
+
+test('troco, acerto e envio ao COFRE: leitura e conta', () => {
+  assert.equal(erroDoTroco(10000, 0), '');
+  assert.equal(erroDoTroco(10000, 10000), '');
+  assert.match(erroDoTroco(10000, 10001), /não pode ser maior/);
+  assert.deepEqual(lerPedidoDeCofreNoFechamento({ sessaoId: 's1', trocoCentavos: 7710 }), { pedido: { sessaoId: 's1', trocoCentavos: 7710 } });
+  assert.ok('erro' in lerPedidoDeCofreNoFechamento({ sessaoId: 'a/b', trocoCentavos: 0 }));
+  assert.ok('erro' in lerPedidoDeCofreNoFechamento({ sessaoId: 's1', trocoCentavos: -1 }));
+
+  assert.deepEqual(lerPedidoDeAcerto({ data: '2026-11-23', contadoCentavos: 106068, trocoCentavos: 7710 }, '2026-11-24', '2026-11-23'), { pedido: { data: '2026-11-23', contadoCentavos: 106068, trocoCentavos: 7710 } });
+  assert.match((lerPedidoDeAcerto({ data: '2026-11-24', contadoCentavos: 0, trocoCentavos: 0 }, '2026-11-24', '2026-11-23') as { erro: string }).erro, /já passou/);
+  assert.match((lerPedidoDeAcerto({ data: '2026-11-20', contadoCentavos: 0, trocoCentavos: 0 }, '2026-11-24', '2026-11-23') as { erro: string }).erro, /23\/11\/2026/);
+  assert.ok('erro' in lerPedidoDeAcerto({ data: '2026-11-23', contadoCentavos: 100, trocoCentavos: 200 }, '2026-11-24', '2026-11-23'));
+  assert.deepEqual(planejarAcerto(106068, 100000, 7710), { diferencaCentavos: -6068, paraCofreCentavos: 92290 });
+});
+
+test('fechar com a data de um dia anterior: dias possiveis e titulos ate o dia', () => {
+  assert.deepEqual(diasParaFechar('2026-11-24', '2026-11-24'), ['2026-11-24']);
+  assert.deepEqual(diasParaFechar('2026-11-23', '2026-11-24'), ['2026-11-23', '2026-11-24']);
+  assert.equal(diasParaFechar('2026-10-01', '2026-11-24').length, DIAS_PARA_FECHAR_ATRASADO + 1);
+  assert.equal(diasParaFechar('2026-10-01', '2026-11-24')[0], '2026-11-17');
+  assert.equal(tituloAteODia({ dataPagamento: '2026-11-23' }, '2026-11-23'), true);
+  assert.equal(tituloAteODia({ dataPagamento: '2026-11-24' }, '2026-11-23'), false);
+  assert.equal(tituloAteODia({ data: '2026-11-24T10:00' }, '2026-11-23'), false);
+  assert.equal(tituloAteODia({ dataPagamento: '2026-11-24' }, ''), true, 'sem data de corte, tudo entra');
+});
+
+test('abertura conferida contra a gaveta: so com um caixa e a chave ligada; aviso e movimento', () => {
+  assert.equal(aberturaConfereComAGaveta({ ativo: true, saldoCentavos: 106068, caixasAbertos: 0 }), true);
+  assert.equal(aberturaConfereComAGaveta({ ativo: true, saldoCentavos: 106068, caixasAbertos: 1 }), false);
+  assert.equal(aberturaConfereComAGaveta({ ativo: false, saldoCentavos: null, caixasAbertos: 0 }), false);
+  assert.equal(aberturaConfereComAGaveta(null), false);
+  assert.equal(avisoDaAbertura(7710, 7710), '');
+  assert.match(avisoDaAbertura(106068, 7710), /faltam R\$\s983,58/);
+
+  const abertoEm = new Date('2026-11-24T13:00:47.000Z');
+  const [m] = movimentosDaSessao('s1', { status: 'aberto', terminalNome: 'Caixa 1', operadorNome: 'CAIXA', aberturaPelaGaveta: true, diferencaAberturaCentavos: -98358, abertoEm });
+  assert.deepEqual([m.tipo, m.direcao, m.valorCentavos, m.data], ['diferenca_abertura', 'debito', 98358, '2026-11-24']);
+  assert.match(m.descricao, /Falta na abertura do caixa \(Caixa 1 — CAIXA\)/);
+  assert.deepEqual(movimentosDaSessao('s1', { status: 'aberto', aberturaPelaGaveta: false, diferencaAberturaCentavos: -98358, abertoEm }), []);
+});
+
+test('caixa conferido por sessao: saldo inicial + vendas em dinheiro - sangrias, no mesmo formato', () => {
+  const c = composicaoDaSessao({
+    abertoEm: new Date('2026-11-24T13:00:47.000Z'),
+    saldoInicialCentavos: 7710,
+    lancamentosEmDinheiro: [{ id: 't1', descricao: 'PDV #113733 - Dinheiro', clienteNome: 'CONSUMIDOR', valorCentavos: 18495, criadoEm: new Date('2026-11-24T17:15:00.000Z') }],
+    sangrias: [{ id: 'g1', valorCentavos: 5000, motivo: 'Troco', registradoEm: '2026-11-24T18:00:00.000Z' }],
+  });
+  assert.equal(c.saldoCentavos, 7710 + 18495 - 5000);
+  assert.equal(c.saldoAnteriorCentavos, 0);
+  assert.deepEqual(c.dias[0].movimentos.map((m) => [m.tipo, m.direcao, m.valorCentavos]), [['saldo_inicial', 'credito', 7710], ['dinheiro_entrada', 'credito', 18495], ['sangria_pdv', 'debito', 5000]]);
+  assert.equal(c.dias[0].movimentos[1].clienteNome, 'CONSUMIDOR');
+  assert.equal(composicaoDaSessao({ abertoEm: new Date(), saldoInicialCentavos: 0, lancamentosEmDinheiro: [], sangrias: [] }).dias.length, 0);
 });

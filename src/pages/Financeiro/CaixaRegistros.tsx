@@ -2,24 +2,35 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
-import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
+import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useAuth } from '../../contexts/AuthContext';
-import { Wallet, Clock, History, Calendar, ChevronDown, ChevronUp, Banknote, FileText, Lock, MonitorCheck, User } from 'lucide-react';
+import { Wallet, Clock, History, Calendar, CalendarCheck, ChevronDown, ChevronUp, Banknote, FileText, Lock, MonitorCheck, User } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
-import { montarDocumentoCaixaPdv, totaisPorForma, totalDoCaixaAberto, type LancamentoDoCaixaAberto } from '../../utils/relatorioCaixaPdvDomain';
+import { montarDocumentoCaixaPdv, totaisPorForma, totalDoCaixaAberto, type ComposicaoDoRelatorio, type LancamentoDoCaixaAberto } from '../../utils/relatorioCaixaPdvDomain';
 import { fromCents, toCents, transactionMovesPhysicalCash } from '../../utils/financeDomain';
-import { esperadoNoFechamento, lerConfigGaveta } from '../../utils/gavetaDinheiroDomain';
-import { resumoDaGaveta, type ResumoDaGaveta } from '../../services/caixasService';
+import {
+  DIAS_DA_COMPOSICAO,
+  composicaoDaSessao,
+  esperadoNoFechamento,
+  lerConfigGaveta,
+  type ComposicaoDaGaveta,
+  type ModoDoFechamento,
+} from '../../utils/gavetaDinheiroDomain';
+import { acertarDiaDaGaveta, composicaoDaGaveta, resumoDaGaveta, type ComposicaoDaGavetaApi, type ResumoDaGaveta } from '../../services/caixasService';
 import {
   calcularEsperadoDoFechamento,
+  escolherDataDoFechamento,
   gravarFechamentoDoCaixa,
+  mandarAoCofreDepoisDeFechar,
   mensagemDoErroDeFechamento,
   mensagemDoFechamento,
+  pedirContadoETroco,
   pedirValorContado,
 } from '../../services/fechamentoCaixaPdvService';
-import { showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import ComposicaoDoEsperado from './ComposicaoDoEsperado';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { nomeDoOperador } from '../../utils/frenteDeCaixaDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
@@ -99,6 +110,8 @@ const CaixaRegistros: React.FC = () => {
   const [lancamentosPorSessao, setLancamentosPorSessao] = useState<Record<string, LancamentoDaSessao[]>>({});
   // "Dinheiro das vendas na gaveta" ligado: o fechamento confere contra o saldo da gaveta.
   const [gaveta, setGaveta] = useState<ResumoDaGaveta | null>(null);
+  // O que compoe o saldo da gaveta, dia a dia (pedido do dono, 24/11/2026).
+  const [composicaoGaveta, setComposicaoGaveta] = useState<ComposicaoDaGavetaApi | null>(null);
   const [fechandoId, setFechandoId] = useState<string | null>(null);
 
   // Caixas abertos de qualquer data + os fechados nos ultimos N dias do
@@ -154,17 +167,31 @@ const CaixaRegistros: React.FC = () => {
     try {
       const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
       const ligada = lerConfigGaveta(configSnap.exists() ? configSnap.data() : null).ativo;
-      setGaveta(ligada ? await resumoDaGaveta() : null);
+      if (!ligada) {
+        setGaveta(null);
+        setComposicaoGaveta(null);
+      } else {
+        const [resumo, composicao] = await Promise.all([
+          resumoDaGaveta(),
+          composicaoDaGaveta().catch((erro) => {
+            console.error('Caixa (Sessões PDV): não foi possível montar o que compõe o saldo da gaveta.', erro);
+            return null;
+          }),
+        ]);
+        setGaveta(resumo);
+        setComposicaoGaveta(composicao);
+      }
     } catch (erro) {
       console.error('Caixa (Sessões PDV): não foi possível consultar o saldo da gaveta.', erro);
       setGaveta(null);
+      setComposicaoGaveta(null);
     }
   }, [tenantId, idsDosAbertos]);
   useEffect(() => { void carregarAoVivo(); }, [carregarAoVivo]);
 
   const totalDeAbertos = idsDosAbertos ? idsDosAbertos.split('|').length : 0;
   /** Dinheiro das vendas do caixa e o saldo esperado de agora; null enquanto os lancamentos nao chegaram. */
-  const aoVivo = (s: CaixaSessaoData): { vendidoCentavos: number; dinheiroCentavos: number; esperadoCentavos: number } | null => {
+  const aoVivo = (s: CaixaSessaoData): { vendidoCentavos: number; dinheiroCentavos: number; esperadoCentavos: number; modo: ModoDoFechamento } | null => {
     const lancamentos = lancamentosPorSessao[s.id];
     if (!lancamentos) return null;
     const dinheiroCentavos = lancamentos.filter((l) => l.dinheiro && !l.cancelado).reduce((soma, l) => soma + l.valorCentavos, 0);
@@ -176,7 +203,36 @@ const CaixaRegistros: React.FC = () => {
       dinheiroDaSessaoCentavos: dinheiroCentavos,
       totalSangriasCentavos: Number(s.totalSangriasCentavos || 0),
     });
-    return { vendidoCentavos: totalDoCaixaAberto(lancamentos), dinheiroCentavos, esperadoCentavos: esperado.saldoEsperadoCentavos };
+    return { vendidoCentavos: totalDoCaixaAberto(lancamentos), dinheiroCentavos, esperadoCentavos: esperado.saldoEsperadoCentavos, modo: esperado.modo };
+  };
+
+  /**
+   * O que compoe o "Esperado agora" deste caixa (setinha e relatorio, 24/11/2026):
+   * pela gaveta, o saldo do CAIXA dia a dia; por sessao, saldo inicial + vendas
+   * em dinheiro - sangrias.
+   */
+  const composicaoDoCaixa = (s: CaixaSessaoData): { composicao: ComposicaoDaGaveta; explicacao: string } | null => {
+    const vivo = aoVivo(s);
+    if (!vivo) return null;
+    if (vivo.modo === 'gaveta') {
+      if (!composicaoGaveta || !composicaoGaveta.ativo) return null;
+      return {
+        composicao: composicaoGaveta,
+        explicacao: `É o saldo do ${composicaoGaveta.caixaNome || 'CAIXA'}: o dinheiro que entrou e saiu, no caixa e nos pedidos, separado por dia. `
+          + 'O dinheiro de um dia que não foi para o COFRE continua na gaveta e passa para o dia seguinte. '
+          + 'O saldo inicial contado na abertura não soma de novo: ele já é o dinheiro que estava na gaveta.',
+      };
+    }
+    const lancamentos = lancamentosPorSessao[s.id] || [];
+    return {
+      composicao: composicaoDaSessao({
+        abertoEm: toDate(s.createdAt),
+        saldoInicialCentavos: Number(s.saldoInicialCentavos || 0),
+        lancamentosEmDinheiro: lancamentos.filter((l) => l.dinheiro && !l.cancelado),
+        sangrias: Array.isArray(s.sangrias) ? s.sangrias : [],
+      }),
+      explicacao: 'Saldo inicial + vendas em dinheiro deste caixa − sangrias.',
+    };
   };
 
   // Fechar o caixa por aqui (pedido do dono, 23/11/2026): so' dono/administrador. A conta e a
@@ -185,17 +241,23 @@ const CaixaRegistros: React.FC = () => {
     if (!currentUser || !tenantId || fechandoId) return;
     setFechandoId(sessao.id);
     try {
+      // Caixa esquecido aberto (24/11/2026): fecha com a data de um dia anterior.
+      const dataDoFechamento = await escolherDataDoFechamento(toDate(sessao.createdAt));
+      if (dataDoFechamento === null) return;
       const esperado = await calcularEsperadoDoFechamento(tenantId, {
         id: sessao.id,
         saldoInicialCentavos: Number(sessao.saldoInicialCentavos || 0),
         totalSangriasCentavos: Number(sessao.totalSangriasCentavos || 0),
-      });
-      const contado = await pedirValorContado(
+        sangrias: Array.isArray(sessao.sangrias) ? sessao.sangrias : [],
+      }, dataDoFechamento);
+      const contagem = await pedirValorContado(
         esperado,
         `Fechar o caixa de ${nomeDaSessao(sessao) || 'operador'}`,
         'O computador desse caixa sai do caixa na próxima venda ou ao atualizar a tela, e pede para abrir um caixa novo.',
+        Number(sessao.saldoInicialCentavos || 0),
       );
-      if (contado === null) return;
+      if (contagem === null) return;
+      const contado = contagem.contadoCentavos;
       const diferenca = await gravarFechamentoDoCaixa({
         tenantId,
         sessaoId: sessao.id,
@@ -206,12 +268,97 @@ const CaixaRegistros: React.FC = () => {
         esperado,
         saldoInformadoCentavos: contado,
       });
-      showSuccess(mensagemDoFechamento(diferenca, esperado.modo));
+      // Gaveta ligada: o contado menos o troco vai para o COFRE.
+      const cofre = contagem.trocoCentavos !== null ? await mandarAoCofreDepoisDeFechar(sessao.id, contagem.trocoCentavos) : null;
+      if (cofre && !cofre.ok) showWarning(`${mensagemDoFechamento(diferenca, esperado.modo)} ${cofre.texto}`);
+      else showSuccess(mensagemDoFechamento(diferenca, esperado.modo, cofre?.texto || ''));
+      void carregarAoVivo();
     } catch (erro) {
       console.error('Erro ao fechar o caixa pela tela de sessões:', erro);
       showError('Não foi possível fechar o caixa', mensagemDoErroDeFechamento(erro));
     } finally {
       setFechandoId(null);
+    }
+  };
+
+  /**
+   * "Fechar o caixa de ontem" (decisao do dono, 24/11/2026): conta o dinheiro que
+   * ficou de um dia que ja' passou. Sobra/falta e a ida ao COFRE entram com a
+   * data daquele dia; o esperado de hoje passa a partir do troco.
+   */
+  const acertarDiaAnterior = async () => {
+    if (!gaveta?.ativo) return;
+    const hoje = getDateInputInTimeZone();
+    const ontem = addDaysToDateInput(hoje, -1);
+    const limite = addDaysToDateInput(hoje, -DIAS_DA_COMPOSICAO);
+    const primeiro = gaveta.desde > limite ? gaveta.desde : limite;
+    if (primeiro > ontem) {
+      showWarning('O dinheiro das vendas na gaveta foi ligado hoje: ainda não há dia anterior para acertar.');
+      return;
+    }
+    const dias: string[] = [];
+    for (let d = ontem; d >= primeiro; d = addDaysToDateInput(d, -1)) dias.push(d);
+    const escolha = await NexusSwal.fire({
+      title: 'Acertar a gaveta de um dia anterior',
+      html: `<div style="text-align:left;font-size:14px;color:var(--text-secondary);line-height:1.5;">
+          Use quando o dinheiro de um dia ficou na gaveta sem ser conferido ou mandado para o COFRE.
+          Você informa quanto havia no fim daquele dia e quanto ficou de troco; a sobra ou falta e a ida ao COFRE entram com a data daquele dia.
+        </div>`,
+      input: 'select',
+      inputOptions: Object.fromEntries(dias.map((d) => [d, `${formatDateInputPtBr(d)}${d === ontem ? ' (ontem)' : ''}`])),
+      inputValue: ontem,
+      inputAttributes: { 'aria-label': 'Dia que vai acertar' },
+      showCancelButton: true,
+      confirmButtonText: 'Continuar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!escolha.isConfirmed) return;
+    const dia = String(escolha.value || '');
+    if (!dias.includes(dia)) return;
+    let sistemaCentavos: number;
+    try {
+      sistemaCentavos = (await resumoDaGaveta(dia)).saldoCentavos ?? 0;
+    } catch (erro) {
+      showError('Não foi possível consultar a gaveta', mensagemDoErroDeFechamento(erro));
+      return;
+    }
+    const contagem = await pedirContadoETroco({
+      titulo: `Gaveta de ${formatDateInputPtBr(dia)}`,
+      cabecalhoHtml: `Pelo sistema, no fim de ${formatDateInputPtBr(dia)} a gaveta tinha <strong style="color:var(--text-primary);">${currencyFormat(fromCents(sistemaCentavos))}</strong>.
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">É o dinheiro que entrou e saiu até aquele dia (caixa e pedidos), menos sangrias e transferências. A lista está na setinha ao lado de "Fechar caixa".</div>`,
+      rotuloContado: `Quanto havia de fato no fim de ${formatDateInputPtBr(dia)} (R$)`,
+      contadoSugeridoCentavos: sistemaCentavos,
+      comTroco: true,
+      trocoSugeridoCentavos: 0,
+      textoConfirmar: 'Continuar',
+    });
+    if (!contagem || contagem.trocoCentavos === null) return;
+    const diferenca = contagem.contadoCentavos - sistemaCentavos;
+    const paraCofre = contagem.contadoCentavos - contagem.trocoCentavos;
+    const linha = (rotulo: string, valor: string) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;"><span>${rotulo}</span><strong style="color:var(--text-primary);">${valor}</strong></div>`;
+    const confirmacao = await NexusSwal.fire({
+      title: 'Confirmar o acerto',
+      html: `<div style="text-align:left;font-size:14px;color:var(--text-secondary);line-height:1.5;">
+          ${linha(`Sistema no fim de ${formatDateInputPtBr(dia)}`, currencyFormat(fromCents(sistemaCentavos)))}
+          ${linha('Contado', currencyFormat(fromCents(contagem.contadoCentavos)))}
+          ${linha(diferenca === 0 ? 'Diferença' : diferenca > 0 ? 'Sobra (entra no extrato do CAIXA)' : 'Falta (sai do extrato do CAIXA)', currencyFormat(fromCents(Math.abs(diferenca))))}
+          ${linha('Vai para o COFRE', currencyFormat(fromCents(paraCofre)))}
+          ${linha('Fica de troco na gaveta', currencyFormat(fromCents(contagem.trocoCentavos)))}
+          <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Tudo fica com a data de ${formatDateInputPtBr(dia)}, em Caixas e Transferências.</div>
+        </div>`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar acerto',
+      cancelButtonText: 'Voltar',
+    });
+    if (!confirmacao.isConfirmed) return;
+    try {
+      const r = await acertarDiaDaGaveta({ data: dia, contadoCentavos: contagem.contadoCentavos, trocoCentavos: contagem.trocoCentavos });
+      showSuccess(`Gaveta de ${formatDateInputPtBr(dia)} acertada.${r.paraCofreCentavos > 0 ? ` ${currencyFormat(fromCents(r.paraCofreCentavos))} foram para o ${r.cofreNome || 'COFRE'}.` : ''}`);
+      await carregarAoVivo();
+    } catch (erro) {
+      console.error('Erro ao acertar a gaveta de um dia anterior:', erro);
+      showError('Não foi possível acertar a gaveta', mensagemDoErroDeFechamento(erro));
     }
   };
 
@@ -266,6 +413,24 @@ const CaixaRegistros: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessoes, diasFiltro, operadorFiltro]);
 
+  /** Pela gaveta, uma composicao so' (a do CAIXA); por sessao, uma por caixa aberto. */
+  const composicoesDoRelatorio = (): ComposicaoDoRelatorio[] => {
+    const itens: ComposicaoDoRelatorio[] = [];
+    let gavetaJaEntrou = false;
+    caixasAbertos.forEach((s) => {
+      const c = composicaoDoCaixa(s);
+      if (!c) return;
+      if (aoVivo(s)?.modo === 'gaveta') {
+        if (gavetaJaEntrou) return;
+        gavetaJaEntrou = true;
+        itens.push({ rotulo: (composicaoGaveta && composicaoGaveta.ativo && composicaoGaveta.caixaNome) || 'CAIXA', composicao: c.composicao });
+      } else {
+        itens.push({ rotulo: nomeDaSessao(s) || 'Caixa', composicao: c.composicao });
+      }
+    });
+    return itens;
+  };
+
   if (previewAberto) {
     const rotuloPeriodo = diasFiltro > 0 ? `Fechadas nos últimos ${diasFiltro} dias + caixas abertos` : 'Todo o período + caixas abertos';
     const hoje = getDateInputInTimeZone();
@@ -290,7 +455,11 @@ const CaixaRegistros: React.FC = () => {
               ? { esperadoAoVivoCentavos: aoVivo(s)?.esperadoCentavos ?? null, lancamentos: lancamentosPorSessao[s.id] }
               : {}),
           })),
-          { periodo: rotuloPeriodo, filtrosAplicados: operadorFiltro ? [`Operador: ${operadores.find(([chave]) => chave === operadorFiltro)?.[1] || ''}`] : [] },
+          {
+            periodo: rotuloPeriodo,
+            filtrosAplicados: operadorFiltro ? [`Operador: ${operadores.find(([chave]) => chave === operadorFiltro)?.[1] || ''}`] : [],
+            composicoes: composicoesDoRelatorio(),
+          },
         )}
         nomeArquivo={nomeArquivoRelatorio('Caixa Sessões PDV', diasFiltro > 0 ? addDaysToDateInput(hoje, -diasFiltro) : '', hoje)}
         onFechar={() => setPreviewAberto(false)}
@@ -305,6 +474,8 @@ const CaixaRegistros: React.FC = () => {
       return;
     }
     setExpandedId(sessao.id);
+    // Caixa aberto: rele o que compoe o esperado (pode ter entrado venda desde que a tela abriu).
+    if (sessao.status === 'aberto') void carregarAoVivo();
     if (vendasPorSessao[sessao.id]) return;
 
     setLoadingVendas(sessao.id);
@@ -332,8 +503,13 @@ const CaixaRegistros: React.FC = () => {
     if (expandedId !== sessao.id) return null;
     const vendas = vendasPorSessao[sessao.id];
     return (
-      <tr>
+      <tr key={`${sessao.id}-detalhe`}>
         <td colSpan={colSpan} style={{ padding: '16px', backgroundColor: 'var(--bg-tertiary)' }}>
+          {sessao.status === 'aberto' && (() => {
+            const c = composicaoDoCaixa(sessao);
+            if (!c) return <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '0 0 16px' }}>Montando o que compõe o esperado...</p>;
+            return <ComposicaoDoEsperado composicao={c.composicao} rotuloTotal="Esperado agora" explicacao={c.explicacao} />;
+          })()}
           {sessao.sangrias.length > 0 && (
             <div style={{ marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '13px', fontWeight: 700 }}>
@@ -430,6 +606,11 @@ const CaixaRegistros: React.FC = () => {
             // Rele os caixas abertos antes de abrir: o relatorio sai com os valores de agora.
             onClick: () => { void carregarAoVivo().finally(() => setPreviewAberto(true)); },
           }, {
+            texto: 'Acertar a gaveta de um dia anterior', Icone: CalendarCheck,
+            titulo: 'Conta o dinheiro que ficou de um dia que já passou: a sobra ou falta e a ida ao COFRE entram com a data daquele dia',
+            oculto: !ehGerente || !gaveta?.ativo,
+            onClick: () => { void acertarDiaAnterior(); },
+          }, {
             texto: 'Computadores do caixa', Icone: MonitorCheck,
             titulo: 'Computadores onde cada funcionário entra com código e senha; dá para desativar um deles',
             oculto: !ehGerente,
@@ -496,7 +677,16 @@ const CaixaRegistros: React.FC = () => {
                             <Lock size={14} /> {fechandoId === sessao.id ? 'Fechando...' : 'Fechar caixa'}
                           </button>
                         )}
-                        {expandedId === sessao.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          aria-expanded={expandedId === sessao.id}
+                          title="Ver as vendas e lançamentos que compõem o Esperado agora"
+                          onClick={(e) => { e.stopPropagation(); void toggleExpand(sessao); }}
+                          style={{ padding: '6px 8px', display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}
+                        >
+                          {expandedId === sessao.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </button>
                       </td>
                     </tr>,
                     renderExpandedRow(sessao, 8),

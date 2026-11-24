@@ -208,3 +208,108 @@ test('gaveta desligada: tudo como antes (venda em dinheiro nao entra no CAIXA)',
   assert.deepEqual([resumo.ativo, resumo.saldoCentavos], [false, null]);
   await assert.rejects(() => s.caixas.transferir({ user: USER, tenantId: 'loja', corpo: { origem: { tipo: 'caixa', id: caixa.id }, destino: { tipo: 'banco', id: 'b1' }, valorCentavos: 100, data: getDateInputInTimeZone() } }), (e) => e.status === 409);
 });
+
+/*
+ * O que compoe o "Esperado agora", acerto de um dia anterior, troco e COFRE no
+ * fechamento, diferenca na abertura (pedido do dono, 24/11/2026, Embala Minas).
+ */
+const semFechamentoDeHoje = (extra = {}) => baseDaGaveta({ 'caixas_pdv/s0': { tenantId: 'loja', status: 'fechado', sangrias: [], diferencaCentavos: 0, fechadoEm: new Date(Date.now() - 40 * 86400000) }, ...extra });
+
+test('composicao: separa por dia e a soma bate com o saldo da gaveta', async () => {
+  const hoje = getDateInputInTimeZone();
+  const ontem = addDaysToDateInput(hoje, -1);
+  const fake = criarBancoFalso(semFechamentoDeHoje(), { consultas: true });
+  const s = carregar(fake.db);
+  const c = await s.caixas.composicaoDaGaveta({ user: USER, tenantId: 'loja' });
+  assert.equal(c.ativo, true);
+  assert.equal(c.inicio, ontem, 'sem conferencia, comeca no dia em que a chave foi ligada');
+  assert.deepEqual(c.dias.map((d) => d.data), [ontem, hoje]);
+  assert.equal(c.saldoAnteriorCentavos, 0);
+  assert.equal(c.dias[0].liquidoCentavos, 20000);
+  assert.equal(c.dias[1].saldoNoFimCentavos, c.saldoCentavos);
+  assert.equal(c.saldoCentavos, 30000 + 20000 - 4000 - 5000);
+  assert.equal(c.saldoAnteriorCentavos + c.dias.reduce((soma, d) => soma + d.liquidoCentavos, 0), c.saldoCentavos);
+
+  // Fechamento pela gaveta hoje: os dias anteriores viram uma linha so'.
+  const fake2 = criarBancoFalso(baseDaGaveta(), { consultas: true });
+  const c2 = await carregar(fake2.db).caixas.composicaoDaGaveta({ user: USER, tenantId: 'loja' });
+  assert.equal(c2.inicio, hoje);
+  assert.equal(c2.saldoAnteriorCentavos, 20000);
+  assert.deepEqual(c2.dias.map((d) => d.data), [hoje]);
+  assert.equal(c2.saldoCentavos, MONTADO);
+
+  const desligada = criarBancoFalso(baseDaGaveta({ 'configuracoes/loja': { tenantId: 'loja' } }), { consultas: true });
+  assert.deepEqual(await carregar(desligada.db).caixas.composicaoDaGaveta({ user: USER, tenantId: 'loja' }), { ativo: false });
+});
+
+test('saldo da gaveta no fim de um dia anterior', async () => {
+  const ontem = addDaysToDateInput(getDateInputInTimeZone(), -1);
+  const fake = criarBancoFalso(baseDaGaveta(), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.caixas.resumoDaGaveta({ user: USER, tenantId: 'loja', ate: ontem });
+  assert.deepEqual([r.ate, r.saldoCentavos], [ontem, 20000]);
+  const agora = await s.caixas.resumoDaGaveta({ user: USER, tenantId: 'loja', ate: getDateInputInTimeZone() });
+  assert.deepEqual([agora.ate, agora.saldoCentavos], ['', MONTADO], 'hoje = saldo de agora');
+});
+
+test('acerto de ontem: falta com a data de ontem, resto ao COFRE, hoje parte do troco', async () => {
+  const hoje = getDateInputInTimeZone();
+  const ontem = addDaysToDateInput(hoje, -1);
+  const fake = criarBancoFalso(semFechamentoDeHoje(), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(() => s.caixas.acertarDiaDaGaveta({ user: USER, tenantId: 'loja', corpo: { data: hoje, contadoCentavos: 0, trocoCentavos: 0 } }), (e) => e.status === 400);
+  await assert.rejects(() => s.caixas.acertarDiaDaGaveta({ user: USER, tenantId: 'loja', corpo: { data: ontem, contadoCentavos: 100, trocoCentavos: 200 } }), (e) => e.status === 400 && /troco/.test(e.message));
+  await assert.rejects(() => s.caixas.acertarDiaDaGaveta({ user: USER, tenantId: 'loja', corpo: { data: addDaysToDateInput(hoje, -5), contadoCentavos: 0, trocoCentavos: 0 } }), (e) => e.status === 400, 'antes de ligar a chave');
+
+  // Sistema: R$ 200,00 no fim de ontem. Contou R$ 190,00, deixou R$ 50,00 de troco.
+  const r = await s.caixas.acertarDiaDaGaveta({ user: USER, tenantId: 'loja', corpo: { data: ontem, contadoCentavos: 19000, trocoCentavos: 5000 } });
+  assert.deepEqual([r.saldoDoSistemaCentavos, r.diferencaCentavos, r.paraCofreCentavos, r.cofreNome], [20000, -1000, 14000, 'COFRE']);
+  const lancamentos = fake.listar('lancamentos_caixa/');
+  const falta = lancamentos.find((l) => l.tipo === 'acerto_gaveta');
+  assert.deepEqual([falta.direcao, falta.valorCentavos, falta.data], ['debito', 1000, ontem]);
+  assert.ok(lancamentos.some((l) => l.tipo === 'transferencia_saida' && l.valorCentavos === 14000 && l.data === ontem));
+
+  const { caixas } = await s.caixas.listar({ user: USER, tenantId: 'loja' });
+  assert.equal(caixas.find((c) => c.nome === 'COFRE').saldoCentavos, 14000);
+  const noFimDeOntem = await s.caixas.resumoDaGaveta({ user: USER, tenantId: 'loja', ate: ontem });
+  assert.equal(noFimDeOntem.saldoCentavos, 5000, 'ontem fechou com o troco');
+  const c = await s.caixas.composicaoDaGaveta({ user: USER, tenantId: 'loja' });
+  assert.equal(c.inicio, ontem);
+  assert.equal(c.dias[0].saldoNoFimCentavos, 5000);
+  assert.equal(c.saldoCentavos, 5000 + 30000 - 4000 - 5000);
+});
+
+test('fechamento: troco fica, o resto vai ao COFRE com a data do fechamento; uma vez so', async () => {
+  const ontem = addDaysToDateInput(getDateInputInTimeZone(), -1);
+  const fechadoOntem = new Date(`${ontem}T22:00:00-03:00`);
+  const fake = criarBancoFalso(semFechamentoDeHoje({
+    'caixas_pdv/s9': { tenantId: 'loja', status: 'fechado', operadorNome: 'CAIXA', terminalNome: 'Caixa 1', sangrias: [], saldoFinalInformadoCentavos: 20000, diferencaCentavos: 0, fechamentoPelaGaveta: true, fechadoEm: fechadoOntem },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(() => s.caixas.cofreNoFechamento({ user: USER, tenantId: 'loja', corpo: { sessaoId: 's1', trocoCentavos: 0 } }), (e) => e.status === 409, 'caixa aberto');
+  await assert.rejects(() => s.caixas.cofreNoFechamento({ user: USER, tenantId: 'loja', corpo: { sessaoId: 's9', trocoCentavos: 20001 } }), (e) => e.status === 400);
+
+  const r = await s.caixas.cofreNoFechamento({ user: USER, tenantId: 'loja', corpo: { sessaoId: 's9', trocoCentavos: 5000 } });
+  assert.deepEqual([r.jaFeito, r.valorCentavos, r.cofreNome], [false, 15000, 'COFRE']);
+  const saida = fake.listar('lancamentos_caixa/').find((l) => l.tipo === 'transferencia_saida');
+  assert.deepEqual([saida.valorCentavos, saida.data], [15000, ontem]);
+  assert.match(saida.descricao, /Fechamento do caixa \(Caixa 1\)/);
+  assert.equal(fake.ler('caixas_pdv/s9').cofreNoFechamento.trocoCentavos, 5000);
+
+  const repetido = await s.caixas.cofreNoFechamento({ user: USER, tenantId: 'loja', corpo: { sessaoId: 's9', trocoCentavos: 0 } });
+  assert.deepEqual([repetido.jaFeito, repetido.valorCentavos], [true, 15000]);
+  assert.equal(fake.listar('lancamentos_caixa/').filter((l) => l.tipo === 'transferencia_saida').length, 1, 'nao manda duas vezes');
+});
+
+test('abertura conferida contra a gaveta: a diferenca entra no saldo', async () => {
+  const fake = criarBancoFalso(baseDaGaveta({
+    'caixas_pdv/s1': { tenantId: 'loja', status: 'aberto', operadorNome: 'CAIXA', sangrias: [], totalSangriasCentavos: 0, aberturaPelaGaveta: true, diferencaAberturaCentavos: -3000, createdAt: new Date() },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  const resumo = await s.caixas.resumoDaGaveta({ user: USER, tenantId: 'loja' });
+  assert.equal(resumo.saldoCentavos, 30000 + 20000 - 4000 - 250 - 3000);
+  const extrato = await s.caixas.extrato({ tenantId: 'loja', caixaId: resumo.caixaId });
+  const abertura = extrato.find((l) => l.tipo === 'diferenca_abertura');
+  assert.equal(abertura.direcao, 'debito');
+  assert.match(abertura.descricao, /Falta na abertura do caixa/);
+});

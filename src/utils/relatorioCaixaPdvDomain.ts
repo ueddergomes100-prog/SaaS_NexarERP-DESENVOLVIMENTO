@@ -1,4 +1,5 @@
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
+import type { ComposicaoDaGaveta } from './gavetaDinheiroDomain';
 
 /*
  * RELATORIO DO CAIXA (SESSOES DO PDV) (pedido do dono, 16/10/2026): "Mais
@@ -12,8 +13,48 @@ import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './rela
  * sai com o esperado calculado na hora, e duas secoes novas mostram cada
  * lancamento dele e o total por forma de pagamento.
  *
+ * O QUE COMPOE O ESPERADO (pedido do dono, 24/11/2026, Embala Minas): "preciso
+ * de tudo certinho saindo no relatorio". Secao com cada venda em dinheiro,
+ * sangria, transferencia e diferenca, agrupada por dia (decisao do dono), com
+ * subtotal do dia; o total da secao e' o esperado.
+ *
  * Regra pura: a tela entrega as sessoes com as datas ja' convertidas.
  */
+
+/** Uma composicao por caixa (gaveta ligada: uma so', a do CAIXA). */
+export interface ComposicaoDoRelatorio {
+  /** "CAIXA (gaveta)" ou o nome do operador do caixa. */
+  rotulo: string;
+  composicao: ComposicaoDaGaveta;
+}
+
+interface LinhaDaComposicao {
+  grupo: string;
+  quando: Date | null;
+  descricao: string;
+  clienteNome: string;
+  valorCentavos: number;
+}
+
+const dataBr = (iso: string): string => iso.split('-').reverse().join('/');
+
+/** Linhas da secao: o que veio antes (uma linha) e cada movimento, com o sinal. */
+export const linhasDaComposicao = (itens: ReadonlyArray<ComposicaoDoRelatorio>): LinhaDaComposicao[] => itens.flatMap(({ rotulo, composicao }) => {
+  const prefixo = itens.length > 1 ? `${rotulo} — ` : '';
+  const anterior: LinhaDaComposicao[] = composicao.saldoAnteriorCentavos !== 0
+    ? [{ grupo: `${prefixo}Antes de ${dataBr(composicao.inicio)}`, quando: null, descricao: 'Saldo que vinha dos dias anteriores', clienteNome: '', valorCentavos: composicao.saldoAnteriorCentavos }]
+    : [];
+  return [
+    ...anterior,
+    ...composicao.dias.flatMap((dia) => dia.movimentos.map((m) => ({
+      grupo: `${prefixo}${dataBr(dia.data)}`,
+      quando: m.criadoEmIso ? new Date(m.criadoEmIso) : null,
+      descricao: m.descricao,
+      clienteNome: m.clienteNome || '',
+      valorCentavos: m.direcao === 'credito' ? m.valorCentavos : -m.valorCentavos,
+    }))),
+  ];
+});
 
 export interface SangriaDoRelatorio {
   valorCentavos: number;
@@ -113,7 +154,7 @@ export interface DocumentoCaixaPdv {
 
 export const montarDocumentoCaixaPdv = (
   sessoes: SessaoCaixaDoRelatorio[],
-  opcoes: { periodo: string; filtrosAplicados: string[] },
+  opcoes: { periodo: string; filtrosAplicados: string[]; composicoes?: ComposicaoDoRelatorio[] },
 ): DocumentoCaixaPdv => {
   // Mais antiga primeiro: e' como se confere o caixa dia a dia.
   const lista = [...sessoes].sort((a, b) => (a.abertoEm?.getTime() || 0) - (b.abertoEm?.getTime() || 0));
@@ -168,6 +209,16 @@ export const montarDocumentoCaixaPdv = (
   ];
   const vendidoNosAbertos = abertas.reduce((soma, s) => soma + totalDoCaixaAberto(s.lancamentos || []), 0);
 
+  const composicoes = opcoes.composicoes || [];
+  const linhasComposicao = linhasDaComposicao(composicoes);
+  const colunasComposicao: ColunaRelatorio<LinhaDaComposicao>[] = [
+    { id: 'quando', titulo: 'Horário', tipo: 'dataHora', largura: 30, valor: (l) => l.quando },
+    { id: 'descricao', titulo: 'Lançamento', tipo: 'texto', largura: 80, valor: (l) => l.descricao },
+    { id: 'cliente', titulo: 'Cliente', tipo: 'texto', largura: 44, valor: (l) => l.clienteNome },
+    { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (l) => l.valorCentavos },
+  ];
+  const esperadoComposto = composicoes.reduce((soma, c) => soma + c.composicao.saldoCentavos, 0);
+
   return {
     titulo: 'Caixa (Sessões PDV)',
     periodo: opcoes.periodo,
@@ -176,11 +227,17 @@ export const montarDocumentoCaixaPdv = (
       { rotulo: 'Sessões', valor: String(lista.length) },
       { rotulo: 'Abertas agora', valor: String(lista.length - fechadas.length) },
       ...(abertas.length > 0 ? [{ rotulo: 'Vendido nos caixas abertos', valor: moeda(vendidoNosAbertos) }] : []),
+      ...(composicoes.length > 0 ? [{ rotulo: 'Esperado agora', valor: moeda(esperadoComposto) }] : []),
       { rotulo: 'Sangrias', valor: moeda(sangrias) },
       { rotulo: 'Diferença no fechamento', valor: comSinal(diferenca) },
       { rotulo: 'Fechamentos com diferença', valor: String(comDiferenca) },
     ],
     secoes: [
+      ...(composicoes.length > 0 ? [{
+        id: 'composicaoEsperado', titulo: 'O que compõe o esperado agora (por dia)', colunas: colunasComposicao, linhas: linhasComposicao,
+        opcional: true, padrao: true, agruparPor: { chave: (l: LinhaDaComposicao) => l.grupo, rotulo: (l: LinhaDaComposicao) => l.grupo },
+        rotuloTotal: 'Esperado agora', unidade: ['lançamento', 'lançamentos'], mensagemVazia: 'Nenhum dinheiro entrou ou saiu ainda.',
+      } as SecaoRelatorio] : []),
       {
         id: 'sessoes', titulo: 'Sessões de caixa', colunas, linhas: lista, opcional: true, padrao: true,
         unidade: ['sessão', 'sessões'], mensagemVazia: 'Nenhuma sessão de caixa no período.',

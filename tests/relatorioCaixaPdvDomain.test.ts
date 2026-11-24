@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  linhasDaComposicao,
   montarDocumentoCaixaPdv,
   resultadoDoFechamento,
   totaisPorForma,
@@ -8,6 +9,7 @@ import {
   type LancamentoDoCaixaAberto,
   type SessaoCaixaDoRelatorio,
 } from '../src/utils/relatorioCaixaPdvDomain';
+import { comporPorDia } from '../src/utils/gavetaDinheiroDomain';
 
 const sessao = (parcial: Partial<SessaoCaixaDoRelatorio>): SessaoCaixaDoRelatorio => ({
   id: 's', operadorNome: 'Ana', status: 'fechado', abertoEm: new Date('2026-10-15T11:00:00Z'), fechadoEm: new Date('2026-10-15T21:00:00Z'),
@@ -93,4 +95,22 @@ test('caixa aberto ao vivo: esperado de agora, total por forma e lancamentos; ca
   const soFechadas = montarDocumentoCaixaPdv([sessao({ id: 'f' })], { periodo: 'Hoje', filtrosAplicados: [] });
   assert.equal(soFechadas.secoes.find((s) => s.id === 'lancamentosAbertos')!.padrao, false);
   assert.equal(soFechadas.indicadores.some((i) => i.rotulo === 'Vendido nos caixas abertos'), false);
+});
+
+test('o que compoe o esperado (24/11/2026): linhas por dia, com sinal; total = esperado', () => {
+  const mov = (id: string, data: string, valorCentavos: number, direcao: 'credito' | 'debito' = 'credito') => ({ id, tipo: 'x', direcao, valorCentavos, descricao: id, data, criadoEmIso: `${data}T15:00:00.000Z` });
+  const composicao = comporPorDia(124563, [mov('Pedido #10 - Dinheiro', '2026-11-23', 110068), mov('Motoboy', '2026-11-23', 4000, 'debito'), mov('PDV #113733', '2026-11-24', 18495)], '2026-11-23');
+  const linhas = linhasDaComposicao([{ rotulo: 'CAIXA', composicao }]);
+  assert.deepEqual(linhas.map((l) => [l.grupo, l.valorCentavos]), [['23/11/2026', 110068], ['23/11/2026', -4000], ['24/11/2026', 18495]]);
+  assert.equal(linhas.reduce((soma, l) => soma + l.valorCentavos, 0), 124563);
+
+  const doc = montarDocumentoCaixaPdv([], { periodo: 'x', filtrosAplicados: [], composicoes: [{ rotulo: 'CAIXA', composicao }] });
+  assert.equal(doc.secoes[0].id, 'composicaoEsperado');
+  assert.ok(doc.indicadores.some((i) => i.rotulo === 'Esperado agora' && /1\.245,63/.test(i.valor)));
+  assert.ok(!montarDocumentoCaixaPdv([], { periodo: 'x', filtrosAplicados: [] }).secoes.some((sec) => sec.id === 'composicaoEsperado'), 'sem composicao, sem secao');
+
+  // Saldo que vinha de antes vira uma linha so'; com dois caixas, o nome entra no grupo.
+  const desde24 = comporPorDia(124563, [mov('a', '2026-11-23', 106068), mov('b', '2026-11-24', 18495)], '2026-11-24');
+  const duas = linhasDaComposicao([{ rotulo: 'ANA', composicao: desde24 }, { rotulo: 'BIA', composicao: comporPorDia(0, [], '2026-11-24') }]);
+  assert.deepEqual(duas.map((l) => [l.grupo, l.valorCentavos]), [['ANA — Antes de 24/11/2026', 106068], ['ANA — 24/11/2026', 18495]]);
 });

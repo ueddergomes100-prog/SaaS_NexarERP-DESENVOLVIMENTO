@@ -132,11 +132,25 @@ export const erroDoConvenioBoleto = (convenio: ConvenioBoletoCadastro | null | u
  * rejeicoes) fica de fora de proposito: dar baixa no codigo errado
  * marcaria "pago" um titulo que so' foi confirmado ou ate' rejeitado.
  *
- * RESSALVA: estes codigos (CNAB240) seguem a tabela publica da FEBRABAN e
- * NUNCA foram vistos num arquivo real -- o Sicoob devolve CNAB400, tratado
- * mais abaixo e ja' conferido contra um retorno real (2026-09-23).
+ * CNAB240 CONFERIDO COM ARQUIVO REAL (24/11/2026, Embala Minas, retorno
+ * "3049_244244_580490_261124_C240_571"): cada titulo vem em DUAS linhas, o
+ * Segmento T (nosso numero, ocorrencia, valor DO TITULO) e logo depois o
+ * Segmento U (valor PAGO e datas). Posicoes (1-based):
+ *
+ *   T 16-17   codigo da ocorrencia (06 liquidacao, 09 baixa, 02 entrada)
+ *   T 38-47   nosso numero com o DV (10 digitos; 48-57 = parcela, modalidade, formulario)
+ *   T 74-81   vencimento (DDMMAAAA) | T 82-96 valor do titulo
+ *   U 18-32   juros/multa | U 78-92 valor PAGO | U 93-107 valor liquido
+ *   U 138-145 data da ocorrencia (o pagamento) | U 146-153 data do credito
+ *
+ * Antes desta conferencia o leitor pegava o valor e a data do Segmento T: a
+ * data saia "0039-30-30" e o valor era o do titulo, nao o pago (boleto pago
+ * com juros entraria a menos no banco). Agora o valor pago e a data vem do U;
+ * T sem o U logo depois nao da' baixa (fica para conferir).
  */
 const CODIGOS_OCORRENCIA_LIQUIDACAO = new Set(['06', '17']);
+/** CNAB240: entrada confirmada so' informa (vem uma por boleto de cada remessa). */
+const CODIGOS_INFORMATIVOS_CNAB240 = new Set(['02']);
 
 export interface LinhaRetornoLida {
   /** So' preenchido quando a linha e' um segmento de titulo (T). */
@@ -159,10 +173,19 @@ export interface LinhaRetornoLida {
 
 const apenasDigitos = (valor: string): string => String(valor || '').replace(/\D/g, '');
 
+/** AAAA-MM-DD so' se for uma data de verdade (dia/mes/ano validos); senao ''. */
+const dataValidaOuVazia = (iso: string): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return '';
+  const [ano, mes, dia] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const data = new Date(Date.UTC(ano, mes - 1, dia));
+  return ano >= 2000 && data.getUTCMonth() === mes - 1 && data.getUTCDate() === dia ? iso : '';
+};
+
 const dataDdmmaaaaParaIso = (ddmmaaaa: string): string => {
   const d = apenasDigitos(ddmmaaaa);
   if (d.length !== 8) return '';
-  return `${d.slice(4, 8)}-${d.slice(2, 4)}-${d.slice(0, 2)}`;
+  return dataValidaOuVazia(`${d.slice(4, 8)}-${d.slice(2, 4)}-${d.slice(0, 2)}`);
 };
 
 /**
@@ -199,7 +222,7 @@ const CODIGOS_INFORMATIVOS_CNAB400 = new Set(['02', '11', '04', '48']);
 const dataDdmmaaParaIso = (ddmmaa: string): string => {
   const d = apenasDigitos(ddmmaa);
   if (d.length !== 6) return '';
-  return `20${d.slice(4, 6)}-${d.slice(2, 4)}-${d.slice(0, 2)}`;
+  return dataValidaOuVazia(`20${d.slice(4, 6)}-${d.slice(2, 4)}-${d.slice(0, 2)}`);
 };
 
 const formatarReais = (centavos: number): string => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -241,7 +264,20 @@ const parseLinhaRetornoSicoob400 = (linha: string): LinhaRetornoLida => {
  * baixa num titulo pago e' so' um lembrete manual; o risco de dar baixa
  * errada e' dinheiro no lugar errado.
  */
-export const parseLinhaRetornoSicoob = (linha: string): LinhaRetornoLida => {
+/** Segmento U do CNAB240 (a linha logo depois do T): valor pago e datas. null se nao for U. */
+const lerSegmentoU240 = (linha: string | undefined) => {
+  if (!linha || linha.length !== 240 || linha[13] !== 'U') return null;
+  return {
+    valorPagoCentavos: Number.parseInt(linha.slice(77, 92), 10) || 0,
+    dataOcorrencia: dataDdmmaaaaParaIso(linha.slice(137, 145)),
+  };
+};
+
+/**
+ * `proxima` = a linha seguinte do arquivo; no CNAB240 e' o Segmento U do mesmo
+ * titulo (valor pago e data do pagamento). No CNAB400 e' ignorada.
+ */
+export const parseLinhaRetornoSicoob = (linha: string, proxima?: string): LinhaRetornoLida => {
   if (linha.length === 400) return parseLinhaRetornoSicoob400(linha);
   if (linha.length !== 240) {
     return { liquidado: false, aviso: `Linha com ${linha.length} posições (esperado 400 ou 240) — ignorada.` };
@@ -254,19 +290,25 @@ export const parseLinhaRetornoSicoob = (linha: string): LinhaRetornoLida => {
 
   const nossoNumero = apenasDigitos(linha.slice(37, 47));
   const codigoOcorrencia = linha.slice(15, 17);
-  const dataOcorrencia = dataDdmmaaaaParaIso(linha.slice(110, 118));
-  const valorPagoCentavos = Number.parseInt(linha.slice(81, 96), 10) || 0;
+  const u = lerSegmentoU240(proxima);
+  const valorPagoCentavos = u ? u.valorPagoCentavos : 0;
+  const dataOcorrencia = u ? u.dataOcorrencia : '';
 
-  const reconhecido = CODIGOS_OCORRENCIA_LIQUIDACAO.has(codigoOcorrencia);
+  const ehLiquidacao = CODIGOS_OCORRENCIA_LIQUIDACAO.has(codigoOcorrencia);
+  const liquidado = ehLiquidacao && valorPagoCentavos > 0;
+  const informativo = CODIGOS_INFORMATIVOS_CNAB240.has(codigoOcorrencia);
 
   return {
     nossoNumero,
     codigoOcorrencia,
     dataOcorrencia: dataOcorrencia || undefined,
     valorPagoCentavos,
-    liquidado: reconhecido,
-    ...(reconhecido ? {} : {
-      aviso: `Nosso número ${nossoNumero || '(não lido)'}: ocorrência ${codigoOcorrencia || '??'} não é liquidação — confira manualmente antes de dar baixa.`,
+    liquidado,
+    informativo,
+    ...(liquidado || informativo ? {} : {
+      aviso: ehLiquidacao
+        ? `Nosso número ${nossoNumero || '(não lido)'}: pago, mas o arquivo não trouxe o valor pago (segmento U) — confira no banco antes de dar baixa.`
+        : `Nosso número ${nossoNumero || '(não lido)'}: ocorrência ${codigoOcorrencia || '??'} não é liquidação — confira manualmente antes de dar baixa.`,
     }),
   };
 };
@@ -283,7 +325,7 @@ export interface ResumoRetorno {
  *  baixa automatica do que so' informa e do que precisa de conferencia. */
 export const lerArquivoRetornoSicoob = (conteudo: string): ResumoRetorno => {
   const linhas = conteudo.split(/\r?\n/).filter((l) => l.length > 0);
-  const lidas = linhas.map(parseLinhaRetornoSicoob).filter((l) => l.nossoNumero || l.aviso);
+  const lidas = linhas.map((l, i) => parseLinhaRetornoSicoob(l, linhas[i + 1])).filter((l) => l.nossoNumero || l.aviso);
 
   return {
     totalLinhas: linhas.length,

@@ -131,20 +131,40 @@ test('convenio completo nao da erro', () => {
 
 // --- parseLinhaRetornoSicoob / lerArquivoRetornoSicoob --------------------
 
-/** Monta uma linha de 240 posicoes com um Segmento T sintetico -- nao ha'
- *  arquivo de retorno real disponivel (so' o de remessa da Sol Life), entao
- *  este e' construido a partir da especificacao publica FEBRABAN, nao
- *  conferido campo a campo contra um arquivo aceito. Ver a ressalva em
- *  boletoEmissaoDomain.ts. */
-const linhaSegmentoT = (args: { nossoNumero: string; codigoOcorrencia: string; valorCentavos: number; dataOcorrencia: string }): string => {
-  let l = ' '.repeat(240);
-  const put = (de: number, valor: string) => { l = l.slice(0, de) + valor + l.slice(de + valor.length); };
-  put(13, 'T');
-  put(15, args.codigoOcorrencia.padStart(2, '0'));
-  put(37, args.nossoNumero.padStart(10, '0'));
-  put(81, String(args.valorCentavos).padStart(15, '0'));
-  put(110, args.dataOcorrencia);
-  return l;
+/** Segmentos T + U de 240 posicoes, nas posicoes conferidas com o retorno
+ *  CNAB240 real da Embala Minas (24/11/2026; ver boletoEmissaoDomain.ts). Dados
+ *  sinteticos: o arquivo real tem nome e documento de cliente. */
+const linhaSegmentoT = (args: { nossoNumero: string; codigoOcorrencia: string; valorCentavos: number; dataOcorrencia: string; valorPagoCentavos?: number; semU?: boolean }): string => {
+  let t = ' '.repeat(240);
+  const putT = (de: number, valor: string) => { t = t.slice(0, de) + valor + t.slice(de + valor.length); };
+  putT(0, '7560001300001');
+  putT(13, 'T');
+  putT(15, args.codigoOcorrencia.padStart(2, '0'));
+  putT(37, `${args.nossoNumero.padStart(10, '0')}01016`);
+  putT(73, '21112026');
+  putT(81, String(args.valorCentavos).padStart(15, '0'));
+  // Lixo onde o leitor antigo procurava a data (posicao 111): nao pode mais ser lido.
+  putT(110, '0039303');
+  if (args.semU) return t;
+  let u = '0'.repeat(240);
+  const putU = (de: number, valor: string) => { u = u.slice(0, de) + valor + u.slice(de + valor.length); };
+  putU(0, '7560001300002');
+  putU(13, 'U');
+  putU(14, ' ');
+  putU(15, args.codigoOcorrencia.padStart(2, '0'));
+  const pago = args.valorPagoCentavos ?? args.valorCentavos;
+  putU(17, String(Math.max(0, pago - args.valorCentavos)).padStart(15, '0'));
+  putU(77, String(pago).padStart(15, '0'));
+  putU(92, String(pago).padStart(15, '0'));
+  putU(137, args.dataOcorrencia);
+  putU(145, args.dataOcorrencia);
+  return `${t}\r\n${u}`;
+};
+
+/** Le o par T+U como o arquivo inteiro faz. */
+const lerTU = (par: string) => {
+  const [t, u] = par.split('\r\n');
+  return parseLinhaRetornoSicoob(t, u);
 };
 
 test('linha de tamanho errado nao quebra, so avisa e nao liquida', () => {
@@ -159,36 +179,53 @@ test('linha que nao e segmento T (header/trailer/U) e ignorada sem erro', () => 
   assert.equal(lida.aviso, undefined);
 });
 
-test('codigo de ocorrencia 06 (liquidacao) da baixa; outro codigo so avisa', () => {
-  const liquidado = parseLinhaRetornoSicoob(linhaSegmentoT({ nossoNumero: '1200', codigoOcorrencia: '06', valorCentavos: 52553, dataOcorrencia: '22092026' }));
+test('codigo de ocorrencia 06 (liquidacao) da baixa com valor e data do segmento U; outro codigo so avisa', () => {
+  const liquidado = lerTU(linhaSegmentoT({ nossoNumero: '39789', codigoOcorrencia: '06', valorCentavos: 27120, dataOcorrencia: '23112026' }));
   assert.equal(liquidado.liquidado, true);
-  assert.equal(liquidado.nossoNumero, '0000001200');
-  assert.equal(liquidado.valorPagoCentavos, 52553);
-  assert.equal(liquidado.dataOcorrencia, '2026-09-22');
+  assert.equal(liquidado.nossoNumero, '0000039789');
+  assert.equal(liquidado.valorPagoCentavos, 27120);
+  assert.equal(liquidado.dataOcorrencia, '2026-11-23');
   assert.equal(liquidado.aviso, undefined);
 
-  const rejeitado = parseLinhaRetornoSicoob(linhaSegmentoT({ nossoNumero: '1201', codigoOcorrencia: '03', valorCentavos: 0, dataOcorrencia: '22092026' }));
+  // Pago com juros (caso real: titulo 281,45, pago 290,78): vale o PAGO, nao o do titulo.
+  const comJuros = lerTU(linhaSegmentoT({ nossoNumero: '38938', codigoOcorrencia: '06', valorCentavos: 28145, valorPagoCentavos: 29078, dataOcorrencia: '23112026' }));
+  assert.equal(comJuros.valorPagoCentavos, 29078);
+
+  const rejeitado = lerTU(linhaSegmentoT({ nossoNumero: '1201', codigoOcorrencia: '03', valorCentavos: 0, dataOcorrencia: '22092026' }));
   assert.equal(rejeitado.liquidado, false);
   assert.match(String(rejeitado.aviso), /não é liquidação/);
 });
 
+test('CNAB240: liquidacao sem o segmento U nao da baixa; data invalida nao passa', () => {
+  const semU = parseLinhaRetornoSicoob(linhaSegmentoT({ nossoNumero: '1200', codigoOcorrencia: '06', valorCentavos: 52553, dataOcorrencia: '22092026', semU: true }));
+  assert.equal(semU.liquidado, false);
+  assert.match(String(semU.aviso), /não trouxe o valor pago/);
+  const dataRuim = lerTU(linhaSegmentoT({ nossoNumero: '1200', codigoOcorrencia: '06', valorCentavos: 52553, dataOcorrencia: '00393030' }));
+  assert.equal(dataRuim.liquidado, true);
+  assert.equal(dataRuim.dataOcorrencia, undefined);
+});
+
 test('codigo 17 (liquidacao apos baixa) tambem conta como liquidado', () => {
-  const lida = parseLinhaRetornoSicoob(linhaSegmentoT({ nossoNumero: '1202', codigoOcorrencia: '17', valorCentavos: 52554, dataOcorrencia: '25092026' }));
+  const lida = lerTU(linhaSegmentoT({ nossoNumero: '1202', codigoOcorrencia: '17', valorCentavos: 52554, dataOcorrencia: '25092026' }));
   assert.equal(lida.liquidado, true);
 });
 
-test('lerArquivoRetornoSicoob separa liquidados de "para conferir"', () => {
+test('lerArquivoRetornoSicoob separa liquidados, informativos (02) e "para conferir" (09 baixa)', () => {
   const arquivo = [
     linhaSegmentoT({ nossoNumero: '1200', codigoOcorrencia: '06', valorCentavos: 52553, dataOcorrencia: '22092026' }),
-    linhaSegmentoT({ nossoNumero: '1201', codigoOcorrencia: '02', valorCentavos: 0, dataOcorrencia: '22092026' }),
+    linhaSegmentoT({ nossoNumero: '1201', codigoOcorrencia: '09', valorCentavos: 70175, dataOcorrencia: '23112026' }),
+    linhaSegmentoT({ nossoNumero: '1203', codigoOcorrencia: '02', valorCentavos: 1000, dataOcorrencia: '23112026' }),
     linhaSegmentoT({ nossoNumero: '1202', codigoOcorrencia: '17', valorCentavos: 52554, dataOcorrencia: '25092026' }),
   ].join('\r\n');
 
   const resumo = lerArquivoRetornoSicoob(arquivo);
-  assert.equal(resumo.totalLinhas, 3);
-  assert.equal(resumo.liquidados.length, 2);
-  assert.equal(resumo.paraConferir.length, 1);
-  assert.equal(resumo.paraConferir[0].nossoNumero, '0000001201');
+  assert.equal(resumo.totalLinhas, 8);
+  assert.deepEqual(resumo.liquidados.map((l) => [l.nossoNumero, l.valorPagoCentavos, l.dataOcorrencia]), [
+    ['0000001200', 52553, '2026-09-22'],
+    ['0000001202', 52554, '2026-09-25'],
+  ]);
+  assert.deepEqual(resumo.informativos.map((l) => l.nossoNumero), ['0000001203']);
+  assert.deepEqual(resumo.paraConferir.map((l) => l.nossoNumero), ['0000001201']);
 });
 
 test('arquivo de retorno vazio nao quebra', () => {

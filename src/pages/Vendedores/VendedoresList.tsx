@@ -50,6 +50,8 @@ import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { montarDocumentoVendedores } from '../../utils/relatorioEquipeFrotaDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 
 /**
@@ -246,6 +248,8 @@ const VendedoresList: React.FC = () => {
     return vendedores.filter((v) =>
       (v.nome || '').toLowerCase().includes(termo) || (v.codigoVendedor || '').includes(termo));
   }, [vendedores, busca]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(listaFiltrada);
 
   const abrirNovo = () => {
     setEditando(null);
@@ -750,7 +754,7 @@ const VendedoresList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                listaFiltrada.map((vendedor) => (
+                blocos.visiveis.map((vendedor) => (
                   <tr key={vendedor.id} {...linha(vendedor.id, () => abrirEdicao(vendedor))} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px', fontWeight: 700, fontSize: '17px', letterSpacing: '3px' }}>{vendedor.codigoVendedor || '--'}</td>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{vendedor.nome}</td>
@@ -791,6 +795,7 @@ const VendedoresList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {modalAberto && (

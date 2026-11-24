@@ -15,6 +15,8 @@ import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { estornarBaixaComConfirmacao, planejarEstornoPorTipo } from '../../services/baixaFinanceiraService';
 import type { TituloParaEstorno } from '../../utils/baixaFinanceiraDomain';
 import './Financeiro.css';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface TransacaoData extends TituloParaEstorno {
   id: string;
@@ -234,6 +236,12 @@ const Caixa: React.FC = () => {
     usuario: currentUser ? { uid: currentUser.uid, email: currentUser.email } : null,
   });
 
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocosDigitais = useLinhasEmBlocos(pdvDigitalTransactions);
+
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocosDoCaixa = useLinhasEmBlocos(filteredTransacoes);
+
   return (
     <div className="financeiro-page" style={{ position: 'relative' }}>
       <div className="page-header">
@@ -344,7 +352,7 @@ const Caixa: React.FC = () => {
                   <td colSpan={podeEstornar ? 6 : 5} style={{ textAlign: 'center', padding: '20px' }}>Nenhuma transação encontrada no período selecionado.</td>
                 </tr>
               ) : (
-                filteredTransacoes.map((t) => (
+                blocosDoCaixa.visiveis.map((t) => (
                   <tr key={t.id}>
                     <td style={{ color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : new Date(t.createdAt?.seconds * 1000).toLocaleDateString('pt-BR')}</td>
                     <td className="font-medium">
@@ -392,6 +400,7 @@ const Caixa: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocosDoCaixa} />
       </div>
 
       <div className="card list-container" style={{ marginTop: '24px' }}>
@@ -419,7 +428,7 @@ const Caixa: React.FC = () => {
               ) : pdvDigitalTransactions.length === 0 ? (
                 <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Nenhuma venda de PDV em meio digital no período selecionado.</td></tr>
               ) : (
-                pdvDigitalTransactions.map((t) => (
+                blocosDigitais.visiveis.map((t) => (
                   <tr key={t.id}>
                     <td style={{ color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : '-'}</td>
                     <td className="font-medium">{t.descricao}</td>
@@ -433,6 +442,7 @@ const Caixa: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocosDigitais} />
       </div>
 
       {/* Modal de Transação */}

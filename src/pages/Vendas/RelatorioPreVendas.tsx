@@ -29,6 +29,8 @@ import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { descreverTrava, mensagemDeBloqueio } from '../../utils/travaEdicaoDomain';
 import { NexusSwal } from '../../utils/alerts';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * Relatorio de PRE-VENDAS EM ABERTO.
@@ -138,6 +140,8 @@ const RelatorioPreVendas: React.FC = () => {
     filtrarPreVendas(linhas, filtro)
       .sort((a, b) => (naoImpressasPrimeiro ? compararPorImpressao(a, b) : 0) || compararPorNumero(a.numeroPedido, b.numeroPedido, ordemNumero))
   ), [linhas, filtro, ordemNumero, naoImpressasPrimeiro]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(linhasFiltradas);
 
   const totais = useMemo(() => totaisPreVendas(linhasFiltradas), [linhasFiltradas]);
 
@@ -303,7 +307,7 @@ const RelatorioPreVendas: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {linhasFiltradas.map((linha) => (
+                {blocos.visiveis.map((linha) => (
                   <tr
                     key={linha.id}
                     onDoubleClick={() => {
@@ -377,6 +381,7 @@ const RelatorioPreVendas: React.FC = () => {
             </table>
           </div>
         )}
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

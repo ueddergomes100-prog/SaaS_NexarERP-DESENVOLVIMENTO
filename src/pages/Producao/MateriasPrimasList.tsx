@@ -36,6 +36,8 @@ import {
   type FiltroMateriasPrimas,
 } from '../../utils/relatorioMateriasPrimasDomain';
 import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface MateriaPrimaData {
   id: string;
@@ -163,6 +165,8 @@ const MateriasPrimasList: React.FC = () => {
       (item.categoria && item.categoria.toLowerCase().includes(term))
     );
   }).filter((item) => passaNoFiltroMp(item, filtro));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; o relatorio segue com a lista inteira.
+  const blocos = useLinhasEmBlocos(filteredMateriasPrimas, searchTerm);
 
   const filtrosAtivos = quantosFiltrosMp(filtro);
   const mudarFiltro = (parcial: Partial<FiltroMateriasPrimas>) => setFiltro((atual) => ({ ...atual, ...parcial }));
@@ -294,7 +298,7 @@ const MateriasPrimasList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredMateriasPrimas.map((item) => {
+                blocos.visiveis.map((item) => {
                   const abaixoDoMinimo = item.estoqueMinimo > 0 && item.quantidade <= item.estoqueMinimo;
                   const reservado = reservedMap.get(chaveComponente('materia_prima', item.id)) || 0;
                   const emProducao = reservado > 0;
@@ -364,6 +368,7 @@ const MateriasPrimasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

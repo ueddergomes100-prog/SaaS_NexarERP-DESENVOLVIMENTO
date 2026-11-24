@@ -15,6 +15,8 @@ import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { montarDocumentoMotoristas } from '../../utils/relatorioEquipeFrotaDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * CADASTRO DE MOTORISTAS (2026-09-21).
@@ -146,6 +148,8 @@ const MotoristasList: React.FC = () => {
   const filtrados = motoristas
     .filter((m) => passaNaSituacao(m.ativo !== false, situacao))
     .filter((m) => !termo || String(m.nome || '').toLowerCase().includes(termo) || String(m.telefone || '').includes(termo));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados);
 
   // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
   if (previewAberto) {
@@ -228,7 +232,7 @@ const MotoristasList: React.FC = () => {
                     <EstadoVazio titulo={motoristas.length === 0 ? 'Nenhum motorista cadastrado ainda.' : 'Nenhum motorista com esses filtros.'} compacto />
                   </td>
                 </tr>
-              ) : filtrados.map((m) => (
+              ) : blocos.visiveis.map((m) => (
                 <tr key={m.id} {...linha(m.id, () => abrirEdicao(m))} style={{ borderBottom: '1px solid var(--border-color)', opacity: m.ativo === false ? 0.55 : 1 }}>
                   <td style={{ padding: '14px', fontWeight: 600 }}>{m.nome}</td>
                   <td style={{ padding: '14px' }}>{m.telefone || '-'}</td>
@@ -252,6 +256,7 @@ const MotoristasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {modalAberto && (

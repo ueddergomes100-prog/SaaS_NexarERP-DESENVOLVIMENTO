@@ -10,6 +10,8 @@ import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecio
 import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from '../../components/common/FiltroSituacao';
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface MarcaData {
   id: string;
@@ -72,6 +74,9 @@ const MarcasList: React.FC = () => {
 
   const filteredMarcas = marcas.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter((m) => m.nome.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredMarcas);
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -121,7 +126,7 @@ const MarcasList: React.FC = () => {
               ) : filteredMarcas.length === 0 ? (
                 <tr><td colSpan={3} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhuma marca encontrada." compacto /></td></tr>
               ) : (
-                filteredMarcas.map((marca) => (
+                blocos.visiveis.map((marca) => (
                   <tr key={marca.id} {...linha(marca.id, () => openTab(`/marcas/editar/${marca.id}`))}>
                     <td className="font-medium">{marca.nome}</td>
                     <td>
@@ -154,6 +159,7 @@ const MarcasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

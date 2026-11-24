@@ -30,6 +30,8 @@ import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { montarDocumentoEquipe, type UsuarioDoRelatorio } from '../../utils/relatorioEquipeFrotaDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface UsuarioData {
   id: string;
@@ -192,6 +194,8 @@ const UsuariosList: React.FC = () => {
       || (user.nome || user.nomeResponsavel || '').toLowerCase().includes(termoUsuario)
       || (user.username || '').toLowerCase().includes(termoUsuario)
       || (user.email || '').toLowerCase().includes(termoUsuario));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredUsuarios);
 
   // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
   if (previewAberto) {
@@ -294,7 +298,7 @@ const UsuariosList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredUsuarios.map(user => (
+                blocos.visiveis.map(user => (
                   <tr key={user.id} {...linha(user.id, podeEditarFicha(user) ? () => openTab(`/usuarios/editar/${user.id}`) : null)} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{user.nome || user.nomeResponsavel || 'S/N'}</td>
                     <td style={{ padding: '16px', color: 'var(--text-muted)' }}>
@@ -364,6 +368,7 @@ const UsuariosList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {usuarioPermissoes && (

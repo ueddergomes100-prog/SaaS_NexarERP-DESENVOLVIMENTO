@@ -18,6 +18,8 @@ import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import ModulosDaEmpresaModal from '../../components/admin/ModulosDaEmpresaModal';
 import { hojeEmBrasilia, lerResumoDaCobranca, rotuloDaEtapa, situacaoDaCobranca } from '../../utils/mensalidadeDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface TenantInfo {
   id: string;
@@ -117,6 +119,8 @@ const SuperAdmin: React.FC = () => {
     (t.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     t.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredTenants);
 
   // Redireciona se não for o SuperAdmin
   useEffect(() => {
@@ -983,7 +987,7 @@ const SuperAdmin: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredTenants.map(tenant => (
+                {blocos.visiveis.map(tenant => (
                   <tr key={tenant.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px 0' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1171,6 +1175,7 @@ const SuperAdmin: React.FC = () => {
             </table>
           </div>
         )}
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {empresaSpedyModal && (

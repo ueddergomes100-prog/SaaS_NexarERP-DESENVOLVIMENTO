@@ -14,6 +14,8 @@ import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { rotuloDoTipoDespesa, totaisPorTipo } from '../../utils/rotaDomain';
 import { filtrarRotas, montarDocumentoRotas, resumirRotas, type RotaDoRelatorio } from '../../utils/relatorioRotasDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * ROTAS LANCADAS: lista + o relatorio por motorista no mesmo lugar.
@@ -63,6 +65,8 @@ const RotasList: React.FC = () => {
     [busca, motoristaId, periodoDe, periodoAte],
   );
   const filtradas = useMemo(() => filtrarRotas(rotas, filtro), [rotas, filtro]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtradas);
 
   // Resumo do que esta na tela: e' o "relatorio" que o dono precisa.
   const resumo = useMemo(() => resumirRotas(filtradas), [filtradas]);
@@ -184,7 +188,7 @@ const RotasList: React.FC = () => {
                     <div>{rotas.length === 0 ? 'Nenhuma rota lançada ainda.' : 'Nenhuma rota com esses filtros.'}</div>
                   </td>
                 </tr>
-              ) : filtradas.map((rota) => {
+              ) : blocos.visiveis.map((rota) => {
                 const tipos = totaisPorTipo(rota.despesas || []);
                 return (
                   <tr key={rota.id} {...linha(rota.id, () => openTab(`/operacoes/rotas/${rota.id}`))} style={{ borderBottom: '1px solid var(--border-color)' }}>
@@ -210,6 +214,7 @@ const RotasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

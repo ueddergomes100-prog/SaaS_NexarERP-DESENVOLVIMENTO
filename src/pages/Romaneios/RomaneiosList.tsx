@@ -23,6 +23,8 @@ import {
   type RomaneioDaLista,
   type StatusRomaneio,
 } from '../../utils/romaneioDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * ROMANEIOS DE ENTREGA (2026-10-01): as rotas montadas, por situacao, e o
@@ -90,6 +92,8 @@ const RomaneiosList: React.FC = () => {
     return c;
   }, [filtrados]);
   const daAba = aba === 'todos' ? filtrados : filtrados.filter((r) => r.status === aba);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(daAba);
 
   const filtrosAtivos = (motoristaId ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
 
@@ -197,7 +201,7 @@ const RomaneiosList: React.FC = () => {
                     <div>{romaneios.length === 0 ? 'Nenhum romaneio ainda. Clique em "Novo romaneio" para montar a primeira rota.' : `Nenhum romaneio "${ROTULO_ABA[aba]}" com esses filtros.`}</div>
                   </td>
                 </tr>
-              ) : daAba.map((r) => {
+              ) : blocos.visiveis.map((r) => {
                 const resumo = resumoDoRomaneio(r);
                 const abrir = () => { if (!avisarSeEmEdicao(travasRomaneios, 'romaneio', r.id)) void openTab(`/operacoes/romaneios/${r.id}`); };
                 return (
@@ -230,6 +234,7 @@ const RomaneiosList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

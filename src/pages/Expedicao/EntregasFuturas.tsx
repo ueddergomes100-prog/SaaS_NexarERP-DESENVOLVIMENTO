@@ -12,6 +12,8 @@ import {
   type DetalheDaEntregaFutura,
   type PedidoAEntregar,
 } from '../../services/entregaFuturaService';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * EXPEDICAO > ENTREGAS FUTURAS (23/10/2026, item 5 do dono).
@@ -92,6 +94,8 @@ const EntregasFuturas: React.FC = () => {
     || p.clienteNome.toLowerCase().includes(termo)
     || p.numeroPedido.includes(termo)
     || p.itens.some((i) => i.nome.toLowerCase().includes(termo))), [lista, termo]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrada);
   const atrasados = (lista || []).filter((p) => p.atrasada).length;
 
   const entregar = async () => {
@@ -221,7 +225,7 @@ const EntregasFuturas: React.FC = () => {
                     <div>{(lista || []).length === 0 ? 'Nenhuma entrega futura pendente.' : 'Nenhum pedido com essa busca.'}</div>
                   </td>
                 </tr>
-              ) : filtrada.map((p) => {
+              ) : blocos.visiveis.map((p) => {
                 const faltam = p.itens.filter((i) => i.saldo > 1e-9);
                 return (
                   <tr key={p.id} onClick={() => void abrir(p.id)} style={{ cursor: 'pointer', ...(aberto?.pedido.id === p.id ? { backgroundColor: 'var(--bg-tertiary)' } : {}) }}>
@@ -247,6 +251,7 @@ const EntregasFuturas: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {aberto && (

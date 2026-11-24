@@ -60,6 +60,9 @@ import { estadoDaSelecao, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLot
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import { toCents } from '../../utils/financeDomain';
 import './Financeiro.css';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
+import CampoBuscaAdiado from '../../components/common/CampoBuscaAdiado';
 
 interface TransacaoData extends TituloParaEstorno {
   id: string;
@@ -799,6 +802,9 @@ const ContasPagar: React.FC = () => {
   const idsElegiveisVisiveis = agrupar
     ? gruposPorFornecedor.flatMap((g) => idsElegiveisDe(g.transacoes))
     : idsElegiveisDe(titulosPorVencimento);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocosDeTitulos = useLinhasEmBlocos(titulosPorVencimento, buscaGrupo);
+  const blocosDeGrupos = useLinhasEmBlocos(gruposPorFornecedor, buscaGrupo);
   const selecaoValida = [...selecionados].filter((id) => elegiveis.has(id));
   const marcar = (ids: string[], marcarIds: boolean) => {
     const { selecao, deFora } = marcarNaSelecao(selecionados, ids, marcarIds);
@@ -921,11 +927,10 @@ const ContasPagar: React.FC = () => {
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div className="search-bar" style={{ position: 'relative', width: '360px', maxWidth: '100%' }}>
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input
-            type="text"
+          <CampoBuscaAdiado
             placeholder="Buscar fornecedor ou categoria..."
-            value={buscaGrupo}
-            onChange={(e) => setBuscaGrupo(e.target.value)}
+            valor={buscaGrupo}
+            aoMudar={setBuscaGrupo}
             style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
           />
         </div>
@@ -1076,7 +1081,7 @@ const ContasPagar: React.FC = () => {
                       )}
                     </td>
                   </tr>
-                ) : titulosPorVencimento.map((t) => {
+                ) : blocosDeTitulos.visiveis.map((t) => {
                   const diasAtraso = t.data && t.status === 'Pendente' ? (differenceInCalendarDays(t.data, hojeStr) ?? 0) : 0;
                   const venceHoje = t.data === hojeStr && t.status === 'Pendente';
                   return (
@@ -1150,7 +1155,7 @@ const ContasPagar: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                gruposPorFornecedor.map((grupo) => {
+                blocosDeGrupos.visiveis.map((grupo) => {
                   const expandido = gruposExpandidos.has(grupo.chave);
                   const emAtraso = grupo.diasAtrasoMax > 0;
                   const idsDoGrupo = idsElegiveisDe(grupo.transacoes);
@@ -1257,6 +1262,7 @@ const ContasPagar: React.FC = () => {
           </table>
           )}
         </div>
+        <MostrarMaisLinhas blocos={agrupar ? blocosDeGrupos : blocosDeTitulos} />
       </div>
 
       <BarraDeSelecaoLote

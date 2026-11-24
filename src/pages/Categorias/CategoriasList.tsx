@@ -15,6 +15,8 @@ import FiltroSituacao, { passaNaSituacao, SITUACAO_PADRAO, type Situacao } from 
 import { alterarSituacaoCadastro } from '../../services/cadastroService';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface CategoriaData {
   id: string;
@@ -131,6 +133,9 @@ const CategoriasList: React.FC = () => {
 
   const filteredCategorias = categorias.filter((registro) => passaNaSituacao(registro.ativo !== false, situacao)).filter((cat) => cat.nome.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredCategorias);
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -187,7 +192,7 @@ const CategoriasList: React.FC = () => {
               ) : filteredCategorias.length === 0 ? (
                 <tr><td colSpan={4} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhuma categoria encontrada." compacto /></td></tr>
               ) : (
-                filteredCategorias.map((cat) => (
+                blocos.visiveis.map((cat) => (
                   <tr key={cat.id} {...linha(cat.id, () => openTab(`/categorias/editar/${cat.id}`))}>
                     <td className="font-medium">{cat.nome}</td>
                     <td>
@@ -230,6 +235,7 @@ const CategoriasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

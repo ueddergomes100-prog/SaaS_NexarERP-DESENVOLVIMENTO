@@ -24,6 +24,8 @@ import EstadoVazio from '../../components/common/EstadoVazio';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * INSUMOS (2026-09-25): material de CONSUMO da empresa (caixa, fita, etiqueta,
@@ -229,6 +231,13 @@ const InsumosList: React.FC = () => {
     }
   };
 
+  const termo = busca.trim().toLowerCase();
+  const filtrados = insumos
+    .filter((i) => passaNaSituacao(i.ativo !== false, situacao))
+    .filter((i) => !termo || `${i.nome} ${i.codigo || ''} ${i.fornecedor || ''}`.toLowerCase().includes(termo));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados);
+
   if (previewAberto) {
     return (
       <RelatorioPreview
@@ -241,10 +250,6 @@ const InsumosList: React.FC = () => {
     );
   }
 
-  const termo = busca.trim().toLowerCase();
-  const filtrados = insumos
-    .filter((i) => passaNaSituacao(i.ativo !== false, situacao))
-    .filter((i) => !termo || `${i.nome} ${i.codigo || ''} ${i.fornecedor || ''}`.toLowerCase().includes(termo));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -305,7 +310,7 @@ const InsumosList: React.FC = () => {
                     <EstadoVazio titulo={insumos.length === 0 ? 'Nenhum insumo cadastrado ainda.' : 'Nenhum insumo com esses filtros.'} texto={insumos.length === 0 ? 'Cadastre aqui ou classifique o item como Insumo ao dar entrada numa nota.' : undefined} compacto />
                   </td>
                 </tr>
-              ) : filtrados.map((i) => (
+              ) : blocos.visiveis.map((i) => (
                 <tr key={i.id} {...linha(i.id, () => abrirEdicao(i))} style={{ borderBottom: '1px solid var(--border-color)', opacity: i.ativo === false ? 0.55 : 1 }}>
                   <td style={{ padding: '14px', fontFamily: 'monospace' }}>{i.codigo || '-'}</td>
                   <td style={{ padding: '14px', fontWeight: 600 }}>{i.nome}{i.fornecedor ? <span style={{ display: 'block', fontSize: '12px', fontWeight: 400, color: 'var(--text-muted)' }}>{i.fornecedor}</span> : null}</td>
@@ -327,6 +332,7 @@ const InsumosList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {modalAberto && (

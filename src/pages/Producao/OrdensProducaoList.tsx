@@ -8,6 +8,8 @@ import { useTabs } from '../../contexts/TabsContext';
 import { DICA_BUSCA_MULTIPLA, matchesAllSearchTerms } from '../../utils/textSearch';
 import { useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 type StatusOrdem = 'criada' | 'em_producao' | 'pausada' | 'finalizada' | 'cancelada' | 'estornada';
 
@@ -73,6 +75,8 @@ const OrdensProducaoList: React.FC = () => {
     // Acento nao conta e "+" exige todas as palavras, igual as telas de venda.
     return matchesAllSearchTerms([ordem.numero, ordem.produtoNome], searchTerm);
   });
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredOrdens);
 
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -177,7 +181,7 @@ const OrdensProducaoList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredOrdens.map((ordem) => (
+                blocos.visiveis.map((ordem) => (
                   <tr
                     key={ordem.id}
                     {...linha(ordem.id, () => openTab(`/producao/ordens/editar/${ordem.id}`))}
@@ -198,6 +202,7 @@ const OrdensProducaoList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

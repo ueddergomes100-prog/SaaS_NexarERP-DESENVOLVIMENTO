@@ -15,6 +15,8 @@ import { montarDocumentoTransferencias } from '../../utils/relatorioMovimentosDo
 import { ROTULO_STATUS_TRANSFERENCIA } from '../../utils/transferenciaDomain';
 import { rotuloStatusNota } from '../../utils/notaTransferenciaDomain';
 import { ESTILO_STATUS_TRANSFERENCIA, dataHora, moeda, type TransferenciaDoc } from './transferenciaTipos';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 type Aba = 'receber' | 'transito' | 'concluidas' | 'todas';
 
@@ -82,6 +84,8 @@ const TransferenciasList: React.FC = () => {
     if (aba === 'concluidas') return t.status !== 'em_transito';
     return true;
   }), [lista, aba, tenantId]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtradas);
 
   const contagem = useMemo(() => ({
     receber: lista.filter((t) => t.status === 'em_transito' && t.tenantDestino === tenantId).length,
@@ -204,7 +208,7 @@ const TransferenciasList: React.FC = () => {
                 <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</td></tr>
               ) : filtradas.length === 0 ? (
                 <tr><td colSpan={8} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhuma transferência nesta lista." compacto /></td></tr>
-              ) : filtradas.map((t) => {
+              ) : blocos.visiveis.map((t) => {
                 const estilo = ESTILO_STATUS_TRANSFERENCIA[t.status];
                 return (
                   <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => abrir(t)}>
@@ -240,6 +244,7 @@ const TransferenciasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

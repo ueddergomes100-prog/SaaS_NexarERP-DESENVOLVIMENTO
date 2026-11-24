@@ -19,6 +19,8 @@ import { montarDocumentoExtratoBanco } from '../../utils/relatorioExtratoBancoDo
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import './Financeiro.css';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface CartaoInfo {
   bandeira?: string;
@@ -182,6 +184,9 @@ const Banco: React.FC = () => {
     t.formaPagamento !== FORMA_ACERTO_FORNECEDOR &&
     isWithinSelectedDays(t)
   ));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(extratoDigital);
+  const blocosPendentes = useLinhasEmBlocos(pendentesCartao);
 
   if (previewAberto) {
     const hoje = getDateInputInTimeZone();
@@ -295,7 +300,7 @@ const Banco: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                pendentesCartao.map((t) => {
+                blocosPendentes.visiveis.map((t) => {
                   const vencimento = t.dataPrevistaRecebimento || t.data;
                   const parcelaLabel = t.cartao?.numero ? ` (${t.cartao.numero}/${t.cartao.totalParcelas})` : '';
                   return (
@@ -330,6 +335,7 @@ const Banco: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocosPendentes} />
       </div>
 
       <div className="card list-container" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', padding: '24px' }}>
@@ -370,7 +376,7 @@ const Banco: React.FC = () => {
               ) : extratoDigital.length === 0 ? (
                 <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Nenhuma movimentação digital no período selecionado.</td></tr>
               ) : (
-                extratoDigital.map((t) => (
+                blocos.visiveis.map((t) => (
                   <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : '-'}</td>
                     <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
@@ -388,6 +394,7 @@ const Banco: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

@@ -23,6 +23,8 @@ import { montarDocumentoHistorico } from '../../utils/relatorioHistoricoDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /*
  * HISTORICO DE ALTERACOES (tela geral, 09/11/2026; antes "Logs do Sistema").
@@ -120,6 +122,8 @@ const LogsSistema: React.FC = () => {
     () => filtrarRegistros(comFilial, { usuario, tela, documento, acao }),
     [comFilial, usuario, tela, documento, acao],
   );
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados);
 
   const frasesDosFiltros = (): string[] => [
     usuario ? `Usuário: ${usuario}` : '',
@@ -240,7 +244,7 @@ const LogsSistema: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {filtrados.map((r) => (
+                {blocos.visiveis.map((r) => (
                   <tr key={r.id} onClick={() => setSelecionado(r)} style={{ cursor: 'pointer' }} title="Ver detalhes">
                     <td style={{ whiteSpace: 'nowrap' }}>{dataHoraBrasil(r.dataHora)}</td>
                     <td>
@@ -271,6 +275,7 @@ const LogsSistema: React.FC = () => {
             </table>
           </div>
         )}
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
       {!carregando && filtrados.length > 0 && (
         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>

@@ -10,6 +10,8 @@ import { getDateInputInTimeZone } from '../../utils/dateTime';
 import './Lembretes.css';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface LembreteData {
   id: string;
@@ -167,6 +169,9 @@ const LembretesList: React.FC = () => {
     && dentroDoPeriodo(l.dataPrevisao, periodoDe, periodoAte)
   ));
 
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(lembretesFiltrados);
+
   return (
     <div className="lembretes-page">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -228,7 +233,7 @@ const LembretesList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                lembretesFiltrados.map((lembrete) => (
+                blocos.visiveis.map((lembrete) => (
                   <tr key={lembrete.id} {...linha(lembrete.id, () => navigate(`/crm/lembretes/editar/${lembrete.id}`))}>
                     <td className="font-medium">{lembrete.clienteNome}</td>
                     <td>
@@ -267,6 +272,7 @@ const LembretesList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

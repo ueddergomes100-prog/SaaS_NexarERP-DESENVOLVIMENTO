@@ -112,6 +112,9 @@ import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote }
 import { estadoDaSelecao, FORMAS_DA_BAIXA_EM_LOTE, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import './Financeiro.css';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
+import CampoBuscaAdiado from '../../components/common/CampoBuscaAdiado';
 
 interface TransacaoData extends TituloParaEstorno {
   id: string;
@@ -1250,6 +1253,8 @@ const ContasReceber: React.FC = () => {
   const elegiveis = new Map(titulosFiltrados.filter((t) => podeEntrarNoLote(t, 'entrada')).map((t) => [t.id, t]));
   const idsElegiveisDoGrupo = (grupo: GrupoCliente) => grupo.transacoes.filter((t) => elegiveis.has(t.id)).map((t) => t.id);
   const idsElegiveisVisiveis = gruposPorCliente.flatMap(idsElegiveisDoGrupo);
+  // Velocidade (24/11/2026): a tabela desenha os clientes em blocos; totais e selecao seguem na lista inteira.
+  const blocosDeClientes = useLinhasEmBlocos(gruposPorCliente, buscaCliente);
   const selecaoValida = [...selecionados].filter((id) => elegiveis.has(id));
   const marcar = (ids: string[], marcarIds: boolean) => {
     const { selecao, deFora } = marcarNaSelecao(selecionados, ids, marcarIds);
@@ -1483,11 +1488,10 @@ const ContasReceber: React.FC = () => {
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div className="search-bar" style={{ position: 'relative', width: '360px', maxWidth: '100%' }}>
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input
-            type="text"
+          <CampoBuscaAdiado
             placeholder="Buscar cliente..."
-            value={buscaCliente}
-            onChange={(e) => setBuscaCliente(e.target.value)}
+            valor={buscaCliente}
+            aoMudar={setBuscaCliente}
             style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
           />
         </div>
@@ -1583,7 +1587,7 @@ const ContasReceber: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                gruposPorCliente.map((grupo) => {
+                blocosDeClientes.visiveis.map((grupo) => {
                   const expandido = clientesExpandidos.has(grupo.chave);
                   const emAtraso = grupo.diasAtrasoMax > 0;
                   const idsDoGrupo = idsElegiveisDoGrupo(grupo);
@@ -1863,6 +1867,7 @@ const ContasReceber: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocosDeClientes} />
       </div>
 
       <BarraDeSelecaoLote

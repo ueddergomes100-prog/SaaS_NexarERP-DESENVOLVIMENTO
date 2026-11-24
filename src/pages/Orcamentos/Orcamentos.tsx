@@ -18,6 +18,8 @@ import { enviarOrcamentoPorWhatsApp, prepararEnvioDeOrcamento } from './enviarOr
 import { isPlatformAdminRole } from '../../utils/roles';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface Orcamento {
   id: string;
@@ -291,6 +293,9 @@ const Orcamentos: React.FC = () => {
     }
   };
 
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredOrcamentos);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -360,7 +365,7 @@ const Orcamentos: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredOrcamentos.map((orc) => {
+                blocos.visiveis.map((orc) => {
                   const style = getStatusStyle(orc.status);
                   return (
                     <tr
@@ -449,6 +454,7 @@ const Orcamentos: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

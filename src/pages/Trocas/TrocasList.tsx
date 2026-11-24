@@ -17,6 +17,8 @@ import { useNaoImpressasPrimeiro } from '../../hooks/useNaoImpressasPrimeiro';
 import { compararPorImpressao } from '../../utils/relatorioPreVendasDomain';
 import { foiImpresso, OPCOES_FILTRO_IMPRESSAO, passaNoFiltroDeImpressao, rotuloDoFiltroDeImpressao, type FiltroImpressao } from '../../utils/impressaoListaDomain';
 import { FiltroColuna, OpcoesFiltro } from '../../components/common/FiltroColuna';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * Lista das TROCAS de mercadoria (reposicao sem cobranca pedida pelo app do
@@ -82,6 +84,8 @@ const TrocasList: React.FC = () => {
         || dataDaTrocaMillis(b) - dataDaTrocaMillis(a)
       ))
   ), [items, aba, termo, filtroImpressao, naoImpressasPrimeiro]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtradas);
 
   // Selecao para imprimir varias minutas de uma vez. So' conta o que esta na
   // lista agora: trocar de aba ou buscar nao deixa selecao escondida.
@@ -239,7 +243,7 @@ const TrocasList: React.FC = () => {
                     <p>{items.length === 0 && todoPeriodo ? 'Nenhuma troca ainda. Elas chegam quando o vendedor envia pelo aplicativo.' : 'Nenhuma troca nesta situação.'}</p>
                   </td>
                 </tr>
-              ) : filtradas.map((troca) => {
+              ) : blocos.visiveis.map((troca) => {
                 const estilo = ESTILO_STATUS_TROCA[troca.status] || ESTILO_STATUS_TROCA.Solicitada;
                 const primeiro = troca.itens?.[0];
                 return (
@@ -294,6 +298,7 @@ const TrocasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

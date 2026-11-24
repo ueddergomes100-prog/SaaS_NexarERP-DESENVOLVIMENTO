@@ -26,6 +26,8 @@ import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFilt
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { emLotes, LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface NotaFiscalEntradaDoc {
   id: string;
@@ -446,6 +448,9 @@ const NotasFiscaisEntradaList: React.FC = () => {
     }
   };
 
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(notasFiltradas);
+
   return (
     <div className="os-page" style={{ padding: '24px' }}>
       <div className="page-header" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -518,7 +523,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                notasFiltradas.map((nota) => (
+                blocos.visiveis.map((nota) => (
                   <tr key={nota.id} {...linha(nota.id, () => handleVerDetalhes(nota))}>
                     <td>{formatDateInputPtBr(nota.dataEmissao)}</td>
                     <td className="font-medium">
@@ -586,6 +591,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {danfe && <PdfVisualizador titulo="DANFE" nomeArquivo={danfe.nome} pdf={danfe.blob} onFechar={() => setDanfe(null)} />}

@@ -48,6 +48,8 @@ import {
   type LinhaContador,
   type MovimentoFiscal,
 } from '../../utils/relatorioContadorDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * FISCAL › RELATORIO DO CONTADOR (pedido do dono, 20/10/2026). So' leitura:
@@ -230,6 +232,8 @@ const RelatorioContador: React.FC = () => {
   useEffect(() => { void carregar(); }, [carregar]);
 
   const filtradas = useMemo(() => aplicarFiltrosContador(linhas, filtros), [linhas, filtros]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtradas);
   const opcoes = useMemo(() => opcoesDosFiltros(linhas), [linhas]);
   const totais = useMemo(() => totaisContador(filtradas), [filtradas]);
   const mudar = (patch: Partial<FiltrosContador>) => setFiltros((atual) => ({ ...atual, ...patch }));
@@ -589,7 +593,7 @@ const RelatorioContador: React.FC = () => {
                 <tr><td colSpan={12} style={{ padding: '28px', textAlign: 'center', color: 'var(--text-muted)' }}>
                   {linhas.length === 0 ? `Nenhuma nota emitida ou recebida entre ${dataBr(de)} e ${dataBr(ate)}.` : 'Nenhuma nota com estes filtros.'}
                 </td></tr>
-              ) : filtradas.map((l) => (
+              ) : blocos.visiveis.map((l) => (
                 <tr key={`${l.origem}-${l.id}`} style={{ borderTop: '1px solid var(--border-color)', opacity: l.situacao === 'autorizada' ? 1 : 0.7 }}>
                   <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>{dataBr(l.data)}</td>
                   <td style={{ padding: '10px 12px' }}>{ROTULO_MOVIMENTO[l.movimento]}</td>
@@ -608,6 +612,7 @@ const RelatorioContador: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

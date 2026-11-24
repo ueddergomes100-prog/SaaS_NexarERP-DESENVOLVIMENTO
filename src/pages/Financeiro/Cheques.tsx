@@ -27,6 +27,8 @@ import {
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import './Financeiro.css';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 const ROTULO_SITUACAO_CHEQUE: Record<SituacaoTitulo, string> = {
   abertas: 'A compensar',
@@ -251,6 +253,8 @@ const Cheques: React.FC = () => {
       && passaNoPeriodoDoTitulo(titulo, situacaoCheque, periodoDe, periodoAte)
       && (!buscaTexto || `${t.descricao} ${t.clienteNome || t.fornecedorNome || ''} ${t.cheque?.numeroCheque || ''}`.toLowerCase().includes(buscaTexto));
   });
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(chequesLista);
   const filtrosAtivos = (situacaoCheque !== SITUACAO_TITULO_PADRAO ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
   const limparFiltros = () => {
     setSituacaoCheque(SITUACAO_TITULO_PADRAO);
@@ -399,7 +403,7 @@ const Cheques: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                chequesLista.map((t) => {
+                blocos.visiveis.map((t) => {
                   const dias = differenceInCalendarDays(hojeStr, t.dataPrevistaRecebimento || t.data);
                   const vencido = t.status === 'Pendente' && dias !== null && dias < 0;
                   const venceLogo = t.status === 'Pendente' && dias !== null && dias >= 0 && dias <= DIAS_AVISO_VENCIMENTO;
@@ -461,6 +465,7 @@ const Cheques: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

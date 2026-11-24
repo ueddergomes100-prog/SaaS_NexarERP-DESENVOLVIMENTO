@@ -24,6 +24,8 @@ import {
 } from 'date-fns';
 import './Estoque.css';
 import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 type ProdutoRelatorio = ProdutoDoRelatorioEstoque;
 
@@ -206,6 +208,8 @@ const RelatorioEstoque: React.FC = () => {
   }), [ignorarPeriodo, intervalo, filtroCategoria, filtroNcm, filtroTexto, apenasAtivos]);
 
   const filtrados = useMemo(() => produtosDoRelatorioEstoque(produtos, filtro), [produtos, filtro]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; o relatorio (PDF/Excel) e os cartoes seguem com a lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados, filtro);
 
   /** O que realmente sai no relatorio: o filtro menos o que foi desmarcado. */
   const selecionados = useMemo(
@@ -399,7 +403,7 @@ const RelatorioEstoque: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((p) => {
+              {blocos.visiveis.map((p) => {
                 const fora = desmarcados.has(p.id);
                 const receita = composicoes[p.id] || [];
                 return (
@@ -454,6 +458,7 @@ const RelatorioEstoque: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

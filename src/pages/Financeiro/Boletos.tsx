@@ -51,6 +51,8 @@ import {
 import { montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import '../OS/OS.css';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * FINANCEIRO > BOLETOS (2026-09-22).
@@ -209,6 +211,8 @@ const Boletos: React.FC = () => {
       : compararPorNumero(numeroDaVenda(a), numeroDaVenda(b), ordemNumero);
     return porNumero || String(a.dataVencimento || '').localeCompare(String(b.dataVencimento || ''));
   });
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(listaAtual);
 
   // --- Emissao --------------------------------------------------------
 
@@ -1254,7 +1258,7 @@ const Boletos: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {listaAtual.map((t) => {
+                {blocos.visiveis.map((t) => {
                   const situacao: StatusBoletoEfetivo | 'aguardando' = t.boleto ? statusBoletoEfetivo(t.boleto) : 'aguardando';
                   const vencimento = t.boleto?.vencimento || t.dataVencimento || '';
                   return (
@@ -1348,6 +1352,7 @@ const Boletos: React.FC = () => {
             </table>
           </div>
         )}
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
       {pdfBoleto && <PdfVisualizador titulo="Boleto" nomeArquivo={pdfBoleto.nome} pdf={pdfBoleto.blob} onFechar={() => setPdfBoleto(null)} />}
     </div>

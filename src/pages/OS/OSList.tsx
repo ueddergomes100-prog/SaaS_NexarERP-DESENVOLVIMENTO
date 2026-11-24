@@ -20,6 +20,8 @@ import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import './OS.css';
 import { identificacaoBateBusca, identificacaoCurta, modoDaConfiguracao, parseConfigMaquinasPesadas, rotulosOficina, type ModoOficina } from '../../utils/oficinaDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface OSData {
   id: string;
@@ -195,6 +197,9 @@ const OSList: React.FC = () => {
     );
   });
 
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredOsList);
+
   return (
     <div className="os-page">
       <div className="page-header">
@@ -309,7 +314,7 @@ const OSList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredOsList.map((os) => (
+                blocos.visiveis.map((os) => (
                   <tr
                     key={os.id}
                     // Sem permissao de alterar OS a linha nao abre nada -- seria
@@ -376,6 +381,7 @@ const OSList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

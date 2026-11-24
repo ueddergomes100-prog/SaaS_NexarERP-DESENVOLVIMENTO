@@ -16,6 +16,8 @@ import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { montarDocumentoFrota } from '../../utils/relatorioEquipeFrotaDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * FROTA PROPRIA (2026-09-25): os veiculos da EMPRESA -- caminhao de entrega,
@@ -147,6 +149,8 @@ const FrotaList: React.FC = () => {
   const filtrados = veiculos
     .filter((v) => passaNaSituacao(v.ativo !== false, situacao))
     .filter((v) => !termo || `${v.modelo} ${v.marca || ''} ${normalizarPlaca(v.placa)} ${v.motoristaPadraoNome || ''}`.toLowerCase().includes(termo));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados);
 
   // Relatorio (19/10/2026): sai o que a lista mostra (busca + situacao).
   if (previewAberto) {
@@ -224,7 +228,7 @@ const FrotaList: React.FC = () => {
                     <EstadoVazio titulo={veiculos.length === 0 ? 'Nenhum veículo cadastrado na frota ainda.' : 'Nenhum veículo com esses filtros.'} compacto />
                   </td>
                 </tr>
-              ) : filtrados.map((v) => (
+              ) : blocos.visiveis.map((v) => (
                 <tr key={v.id} {...linha(v.id, () => abrirEdicao(v))} style={{ borderBottom: '1px solid var(--border-color)', opacity: v.ativo === false ? 0.55 : 1 }}>
                   <td style={{ padding: '14px', fontWeight: 600 }}>{v.modelo}{v.marca ? ` · ${v.marca}` : ''}{v.ano ? ` (${v.ano})` : ''}</td>
                   <td style={{ padding: '14px', fontFamily: 'monospace' }}>{formatarPlaca(v.placa)}</td>
@@ -245,6 +249,7 @@ const FrotaList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
 
       {modalAberto && (

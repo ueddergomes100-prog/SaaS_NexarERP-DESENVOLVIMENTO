@@ -23,6 +23,8 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { montarDocumentoCondicionais } from '../../utils/relatorioMovimentosDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * Lista dos CONDICIONAIS (2026-10-05). Mercadoria com o cliente para provar:
@@ -99,6 +101,8 @@ const CondicionaisList: React.FC = () => {
     .sort((a, b) => (aba === 'aberto' || aba === 'vencidos'
       ? String(a.prazoDevolucao).localeCompare(String(b.prazoDevolucao))
       : millis(b) - millis(a))), [items, aba, termo, hoje]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados);
 
   // Trava de edicao (fase 2, 16/10/2026): em edicao por outra pessoa = cinza e nao abre.
   const travasCondicionais = useTravasAtivas('condicional');
@@ -226,7 +230,7 @@ const CondicionaisList: React.FC = () => {
                 <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</td></tr>
               ) : filtrados.length === 0 ? (
                 <tr><td colSpan={8} style={{ padding: '8px' }}><EstadoVazio titulo="Nenhum condicional nesta lista." compacto /></td></tr>
-              ) : filtrados.map((c) => {
+              ) : blocos.visiveis.map((c) => {
                 const resumo = resumirCondicional(c.itens || []);
                 const vencido = estaVencido(c, hoje);
                 const estilo = ESTILO_STATUS[c.status] || ESTILO_STATUS.cancelado;
@@ -260,6 +264,7 @@ const CondicionaisList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

@@ -19,6 +19,8 @@ import { situacaoNoRelatorio } from '../../utils/relatorioClientesDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { categoriasDosServicos, montarDocumentoServicos, passaNaCategoria } from '../../utils/relatorioServicosDomain';
 import { acompanharCatalogo } from '../../services/catalogoEstoqueService';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface ServicoData {
   id: string;
@@ -141,6 +143,8 @@ const ServicosList: React.FC = () => {
       || String(servico.codigo || '').toLowerCase().includes(termoServico)
       || (servico.categoria || '').toLowerCase().includes(termoServico))
     .filter((servico) => passaNaCategoria(servico, categoria));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filteredServicos);
 
   const filtrosAtivos = categoria ? 1 : 0;
 
@@ -232,7 +236,7 @@ const ServicosList: React.FC = () => {
               ) : filteredServicos.length === 0 ? (
                 <tr><td colSpan={6} style={{ padding: '8px' }}><EstadoVazio titulo={searchTerm || filtrosAtivos > 0 ? 'Nenhum serviço com essa busca ou filtro.' : 'Nenhum serviço cadastrado.'} compacto /></td></tr>
               ) : (
-                filteredServicos.map((servico) => (
+                blocos.visiveis.map((servico) => (
                   <tr key={servico.id} {...linha(servico.id, () => openTab(`/servicos/editar/${servico.id}`))}>
                     <td style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{servico.codigo || '-'}</td>
                     <td className="font-medium">{servico.nome}</td>
@@ -270,6 +274,7 @@ const ServicosList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

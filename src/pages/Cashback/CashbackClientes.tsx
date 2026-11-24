@@ -28,6 +28,8 @@ import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { MASCARA_NUMERO } from '../../utils/valoresOcultosDomain';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * COMERCIAL › CASHBACK (fase 3, 20/10/2026). So' leitura: o saldo de cada
@@ -152,6 +154,8 @@ const CashbackClientes: React.FC = () => {
       || String(c.codigo || '').toLowerCase().includes(termo)
       || (digitosDaBusca !== '' && String(c.documento || '').replace(/\D/g, '').includes(digitosDaBusca))),
   [clientes, filtro, termo, digitosDaBusca, hoje]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados);
 
   const totais = useMemo(() => {
     const comSaldo = clientes.filter((c) => temSaldo(c.resumo));
@@ -352,7 +356,7 @@ const CashbackClientes: React.FC = () => {
                 <tr><td colSpan={5} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Carregando...</td></tr>
               ) : filtrados.length === 0 ? (
                 <tr><td colSpan={5} style={{ padding: '8px' }}><EstadoVazio titulo={clientes.length === 0 ? 'Nenhum cliente com cashback ainda. O saldo aparece aqui depois da primeira venda paga de um produto com "Permitir cashback".' : 'Nenhum cliente nesta lista.'} compacto /></td></tr>
-              ) : filtrados.map((c) => {
+              ) : blocos.visiveis.map((c) => {
                 const venceu = parteDoSaldoVenceu(c.resumo, hoje);
                 return (
                   <tr
@@ -376,6 +380,7 @@ const CashbackClientes: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

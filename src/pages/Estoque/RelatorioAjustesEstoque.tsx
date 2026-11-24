@@ -28,6 +28,8 @@ import {
   type FiltroRelatorioAjustes,
 } from '../../utils/relatorioAjustesEstoqueDomain';
 import './Estoque.css';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 type AjusteRegistro = AjusteDoRelatorio;
 
@@ -134,6 +136,8 @@ const RelatorioAjustesEstoque: React.FC = () => {
   ), [intervalo, tipoFiltro, motivoFiltro, produtoFiltro, usuarioFiltro]);
 
   const filtrados = useMemo(() => ajustesDoRelatorio(ajustes, filtro), [ajustes, filtro]);
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(filtrados);
 
   const stats = useMemo(() => resumirAjustes(filtrados), [filtrados]);
 
@@ -244,7 +248,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((a) => (
+              {blocos.visiveis.map((a) => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                   <td style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>{a.data ? a.data.toLocaleString('pt-BR') : '-'}</td>
                   <td style={{ padding: '12px 8px', fontWeight: 600 }}>{a.produtoNome}{a.produtoCodigo ? ` (${a.produtoCodigo})` : ''}{a.origem === 'materia_prima' && <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 600, color: '#8b5cf6' }}>MATÉRIA-PRIMA</span>}{a.origem === 'insumo' && <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 600, color: '#0ea5e9' }}>INSUMO</span>}</td>
@@ -268,6 +272,7 @@ const RelatorioAjustesEstoque: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

@@ -18,6 +18,8 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { montarDocumentoNotasAvulsas } from '../../utils/relatorioMovimentosDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 interface NotaAvulsaData extends NotaAvulsaParaVer {
   id: string;
@@ -97,6 +99,8 @@ const NotasAvulsasList: React.FC = () => {
     && (!statusFiltro || n.status === statusFiltro)
     && dentroDoPeriodo(n.createdAt, periodoDe, periodoAte)
   ));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(notasFiltradas);
 
   const handleCancelar = async (nota: NotaAvulsaData) => {
     if (!currentUser || !tenantId) return;
@@ -358,7 +362,7 @@ const NotasAvulsasList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                notasFiltradas.map((n) => (
+                blocos.visiveis.map((n) => (
                   <tr key={n.id} {...linha(n.id, () => setNotaAberta(n))} style={{ borderBottom: '1px solid var(--border-color)', opacity: n.status === STATUS_NOTA_AVULSA_CANCELADA ? 0.6 : 1 }}>
                     <td style={{ padding: '16px', fontWeight: 600 }}>#{n.numero}</td>
                     <td style={{ padding: '16px' }}>{n.createdAt?.seconds ? new Date(n.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : '-'}</td>
@@ -408,6 +412,7 @@ const NotasAvulsasList: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
       {notaAberta && tenantId && (
         <NotaAvulsaDetalheModal tenantId={tenantId} nota={notaAberta} onFechar={() => setNotaAberta(null)} />

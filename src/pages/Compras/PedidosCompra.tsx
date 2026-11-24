@@ -4,6 +4,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { ROTULO_STATUS_PEDIDO_COMPRA, formatarReais, type PedidoCompra, type StatusPedidoCompra } from '../../utils/comprasDomain';
+import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
+import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 
 /**
  * COMPRAS > PEDIDOS DE COMPRA (22/10/2026): os pedidos gerados da cotacao e
@@ -29,6 +31,8 @@ const PedidosCompra: React.FC = () => {
     .filter((p) => aba === 'todos' || (p.status || 'aberto') === aba)
     .filter((p) => !termo || String(p.fornecedorNome || '').toLowerCase().includes(termo) || String(p.numero || '').includes(termo))
     .sort((a, b) => (Number(b.numero) || 0) - (Number(a.numero) || 0));
+  // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
+  const blocos = useLinhasEmBlocos(lista);
   const contagem = (status: Aba) => items.filter((p) => status === 'todos' || (p.status || 'aberto') === status).length;
 
   return (
@@ -79,7 +83,7 @@ const PedidosCompra: React.FC = () => {
                     <div>{items.length === 0 ? 'Nenhum pedido de compra ainda.' : 'Nenhum pedido nesta situação com essa busca.'}</div>
                   </td>
                 </tr>
-              ) : lista.map((p) => (
+              ) : blocos.visiveis.map((p) => (
                 <tr key={p.id} onClick={() => openTab(`/compras/pedidos-compra/${p.id}`)} style={{ cursor: 'pointer' }}>
                   <td style={{ fontWeight: 700 }}>{String(p.numero || 0).padStart(4, '0')}</td>
                   <td>{p.fornecedorNome}</td>
@@ -93,6 +97,7 @@ const PedidosCompra: React.FC = () => {
             </tbody>
           </table>
         </div>
+        <MostrarMaisLinhas blocos={blocos} />
       </div>
     </div>
   );

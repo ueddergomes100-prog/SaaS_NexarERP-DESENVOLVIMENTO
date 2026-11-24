@@ -3,6 +3,7 @@ const { admin, db } = require('../config/firebase');
 const { onlyDigits } = require('../utils/cnpjLookup');
 const { validarPin } = require('./vendedorPin');
 const { podeUsarFrenteDeCaixa } = require('../domain/frenteDeCaixaDomain');
+const { isTenantManagerRole } = require('../domain/roles');
 
 /**
  * COMPUTADOR DO CAIXA + ENTRADA COM CODIGO E SENHA (22/11/2026, pedido do dono:
@@ -22,7 +23,10 @@ const { podeUsarFrenteDeCaixa } = require('../domain/frenteDeCaixaDomain');
  *    dele -- igual a entrar com usuario e senha.
  *
  * Senha curta (a partir de 2 digitos) nunca abre conta de dono ou de
- * administrador: esses entram pelo usuario e senha (mesma regra do app Vendas).
+ * administrador. Desde 24/11/2026 (pedido do dono: "o dono tem que conseguir
+ * entrar no caixa com codigo tambem") eles entram no computador ativado com
+ * senha de 4 digitos ou mais (a mesma regra do funcionario no sistema), com o
+ * bloqueio por tentativas de sempre. Gestor da plataforma nunca entra assim.
  */
 
 const COLECAO = 'terminais_caixa';
@@ -116,8 +120,13 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   const usuarioSnap = await db.collection('usuarios').doc(identificado.vendedorId).get();
   const usuario = usuarioSnap.exists ? usuarioSnap.data() : {};
   const papel = usuario.role || 'Funcionario';
-  if (papel !== 'Funcionario') {
-    throw new ErroTerminal(403, 'Este cadastro é de administrador: entre pelo usuário e senha ("Entrar com usuário e senha", logo abaixo).');
+  const gestor = isTenantManagerRole(papel);
+  if (papel !== 'Funcionario' && !gestor) {
+    throw new ErroTerminal(403, 'Este cadastro não entra com código e senha: entre pelo usuário e senha ("Entrar com usuário e senha", logo abaixo).');
+  }
+  // Dono e administrador (24/11/2026): so' com senha de 4 digitos ou mais, no caixa e no sistema.
+  if (gestor && String(pin || '').length < DIGITOS_MINIMOS_NO_SISTEMA) {
+    throw new ErroTerminal(403, `Dono e administrador entram com código só com senha de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos ou mais. Cadastre uma senha maior em Administração › Usuários (lápis na sua linha), ou entre pelo usuário e senha.`);
   }
   const permissoes = Array.isArray(usuario.permissoes) ? usuario.permissoes : [];
   if (noSistema && usuario.tipoRegistro === 'vendedor') {
@@ -126,7 +135,7 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   if (noSistema && String(pin || '').length < DIGITOS_MINIMOS_NO_SISTEMA) {
     throw new ErroTerminal(403, `A sua senha tem menos de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos. Para entrar no sistema com código e senha, peça ao responsável uma senha nova de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos ou mais, em Usuários (ou entre com usuário e senha).`);
   }
-  if (!noSistema && !podeUsarFrenteDeCaixa({ role: papel, isOwner: false, permissoes })) {
+  if (!noSistema && !gestor && !podeUsarFrenteDeCaixa({ role: papel, isOwner: false, permissoes })) {
     throw new ErroTerminal(403, `${identificado.vendedorNome} não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no cadastro dele, em Usuários.`);
   }
 

@@ -81,10 +81,12 @@ test('entrar: segredo errado, computador desconhecido ou desativado nao deixa ne
   );
 });
 
-test('entrar: administrador nunca entra por senha curta; sem acesso ao caixa e recusado; senha errada conta tentativa', async () => {
+test('entrar: administrador entra com 4 digitos ou mais (nunca com senha curta); sem acesso ao caixa e recusado; senha errada conta tentativa', async () => {
   const { terminais, terminal } = await preparar();
   const com = (codigo, pin = '4826') => terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo, pin });
-  await assert.rejects(com('09'), (e) => e.status === 403 && /administrador/.test(e.message));
+  // Dono/administrador (24/11/2026): entra no caixa com senha de 4 digitos, mesmo sem a permissao do PDV.
+  const chefe = await com('09');
+  assert.match(chefe.token, /^custom:chefe:/);
   await assert.rejects(com('08'), (e) => e.status === 403 && /BIA não tem acesso à Frente de Caixa/.test(e.message));
   await assert.rejects(com('07', '1111'), (e) => e.status === 401 && /tentativa/.test(e.message));
   // Vendedor de balcao com permissao do PDV: entra, com a marca que o middleware exige.
@@ -111,7 +113,8 @@ test('entrar no SISTEMA: senha de 4 digitos ou mais; sem exigir caixa; vendedor 
   assert.match(bia.token, /^custom:bia:/);
   assert.deepEqual(JSON.parse(bia.token.split(':').slice(2).join(':')), { viaTerminalCaixa: terminal.terminalId });
   await assert.rejects(comSistema('10', '4826'), (e) => e.status === 403 && /vendedor de balcão/.test(e.message));
-  await assert.rejects(comSistema('09', '4826'), (e) => e.status === 403 && /administrador/.test(e.message));
+  const chefe = await comSistema('09', '4826');
+  assert.match(chefe.token, /^custom:chefe:/);
   // Senha curta: identifica venda e entra no caixa, mas nao no sistema.
   const fake2 = criarBancoFalso(BASE, { consultas: true });
   const { terminais: t2, pin } = carregar(fake2.db);
@@ -123,4 +126,20 @@ test('entrar no SISTEMA: senha de 4 digitos ou mais; sem exigir caixa; vendedor 
   );
   const noCaixa = await t2.entrarComCodigo({ terminalId: term2.terminalId, segredo: term2.segredo, codigo: '07', pin: '73' });
   assert.match(noCaixa.token, /^custom:ana:/);
+});
+
+test('dono/administrador com senha curta nao entra por codigo; gestor da plataforma nunca', async () => {
+  const fake = criarBancoFalso({
+    ...BASE,
+    'usuarios/chefe': { ...BASE['usuarios/chefe'], role: 'Master' },
+    'usuarios/plataforma': { tenantId: 'loja', role: 'SuperAdmin', status: 'Ativo', codigoVendedor: '11', permissoes: [], nome: 'PLATAFORMA' },
+  }, { consultas: true });
+  const { terminais, pin } = carregar(fake.db);
+  await pin.definirPin({ tenantId: 'loja', usuarioId: 'chefe', pin: '73', autorId: 'dono' });
+  await pin.definirPin({ tenantId: 'loja', usuarioId: 'plataforma', pin: '482613', autorId: 'dono' });
+  const t = await terminais.ativarTerminal({ user: GERENTE, nome: 'Caixa 3' });
+  const entrar = (codigo, senha, destino) => terminais.entrarComCodigo({ terminalId: t.terminalId, segredo: t.segredo, codigo, pin: senha, destino });
+  await assert.rejects(entrar('09', '73'), (e) => e.status === 403 && /4 dígitos ou mais/.test(e.message));
+  await assert.rejects(entrar('09', '73', 'sistema'), (e) => e.status === 403 && /4 dígitos ou mais/.test(e.message));
+  await assert.rejects(entrar('11', '482613', 'sistema'), (e) => e.status === 403 && /não entra com código/.test(e.message));
 });

@@ -36,7 +36,18 @@ import {
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
-import { PARAMETROS_VENDA_PADRAO, acrescimoPorAtraso, descricaoDoAcrescimo, diasDeAtraso, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
+import { PARAMETROS_VENDA_PADRAO, acrescimoPorAtraso, descricaoDoAcrescimo, diasDeAtraso, parseParametrosVenda, type AcrescimoPorAtraso, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
+import {
+  acrescimoDoTitulo,
+  campoDoPercentual,
+  lerPercentuaisDaTela,
+  mesmosPercentuais,
+  parametrosComPercentuaisDaTela,
+  somaDosAcrescimos,
+  temPercentuais,
+  textoDosPercentuais,
+  type PercentuaisDeAtraso,
+} from '../../utils/atrasoReceberDomain';
 import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCliente } from '../../utils/documentosCobrancaDomain';
 import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
 import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
@@ -223,7 +234,15 @@ const ContasReceber: React.FC = () => {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [itensDoLote, setItensDoLote] = useState<ItemDoLote[] | null>(null);
   // Parametros de venda da filial (fase A, 2026-10-07): juros e multa sugeridos na baixa em atraso.
-  const [parametrosVenda, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
+  const [parametrosVendaDaFilial, setParametrosVenda] = useState<ParametrosVenda>(PARAMETROS_VENDA_PADRAO);
+  // Juros e multa dos atrasados (24/11/2026): as % podem ser mudadas SO' nesta
+  // tela (consulta e baixas daqui); nunca sao gravadas -- o padrao continua o da
+  // configuracao da filial. null = vale a configuracao.
+  const [percentuaisDaTela, setPercentuaisDaTela] = useState<PercentuaisDeAtraso | null>(null);
+  const parametrosVenda = useMemo(
+    () => parametrosComPercentuaisDaTela(parametrosVendaDaFilial, percentuaisDaTela),
+    [parametrosVendaDaFilial, percentuaisDaTela],
+  );
   // O documento inteiro fica guardado para o recibo de pagamento (fase D): empresa, mensagem padrao e regra de emissao.
   const [configFilial, setConfigFilial] = useState<Record<string, unknown>>({});
   useEffect(() => {
@@ -473,9 +492,10 @@ const ContasReceber: React.FC = () => {
       return;
     }
     // Titulo vencido com juros/multa configurados na filial: ja' vem preenchido (editavel).
-    const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, getDateInputInTimeZone());
+    // Mesmo vencimento que a lista usa para os dias em atraso (24/11/2026): o que a lista mostra e' o que a janela sugere.
+    const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), dataReferenciaTransacao(t), getDateInputInTimeZone());
     const semPercentuais = parametrosVenda.juros.aoMesPercentual <= 0 && parametrosVenda.juros.multaPercentual <= 0;
-    const vencido = diasDeAtraso(t.dataVencimento, getDateInputInTimeZone()) > 0;
+    const vencido = diasDeAtraso(dataReferenciaTransacao(t), getDateInputInTimeZone()) > 0;
     // Banco na mesma janela (23/11/2026): as formas que creditam um banco pedem
     // o banco logo abaixo da forma, em vez de uma segunda janela depois.
     const formasComBanco = formas.filter((forma) => forma !== FORMA_BOLETO
@@ -1123,6 +1143,40 @@ const ContasReceber: React.FC = () => {
     t.formaPagamento !== 'Cartão de Crédito' &&
     t.formaPagamento !== 'Cartão de Débito'
   ));
+  // Atrasados ja' com juros e multa (24/11/2026): mesma conta da janela de baixa, com as % que valem na tela.
+  const acrescimoDaLista = (t: TransacaoData): AcrescimoPorAtraso | null => acrescimoDoTitulo(
+    parametrosVenda,
+    { status: t.status, valorCentavos: transactionNetCents(t), dataVencimento: dataReferenciaTransacao(t) },
+    hojeStr,
+  );
+  const percentuaisDaFilial: PercentuaisDeAtraso = parametrosVendaDaFilial.juros;
+  const percentuaisEmUso: PercentuaisDeAtraso = parametrosVenda.juros;
+  const totalAcrescimoCentavos = somaDosAcrescimos(contasPendentes.map(acrescimoDaLista));
+  const haVencidas = contasPendentes.some((t) => diasDeAtraso(dataReferenciaTransacao(t), hojeStr) > 0);
+  const alterarPercentuaisNaTela = async () => {
+    const r = await NexusSwal.fire({
+      title: 'Juros e multa desta consulta',
+      html: `<p style="margin:0 0 10px;text-align:left;">Vale só nesta tela (a lista e as baixas feitas daqui). Não fica salvo: ao abrir a tela de novo volta o padrão da filial${temPercentuais(percentuaisDaFilial) ? ` (${escaparHtml(textoDosPercentuais(percentuaisDaFilial))})` : ''}. Para mudar o padrão, use Configurações da filial › Parâmetros de venda.</p>
+        <label style="display:block;text-align:left;font-weight:600;margin-top:8px;">Juros ao mês (%)
+          <input id="tela-juros" class="swal2-input" inputmode="decimal" value="${escaparHtml(campoDoPercentual(percentuaisEmUso.aoMesPercentual))}" style="margin:4px 0 0;width:100%;"></label>
+        <label style="display:block;text-align:left;font-weight:600;margin-top:12px;">Multa (%)
+          <input id="tela-multa" class="swal2-input" inputmode="decimal" value="${escaparHtml(campoDoPercentual(percentuaisEmUso.multaPercentual))}" style="margin:4px 0 0;width:100%;"></label>`,
+      showCancelButton: true,
+      confirmButtonText: 'Usar nesta consulta',
+      cancelButtonText: 'Cancelar',
+      preConfirm: () => {
+        const lido = lerPercentuaisDaTela(
+          (document.getElementById('tela-juros') as HTMLInputElement | null)?.value || '',
+          (document.getElementById('tela-multa') as HTMLInputElement | null)?.value || '',
+        );
+        if ('erro' in lido) { NexusSwal.showValidationMessage(lido.erro); return false; }
+        return lido.percentuais;
+      },
+    });
+    if (!r.isConfirmed || !r.value) return;
+    const escolhidos = r.value as PercentuaisDeAtraso;
+    setPercentuaisDaTela(mesmosPercentuais(escolhidos, percentuaisDaFilial) ? null : escolhidos);
+  };
   // Recebimento de venda/OS cancelada nao conta (cancelar so' remove -- 19/10/2026).
   const recebimentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr && !lancamentoDesfeito(t));
 
@@ -1205,7 +1259,7 @@ const ContasReceber: React.FC = () => {
     }
   };
   const montarItemDoLote = (t: TransacaoData): ItemDoLote => {
-    const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), t.dataVencimento, hojeStr);
+    const sugestao = acrescimoDaLista(t);
     return {
       id: t.id,
       nome: nomeDoDevedor(t) || 'Cliente não identificado',
@@ -1416,6 +1470,11 @@ const ContasReceber: React.FC = () => {
               <div style={{ fontSize: '20px', fontWeight: 700, color: '#f59e0b' }}>
                 {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente))}
               </div>
+              {totalAcrescimoCentavos > 0 && (
+                <div style={{ fontSize: '11.5px', color: '#ef4444', fontWeight: 600 }} title="Os atrasados com juros e multa calculados até hoje">
+                  com juros e multa: {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente + totalAcrescimoCentavos / 100))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1453,6 +1512,40 @@ const ContasReceber: React.FC = () => {
       {listaTemRecebidas && !periodoDe && !periodoAte && (
         <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
           Recebidas deste mês. Para outro período, use Filtros › Recebido em.
+        </p>
+      )}
+
+      {/* Juros e multa dos atrasados (24/11/2026): % da filial, mudaveis so' nesta tela. */}
+      {(haVencidas || percentuaisDaTela) && (
+        <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {temPercentuais(percentuaisEmUso) ? (
+            <span>
+              Atrasados calculados com {textoDosPercentuais(percentuaisEmUso)}
+              {percentuaisDaTela ? <strong style={{ color: '#f59e0b' }}> (alterado só nesta tela, não fica salvo)</strong> : ' (padrão da filial)'}.
+            </span>
+          ) : (
+            <span>
+              {percentuaisDaTela
+                ? 'Juros e multa zerados só nesta tela.'
+                : 'Para mostrar os atrasados com juros e multa, preencha as % em Configurações da filial › Parâmetros de venda › "Juros e multa do crediário em atraso", ou informe aqui só para esta consulta.'}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => { void alterarPercentuaisNaTela(); }}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-purple)', fontWeight: 600, textDecoration: 'underline', font: 'inherit' }}
+          >
+            Alterar só nesta tela
+          </button>
+          {percentuaisDaTela && (
+            <button
+              type="button"
+              onClick={() => setPercentuaisDaTela(null)}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', fontWeight: 600, textDecoration: 'underline', font: 'inherit' }}
+            >
+              Voltar ao padrão da filial
+            </button>
+          )}
         </p>
       )}
 
@@ -1536,6 +1629,14 @@ const ContasReceber: React.FC = () => {
                         </td>
                         <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: '#f59e0b' }}>
                           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente)}
+                          {(() => {
+                            const acrescimo = somaDosAcrescimos(grupo.transacoes.map(acrescimoDaLista));
+                            return acrescimo > 0 ? (
+                              <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#ef4444', marginTop: '2px' }} title="Valor em aberto com os juros e a multa dos títulos vencidos, calculados até hoje">
+                                com juros e multa: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente + acrescimo / 100)}
+                              </div>
+                            ) : null;
+                          })()}
                         </td>
                         <td style={{ padding: '16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
 {grupo.transacoes.some((t) => t.status === 'Pendente') && (
@@ -1609,6 +1710,17 @@ const ContasReceber: React.FC = () => {
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
                                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
+                                      {(() => {
+                                        const acrescimo = acrescimoDaLista(t);
+                                        if (!acrescimo) return null;
+                                        const reais = (c: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(c / 100);
+                                        return (
+                                          <div style={{ fontSize: '11px', fontWeight: 500, color: '#ef4444', marginTop: '2px' }} title={descricaoDoAcrescimo(acrescimo)}>
+                                            {acrescimo.diasAtraso} {acrescimo.diasAtraso === 1 ? 'dia' : 'dias'}: {[acrescimo.jurosCentavos > 0 ? `juros ${reais(acrescimo.jurosCentavos)}` : '', acrescimo.multaCentavos > 0 ? `multa ${reais(acrescimo.multaCentavos)}` : ''].filter(Boolean).join(' + ')}
+                                            <div style={{ fontWeight: 700 }}>atualizado {reais(transactionNetCents(t) + acrescimo.totalCentavos)}</div>
+                                          </div>
+                                        );
+                                      })()}
                                       {valorAlteradoAtivo(t) && (
                                         <div
                                           title={resumoDaAlteracaoValor(t.alteracaoValor)}

@@ -221,6 +221,7 @@ const testFiles = [
   join(temporaryDirectory, 'tests', 'abasSalvasDomain.test.js'),
   join(temporaryDirectory, 'tests', 'envioCodigoDomain.test.js'),
   join(temporaryDirectory, 'tests', 'mensalidadeDomain.test.js'),
+  join(temporaryDirectory, 'tests', 'atrasoReceberDomain.test.js'),
 ];
 
 try {
@@ -442,6 +443,7 @@ try {
     'tests/envioCodigoDomain.test.ts',
     'tests/importacaoPedidosAnterioresDomain.test.ts',
     'tests/mensalidadeDomain.test.ts',
+    'tests/atrasoReceberDomain.test.ts',
     'src/utils/financeDomain.ts',
     'src/utils/romaneioDomain.ts',
     'src/utils/precoVendaDomain.ts',
@@ -632,6 +634,7 @@ try {
     'src/utils/cashbackDomain.ts',
     'src/utils/envioCodigoDomain.ts',
     'src/utils/mensalidadeDomain.ts',
+    'src/utils/atrasoReceberDomain.ts',
     '--ignoreConfig',
     '--outDir', temporaryDirectory,
     '--rootDir', '.',

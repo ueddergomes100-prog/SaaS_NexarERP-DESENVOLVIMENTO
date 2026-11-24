@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.dataBrasileira = exports.planejarEstornoReceber = exports.planejarEstornoPagar = exports.MENSAGEM_SO_PAGA = exports.montarBaixaManual = exports.validarMotivoEstorno = exports.validarDataBaixa = exports.MOTIVO_ESTORNO_MINIMO = void 0;
+exports.dataBrasileira = exports.planejarEstornoReceber = exports.planejarEstornoPagar = exports.MENSAGEM_SO_PAGA = exports.BLOQUEIO_ESTORNO_DO_ACERTO = exports.montarBaixaManual = exports.validarMotivoEstorno = exports.validarDataBaixa = exports.MOTIVO_ESTORNO_MINIMO = void 0;
 /*
  * BAIXA COM DATA E ESTORNO DE BAIXA (Contas a Pagar / Contas a Receber).
  *
@@ -76,6 +76,9 @@ const montarBaixaManual = (args) => ({
         : {}),
 });
 exports.montarBaixaManual = montarBaixaManual;
+/** Baixa de acerto com fornecedor: so' volta desfazendo o acerto inteiro (as duas pontas juntas). */
+exports.BLOQUEIO_ESTORNO_DO_ACERTO = 'Esta baixa faz parte de um acerto com fornecedor (o cliente pagou direto o fornecedor). '
+    + 'Para desfazer, use Contas a Receber › Mais opções › Acerto com fornecedor e desfaça o acerto inteiro: as duas pontas voltam juntas.';
 const centavosDoTitulo = (titulo) => (Number(titulo.valorCentavos ?? (0, financeDomain_1.toCents)(titulo.valor)));
 const bloqueado = (bloqueio, mostrarBotao = true) => ({
     permitido: false,
@@ -94,6 +97,8 @@ exports.MENSAGEM_SO_PAGA = 'Só dá para estornar uma conta que já foi baixada.
  * conta de juros ou de desconto que nunca existiu.
  */
 const bloqueioDeLancamentoDaBaixa = (titulo) => {
+    if (titulo.status === 'Paga' && titulo.acertoFornecedor?.id)
+        return bloqueado(exports.BLOQUEIO_ESTORNO_DO_ACERTO);
     if (titulo.acrescimoDaTransacaoId) {
         return bloqueado('Este lançamento é de juros e multa de outra baixa e sai junto quando ela for estornada. Para desfazer, estorne a conta de origem.', false);
     }

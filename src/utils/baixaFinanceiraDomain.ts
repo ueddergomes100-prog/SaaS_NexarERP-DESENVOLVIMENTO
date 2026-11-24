@@ -135,7 +135,13 @@ export interface TituloParaEstorno {
   acrescimoDaTransacaoId?: string | null;
   /** Lancamento de desconto gravado junto da baixa de OUTRO titulo (15/10/2026). */
   descontoDaTransacaoId?: string | null;
+  /** Baixa feita por um acerto com fornecedor (24/11/2026, acertoFornecedorDomain.ts). */
+  acertoFornecedor?: { id?: string; texto?: string } | null;
 }
+
+/** Baixa de acerto com fornecedor: so' volta desfazendo o acerto inteiro (as duas pontas juntas). */
+export const BLOQUEIO_ESTORNO_DO_ACERTO = 'Esta baixa faz parte de um acerto com fornecedor (o cliente pagou direto o fornecedor). '
+  + 'Para desfazer, use Contas a Receber › Mais opções › Acerto com fornecedor e desfaça o acerto inteiro: as duas pontas voltam juntas.';
 
 export interface PlanoEstorno {
   permitido: boolean;
@@ -177,6 +183,7 @@ export const MENSAGEM_SO_PAGA = 'Só dá para estornar uma conta que já foi bai
  * conta de juros ou de desconto que nunca existiu.
  */
 const bloqueioDeLancamentoDaBaixa = (titulo: TituloParaEstorno): PlanoEstorno | null => {
+  if (titulo.status === 'Paga' && titulo.acertoFornecedor?.id) return bloqueado(BLOQUEIO_ESTORNO_DO_ACERTO);
   if (titulo.acrescimoDaTransacaoId) {
     return bloqueado('Este lançamento é de juros e multa de outra baixa e sai junto quando ela for estornada. Para desfazer, estorne a conta de origem.', false);
   }

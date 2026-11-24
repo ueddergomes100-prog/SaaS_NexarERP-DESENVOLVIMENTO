@@ -5,7 +5,7 @@ import { gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit, Plus, Building2, Pencil, XCircle } from 'lucide-react';
+import { CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit, Plus, Building2, Pencil, XCircle, ArrowLeftRight } from 'lucide-react';
 import {
   applyPaymentReceipt,
   fromCents,
@@ -87,6 +87,13 @@ import {
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import RelatorioRecebimentos, { pedirPeriodoDosRecebimentos } from '../../components/finance/RelatorioRecebimentos';
+import AcertoFornecedorModal from '../../components/finance/AcertoFornecedorModal';
+import type { AcertoFeito } from '../../services/acertoFornecedorService';
+import type { FiltroDeRecebimentos } from '../../utils/relatorioRecebimentosDomain';
+import { montarComprovanteDoAcerto } from '../../utils/relatorioAcertoFornecedorDomain';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote } from '../../components/finance/BaixaEmLote';
 import { estadoDaSelecao, FORMAS_DA_BAIXA_EM_LOTE, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
@@ -196,6 +203,10 @@ const ContasReceber: React.FC = () => {
     tipo: 'entrada',
     historico: historicoDeRecebidas,
   });
+  // Recebimentos do periodo e acerto com fornecedor (24/11/2026, pedido do dono para a Jomarly).
+  const [relatorioRecebimentos, setRelatorioRecebimentos] = useState<FiltroDeRecebimentos | null>(null);
+  const [acertoAberto, setAcertoAberto] = useState(false);
+  const [comprovanteDoAcerto, setComprovanteDoAcerto] = useState<AcertoFeito | null>(null);
   const transacoes = useMemo(() => {
     const data = [...titulosLidos];
     data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
@@ -1223,8 +1234,32 @@ const ContasReceber: React.FC = () => {
     window.open(`https://wa.me/?text=${encodeURIComponent(mensagem)}`, '_blank');
   };
 
+
+  if (relatorioRecebimentos && tenantId) {
+    return <RelatorioRecebimentos tenantId={tenantId} filtro={relatorioRecebimentos} onFechar={() => setRelatorioRecebimentos(null)} />;
+  }
+  if (comprovanteDoAcerto) {
+    return (
+      <RelatorioPreview
+        relatorioId="acerto-fornecedor-comprovante"
+        documento={montarComprovanteDoAcerto(comprovanteDoAcerto)}
+        nomeArquivo={nomeArquivoRelatorio(`Acerto com Fornecedor ${comprovanteDoAcerto.clienteNome}`, comprovanteDoAcerto.data, comprovanteDoAcerto.data)}
+        onFechar={() => setComprovanteDoAcerto(null)}
+        rotuloFechar="Voltar para Contas a Receber"
+      />
+    );
+  }
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
+      {acertoAberto && tenantId && (
+        <AcertoFornecedorModal
+          tenantId={tenantId}
+          titulosAReceber={transacoes.filter((t) => t.status === 'Pendente')}
+          podeDesfazer={podeEstornar}
+          onFechar={() => setAcertoAberto(false)}
+          onComprovante={(acerto) => { setAcertoAberto(false); setComprovanteDoAcerto(acerto); }}
+        />
+      )}
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700 }}>Contas a Receber</h1>
@@ -1233,7 +1268,17 @@ const ContasReceber: React.FC = () => {
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
           <MenuMaisOpcoes
             itens={[
-              { texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') },
+              {
+                texto: 'Recebimentos', Icone: FileText,
+                titulo: 'Relatório do que foi recebido no dia (ou num período): forma, banco ou caixa e totais. Abre em PDF, dá para imprimir e salvar em Excel',
+                onClick: () => { void pedirPeriodoDosRecebimentos().then((filtro) => { if (filtro) setRelatorioRecebimentos(filtro); }); },
+              },
+              {
+                texto: 'Acerto com fornecedor', Icone: ArrowLeftRight,
+                titulo: 'O cliente pagou direto um fornecedor: dá baixa na conta dele e na conta do fornecedor de uma vez, sem mexer em caixa nem em banco',
+                onClick: () => setAcertoAberto(true),
+              },
+              { texto: 'Importar títulos', Icone: Upload, separadorAntes: true, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') },
             ]}
           />
           <button

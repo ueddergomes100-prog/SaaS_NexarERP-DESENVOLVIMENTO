@@ -36,6 +36,8 @@ const {
   transferirEntreBancos,
 } = require('../services/movimentoBanco');
 const { depositarCheque, devolverCheque, voltarChequeParaCarteira } = require('../services/chequeSituacao');
+const acertoFornecedor = require('../services/acertoFornecedor');
+const { db } = require('../config/firebase');
 
 /**
  * FINANCEIRO -- baixa e estorno de titulos (item 8 da auditoria, fatia 1).
@@ -172,6 +174,61 @@ router.post('/estorno', async (req, res) => {
     return res.json({ ok: true, ajusteBancoCentavos: resumo.ajusteBancoCentavos });
   } catch (erro) {
     return responderErro(res, erro, 'estornar');
+  }
+});
+
+/**
+ * ACERTO COM FORNECEDOR (24/11/2026): o cliente paga direto o fornecedor. Ver
+ * services/acertoFornecedor.js.
+ *   GET  /api/financeiro/acerto-fornecedor            ultimos acertos
+ *   POST /api/financeiro/acerto-fornecedor            { idAcerto, receber:[{transacaoId,valorCentavos}], pagar:[...], data, observacao }
+ *   POST /api/financeiro/acerto-fornecedor/desfazer   { acertoId, motivo }
+ * Quem faz precisa dar baixa em Receber E em Pagar; desfazer pede a permissao de estorno.
+ */
+router.get('/acerto-fornecedor', async (req, res) => {
+  try {
+    if (!temPermissao(req.user, 'financeiro.receber')) {
+      return res.status(403).json({ error: semPermissaoDeBaixa('entrada') });
+    }
+    const tenantId = empresaDaOperacao(req.user, { tenantId: req.query.tenantId });
+    return res.json({ acertos: await acertoFornecedor.listar({ tenantId }) });
+  } catch (erro) {
+    return responderErro(res, erro, 'ler os acertos com fornecedor');
+  }
+});
+
+router.post('/acerto-fornecedor', async (req, res) => {
+  try {
+    if (!temPermissao(req.user, 'financeiro.receber') || !temPermissao(req.user, 'financeiro.pagar')) {
+      return res.status(403).json({
+        error: 'O acerto com fornecedor dá baixa em Contas a Receber e em Contas a Pagar ao mesmo tempo. Peça a um responsável liberar as duas permissões no seu usuário.',
+      });
+    }
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    let usuarioNome = '';
+    try {
+      const snap = await db.collection('usuarios').doc(req.user.uid).get();
+      usuarioNome = snap.exists ? String(snap.data().nome || snap.data().nomeResponsavel || '') : '';
+    } catch { usuarioNome = ''; }
+    const r = await acertoFornecedor.registrar({ user: req.user, tenantId, corpo: req.body || {}, usuarioNome });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErro(res, erro, 'fazer o acerto com fornecedor');
+  }
+});
+
+router.post('/acerto-fornecedor/desfazer', async (req, res) => {
+  try {
+    if (!temPermissao(req.user, 'financeiro.estornar')) {
+      return res.status(403).json({
+        error: 'Você não tem permissão para desfazer acertos. Peça a um responsável liberar "Financeiro: Estornar Pagamento/Recebimento" no seu usuário.',
+      });
+    }
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await acertoFornecedor.desfazer({ user: req.user, tenantId, corpo: req.body || {} });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErro(res, erro, 'desfazer o acerto com fornecedor');
   }
 });
 

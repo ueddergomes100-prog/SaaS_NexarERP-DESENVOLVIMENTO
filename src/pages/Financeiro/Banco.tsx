@@ -4,6 +4,7 @@ import { conciliarCartaoNoBanco } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { Landmark, CreditCard, CheckCircle, Calendar, Search, Clock, FileText } from 'lucide-react';
+import { FORMA_ACERTO_FORNECEDOR } from '../../utils/acertoFornecedorDomain';
 import {
   fromCents,
   transactionMovesPhysicalCash,
@@ -177,6 +178,8 @@ const Banco: React.FC = () => {
     !transactionMovesPhysicalCash(t) &&
     t.formaPagamento !== 'Crédito de Devolução' &&
     t.formaPagamento !== 'Cashback' &&
+    // Acerto com fornecedor (24/11/2026): o cliente pagou direto o fornecedor; nao passou por banco.
+    t.formaPagamento !== FORMA_ACERTO_FORNECEDOR &&
     isWithinSelectedDays(t)
   ));
 

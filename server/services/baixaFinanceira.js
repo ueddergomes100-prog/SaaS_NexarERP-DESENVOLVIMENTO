@@ -142,6 +142,10 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     throw new ErroBaixa(403, erroDosAjustes(1, ajustes, { podeDescontar: false }));
   }
   const resumo = { ajustes };
+  // Acerto com fornecedor (24/11/2026): a baixa guarda de qual acerto veio (services/acertoFornecedor.js).
+  const marcaDoAcerto = pedido.acertoFornecedor && pedido.acertoFornecedor.id
+    ? { acertoFornecedor: { id: String(pedido.acertoFornecedor.id), texto: String(pedido.acertoFornecedor.texto || '') } }
+    : {};
   // Vendas que podem ter ficado pagas por inteiro com esta baixa (cashback, depois da transacao).
   const vendasParaCashback = new Set();
 
@@ -310,6 +314,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         ...(banco ? { bancoId, bancoNome } : {}),
         // So' este vinculo: `sourcePaymentTransactionId` marca recebimento com credito (sem estorno).
         parcialDaTransacaoId: titulo.ref.id,
+        ...marcaDoAcerto,
         baixaManual: {
           ...montarBaixaManual({
             origem: origemDaBaixa,
@@ -370,6 +375,8 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         dataPagamento,
         valorCentavos,
         ...(banco ? { bancoId, bancoNome } : {}),
+        // Acerto: guarda a forma que a conta tinha, para o desfazer nao deixar "Acerto com Fornecedor" numa conta em aberto.
+        ...(marcaDoAcerto.acertoFornecedor ? { ...marcaDoAcerto, formaAntesDoAcerto: dados.formaPagamento || null } : {}),
         baixaManual: {
           ...montarBaixaManual({
             origem: 'contas_pagar',
@@ -396,6 +403,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       naturezaFinanceira: settledFinancialNatureForPayment(formaPagamento),
       movimentaCaixaFisico: formaPagamento === 'Dinheiro',
       ...(banco ? { bancoId, bancoNome } : {}),
+      ...marcaDoAcerto,
       baixaManual: {
         ...montarBaixaManual({
           origem: 'contas_receber',
@@ -463,7 +471,9 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
     const titulo = await lerTitulo(tx, tenantId, pedido);
     const dados = titulo.dados;
     if (tipo === 'entrada' && dados.pedidoId) vendaDoEstorno = String(dados.pedidoId);
-    const plano = tipo === 'saida' ? planejarEstornoPagar(dados) : planejarEstornoReceber(dados);
+    // Baixa de acerto com fornecedor: so' o proprio acerto desfaz (as duas pontas juntas).
+    const paraPlanejar = pedido.peloAcerto ? { ...dados, acertoFornecedor: null } : dados;
+    const plano = tipo === 'saida' ? planejarEstornoPagar(paraPlanejar) : planejarEstornoReceber(paraPlanejar);
     if (!plano.permitido) {
       throw new ErroBaixa(dados.status !== 'Paga' ? 409 : 400, dados.status !== 'Paga'
         ? 'Este lançamento já não está mais pago. Atualize a tela.'
@@ -559,6 +569,11 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
         bancoId: apagar(),
         bancoNome: apagar(),
         baixaManual: apagar(),
+        ...(dados.acertoFornecedor ? {
+          acertoFornecedor: apagar(),
+          formaPagamento: dados.formaAntesDoAcerto ? dados.formaAntesDoAcerto : apagar(),
+          formaAntesDoAcerto: apagar(),
+        } : {}),
         ...registroDoEstorno,
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Pagamento estornado: ${motivo}`),
       });
@@ -573,6 +588,7 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
         dataPagamento: apagar(),
         recebidoEm: apagar(),
         baixaManual: apagar(),
+        ...(dados.acertoFornecedor ? { acertoFornecedor: apagar() } : {}),
         ...registroDoEstorno,
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Recebimento estornado: ${motivo}`),
       });

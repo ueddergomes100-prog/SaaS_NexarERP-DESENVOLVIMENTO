@@ -35,6 +35,8 @@ const COLECOES_DA_EMPRESA = [
   'bancos',
   'bandeiras_cartao',
   'lancamentos_bancarios',
+  // Acerto com fornecedor (24/11/2026): o cliente pagou direto o fornecedor.
+  'acertos_fornecedor',
   'transacoes',
   'creditos_cliente',
   'caixas_pdv',

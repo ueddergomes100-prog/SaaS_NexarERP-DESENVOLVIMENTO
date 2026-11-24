@@ -19,7 +19,7 @@ import {
   parseModoLimiteDesconto,
   resolveLimiteItem,
 } from '../src/utils/descontoDomain';
-import { totalDoItemEmDigitacaoCents } from '../src/utils/descontoDomain';
+import { descontoAoEditarItem, totalDoItemEmDigitacaoCents } from '../src/utils/descontoDomain';
 
 test('calcularDescontoCents em percentual', () => {
   assert.equal(calcularDescontoCents('percentual', 10, 10000), 1000);
@@ -253,4 +253,29 @@ test('total do item enquanto digita: 1,5 x R$ 4,00 = R$ 6,00, sem mexer no unita
   assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: 1.5, descontoTipo: 'valor', descontoValor: '99' }), 0, 'desconto nao passa do valor');
   assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 0, quantidade: 2 }), null);
   assert.equal(totalDoItemEmDigitacaoCents({ precoUnitario: 4, quantidade: '' }), null);
+});
+
+// Correcao de 24/11/2026: o dono relatou que alterar o valor do item de novo ia somando o desconto.
+test('editar o preco do item: o desconto e recalculado, nunca somado ao anterior', () => {
+  const base = { precoTabela: 10, quantidade: 1 };
+  // Tabela 10, digita 9: o item fica em 10 com desconto de 1.
+  const primeira = descontoAoEditarItem({ ...base, precoMexido: true, novoPreco: 9, descontoAtual: 0 });
+  assert.equal(primeira, 1);
+  // Digita 9 de novo (a celula mostra 10): continua 1, nao vira 2.
+  assert.equal(descontoAoEditarItem({ ...base, precoMexido: true, novoPreco: 9, descontoAtual: primeira }), 1);
+  // Muda de ideia para 9,50: o desconto passa a 0,50, nao 1,50.
+  assert.equal(descontoAoEditarItem({ ...base, precoMexido: true, novoPreco: 9.5, descontoAtual: primeira }), 0.5);
+  // Preco igual ou acima da tabela: o cliente paga o preco digitado, sem desconto herdado.
+  assert.equal(descontoAoEditarItem({ ...base, precoMexido: true, novoPreco: 12, descontoAtual: primeira }), 0);
+  // Quantidade maior que 1: a diferenca vale para a linha inteira.
+  assert.equal(descontoAoEditarItem({ precoTabela: 9.2, quantidade: 16, precoMexido: true, novoPreco: 9, descontoAtual: 5 }), 3.2);
+});
+
+test('editar o desconto ou a quantidade: vale o digitado; quantidade nao mexe no desconto', () => {
+  const base = { precoTabela: 10, novoPreco: 10, quantidade: 2 };
+  assert.equal(descontoAoEditarItem({ ...base, precoMexido: false, descontoAtual: 1, descontoDigitado: 3 }), 3);
+  assert.equal(descontoAoEditarItem({ ...base, precoMexido: false, descontoAtual: 1, descontoDigitado: 0 }), 0);
+  assert.equal(descontoAoEditarItem({ ...base, precoMexido: false, descontoAtual: 1.5 }), 1.5);
+  // Preco e desconto na mesma edicao: os dois valem.
+  assert.equal(descontoAoEditarItem({ precoTabela: 10, novoPreco: 9, quantidade: 2, precoMexido: true, descontoAtual: 7, descontoDigitado: 1 }), 3);
 });

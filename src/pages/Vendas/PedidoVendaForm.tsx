@@ -171,6 +171,7 @@ import {
   descontoInicial,
   parseTipoDescontoPadrao,
   type DescontoTipo,
+  descontoAoEditarItem,
   excedeLimiteItem,
   parsePermitirDescontoPorItem,
   checarLimiteComCliente,
@@ -2315,7 +2316,7 @@ const PedidoVendaForm: React.FC = () => {
 
     // Preco ABAIXO da tabela vira desconto do item (mesma regra do
     // lancamento, 2026-10-01): o item fica no preco de tabela e a diferenca
-    // soma no desconto, que passa pelos limites abaixo. So' quando o preco
+    // vira o desconto, que passa pelos limites abaixo. So' quando o preco
     // foi mexido aqui -- editar so' a quantidade nao reavalia o preco.
     const precoMexido = Math.abs(novoPreco - item.precoUnitario) > 0.0001;
     const precoTabela = item.tabelaPreco
@@ -2333,9 +2334,16 @@ const PedidoVendaForm: React.FC = () => {
     }
     const descontoBase = campos.desconto ?? item.desconto;
     if (!Number.isFinite(descontoBase) || descontoBase < 0) return 'O desconto não pode ser negativo.';
-    const descontoNovo = abaixoDaTabela
-      ? fromCents(toCents(descontoBase) + toCents((precoTabela - novoPreco) * novaQtd))
-      : descontoBase;
+    // Preco digitado define quanto o cliente paga: o desconto e' recalculado, nao
+    // somado ao que o item ja' tinha (24/11/2026, descontoAoEditarItem).
+    const descontoNovo = descontoAoEditarItem({
+      precoMexido,
+      precoTabela,
+      novoPreco,
+      quantidade: novaQtd,
+      descontoAtual: item.desconto,
+      descontoDigitado: campos.desconto,
+    });
 
     const precoCheioCents = toCents(precoEfetivo * novaQtd);
     const descontoCents = toCents(descontoNovo);

@@ -16,7 +16,7 @@
 // o comportamento de hoje (nenhum limite existe) em todo tenant que nao
 // configurar nada.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.descontoDoClienteEmCents = exports.checarLimiteComCliente = exports.erroDoDescontoPadraoCliente = exports.parseDescontoPadraoCliente = exports.descontoPadraoDoCliente = exports.descontoInicial = exports.parseTipoDescontoPadrao = exports.DEFAULT_TIPO_DESCONTO_PADRAO = exports.parsePermitirDescontoPorItem = exports.DEFAULT_PERMITIR_DESCONTO_POR_ITEM = exports.parseModoLimiteDesconto = exports.parseLimiteDescontoConfig = exports.checarLimiteTotal = exports.excedeLimiteItem = exports.resolveLimiteItem = exports.totalDoItemEmDigitacaoCents = exports.calcularDescontoCents = exports.DEFAULT_MODO_LIMITE_DESCONTO = void 0;
+exports.descontoAoEditarItem = exports.descontoDoClienteEmCents = exports.checarLimiteComCliente = exports.erroDoDescontoPadraoCliente = exports.parseDescontoPadraoCliente = exports.descontoPadraoDoCliente = exports.descontoInicial = exports.parseTipoDescontoPadrao = exports.DEFAULT_TIPO_DESCONTO_PADRAO = exports.parsePermitirDescontoPorItem = exports.DEFAULT_PERMITIR_DESCONTO_POR_ITEM = exports.parseModoLimiteDesconto = exports.parseLimiteDescontoConfig = exports.checarLimiteTotal = exports.excedeLimiteItem = exports.resolveLimiteItem = exports.totalDoItemEmDigitacaoCents = exports.calcularDescontoCents = exports.DEFAULT_MODO_LIMITE_DESCONTO = void 0;
 exports.DEFAULT_MODO_LIMITE_DESCONTO = 'avisar';
 const toFiniteNumber = (value, fallback = 0) => {
     const parsed = Number(value);
@@ -243,3 +243,35 @@ const descontoDoClienteEmCents = (baseCents, percentualDoCliente) => {
     return Math.round(baseCents * (percentual / 100));
 };
 exports.descontoDoClienteEmCents = descontoDoClienteEmCents;
+/**
+ * Desconto do item (em reais, da linha inteira) depois de editar UMA celula da
+ * grade do Pedido de Venda.
+ *
+ * Correcao de 24/11/2026 (o dono: "quando altera o valor do item ele entra com
+ * desconto, ai se alterar novamente ele vai somando o desconto"). Preco digitado
+ * abaixo da tabela mantem o item no preco de tabela e joga a diferenca no
+ * desconto. A conta SOMAVA essa diferenca ao desconto que o item ja' tinha:
+ * como a celula continua mostrando o preco de tabela, a pessoa digitava o
+ * preco de novo e o desconto dobrava (tabela 10, digita 9 = desconto 1; digita
+ * 9 outra vez = desconto 2).
+ *
+ * Regra: quem digita o PRECO esta' dizendo quanto o cliente paga por unidade,
+ * entao o desconto e' recalculado do zero -- a diferenca para a tabela, ou
+ * nenhum desconto quando o preco digitado e' igual ou maior que a tabela.
+ * Digitar o DESCONTO vale o que foi digitado. Mexer so' na QUANTIDADE nao
+ * muda o desconto.
+ */
+const descontoAoEditarItem = (args) => {
+    // Centavos inteiros, para a soma nao carregar resto de ponto flutuante.
+    const centavos = (reais) => Math.round((Number(reais) || 0) * 100);
+    const reais = (cents) => Number((cents / 100).toFixed(2));
+    const diferencaCents = args.precoMexido && args.novoPreco < args.precoTabela - 0.0001
+        ? Math.max(0, centavos((args.precoTabela - args.novoPreco) * args.quantidade))
+        : 0;
+    if (args.descontoDigitado !== undefined)
+        return reais(centavos(args.descontoDigitado) + diferencaCents);
+    if (args.precoMexido)
+        return reais(diferencaCents);
+    return args.descontoAtual;
+};
+exports.descontoAoEditarItem = descontoAoEditarItem;

@@ -311,3 +311,43 @@ export const descontoDoClienteEmCents = (baseCents: number, percentualDoCliente:
   if (percentual <= 0 || baseCents <= 0) return 0;
   return Math.round(baseCents * (percentual / 100));
 };
+
+/**
+ * Desconto do item (em reais, da linha inteira) depois de editar UMA celula da
+ * grade do Pedido de Venda.
+ *
+ * Correcao de 24/11/2026 (o dono: "quando altera o valor do item ele entra com
+ * desconto, ai se alterar novamente ele vai somando o desconto"). Preco digitado
+ * abaixo da tabela mantem o item no preco de tabela e joga a diferenca no
+ * desconto. A conta SOMAVA essa diferenca ao desconto que o item ja' tinha:
+ * como a celula continua mostrando o preco de tabela, a pessoa digitava o
+ * preco de novo e o desconto dobrava (tabela 10, digita 9 = desconto 1; digita
+ * 9 outra vez = desconto 2).
+ *
+ * Regra: quem digita o PRECO esta' dizendo quanto o cliente paga por unidade,
+ * entao o desconto e' recalculado do zero -- a diferenca para a tabela, ou
+ * nenhum desconto quando o preco digitado e' igual ou maior que a tabela.
+ * Digitar o DESCONTO vale o que foi digitado. Mexer so' na QUANTIDADE nao
+ * muda o desconto.
+ */
+export const descontoAoEditarItem = (args: {
+  /** O preco unitario foi alterado nesta edicao? */
+  precoMexido: boolean;
+  precoTabela: number;
+  novoPreco: number;
+  quantidade: number;
+  /** Desconto que o item tinha antes desta edicao. */
+  descontoAtual: number;
+  /** Desconto digitado nesta mesma edicao (so' quando a celula editada foi a do desconto). */
+  descontoDigitado?: number;
+}): number => {
+  // Centavos inteiros, para a soma nao carregar resto de ponto flutuante.
+  const centavos = (reais: number): number => Math.round((Number(reais) || 0) * 100);
+  const reais = (cents: number): number => Number((cents / 100).toFixed(2));
+  const diferencaCents = args.precoMexido && args.novoPreco < args.precoTabela - 0.0001
+    ? Math.max(0, centavos((args.precoTabela - args.novoPreco) * args.quantidade))
+    : 0;
+  if (args.descontoDigitado !== undefined) return reais(centavos(args.descontoDigitado) + diferencaCents);
+  if (args.precoMexido) return reais(diferencaCents);
+  return args.descontoAtual;
+};

@@ -72,7 +72,9 @@ import {
 } from '../../utils/descontoDomain';
 import { DEFAULT_REGIME_TRIBUTARIO, REGIME_TRIBUTARIO_OPTIONS, type RegimeTributario } from '../../utils/fiscalDomain';
 import { notaEmailService } from '../../services/notaEmailService';
-import { spedyService, type SpedyCity, type SpedyNumberingUpdate, type AmbienteNotaSefaz, type RequisitosFiscais } from '../../services/spedyService';
+import { spedyService, type SpedyNumberingUpdate, type AmbienteNotaSefaz, type RequisitosFiscais } from '../../services/spedyService';
+import { buscarCidadeDaEmpresaPeloCnpj, buscarCidadesParaCadastro } from '../../services/cidadesParaCadastroService';
+import { AVISO_CIDADE_SEM_NFSE, type CidadeParaCadastro } from '../../utils/cidadesParaCadastroDomain';
 import { DEFAULT_MOMENTO_BAIXA_ESTOQUE, MOMENTO_BAIXA_ESTOQUE_OPTIONS, type MomentoBaixaEstoque } from '../../utils/estoqueReservaDomain';
 import {
   DEFAULT_AGENTE_DIGITAL_ATIVO,
@@ -579,7 +581,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   });
 
   const [cidadeSearchTerm, setCidadeSearchTerm] = useState('');
-  const [cidadeSearchResults, setCidadeSearchResults] = useState<SpedyCity[]>([]);
+  const [cidadeSearchResults, setCidadeSearchResults] = useState<CidadeParaCadastro[]>([]);
+  // Cidade escolhida fora da lista de NFS-e da Spedy (24/11/2026): aviso abaixo do campo.
+  const [cidadeSemNfse, setCidadeSemNfse] = useState(false);
   const [isCidadeSearching, setIsCidadeSearching] = useState(false);
   const [showCidadeDropdown, setShowCidadeDropdown] = useState(false);
   const [cidadeSearchError, setCidadeSearchError] = useState('');
@@ -868,12 +872,12 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       setIsCidadeSearching(true);
       setCidadeSearchError('');
       try {
-        const result = await spedyService.searchServiceInvoiceCities('', 'sandbox', cidadeSearchTerm.trim());
-        setCidadeSearchResults(result.items || []);
+        // Spedy (cidades que emitem NFS-e) + IBGE (todas: servem para NF-e/NFC-e), 24/11/2026.
+        setCidadeSearchResults(await buscarCidadesParaCadastro(cidadeSearchTerm.trim()));
       } catch (error) {
-        console.error('Erro ao buscar cidades da Spedy:', error);
+        console.error('Erro ao buscar cidades:', error);
         setCidadeSearchResults([]);
-        setCidadeSearchError(error instanceof Error ? error.message : 'Erro ao buscar cidades integradas.');
+        setCidadeSearchError(error instanceof Error ? error.message : 'Não foi possível buscar as cidades agora. Tente de novo.');
       } finally {
         setIsCidadeSearching(false);
       }
@@ -976,13 +980,14 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     }
   };
 
-  const handleSelectCidade = (cidade: SpedyCity) => {
+  const handleSelectCidade = (cidade: CidadeParaCadastro) => {
     setFormData(prev => ({
       ...prev,
       nfseCidadeCodigo: cidade.code || '',
       nfseCidadeNome: cidade.name || '',
       nfseCidadeEstado: cidade.state || ''
     }));
+    setCidadeSemNfse(!cidade.nfseNaSpedy);
     setCidadeSearchTerm('');
     setCidadeSearchResults([]);
     setShowCidadeDropdown(false);
@@ -1124,15 +1129,16 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         if (r.isDenied) aplicar = soOsVazios(atual, novos);
       }
       const regime = regimeSugerido(dados);
-      // Cidade da empresa: a Receita da' nome e UF (e o IBGE); a tela guarda a cidade da Spedy, que usa o mesmo codigo IBGE.
+      // Cidade da empresa: a Receita da' nome e UF (e o IBGE). Spedy e, se ela nao tiver, IBGE (24/11/2026);
+      // nunca "outra cidade da mesma UF" (cidadesParaCadastroDomain.cidadeDaEmpresaPeloCnpj).
       let cidade: { nfseCidadeCodigo: string; nfseCidadeNome: string; nfseCidadeEstado: string } | null = null;
       if (dados.municipio && dados.uf) {
         try {
-          const lista = await spedyService.searchServiceInvoiceCities('', 'sandbox', dados.municipio);
-          const uf = dados.uf.toUpperCase();
-          const achada = lista.items.find((c) => (dados.codigoMunicipioIbge ? String(c.code) === dados.codigoMunicipioIbge : String(c.state || '').toUpperCase() === uf && String(c.name || '').toUpperCase() === dados.municipio!.toUpperCase()))
-            || lista.items.find((c) => String(c.state || '').toUpperCase() === uf);
-          if (achada && achada.code) cidade = { nfseCidadeCodigo: String(achada.code), nfseCidadeNome: String(achada.name || dados.municipio), nfseCidadeEstado: String(achada.state || uf) };
+          const achada = await buscarCidadeDaEmpresaPeloCnpj(dados);
+          if (achada) {
+            cidade = { nfseCidadeCodigo: achada.code, nfseCidadeNome: achada.name, nfseCidadeEstado: achada.state };
+            setCidadeSemNfse(!achada.nfseNaSpedy);
+          }
         } catch (erroCidade) {
           console.warn('Nao foi possivel achar a cidade da empresa pelo CNPJ:', erroCidade);
         }
@@ -2280,15 +2286,19 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 16px', background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}
                   >
                     {cidade.name} / {cidade.state}
+                    {!cidade.nfseNaSpedy && <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>(sem NFS-e pela Spedy)</span>}
                   </button>
                 ))}
               </div>
+            )}
+            {cidadeSemNfse && formData.nfseCidadeCodigo && (
+              <p style={{ fontSize: '12px', color: '#f59e0b', margin: 0 }}>{AVISO_CIDADE_SEM_NFSE}</p>
             )}
             {!isCidadeSearching && cidadeSearchTerm.trim().length >= 3 && cidadeSearchError && (
               <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>{cidadeSearchError}</p>
             )}
             {showCidadeDropdown && !isCidadeSearching && !cidadeSearchError && cidadeSearchTerm.trim().length >= 3 && cidadeSearchResults.length === 0 && (
-              <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>Nenhuma cidade integrada encontrada com esse nome.</p>
+              <p style={{ fontSize: '12px', color: '#ef4444', margin: 0 }}>Nenhuma cidade encontrada com esse nome. Confira a grafia (ex.: Simonésia).</p>
             )}
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Usada na emissão de NFS-e e nos utilitários fiscais (SINTEGRA, SPED).</p>
           </div>

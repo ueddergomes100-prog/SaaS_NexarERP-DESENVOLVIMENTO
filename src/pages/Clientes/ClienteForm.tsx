@@ -17,7 +17,8 @@ import BuscarDocumentoButton from '../../components/common/BuscarDocumentoButton
 import type { ConsultaCnpjResultado, ConsultaCpfResultado } from '../../services/documentoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { erroDoDescontoPadraoCliente, parseDescontoPadraoCliente } from '../../utils/descontoDomain';
-import { spedyService, type SpedyCity } from '../../services/spedyService';
+import { buscarCidadesParaCadastro } from '../../services/cidadesParaCadastroService';
+import type { CidadeParaCadastro } from '../../utils/cidadesParaCadastroDomain';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { fetchComTimeout } from '../../utils/fetchComTimeout';
 import { ALERTA_TAMANHO_MAXIMO, camposDoAlertaParaGravar, erroDoAlertaDoCliente } from '../../utils/clienteAlertaDomain';
@@ -163,7 +164,7 @@ const ClienteForm: React.FC = () => {
   // (SPD003) -- antes deste campo, nao existia como o usuario preencher
   // isso no cadastro de cliente.
   const [cidadeSearchTerm, setCidadeSearchTerm] = useState('');
-  const [cidadeSearchResults, setCidadeSearchResults] = useState<SpedyCity[]>([]);
+  const [cidadeSearchResults, setCidadeSearchResults] = useState<CidadeParaCadastro[]>([]);
   const [isCidadeSearching, setIsCidadeSearching] = useState(false);
   const [showCidadeDropdown, setShowCidadeDropdown] = useState(false);
 
@@ -175,8 +176,8 @@ const ClienteForm: React.FC = () => {
     const timer = setTimeout(async () => {
       setIsCidadeSearching(true);
       try {
-        const result = await spedyService.searchServiceInvoiceCities('', 'sandbox', cidadeSearchTerm.trim());
-        setCidadeSearchResults(result.items || []);
+        // Spedy + IBGE (24/11/2026): cidade fora da lista de NFS-e da Spedy tambem serve para NF-e.
+        setCidadeSearchResults(await buscarCidadesParaCadastro(cidadeSearchTerm.trim()));
       } catch (error) {
         console.error('Erro ao buscar cidades:', error);
         setCidadeSearchResults([]);
@@ -187,7 +188,7 @@ const ClienteForm: React.FC = () => {
     return () => clearTimeout(timer);
   }, [cidadeSearchTerm]);
 
-  const handleSelectCidade = (cidade: SpedyCity) => {
+  const handleSelectCidade = (cidade: CidadeParaCadastro) => {
     setFormData(prev => ({
       ...prev,
       cidade: cidade.name || prev.cidade,

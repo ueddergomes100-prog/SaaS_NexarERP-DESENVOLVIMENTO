@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
-import { Barcode, Download, FileUp, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
+import { Barcode, Download, FileUp, Link2, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
 import { db } from '../../services/firebase';
-import { baixarBoletoPeloRetorno, receberBoletoCanceladoPeloRetorno } from '../../services/baixaFinanceiraService';
+import { baixarBoletoPeloRetorno, receberBoletoCanceladoPeloRetorno, vincularBoletosDoSistemaAnterior, type ResultadoVinculoBoletosAnteriores } from '../../services/baixaFinanceiraService';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import { AVISO_SEGUNDA_VIA_SISTEMA_ANTERIOR, LIMITE_DE_BOLETOS_POR_ENVIO, lerPlanilhaBoletosAnteriores } from '../../utils/boletoSistemaAnteriorDomain';
 import { useAuth } from '../../contexts/AuthContext';
-import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
+import { escaparHtml, showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { createAuditLog } from '../../services/logService';
@@ -103,6 +105,7 @@ const Boletos: React.FC = () => {
   const [processando, setProcessando] = useState(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const inputRetornoRef = useRef<HTMLInputElement>(null);
+  const inputSistemaAnteriorRef = useRef<HTMLInputElement>(null);
   const [pdfBoleto, setPdfBoleto] = useState<{ blob: Blob; nome: string } | null>(null);
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14). Antes: TODOS os
@@ -349,6 +352,9 @@ const Boletos: React.FC = () => {
       if (destino === 'emitidos') {
         // Fora da remessa ja': nada a fazer (num lote misto, os "Emitido" ficam como estao).
         if (snap.data().boleto?.status !== 'em_remessa') return;
+        if (snap.data().boleto?.sistemaAnterior) {
+          throw new Error('Este boleto foi emitido pelo sistema anterior e já está registrado no banco: não entra numa remessa nova. Para desligar o vínculo, use "Voltar para Aguardando emissão".');
+        }
         transaction.update(ref, {
           'boleto.status': 'emitido',
           'boleto.numeroRemessa': 0,
@@ -481,6 +487,19 @@ const Boletos: React.FC = () => {
   const recalcularBoleto = (titulo: TituloBoleto) => recalcularBoletoComum(titulo, bancosComBoleto);
 
   const mostrarBoleto = (titulo: TituloBoleto) => {
+    if (titulo.boleto?.sistemaAnterior) {
+      void NexusSwal.fire({
+        title: 'Boleto do sistema anterior',
+        html: `<div style="text-align:left;font-size:14px">`
+          + `<b>Nosso número:</b> ${formatarNossoNumeroSicoobExibicao(titulo.boleto.nossoNumero || '')}<br/>`
+          + (titulo.boleto.valorNoBancoCentavos ? `<b>Valor no banco:</b> ${currency.format(fromCents(titulo.boleto.valorNoBancoCentavos))}<br/>` : '')
+          + (titulo.boleto.remessaSistemaAnterior ? `<b>Remessa do sistema anterior:</b> ${escaparHtml(titulo.boleto.remessaSistemaAnterior)}<br/>` : '')
+          + `<br/>${escaparHtml(AVISO_SEGUNDA_VIA_SISTEMA_ANTERIOR)} O arquivo de retorno dá baixa nele normalmente.`
+          + `</div>`,
+        icon: 'info',
+      });
+      return;
+    }
     const calc = recalcularBoleto(titulo);
     void NexusSwal.fire({
       title: 'Boleto',
@@ -850,6 +869,109 @@ const Boletos: React.FC = () => {
     leitor.readAsText(arquivo, 'ISO-8859-1');
   };
 
+  // --- Boletos do sistema anterior (24/11/2026) ------------------------------
+  //
+  // As contas a receber da migracao entraram sem o boleto que o sistema antigo
+  // ja' registrou no banco; sem o nosso numero, o retorno nao as achava. A
+  // planilha liga cada conta (pela chave da migracao) ao boleto dela. Regra em
+  // utils/boletoSistemaAnteriorDomain.ts; gravacao pelo servidor.
+
+  const vincularBoletosAnteriores = (arquivo: File) => {
+    const leitor = new FileReader();
+    leitor.onload = async (evento) => {
+      if (!tenantId) return;
+      const { linhas, erros } = lerPlanilhaBoletosAnteriores(String(evento.target?.result || ''));
+      const listaDeErros = (lista: string[]) => (lista.length === 0 ? ''
+        : `<ul style="margin:6px 0 0 18px;padding:0;max-height:160px;overflow:auto">${lista.slice(0, 30).map((e) => `<li>${escaparHtml(e)}</li>`).join('')}</ul>`
+          + (lista.length > 30 ? `<div>… e mais ${lista.length - 30}.</div>` : ''));
+      if (linhas.length === 0) {
+        await NexusSwal.fire({
+          icon: 'error',
+          title: 'Nenhum boleto na planilha',
+          html: `<div style="text-align:left;font-size:14px">Confira se é a planilha de boletos do sistema anterior.${listaDeErros(erros)}</div>`,
+        });
+        return;
+      }
+      if (bancosComBoleto.length === 0) {
+        showError('Nenhum banco preparado para boleto', 'Abra Cadastros Auxiliares → Bancos, edite o banco do Sicoob e marque "Emite boleto por este banco".');
+        return;
+      }
+      let bancoId = bancosComBoleto[0].id;
+      if (bancosComBoleto.length > 1) {
+        const escolha = await NexusSwal.fire({
+          title: 'Qual banco emitiu esses boletos?',
+          input: 'select',
+          inputOptions: Object.fromEntries(bancosComBoleto.map((b) => [b.id, b.nome])),
+          inputValue: bancoId,
+          showCancelButton: true,
+          confirmButtonText: 'Continuar',
+          cancelButtonText: 'Cancelar',
+        });
+        if (!escolha.isConfirmed) return;
+        bancoId = String(escolha.value || bancoId);
+      }
+      const banco = bancosComBoleto.find((b) => b.id === bancoId) || bancosComBoleto[0];
+      const total = linhas.reduce((soma, l) => soma + l.valorBoletoCentavos, 0);
+      const confirmacao = await NexusSwal.fire({
+        icon: 'question',
+        title: `Vincular ${linhas.length} boleto(s) do sistema anterior?`,
+        html: `<div style="text-align:left;font-size:14px">`
+          + `<b>Banco:</b> ${escaparHtml(banco.nome)}<br/>`
+          + `<b>Valor dos boletos no banco:</b> ${currency.format(fromCents(total))}<br/><br/>`
+          + `Cada conta a receber da migração recebe o nosso número do boleto que o sistema anterior já registrou no banco. `
+          + `Eles entram em "Em remessa" (não vão numa remessa nova) e o arquivo de retorno passa a dar baixa neles. `
+          + `Valor, vencimento, caixa e saldo do banco não mudam.`
+          + (erros.length > 0 ? `<br/><br/><b>${erros.length} linha(s) da planilha com problema ficam de fora:</b>${listaDeErros(erros)}` : '')
+          + `</div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Vincular',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirmacao.isConfirmed) return;
+
+      setProcessando(true);
+      const soma: Omit<ResultadoVinculoBoletosAnteriores, 'ok' | 'bancoNome'> = { vinculados: 0, totalCentavos: 0, jaVinculados: 0, jaPagos: 0, recusados: [], avisos: [] };
+      try {
+        for (let i = 0; i < linhas.length; i += LIMITE_DE_BOLETOS_POR_ENVIO) {
+          const lote = linhas.slice(i, i + LIMITE_DE_BOLETOS_POR_ENVIO).map((l) => ({
+            chave: l.chave,
+            nossoNumero: l.nossoNumero,
+            vencimento: l.vencimento,
+            emissao: l.emissao,
+            valorBoletoCentavos: l.valorBoletoCentavos,
+            arquivoRemessa: l.arquivoRemessa,
+          }));
+          const r = await vincularBoletosDoSistemaAnterior({ tenantId, bancoId, boletos: lote });
+          soma.vinculados += r.vinculados;
+          soma.totalCentavos += r.totalCentavos;
+          soma.jaVinculados += r.jaVinculados;
+          soma.jaPagos += r.jaPagos;
+          soma.recusados.push(...r.recusados);
+          soma.avisos.push(...r.avisos);
+        }
+      } catch (erro: any) {
+        console.error('Erro ao vincular os boletos do sistema anterior:', erro);
+        showError('Não foi possível vincular os boletos', `${erro?.message || 'Tente novamente.'}${soma.vinculados > 0 ? ` (${soma.vinculados} já tinham sido vinculados antes do erro; enviar a planilha de novo não repete esses.)` : ''}`);
+        setProcessando(false);
+        return;
+      }
+      setProcessando(false);
+      const foraDaPlanilha = [...erros, ...soma.recusados.map((r) => r.motivo)];
+      await NexusSwal.fire({
+        icon: foraDaPlanilha.length > 0 ? 'warning' : 'success',
+        title: `${soma.vinculados} boleto(s) vinculado(s)`,
+        html: `<div style="text-align:left;font-size:14px">`
+          + `${soma.vinculados} conta(s) a receber ligada(s) ao boleto do sistema anterior (${currency.format(fromCents(soma.totalCentavos))}). Estão na aba "Em remessa" ou "Vencidos".`
+          + (soma.jaVinculados > 0 ? `<br/>${soma.jaVinculados} já estavam vinculados (nada mudou).` : '')
+          + (soma.jaPagos > 0 ? `<br/>${soma.jaPagos} já estão pagos aqui (ficaram como estão).` : '')
+          + (foraDaPlanilha.length > 0 ? `<br/><br/><b>${foraDaPlanilha.length} ficaram de fora:</b>${listaDeErros(foraDaPlanilha)}` : '')
+          + (soma.avisos.length > 0 ? `<br/><b>Para conferir (${soma.avisos.length}):</b>${listaDeErros(soma.avisos)}` : '')
+          + `</div>`,
+      });
+    };
+    leitor.readAsText(arquivo, 'UTF-8');
+  };
+
   /** Baixa de um boleto pago no retorno: titulo + saldo do banco gravados pelo servidor. */
   const darBaixaBoleto = (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string) => (
     baixarBoletoPeloRetorno({
@@ -921,6 +1043,27 @@ const Boletos: React.FC = () => {
             onChange={(e) => {
               const arquivo = e.target.files?.[0];
               if (arquivo) importarRetorno(arquivo);
+              e.target.value = '';
+            }}
+          />
+          <MenuMaisOpcoes
+            itens={[{
+              texto: 'Vincular boletos do sistema anterior',
+              Icone: Link2,
+              titulo: 'Planilha da migração: liga as contas a receber importadas ao boleto que o sistema anterior já registrou no banco, para o retorno dar baixa nelas',
+              desabilitado: processando,
+              onClick: () => inputSistemaAnteriorRef.current?.click(),
+            }]}
+          />
+          <input
+            ref={inputSistemaAnteriorRef}
+            type="file"
+            accept=".csv,.txt"
+            aria-label="Planilha de boletos do sistema anterior"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const arquivo = e.target.files?.[0];
+              if (arquivo) vincularBoletosAnteriores(arquivo);
               e.target.value = '';
             }}
           />
@@ -1139,6 +1282,9 @@ const Boletos: React.FC = () => {
                       </td>
                       <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: '13px' }}>
                         {t.boleto?.nossoNumero ? formatarNossoNumeroSicoobExibicao(t.boleto.nossoNumero) : '—'}
+                        {t.boleto?.sistemaAnterior && (
+                          <div style={{ fontFamily: 'inherit', fontSize: '11px', color: 'var(--text-muted)' }} title={AVISO_SEGUNDA_VIA_SISTEMA_ANTERIOR}>sistema anterior</div>
+                        )}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{

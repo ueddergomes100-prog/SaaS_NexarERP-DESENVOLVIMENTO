@@ -37,6 +37,7 @@ const {
 } = require('../services/movimentoBanco');
 const { depositarCheque, devolverCheque, voltarChequeParaCarteira } = require('../services/chequeSituacao');
 const acertoFornecedor = require('../services/acertoFornecedor');
+const { vincularBoletosAnteriores } = require('../services/boletoSistemaAnterior');
 const { db } = require('../config/firebase');
 
 /**
@@ -480,6 +481,39 @@ router.post('/boleto/retorno', rotaDeMovimento('financeiro.boletos', 'dar baixa 
  */
 router.post('/boleto/retorno/cancelado', rotaDeMovimento('financeiro.boletos', 'lançar o recebimento do boleto cancelado', receberBoletoCanceladoPeloRetorno,
   (r) => (r.jaLancado ? '' : `Boleto cancelado "${r.descricao}" pago no banco: recebimento avulso de ${reais(r.valorPagoCentavos)} lançado no banco ${r.bancoNome || ''} (${r.novoId}).`)));
+
+/**
+ * POST /api/financeiro/boleto/sistema-anterior
+ *   { bancoId, boletos: [{ chave, nossoNumero, vencimento, emissao?, valorBoletoCentavos, arquivoRemessa? }] }
+ * Liga as contas da migracao ao boleto que o sistema anterior ja' registrou no
+ * banco (24/11/2026): o retorno passa a dar baixa nelas. Ver services/boletoSistemaAnterior.js.
+ */
+router.post('/boleto/sistema-anterior', async (req, res) => {
+  try {
+    if (!temPermissao(req.user, 'financeiro.boletos')) {
+      return res.status(403).json({ error: MENSAGEM_SEM_PERMISSAO['financeiro.boletos'] });
+    }
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await vincularBoletosAnteriores({ user: req.user, tenantId, corpo: req.body || {}, hoje: hojeNoBrasil() });
+    if (r.vinculados > 0) {
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'financeiro',
+        acao: 'edicao',
+        descricao: `${r.vinculados} boleto(s) do sistema anterior vinculado(s) às contas a receber da migração (banco ${r.bancoNome}), total de ${reais(r.totalCentavos)}. `
+          + 'Já estavam registrados no banco; o arquivo de retorno passa a dar baixa neles.',
+        registroId: String(req.body?.bancoId || ''),
+        documentosRelacionados: r.idsVinculados.slice(0, 50),
+        documentoTipo: 'conta_receber',
+        documentoNumero: 'Boletos do sistema anterior',
+      });
+    }
+    const resposta = { ...r };
+    delete resposta.idsVinculados;
+    return res.json({ ok: true, ...resposta });
+  } catch (erro) {
+    return responderErro(res, erro, 'vincular os boletos do sistema anterior');
+  }
+});
 
 /**
  * POST /api/financeiro/cobrar-em-boleto  { transacaoId, vencimento }

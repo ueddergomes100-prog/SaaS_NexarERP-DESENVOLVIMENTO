@@ -108,6 +108,10 @@ const MODULOS = [
   'src/utils/tabelaFiscalDomain.ts',
   // Venda com entrega futura (23/10/2026): faturar com 5.922 e entregar com 5.116/5.117.
   'src/utils/entregaFuturaDomain.ts',
+  // Boletos do sistema anterior (24/11/2026): nosso numero e digito do Sicoob conferidos no servidor.
+  'src/utils/boletoDomain.ts',
+  'src/utils/boletoCnabDomain.ts',
+  'src/utils/boletoSistemaAnteriorDomain.ts',
   // Custos e formacao de preco (23/10/2026): rateio, depreciacao, Sebrae.
   'src/utils/custosDomain.ts',
   // Nota do pedido (23/10/2026): uma nota por pedido, com/sem nota, trava de emissao.

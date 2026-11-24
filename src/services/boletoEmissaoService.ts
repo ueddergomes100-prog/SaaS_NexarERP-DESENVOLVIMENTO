@@ -22,6 +22,7 @@ import { formatCompanyAddress } from '../utils/companyAddress';
 import { documentoDoBoleto, erroDoConvenioBoleto, numeroDaNotaParaOBoleto, type NotaParaOBoleto } from '../utils/boletoEmissaoDomain';
 import { mensagensDoBoleto } from '../utils/boletoRemessaSicoobDomain';
 import { pagadorDoCadastro } from '../utils/cobrancaEmBoletoDomain';
+import { AVISO_SEGUNDA_VIA_SISTEMA_ANTERIOR } from '../utils/boletoSistemaAnteriorDomain';
 
 export interface BancoBoleto {
   id: string;
@@ -269,6 +270,10 @@ export const numeroDaNotaDoPedido = async (tenantId: string, pedidoId: string | 
 export const dadosPdfDoBoleto = async (a: { tenantId: string; titulo: TituloBoleto; bancosComBoleto: BancoBoleto[] }): Promise<DadosPdfBoleto> => {
   const { tenantId, titulo, bancosComBoleto } = a;
   if (!tenantId) throw new Error('Sessão sem empresa identificada. Atualize a página.');
+  // Boleto do sistema anterior (24/11/2026): o codigo de barras e' do sistema antigo; daqui sairia outro.
+  if (titulo.boleto?.sistemaAnterior) {
+    throw new Error(`${AVISO_SEGUNDA_VIA_SISTEMA_ANTERIOR} (${formatarNossoNumeroSicoobExibicao(String(titulo.boleto.nossoNumero || ''))})`);
+  }
   const calc = recalcularBoleto(titulo, bancosComBoleto);
   if (!calc) throw new Error('Configure o convênio de boleto em Cadastros Auxiliares → Bancos.');
   const { banco } = calc;

@@ -18,6 +18,7 @@
 import { auth } from './firebase';
 import { camposDosAjustes, type AjustesDaBaixa } from '../utils/ajustesDaBaixaDomain';
 import { showError, showSuccess } from '../utils/alerts';
+import type { BoletoAnteriorPedido } from '../utils/boletoSistemaAnteriorDomain';
 import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
 import { fromCents, transactionNetAmount } from '../utils/financeDomain';
 import {
@@ -56,6 +57,7 @@ type RotaFinanceiro =
   | '/cheque-emitido/compensar'
   | '/boleto/retorno'
   | '/boleto/retorno/cancelado'
+  | '/boleto/sistema-anterior'
   | '/banco/lancamento'
   | '/banco/transferencia'
   | '/receber/lancar'
@@ -324,6 +326,26 @@ export const baixarBoletoPeloRetorno = (args: { transacaoId: string; valorPagoCe
  */
 export const receberBoletoCanceladoPeloRetorno = (args: { transacaoId: string; valorPagoCentavos: number; dataPagamento?: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean; jaLancado: boolean; novoId?: string; descricao?: string }>('/boleto/retorno/cancelado', { ...args })
+);
+
+export interface ResultadoVinculoBoletosAnteriores {
+  ok: boolean;
+  vinculados: number;
+  totalCentavos: number;
+  jaVinculados: number;
+  jaPagos: number;
+  recusados: Array<{ chave: string; motivo: string }>;
+  avisos: string[];
+  bancoNome: string;
+}
+
+/**
+ * Boletos > liga as contas da migracao ao boleto que o sistema anterior ja'
+ * registrou no banco (24/11/2026), para o retorno dar baixa nelas. Repetir a
+ * mesma planilha nao muda nada.
+ */
+export const vincularBoletosDoSistemaAnterior = (args: { tenantId: string; bancoId: string; boletos: BoletoAnteriorPedido[] }) => (
+  chamarFinanceiro<ResultadoVinculoBoletosAnteriores>('/boleto/sistema-anterior', { ...args }, TEMPO_LIMITE.baixaEmLote)
 );
 
 /** Cadastro de Bancos > ajuste ou tarifa lancado a mao. */

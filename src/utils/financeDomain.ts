@@ -131,6 +131,11 @@ export interface BoletoDetails {
   dataEmissao: string;
   status: StatusBoleto;
   numeroRemessa?: number;
+  /** Boleto que o sistema anterior ja' registrou no banco (migracao, 24/11/2026): sem codigo de barras daqui. */
+  sistemaAnterior?: boolean;
+  remessaSistemaAnterior?: string;
+  /** Valor registrado no banco quando difere do titulo (parte paga no sistema anterior). */
+  valorNoBancoCentavos?: number;
 }
 
 export interface PaymentRecord {

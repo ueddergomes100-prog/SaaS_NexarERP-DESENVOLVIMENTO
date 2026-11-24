@@ -31,6 +31,13 @@ export interface ParcelaParaRenegociar {
   valorCentavos: number;
 }
 
+/** O que a tela precisa para emitir os boletos das parcelas novas (24/11/2026). */
+export interface ResultadoDaRenegociacao {
+  renegociacaoId: string;
+  formaPagamento: string;
+  quantidadeParcelas: number;
+}
+
 const reais = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
 const dataBr = (dia: string) => (dia ? dia.split('-').reverse().join('/') : '—');
 const textoDeReais = (centavos: number) => (centavos / 100).toFixed(2).replace('.', ',');
@@ -39,8 +46,8 @@ const RenegociacaoModal: React.FC<{
   clienteNome: string;
   titulos: ParcelaParaRenegociar[];
   tenantId: string;
-  /** Fecha a janela; `renegociou` verdadeiro quando gravou. */
-  onFechar: (renegociou: boolean) => void;
+  /** Fecha a janela; `renegociou` verdadeiro quando gravou (com o que foi gravado). */
+  onFechar: (renegociou: boolean, resultado?: ResultadoDaRenegociacao) => void;
 }> = ({ clienteNome, titulos, tenantId, onFechar }) => {
   const hoje = getDateInputInTimeZone();
   const totalOrigemCentavos = useMemo(() => titulos.reduce((soma, t) => soma + t.valorCentavos, 0), [titulos]);
@@ -102,14 +109,14 @@ const RenegociacaoModal: React.FC<{
     setEnviando(true);
     setErro('');
     try {
-      await renegociarParcelas({
+      const r = await renegociarParcelas({
         transacaoIds: titulos.map((t) => t.id),
         parcelas,
         formaPagamento: forma,
         motivo: motivo.trim(),
         tenantId,
       });
-      onFechar(true);
+      onFechar(true, { renegociacaoId: r.renegociacaoId, formaPagamento: forma, quantidadeParcelas: parcelas.length });
     } catch (falha) {
       setErro(falha instanceof Error ? falha.message : 'Não foi possível renegociar. Tente de novo.');
       setEnviando(false);
@@ -199,7 +206,7 @@ const RenegociacaoModal: React.FC<{
                 <option value="">Escolha a forma</option>
                 {FORMAS_RENEGOCIACAO.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
-              {forma === 'Boleto' && <span className="lote-ajuda">As parcelas vão para Financeiro › Boletos, aba "Aguardando emissão".</span>}
+              {forma === 'Boleto' && <span className="lote-ajuda">Os boletos saem na hora, no fim da renegociação, num PDF só para imprimir ou mandar ao cliente.</span>}
             </div>
 
             <div className="lote-campo">

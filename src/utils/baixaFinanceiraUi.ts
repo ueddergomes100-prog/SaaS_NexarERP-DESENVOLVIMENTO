@@ -36,6 +36,26 @@ export interface DadosBaixa {
   valorRecebidoCentavos: number;
   /** Banco escolhido na mesma janela (so' quando a forma pede banco). */
   bancoId?: string;
+  /** Forma que EMITE em vez de dar baixa (Boleto): o vencimento escolhido na mesma janela. */
+  vencimentoBoleto?: string;
+}
+
+/**
+ * Forma que nao da' baixa, emite (Boleto, 24/11/2026 -- "o cliente pergunta:
+ * uai, mas vai dar baixa agora?"). Escolhida, a janela troca o titulo e o botao
+ * para "Emitir boleto", esconde juros/data/valor (nao se aplicam) e pede o
+ * vencimento ali mesmo, em vez de uma segunda janela.
+ */
+export interface FormaQueEmite {
+  forma: string;
+  titulo: string;
+  textoConfirmar: string;
+  /** Explica que a conta nao e' baixada agora. */
+  texto: string;
+  vencimentoSugerido: string;
+  vencimentoMinimo: string;
+  /** '' = valido. */
+  validarVencimento: (vencimento: string) => string;
 }
 
 /**
@@ -100,6 +120,8 @@ export const pedirDadosBaixa = async (args: {
   bloqueioParcial?: string;
   /** Escolha do banco na propria janela, para as formas que pedem banco. */
   banco?: EscolhaDeBancoNaBaixa;
+  /** Forma que emite em vez de dar baixa (Boleto). */
+  emissao?: FormaQueEmite;
 }): Promise<DadosBaixa | null> => {
   const hoje = getDateInputInTimeZone();
   const saldo = Math.max(0, Math.round(args.valorCentavos));
@@ -130,13 +152,13 @@ export const pedirDadosBaixa = async (args: {
     title: args.titulo,
     icon: 'question',
     html: `
-      <div style="text-align:left;font-size:13.5px;color:var(--text-secondary);">${escaparHtml(args.texto)}</div>
-      <div style="display:flex;gap:8px;margin-top:12px;padding:8px 10px;border-radius:8px;background:var(--bg-tertiary);">
+      <div id="baixa-texto" style="text-align:left;font-size:13.5px;color:var(--text-secondary);">${escaparHtml(args.texto)}</div>
+      <div id="baixa-ajustes" style="display:flex;gap:8px;margin-top:12px;padding:8px 10px;border-radius:8px;background:var(--bg-tertiary);">
         ${miniCampo('baixa-juros', 'Juros', sugestaoJuros)}
         ${miniCampo('baixa-multa', 'Multa', sugestaoMulta)}
         ${miniCampo('baixa-desconto', 'Desconto', 0, !args.podeDescontar)}
       </div>
-      ${notas.length ? `<div style="text-align:left;font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${notas.map(escaparHtml).join(' ')}</div>` : ''}
+      ${notas.length ? `<div id="baixa-notas" style="text-align:left;font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${notas.map(escaparHtml).join(' ')}</div>` : ''}
       <label for="baixa-forma" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloForma)}</label>
       <select id="baixa-forma" class="swal2-select" style="${ESTILO_CAMPO}">
         <option value="">Selecione...</option>${opcoes}
@@ -148,6 +170,12 @@ export const pedirDadosBaixa = async (args: {
             .map((b) => `<option value="${escaparHtml(b.id)}">${escaparHtml(b.nome)}</option>`).join('')}</select>`
           : `<div style="text-align:left;font-size:13px;color:#ef4444;margin-top:6px;">Nenhum banco ativo. Cadastre em Cadastros Auxiliares › Bancos.</div>`}
       </div>` : ''}
+      ${args.emissao ? `<div id="baixa-bloco-emissao" style="display:none;">
+        <label for="baixa-vencimento-boleto" style="${ESTILO_ROTULO}">Vencimento do boleto</label>
+        <input id="baixa-vencimento-boleto" type="date" class="swal2-input" min="${args.emissao.vencimentoMinimo}" value="${args.emissao.vencimentoSugerido}" style="${ESTILO_CAMPO}" />
+        <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">${escaparHtml(args.emissao.texto)}</div>
+      </div>` : ''}
+      <div id="baixa-campos-baixa">
       <label for="baixa-data" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloData)}</label>
       <input id="baixa-data" type="date" class="swal2-input" value="${hoje}" max="${hoje}" style="${ESTILO_CAMPO}" />
       <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">
@@ -155,7 +183,8 @@ export const pedirDadosBaixa = async (args: {
       </div>
       <label for="baixa-valor" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloValor)} (R$)</label>
       <input id="baixa-valor" type="text" inputmode="decimal" class="swal2-input" value="${textoDoCampo(totalInicial)}" style="${ESTILO_CAMPO};font-size:18px;font-weight:700;text-align:right;" aria-label="${escaparHtml(args.rotuloValor)} em reais" />
-      <div id="baixa-resumo" style="text-align:left;font-size:13px;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);line-height:1.45;"></div>`,
+      <div id="baixa-resumo" style="text-align:left;font-size:13px;margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);line-height:1.45;"></div>
+      </div>`,
     didOpen: () => {
       // O valor acompanha juros/multa/desconto ate' a pessoa mexer nele. Mexendo
       // no valor (parcial), juros e multa calculados ficam proporcionais a parte
@@ -222,6 +251,32 @@ export const pedirDadosBaixa = async (args: {
       };
       document.getElementById('baixa-forma')?.addEventListener('change', mostrarBanco);
       mostrarBanco();
+      // Boleto: a janela vira "Emitir boleto" (nao e' baixa).
+      const tituloOriginal = NexusSwal.getTitle()?.textContent || args.titulo;
+      const botaoOriginal = args.textoConfirmar;
+      const mostrarModo = () => {
+        if (!args.emissao) return;
+        const forma = (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.value || '';
+        const emite = forma === args.emissao.forma;
+        const exibir = (id: string, sim: boolean, como = 'block') => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = sim ? como : 'none';
+        };
+        exibir('baixa-bloco-emissao', emite);
+        exibir('baixa-campos-baixa', !emite);
+        exibir('baixa-ajustes', !emite, 'flex');
+        exibir('baixa-notas', !emite);
+        exibir('baixa-texto', !emite);
+        const titulo = NexusSwal.getTitle();
+        if (titulo) titulo.textContent = emite ? args.emissao.titulo : tituloOriginal;
+        const rotulo = document.querySelector('label[for="baixa-forma"]');
+        if (rotulo) rotulo.textContent = emite ? 'Como o cliente vai pagar?' : args.rotuloForma;
+        const botao = NexusSwal.getConfirmButton();
+        if (botao) botao.textContent = emite ? args.emissao.textoConfirmar : botaoOriginal;
+        NexusSwal.resetValidationMessage();
+      };
+      document.getElementById('baixa-forma')?.addEventListener('change', mostrarModo);
+      mostrarModo();
       // Comeca pela forma (juros/multa/desconto sao o caso menos comum).
       (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.focus();
     },
@@ -235,6 +290,15 @@ export const pedirDadosBaixa = async (args: {
       if (!forma) {
         NexusSwal.showValidationMessage(args.mensagemSemForma);
         return false;
+      }
+      if (args.emissao && forma === args.emissao.forma) {
+        const vencimento = (document.getElementById('baixa-vencimento-boleto') as HTMLInputElement | null)?.value || '';
+        const erroVencimento = args.emissao.validarVencimento(vencimento);
+        if (erroVencimento) {
+          NexusSwal.showValidationMessage(erroVencimento);
+          return false;
+        }
+        return { forma, data: hoje, ajustes: { jurosCentavos: 0, multaCentavos: 0, descontoCentavos: 0 }, valorRecebidoCentavos: saldo, vencimentoBoleto: vencimento } as DadosBaixa;
       }
       let bancoId = '';
       if (args.banco?.formas.includes(forma)) {

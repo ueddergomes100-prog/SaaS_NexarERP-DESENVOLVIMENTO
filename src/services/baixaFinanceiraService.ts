@@ -125,6 +125,8 @@ export interface PedidoDeBaixa {
   /** yyyy-mm-dd: dia em que foi pago/recebido de verdade (pode ser antes de hoje). */
   dataPagamento: string;
   bancoId?: string;
+  /** Pagar em Cheque (24/11/2026): numero do cheque, opcional, guardado no titulo. */
+  numeroCheque?: string;
   /**
    * Juros, multa e desconto (15/10/2026, Receber e Pagar). O titulo fica
    * quitado pelo valor cheio; o servidor grava juros/multa e desconto como
@@ -155,6 +157,7 @@ export const registrarBaixa = async (pedido: PedidoDeBaixa): Promise<{ parcial?:
     formaPagamento: pedido.formaPagamento,
     dataPagamento: pedido.dataPagamento,
     ...(pedido.bancoId ? { bancoId: pedido.bancoId } : {}),
+    ...(pedido.numeroCheque ? { numeroCheque: pedido.numeroCheque } : {}),
     // Juros, multa e desconto: so' vai o que tem valor.
     ...(pedido.ajustes ? camposDosAjustes(pedido.ajustes) : {}),
     ...(pedido.valorRecebidoCentavos && pedido.valorRecebidoCentavos > 0 ? { valorRecebidoCentavos: pedido.valorRecebidoCentavos } : {}),

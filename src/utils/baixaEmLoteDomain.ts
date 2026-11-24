@@ -17,12 +17,13 @@ export const LIMITE_BAIXA_EM_LOTE = 50;
 export type TipoDoLote = 'entrada' | 'saida';
 
 /**
- * As mesmas formas que o servidor aceita na baixa. Cheque fica fora nos dois
- * lados: no Receber ele aguarda compensação com os dados de cada cheque; no
- * Pagar, cheque emitido se baixa pela compensação (Financeiro › Cheques).
+ * As mesmas formas que o servidor aceita na baixa. No Receber, cheque fica
+ * fora: aguarda compensação com os dados de cada cheque. No Pagar, desde
+ * 24/11/2026 o cheque emitido se baixa direto no Contas a Pagar (debita o
+ * banco na hora), também em lote.
  */
 export const FORMAS_DA_BAIXA_EM_LOTE: Record<TipoDoLote, readonly string[]> = {
-  saida: ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Outros'],
+  saida: ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Cheque', 'Outros'],
   entrada: ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Outros'],
 };
 
@@ -37,13 +38,13 @@ export interface TituloCandidato {
 }
 
 /**
- * Esta conta pode ir para o lote? Só em aberto, nunca cheque (compensação),
- * e no Receber nunca cartão (concilia na tela Banco).
+ * Esta conta pode ir para o lote? Só em aberto; no Receber nunca cheque
+ * (compensação) nem cartão (concilia na tela Banco). No Pagar, cheque entra.
  */
 export const podeEntrarNoLote = (titulo: TituloCandidato, tipo: TipoDoLote): boolean => {
   if (titulo.status !== 'Pendente') return false;
   const forma = String(titulo.formaPagamento || '');
-  if (forma === 'Cheque') return false;
+  if (tipo === 'entrada' && forma === 'Cheque') return false;
   if (tipo === 'entrada' && isCardPayment(forma)) return false;
   return true;
 };

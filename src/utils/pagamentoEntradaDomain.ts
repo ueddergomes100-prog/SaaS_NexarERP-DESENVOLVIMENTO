@@ -17,9 +17,18 @@ export type DestinoDoPagamento = 'caixa' | 'banco';
 
 export interface ParcelaDaEntrada {
   numero: string;
-  /** AAAA-MM-DD */
+  /** AAAA-MM-DD (na parcela ja' paga, o dia em que foi paga). */
   vencimento: string;
   valor: number;
+  /**
+   * Forma DESTA parcela (pedido do dono, 24/11/2026: "parcela 1 em boleto,
+   * parcela 2 em cheque"). Ausente = a forma padrao do cartao de pagamento.
+   */
+  forma?: string;
+  /** Parcela que ja' foi paga na entrada: o titulo nasce Pago e o dinheiro sai na hora. */
+  jaPaga?: boolean;
+  /** De onde saiu a parcela ja' paga. Cheque sai sempre do banco do cheque. */
+  destino?: DestinoDoPagamento;
 }
 
 export const PRAZO_PADRAO_DIAS = 30;
@@ -101,6 +110,53 @@ export const diasAteVencer = (emissao: string, vencimento: string): number | nul
 };
 
 export const FORMAS_DE_PAGAMENTO = ['Boleto', 'Transferência', 'PIX', 'Dinheiro', 'Cheque', 'Cartão', 'Outros'] as const;
+
+export const FORMA_CHEQUE = 'Cheque';
+
+/*
+ * FORMA POR PARCELA (pedido do dono, 24/11/2026): o cliente quer ver no Contas
+ * a Pagar o que tem a pagar em boleto e o que tem em cheque, como lancou na
+ * nota. Cada parcela tem a sua forma; a forma do topo do cartao vira a forma
+ * PADRAO das parcelas.
+ */
+
+/** Forma efetiva da parcela: a dela, ou a padrao do cartao. */
+export const formaDaParcela = (parcela: Pick<ParcelaDaEntrada, 'forma'>, formaPadrao: string): string => (
+  String(parcela.forma ?? '').trim() || formaPadrao
+);
+
+/**
+ * Trocar a forma padrao aplica a nova as parcelas que ainda estavam na
+ * anterior; a parcela que a pessoa ja' mudou para outra forma fica como esta'.
+ */
+export const trocarFormaPadrao = <T extends ParcelaDaEntrada>(parcelas: T[], formaAnterior: string, formaNova: string): T[] => (
+  parcelas.map((parcela) => (formaDaParcela(parcela, formaAnterior) === formaAnterior ? { ...parcela, forma: formaNova } : parcela))
+);
+
+/** Reparte o total entre as parcelas que ja' existem (datas e formas ficam). */
+export const redistribuirValores = <T extends ParcelaDaEntrada>(parcelas: T[], total: number): T[] => {
+  if (parcelas.length === 0) return parcelas;
+  const valores = splitCents(toCents(total), parcelas.length);
+  return parcelas.map((parcela, indice) => ({ ...parcela, valor: fromCents(valores[indice]) }));
+};
+
+/** De onde saiu a parcela ja' paga: cheque, sempre do banco; dinheiro, do caixa (se nada foi escolhido); o resto, do banco. */
+export const destinoDaParcelaPaga = (parcela: Pick<ParcelaDaEntrada, 'destino' | 'forma'>, formaPadrao: string): DestinoDoPagamento => {
+  const forma = formaDaParcela(parcela, formaPadrao);
+  if (forma === FORMA_CHEQUE) return 'banco';
+  return parcela.destino || (forma === 'Dinheiro' ? 'caixa' : 'banco');
+};
+
+/**
+ * Forma gravada no titulo que ja' nasce PAGO na entrada (a nota inteira a
+ * vista, ou uma parcela marcada como ja' paga). A mesma regra de sempre do
+ * "A vista (ja' paga na entrada)": saiu do caixa e' Dinheiro; saiu do banco e'
+ * a forma escolhida (dinheiro tirado do banco vira Transferencia).
+ */
+export const formaDoPagamentoNaEntrada = (destino: DestinoDoPagamento, forma: string): string => {
+  if (destino !== 'banco') return 'Dinheiro';
+  return forma === 'Dinheiro' ? 'Transferência' : forma;
+};
 
 /** Categorias de despesa oferecidas na entrada. A primeira e' a que sempre foi usada. */
 export const CATEGORIAS_DE_COMPRA = ['FORNECEDORES DE PEÇAS', 'MATÉRIA-PRIMA', 'MERCADORIA PARA REVENDA', 'MATERIAL DE CONSUMO', 'OUTROS'] as const;

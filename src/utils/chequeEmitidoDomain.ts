@@ -1,14 +1,14 @@
 import { buildChequeDetails, type ChequeDetails } from './financeDomain';
-import type { ParcelaDaEntrada } from './pagamentoEntradaDomain';
+import { FORMA_CHEQUE, formaDaParcela, type ParcelaDaEntrada } from './pagamentoEntradaDomain';
 
 /*
  * CHEQUE EMITIDO PARA PAGAR DESPESA (pedido do dono, 2026-09-24).
  *
  * "Lancar cheque, selecionar o banco do cheque, os dados e os dias em que o
  * valor sai do banco, e parcelas do cheque." Regras que o dono confirmou:
- *  - a COMPENSACAO e' manual, na fila de Cheques (aba "Emitidos"): o cheque
- *    fica pendente ate alguem confirmar que compensou, e so' ai o banco e'
- *    debitado -- igual ao recebimento de cheque;
+ *  - a COMPENSACAO e' manual: o cheque fica pendente ate alguem dar baixa
+ *    nele no Contas a Pagar (desde 24/11/2026; antes era na aba "Emitidos"
+ *    de Cheques, que saiu), e so' ai o banco e' debitado;
  *  - cada cheque tem a sua data (bom para), e um atalho gera as datas por
  *    prazo em dias (30/60/90...), editaveis uma a uma.
  *
@@ -60,6 +60,22 @@ export const aplicarChequesNasParcelas = (
   }));
 };
 
+/**
+ * O mesmo atalho quando cada parcela tem a sua forma (24/11/2026): so' as
+ * parcelas em cheque recebem o banco e a numeracao, em sequencia entre elas.
+ */
+export const aplicarChequesNasParcelasEmCheque = (
+  parcelas: ParcelaComCheque[],
+  formaPadrao: string,
+  bancoId: string,
+  primeiroNumero: string,
+): ParcelaComCheque[] => {
+  const emCheque = parcelas.filter((parcela) => formaDaParcela(parcela, formaPadrao) === FORMA_CHEQUE);
+  const aplicadas = aplicarChequesNasParcelas(emCheque, bancoId, primeiroNumero);
+  let proxima = 0;
+  return parcelas.map((parcela) => (formaDaParcela(parcela, formaPadrao) === FORMA_CHEQUE ? aplicadas[proxima++] : parcela));
+};
+
 export interface ChequeMontado {
   bancoId: string;
   bancoNome: string;
@@ -109,8 +125,8 @@ export const erroDosCheques = (parcelas: ParcelaComCheque[], bancos: BancoDoCheq
 export const camposDoTituloEmCheque = (parcela: ParcelaComCheque, bancos: BancoDoCheque[]) => {
   const montado = montarChequeDaParcela(parcela, bancos);
   return {
-    // 'Cheque' na forma faz o titulo aparecer na fila de Cheques (aba Emitidos)
-    // e nao poder ser baixado direto: so' compensa la, debitando o banco.
+    // 'Cheque' na forma: a baixa no Contas a Pagar ja' abre em Cheque, com este
+    // banco escolhido; o banco so' e' debitado nessa baixa (quando compensa).
     formaPagamento: 'Cheque' as const,
     bancoId: montado.bancoId,
     bancoNome: montado.bancoNome,

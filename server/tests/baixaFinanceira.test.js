@@ -336,3 +336,60 @@ test('lote: Pagar em dinheiro nao leva banco em nenhuma conta', () => {
   assert.ok(pedidos.every((p) => p.bancoId === undefined));
 });
 
+
+// ---------------------------------------------------------------------------
+// Cheque no Contas a Pagar (24/11/2026): "Dar Baixa" direto, sem a aba Emitidos
+// ---------------------------------------------------------------------------
+
+test('baixa: Pagar aceita Cheque (com banco); numero opcional e limpo; Receber continua recusando', () => {
+  const { erro, pedido } = validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 't1', formaPagamento: 'Cheque', dataPagamento: HOJE, bancoId: 'b1', numeroCheque: ' 000123 ' }, HOJE);
+  assert.equal(erro, undefined);
+  assert.deepEqual(pedido, { tipo: 'saida', transacaoId: 't1', formaPagamento: 'Cheque', dataPagamento: HOJE, bancoId: 'b1', numeroCheque: '000123' });
+  assert.equal(validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 't1', formaPagamento: 'Cheque', dataPagamento: HOJE }, HOJE).erro, 'Escolha de qual banco saiu o pagamento.');
+  assert.equal(validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 't1', formaPagamento: 'Pix', dataPagamento: HOJE, bancoId: 'b1', numeroCheque: '9' }, HOJE).pedido.numeroCheque, undefined, 'numero so na forma Cheque');
+  assert.match(validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 't1', formaPagamento: 'Cheque', dataPagamento: HOJE, bancoId: 'b1', numeroCheque: '<script>' }, HOJE).erro, /número do cheque/);
+  assert.match(validarPedidoDeBaixa({ tipo: 'entrada', transacaoId: 't1', formaPagamento: 'Cheque', dataPagamento: HOJE, bancoId: 'b1' }, HOJE).erro, /compensação/);
+  assert.equal(validarPedidoDeBaixaEmLote({ tipo: 'saida', formaPagamento: 'Cheque', dataPagamento: HOJE, bancoId: 'b1', titulos: [{ transacaoId: 'a' }] }, HOJE).erro, undefined, 'lote do Pagar aceita cheque');
+});
+
+test('Pagar: cheque emitido baixado no Contas a Pagar debita o banco, guarda o cheque e o estorno devolve', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/c1': {
+      tenantId: 'emp1', tipo: 'saida', status: 'Pendente', descricao: 'COMPRA NF 10 (Parcela 2/2)', valor: 300, valorCentavos: 30000,
+      formaPagamento: 'Cheque', bancoId: 'b1', bancoNome: 'Sicoob', cheque: { bancoEmissor: 'Sicoob', numeroCheque: '000555', dataCompensacao: '2026-10-10' },
+    },
+    'bancos/b1': { tenantId: 'emp1', nome: 'Sicoob', ativo: true, saldoCentavos: 100000 },
+  });
+  const s = carregarServico(fake.db);
+
+  const pedido = s.validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 'c1', formaPagamento: 'Cheque', dataPagamento: '2026-10-04', bancoId: 'b1' }, HOJE).pedido;
+  await s.registrarBaixa({ user: USER, tenantId: 'emp1', pedido });
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 70000);
+  const titulo = fake.ler('transacoes/c1');
+  assert.equal(titulo.status, 'Paga');
+  assert.equal(titulo.formaPagamento, 'Cheque');
+  assert.equal(titulo.cheque.numeroCheque, '000555', 'sem numero na baixa, o cheque do titulo fica');
+  assert.deepEqual(titulo.baixaManual, { origem: 'contas_pagar', formaPagamento: 'Cheque', dataPagamento: '2026-10-04', valorCentavos: 30000, bancoId: 'b1', movimentoBancoCentavos: -30000 });
+
+  const estorno = s.validarPedidoDeEstorno({ tipo: 'saida', transacaoId: 'c1', motivo: 'cheque voltou sem fundos' }).pedido;
+  await s.registrarEstorno({ user: USER, tenantId: 'emp1', pedido: estorno });
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 100000);
+  const depois = fake.ler('transacoes/c1');
+  assert.equal(depois.status, 'Pendente');
+  assert.equal(depois.formaPagamento, 'Cheque');
+  assert.equal(depois.cheque.numeroCheque, '000555');
+});
+
+test('Pagar: boleto pago com cheque na baixa grava o numero informado, com o banco e a data da baixa', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/t9': { tenantId: 'emp1', tipo: 'saida', status: 'Pendente', descricao: 'Aluguel', valor: 50, valorCentavos: 5000, formaPagamentoPrevista: 'Boleto' },
+    'bancos/b2': { tenantId: 'emp1', nome: 'Itaú', ativo: true, saldoCentavos: 10000 },
+  });
+  const s = carregarServico(fake.db);
+  const pedido = s.validarPedidoDeBaixa({ tipo: 'saida', transacaoId: 't9', formaPagamento: 'Cheque', dataPagamento: HOJE, bancoId: 'b2', numeroCheque: '77' }, HOJE).pedido;
+  await s.registrarBaixa({ user: USER, tenantId: 'emp1', pedido });
+  const titulo = fake.ler('transacoes/t9');
+  assert.deepEqual(titulo.cheque, { numeroCheque: '77', bancoEmissor: 'Itaú', dataCompensacao: HOJE });
+  assert.equal(titulo.formaPagamento, 'Cheque');
+  assert.equal(fake.ler('bancos/b2').saldoCentavos, 5000);
+});

@@ -36,6 +36,8 @@ export interface DadosBaixa {
   valorRecebidoCentavos: number;
   /** Banco escolhido na mesma janela (so' quando a forma pede banco). */
   bancoId?: string;
+  /** Numero do cheque (so' na forma do campo `cheque`, e so' se a pessoa digitou). */
+  numeroCheque?: string;
   /** Forma que EMITE em vez de dar baixa (Boleto): o vencimento escolhido na mesma janela. */
   vencimentoBoleto?: string;
 }
@@ -69,6 +71,17 @@ export interface EscolhaDeBancoNaBaixa {
   formas: string[];
   /** Pergunta mostrada para a forma escolhida (ex.: "Em qual banco caiu?"). */
   rotulo: (forma: string) => string;
+  /** Banco ja' escolhido ao abrir (ex.: o banco do cheque emitido). A pessoa pode trocar. */
+  bancoInicial?: string;
+}
+
+/**
+ * Numero do cheque na mesma janela (Contas a Pagar, 24/11/2026): aparece so'
+ * na forma indicada e e' opcional.
+ */
+export interface NumeroDoChequeNaBaixa {
+  forma: string;
+  inicial?: string;
 }
 
 /** Sugestao de juros e multa para titulo em atraso (parametrosVendaDomain.acrescimoPorAtraso). */
@@ -122,6 +135,8 @@ export const pedirDadosBaixa = async (args: {
   banco?: EscolhaDeBancoNaBaixa;
   /** Forma que emite em vez de dar baixa (Boleto). */
   emissao?: FormaQueEmite;
+  /** Campo opcional "Nº do cheque", so' na forma indicada. */
+  cheque?: NumeroDoChequeNaBaixa;
 }): Promise<DadosBaixa | null> => {
   const hoje = getDateInputInTimeZone();
   const saldo = Math.max(0, Math.round(args.valorCentavos));
@@ -167,7 +182,7 @@ export const pedirDadosBaixa = async (args: {
         <label id="baixa-banco-rotulo" for="baixa-banco" style="${ESTILO_ROTULO}"></label>
         ${args.banco.bancos.length > 0
           ? `<select id="baixa-banco" class="swal2-select" style="${ESTILO_CAMPO}"><option value="">Selecione o banco...</option>${args.banco.bancos
-            .map((b) => `<option value="${escaparHtml(b.id)}">${escaparHtml(b.nome)}</option>`).join('')}</select>`
+            .map((b) => `<option value="${escaparHtml(b.id)}"${b.id === args.banco?.bancoInicial ? ' selected' : ''}>${escaparHtml(b.nome)}</option>`).join('')}</select>`
           : `<div style="text-align:left;font-size:13px;color:#ef4444;margin-top:6px;">Nenhum banco ativo. Cadastre em Cadastros Auxiliares › Bancos.</div>`}
       </div>` : ''}
       ${args.emissao ? `<div id="baixa-bloco-emissao" style="display:none;">
@@ -176,6 +191,10 @@ export const pedirDadosBaixa = async (args: {
         <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">${escaparHtml(args.emissao.texto)}</div>
       </div>` : ''}
       <div id="baixa-campos-baixa">
+      ${args.cheque ? `<div id="baixa-cheque-bloco" style="display:none;">
+        <label for="baixa-cheque" style="${ESTILO_ROTULO}">Nº do cheque (opcional)</label>
+        <input id="baixa-cheque" type="text" maxlength="30" class="swal2-input" value="${escaparHtml(args.cheque.inicial || '')}" style="${ESTILO_CAMPO}" />
+      </div>` : ''}
       <label for="baixa-data" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloData)}</label>
       <input id="baixa-data" type="date" class="swal2-input" value="${hoje}" max="${hoje}" style="${ESTILO_CAMPO}" />
       <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">
@@ -277,6 +296,15 @@ export const pedirDadosBaixa = async (args: {
       };
       document.getElementById('baixa-forma')?.addEventListener('change', mostrarModo);
       mostrarModo();
+      // Numero do cheque: so' na forma Cheque (Contas a Pagar).
+      const mostrarCheque = () => {
+        const bloco = document.getElementById('baixa-cheque-bloco');
+        if (!bloco || !args.cheque) return;
+        const forma = (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.value || '';
+        bloco.style.display = forma === args.cheque.forma ? 'block' : 'none';
+      };
+      document.getElementById('baixa-forma')?.addEventListener('change', mostrarCheque);
+      mostrarCheque();
       // Comeca pela forma (juros/multa/desconto sao o caso menos comum).
       (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.focus();
     },
@@ -312,7 +340,14 @@ export const pedirDadosBaixa = async (args: {
           return false;
         }
       }
-      const comBanco = bancoId ? { bancoId } : {};
+      const numeroCheque = args.cheque && forma === args.cheque.forma
+        ? ((document.getElementById('baixa-cheque') as HTMLInputElement | null)?.value || '').trim()
+        : '';
+      if (numeroCheque && !/^[A-Za-z0-9./ -]{1,30}$/.test(numeroCheque)) {
+        NexusSwal.showValidationMessage('Nº do cheque: use só números e letras (até 30), ou deixe em branco.');
+        return false;
+      }
+      const comBanco = { ...(bancoId ? { bancoId } : {}), ...(numeroCheque ? { numeroCheque } : {}) };
       const erroData = validarDataBaixa(data, hoje);
       if (erroData) {
         NexusSwal.showValidationMessage(erroData);

@@ -96,11 +96,18 @@ import {
   CATEGORIAS_DE_COMPRA,
   conferirParcelas,
   erroDoPagamentoAVista,
+  formaDoPagamentoNaEntrada,
   parcelasIniciais,
   type DestinoDoPagamento,
   type ModoDePagamento,
 } from '../../utils/pagamentoEntradaDomain';
-import { camposDoTituloEmCheque, erroDosCheques, type ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
+import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
+import {
+  camposDoTituloDaParcela,
+  debitosDasParcelasPagas,
+  erroDasParcelasPorForma,
+  parcelaParaRegistro,
+} from '../../utils/despesaParceladaDomain';
 import { compactarXml } from '../../utils/xmlCompactoDomain';
 import { lerNfseXml } from '../../utils/nfseEntradaDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
@@ -1147,12 +1154,11 @@ const EntradaNFE: React.FC = () => {
         showError('Confira as parcelas', conferenciaParcelas.erro);
         return;
       }
-      if (formaPrevista === 'Cheque') {
-        const erroCheques = erroDosCheques(parcelas, bancos);
-        if (erroCheques) {
-          showError('Confira os cheques', erroCheques);
-          return;
-        }
+      // Forma por parcela (24/11/2026): cheque com banco/numero/data; parcela ja' paga com a origem do dinheiro.
+      const erroDasFormas = erroDasParcelasPorForma(parcelas, { formaPadrao: formaPrevista, bancos, hoje: getDateInputInTimeZone() });
+      if (erroDasFormas) {
+        showError('Confira as parcelas', erroDasFormas);
+        return;
       }
       if (conferenciaParcelas.aviso && !parcelasAceitas) {
         showError('As parcelas não fecham com a nota', `${conferenciaParcelas.aviso} Ajuste os valores ou marque "Conferi as parcelas e quero lançar assim".`);
@@ -1258,7 +1264,14 @@ const EntradaNFE: React.FC = () => {
       const idDaNota = idDaNotaDeEntrada(tenantId, nota.chave, lancamentosDaChave);
       const notaRef = idDaNota ? doc(db, 'notas_fiscais_entrada', idDaNota) : doc(collection(db, 'notas_fiscais_entrada'));
       const titulosPagarIds = [...titulosRefs.map((ref) => ref.id), ...(tituloFreteRef ? [tituloFreteRef.id] : [])];
-      const bancoRef = notaGeraContaAPagar && modoPagamentoEfetivo === 'avista' && destinoPagamento === 'banco' ? doc(db, 'bancos', bancoId) : null;
+      // O que sai do banco AGORA: a nota inteira a vista pelo banco, ou as parcelas
+      // marcadas como ja' pagas pelo banco (24/11/2026). Um debito por banco.
+      const debitosDeBanco = !notaGeraContaAPagar
+        ? []
+        : modoPagamentoEfetivo === 'avista'
+          ? (destinoPagamento === 'banco' ? [{ bancoId, centavos: toCents(totalDevido) }] : [])
+          : debitosDasParcelasPagas(parcelas, formaPrevista);
+      const bancosDebitados = debitosDeBanco.map((debito) => ({ ...debito, ref: doc(db, 'bancos', debito.bancoId) }));
       const bancoNome = bancos.find((b) => b.id === bancoId)?.nome || '';
       const xmlCompacto = await compactarXml(parsedData.xmlTexto);
 
@@ -1299,8 +1312,8 @@ const EntradaNFE: React.FC = () => {
         for (const plano of itensPlano) {
           if (plano.vinculado && !snapshots.has(plano.ref.path)) snapshots.set(plano.ref.path, await transaction.get(plano.ref));
         }
-        const bancoSnap = bancoRef ? await transaction.get(bancoRef) : null;
-        if (bancoRef && !bancoSnap?.exists()) {
+        const bancoSnaps = await Promise.all(bancosDebitados.map((debito) => transaction.get(debito.ref)));
+        if (bancoSnaps.some((snap) => !snap.exists())) {
           throw new Error('O banco selecionado não foi encontrado. Atualize a página e tente novamente.');
         }
         for (const plano of itensPlano) {
@@ -1565,16 +1578,12 @@ const EntradaNFE: React.FC = () => {
               : `COMPRA NF ${parsedData.numeroNF} - ${fornecedorMatch.nome}`;
             transaction.set(titulosRefs[indice], {
               descricao: descricaoParcela,
-              data: parcela.vencimento,
-              valor: parcela.valor,
-              valorCentavos: toCents(parcela.valor),
               categoria: categoria.toUpperCase().trim(),
-              status: 'Pendente',
               tipo: 'saida',
-              formaPagamentoPrevista: formaPrevista,
-              // Cheque emitido: o titulo entra na fila de Cheques (Emitidos) e o banco so' e'
-              // debitado quando a compensacao for confirmada la.
-              ...(formaPrevista === 'Cheque' ? camposDoTituloEmCheque(parcela, bancos) : {}),
+              // Forma DA PARCELA (24/11/2026): em aberto (cheque com banco, numero e
+              // data de compensacao; a baixa dele e' no Contas a Pagar) ou ja' paga
+              // (mesmos campos do "A vista"; o banco e' debitado logo abaixo).
+              ...camposDoTituloDaParcela(parcela, { formaPadrao: formaPrevista, bancos }),
               ...(parcelas.length > 1 ? { parcela: indice + 1, totalParcelas: parcelas.length } : {}),
               fornecedorId: fornecedorMatch.id,
               fornecedorNome: fornecedorMatch.nome,
@@ -1597,7 +1606,7 @@ const EntradaNFE: React.FC = () => {
             categoria,
             status: 'Paga',
             tipo: 'saida',
-            formaPagamento: destinoPagamento === 'banco' ? (formaPrevista === 'Dinheiro' ? 'Transferência' : formaPrevista) : 'Dinheiro',
+            formaPagamento: formaDoPagamentoNaEntrada(destinoPagamento, formaPrevista),
             naturezaFinanceira: destinoPagamento === 'banco' ? 'bancario_digital' : 'caixa_fisico',
             movimentaCaixaFisico: destinoPagamento === 'caixa',
             ...(destinoPagamento === 'banco' ? { bancoId, bancoNome } : {}),
@@ -1608,14 +1617,15 @@ const EntradaNFE: React.FC = () => {
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
-          if (bancoRef && bancoSnap) {
-            transaction.update(bancoRef, {
-              saldoCentavos: Number(bancoSnap.data()?.saldoCentavos || 0) - valorCentavos,
-              updatedAt: serverTimestamp(),
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), motivoDoHistorico),
-            });
-          }
         }
+        // Saldo dos bancos: a nota a vista pelo banco, ou as parcelas ja' pagas pelo banco.
+        bancosDebitados.forEach((debito, indice) => {
+          transaction.update(debito.ref, {
+            saldoCentavos: Number(bancoSnaps[indice].data()?.saldoCentavos || 0) - debito.centavos,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), motivoDoHistorico),
+          });
+        });
 
         // Frete de transportadora (ou frete a prazo do fornecedor) vira um titulo
         // SEPARADO, com vencimento proprio. Frete embutido na nota nao passa por
@@ -1663,7 +1673,7 @@ const EntradaNFE: React.FC = () => {
               modo: modoPagamentoEfetivo,
               categoria: categoriaDespesa,
               forma: formaPrevista,
-              parcelas: modoPagamentoEfetivo === 'prazo' ? parcelas : [],
+              parcelas: modoPagamentoEfetivo === 'prazo' ? parcelas.map((parcela) => parcelaParaRegistro(parcela, formaPrevista)) : [],
               ...(modoPagamentoEfetivo === 'avista' ? { destino: destinoPagamento, ...(destinoPagamento === 'banco' ? { bancoId, bancoNome } : {}) } : {}),
             },
             transporte: {
@@ -1681,6 +1691,12 @@ const EntradaNFE: React.FC = () => {
         });
       });
 
+      // Parcelas que ja' entraram pagas (24/11/2026): aparecem no historico e no resumo.
+      const parcelasPagas = notaGeraContaAPagar && modoPagamentoEfetivo === 'prazo' ? parcelas.filter((parcela) => parcela.jaPaga) : [];
+      const textoDasParcelasPagas = parcelasPagas.length > 0
+        ? ` (${parcelasPagas.length} parcela(s) já paga(s), R$ ${(parcelasPagas.reduce((soma, parcela) => soma + toCents(parcela.valor), 0) / 100).toFixed(2)})`
+        : '';
+
       // Cria log de auditoria
       try {
         const { createAuditLog } = await import('../../services/logService');
@@ -1690,7 +1706,7 @@ const EntradaNFE: React.FC = () => {
           usuarioEmail: currentUser?.email || '',
           modulo: 'estoque',
           acao: 'criacao',
-          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas, ${insumosAtualizados} insumos atualizados, ${insumosCriados} novos insumos cadastrados. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamentoEfetivo === 'avista' ? ', paga à vista' : ''}.`,
+          descricao: `Importação de XML NF ${parsedData.numeroNF} (${fornecedorMatch.nome}) realizada. ${pecasAtualizadas} produtos atualizados, ${pecasCriadas} novos produtos cadastrados, ${materiasPrimasAtualizadas} matérias-primas atualizadas, ${materiasPrimasCriadas} novas matérias-primas cadastradas, ${insumosAtualizados} insumos atualizados, ${insumosCriados} novos insumos cadastrados. ${titulosPagarIds.length} título(s) em Contas a Pagar, nota de R$ ${totalDevido.toFixed(2)}${modoPagamentoEfetivo === 'avista' ? ', paga à vista' : ''}${textoDasParcelasPagas}.`,
           // Historico de alteracoes (09/11/2026): na nota de entrada e nos titulos a pagar gerados.
           registroRelacionadoId: notaRef.id,
           documentosRelacionados: titulosPagarIds,
@@ -1729,7 +1745,7 @@ const EntradaNFE: React.FC = () => {
         ...(insumosCriados > 0 ? [`${insumosCriados} insumo(s) novo(s)`] : []),
         ...(itensPlano.some((p) => p.semEstoque) ? [`${itensPlano.filter((p) => p.semEstoque).length} item(ns) só registrado(s), sem estoque (pelo CFOP de entrada)`] : []),
         notaGeraContaAPagar
-          ? `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamentoEfetivo === 'avista' ? ' — nota paga à vista' : ''}`
+          ? `${titulosPagarIds.length} título(s) em Contas a Pagar${freteGeraTituloProprio(frete) ? ' (incluindo o do frete)' : ''}${modoPagamentoEfetivo === 'avista' ? ' — nota paga à vista' : ''}${textoDasParcelasPagas}`
           : `Sem conta a pagar (o CFOP de entrada não gera)${freteGeraTituloProprio(frete) ? '; o título do frete foi lançado' : ''}`,
       ];
       const numeroImportado = parsedData.numeroNF;
@@ -2135,6 +2151,7 @@ const EntradaNFE: React.FC = () => {
                 parcelasAceitas={parcelasAceitas}
                 onAceitarParcelas={setParcelasAceitas}
                 formaNoXml={parsedData.nota.pagamentos.map((p) => `${rotuloDaFormaDePagamento(p.forma)} ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.valor)}`).join(' + ')}
+                formaPorParcela
               />}
 
               {/* Itens da nota: classificacao Revenda/Materia-Prima +

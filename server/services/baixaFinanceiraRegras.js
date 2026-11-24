@@ -22,8 +22,13 @@ class ErroBaixa extends Error {
 }
 
 // As mesmas listas que as telas oferecem. Cheque no Receber NAO passa por
-// aqui: fica Pendente ate' compensar (Financeiro > Cheques).
-const FORMAS_PAGAR = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Outros'];
+// aqui: fica Pendente ate' compensar (Financeiro > Cheques). No Pagar, desde
+// 24/11/2026 o cheque emitido se baixa aqui mesmo (debita o banco na hora; o
+// estorno do Contas a Pagar desfaz pela marca da baixa).
+const FORMAS_PAGAR = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Cheque', 'Outros'];
+
+/** Numero do cheque informado na baixa (opcional): so' digitos, letras, ponto e traco. */
+const NUMERO_CHEQUE_VALIDO = /^[A-Za-z0-9.\-/ ]{1,30}$/;
 const FORMAS_RECEBER = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Outros'];
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
@@ -75,6 +80,12 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
   // ainda e' aceito e vale como juros.
   const { erro: erroAjustes, ajustes } = ajustesDoPedido(corpo);
   if (erroAjustes) return { erro: erroAjustes };
+  // Cheque no Pagar (24/11/2026): numero opcional, guardado no titulo como informacao.
+  const numeroCheque = tipo === 'saida' && formaPagamento === 'Cheque' ? String(corpo.numeroCheque ?? '').trim() : '';
+  if (numeroCheque && !NUMERO_CHEQUE_VALIDO.test(numeroCheque)) {
+    return { erro: 'O número do cheque tem caracteres que não valem. Use só números e letras (até 30).' };
+  }
+
   // Pagamento parcial (16/10/2026): quanto entrou/saiu de fato. Sem ele, quita a conta.
   const valorRecebido = corpo.valorRecebidoCentavos;
   if (valorRecebido !== undefined && valorRecebido !== null && (!Number.isInteger(valorRecebido) || valorRecebido <= 0)) {
@@ -88,6 +99,7 @@ const validarPedidoDeBaixa = (corpo, hoje) => {
       formaPagamento,
       dataPagamento: String(corpo.dataPagamento).trim(),
       ...(bancoId ? { bancoId } : {}),
+      ...(numeroCheque ? { numeroCheque } : {}),
       ...camposDosAjustes(ajustes),
       ...(Number.isInteger(valorRecebido) ? { valorRecebidoCentavos: valorRecebido } : {}),
     },

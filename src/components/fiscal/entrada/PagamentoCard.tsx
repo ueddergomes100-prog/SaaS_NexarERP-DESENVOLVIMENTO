@@ -3,6 +3,7 @@ import { FileText } from 'lucide-react';
 import {
   CATEGORIAS_DE_COMPRA,
   FORMAS_DE_PAGAMENTO,
+  trocarFormaPadrao,
   type DestinoDoPagamento,
   type ModoDePagamento,
 } from '../../../utils/pagamentoEntradaDomain';
@@ -37,13 +38,20 @@ interface PagamentoCardProps {
   onAceitarParcelas: (aceita: boolean) => void;
   /** Forma de pagamento que o XML informou (rotulo), para a pessoa comparar. */
   formaNoXml: string;
+  /**
+   * Cada parcela com a sua forma e a opcao "Ja' paga" (Entrada de NF-e,
+   * 24/11/2026). A "Forma de pagamento" do topo vira a forma PADRAO: trocar
+   * aplica a nova as parcelas que ainda estavam na anterior.
+   */
+  formaPorParcela?: boolean;
 }
 
 const PagamentoCard: React.FC<PagamentoCardProps> = ({
   modo, onModo, parcelas, onParcelas, totalDaNota, dataEmissao, formaPrevista, onFormaPrevista, categoria, onCategoria, categoriasDaEmpresa,
-  destino, onDestino, bancoId, onBancoId, bancos, parcelasAceitas, onAceitarParcelas, formaNoXml,
+  destino, onDestino, bancoId, onBancoId, bancos, parcelasAceitas, onAceitarParcelas, formaNoXml, formaPorParcela = false,
 }) => {
-  // Cheque nunca e' "a vista": o dinheiro so' sai quando o cheque compensa.
+  // Cheque nunca e' "a vista" na nota inteira: o dinheiro so' sai quando o cheque
+  // compensa. Cheque a vista e' a parcela em cheque marcada como "Ja' paga".
   const emCheque = formaPrevista === 'Cheque';
   const modoEfetivo: ModoDePagamento = emCheque ? 'prazo' : modo;
   const opcoesDeCategoria = categoriasDaEmpresa && categoriasDaEmpresa.length > 0 ? categoriasDaEmpresa : [...CATEGORIAS_DE_COMPRA];
@@ -63,8 +71,18 @@ const PagamentoCard: React.FC<PagamentoCardProps> = ({
           </select>
         </div>
         <div className="input-group">
-          <label style={campoLabelStyle}>Forma de pagamento</label>
-          <select value={formaPrevista} onChange={(e) => { onFormaPrevista(e.target.value); if (e.target.value === 'Cheque') onModo('prazo'); }} className="form-select" style={campoInputStyle}>
+          <label style={campoLabelStyle}>{formaPorParcela ? 'Forma de pagamento (padrão das parcelas)' : 'Forma de pagamento'}</label>
+          <select
+            value={formaPrevista}
+            onChange={(e) => {
+              const nova = e.target.value;
+              if (formaPorParcela) onParcelas(trocarFormaPadrao(parcelas, formaPrevista, nova));
+              onFormaPrevista(nova);
+              if (nova === 'Cheque') onModo('prazo');
+            }}
+            className="form-select"
+            style={campoInputStyle}
+          >
             {FORMAS_DE_PAGAMENTO.map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
           </select>
           {formaNoXml && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>A nota informa: {formaNoXml}</span>}
@@ -116,6 +134,7 @@ const PagamentoCard: React.FC<PagamentoCardProps> = ({
           bancos={bancos}
           aceitas={parcelasAceitas}
           onAceitar={onAceitarParcelas}
+          formaPorParcela={formaPorParcela}
         />
       )}
     </div>

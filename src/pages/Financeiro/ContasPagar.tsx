@@ -26,7 +26,18 @@ import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
-import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2 } from 'lucide-react';
+import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2, FileText } from 'lucide-react';
+import RelatorioPreview from '../../components/Reports/RelatorioPreview';
+import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
+import {
+  FORMAS_DO_FILTRO,
+  formaDoTitulo,
+  grupoDaForma,
+  montarDocumentoContasPagar,
+  passaNoFiltroDeForma,
+  resumoAPagarPorForma,
+  rotuloDaFormaDoTitulo,
+} from '../../utils/formaContaPagarDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   ATALHO_VENCIMENTO_PADRAO,
@@ -59,6 +70,8 @@ interface TransacaoData extends TituloParaEstorno {
   tipo: 'entrada' | 'saida';
   status: 'Paga' | 'Pendente' | 'Cancelada';
   formaPagamento?: string;
+  /** Forma prevista no lancamento (nota de entrada, despesa): a coluna "Forma" do titulo em aberto. */
+  formaPagamentoPrevista?: string;
   osId?: string;
   vendaId?: string;
   dataPagamento?: string;
@@ -68,7 +81,7 @@ interface TransacaoData extends TituloParaEstorno {
   fornecedorId?: string | null;
   fornecedorNome?: string;
   /** Cheque emitido para pagar esta despesa (banco, numero, data de compensacao). */
-  cheque?: { numeroCheque?: string; dataCompensacao?: string } | null;
+  cheque?: { numeroCheque?: string; dataCompensacao?: string; bancoEmissor?: string } | null;
   /** Marca da baixa (servidor); desconto obtido na baixa (15/10/2026) e' lancamento de entrada a parte. */
   baixaManual?: { descontoCentavos?: number } | null;
   /** Veiculo da frota (e motorista) a que a despesa pertence. */
@@ -140,6 +153,10 @@ const ContasPagar: React.FC = () => {
    */
   const [atalhoVencimento, setAtalhoVencimento] = useState<AtalhoVencimento>(ATALHO_VENCIMENTO_PADRAO);
   const [agrupar, setAgrupar] = useState(false);
+  // Forma de pagamento (24/11/2026): '' = todas; senao, um grupo de FORMAS_DO_FILTRO.
+  const [formaFiltro, setFormaFiltro] = useState('');
+  // Relatorio em PDF (Mais opcoes › Relatorio): a lista com os filtros da tela.
+  const [previewAberto, setPreviewAberto] = useState(false);
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
   // Desconto na baixa (15/10/2026): permissao propria; dono e administrador ja' tem.
@@ -194,8 +211,8 @@ const ContasPagar: React.FC = () => {
   /**
    * DESPESA PARCELADA E CHEQUE (pedido do dono, 2026-09-24). Lancamento novo pode ser
    * em varias parcelas (cada uma um titulo) e, pagando em Cheque, cada parcela leva o
-   * banco, o numero e a data de compensacao. O cheque so' sai do banco quando a
-   * compensacao e' confirmada em Financeiro > Cheques > Emitidos.
+   * banco, o numero e a data de compensacao. O cheque so' sai do banco quando
+   * alguem da' baixa nele aqui mesmo, no dia em que compensa (24/11/2026).
    */
   const { items: bancosCadastrados } = useTenantCollection<{ id: string; nome?: string; ativo?: boolean }>('bancos', tenantId, { enabled: isModalOpen });
   const bancosParaCheque = bancosCadastrados.filter((b) => b.ativo !== false).map((b) => ({ id: b.id, nome: String(b.nome || '') }));
@@ -243,7 +260,17 @@ const ContasPagar: React.FC = () => {
     fetchConfig();
   }, [currentUser, tenantId]);
 
-  const FORMAS_PAGAMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Outros'];
+  // Cheque (24/11/2026): o cheque emitido se baixa aqui, debitando o banco dele na hora.
+  const FORMAS_PAGAMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Boleto', 'Cheque', 'Outros'];
+  /** Forma que a janela da baixa ja' traz escolhida: a do titulo, quando ela existe na lista. */
+  const formaInicialDaBaixa = (t: TransacaoData): string => {
+    if (t.cheque || t.formaPagamento === 'Cheque') return 'Cheque';
+    const forma = formaDoTitulo(t);
+    if (FORMAS_PAGAMENTO.includes(forma)) return forma;
+    const grupo = grupoDaForma(forma);
+    if (grupo === 'PIX') return 'Pix';
+    return FORMAS_PAGAMENTO.includes(grupo) ? grupo : '';
+  };
 
   const handleConciliar = async (t: TransacaoData) => {
     if (!currentUser || !tenantId) return;
@@ -258,6 +285,10 @@ const ContasPagar: React.FC = () => {
       showError('Não foi possível ler os bancos', 'Confira a internet e tente de novo.');
       return;
     }
+    // Cheque emitido: a janela ja' abre com o banco do cheque (da' para trocar).
+    const bancoDoCheque = t.bancoId
+      || bancosDisponiveis.find((b) => t.cheque?.bancoEmissor && b.nome.trim().toUpperCase() === t.cheque.bancoEmissor.trim().toUpperCase())?.id
+      || '';
     const dados = await pedirDadosBaixa({
       titulo: 'Confirmar Pagamento?',
       texto: `Valor de R$ ${Number(t.valor).toFixed(2)} referente a ${t.descricao}.`,
@@ -269,12 +300,20 @@ const ContasPagar: React.FC = () => {
       bloqueioParcial: bloqueioDoParcial(t as TituloParaParcial),
       podeDescontar,
       formas: FORMAS_PAGAMENTO,
-      formaInicial: t.formaPagamento && FORMAS_PAGAMENTO.includes(t.formaPagamento) ? t.formaPagamento : '',
+      formaInicial: formaInicialDaBaixa(t),
+      // O cheque ja' emitido tem valor escrito: sai inteiro, sem juros, multa, desconto ou parcial.
+      ...(t.cheque ? { formasSemAjuste: ['Cheque'] } : {}),
+      cheque: { forma: 'Cheque', inicial: t.cheque?.numeroCheque || '' },
       rotuloForma: 'Como foi pago?',
       mensagemSemForma: 'Escolha como foi pago antes de confirmar.',
       rotuloData: 'Data do pagamento',
       textoConfirmar: 'Sim, confirmar pagamento',
-      banco: { bancos: bancosDisponiveis, formas: formasComBanco, rotulo: () => 'De qual banco saiu?' },
+      banco: {
+        bancos: bancosDisponiveis,
+        formas: formasComBanco,
+        rotulo: (forma) => (forma === 'Cheque' ? 'De qual banco saiu o cheque?' : 'De qual banco saiu?'),
+        ...(bancoDoCheque ? { bancoInicial: bancoDoCheque } : {}),
+      },
     });
     if (!dados) return;
     const formaPgto = dados.forma;
@@ -290,6 +329,7 @@ const ContasPagar: React.FC = () => {
         formaPagamento: formaPgto,
         dataPagamento,
         ...(bancoId ? { bancoId } : {}),
+        ...(formaPgto === 'Cheque' && dados.numeroCheque ? { numeroCheque: dados.numeroCheque } : {}),
         ajustes: dados.ajustes,
         valorRecebidoCentavos: dados.valorRecebidoCentavos,
         tenantId,
@@ -497,7 +537,7 @@ const ContasPagar: React.FC = () => {
           status: 'sucesso',
         });
         showSuccess(formaDespesa === 'Cheque'
-          ? `${titulos.length} cheque(s) lançado(s)! Confirme a compensação em Financeiro › Cheques › Emitidos.`
+          ? `${titulos.length} cheque(s) lançado(s)! Quando cada cheque compensar, dê baixa nele aqui em Contas a Pagar.`
           : `${titulos.length} parcela(s) lançada(s) em Contas a Pagar!`);
         setIsModalOpen(false);
         return;
@@ -625,25 +665,16 @@ const ContasPagar: React.FC = () => {
           </button>
         </>
       )}
-      {t.formaPagamento === 'Cheque' ? (
-        // Cheque emitido nao se da baixa direto: o banco so' e' debitado quando a compensacao e' confirmada.
-        <button
-          onClick={() => openTab('/financeiro/cheques', 'Cheques')}
-          title="Este título é um cheque emitido. Confirme a compensação em Financeiro > Cheques > Emitidos."
-          style={{ backgroundColor: '#8b5cf6', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
-        >
-          <CheckCircle size={14} /> Cheque nº {t.cheque?.numeroCheque || '-'} — compensar
-        </button>
-      ) : (
+      {/* Cheque emitido (24/11/2026): o mesmo Dar Baixa, ja' em Cheque e no banco do cheque. */}
       <button
         onClick={() => handleConciliar(t)}
+        title={t.formaPagamento === 'Cheque' || t.cheque ? `Cheque nº ${t.cheque?.numeroCheque || '-'}: dê baixa quando ele compensar (o valor sai do banco nessa hora).` : undefined}
         style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
         onMouseOver={(e) => e.currentTarget.style.filter = 'brightness(1.1)'}
         onMouseOut={(e) => e.currentTarget.style.filter = 'brightness(1)'}
       >
         <CheckCircle size={14} /> Dar Baixa
       </button>
-      )}
     </div>
     )
   );
@@ -673,6 +704,7 @@ const ContasPagar: React.FC = () => {
   const titulosFiltrados = transacoes.filter((t) => (
     passaNaSituacaoTitulo(t, hojeStr, situacaoTitulo)
     && passaNoPeriodoDoTitulo(t, situacaoTitulo, filtroDe, filtroAte)
+    && passaNoFiltroDeForma(t, formaFiltro)
   ));
 
   // Conta vencida nunca pode sumir da tela so' porque o filtro de hoje esta
@@ -683,8 +715,10 @@ const ContasPagar: React.FC = () => {
 
   const filtrosAtivos = (situacaoTitulo !== SITUACAO_TITULO_PADRAO ? 1 : 0)
     + (atalhoVencimento !== ATALHO_VENCIMENTO_PADRAO ? 1 : 0)
-    + (atalhoVencimento === 'personalizado' && (periodoDe || periodoAte) ? 1 : 0);
+    + (atalhoVencimento === 'personalizado' && (periodoDe || periodoAte) ? 1 : 0)
+    + (formaFiltro ? 1 : 0);
   const limparFiltros = () => {
+    setFormaFiltro('');
     setSituacaoTitulo(SITUACAO_TITULO_PADRAO);
     setAtalhoVencimento(ATALHO_VENCIMENTO_PADRAO);
     setPeriodoDe('');
@@ -759,7 +793,7 @@ const ContasPagar: React.FC = () => {
     })
     .sort((a, b) => String(a.data || '9999-12-31').localeCompare(String(b.data || '9999-12-31')));
 
-  // ---- Baixa em lote: so' conta em aberto e sem cheque (baixaEmLoteDomain).
+  // ---- Baixa em lote: so' conta em aberto; cheque emitido entra desde 24/11/2026 (baixaEmLoteDomain).
   const elegiveis = new Map(titulosFiltrados.filter((t) => podeEntrarNoLote(t, 'saida')).map((t) => [t.id, t]));
   const idsElegiveisDe = (lista: TransacaoData[]) => lista.filter((t) => elegiveis.has(t.id)).map((t) => t.id);
   const idsElegiveisVisiveis = agrupar
@@ -786,7 +820,7 @@ const ContasPagar: React.FC = () => {
         descricao: t.descricao,
         vencimento: t.data || '',
         valorCentavos: centavosDoTitulo(t),
-        formaPrevista: t.formaPagamento,
+        formaPrevista: formaInicialDaBaixa(t),
       };
     }));
   };
@@ -803,6 +837,10 @@ const ContasPagar: React.FC = () => {
   ) : null);
   const classeDaLinha = (t: TransacaoData) => (selecionados.has(t.id) && elegiveis.has(t.id) ? 'lote-linha-marcada' : undefined);
 
+  // O que a lista mostra agora (filtros + busca): base do resumo por forma e do relatorio.
+  const titulosDaLista = agrupar ? gruposPorFornecedor.flatMap((g) => g.transacoes) : titulosPorVencimento;
+  const resumoPorForma = resumoAPagarPorForma(titulosDaLista);
+
   const toggleGrupoExpandido = (chave: string) => {
     setGruposExpandidos((current) => {
       const next = new Set(current);
@@ -811,6 +849,29 @@ const ContasPagar: React.FC = () => {
       return next;
     });
   };
+
+  if (previewAberto) {
+    const dataBr = (dia: string) => (dia ? dia.split('-').reverse().join('/') : '—');
+    const periodoTexto = filtroDe || filtroAte
+      ? `${listandoPagas ? 'Pago em' : 'Vencimento'} de ${dataBr(filtroDe)} a ${dataBr(filtroAte)}`
+      : ROTULO_ATALHO_VENCIMENTO[atalhoVencimento];
+    const filtrosAplicados = [
+      `Situação: ${ROTULO_SITUACAO_TITULO[situacaoTitulo]}`,
+      `Vencimento: ${ROTULO_ATALHO_VENCIMENTO[atalhoVencimento]}`,
+      `Forma de pagamento: ${formaFiltro || 'Todas'}`,
+      buscaGrupo.trim() ? `Busca: "${buscaGrupo.trim()}"` : '',
+      agrupar ? 'Agrupado por fornecedor na tela' : '',
+    ].filter(Boolean);
+    return (
+      <RelatorioPreview
+        relatorioId="contas-pagar"
+        documento={montarDocumentoContasPagar(titulosDaLista, { filtrosAplicados, periodo: periodoTexto, dataHoje: hojeStr })}
+        nomeArquivo={nomeArquivoRelatorio('Contas a Pagar', filtroDe, filtroAte)}
+        onFechar={() => setPreviewAberto(false)}
+        rotuloFechar="Voltar ao Contas a Pagar"
+      />
+    );
+  }
 
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
@@ -842,6 +903,12 @@ const ContasPagar: React.FC = () => {
           <MenuMaisOpcoes
             itens={[
               { texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-pagar/importar', 'Importar Contas a Pagar') },
+              {
+                texto: 'Relatório', Icone: FileText,
+                titulo: 'Abre em PDF as contas da lista, com os filtros da tela (situação, vencimento, forma e busca). Dali dá para imprimir, salvar o PDF ou salvar em Excel',
+                desabilitado: loading,
+                onClick: () => setPreviewAberto(true),
+              },
             ]}
           />
           <button className="btn-primary" onClick={handleOpenModal} style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)' }}>
@@ -941,7 +1008,23 @@ const ContasPagar: React.FC = () => {
             onChangeAte={setPeriodoAte}
           />
         )}
+        <CampoFiltro rotulo="Forma de pagamento">
+          <select value={formaFiltro} onChange={(e) => setFormaFiltro(e.target.value)} style={estiloCampoFiltro}>
+            <option value="">Todas</option>
+            {FORMAS_DO_FILTRO.map((forma) => <option key={forma} value={forma}>{forma}</option>)}
+          </select>
+        </CampoFiltro>
       </PainelFiltros>
+      {resumoPorForma.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px', margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+          <span style={{ color: 'var(--text-muted)' }}>Em aberto na lista, por forma:</span>
+          {resumoPorForma.map((linha) => (
+            <span key={linha.forma}>
+              {linha.forma} <strong style={{ color: 'var(--text-primary)' }}>{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(linha.centavos / 100))}</strong>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="card lote-tom-saida" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div className="table-wrapper">
@@ -963,16 +1046,17 @@ const ContasPagar: React.FC = () => {
                   <th style={{ padding: '16px' }}>Fornecedor</th>
                   <th style={{ padding: '16px' }}>Descrição</th>
                   <th style={{ padding: '16px' }}>Categoria</th>
+                  <th style={{ padding: '16px' }}>Forma</th>
                   <th style={{ padding: '16px', textAlign: 'right' }}>Valor (R$)</th>
                   <th style={{ padding: '16px', textAlign: 'center' }}>Ação</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td></tr>
+                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: '20px' }}>Carregando contas a pagar...</td></tr>
                 ) : titulosPorVencimento.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                       <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
                       <div>
                         {buscaGrupo.trim()
@@ -1024,6 +1108,7 @@ const ContasPagar: React.FC = () => {
                           {t.categoria}
                         </span>
                       </td>
+                      <td style={{ padding: '16px', fontSize: '13px', color: formaDoTitulo(t) ? 'var(--text-primary)' : 'var(--text-muted)' }}>{rotuloDaFormaDoTitulo(t)}</td>
                       <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: t.status === 'Paga' ? '#10b981' : '#ef4444' }}>
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                       </td>
@@ -1122,6 +1207,7 @@ const ContasPagar: React.FC = () => {
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Vencimento</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Descrição</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Categoria</th>
+                                  <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>Forma</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'right' }}>Valor (R$)</th>
                                   <th style={{ padding: '10px 8px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>Ação</th>
                                 </tr>
@@ -1149,6 +1235,7 @@ const ContasPagar: React.FC = () => {
                                         {t.categoria}
                                       </span>
                                     </td>
+                                    <td style={{ padding: '10px 8px', fontSize: '12.5px', color: formaDoTitulo(t) ? 'var(--text-primary)' : 'var(--text-muted)' }}>{rotuloDaFormaDoTitulo(t)}</td>
                                     <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: t.status === 'Paga' ? '#10b981' : '#ef4444' }}>
                                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                                     </td>

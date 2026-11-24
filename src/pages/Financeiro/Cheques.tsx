@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
-import { compensarChequeRecebido, compensarChequeEmitido } from '../../services/baixaFinanceiraService';
+import { compensarChequeRecebido } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { FileCheck2, CheckCircle, AlertTriangle, Search, FileText } from 'lucide-react';
@@ -36,6 +36,11 @@ const ROTULO_SITUACAO_CHEQUE: Record<SituacaoTitulo, string> = {
 };
 
 /**
+ * So' cheques RECEBIDOS (de clientes), desde 24/11/2026: a aba "Emitidos"
+ * saiu -- o cheque que a empresa emite se baixa direto no Contas a Pagar
+ * (pedido do dono: "ele quer dar baixa e ja' acabar"), e o relatorio dele e'
+ * o do Contas a Pagar filtrado pela forma Cheque.
+ *
  * Fila de cheques Pendentes aguardando compensação -- mesmo padrao de
  * "confirmar depois" que Banco.tsx ja usa pra cartao (confirmarRecebimentoCartao),
  * so trocando o filtro pra formaPagamento === 'Cheque' e usando os campos
@@ -84,11 +89,8 @@ const Cheques: React.FC = () => {
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
   const [processingId, setProcessingId] = useState<string | null>(null);
-  // Relatorio (16/10/2026): a aba aberta, com a situacao, o periodo e a busca da tela.
+  // Relatorio (16/10/2026): os cheques recebidos, com a situacao, o periodo e a busca da tela.
   const [previewAberto, setPreviewAberto] = useState(false);
-  // Recebidos = cheque de cliente (entra no banco ao compensar). Emitidos = cheque que a
-  // empresa deu para pagar despesa (sai do banco ao compensar).
-  const [aba, setAba] = useState<'recebidos' | 'emitidos'>('recebidos');
   const { currentUser, tenantId } = useAuth();
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
@@ -156,44 +158,6 @@ const Cheques: React.FC = () => {
       showSuccess('Cheque compensado! O valor já entrou no saldo do banco.');
     } catch (error) {
       console.error('Erro ao compensar cheque:', error);
-      showError('Erro', error instanceof Error ? error.message : 'Não foi possível confirmar a compensação.');
-    } finally {
-      setProcessingId(null);
-    }
-  };
-
-  /**
-   * Cheque EMITIDO (a empresa deu para pagar despesa): a compensacao e' manual, aqui.
-   * So' agora o banco e' debitado e o titulo vira Pago. A baixa usa a mesma marca do
-   * "Dar Baixa" do Contas a Pagar, entao o estorno funciona igual.
-   */
-  const confirmarCompensacaoEmitido = async (t: TransacaoData) => {
-    if (!tenantId || !currentUser || processingId) return;
-    if (!t.bancoId) {
-      showError('Banco do cheque não informado', 'Este cheque emitido não tem o banco da conta. Lance a despesa de novo informando o banco do cheque.');
-      return;
-    }
-    const escolha = await NexusSwal.fire({
-      title: 'Confirmar compensação do cheque?',
-      html: `O cheque nº <strong>${escaparHtml(t.cheque?.numeroCheque || '-')}</strong> (R$ ${transactionNetAmount(t).toFixed(2)}, "${escaparHtml(t.descricao)}") saiu do banco <strong>${escaparHtml(t.bancoNome || '')}</strong>?<br/><br/>O valor será debitado do saldo do banco. Informe o dia em que compensou:`,
-      icon: 'question',
-      input: 'date',
-      inputValue: getDateInputInTimeZone(),
-      showCancelButton: true,
-      confirmButtonText: 'Sim, compensou',
-      cancelButtonText: 'Cancelar',
-      inputValidator: (valor) => (/^\d{4}-\d{2}-\d{2}$/.test(String(valor || '')) ? undefined : 'Informe a data em que o cheque compensou.'),
-    });
-    if (!escolha.isConfirmed) return;
-    const dataPagamento = String(escolha.value);
-
-    setProcessingId(t.id);
-    try {
-      // Debito no banco + marca de baixa (estornavel) gravados pelo servidor.
-      await compensarChequeEmitido({ transacaoId: t.id, dataPagamento, tenantId });
-      showSuccess('Cheque compensado! O valor já saiu do saldo do banco.');
-    } catch (error) {
-      console.error('Erro ao compensar cheque emitido:', error);
       showError('Erro', error instanceof Error ? error.message : 'Não foi possível confirmar a compensação.');
     } finally {
       setProcessingId(null);
@@ -272,8 +236,8 @@ const Cheques: React.FC = () => {
   };
 
   const hojeStr = getDateInputInTimeZone();
-  // Cada aba enxerga so' os seus: cheque de saida nunca cai na fila de recebimento (creditaria o banco).
-  const transacoesDaAba = transacoes.filter((t) => (t.tipo === 'saida') === (aba === 'emitidos'));
+  // So' os recebidos: cheque de saida nunca cai na fila de recebimento (creditaria o banco).
+  const transacoesDaAba = transacoes.filter((t) => t.tipo !== 'saida');
   const chequesPendentes = transacoesDaAba
     .filter((t) => t.status === 'Pendente')
     .filter((t) => !searchTerm.trim() || `${t.descricao} ${t.clienteNome || t.fornecedorNome || ''} ${t.cheque?.numeroCheque || ''}`.toLowerCase().includes(searchTerm.trim().toLowerCase()));
@@ -297,7 +261,6 @@ const Cheques: React.FC = () => {
   const totalPendente = chequesPendentes.reduce((acc, t) => acc + transactionNetAmount(t), 0);
 
   if (previewAberto) {
-    const emitidos = aba === 'emitidos';
     const periodoTexto = periodoDe || periodoAte
       ? `${situacaoCheque === 'pagas' ? 'Compensados' : 'Bom para'} de ${periodoDe ? periodoDe.split('-').reverse().join('/') : '—'} a ${periodoAte ? periodoAte.split('-').reverse().join('/') : '—'}`
       : ROTULO_SITUACAO_CHEQUE[situacaoCheque];
@@ -309,7 +272,7 @@ const Cheques: React.FC = () => {
     ].filter(Boolean);
     return (
       <RelatorioPreview
-        relatorioId={emitidos ? 'cheques-emitidos' : 'cheques-recebidos'}
+        relatorioId="cheques-recebidos"
         documento={montarDocumentoCheques(
           chequesLista.map((t) => ({
             id: t.id,
@@ -326,9 +289,9 @@ const Cheques: React.FC = () => {
             dataPagamento: t.dataPagamento || '',
             valorCentavos: transactionNetCents(t),
           })),
-          { emitidos, filtrosAplicados, periodo: periodoTexto, dataHoje: hojeStr },
+          { emitidos: false, filtrosAplicados, periodo: periodoTexto, dataHoje: hojeStr },
         )}
-        nomeArquivo={nomeArquivoRelatorio(emitidos ? 'Cheques Emitidos' : 'Cheques Recebidos', periodoDe, periodoAte)}
+        nomeArquivo={nomeArquivoRelatorio('Cheques Recebidos', periodoDe, periodoAte)}
         onFechar={() => setPreviewAberto(false)}
         rotuloFechar="Voltar aos cheques"
       />
@@ -345,16 +308,14 @@ const Cheques: React.FC = () => {
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700 }}>Cheques</h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>
-            {aba === 'recebidos'
-              ? 'Cheques recebidos aguardando compensação -- entram no banco só quando confirmados aqui'
-              : 'Cheques emitidos para pagar despesas -- saem do banco só quando você confirma a compensação aqui'}
+            Cheques recebidos aguardando compensação -- entram no banco só quando confirmados aqui
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <MenuMaisOpcoes
           itens={[{
             texto: 'Relatório', Icone: FileText,
-            titulo: 'Abre em PDF os cheques da aba e dos filtros da tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+            titulo: 'Abre em PDF os cheques recebidos com os filtros da tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
             desabilitado: loading,
             onClick: () => setPreviewAberto(true),
           }]}
@@ -363,28 +324,13 @@ const Cheques: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
           <FileCheck2 size={24} color="#8b5cf6" />
           <div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{aba === 'recebidos' ? 'Total a compensar' : 'Total a sair do banco'}</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total a compensar</div>
             <div style={{ fontSize: '20px', fontWeight: 700, color: '#8b5cf6' }}>
               {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente))}
             </div>
           </div>
         </div>
         </div>
-      </div>
-
-      <div role="tablist" style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        {([['recebidos', 'Recebidos (de clientes)'], ['emitidos', 'Emitidos (para pagar despesas)']] as const).map(([chave, rotulo]) => (
-          <button
-            key={chave}
-            type="button"
-            role="tab"
-            aria-selected={aba === chave}
-            onClick={() => setAba(chave)}
-            style={{ padding: '10px 18px', borderRadius: 'var(--radius-md)', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', backgroundColor: aba === chave ? 'var(--accent-purple)' : 'var(--bg-secondary)' }}
-          >
-            {rotulo}
-          </button>
-        ))}
       </div>
 
       {chequesVencendoEmBreve.length > 0 && (
@@ -431,9 +377,9 @@ const Cheques: React.FC = () => {
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th style={{ padding: '16px' }}>{aba === 'recebidos' ? 'Cliente/Fornecedor' : 'Fornecedor'}</th>
+                <th style={{ padding: '16px' }}>Cliente/Fornecedor</th>
                 <th style={{ padding: '16px' }}>Descrição</th>
-                <th style={{ padding: '16px' }}>{aba === 'recebidos' ? 'Banco emissor' : 'Banco da empresa'}</th>
+                <th style={{ padding: '16px' }}>Banco emissor</th>
                 <th style={{ padding: '16px' }}>Nº cheque</th>
                 <th style={{ padding: '16px' }}>Compensação prevista</th>
                 <th style={{ padding: '16px', textAlign: 'right' }}>Valor (R$)</th>
@@ -449,7 +395,7 @@ const Cheques: React.FC = () => {
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={48} color="#10b981" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                    <div>{searchTerm.trim() || filtrosAtivos > 0 ? 'Nenhum cheque encontrado com essa busca e esses filtros.' : (aba === 'recebidos' ? 'Nenhum cheque aguardando compensação no momento.' : 'Nenhum cheque emitido aguardando compensação. Eles nascem ao lançar uma despesa (ou uma nota de entrada) pagando em cheque.')}</div>
+                    <div>{searchTerm.trim() || filtrosAtivos > 0 ? 'Nenhum cheque encontrado com essa busca e esses filtros.' : 'Nenhum cheque aguardando compensação no momento.'}</div>
                   </td>
                 </tr>
               ) : (
@@ -461,7 +407,7 @@ const Cheques: React.FC = () => {
                     <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: vencido ? 'rgba(239, 68, 68, 0.06)' : venceLogo ? 'rgba(245, 158, 11, 0.06)' : undefined }}>
                       <td style={{ padding: '16px', fontWeight: 600 }}>{t.clienteNome || t.fornecedorNome || 'Não identificado'}</td>
                       <td style={{ padding: '16px' }}>{t.descricao}</td>
-                      <td style={{ padding: '16px' }}>{t.tipo === 'saida' ? (t.bancoNome || t.cheque?.bancoEmissor || '-') : (t.cheque?.bancoEmissor || '-')}</td>
+                      <td style={{ padding: '16px' }}>{t.cheque?.bancoEmissor || '-'}</td>
                       <td style={{ padding: '16px' }}>{t.cheque?.numeroCheque || '-'}</td>
                       <td style={{ padding: '16px' }}>
                         {t.dataPrevistaRecebimento ? (
@@ -482,26 +428,26 @@ const Cheques: React.FC = () => {
                           </span>
                         ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                          {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'em_carteira' && (
+                          {situacaoDoCheque(t) !== 'em_carteira' && (
                             <span style={{ fontSize: '11px', fontWeight: 700, color: situacaoDoCheque(t) === 'devolvido' ? '#ef4444' : '#f59e0b' }}>
                               {ROTULO_SITUACAO_CHEQUE_RECEBIDO[situacaoDoCheque(t)]}{situacaoDoCheque(t) === 'depositado' && t.bancoNome ? ` · ${t.bancoNome}` : ''}
                             </span>
                           )}
                           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
                             <button
-                              onClick={() => (t.tipo === 'saida' ? confirmarCompensacaoEmitido(t) : confirmarCompensacao(t))}
+                              onClick={() => confirmarCompensacao(t)}
                               disabled={processingId === t.id}
                               style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: processingId === t.id ? 0.6 : 1 }}
                             >
                               <CheckCircle size={14} /> {processingId === t.id ? 'Confirmando...' : 'Confirmar compensação'}
                             </button>
-                            {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'depositado' && (
+                            {situacaoDoCheque(t) !== 'depositado' && (
                               <button type="button" onClick={() => void depositar(t)} disabled={processingId === t.id} className="btn-secondary" title="Levou o cheque ao banco: fica aguardando a compensação" style={{ padding: '6px 10px', fontSize: '12px' }}>Depositar</button>
                             )}
-                            {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'devolvido' && (
+                            {situacaoDoCheque(t) !== 'devolvido' && (
                               <button type="button" onClick={() => void devolver(t)} disabled={processingId === t.id} className="btn-secondary" title="O banco devolveu o cheque; o cliente continua devendo" style={{ padding: '6px 10px', fontSize: '12px', color: '#ef4444' }}>Devolvido</button>
                             )}
-                            {t.tipo !== 'saida' && situacaoDoCheque(t) !== 'em_carteira' && (
+                            {situacaoDoCheque(t) !== 'em_carteira' && (
                               <button type="button" onClick={() => void voltarCarteira(t)} disabled={processingId === t.id} className="btn-secondary" title="Desfaz a marca de depositado/devolvido" style={{ padding: '6px 10px', fontSize: '12px' }}>Voltar à carteira</button>
                             )}
                           </div>

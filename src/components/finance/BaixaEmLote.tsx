@@ -167,7 +167,7 @@ const TEXTOS: Record<TipoDoLote, {
     banco: 'De qual banco saiu?',
     semBanco: 'Escolha de qual banco saiu.',
     confirmar: (n) => (n === 1 ? 'Confirmar pagamento' : `Confirmar pagamento de ${n} contas`),
-    foraDoLote: 'Cheque emitido não entra no lote: a baixa dele sai na compensação, em Financeiro › Cheques.',
+    foraDoLote: 'Só contas em aberto entram no lote. Cheque emitido entra: escolha "Cheque" e o banco de onde saiu, no dia em que compensou.',
   },
 };
 

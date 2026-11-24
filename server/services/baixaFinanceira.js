@@ -215,6 +215,17 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       ...(descontoRef ? { descontoCentavos, descontoTransacaoId: descontoRef.id } : {}),
     };
     const textoDosAjustes = descricaoDosAjustes(ajustes);
+    // Cheque no Pagar (24/11/2026): o numero informado na baixa fica no titulo
+    // (banco e data de compensacao = os da baixa). Sem numero, o cheque que o
+    // titulo ja' tinha (lancado na despesa/nota) fica como esta'.
+    const chequeDaBaixa = tipo === 'saida' && formaPagamento === 'Cheque' && pedido.numeroCheque
+      ? {
+        ...(dados.cheque && typeof dados.cheque === 'object' ? dados.cheque : {}),
+        numeroCheque: pedido.numeroCheque,
+        bancoEmissor: bancoNome || (dados.cheque && dados.cheque.bancoEmissor) || '',
+        dataCompensacao: dataPagamento,
+      }
+      : null;
 
     /** Lancamento da baixa (juros/multa ou desconto): pago, mesma forma, data e banco do titulo. */
     const lancamentoDaBaixa = ({ tipoDoLancamento, categoria, descricao, valor, ligacao, motivo }) => {
@@ -314,6 +325,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         ...(banco ? { bancoId, bancoNome } : {}),
         // So' este vinculo: `sourcePaymentTransactionId` marca recebimento com credito (sem estorno).
         parcialDaTransacaoId: titulo.ref.id,
+        ...(chequeDaBaixa ? { cheque: chequeDaBaixa } : {}),
         ...marcaDoAcerto,
         baixaManual: {
           ...montarBaixaManual({
@@ -375,6 +387,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         dataPagamento,
         valorCentavos,
         ...(banco ? { bancoId, bancoNome } : {}),
+        ...(chequeDaBaixa ? { cheque: chequeDaBaixa } : {}),
         // Acerto: guarda a forma que a conta tinha, para o desfazer nao deixar "Acerto com Fornecedor" numa conta em aberto.
         ...(marcaDoAcerto.acertoFornecedor ? { ...marcaDoAcerto, formaAntesDoAcerto: dados.formaPagamento || null } : {}),
         baixaManual: {

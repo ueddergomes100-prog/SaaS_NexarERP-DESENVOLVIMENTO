@@ -10,18 +10,19 @@ import {
   resumoDoLote,
 } from '../src/utils/baixaEmLoteDomain';
 
-test('quem entra no lote: so em aberto, nunca cheque; no Receber nunca cartao', () => {
+test('quem entra no lote: so em aberto; no Receber nunca cheque nem cartao; no Pagar cheque entra (24/11/2026)', () => {
   assert.equal(podeEntrarNoLote({ status: 'Pendente', formaPagamento: 'Boleto' }, 'saida'), true);
   assert.equal(podeEntrarNoLote({ status: 'Paga', formaPagamento: 'Boleto' }, 'saida'), false);
-  assert.equal(podeEntrarNoLote({ status: 'Pendente', formaPagamento: 'Cheque' }, 'saida'), false, 'cheque emitido: compensacao');
+  assert.equal(podeEntrarNoLote({ status: 'Pendente', formaPagamento: 'Cheque' }, 'saida'), true, 'cheque emitido: baixa direto no Contas a Pagar');
+  assert.equal(podeEntrarNoLote({ status: 'Paga', formaPagamento: 'Cheque' }, 'saida'), false);
   assert.equal(podeEntrarNoLote({ status: 'Pendente', formaPagamento: 'Cheque' }, 'entrada'), false, 'cheque recebido: compensacao');
   assert.equal(podeEntrarNoLote({ status: 'Pendente', formaPagamento: 'Cartão de Crédito' }, 'entrada'), false, 'cartao concilia no Banco');
   assert.equal(podeEntrarNoLote({ status: 'Pendente', formaPagamento: 'Cartão de Crédito' }, 'saida'), true);
   assert.equal(podeEntrarNoLote({ status: 'Pendente' }, 'entrada'), true, 'sem forma gravada entra');
 });
 
-test('formas: as mesmas do servidor, sem cheque', () => {
-  assert.ok(!FORMAS_DA_BAIXA_EM_LOTE.saida.includes('Cheque'));
+test('formas: as mesmas do servidor; cheque so no Pagar', () => {
+  assert.ok(FORMAS_DA_BAIXA_EM_LOTE.saida.includes('Cheque'));
   assert.ok(!FORMAS_DA_BAIXA_EM_LOTE.entrada.includes('Cheque'));
   assert.ok(FORMAS_DA_BAIXA_EM_LOTE.saida.includes('Boleto'));
   assert.ok(!FORMAS_DA_BAIXA_EM_LOTE.entrada.includes('Boleto'));

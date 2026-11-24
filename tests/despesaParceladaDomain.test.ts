@@ -2,11 +2,21 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   aplicarChequesNasParcelas,
+  aplicarChequesNasParcelasEmCheque,
   erroDosCheques,
   montarChequeDaParcela,
   numerarCheques,
 } from '../src/utils/chequeEmitidoDomain';
-import { avisoDeSoma, erroDaDespesa, montarTitulosDaDespesa, type DadosDaDespesa } from '../src/utils/despesaParceladaDomain';
+import {
+  avisoDeSoma,
+  camposDoTituloDaParcela,
+  debitosDasParcelasPagas,
+  erroDaDespesa,
+  erroDasParcelasPorForma,
+  montarTitulosDaDespesa,
+  parcelaParaRegistro,
+  type DadosDaDespesa,
+} from '../src/utils/despesaParceladaDomain';
 import { dividirEmParcelas } from '../src/utils/pagamentoEntradaDomain';
 
 const bancos = [{ id: 'b1', nome: 'SICOOB' }, { id: 'b2', nome: 'ITAU' }];
@@ -107,4 +117,97 @@ test('veículo e motorista da frota vão junto quando informados', () => {
     dividirEmParcelas(50, 1, '2026-10-10'), bancos, 'g',
   );
   assert.deepEqual([titulo.veiculoId, titulo.veiculoNome, titulo.veiculoPlaca, titulo.motoristaId, titulo.motoristaNome], ['v1', 'VW DELIVERY', 'ABC1D23', 'm1', 'JOSE']);
+});
+
+// ---------------------------------------------------------------------------
+// Forma por parcela e parcela já paga (entrada de nota, 24/11/2026)
+// ---------------------------------------------------------------------------
+
+const HOJE = '2026-11-24';
+const opcoes = { formaPadrao: 'Boleto', bancos };
+const semUndefined = (objeto: object) => !Object.values(objeto).includes(undefined);
+
+test('parcelas por forma: cheque a compensar pede banco e número; já paga pede a origem e não aceita data futura', () => {
+  const boleto = { numero: '1', vencimento: '2026-12-24', valor: 100 };
+  assert.equal(erroDasParcelasPorForma([boleto], { ...opcoes, hoje: HOJE }), null);
+  assert.match(String(erroDasParcelasPorForma([{ ...boleto, forma: 'Cheque' }], { ...opcoes, hoje: HOJE })), /Escolha o banco do cheque da parcela 1/);
+  assert.match(String(erroDasParcelasPorForma([{ ...boleto, forma: 'Bitcoin' }], { ...opcoes, hoje: HOJE })), /Escolha a forma de pagamento da parcela 1/);
+  const paga = { numero: '2', vencimento: HOJE, valor: 50, jaPaga: true, forma: 'PIX' };
+  assert.match(String(erroDasParcelasPorForma([paga], { ...opcoes, hoje: HOJE })), /de qual banco saiu o pagamento da parcela 2/);
+  assert.equal(erroDasParcelasPorForma([{ ...paga, bancoId: 'b1' }], { ...opcoes, hoje: HOJE }), null);
+  assert.equal(erroDasParcelasPorForma([{ ...paga, destino: 'caixa' as const }], { ...opcoes, hoje: HOJE }), null);
+  assert.match(String(erroDasParcelasPorForma([{ ...paga, bancoId: 'b1', vencimento: '2026-11-25' }], { ...opcoes, hoje: HOJE })), /data é futura/);
+  // Cheque à vista: banco obrigatório, número opcional.
+  const chequeAVista = { numero: '3', vencimento: HOJE, valor: 50, jaPaga: true, forma: 'Cheque' };
+  assert.match(String(erroDasParcelasPorForma([chequeAVista], { ...opcoes, hoje: HOJE })), /de qual banco saiu o cheque da parcela 3/);
+  assert.equal(erroDasParcelasPorForma([{ ...chequeAVista, bancoId: 'b1' }], { ...opcoes, hoje: HOJE }), null);
+  // Número repetido no mesmo banco, contando o cheque já pago.
+  const aCompensar = { numero: '4', vencimento: '2026-12-24', valor: 50, forma: 'Cheque', bancoId: 'b1', numeroCheque: '10' };
+  assert.match(String(erroDasParcelasPorForma([{ ...chequeAVista, bancoId: 'b1', numeroCheque: '10' }, aCompensar], { ...opcoes, hoje: HOJE })), /aparece mais de uma vez/);
+});
+
+test('título da parcela em aberto: boleto grava a forma; cheque leva banco, cheque e data de compensação', () => {
+  const boleto = camposDoTituloDaParcela({ numero: '1', vencimento: '2026-12-24', valor: 100.005 }, opcoes);
+  assert.equal(boleto.status, 'Pendente');
+  assert.equal(boleto.formaPagamento, 'Boleto');
+  assert.equal(boleto.formaPagamentoPrevista, 'Boleto');
+  assert.equal(boleto.data, '2026-12-24');
+  assert.equal(boleto.valorCentavos, 10001);
+  assert.ok(semUndefined(boleto));
+  const cheque = camposDoTituloDaParcela({ numero: '2', vencimento: '2027-01-24', valor: 80, forma: 'Cheque', bancoId: 'b2', numeroCheque: '555' }, opcoes);
+  assert.equal(cheque.status, 'Pendente');
+  assert.equal(cheque.formaPagamento, 'Cheque');
+  assert.equal(cheque.formaPagamentoPrevista, 'Cheque');
+  assert.deepEqual('cheque' in cheque ? cheque.cheque : null, { bancoEmissor: 'ITAU', numeroCheque: '555', dataCompensacao: '2027-01-24' });
+  assert.equal('bancoNome' in cheque ? cheque.bancoNome : '', 'ITAU');
+  assert.ok(semUndefined(cheque));
+});
+
+test('título da parcela já paga: mesmos campos do "À vista" (forma, natureza, banco) e data do pagamento', () => {
+  const caixa = camposDoTituloDaParcela({ numero: '1', vencimento: HOJE, valor: 30, jaPaga: true, forma: 'Dinheiro' }, opcoes);
+  assert.equal(caixa.status, 'Paga');
+  assert.equal(caixa.dataPagamento, HOJE);
+  assert.equal(caixa.formaPagamento, 'Dinheiro');
+  assert.equal('naturezaFinanceira' in caixa ? caixa.naturezaFinanceira : '', 'caixa_fisico');
+  assert.equal('movimentaCaixaFisico' in caixa ? caixa.movimentaCaixaFisico : null, true);
+  assert.equal('bancoId' in caixa, false);
+  assert.ok(semUndefined(caixa));
+  const pix = camposDoTituloDaParcela({ numero: '2', vencimento: HOJE, valor: 30, jaPaga: true, forma: 'PIX', destino: 'banco', bancoId: 'b1' }, opcoes);
+  assert.equal(pix.formaPagamento, 'PIX');
+  assert.equal('bancoNome' in pix ? pix.bancoNome : '', 'SICOOB');
+  assert.equal('naturezaFinanceira' in pix ? pix.naturezaFinanceira : '', 'bancario_digital');
+  const chequeAVista = camposDoTituloDaParcela({ numero: '3', vencimento: HOJE, valor: 30, jaPaga: true, forma: 'Cheque', bancoId: 'b2', numeroCheque: '77' }, opcoes);
+  assert.equal(chequeAVista.status, 'Paga');
+  assert.equal(chequeAVista.formaPagamento, 'Cheque');
+  assert.deepEqual('cheque' in chequeAVista ? chequeAVista.cheque : null, { bancoEmissor: 'ITAU', numeroCheque: '77', dataCompensacao: HOJE });
+  const semNumero = camposDoTituloDaParcela({ numero: '4', vencimento: HOJE, valor: 30, jaPaga: true, forma: 'Cheque', bancoId: 'b2' }, opcoes);
+  assert.equal('cheque' in semNumero, false, 'sem número, não inventa cheque');
+  assert.ok(semUndefined(semNumero));
+  assert.throws(() => camposDoTituloDaParcela({ numero: '5', vencimento: HOJE, valor: 30, jaPaga: true, forma: 'PIX' }, opcoes), /de qual banco saiu/);
+});
+
+test('débitos das parcelas pagas: soma por banco; caixa e em aberto não debitam banco', () => {
+  const debitos = debitosDasParcelasPagas([
+    { numero: '1', vencimento: HOJE, valor: 10.1, jaPaga: true, forma: 'PIX', bancoId: 'b1' },
+    { numero: '2', vencimento: HOJE, valor: 20.2, jaPaga: true, forma: 'Cheque', bancoId: 'b1' },
+    { numero: '3', vencimento: HOJE, valor: 5, jaPaga: true, forma: 'Dinheiro', bancoId: 'b2' },
+    { numero: '4', vencimento: '2026-12-24', valor: 99, forma: 'Cheque', bancoId: 'b2', numeroCheque: '1' },
+  ], 'Boleto');
+  assert.deepEqual(debitos, [{ bancoId: 'b1', centavos: 3030 }]);
+});
+
+test('parcela no registro da nota: só o que existe', () => {
+  assert.deepEqual(parcelaParaRegistro({ numero: '1', vencimento: '2026-12-24', valor: 10, bancoId: 'b1', numeroCheque: '9' }, 'Boleto'), { numero: '1', vencimento: '2026-12-24', valor: 10, forma: 'Boleto' });
+  assert.deepEqual(parcelaParaRegistro({ numero: '2', vencimento: HOJE, valor: 10, jaPaga: true, forma: 'Cheque', bancoId: 'b1', numeroCheque: '9' }, 'Boleto'), { numero: '2', vencimento: HOJE, valor: 10, forma: 'Cheque', jaPaga: true, destino: 'banco', bancoId: 'b1', numeroCheque: '9' });
+  assert.deepEqual(parcelaParaRegistro({ numero: '3', vencimento: HOJE, valor: 10, jaPaga: false, destino: 'caixa' }, 'PIX'), { numero: '3', vencimento: HOJE, valor: 10, forma: 'PIX' });
+});
+
+test('atalho dos cheques com forma por parcela: só as parcelas em cheque recebem banco e numeração', () => {
+  const parcelas = [
+    { numero: '1', vencimento: '2026-12-24', valor: 10 },
+    { numero: '2', vencimento: '2027-01-24', valor: 10, forma: 'Cheque' },
+    { numero: '3', vencimento: '2027-02-24', valor: 10, forma: 'Cheque' },
+  ];
+  const aplicadas = aplicarChequesNasParcelasEmCheque(parcelas, 'Boleto', 'b1', '100');
+  assert.deepEqual(aplicadas.map((p) => [p.bancoId ?? null, p.numeroCheque ?? null]), [[null, null], ['b1', '100'], ['b1', '101']]);
 });

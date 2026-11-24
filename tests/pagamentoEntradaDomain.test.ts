@@ -2,10 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   conferirParcelas,
+  destinoDaParcelaPaga,
   diasAteVencer,
   dividirEmParcelas,
   erroDoPagamentoAVista,
+  formaDaParcela,
+  formaDoPagamentoNaEntrada,
   parcelasIniciais,
+  redistribuirValores,
+  trocarFormaPadrao,
 } from '../src/utils/pagamentoEntradaDomain';
 
 test('parcelas iniciais: usa as duplicatas do XML; sem duplicata, uma parcela em 30 dias', () => {
@@ -53,4 +58,42 @@ test('dias até vencer e pagamento à vista sem banco', () => {
   assert.match(String(erroDoPagamentoAVista({ destino: 'banco', bancoId: '' })), /Escolha de qual banco/);
   assert.equal(erroDoPagamentoAVista({ destino: 'banco', bancoId: 'b1' }), null);
   assert.equal(erroDoPagamentoAVista({ destino: 'caixa', bancoId: '' }), null);
+});
+
+test('forma por parcela (24/11/2026): a da parcela, ou a padrão; trocar a padrão leva junto só quem estava nela', () => {
+  assert.equal(formaDaParcela({}, 'Boleto'), 'Boleto');
+  assert.equal(formaDaParcela({ forma: ' ' }, 'Boleto'), 'Boleto');
+  assert.equal(formaDaParcela({ forma: 'Cheque' }, 'Boleto'), 'Cheque');
+  const parcelas = [
+    { numero: '1', vencimento: '2026-12-01', valor: 50 },
+    { numero: '2', vencimento: '2027-01-01', valor: 50, forma: 'Cheque' },
+    { numero: '3', vencimento: '2027-02-01', valor: 50, forma: 'Boleto' },
+  ];
+  assert.deepEqual(trocarFormaPadrao(parcelas, 'Boleto', 'PIX').map((p) => p.forma), ['PIX', 'Cheque', 'PIX']);
+});
+
+test('redistribuir valores: reparte o total e mantém datas e formas', () => {
+  const parcelas = [
+    { numero: '1', vencimento: '2026-12-01', valor: 1, forma: 'Cheque' },
+    { numero: '2', vencimento: '2027-01-01', valor: 1 },
+    { numero: '3', vencimento: '2027-02-01', valor: 1 },
+  ];
+  const novas = redistribuirValores(parcelas, 100);
+  assert.deepEqual(novas.map((p) => p.valor), [33.34, 33.33, 33.33]);
+  assert.equal(novas[0].forma, 'Cheque');
+  assert.equal(novas[2].vencimento, '2027-02-01');
+  assert.deepEqual(redistribuirValores([], 100), []);
+});
+
+test('parcela já paga: cheque sai do banco; dinheiro do caixa (se nada escolhido); o resto do banco', () => {
+  assert.equal(destinoDaParcelaPaga({ forma: 'Cheque', destino: 'caixa' }, 'Boleto'), 'banco');
+  assert.equal(destinoDaParcelaPaga({ forma: 'Dinheiro' }, 'Boleto'), 'caixa');
+  assert.equal(destinoDaParcelaPaga({}, 'PIX'), 'banco');
+  assert.equal(destinoDaParcelaPaga({ forma: 'PIX', destino: 'caixa' }, 'Boleto'), 'caixa');
+});
+
+test('forma gravada no que já nasce pago: caixa = Dinheiro; banco = a forma (dinheiro do banco = Transferência)', () => {
+  assert.equal(formaDoPagamentoNaEntrada('caixa', 'PIX'), 'Dinheiro');
+  assert.equal(formaDoPagamentoNaEntrada('banco', 'PIX'), 'PIX');
+  assert.equal(formaDoPagamentoNaEntrada('banco', 'Dinheiro'), 'Transferência');
 });

@@ -19,8 +19,12 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import CadastroRapidoProdutoModal, { type ProdutoCadastradoRapido } from '../../components/common/CadastroRapidoProdutoModal';
 import { calcularValorTotalNotaAvulsa, custoUnitarioComRateio, itemNotaAvulsaValido, quantidadeEstoqueNotaAvulsaItem, ratearValorPorPesos, type NotaAvulsaItem } from '../../utils/notaAvulsaDomain';
-import { getDateInputInTimeZone, addDaysToDateInput, addMonthsToDateInput } from '../../utils/dateTime';
-import { toCents, splitCents } from '../../utils/financeDomain';
+import { getDateInputInTimeZone, addDaysToDateInput } from '../../utils/dateTime';
+import { toCents } from '../../utils/financeDomain';
+import ParcelasEditor from '../../components/financeiro/ParcelasEditor';
+import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
+import { conferirParcelas, FORMAS_DE_PAGAMENTO, redistribuirValores, trocarFormaPadrao } from '../../utils/pagamentoEntradaDomain';
+import { camposDoTituloDaParcela, debitosDasParcelasPagas, erroDasParcelasPorForma, parcelaParaRegistro } from '../../utils/despesaParceladaDomain';
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { acompanharCatalogo, acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
@@ -88,8 +92,9 @@ const NotaAvulsaForm: React.FC = () => {
   const [destinoPagamento, setDestinoPagamento] = useState<'caixa' | 'banco'>('caixa');
   const [bancos, setBancos] = useState<BancoBasico[]>([]);
   const [bancoId, setBancoId] = useState('');
-  const [dataVencimento, setDataVencimento] = useState('');
-  const [numeroParcelas, setNumeroParcelas] = useState('1');
+  // Fica pendente: parcelas com forma propria (24/11/2026). Comeca com uma, em 30 dias.
+  const [parcelas, setParcelas] = useState<ParcelaComCheque[]>(() => [{ numero: '1', vencimento: addDaysToDateInput(getDateInputInTimeZone(), 30), valor: 0 }]);
+  const [formaPadraoParcelas, setFormaPadraoParcelas] = useState<string>('Boleto');
   const [observacao, setObservacao] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
@@ -155,19 +160,13 @@ const NotaAvulsaForm: React.FC = () => {
   }, [tenantId]);
 
   // Padrao de boleto: 30 dias da data de hoje (mesmo prazo padrao usado no
-  // crediario de venda). So vale pro 1o vencimento -- o usuario ainda pode
-  // trocar livremente, e as parcelas seguintes continuam 1 mes de calendario
-  // apos essa data.
-  useEffect(() => {
-    setDataVencimento(addDaysToDateInput(getDateInputInTimeZone(), 30));
-  }, []);
+  // crediario de venda) -- a primeira parcela ja' nasce assim (estado acima);
+  // o usuario troca livremente e divide em N parcelas no editor.
 
   const valorItens = useMemo(() => calcularValorTotalNotaAvulsa(itens), [itens]);
   const freteValor = Number(frete.replace(',', '.')) || 0;
   const descontoValor = Number(desconto.replace(',', '.')) || 0;
   const valorTotal = Math.max(0, valorItens + freteValor - descontoValor);
-
-  const numeroParcelasValido = Math.max(1, Number.parseInt(numeroParcelas, 10) || 1);
 
   /** Itens com a parte do frete/desconto ja distribuida em cada um. Fica
    * aqui (e nao so dentro do save) porque a tabela mostra o CMV ao vivo --
@@ -185,49 +184,38 @@ const NotaAvulsaForm: React.FC = () => {
     }));
   }, [itens, freteValor, descontoValor]);
 
-  /** Ajuste manual de uma parcela (valor e/ou data) -- por numero da
-   * parcela, nao por indice de array, pra sobreviver a re-renders. Limpo
-   * sempre que o NUMERO de parcelas ou a data da 1a mudam (estrutura nova,
-   * os ajustes antigos nao fazem mais sentido); sobrevive a mudanca de
-   * valorTotal de proposito, pra editar frete/desconto depois de comecar a
-   * digitar as parcelas nao apagar o que a pessoa ja tinha ajustado -- o
-   * aviso de "nao fecha" abaixo cobre esse caso. */
-  const [parcelaOverrides, setParcelaOverrides] = useState<Record<number, { valor?: string; data?: string }>>({});
+  /*
+   * PARCELAS COM FORMA PROPRIA (pedido do dono, 24/11/2026): o mesmo editor da
+   * Entrada de NF-e -- cada parcela com a sua forma (boleto, cheque, PIX...),
+   * cheque com banco e numero, e parcela que ja' nasce PAGA (sai do caixa ou
+   * do banco na hora). A soma TEM de fechar com o total da nota, como sempre.
+   *
+   * Os valores acompanham o total (itens + frete - desconto) enquanto a pessoa
+   * nao mexe neles; depois de mexer, mudar o frete/desconto nao apaga o que ela
+   * ajustou -- o aviso de "nao fecha" e o "Redistribuir igualmente" cobrem.
+   */
+  const [parcelasMexidas, setParcelasMexidas] = useState(false);
   useEffect(() => {
-    setParcelaOverrides({});
-  }, [formaPagamento, numeroParcelasValido, dataVencimento]);
+    if (parcelasMexidas) return;
+    setParcelas((atual) => redistribuirValores(atual, valorTotal));
+  }, [valorTotal, parcelasMexidas]);
 
-  /** Parcelas editaveis: parte de uma divisao igual (splitCents, mesma
-   * usada pra parcela de cartao) e sobrepoe qualquer ajuste manual guardado
-   * em parcelaOverrides. addMonthsToDateInput espaca cada parcela em 1 mes
-   * de calendario a partir da primeira, convencao padrao de boleto (dia
-   * fixo do mes, nao "+30 dias corridos"). */
-  const parcelasPreview = useMemo(() => {
-    if (formaPagamento !== 'pendente' || numeroParcelasValido <= 1 || !dataVencimento) return [];
-    const valoresCentavos = splitCents(toCents(valorTotal), numeroParcelasValido);
-    return valoresCentavos.map((centavos, index) => {
-      const numero = index + 1;
-      const override = parcelaOverrides[numero];
-      return {
-        numero,
-        valor: override?.valor ?? (centavos / 100).toFixed(2).replace('.', ','),
-        data: override?.data ?? (index === 0 ? dataVencimento : addMonthsToDateInput(dataVencimento, index)),
-      };
-    });
-  }, [formaPagamento, numeroParcelasValido, dataVencimento, valorTotal, parcelaOverrides]);
+  const somaParcelasCentavos = parcelas.reduce((soma, parcela) => soma + toCents(parcela.valor), 0);
+  const parcelasDivergem = formaPagamento === 'pendente' && somaParcelasCentavos !== toCents(valorTotal);
 
-  const somaParcelasCentavos = useMemo(
-    () => parcelasPreview.reduce((soma, parcela) => soma + toCents(parcela.valor), 0),
-    [parcelasPreview],
-  );
-  const parcelasTemAjusteManual = Object.keys(parcelaOverrides).length > 0;
-  const parcelasDivergem = parcelasPreview.length > 0 && somaParcelasCentavos !== toCents(valorTotal);
-
-  const ajustarValorParcela = (numero: number, valor: string) => {
-    setParcelaOverrides((atual) => ({ ...atual, [numero]: { ...atual[numero], valor } }));
+  /** Mudanca vinda do editor: mexer em valor (ou na quantidade de parcelas) para de acompanhar o total. */
+  const alterarParcelas = (novas: ParcelaComCheque[]) => {
+    const valoresMudaram = novas.length !== parcelas.length || novas.some((parcela, i) => toCents(parcela.valor) !== toCents(parcelas[i].valor));
+    if (valoresMudaram) setParcelasMexidas(true);
+    setParcelas(novas);
   };
-  const ajustarDataParcela = (numero: number, data: string) => {
-    setParcelaOverrides((atual) => ({ ...atual, [numero]: { ...atual[numero], data } }));
+  const redistribuirIgualmente = () => {
+    setParcelasMexidas(false);
+    setParcelas((atual) => redistribuirValores(atual, valorTotal));
+  };
+  const trocarFormaDasParcelas = (nova: string) => {
+    setParcelas((atual) => trocarFormaPadrao(atual, formaPadraoParcelas, nova));
+    setFormaPadraoParcelas(nova);
   };
 
   /** Opcoes do seletor "Unidade": a base do produto sempre, mais as
@@ -326,11 +314,15 @@ const NotaAvulsaForm: React.FC = () => {
       showError('Nenhum item válido', 'Adicione ao menos um item com produto, quantidade e custo preenchidos.');
       return;
     }
-    if (formaPagamento === 'pendente' && !dataVencimento) {
-      showError('Data de vencimento obrigatória', 'Informe a data de vencimento do pagamento pendente.');
-      return;
+    if (formaPagamento === 'pendente') {
+      const erroDasParcelas = conferirParcelas(parcelas, valorTotal).erro
+        || erroDasParcelasPorForma(parcelas, { formaPadrao: formaPadraoParcelas, bancos, hoje: getDateInputInTimeZone() });
+      if (erroDasParcelas) {
+        showError('Confira as parcelas', erroDasParcelas);
+        return;
+      }
     }
-    if (formaPagamento === 'pendente' && numeroParcelasValido > 1 && parcelasDivergem) {
+    if (parcelasDivergem) {
       showError(
         'Parcelas não fecham o total da nota',
         `As parcelas somam ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(somaParcelasCentavos / 100)}, mas a nota é de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}. Ajuste os valores das parcelas até fechar o total.`,
@@ -356,8 +348,11 @@ const NotaAvulsaForm: React.FC = () => {
       const currentMax = await getCurrentMaxSequence(db, 'notas_avulsas', tenantId, 'numero').catch(() => 0);
       const totalNota = Math.max(0, valorItensValidos + freteValor - descontoValor);
       const bancoNomeEscolhido = bancos.find((b) => b.id === bancoId)?.nome || '';
-      const usaBanco = formaPagamento === 'a_vista' && destinoPagamento === 'banco';
-      const numParcelasFinal = formaPagamento === 'pendente' ? numeroParcelasValido : 1;
+      // O que sai do banco AGORA: a nota a vista pelo banco, ou as parcelas ja' pagas pelo banco.
+      const debitosDeBanco = formaPagamento === 'a_vista'
+        ? (destinoPagamento === 'banco' ? [{ bancoId, centavos: toCents(totalNota) }] : [])
+        : debitosDasParcelasPagas(parcelas, formaPadraoParcelas);
+      const numParcelasFinal = formaPagamento === 'pendente' ? parcelas.length : 1;
 
       // Custo que mudou em cada produto: alimenta o recalculo do custo dos
       // produtos acabados que o usam como componente. Zera a cada tentativa
@@ -393,12 +388,11 @@ const NotaAvulsaForm: React.FC = () => {
         mudancasDeCusto = [];
         // 1. LEITURAS -- todas antes de qualquer escrita (regra do Firestore).
         const nextNumero = await getNextTenantSequenceValue(transaction, db, tenantId, 'notas_avulsas', currentMax);
-        const bancoRef = usaBanco ? doc(db, 'bancos', bancoId) : null;
-        const bancoSnap = bancoRef ? await transaction.get(bancoRef) : null;
-        if (bancoRef && !bancoSnap?.exists()) {
+        const bancosDebitados = debitosDeBanco.map((debito) => ({ ...debito, ref: doc(db, 'bancos', debito.bancoId) }));
+        const bancoSnaps = await Promise.all(bancosDebitados.map((debito) => transaction.get(debito.ref)));
+        if (bancoSnaps.some((snap) => !snap.exists())) {
           throw new Error('O banco selecionado não foi encontrado. Atualize a página e tente novamente.');
         }
-        const saldoBancoCentavos = bancoSnap ? Number(bancoSnap.data()?.saldoCentavos || 0) : 0;
 
         // Agrupado por produto (nao por item): o mesmo produto pode entrar
         // duas vezes na nota, uma em cada unidade (KG e SC) -- sem agrupar,
@@ -453,23 +447,22 @@ const NotaAvulsaForm: React.FC = () => {
 
         const notaRef = doc(collection(db, 'notas_avulsas'));
 
-        // Parcela unica (a vista, ou pendente sem parcelar) e' um caso
-        // particular de "1 parcela" -- monta sempre a lista de transacoes a
-        // criar, pra nao duplicar a logica de campos entre os dois casos.
-        // Com mais de 1 parcela, usa os valores/datas que a pessoa viu e
-        // pode ter ajustado na tela (parcelasPreview), ja validados acima
-        // pra fechar exatamente o total -- nao recalcula um split novo aqui,
-        // senao um ajuste manual salvo na tela seria jogado fora no save.
-        const transacoesParaCriar = formaPagamento === 'pendente' && numParcelasFinal > 1
-          ? parcelasPreview.map((parcela) => ({
+        // A vista: um titulo so', pago hoje. Pendente: um titulo por parcela,
+        // com os valores/datas/formas que a pessoa viu e pode ter ajustado na
+        // tela (ja' validados acima pra fechar exatamente o total) -- nao
+        // recalcula um split novo aqui, senao o ajuste manual seria perdido.
+        const transacoesParaCriar = formaPagamento === 'pendente'
+          ? parcelas.map((parcela) => ({
               ref: doc(collection(db, 'transacoes')),
               valorCentavos: toCents(parcela.valor),
-              data: parcela.data,
+              data: parcela.vencimento,
+              parcela,
             }))
           : [{
               ref: doc(collection(db, 'transacoes')),
               valorCentavos: toCents(totalNota),
-              data: formaPagamento === 'pendente' ? dataVencimento : getDateInputInTimeZone(),
+              data: getDateInputInTimeZone(),
+              parcela: null,
             }];
         const sufixoParcela = (index: number) => (numParcelasFinal > 1 ? ` (parcela ${index + 1}/${numParcelasFinal})` : '');
         notaAvulsaIdGravada = notaRef.id;
@@ -497,24 +490,15 @@ const NotaAvulsaForm: React.FC = () => {
             createdAt: serverTimestamp(),
             ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
           });
-
-          if (bancoRef) {
-            transaction.update(bancoRef, {
-              saldoCentavos: saldoBancoCentavos - toCents(totalNota),
-              updatedAt: serverTimestamp(),
-              ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Nota Avulsa #${numeroFinal}`),
-            });
-          }
         } else {
-          transacoesParaCriar.forEach(({ ref, valorCentavos, data }, index) => {
+          transacoesParaCriar.forEach(({ ref, parcela }, index) => {
+            if (!parcela) return;
             transaction.set(ref, {
               descricao: `Nota Avulsa #${numeroFinal} - ${fornecedorSelecionado.nome}${sufixoParcela(index)}`,
               categoria: 'FORNECEDORES DE PEÇAS',
-              valor: valorCentavos / 100,
-              valorCentavos,
               tipo: 'saida',
-              status: 'Pendente',
-              data,
+              // Forma DA PARCELA (24/11/2026): em aberto, ou ja' paga (debito do banco logo abaixo).
+              ...camposDoTituloDaParcela(parcela, { formaPadrao: formaPadraoParcelas, bancos }),
               ...(numParcelasFinal > 1 ? { parcela: index + 1, totalParcelas: numParcelasFinal } : {}),
               fornecedorId: fornecedorSelecionado.id,
               fornecedorNome: fornecedorSelecionado.nome,
@@ -525,6 +509,14 @@ const NotaAvulsaForm: React.FC = () => {
             });
           });
         }
+        // Saldo dos bancos: a nota a vista pelo banco, ou as parcelas ja' pagas pelo banco.
+        bancosDebitados.forEach((debito, indice) => {
+          transaction.update(debito.ref, {
+            saldoCentavos: Number(bancoSnaps[indice].data()?.saldoCentavos || 0) - debito.centavos,
+            updatedAt: serverTimestamp(),
+            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Nota Avulsa #${numeroFinal}`),
+          });
+        });
 
         transaction.set(notaRef, {
           numero: numeroFinal,
@@ -540,7 +532,7 @@ const NotaAvulsaForm: React.FC = () => {
           formaPagamento,
           ...(formaPagamento === 'a_vista'
             ? { destinoPagamento, ...(destinoPagamento === 'banco' ? { bancoId, bancoNome: bancoNomeEscolhido } : {}) }
-            : { dataVencimento }),
+            : { dataVencimento: parcelas[0]?.vencimento || '', parcelas: parcelas.map((parcela) => parcelaParaRegistro(parcela, formaPadraoParcelas)) }),
           transacaoId: transacoesParaCriar[0].ref.id,
           observacao: observacao.trim() || null,
           status: 'ativa',
@@ -795,52 +787,32 @@ const NotaAvulsaForm: React.FC = () => {
 
         {formaPagamento === 'pendente' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div className="input-group" style={{ maxWidth: '240px' }}>
-                <label style={labelStyle}>{numeroParcelasValido > 1 ? 'Data da 1ª parcela *' : 'Data de vencimento *'}</label>
-                <input type="date" value={dataVencimento} onChange={(e) => setDataVencimento(e.target.value)} style={inputStyle} />
-              </div>
-              <div className="input-group" style={{ maxWidth: '160px' }}>
-                <label style={labelStyle}>Nº de parcelas (boleto)</label>
-                <input type="number" min="1" step="1" value={numeroParcelas} onChange={(e) => setNumeroParcelas(e.target.value)} style={inputStyle} />
-              </div>
+            <div className="input-group" style={{ maxWidth: '280px' }}>
+              <label style={labelStyle}>Forma de pagamento (padrão das parcelas)</label>
+              <select value={formaPadraoParcelas} onChange={(e) => trocarFormaDasParcelas(e.target.value)} className="form-select" style={inputStyle}>
+                {FORMAS_DE_PAGAMENTO.map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
+              </select>
             </div>
-
-            {parcelasPreview.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
-                {parcelasPreview.map((parcela) => (
-                  <div key={parcela.numero} style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '420px' }}>
-                    <span style={{ color: 'var(--text-secondary)', minWidth: '68px' }}>Parcela {parcela.numero}/{parcelasPreview.length}</span>
-                    <input
-                      type="date"
-                      value={parcela.data}
-                      onChange={(e) => ajustarDataParcela(parcela.numero, e.target.value)}
-                      style={{ ...inputStyle, padding: '6px 8px', width: '150px' }}
-                    />
-                    <input
-                      type="text"
-                      value={parcela.valor}
-                      onChange={(e) => ajustarValorParcela(parcela.numero, e.target.value)}
-                      style={{ ...inputStyle, padding: '6px 8px', width: '110px', textAlign: 'right' }}
-                    />
-                  </div>
-                ))}
-                {parcelasDivergem ? (
-                  <p style={{ fontSize: '12px', color: '#ef4444', margin: '4px 0 0', maxWidth: '420px' }}>
-                    As parcelas somam {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(somaParcelasCentavos / 100)},
-                    mas a nota é de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}.
-                    Ajuste os valores das parcelas até fechar o total antes de salvar.
-                  </p>
-                ) : parcelasTemAjusteManual ? (
-                  <button
-                    type="button"
-                    onClick={() => setParcelaOverrides({})}
-                    style={{ fontSize: '12px', color: 'var(--accent-purple)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, width: 'fit-content' }}
-                  >
-                    Redistribuir igualmente
-                  </button>
-                ) : null}
-              </div>
+            <ParcelasEditor
+              parcelas={parcelas}
+              onParcelas={alterarParcelas}
+              total={valorTotal}
+              dataBase={getDateInputInTimeZone()}
+              forma={formaPadraoParcelas}
+              bancos={bancos}
+              aceitas={false}
+              onAceitar={() => undefined}
+              formaPorParcela
+              exigirSomaExata
+            />
+            {(parcelasMexidas || parcelasDivergem) && (
+              <button
+                type="button"
+                onClick={redistribuirIgualmente}
+                style={{ fontSize: '12px', color: 'var(--accent-purple)', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, width: 'fit-content' }}
+              >
+                Redistribuir igualmente
+              </button>
             )}
           </div>
         ) : (

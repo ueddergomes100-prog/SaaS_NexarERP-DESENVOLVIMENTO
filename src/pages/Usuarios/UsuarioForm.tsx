@@ -96,7 +96,8 @@ const UsuarioForm: React.FC = () => {
         if (userSnap.exists()) {
           const data = userSnap.data();
           setFormData({
-            nome: data.nome || '',
+            // Dono (24/11/2026): o cadastro dele guarda o nome em `nomeResponsavel`.
+            nome: data.nome || data.nomeResponsavel || '',
             username: data.username || '',
             senha: '',
             codigoVendedor: data.codigoVendedor || ''

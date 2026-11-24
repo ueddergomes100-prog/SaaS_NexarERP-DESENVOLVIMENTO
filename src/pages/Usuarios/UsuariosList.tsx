@@ -109,6 +109,20 @@ const UsuariosList: React.FC = () => {
       actorUserId: currentUser?.uid,
     }));
 
+  /**
+   * So' o LAPIS (ficha: codigo e senha de vendedor) em quem e' dono/administrador
+   * (24/11/2026, pedido do dono: "o dono tem que ter pelo menos o lapis para
+   * definir o codigo, pra conseguir entrar no caixa com codigo tambem"). A pessoa
+   * edita a propria ficha; o dono tambem edita a do administrador. Inativar e
+   * permissoes continuam fechados nessas linhas. O servidor ja' aceita (gestor).
+   */
+  const podeEditarFicha = (user: UsuarioData) => {
+    if (podeGerir(user)) return true;
+    if (!isTenantManagerRole(user.role) || !canManageUsers) return false;
+    if (user.id === currentUser?.uid) return true;
+    return Boolean(isOwner) && user.id !== tenantId;
+  };
+
   const handleToggleStatus = async (user: UsuarioData) => {
     if (!podeGerir(user)) {
       showError('Sem permissão', 'Você não pode alterar o acesso deste usuário.');
@@ -281,7 +295,7 @@ const UsuariosList: React.FC = () => {
                 </tr>
               ) : (
                 filteredUsuarios.map(user => (
-                  <tr key={user.id} {...linha(user.id, podeGerir(user) ? () => openTab(`/usuarios/editar/${user.id}`) : null)} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <tr key={user.id} {...linha(user.id, podeEditarFicha(user) ? () => openTab(`/usuarios/editar/${user.id}`) : null)} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{user.nome || user.nomeResponsavel || 'S/N'}</td>
                     <td style={{ padding: '16px', color: 'var(--text-muted)' }}>
                       {user.username ? (user.username.includes('-') ? user.username.split('-').slice(1).join('-') : user.username) : user.email}
@@ -301,6 +315,13 @@ const UsuariosList: React.FC = () => {
                     </td>
                     {(canManageUsers || podeGerenciarPermissoes) && (
                       <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'right' }}>
+                        {isTenantManagerRole(user.role) && podeEditarFicha(user) && (
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar código e senha de vendedor (para entrar no caixa com código)">
+                              <Edit2 size={18} />
+                            </button>
+                          </div>
+                        )}
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                             {(canManageUsers || podeSerAlvoDePermissaoPorGerente({

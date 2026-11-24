@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PRAZOS_PADRAO,
+  comoPagarOBoleto,
   competenciasParaGerar,
   deveAbrirJanelaDeCobranca,
   formatarLinhaDigitavel,
@@ -136,7 +137,13 @@ test('textos em portugues dizem o que fazer', () => {
   assert.match(forte.texto, /será bloqueado em 3 dias, em 20\/11\/2026/);
   assert.match(forte.texto, /boleto ainda não foi anexado/);
   const comBoleto = { ...r, boleto: { linhaDigitavel: LINHA } };
-  assert.match(textoDoAviso(comBoleto, situacaoDaCobranca(comBoleto, '2026-11-08')).texto, /vence em 2 dias, em 10\/11\/2026\. Imprima o boleto/);
+  assert.match(textoDoAviso(comBoleto, situacaoDaCobranca(comBoleto, '2026-11-08')).texto, /vence em 2 dias, em 10\/11\/2026\. Copie a linha digitável\.$/);
+});
+
+test('como pagar segue o que foi anexado (sem PDF, nao manda imprimir)', () => {
+  assert.equal(comoPagarOBoleto({ linhaDigitavel: LINHA, link: 'https://x' }), 'Copie a linha digitável ou pague pelo link.');
+  assert.equal(comoPagarOBoleto({ pdfUrl: 'https://x', linhaDigitavel: LINHA, link: 'https://y' }), 'Imprima o boleto, copie a linha digitável ou pague pelo link.');
+  assert.match(comoPagarOBoleto(undefined), /ainda não foi anexado/);
 });
 
 test('resumo lido do perfil: formato errado = sem cobranca', () => {

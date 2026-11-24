@@ -32,7 +32,7 @@
  * (server/domain e' gerado dele por scripts/build-server-domain.mjs).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.rotuloDaEtapa = exports.validarLiberacao = exports.validarDataDoPagamento = exports.textoDaCobranca = exports.MENSAGEM_SERVIDOR_BLOQUEADO = exports.TEXTO_BLOQUEIO_FUNCIONARIO = exports.textoDoAviso = exports.deveAbrirJanelaDeCobranca = exports.etapaComAviso = exports.veAvisoDeCobranca = exports.situacaoDaCobranca = exports.lerResumoDaCobranca = exports.montarResumoDaCobranca = exports.primeiraCompetencia = exports.competenciasParaGerar = exports.validarBoletoDigitado = exports.formatarLinhaDigitavel = exports.lerMensalidade = exports.temBoleto = exports.lerBoleto = exports.lerContato = exports.lerPlanoCobranca = exports.lerPrazos = exports.validarPrazos = exports.lerDiaVencimento = exports.idDaMensalidade = exports.formatarMoeda = exports.formatarDiaMes = exports.formatarData = exports.rotuloCompetencia = exports.vencimentoDaCompetencia = exports.competenciaSeguinte = exports.competenciaDaData = exports.inicioDoDiaEmBrasilia = exports.diasEntre = exports.somarDias = exports.hojeEmBrasilia = exports.competenciaValida = exports.dataValida = exports.LIBERACAO_MAXIMA_DIAS = exports.ANTECEDENCIA_DE_GERACAO_DIAS = exports.PRAZOS_PADRAO = void 0;
+exports.rotuloDaEtapa = exports.validarLiberacao = exports.validarDataDoPagamento = exports.textoDaCobranca = exports.MENSAGEM_SERVIDOR_BLOQUEADO = exports.TEXTO_BLOQUEIO_FUNCIONARIO = exports.textoDoAviso = exports.comoPagarOBoleto = exports.deveAbrirJanelaDeCobranca = exports.etapaComAviso = exports.veAvisoDeCobranca = exports.situacaoDaCobranca = exports.lerResumoDaCobranca = exports.montarResumoDaCobranca = exports.primeiraCompetencia = exports.competenciasParaGerar = exports.validarBoletoDigitado = exports.formatarLinhaDigitavel = exports.lerMensalidade = exports.temBoleto = exports.lerBoleto = exports.lerContato = exports.lerPlanoCobranca = exports.lerPrazos = exports.validarPrazos = exports.lerDiaVencimento = exports.idDaMensalidade = exports.formatarMoeda = exports.formatarDiaMes = exports.formatarData = exports.rotuloCompetencia = exports.vencimentoDaCompetencia = exports.competenciaSeguinte = exports.competenciaDaData = exports.inicioDoDiaEmBrasilia = exports.diasEntre = exports.somarDias = exports.hojeEmBrasilia = exports.competenciaValida = exports.dataValida = exports.LIBERACAO_MAXIMA_DIAS = exports.ANTECEDENCIA_DE_GERACAO_DIAS = exports.PRAZOS_PADRAO = void 0;
 exports.normalizarLinhaDigitavel = normalizarLinhaDigitavel;
 exports.PRAZOS_PADRAO = { diasLembreteAntes: 3, diasAvisoForte: 5, diasBloqueio: 10 };
 /** A mensalidade do mes nasce 10 dias antes do vencimento (tempo de anexar o boleto antes do lembrete). */
@@ -384,14 +384,26 @@ const deveAbrirJanelaDeCobranca = (ultimoDiaAvisado, hoje, etapa) => ((0, export
 exports.deveAbrirJanelaDeCobranca = deveAbrirJanelaDeCobranca;
 const emDias = (n) => (n === 1 ? 'amanhã' : `em ${n} dias`);
 const haDias = (n) => (n === 1 ? 'há 1 dia' : `há ${n} dias`);
+/** O que fazer, conforme o que o suporte anexou (nunca manda imprimir sem PDF). */
+const comoPagarOBoleto = (boleto) => {
+    if (!boleto || !(0, exports.temBoleto)(boleto))
+        return 'O boleto ainda não foi anexado: fale com o suporte para recebê-lo.';
+    const jeitos = [
+        boleto.pdfUrl && 'imprima o boleto',
+        boleto.linhaDigitavel && 'copie a linha digitável',
+        boleto.link && 'pague pelo link',
+        boleto.pixCopiaECola && 'pague pelo Pix',
+    ].filter(Boolean);
+    const frase = jeitos.length > 1 ? `${jeitos.slice(0, -1).join(', ')} ou ${jeitos[jeitos.length - 1]}` : jeitos[0];
+    return `${frase.charAt(0).toUpperCase()}${frase.slice(1)}.`;
+};
+exports.comoPagarOBoleto = comoPagarOBoleto;
 /** Texto do aviso, para quem paga (dono/administrador). */
 const textoDoAviso = (resumo, s) => {
     const valor = (0, exports.formatarMoeda)(resumo.valorEmAberto);
     const venc = (0, exports.formatarData)(resumo.vencimento);
     const bloqueio = (0, exports.formatarData)(resumo.bloqueioEm);
-    const comoPagar = resumo.boleto
-        ? 'Imprima o boleto ou copie a linha digitável.'
-        : 'O boleto ainda não foi anexado: fale com o suporte para recebê-lo.';
+    const comoPagar = (0, exports.comoPagarOBoleto)(resumo.boleto);
     const maisDeUma = resumo.quantidadeEmAberto > 1 ? ` (${resumo.quantidadeEmAberto} mensalidades em aberto)` : '';
     switch (s.etapa) {
         case 'lembrete':

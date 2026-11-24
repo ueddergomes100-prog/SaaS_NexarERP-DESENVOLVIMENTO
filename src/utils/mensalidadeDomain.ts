@@ -478,14 +478,25 @@ export interface TextoDoAviso {
 const emDias = (n: number): string => (n === 1 ? 'amanhã' : `em ${n} dias`);
 const haDias = (n: number): string => (n === 1 ? 'há 1 dia' : `há ${n} dias`);
 
+/** O que fazer, conforme o que o suporte anexou (nunca manda imprimir sem PDF). */
+export const comoPagarOBoleto = (boleto: BoletoDaMensalidade | undefined): string => {
+  if (!boleto || !temBoleto(boleto)) return 'O boleto ainda não foi anexado: fale com o suporte para recebê-lo.';
+  const jeitos = [
+    boleto.pdfUrl && 'imprima o boleto',
+    boleto.linhaDigitavel && 'copie a linha digitável',
+    boleto.link && 'pague pelo link',
+    boleto.pixCopiaECola && 'pague pelo Pix',
+  ].filter(Boolean) as string[];
+  const frase = jeitos.length > 1 ? `${jeitos.slice(0, -1).join(', ')} ou ${jeitos[jeitos.length - 1]}` : jeitos[0];
+  return `${frase.charAt(0).toUpperCase()}${frase.slice(1)}.`;
+};
+
 /** Texto do aviso, para quem paga (dono/administrador). */
 export const textoDoAviso = (resumo: ResumoDaCobranca, s: SituacaoDaCobranca): TextoDoAviso => {
   const valor = formatarMoeda(resumo.valorEmAberto);
   const venc = formatarData(resumo.vencimento);
   const bloqueio = formatarData(resumo.bloqueioEm);
-  const comoPagar = resumo.boleto
-    ? 'Imprima o boleto ou copie a linha digitável.'
-    : 'O boleto ainda não foi anexado: fale com o suporte para recebê-lo.';
+  const comoPagar = comoPagarOBoleto(resumo.boleto);
   const maisDeUma = resumo.quantidadeEmAberto > 1 ? ` (${resumo.quantidadeEmAberto} mensalidades em aberto)` : '';
   switch (s.etapa) {
     case 'lembrete':

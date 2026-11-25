@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
-import { Barcode, Download, FileUp, Link2, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
+import { Barcode, Download, FileUp, FolderOpen, Link2, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { baixarBoletoPeloRetorno, receberBoletoCanceladoPeloRetorno, vincularBoletosDoSistemaAnterior, type ResultadoVinculoBoletosAnteriores } from '../../services/baixaFinanceiraService';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { AVISO_SEGUNDA_VIA_SISTEMA_ANTERIOR, LIMITE_DE_BOLETOS_POR_ENVIO, lerPlanilhaBoletosAnteriores } from '../../utils/boletoSistemaAnteriorDomain';
 import { useAuth } from '../../contexts/AuthContext';
-import { escaparHtml, showError, showSuccess, NexusSwal } from '../../utils/alerts';
+import { escaparHtml, showError, showSuccess, showWarning, NexusSwal } from '../../utils/alerts';
 import { hasModuleAccess } from '../../utils/roles';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { createAuditLog } from '../../services/logService';
@@ -61,6 +61,17 @@ import {
   type BaixaDoRetorno,
   type ResumoDoRetorno,
 } from '../../utils/movimentacaoBoletosDomain';
+import { retornosNovos } from '../../utils/pastasDoBoletoDomain';
+import {
+  arquivosDaPasta,
+  gravarNaPasta,
+  lerPasta,
+  liberarPasta,
+  marcarRetornosVistos,
+  permissaoDaPasta,
+  retornosJaVistos,
+} from '../../utils/pastasDoBoletoStorage';
+import PastasDosBoletosModal from '../../components/finance/PastasDosBoletosModal';
 
 /**
  * FINANCEIRO > BOLETOS (2026-09-22).
@@ -679,12 +690,21 @@ const Boletos: React.FC = () => {
 
       // CNAB e' texto de largura fixa em latin1; o Blob sai como o banco espera.
       const blob = new Blob([conteudo], { type: 'text/plain;charset=iso-8859-1' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = nomeArquivoRemessaSicoob(numeroRemessa, hoje);
-      link.click();
-      URL.revokeObjectURL(url);
+      const nomeDaRemessa = nomeArquivoRemessaSicoob(numeroRemessa, hoje);
+      // Pasta da remessa deste computador (25/11/2026): ja' liberada, o arquivo vai
+      // direto para ela; senao (ou se falhar) baixa como sempre.
+      const pastaDaRemessa = tenantId ? await lerPasta('remessa', tenantId) : null;
+      const salvoNaPasta = Boolean(pastaDaRemessa
+        && (await permissaoDaPasta(pastaDaRemessa, 'remessa')) === 'granted'
+        && (await gravarNaPasta(pastaDaRemessa, nomeDaRemessa, blob)));
+      if (!salvoNaPasta) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = nomeDaRemessa;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
 
       // Marca os titulos como enviados so' DEPOIS do arquivo sair.
       const incluidos: string[] = [];
@@ -724,7 +744,7 @@ const Boletos: React.FC = () => {
       });
 
       setSelecionados(new Set());
-      showSuccess(`Remessa ${numeroRemessa} gerada com ${lista.length} boleto(s).`);
+      showSuccess(`Remessa ${numeroRemessa} gerada com ${lista.length} boleto(s)${salvoNaPasta && pastaDaRemessa ? ` e gravada na pasta "${pastaDaRemessa.name}"` : ''}.`);
     } catch (erro: any) {
       console.error('Erro ao gerar remessa:', erro);
       showError('Não foi possível gerar a remessa', erro?.message || 'Tente novamente.');
@@ -1075,6 +1095,64 @@ const Boletos: React.FC = () => {
     })
   );
 
+  // --- Pastas do computador (25/11/2026) -------------------------------------
+  // Pasta do retorno escolhida e liberada: a cada minuto (com o navegador a
+  // vista) o sistema olha se chegou arquivo de retorno novo e pergunta se
+  // importa. Arquivo perguntado fica marcado neste computador (nao pergunta de
+  // novo); o importado a mao pelo botao tambem. Regra em pastasDoBoletoDomain.ts.
+  const [pastasAbertas, setPastasAbertas] = useState(false);
+  const [versaoDasPastas, setVersaoDasPastas] = useState(0);
+  const [retornoParaLiberar, setRetornoParaLiberar] = useState<string | null>(null);
+  const importarRetornoRef = useRef(importarRetorno);
+  const processandoRef = useRef(processando);
+  useEffect(() => {
+    importarRetornoRef.current = importarRetorno;
+    processandoRef.current = processando;
+  });
+  const olhandoPasta = useRef(false);
+  useEffect(() => {
+    if (!tenantId || !podeAcessar) return undefined;
+    let viva = true;
+    const olhar = async () => {
+      if (olhandoPasta.current || document.visibilityState !== 'visible' || processandoRef.current || NexusSwal.isVisible()) return;
+      olhandoPasta.current = true;
+      try {
+        const pasta = await lerPasta('retorno', tenantId);
+        if (!viva) return;
+        if (!pasta) { setRetornoParaLiberar(null); return; }
+        if ((await permissaoDaPasta(pasta, 'retorno')) !== 'granted') { setRetornoParaLiberar(pasta.name); return; }
+        setRetornoParaLiberar(null);
+        const novos = retornosNovos(await arquivosDaPasta(pasta), await retornosJaVistos(tenantId));
+        if (!viva || novos.length === 0 || NexusSwal.isVisible()) return;
+        const arquivo = novos[0];
+        const resposta = await NexusSwal.fire({
+          icon: 'info',
+          title: 'Chegou um arquivo de retorno novo',
+          html: `<div style="text-align:left;font-size:14px">Arquivo <b>${escaparHtml(arquivo.name)}</b>, na pasta "${escaparHtml(pasta.name)}".`
+            + (novos.length > 1 ? `<br/>Depois dele há mais ${novos.length - 1} arquivo(s) novo(s); o sistema pergunta um de cada vez.` : '')
+            + '<br/><br/>Importar agora dá baixa nos boletos pagos que ele trouxer (você confere antes).</div>',
+          showCancelButton: true,
+          confirmButtonText: 'Importar agora',
+          cancelButtonText: 'Agora não',
+        });
+        await marcarRetornosVistos(tenantId, [arquivo]);
+        if (resposta.isConfirmed) importarRetornoRef.current(arquivo);
+        else showWarning('Este arquivo não será perguntado de novo. Para importar depois, use "Importar retorno".');
+      } finally {
+        olhandoPasta.current = false;
+      }
+    };
+    void olhar();
+    const id = window.setInterval(() => { void olhar(); }, 60000);
+    return () => { viva = false; window.clearInterval(id); };
+  }, [tenantId, podeAcessar, versaoDasPastas]);
+
+  const liberarPastaDoRetorno = async () => {
+    if (!tenantId) return;
+    await liberarPasta(await lerPasta('retorno', tenantId), 'retorno');
+    setVersaoDasPastas((v) => v + 1);
+  };
+
   // --- Render -------------------------------------------------------------
 
   if (!podeAcessar) {
@@ -1135,12 +1213,21 @@ const Boletos: React.FC = () => {
             style={{ display: 'none' }}
             onChange={(e) => {
               const arquivo = e.target.files?.[0];
-              if (arquivo) importarRetorno(arquivo);
+              if (arquivo) {
+                importarRetorno(arquivo);
+                // Importado a mao: o aviso da pasta do retorno nao pergunta de novo por ele.
+                if (tenantId) void marcarRetornosVistos(tenantId, [arquivo]);
+              }
               e.target.value = '';
             }}
           />
           <MenuMaisOpcoes
             itens={[{
+              texto: 'Pastas do computador',
+              Icone: FolderOpen,
+              titulo: 'Escolhe neste computador a pasta onde a remessa é gravada e a pasta onde chegam os arquivos de retorno (o sistema avisa quando chega um novo)',
+              onClick: () => setPastasAbertas(true),
+            }, {
               texto: 'Ver movimentação',
               Icone: Receipt,
               titulo: 'Boletos pagos dia por dia (data do pagamento), com cliente, nosso número, banco e o valor que entrou',
@@ -1291,6 +1378,13 @@ const Boletos: React.FC = () => {
         );
       })()}
 
+      {retornoParaLiberar && (
+        <div role="status" style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: '12px', background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', fontSize: '13px' }}>
+          <FolderOpen size={16} />
+          <span>A pasta do retorno ("{retornoParaLiberar}") precisa ser liberada neste computador para o sistema avisar quando chegar arquivo novo.</span>
+          <button type="button" className="btn-secondary" onClick={() => void liberarPastaDoRetorno()} style={{ padding: '4px 10px', fontSize: '12px' }}>Liberar</button>
+        </div>
+      )}
       {aba === 'pagos' && (
         <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {pagosDeTodoPeriodo ? 'Pagos de todo o período.' : 'Pagos neste mês.'}
@@ -1462,6 +1556,9 @@ const Boletos: React.FC = () => {
         )}
         <MostrarMaisLinhas blocos={blocos} />
       </div>
+      {pastasAbertas && tenantId && (
+        <PastasDosBoletosModal tenantId={tenantId} onFechar={() => setPastasAbertas(false)} onMudou={() => setVersaoDasPastas((v) => v + 1)} />
+      )}
       {pdfBoleto && <PdfVisualizador titulo="Boleto" nomeArquivo={pdfBoleto.nome} pdf={pdfBoleto.blob} onFechar={() => setPdfBoleto(null)} />}
     </div>
   );

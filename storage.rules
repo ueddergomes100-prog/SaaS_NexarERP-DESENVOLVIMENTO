@@ -93,10 +93,12 @@ service firebase.storage {
         && (perfil.get('tipoRegistro', '') != 'vendedor' || request.auth.token.get('isVendedorBalcao', false) == true);
     }
 
+    // Revisao de 25/11: a equipe da plataforma (suporte) continua trocando o logo.
     function podeMexerNasConfiguracoes() {
       let perfil = firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data;
-      return perfil.get('role', '') in ['Master', 'Admin']
-        || perfil.get('permissoes', []).hasAny(['administrativo.config']);
+      return perfil.get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin']
+        || perfil.get('permissoes', []).hasAny(['administrativo.config'])
+        || adminDaPlataforma();
     }
 
     match /{resto=**} {

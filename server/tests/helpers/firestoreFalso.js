@@ -115,6 +115,7 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
     },
     delete: async () => { dados.delete(`${caminho}/${id}`); },
   });
+  let filaDeTransacoes = Promise.resolve();
   const db = {
     collection: (colecao) => colecaoEm(colecao),
     getAll: async (...refs) => Promise.all(refs.map((r) => r.get())),
@@ -129,7 +130,17 @@ const criarBancoFalso = (inicial, opcoes = {}) => {
       };
       return lote;
     },
-    runTransaction: async (fn) => {
+    // opcoes.transacoesEmFila (trava de rotina, 25/11/2026): uma transacao por vez, como o
+    // Firestore real faz com duas transacoes sobre o mesmo documento (a segunda so' le depois
+    // que a primeira gravou). Sem a opcao, duas ao mesmo tempo se atropelam -- e' opcional
+    // porque servico que abre transacao dentro de transacao travaria na fila.
+    runTransaction: (fn) => {
+      if (!opcoes.transacoesEmFila) return db.__transacao(fn);
+      const vez = filaDeTransacoes.then(() => db.__transacao(fn));
+      filaDeTransacoes = vez.catch(() => {});
+      return vez;
+    },
+    __transacao: async (fn) => {
       const escritas = [];
       // Como o Firestore real: ler depois de gravar na mesma transacao e' erro.
       const lerAntes = () => { if (escritas.length) throw new Error('Firestore transactions require all reads to be executed before all writes.'); };
@@ -234,7 +245,7 @@ const carregarComBancoFalso = (db, ...servicos) => {
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));
   // Servicos usados por dentro de outros (guardam o `db` ao carregar): sempre com o banco novo.
-  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/contaDoCadastro', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades']
+  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/contaDoCadastro', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades', 'services/travaDeRotina']
     .map((s) => require.resolve(path.join(base, s)));
   [...sempreNovos, ...caminhos].forEach((c) => { delete require.cache[c]; });
   return caminhos.map((c) => require(c));

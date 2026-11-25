@@ -3,7 +3,7 @@ const fs = require('fs');
 const { generateCompanyBackup } = require('../services/backup');
 const { restoreCompanyBackup } = require('../services/restore');
 const { deleteBackup } = require('../services/cloudStorage');
-const { reloadCompanyJob, listarEmpresas, resumoDosBackups } = require('../services/scheduler');
+const { reloadCompanyJob, listarEmpresas, resumoDosBackups, arquivoUsadoPorOutraLinha } = require('../services/scheduler');
 const { CONFIG_PADRAO } = require('../services/backupAgenda');
 
 /**
@@ -246,8 +246,11 @@ async function removeBackup(req, res) {
       return res.status(403).json({ error: 'Não autorizado. Você não pode excluir backups de outras empresas.' });
     }
 
-    // 1. Tenta apagar do Cloud Storage (se estiver enviado)
-    if (backupData.status === 'enviado') {
+    // 1. Tenta apagar do Cloud Storage (se estiver enviado). Linha repetida do
+    // historico (backup feito em dobro antes da trava de 25/11/2026) aponta para o
+    // MESMO arquivo da outra: apagar o arquivo deixaria a outra linha sem backup.
+    const arquivoFica = backupData.status === 'enviado' && await arquivoUsadoPorOutraLinha(companyId, filename, backupId);
+    if (backupData.status === 'enviado' && !arquivoFica) {
       try {
         await deleteBackup(companyId, companyName, filename);
       } catch (err) {
@@ -258,7 +261,11 @@ async function removeBackup(req, res) {
     // 2. Exclui o documento do histórico no Firestore
     await docRef.delete();
 
-    return res.json({ message: 'Backup excluído permanentemente com sucesso.' });
+    return res.json({
+      message: arquivoFica
+        ? 'Linha repetida excluída do histórico. O arquivo do backup continua guardado: a outra linha aponta para ele.'
+        : 'Backup excluído permanentemente com sucesso.',
+    });
   } catch (error) {
     console.error('[Controller] Erro ao excluir backup:', error.message);
     return res.status(500).json({ error: 'Erro interno ao remover backup.' });

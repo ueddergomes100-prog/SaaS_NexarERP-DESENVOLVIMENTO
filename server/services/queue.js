@@ -3,6 +3,7 @@ const cron = require('node-cron');
 const { db } = require('../config/firebase');
 const { uploadBackup, downloadBackup, applyRetentionPolicy, getCompanyFolderPath } = require('./cloudStorage');
 const { copiarParaOExterno, externoConfigurado } = require('./backupExterno');
+const { rodarNaVez } = require('./travaDeRotina');
 
 /**
  * Orquestra a verificação e o reenvio de backups pendentes (fallback local).
@@ -112,6 +113,35 @@ async function reenviarExternosComErro(agoraMs = Date.now()) {
   return reenviados;
 }
 
+const HORA_MS = 60 * 60 * 1000;
+/** Se o processo morre no meio da fila, outro assume depois disto. */
+const VALIDADE_DA_RESERVA_DA_FILA_MS = 30 * 60 * 1000;
+
+/**
+ * Uma passada da fila, UMA vez por hora no servidor inteiro (25/11/2026).
+ *
+ * Com dois processos do servidor no ar, os dois reenviavam o mesmo backup
+ * pendente ao mesmo tempo: um subia o arquivo e apagava do disco, o outro nao
+ * achava mais o arquivo e marcava "erro" num backup que estava salvo na nuvem.
+ * A vez e' a hora cheia -- ver travaDeRotina.js. Devolve true se este processo
+ * rodou a fila.
+ */
+async function passarAFila(agoraMs = Date.now()) {
+  if (!db) return false;
+  try {
+    const vez = Math.floor(agoraMs / HORA_MS) * HORA_MS;
+    const { rodou } = await rodarNaVez('fila_de_backups', vez, { validadeMs: VALIDADE_DA_RESERVA_DA_FILA_MS, agoraMs }, async () => {
+      await processPendingBackups();
+      await reenviarExternosComErro(agoraMs);
+    });
+    if (!rodou) console.log('[Queue] A fila de backups desta hora já foi (ou está sendo) tratada por outro processo do servidor.');
+    return rodou;
+  } catch (erro) {
+    console.error('[Queue] Erro na passada da fila de backups:', erro.message);
+    return false;
+  }
+}
+
 /**
  * Inicializa a verificação recorrente da fila de sincronização.
  * Roda a cada 1 hora.
@@ -120,20 +150,16 @@ function initQueueService() {
   console.log('[Queue] Inicializando serviço de fila e reenvio de backups (rodará a cada 1 hora)...');
 
   // Agendamento cron: minuto 0 de cada hora
-  cron.schedule('0 * * * *', async () => {
-    await processPendingBackups();
-    await reenviarExternosComErro();
-  });
+  cron.schedule('0 * * * *', () => { void passarAFila(); });
 
-  // Roda uma vez de forma assíncrona logo após subir o servidor para tratar pendências antigas
-  setTimeout(async () => {
-    await processPendingBackups();
-    await reenviarExternosComErro();
-  }, 10000); // aguarda 10 segundos
+  // Roda uma vez logo após subir o servidor para tratar pendências antigas
+  // (se a fila desta hora já rodou, espera a próxima hora cheia).
+  setTimeout(() => { void passarAFila(); }, 10000); // aguarda 10 segundos
 }
 
 module.exports = {
   initQueueService,
+  passarAFila,
   processPendingBackups,
   reenviarExternosComErro
 };

@@ -393,7 +393,7 @@ const Orcamentos: React.FC = () => {
                         {orc.createdAt?.toDate ? orc.createdAt.toDate().toLocaleDateString('pt-BR') : '---'}
                       </td>
                       <td style={{ padding: '16px', fontWeight: 700, color: 'var(--accent-purple)' }}>
-                        R$ {orc.valorTotal.toFixed(2)}
+                        {Number(orc.valorTotal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </td>
                       <td style={{ padding: '16px' }}>
                         <span style={{

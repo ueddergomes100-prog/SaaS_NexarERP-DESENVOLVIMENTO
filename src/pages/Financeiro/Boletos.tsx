@@ -1062,10 +1062,10 @@ const Boletos: React.FC = () => {
       }));
     const dias = movimentacaoPorDia(pagos);
     const dataBr = (iso: string) => (iso ? iso.split('-').reverse().join('/') : 'Sem data de pagamento');
-    const periodo = pagosDeTodoPeriodo ? 'todo o período' : 'este mês';
+    const periodo = pagosDeTodoPeriodo ? 'em todo o período' : 'neste mês';
     const total = dias.reduce((soma, d) => soma + d.totalPagoCentavos, 0);
     const corpo = dias.length === 0
-      ? `<p style="margin:0">Nenhum boleto pago em ${periodo}.</p>`
+      ? `<p style="margin:0">Nenhum boleto pago ${periodo}.</p>`
       : dias.map((d) => `<div style="margin:0 0 14px">`
         + `<div style="display:flex;justify-content:space-between;gap:12px;font-weight:700;padding:6px 8px;border-radius:8px;background:var(--bg-tertiary)">`
         + `<span>${escaparHtml(dataBr(d.data))} · ${d.boletos.length} boleto(s)</span><span>${currency.format(fromCents(d.totalPagoCentavos))}</span></div>`
@@ -1080,7 +1080,7 @@ const Boletos: React.FC = () => {
       title: 'Movimentação dos boletos pagos',
       width: 820,
       html: `<div style="text-align:left;font-size:14px">`
-        + `<p style="margin:0 0 12px;color:var(--text-muted)">Pagos em ${periodo}: ${pagos.length} boleto(s), ${currency.format(fromCents(total))}.`
+        + `<p style="margin:0 0 12px;color:var(--text-muted)">Pagos ${periodo}: ${pagos.length} boleto(s), ${currency.format(fromCents(total))}.`
         + (pagosDeTodoPeriodo ? '' : ' Para ver os meses anteriores, abra a aba "Pagos", clique em "Ver pagos de todo o período" e abra esta janela de novo.')
         + `</p><div style="max-height:60vh;overflow:auto">${corpo}</div></div>`,
       confirmButtonText: 'Fechar',

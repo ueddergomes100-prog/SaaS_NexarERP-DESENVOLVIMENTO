@@ -5,6 +5,8 @@ import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
 import { Search, Plus, Edit, Power, Trash2, Upload, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
@@ -74,6 +76,9 @@ const FornecedoresList: React.FC = () => {
   const [previewAberto, setPreviewAberto] = useState(false);
 
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
 
   // Com limite (17/11/2026): 50 por vez pela ordem do nome, busca no banco;
   // situacao diferente de "Ativos", filtros e relatorio usam o cadastro inteiro
@@ -97,6 +102,7 @@ const FornecedoresList: React.FC = () => {
   );
 
   const handleToggleAtivo = async (fornecedor: FornecedorData) => {
+    if (!pode(PERMISSAO_CADASTROS.fornecedoresInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.fornecedoresInativar, 'inativar ou reativar fornecedores'); return; }
     if (!currentUser) return;
     if (avisarSeEmEdicao(travasFornecedores, 'fornecedor', fornecedor.id)) return;
     const novoStatus = fornecedor.ativo === false;
@@ -186,12 +192,12 @@ const FornecedoresList: React.FC = () => {
           <MenuMaisOpcoes
             itens={[
               {
-                texto: 'Relatório', Icone: FileText,
+                texto: 'Relatório', Icone: FileText, oculto: !pode(PERMISSAO_CADASTROS.relatorios),
                 titulo: 'Abre em PDF os fornecedores filtrados na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
                 desabilitado: loading,
                 onClick: () => setPreviewAberto(true),
               },
-              { texto: 'Importar fornecedores', Icone: Upload, onClick: () => openTab('/fornecedores/importar', 'Importar Fornecedores'), separadorAntes: true },
+              { texto: 'Importar fornecedores', Icone: Upload, oculto: !pode(PERMISSAO_CADASTROS.fornecedoresImportar), onClick: () => openTab('/fornecedores/importar', 'Importar Fornecedores'), separadorAntes: true },
             ]}
           />
           <button className="btn-primary" onClick={() => openTab('/fornecedores/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

@@ -4,6 +4,8 @@ import { ArrowLeft, Save, Factory, Loader2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS, PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoMateriaPrima } from '../../utils/materiaPrimaCodigo';
@@ -86,6 +88,11 @@ const MateriaPrimaForm: React.FC = () => {
   const [formReady, setFormReady] = useState(false);
   const initialSnapshotRef = useRef<string | null>(null);
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): custo de materia-prima gravada e saldo inicial com permissao
+  // propria (quem tem Materia-Prima ja' tem marcadas). Sem elas: custo gravado, saldo zero.
+  const pode = usePodePermissao();
+  const podeAlterarCusto = !isEditing || pode(PERMISSAO_CADASTROS.materiaPrimaCusto);
+  const podeSaldoInicial = pode(PERMISSAO_ESTOQUE.estoqueInicial);
   const { reservedMap } = useReservedRawMaterialStock(tenantId);
   const reservado = isEditing && id ? (reservedMap.get(chaveComponente('materia_prima', id)) || 0) : 0;
   const quantidadeAtual = Number(formData.quantidade) || 0;
@@ -196,6 +203,10 @@ const MateriaPrimaForm: React.FC = () => {
     }
 
     if (!currentUser) return false;
+    if (!isEditing && !podeSaldoInicial && (Number(formData.quantidade) || 0) !== 0) {
+      avisarSemPermissao(PERMISSAO_ESTOQUE.estoqueInicial, 'informar o saldo inicial', 'Sem ela, a matéria-prima entra com saldo zero e o saldo entra pela nota de compra ou pelo Ajuste de Estoque.');
+      return false;
+    }
     setIsLoading(true);
 
     try {
@@ -225,6 +236,10 @@ const MateriaPrimaForm: React.FC = () => {
         // que usam esta materia-prima precisam ser recalculados.
         const antesDaEdicao = await getDoc(doc(db, 'materias_primas', id));
         const custoAnterior = Number(antesDaEdicao.data()?.precoCusto || 0);
+        if (!podeAlterarCusto && custoAnterior !== dataToSave.precoCusto) {
+          avisarSemPermissao(PERMISSAO_CADASTROS.materiaPrimaCusto, 'alterar o custo da matéria-prima', 'Sem ela, fica o custo gravado.');
+          return false;
+        }
         await updateDoc(doc(db, 'materias_primas', id), {
           ...dataToSaveSemSaldo,
           updatedAt: serverTimestamp(),
@@ -395,7 +410,7 @@ const MateriaPrimaForm: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
             <div className="input-group">
               <label>Quantidade em Estoque</label>
-              <input type="number" name="quantidade" step="any" min="0" value={formData.quantidade} onChange={handleChange} style={inputStyle} disabled={isEditing} />
+              <input type="number" name="quantidade" step="any" min="0" value={formData.quantidade} onChange={handleChange} style={inputStyle} disabled={isEditing || !podeSaldoInicial} />
               {isEditing && (
                 <span className="field-hint">
                   O saldo muda por produção, nota de entrada ou pelo{' '}
@@ -411,7 +426,7 @@ const MateriaPrimaForm: React.FC = () => {
             </div>
             <div className="input-group">
               <label>Custo Unitário (R$)</label>
-              <input type="number" name="precoCusto" step="0.01" min="0" value={formData.precoCusto} onChange={handleChange} style={inputStyle} />
+              <input type="number" name="precoCusto" step="0.01" min="0" value={formData.precoCusto} onChange={handleChange} style={inputStyle} disabled={!podeAlterarCusto} />
             </div>
           </div>
 

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Loader2, Lock, Plus, RefreshCw, Users, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
@@ -182,6 +184,8 @@ const NovoBalanco: React.FC<{ onFechar: () => void; onAberto: () => void }> = ({
 type FiltroConferencia = 'todos' | 'diferenca' | 'naoContados' | 'negativos';
 
 const ConferenciaDoBalanco: React.FC<{ balancoId: string; onVoltar: () => void; onMudou: () => void }> = ({ balancoId, onVoltar, onMudou }) => {
+  // Item 15 (25/11/2026): fechar com permissao propria (o servidor confere).
+  const pode = usePodePermissao();
   const [dados, setDados] = useState<Conferencia | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -301,10 +305,10 @@ const ConferenciaDoBalanco: React.FC<{ balancoId: string; onVoltar: () => void; 
             <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
               {comDiferenca} com diferença · {naoContados} não contado(s) (vão zerar)
             </span>
-            <button type="button" className="btn-primary" onClick={() => void fechar()} disabled={fechando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {pode(PERMISSAO_ESTOQUE.balancoFechar) && <button type="button" className="btn-primary" onClick={() => void fechar()} disabled={fechando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {fechando ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Lock size={16} />}
               {fechando ? 'Fechando...' : 'Fechar balanço'}
-            </button>
+            </button>}
           </div>
         </div>
       )}
@@ -355,6 +359,8 @@ const ConferenciaDoBalanco: React.FC<{ balancoId: string; onVoltar: () => void; 
 const Balanco: React.FC = () => {
   const { openTab } = useTabs();
   const { tenantId } = useAuth();
+  // Item 15 (25/11/2026): fechar e cancelar com permissao propria (o servidor confere).
+  const pode = usePodePermissao();
   const { items: usuarios } = useTenantCollection<{ id: string; nome?: string; nomeResponsavel?: string; email?: string; status?: string }>('usuarios', tenantId);
   const [lista, setLista] = useState<BalancoResumo[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -445,7 +451,7 @@ const Balanco: React.FC = () => {
               {emAndamento.status === 'contando' && (
                 <>
                   <button type="button" className="btn-secondary" onClick={() => void trocar(emAndamento)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Users size={15} /> Trocar quem conta</button>
-                  <button type="button" className="btn-secondary" onClick={() => void cancelar(emAndamento)} style={{ color: '#ef4444' }}>Cancelar</button>
+                  {pode(PERMISSAO_ESTOQUE.balancoCancelar) && <button type="button" className="btn-secondary" onClick={() => void cancelar(emAndamento)} style={{ color: '#ef4444' }}>Cancelar</button>}
                 </>
               )}
               <button type="button" className="btn-primary" onClick={() => setAbertoId(emAndamento.id)}>Conferir e fechar</button>

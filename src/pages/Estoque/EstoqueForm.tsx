@@ -13,6 +13,8 @@ import { UNIDADE_MEDIDA_FALLBACK, resolverUnidadeDoCadastro } from '../../utils/
 import { produtoFracionadoAoEscolherUnidade } from '../../utils/vendaFracionadaDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { PERMISSAO_PRODUTO_AVANCADO } from '../../utils/permissionCatalog';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoProduto } from '../../utils/estoqueCodigo';
 import { chaveDoProdutoPeloId, mudouCadastroDoGrupo } from '../../utils/cadastroGrupoDomain';
@@ -331,7 +333,11 @@ interface ProdutoOriginalData {
   /** Formato legado: produto antigo guarda preco aqui, nao nos campos
    * planos acima. A carga do formulario ja lia isso; a deteccao de
    * alteracao de preco tambem precisa. */
-  precos?: { venda?: number; custo?: number };
+  precos?: { venda?: number; custo?: number; aVista?: number; comissaoPercentual?: number; descontoMaximoPercentual?: number };
+  /** Item 15 (25/11/2026): base para conferir quem nao tem a permissao de mudar estes valores. */
+  precoAVista?: number;
+  comissaoPercentual?: number | null;
+  descontoMaximoPercentual?: number;
   ultimaAlteracaoPreco?: string | null;
   /** Quanto o produto CUSTAVA no dia em que este preco de venda foi
    * definido. Base da comparacao de margem (ver precificacaoDomain.ts) --
@@ -756,14 +762,30 @@ const EstoqueForm: React.FC = () => {
   /** Documento cru de cada filho, pra so' regravar o que mudou. */
   const [dadosDosFilhos, setDadosDosFilhos] = useState<Map<string, Record<string, unknown>>>(new Map());
   const [linhasDaGrade, setLinhasDaGrade] = useState<LinhaDaGrade[]>([]);
-  const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal, grupo, ehGestorDasFiliais, nivelAcesso } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner, controlaFiscal, grupo, ehGestorDasFiliais } = useAuth();
   // Modo Avancado (compras, embalagens, composicao, atacado, e-commerce e as
-  // configuracoes avancadas) para dono, administrador e gerente (decisao do
-  // dono, 20/10/2026) e, desde 03/11/2026, para o funcionario com a permissao
-  // "Estoque: Cadastro Avancado de Produto". Sem ela, fica no basico.
+  // configuracoes avancadas) para dono e administrador e, desde 03/11/2026,
+  // para o funcionario com a permissao "Estoque: Cadastro Avancado de Produto".
+  // Sem ela, fica no basico. Item 15 (25/11/2026): o nivel gerente nao libera
+  // mais sozinho -- o gerente de hoje tem a permissao marcada pelo pacote
+  // 'estoque-1' (permissoesNovasDomain.ts), ate' as permissoes dele serem salvas.
   const podeModoAvancado = hasTenantFullAccess(userRole, Boolean(isOwner))
-    || nivelAcesso === 'gerente'
     || userPermissions.includes(PERMISSAO_PRODUTO_AVANCADO);
+  // Item 15 (fase Estoque e cadastros, 25/11/2026): cada acao com permissao
+  // propria; quem abre o cadastro ja' tem marcadas. Preco e custo: quem inclui
+  // o produto define os de partida; num produto gravado, sem a permissao,
+  // ficam os gravados (travados). Estoque inicial: sem ela, entra zerado.
+  // Grava pelo navegador: so' a tela confere ate' as rules (fase final).
+  const pode = usePodePermissao();
+  const podeIncluirProduto = pode(PERMISSAO_ESTOQUE.produtoIncluir);
+  const podeVerCusto = pode(PERMISSAO_ESTOQUE.verCusto);
+  const podeAlterarPreco = !isEditing || pode(PERMISSAO_ESTOQUE.alterarPreco);
+  const podeAlterarCusto = podeVerCusto && (!isEditing || pode(PERMISSAO_ESTOQUE.alterarCusto));
+  const podeEstoqueInicial = pode(PERMISSAO_ESTOQUE.estoqueInicial);
+  const podeComposicao = pode(PERMISSAO_ESTOQUE.composicao);
+  const podeComissaoDesconto = pode(PERMISSAO_ESTOQUE.comissaoDesconto);
+  // Promocao do produto: a permissao das Promocoes (antes bastava abrir o cadastro).
+  const podePromocao = pode('vendas.promocoes');
   useEffect(() => {
     if (!podeModoAvancado && modoCadastro === 'avancado') setModoCadastro('rapido');
   }, [podeModoAvancado, modoCadastro]);
@@ -812,9 +834,12 @@ const EstoqueForm: React.FC = () => {
     if (!canEditProduto) {
       showError('Sem permissão', 'Você não tem permissão para abrir o cadastro de produto. Peça ao administrador para liberar "Estoque: Abrir Cadastro de Produto".');
       navigate('/estoque');
+    } else if (!isEditing && !podeIncluirProduto) {
+      avisarSemPermissao(PERMISSAO_ESTOQUE.produtoIncluir, 'incluir produtos');
+      navigate('/estoque');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canEditProduto]);
+  }, [canEditProduto, podeIncluirProduto]);
   /** Sigla da unidade base do produto -- e nela que o estoque e' controlado,
    * e e' contra ela que o fator de conversao de cada embalagem e' expresso. */
   const baseUnidadeSigla = activeUnidades.find(u => u.id === formData.unidadeMedidaId)?.sigla || 'UN';
@@ -1285,6 +1310,10 @@ const EstoqueForm: React.FC = () => {
 
   const handleSalvarComposicao = async () => {
     if (!id || !tenantId || !currentUser) return;
+    if (!podeComposicao) {
+      avisarSemPermissao(PERMISSAO_ESTOQUE.composicao, 'alterar a composição (receita) do produto');
+      return;
+    }
     setIsSavingComposicao(true);
     try {
       // Receita de antes, lida do banco agora: base do Histórico de alterações.
@@ -1662,6 +1691,58 @@ const EstoqueForm: React.FC = () => {
     }
   };
 
+  /**
+   * Item 15 (25/11/2026): sem a permissao, o valor fica no padrao -- o gravado
+   * (produto ja' salvo) ou o de partida (produto novo: comissao em branco,
+   * desconto maximo zero, estoque zero). Os campos ja' ficam travados; isto
+   * cobre o que mudar por outro caminho (margem, atalho de teclado...).
+   */
+  const conferirPermissoesDoSalvar = (): boolean => {
+    if (!isEditing && !podeIncluirProduto) {
+      avisarSemPermissao(PERMISSAO_ESTOQUE.produtoIncluir, 'incluir produtos');
+      return false;
+    }
+    const original = produtoOriginal || {};
+    const numeroOuZero = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    if (isEditing && !podeAlterarPreco) {
+      const vendaGravada = numeroOuZero(original.precoVenda ?? original.precos?.venda);
+      const aVistaGravado = numeroOuZero(original.precoAVista ?? original.precos?.aVista);
+      if (toNumber(formData.precoVenda) !== vendaGravada || toNumber(formData.precoAVista) !== aVistaGravado) {
+        setActiveTab('precos');
+        avisarSemPermissao(PERMISSAO_ESTOQUE.alterarPreco, 'alterar o preço de venda do produto', 'Sem ela, o produto fica com o preço gravado.');
+        return false;
+      }
+    }
+    if (isEditing && !podeAlterarCusto && !custoCalculadoPelaComposicao
+      && toNumber(formData.precoCusto) !== numeroOuZero(original.precoCusto ?? original.precos?.custo)) {
+      setActiveTab('precos');
+      avisarSemPermissao(PERMISSAO_ESTOQUE.alterarCusto, 'alterar o custo do produto', 'Sem ela, o produto fica com o custo gravado.');
+      return false;
+    }
+    if (!podeComissaoDesconto) {
+      const comissaoGravada = isEditing ? (original.comissaoPercentual ?? original.precos?.comissaoPercentual ?? null) : null;
+      const descontoGravado = isEditing ? numeroOuZero(original.descontoMaximoPercentual ?? original.precos?.descontoMaximoPercentual) : 0;
+      const comissaoDaTela = parseComissaoPercentualInput(formData.comissaoPercentual);
+      const mudouComissao = (comissaoDaTela ?? null) !== (comissaoGravada === null || comissaoGravada === undefined ? null : Number(comissaoGravada));
+      if (mudouComissao || toNumber(formData.descontoMaximoPercentual) !== descontoGravado) {
+        setActiveTab('precos');
+        avisarSemPermissao(PERMISSAO_ESTOQUE.comissaoDesconto, 'definir comissão e desconto máximo do produto', 'Sem ela, valem os do cadastro (em branco no produto novo).');
+        return false;
+      }
+    }
+    if (!podeEstoqueInicial && quantidadeEstoqueEditavel && toNumber(formData.quantidade) !== 0) {
+      setActiveTab('estoque');
+      avisarSemPermissao(PERMISSAO_ESTOQUE.estoqueInicial, 'informar estoque inicial', 'Sem ela, o produto entra com estoque zero e o saldo entra pelo Ajuste Manual ou pela nota de compra.');
+      return false;
+    }
+    if (!podeEstoqueInicial && linhasDaGrade.some((l) => l.ligada && toNumber(l.quantidadeInicial) > 0)) {
+      setActiveTab('grade');
+      avisarSemPermissao(PERMISSAO_ESTOQUE.estoqueInicial, 'informar estoque inicial das variações', 'Sem ela, as variações entram com estoque zero.');
+      return false;
+    }
+    return true;
+  };
+
   const handleSave = async (e?: React.FormEvent | React.MouseEvent) => {
     e?.preventDefault();
     // CADASTRO INATIVO NAO SE ALTERA -- nem o saldo, nem nada. Os campos ja'
@@ -1673,6 +1754,7 @@ const EstoqueForm: React.FC = () => {
     salvouRef.current = false;
     if (!validateForm()) return;
     if (!currentUser) return;
+    if (!conferirPermissoesDoSalvar()) return false;
 
     // Embalagem preenchida e nao adicionada: nao some calada (21/11/2026).
     let embalagensDaGravacao = embalagens;
@@ -2435,8 +2517,9 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>Preço de venda *</label>
-                  <input type="number" name="precoVenda" step="0.01" min="0" value={formData.precoVenda} onChange={handleChange} required />
+                  <input type="number" name="precoVenda" step="0.01" min="0" value={formData.precoVenda} onChange={handleChange} required disabled={!podeAlterarPreco} title={podeAlterarPreco ? undefined : 'Sem a permissão "Estoque: Alterar o preço de venda do produto": fica o preço gravado'} />
                 </div>
+                {podeVerCusto && (<>
                 <div className="input-group">
                   <label>Custo do produto</label>
                   <input
@@ -2447,7 +2530,7 @@ const EstoqueForm: React.FC = () => {
                     value={custoCalculadoPelaComposicao ? precoCusto.toFixed(2) : formData.precoCusto}
                     onChange={handleChange}
                     readOnly={custoCalculadoPelaComposicao}
-                    disabled={custoCalculadoPelaComposicao}
+                    disabled={custoCalculadoPelaComposicao || !podeAlterarCusto}
                   />
                   {custoCalculadoPelaComposicao && (
                     <span className="field-hint">Calculado automaticamente pela composição (aba "Composição"), não editável aqui.</span>
@@ -2466,16 +2549,17 @@ const EstoqueForm: React.FC = () => {
                 </div>
                 <div className="input-group">
                   <label>Custo comercial</label>
-                  <input type="number" name="custoComercial" step="0.01" min="0" title="Custo de compra mais as despesas (frete, impostos e outras)" value={formData.custoComercial} onChange={handleChange} />
+                  <input type="number" name="custoComercial" step="0.01" min="0" title="Custo de compra mais as despesas (frete, impostos e outras)" value={formData.custoComercial} onChange={handleChange} disabled={!podeAlterarCusto} />
                   <span className="field-hint">Custo de compra somado às despesas (frete, impostos e outras). Informativo: a margem é calculada sobre o "Custo do produto".</span>
                 </div>
+                </>)}
                 <div className="input-group">
                   <label>Última alteração</label>
                   <input type="text" value={produtoOriginal?.ultimaAlteracaoPreco ? new Date(produtoOriginal.ultimaAlteracaoPreco).toLocaleDateString('pt-BR') : 'Sem histórico'} readOnly />
                 </div>
                 <div className="input-group">
                   <label>Preço à vista{embalagens.length > 0 ? ` (por ${baseUnidadeSigla})` : ''}</label>
-                  <input type="number" name="precoAVista" step="0.01" min="0" title="Igual ao preço de venda" value={formData.precoAVista} onChange={handleChange} />
+                  <input type="number" name="precoAVista" step="0.01" min="0" title="Igual ao preço de venda" value={formData.precoAVista} onChange={handleChange} disabled={!podeAlterarPreco} />
                   <span className="field-hint">Vale para dinheiro, Pix, débito e crédito 1x. Parcelado, boleto, crediário e cheque usam o "Preço de venda". Em branco = preço de venda sempre.</span>
                   {embalagens.length > 0 && (
                     <span className="field-hint">Este é o preço de 1 {baseUnidadeSigla}. O preço à vista de cada embalagem (saco, caixa...) fica na aba Embalagens.</span>
@@ -2488,7 +2572,7 @@ const EstoqueForm: React.FC = () => {
                 </div>
               </div>
 
-              <div className="product-metrics">
+              {podeVerCusto && <div className="product-metrics">
                 {/* Margem editavel nos dois sentidos: digitar o preco de venda
                     atualiza a margem (calculo derivado), e digitar a margem
                     reescreve o preco de venda (custo x (1 + margem)). O texto
@@ -2502,7 +2586,7 @@ const EstoqueForm: React.FC = () => {
                       type="number"
                       step="0.1"
                       className={margemLucro >= 0 ? 'metric-positive' : 'metric-negative'}
-                      disabled={precoCusto <= 0}
+                      disabled={precoCusto <= 0 || !podeAlterarPreco}
                       title={precoCusto <= 0 ? 'Informe o custo do produto para calcular o preço pela margem.' : 'Digite a margem desejada para o sistema calcular o preço de venda.'}
                       value={margemDigitada ?? (precoCusto > 0 ? margemLucro.toFixed(1) : '')}
                       onChange={(e) => {
@@ -2530,11 +2614,11 @@ const EstoqueForm: React.FC = () => {
                   <span>Lucro líquido estimado</span>
                   <strong className={lucroEstimado >= 0 ? 'metric-positive' : 'metric-negative'}>{formatCurrency(lucroEstimado)}</strong>
                 </div>
-              </div>
+              </div>}
 
               {/* Promocao individual (2026-10-01): salva na hora, como uma promocao
                   da tela Promocoes marcada "individual" -- as duas nunca se duplicam. */}
-              {isEditing && id && tenantId && currentUser ? (
+              {isEditing && id && tenantId && currentUser && podePromocao ? (
                 <PromocaoIndividualPanel
                   tenantId={tenantId}
                   uid={currentUser.uid}
@@ -2548,14 +2632,14 @@ const EstoqueForm: React.FC = () => {
                   }}
                 />
               ) : (
-                <p className="field-hint" style={{ marginTop: '16px' }}>Salve o produto para poder colocá-lo em promoção.</p>
+                <p className="field-hint" style={{ marginTop: '16px' }}>{podePromocao ? 'Salve o produto para poder colocá-lo em promoção.' : 'Para colocar o produto em promoção, peça a um responsável liberar "Vendas: Promoções" no seu cadastro de funcionário.'}</p>
               )}
 
               {/* Aviso de margem defasada: o custo mudou depois que este preco
                   foi definido (compra nova, por exemplo). O sistema NAO corrige
                   o preco -- so mostra o que aconteceu e deixa o botao pronto
                   pra quem decidir voltar a margem antiga. */}
-              {comparacaoMargem && comparacaoMargem.direcao !== 'manteve' && (
+              {podeVerCusto && comparacaoMargem && comparacaoMargem.direcao !== 'manteve' && (
                 <div
                   className="card"
                   style={{
@@ -2581,6 +2665,7 @@ const EstoqueForm: React.FC = () => {
                     type="button"
                     className="btn-secondary"
                     style={{ whiteSpace: 'nowrap' }}
+                    disabled={!podeAlterarPreco}
                     onClick={() => setFormData(prev => ({
                       ...prev,
                       precoVenda: precoParaMargem(precoCusto, comparacaoMargem.margemAnterior).toFixed(2),
@@ -2594,12 +2679,12 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-3">
                 <div className="input-group">
                   <label>Comissão (%)</label>
-                  <input type="number" name="comissaoPercentual" step="0.01" min="0" value={formData.comissaoPercentual} onChange={handleChange} title="Sem comissão própria" />
+                  <input type="number" name="comissaoPercentual" step="0.01" min="0" value={formData.comissaoPercentual} onChange={handleChange} title="Sem comissão própria" disabled={!podeComissaoDesconto} />
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, a venda usa a comissão do vendedor ou do sistema.</span>
                 </div>
                 <div className="input-group">
                   <label>Desconto máximo (%)</label>
-                  <input type="number" name="descontoMaximoPercentual" step="0.01" min="0" value={formData.descontoMaximoPercentual} onChange={handleChange} />
+                  <input type="number" name="descontoMaximoPercentual" step="0.01" min="0" value={formData.descontoMaximoPercentual} onChange={handleChange} disabled={!podeComissaoDesconto} />
                 </div>
                 <label className="switch-row">
                   <input type="checkbox" checked={formData.impedirVendaAbaixoCusto} onChange={handleCheckbox('impedirVendaAbaixoCusto')} />
@@ -2773,7 +2858,7 @@ const EstoqueForm: React.FC = () => {
               <div className="form-grid-4">
                 <div className="input-group">
                   <label>Quantidade atual</label>
-                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={!quantidadeEstoqueEditavel} required={validarCadastroProduto && !isEditing && !temGrade} />
+                  <input type="number" name="quantidade" min="0" value={formData.quantidade} onChange={handleChange} disabled={!quantidadeEstoqueEditavel || !podeEstoqueInicial} required={validarCadastroProduto && !isEditing && !temGrade && podeEstoqueInicial} title={podeEstoqueInicial ? undefined : 'Sem a permissão "Estoque: Informar estoque inicial": o produto entra com estoque zero'} />
                   {temGrade && (
                     <span className="field-hint">
                       Produto com grade: o estoque fica em cada variação (aba "Grade de variações"). O principal não tem saldo.
@@ -3524,7 +3609,8 @@ const EstoqueForm: React.FC = () => {
                       type="button"
                       className="btn-primary"
                       onClick={handleSalvarComposicao}
-                      disabled={isSavingComposicao}
+                      disabled={isSavingComposicao || !podeComposicao}
+                      title={podeComposicao ? undefined : 'Sem a permissão "Estoque: Alterar a composição (receita) do produto"'}
                       style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: isSavingComposicao ? 0.7 : 1 }}
                     >
                       {isSavingComposicao ? <Loader2 size={16} className="spin-icon" /> : <Save size={16} />}
@@ -3805,7 +3891,7 @@ const EstoqueForm: React.FC = () => {
                                   min="0"
                                   value={linha.quantidadeInicial}
                                   onChange={(e) => atualizarLinhaDaGrade(linha.rotulo, { quantidadeInicial: e.target.value })}
-                                  disabled={!linha.ligada}
+                                  disabled={!linha.ligada || !podeEstoqueInicial}
                                   title="Estoque inicial da variação"
                                   style={{ width: '100px' }}
                                 />

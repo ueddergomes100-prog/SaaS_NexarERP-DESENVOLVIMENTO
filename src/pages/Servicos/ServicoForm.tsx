@@ -4,6 +4,8 @@ import { ArrowLeft, Save, Wrench, Loader2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, deleteField } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError } from '../../utils/alerts';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -40,6 +42,13 @@ const ServicoForm: React.FC = () => {
   const [inativo, setInativo] = useState(false);
   const [categoriasDB, setCategoriasDB] = useState<string[]>([]);
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
+  // Preco de servico gravado e comissao propria: sem a permissao, ficam os gravados
+  // (no servico novo, o preco e' de quem inclui e a comissao fica em branco).
+  const podeAlterarPreco = !isEditing || pode(PERMISSAO_CADASTROS.servicosPreco);
+  const podeComissao = pode(PERMISSAO_CADASTROS.servicosComissao);
   /** Servico como estava ao abrir: o "antes" do Histórico de alterações. */
   const servicoOriginalRef = useRef<Record<string, unknown> | null>(null);
 
@@ -89,6 +98,7 @@ const ServicoForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pode(PERMISSAO_CADASTROS.servicosAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.servicosAlterar, 'incluir ou alterar serviços'); return; }
     if (inativo) {
       showError('Serviço inativo', 'Este serviço está inativo e não pode ser alterado. Para alterar, reative-o na lista de Serviços.');
       return;
@@ -98,6 +108,17 @@ const ServicoForm: React.FC = () => {
       return;
     }
     if (!currentUser) return;
+    const original = servicoOriginalRef.current || {};
+    const numeroOuNulo = (v: unknown) => (v === undefined || v === null || v === '' ? null : Number(String(v).replace(',', '.')));
+    if (!podeAlterarPreco && numeroOuNulo(formData.preco) !== numeroOuNulo(original.preco)) {
+      avisarSemPermissao(PERMISSAO_CADASTROS.servicosPreco, 'alterar o preço do serviço', 'Sem ela, fica o preço gravado.');
+      return;
+    }
+    const comissaoGravada = isEditing ? numeroOuNulo(original.comissaoPercentual) : null;
+    if (!podeComissao && numeroOuNulo(formData.comissaoPercentual) !== comissaoGravada) {
+      avisarSemPermissao(PERMISSAO_CADASTROS.servicosComissao, 'definir a comissão do serviço', 'Sem ela, vale a comissão do técnico ou do sistema.');
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -225,14 +246,14 @@ const ServicoForm: React.FC = () => {
             </div>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Valor por Hora (R$) *</label>
-              <input type="text" name="preco" value={formData.preco} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="text" name="preco" value={formData.preco} onChange={handleChange} disabled={!podeAlterarPreco} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
             <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Comissão (%)</label>
-              <input type="number" name="comissaoPercentual" step="0.01" min="0" title="Sem comissão própria" value={formData.comissaoPercentual} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+              <input type="number" name="comissaoPercentual" step="0.01" min="0" title="Sem comissão própria" value={formData.comissaoPercentual} onChange={handleChange} disabled={!podeComissao} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Em branco, a OS usa a comissão do mecânico ou do sistema.</span>
             </div>
           </div>

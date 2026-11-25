@@ -4,6 +4,8 @@ import { Barcode, Check, FileInput, Printer, SlidersHorizontal, Trash2, X } from
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess, showWarning } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { resolveUnidadeMedidaProduto, temUnidadeMedidaCadastrada, avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
@@ -65,6 +67,9 @@ const PRODUTO_AMOSTRA: ProdutoEtiquetaDados = {
 
 const Etiquetas: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): o modelo padrao vale para a filial inteira -- permissao propria
+  // (vem com "Admin: Configuracoes", que era o que as rules aceitavam).
+  const podeSalvarModelo = usePodePermissao()(PERMISSAO_ESTOQUE.etiquetasModelo);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -602,7 +607,7 @@ const Etiquetas: React.FC = () => {
                     <button type="button" className="btn-secondary" onClick={restaurarPosicoesPadrao} style={{ flex: 1 }}>
                       Restaurar posições padrão
                     </button>
-                    <button
+                    {podeSalvarModelo && <button
                       type="button"
                       className="btn-primary"
                       onClick={() => void salvarModeloPadrao()}
@@ -610,7 +615,7 @@ const Etiquetas: React.FC = () => {
                       style={{ flex: 1, opacity: salvandoModelo ? 0.6 : 1 }}
                     >
                       {salvandoModelo ? 'Salvando...' : 'Salvar como padrão'}
-                    </button>
+                    </button>}
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                     Ajustes não salvos valem só pra impressão de agora.

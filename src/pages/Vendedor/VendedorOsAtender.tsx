@@ -4,6 +4,8 @@ import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { Camera, CheckCircle2, ClipboardList, Images, PenLine, Plus, Printer, Save, Trash2, Truck, Wrench } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OS } from '../../utils/permissoesNovasDomain';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { useModoOficina } from '../../hooks/useModoOficina';
@@ -80,6 +82,9 @@ const VendedorOsAtender: React.FC = () => {
   const navigate = useNavigate();
   const voltarPara = useVoltarPara();
   const { tenantId, currentUser, userNome, userPermissions, permiteVendaSemEstoque, venderPorEmbalagem, userRole, isOwner } = useAuth();
+  // Item 15 (25/11/2026): fotos da OS com permissao propria (quem atende OS ja' tem marcada).
+  // O arquivo grava direto no Storage: so' a tela confere ate' as storage.rules.
+  const podeFotos = usePodePermissao()(PERMISSAO_OS.fotos);
   const { modo, rotulos, configMaquinas } = useModoOficina();
   const { items: produtos } = useTenantCollection<ProdutoVendedorExterno & { ativo?: boolean }>('estoque', tenantId);
   const { items: catalogoServicos } = useTenantCollection<ServicoCatalogo>('servicos', tenantId);
@@ -292,6 +297,7 @@ const VendedorOsAtender: React.FC = () => {
 
   const enviarFotos = async (arquivos: FileList | File[] | null) => {
     if (!arquivos || arquivos.length === 0) return;
+    if (!podeFotos) { avisarSemPermissao(PERMISSAO_OS.fotos, 'anexar fotos na OS'); return; }
     const lista = Array.from(arquivos);
     const cabe = podeAdicionarFotos([...os.fotos, ...fotosPendentes], lista.length);
     if (!cabe.ok) { showError('Limite de fotos', cabe.erro); return; }
@@ -315,6 +321,7 @@ const VendedorOsAtender: React.FC = () => {
   };
 
   const apagarFoto = async (foto: FotoOS) => {
+    if (!podeFotos) { avisarSemPermissao(PERMISSAO_OS.fotos, 'apagar fotos da OS'); return; }
     const r = await NexusSwal.fire({ title: 'Apagar esta foto?', text: 'Ela sai da OS e do arquivo da empresa.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Apagar', cancelButtonText: 'Manter' });
     if (!r.isConfirmed) return;
     try { await removerFotoOs({ usuario, osId: id, foto }); } catch (e) { showError('Não foi possível apagar', e instanceof Error ? e.message : 'Tente de novo.'); }

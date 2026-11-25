@@ -8,6 +8,8 @@ import {
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, PackageSearch, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -93,6 +95,8 @@ const CONTAINER_WORD = /\b(SACO|SC|ROLO|MC)\b/i;
 const ImportarProdutos: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): importar com permissao propria (quem tem a tela ja' tem marcada).
+  const podeImportar = usePodePermissao()(PERMISSAO_ESTOQUE.importar);
 
   const [passo, setPasso] = useState<Passo>('upload');
   const [carregandoArquivo, setCarregandoArquivo] = useState(false);
@@ -356,6 +360,7 @@ const ImportarProdutos: React.FC = () => {
   ));
 
   const executarImportacao = async () => {
+    if (!podeImportar) { avisarSemPermissao(PERMISSAO_ESTOQUE.importar, 'importar produtos'); return; }
     if (!tenantId || !currentUser) return;
     if (!produtosProntos) {
       showError('Preencha todos os campos', 'Todo produto precisa de nome, unidade de medida e preço de venda maior que zero antes de importar.');

@@ -5,6 +5,8 @@ import { collection, doc, getDocs, query, serverTimestamp, where, writeBatch } f
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Factory, Upload, AlertTriangle } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { ROTULO_POR_ORIGEM } from '../../utils/producaoDomain';
@@ -59,6 +61,8 @@ const celulaSelect: React.CSSProperties = {
 const ImportarComposicao: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): importar com permissao propria (quem tem a tela ja' tem marcada).
+  const podeImportar = usePodePermissao()(PERMISSAO_ESTOQUE.importar);
 
   const [passo, setPasso] = useState<Passo>('upload');
   const [carregandoArquivo, setCarregandoArquivo] = useState(false);
@@ -208,6 +212,7 @@ const ImportarComposicao: React.FC = () => {
   const linhasVisiveis = somenteRevisar ? linhas.filter((l) => l.status === 'REVISAR') : linhas;
 
   const executarImportacao = async () => {
+    if (!podeImportar) { avisarSemPermissao(PERMISSAO_ESTOQUE.importar, 'importar a composição dos produtos'); return; }
     if (!tenantId || !currentUser) return;
     if (grupos.length === 0) {
       showError('Nada para importar', 'Nenhuma linha está pronta para gravar. Resolve as pendências da coluna "Situação" e tente de novo.');

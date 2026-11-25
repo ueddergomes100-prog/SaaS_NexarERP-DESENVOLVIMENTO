@@ -8,6 +8,8 @@ import { collection, doc, documentId, query, where, getDocs, runTransaction, ser
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_FISCAL_ENTRADA } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { NexusSwal, showError, showSuccess, escaparHtml } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -105,6 +107,8 @@ const NotasFiscaisEntradaList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
   const navigate = useNavigate();
   const { tenantId, currentUser, userRole, isOwner, userPermissions } = useAuth();
+  // Item 15 (25/11/2026): excluir nota de entrada com permissao propria (antes bastava abrir o Historico).
+  const podeExcluirEntrada = usePodePermissao()(PERMISSAO_FISCAL_ENTRADA.excluir);
   // Devolucao de compra ao fornecedor (21/10/2026): quem lanca entrada devolve; quem emite nota emite a NF-e.
   const acessoTotal = hasTenantFullAccess(userRole, isOwner);
   const podeDevolver = acessoTotal || userPermissions.includes('fiscal.entrada');
@@ -259,6 +263,10 @@ const NotasFiscaisEntradaList: React.FC = () => {
   // a transacao so le/escreve com base no resultado delas.
   const handleExcluirNota = async (nota: NotaFiscalEntradaDoc) => {
     if (!currentUser || !tenantId) return;
+    if (!podeExcluirEntrada) {
+      avisarSemPermissao(PERMISSAO_FISCAL_ENTRADA.excluir, 'excluir nota de entrada (reverte estoque e títulos)');
+      return;
+    }
     // Nota com devolucao ao fornecedor: excluir reverteria o estoque que ja saiu de novo.
     if ((nota.devolucoesCompraIds || []).length > 0) {
       showError('Nota com devolução ao fornecedor', `A NF-e ${nota.numeroNF} já tem devolução ao fornecedor registrada, então não pode ser excluída (o estoque e o financeiro já foram acertados pela devolução).`);
@@ -574,7 +582,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
                             <RotateCcw size={16} />
                           </button>
                         )}
-                        {nota.status === 'ativa' && !nota.transferenciaId && (
+                        {nota.status === 'ativa' && !nota.transferenciaId && podeExcluirEntrada && (
                           <button
                             className="icon-btn"
                             title="Excluir (reverte estoque e títulos)"
@@ -761,7 +769,7 @@ const NotasFiscaisEntradaList: React.FC = () => {
               </div>
             )}
 
-            {notaSelecionada.status === 'ativa' && (
+            {notaSelecionada.status === 'ativa' && podeExcluirEntrada && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
                 <button
                   className="btn-secondary"

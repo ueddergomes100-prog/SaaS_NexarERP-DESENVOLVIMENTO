@@ -4,6 +4,8 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -46,6 +48,9 @@ const ServicosList: React.FC = () => {
   const categorias = useMemo(() => categoriasDosServicos(servicos), [servicos]);
 
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
 
   useEffect(() => {
     if (!currentUser) return;
@@ -62,6 +67,7 @@ const ServicosList: React.FC = () => {
   }, [currentUser]);
 
   const handleToggleAtivo = async (servico: ServicoData) => {
+    if (!pode(PERMISSAO_CADASTROS.servicosInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.servicosInativar, 'inativar ou reativar serviços'); return; }
     if (!currentUser) return;
     const novoStatus = servico.ativo === false;
 
@@ -86,6 +92,7 @@ const ServicosList: React.FC = () => {
   };
 
   const handleFixNames = async () => {
+    if (!pode(PERMISSAO_CADASTROS.servicosAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.servicosAlterar, 'padronizar os nomes dos serviços'); return; }
     if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Padronizar Nomes?',
@@ -177,12 +184,12 @@ const ServicosList: React.FC = () => {
           <MenuMaisOpcoes
             itens={[
               {
-                texto: 'Relatório', Icone: FileText,
+                texto: 'Relatório', Icone: FileText, oculto: !pode(PERMISSAO_CADASTROS.relatorios),
                 titulo: 'Abre em PDF a tabela dos serviços filtrados na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
                 desabilitado: loading,
                 onClick: () => setPreviewAberto(true),
               },
-              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, oculto: !pode(PERMISSAO_CADASTROS.servicosAlterar), onClick: handleFixNames, separadorAntes: true },
             ]}
           />
           <button className="btn-primary" onClick={() => openTab('/servicos/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

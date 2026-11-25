@@ -6,6 +6,8 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, History, Loader2, Upload }
 import { db } from '../../services/firebase';
 import { createAuditLog } from '../../services/logService';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { decodificarArquivoTexto, detectarDelimitador, parseDelimitedText } from '../../utils/importacaoEstoqueDomain';
 import { normalizarDocumentoParte, resolverVinculoParte, type ParteCadastrada } from '../../utils/importacaoContasDomain';
@@ -55,6 +57,8 @@ const dataBr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(
 const ImportarHistoricoClientes: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): importar com permissao propria (quem tem a tela ja' tem marcada).
+  const podeImportar = usePodePermissao()(PERMISSAO_CADASTROS.clientesImportar);
   const [passo, setPasso] = useState<Passo>('upload');
   const [ocupado, setOcupado] = useState(false);
   const [nomeArquivo, setNomeArquivo] = useState('');
@@ -156,6 +160,7 @@ const ImportarHistoricoClientes: React.FC = () => {
   };
 
   const importar = async () => {
+    if (!podeImportar) { avisarSemPermissao(PERMISSAO_CADASTROS.clientesImportar, 'importar o histórico do sistema anterior'); return; }
     if (!tenantId || !currentUser || aImportar.length === 0) return;
     setOcupado(true);
     let feitos = 0;

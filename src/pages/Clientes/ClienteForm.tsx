@@ -8,6 +8,8 @@ import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'fir
 import ComprasSistemaAnterior from '../../components/clientes/ComprasSistemaAnterior';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getProximoCodigoCliente } from '../../utils/clienteCodigo';
@@ -152,6 +154,11 @@ const ClienteForm: React.FC = () => {
   /** Cliente que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
   const [inativo, setInativo] = useState(false);
   const { currentUser, tenantId, grupo, ehGestorDasFiliais, userPermissions, configCashback } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
+  // Limite de credito protege a empresa: sem a permissao fica o gravado (cliente novo: em branco).
+  const podeLimiteCredito = pode(PERMISSAO_CADASTROS.clientesLimiteCredito);
   /** Cadastro como estava ao abrir: o "antes" do Histórico de alterações. */
   const clienteOriginalRef = useRef<Record<string, unknown> | null>(null);
   // Cashback (20/10/2026): resumo gravado pelo servidor, so' para mostrar.
@@ -402,6 +409,7 @@ const ClienteForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pode(PERMISSAO_CADASTROS.clientesAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.clientesAlterar, 'incluir ou alterar clientes'); return; }
     if (inativo) {
       showError('Cliente inativo', 'Este cliente está inativo e não pode ser alterado. Para alterar, reative-o na lista de Clientes.');
       return;
@@ -468,6 +476,13 @@ const ClienteForm: React.FC = () => {
         return;
       }
 
+      const limiteGravado = isEditing ? (clienteOriginalRef.current?.limiteDeCredito ?? null) : null;
+      const limiteDaTela = formData.limiteDeCredito.trim() === '' ? null : Number(formData.limiteDeCredito);
+      if (!podeLimiteCredito && limiteDaTela !== (limiteGravado === null ? null : Number(limiteGravado))) {
+        avisarSemPermissao(PERMISSAO_CADASTROS.clientesLimiteCredito, 'alterar o limite de crédito do cliente', 'Sem ela, fica o limite gravado (em branco no cliente novo).');
+        setIsLoading(false);
+        return;
+      }
       const limiteDeCreditoParsed = formData.limiteDeCredito.trim() === ''
         ? null
         : Number(formData.limiteDeCredito);
@@ -913,7 +928,7 @@ const ClienteForm: React.FC = () => {
 
           <div className="input-group">
             <label>Limite de Crédito (R$)</label>
-            <input type="number" min="0" step="0.01" name="limiteDeCredito" value={formData.limiteDeCredito} onChange={handleChange} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
+            <input type="number" min="0" step="0.01" name="limiteDeCredito" value={formData.limiteDeCredito} onChange={handleChange} disabled={!podeLimiteCredito} style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }} />
             <small style={{ color: 'var(--text-muted)' }}>Só é exigido se o sistema estiver configurado pra trabalhar com limite de crédito (Configurações). Deixe em branco pra não permitir venda a prazo a este cliente.</small>
           </div>
 

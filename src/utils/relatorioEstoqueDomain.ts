@@ -170,6 +170,12 @@ export interface EntradaDocumentoRelatorioEstoque {
   filtro: FiltroRelatorioEstoque;
   /** Momento da posicao (hoje), para o cabecalho. */
   agora: Date;
+  /**
+   * Item 15 (25/11/2026): quem nao tem "Estoque: Ver custo e margem dos
+   * produtos" tira o relatorio sem a coluna de custo, o valor total e o
+   * "Valor em estoque" (quantidade x custo).
+   */
+  semCusto?: boolean;
 }
 
 export interface DocumentoRelatorioEstoque {
@@ -181,14 +187,17 @@ export interface DocumentoRelatorioEstoque {
 }
 
 /** Monta o documento (sem empresa/geradoPor, que o RelatorioPreview acrescenta). */
+/** Colunas que mostram custo (item 15, 25/11/2026): so' com "Estoque: Ver custo e margem dos produtos". */
+export const COLUNAS_DE_CUSTO_DO_ESTOQUE: readonly string[] = ['custo', 'valorTotal'];
+
 export const montarDocumentoRelatorioEstoque = ({
-  filtrados, desmarcados, composicoes, filtro, agora,
+  filtrados, desmarcados, composicoes, filtro, agora, semCusto = false,
 }: EntradaDocumentoRelatorioEstoque): DocumentoRelatorioEstoque => {
   const selecionados = filtrados.filter((p) => !desmarcados.has(p.id));
   const resumo = resumirRelatorioEstoque(selecionados);
   const quantidade = (n: number) => formatarQuantidadeEstoque(n);
 
-  const colunasProdutos: ColunaRelatorio<ProdutoDoRelatorioEstoque>[] = [
+  const todasAsColunasProdutos: ColunaRelatorio<ProdutoDoRelatorioEstoque>[] = [
     {
       id: 'produto', titulo: 'Produto', tipo: 'texto', largura: 62,
       valor: (p) => `${p.nome}${p.produtoRevenda ? '' : ' (uso interno)'}`,
@@ -213,6 +222,9 @@ export const montarDocumentoRelatorioEstoque = ({
     { id: 'ncm', titulo: 'NCM', tipo: 'texto', largura: 20, padrao: false, valor: (p) => p.ncm },
     { id: 'codigoBarras', titulo: 'Código de barras', tipo: 'texto', largura: 30, padrao: false, valor: (p) => p.codigoBarras },
   ];
+  const colunasProdutos = semCusto
+    ? todasAsColunasProdutos.filter((c) => !COLUNAS_DE_CUSTO_DO_ESTOQUE.includes(c.id))
+    : todasAsColunasProdutos;
 
   const colunasComposicao: ColunaRelatorio<LinhaComposicaoEstoque>[] = [
     { id: 'componente', titulo: 'Componente', tipo: 'texto', largura: 70, valor: (l) => l.componenteNome },
@@ -239,7 +251,7 @@ export const montarDocumentoRelatorioEstoque = ({
     filtros,
     indicadores: [
       { rotulo: 'Itens no relatório', valor: String(resumo.total) },
-      { rotulo: 'Valor em estoque (quantidade × custo)', valor: moeda(resumo.valorEstoqueCentavos) },
+      ...(semCusto ? [] : [{ rotulo: 'Valor em estoque (quantidade × custo)', valor: moeda(resumo.valorEstoqueCentavos) }]),
       { rotulo: 'Estoque baixo', valor: String(resumo.estoqueBaixo) },
       { rotulo: 'Esgotados', valor: String(resumo.esgotados) },
     ],

@@ -4,6 +4,8 @@ import { Search, Plus, Scale, Edit, Power, X, Loader2, AlertTriangle } from 'luc
 import { collection, query, onSnapshot, doc, where, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { unidadeMudouParaOsProdutos } from '../../utils/vendaFracionadaDomain';
 import { atualizarProdutosDaUnidade } from '../../services/unidadeProdutosService';
@@ -58,6 +60,9 @@ const UnidadesMedidaList: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
   const navigate = useNavigate();
 
   const canAccess = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('cadastros.unidades_medida'));
@@ -139,6 +144,7 @@ const UnidadesMedidaList: React.FC = () => {
   }, [loading, unidades, currentUser, tenantId, canAccess]);
 
   const handleToggleAtivo = async (unidade: UnidadeData) => {
+    if (!pode(PERMISSAO_CADASTROS.unidadesMedidaInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.unidadesMedidaInativar, 'inativar ou reativar unidades de medida'); return; }
     if (!currentUser) return;
     const novoStatus = unidade.ativo === false;
 
@@ -244,6 +250,7 @@ const UnidadesMedidaList: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pode(PERMISSAO_CADASTROS.unidadesMedidaAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.unidadesMedidaAlterar, 'incluir ou alterar unidades de medida'); return; }
     if (!modalForm.sigla || !modalForm.nome) {
       showError('Erro', 'Preencha todos os campos obrigatórios.');
       return;

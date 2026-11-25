@@ -6,6 +6,8 @@ import { ArrowLeft, Save, Truck, Loader2, MapPin } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError } from '../../utils/alerts';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
 import { getProximoCodigoFornecedor } from '../../utils/fornecedorCodigo';
@@ -77,6 +79,9 @@ const FornecedorForm: React.FC = () => {
   /** Fornecedor que ja' estava inativo ao abrir: so' consulta (firestore.rules). */
   const [inativo, setInativo] = useState(false);
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
   /** Cadastro como estava ao abrir: o "antes" do Histórico de alterações. */
   const fornecedorOriginalRef = useRef<Record<string, unknown> | null>(null);
 
@@ -184,6 +189,7 @@ const FornecedorForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pode(PERMISSAO_CADASTROS.fornecedoresAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.fornecedoresAlterar, 'incluir ou alterar fornecedores'); return; }
     if (inativo) {
       showError('Fornecedor inativo', 'Este fornecedor está inativo e não pode ser alterado. Para alterar, reative-o na lista de Fornecedores.');
       return;

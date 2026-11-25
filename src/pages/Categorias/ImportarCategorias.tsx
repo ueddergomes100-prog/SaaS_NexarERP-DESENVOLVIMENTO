@@ -7,6 +7,8 @@ import {
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Tags, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
 import { createAuditLog } from '../../services/logService';
@@ -39,6 +41,8 @@ type Passo = 'upload' | 'mapeamento' | 'confirmacao' | 'concluido';
 const ImportarCategorias: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): importar com permissao propria (quem tem a tela ja' tem marcada).
+  const podeImportar = usePodePermissao()(PERMISSAO_CADASTROS.categoriasImportar);
 
   const [passo, setPasso] = useState<Passo>('upload');
   const [carregandoArquivo, setCarregandoArquivo] = useState(false);
@@ -137,6 +141,7 @@ const ImportarCategorias: React.FC = () => {
   const categoriasProntas = totalComProblema === 0 && linhasAtivas.length > 0;
 
   const executarImportacao = async () => {
+    if (!podeImportar) { avisarSemPermissao(PERMISSAO_CADASTROS.categoriasImportar, 'importar categorias'); return; }
     if (!tenantId || !currentUser) return;
     if (!categoriasProntas) {
       showError('Ainda há linhas pendentes', `${totalComProblema} linha(s) precisam ser corrigidas, ou marcadas como "não importar", antes de continuar.`);

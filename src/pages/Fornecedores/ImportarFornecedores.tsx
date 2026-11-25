@@ -9,6 +9,8 @@ import { createAuditLog } from '../../services/logService';
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Truck, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata } from '../../utils/documentMetadata';
@@ -103,6 +105,8 @@ const linhasIdsDuplicadosParaExcluir = (processados: FornecedorImportado[]): Set
 const ImportarFornecedores: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): importar com permissao propria (quem tem a tela ja' tem marcada).
+  const podeImportar = usePodePermissao()(PERMISSAO_CADASTROS.fornecedoresImportar);
 
   const [passo, setPasso] = useState<Passo>('upload');
   const [carregandoArquivo, setCarregandoArquivo] = useState(false);
@@ -218,6 +222,7 @@ const ImportarFornecedores: React.FC = () => {
   const fornecedoresProntos = totalComProblema === 0 && linhasAtivas.length > 0;
 
   const executarImportacao = async () => {
+    if (!podeImportar) { avisarSemPermissao(PERMISSAO_CADASTROS.fornecedoresImportar, 'importar fornecedores'); return; }
     if (!tenantId || !currentUser) return;
     if (!fornecedoresProntos) {
       showError('Ainda há linhas pendentes', `${totalComProblema} linha(s) precisam ser corrigidas, ou marcadas como "não importar", antes de continuar.`);

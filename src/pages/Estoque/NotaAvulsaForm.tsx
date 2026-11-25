@@ -4,6 +4,8 @@ import { ArrowLeft, PackagePlus, Plus, Save, Trash2 } from 'lucide-react';
 import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
@@ -28,7 +30,6 @@ import { camposDoTituloDaParcela, debitosDasParcelasPagas, erroDasParcelasPorFor
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { acompanharCatalogo, acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
-import { hasTenantFullAccess } from '../../utils/roles';
 import ChequesDeClienteNaNota from './ChequesDeClienteNaNota';
 import ImportarXmlNaNotaAvulsa, { type OrigemXmlDaNota } from './ImportarXmlNaNotaAvulsa';
 import { notaAvulsaChequesService, type ChequeDaCarteira } from '../../services/notaAvulsaChequesService';
@@ -77,9 +78,12 @@ const labelStyle: React.CSSProperties = { fontSize: '13px', color: 'var(--text-s
 
 const NotaAvulsaForm: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId, isOwner, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId } = useAuth();
+  const podePermissao = usePodePermissao();
+  // Item 15 (25/11/2026): a nota sempre lanca o pagamento (banco ou Contas a Pagar) -- permissao propria.
+  const podeLancarPagamento = podePermissao(PERMISSAO_ESTOQUE.notaAvulsaPagamento);
   // Cheque de cliente pagando a nota (25/11/2026): permissao propria, conferida no servidor.
-  const podePagarComCheque = hasTenantFullAccess(userRole, isOwner) || Boolean(userPermissions?.includes('estoque.nota_avulsa_cheque_cliente'));
+  const podePagarComCheque = podePermissao('estoque.nota_avulsa_cheque_cliente');
   const [chequesEscolhidos, setChequesEscolhidos] = useState<ChequeDaCarteira[]>([]);
 
   const [fornecedores, setFornecedores] = useState<FornecedorBasico[]>([]);
@@ -353,6 +357,10 @@ const NotaAvulsaForm: React.FC = () => {
 
   const handleSalvar = async () => {
     if (!currentUser || !tenantId) return;
+    if (!podeLancarPagamento) {
+      avisarSemPermissao(PERMISSAO_ESTOQUE.notaAvulsaPagamento, 'lançar o pagamento da nota avulsa (banco e Contas a Pagar)', 'Sem ela, a compra entra pela Entrada de NF-e ou por quem tem a permissão.');
+      return;
+    }
     if (!fornecedorSelecionado) {
       showError('Fornecedor obrigatório', 'Busque e selecione o fornecedor desta compra.');
       return;

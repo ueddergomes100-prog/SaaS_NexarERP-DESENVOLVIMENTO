@@ -6,6 +6,8 @@ import { assinarComReserva } from '../../services/consultaComReserva';
 import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { showError, showSuccess, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -41,6 +43,8 @@ interface NotaAvulsaData extends NotaAvulsaParaVer {
 
 const NotasAvulsasList: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): cancelar com permissao propria (quem usa a Nota Avulsa ja' tem marcada).
+  const podeCancelarNota = usePodePermissao()(PERMISSAO_ESTOQUE.notaAvulsaCancelar);
   const { openTab } = useTabs();
   const [notas, setNotas] = useState<NotaAvulsaData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -441,7 +445,7 @@ const NotasAvulsasList: React.FC = () => {
                             <FileCheck2 size={18} />
                           </button>
                         )}
-                        {n.status === STATUS_NOTA_AVULSA_ATIVA && (
+                        {n.status === STATUS_NOTA_AVULSA_ATIVA && podeCancelarNota && (
                           <button
                             onClick={() => void handleCancelar(n)}
                             className="icon-btn"

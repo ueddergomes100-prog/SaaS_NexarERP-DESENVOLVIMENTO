@@ -4,6 +4,8 @@ import { ArrowLeft, Save, Tags, Loader2 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -22,6 +24,9 @@ const CategoriaForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(isEditing);
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
   /** Categoria como estava ao abrir: o "antes" do Histórico de alterações. */
   const categoriaOriginalRef = useRef<Record<string, unknown> | null>(null);
 
@@ -50,6 +55,7 @@ const CategoriaForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pode(PERMISSAO_CADASTROS.categoriasAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.categoriasAlterar, 'incluir ou alterar categorias'); return; }
     if (!formData.nome) {
       showError('Campos incompletos', 'Nome da categoria é obrigatório.');
       return;

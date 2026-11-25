@@ -7,6 +7,8 @@ import { ArrowLeft, Save, User, Car, FileText, Loader2, Plus, Trash2, Activity, 
 import { collection, addDoc, doc, getDoc, getDocs, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OS } from '../../utils/permissoesNovasDomain';
 import { NexusSwal, showSuccess, showError, showWarning } from '../../utils/alerts';
 import { useEmitirBoletosNaHora } from '../../hooks/useEmitirBoletosNaHora';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
@@ -20,7 +22,7 @@ import {
   DEFAULT_MOMENTO_BAIXA_ESTOQUE,
   type MomentoBaixaEstoque,
 } from '../../utils/estoqueReservaDomain';
-import { isPlatformAdminRole, isTenantManagerRole, hasModuleAccess } from '../../utils/roles';
+import { isPlatformAdminRole, hasModuleAccess } from '../../utils/roles';
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import AvisoQuemFez from '../../components/common/AvisoQuemFez';
@@ -404,6 +406,12 @@ const OSForm: React.FC = () => {
   const [aprovacaoDesconto, setAprovacaoDesconto] = useState<AprovacaoDesconto | null>(null);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido, grupo, userNome } = useAuth();
+  // Item 15 (25/11/2026): finalizar, reabrir, cancelar, mudar o preco do item e trocar o
+  // tecnico com permissao propria (quem tem OS ja' tem as quatro primeiras marcadas; trocar o
+  // tecnico era so' do administrador). Pelo servidor, ele confere; pelo navegador, so' a tela.
+  const pode = usePodePermissao();
+  const podeAlterarPrecoNaOs = pode(PERMISSAO_OS.alterarPreco);
+  const podeTrocarTecnico = pode(PERMISSAO_OS.responsavel) || isPlatformAdminRole(userRole);
   // "Emitir agora" do boleto, ao finalizar a OS: emite aqui e abre para imprimir (24/11/2026).
   const { emitirBoletosNaHora, janelaDoBoleto } = useEmitirBoletosNaHora({ tenantId, uid: currentUser?.uid });
   // Quem cancelou e quando (aviso no topo da OS cancelada, 09/11/2026).
@@ -1228,6 +1236,12 @@ const OSForm: React.FC = () => {
   const saveOS = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
+    // Item 15 (25/11/2026): OS gravada so' muda com "Servicos: Alterar OS" -- antes so' o duplo
+    // clique da lista conferia, e a URL de edicao abria com "Ordens de Servico".
+    if (isEditing && !pode('mecanica.os_alterar')) {
+      avisarSemPermissao('mecanica.os_alterar', 'alterar OS já gravada');
+      return false;
+    }
     if (!formData.clienteNome) {
       showError('Campos incompletos', 'Por favor, preencha o Nome do Cliente.');
       return false;
@@ -1264,6 +1278,18 @@ const OSForm: React.FC = () => {
       || (statusGravado === STATUS_OS_CANCELADA && alvo === STATUS_OS_CANCELADA);
     const cancelar = isEditing && alvo === STATUS_OS_CANCELADA && statusGravado !== STATUS_OS_CANCELADA;
     const finalizar = alvo === STATUS_OS_FINALIZADA && !soDescritivo;
+    if (finalizar && !pode(PERMISSAO_OS.finalizar)) {
+      avisarSemPermissao(PERMISSAO_OS.finalizar, 'finalizar OS', 'Sem ela, grave a OS sem finalizar e peça a quem pode.');
+      return false;
+    }
+    if (reabrir && !pode(PERMISSAO_OS.reabrir)) {
+      avisarSemPermissao(PERMISSAO_OS.reabrir, 'reabrir OS finalizada');
+      return false;
+    }
+    if (cancelar && !pode(PERMISSAO_OS.cancelar)) {
+      avisarSemPermissao(PERMISSAO_OS.cancelar, 'cancelar OS');
+      return false;
+    }
     // Balanco aberto com as vendas travadas (21/10/2026): OS nao fecha ate' ele acabar.
     if (finalizar && tenantId) {
       const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a OS');
@@ -2161,7 +2187,7 @@ const OSForm: React.FC = () => {
                     mecanicoNome: selectedUser?.nome || ''
                   });
                 }} 
-                disabled={!isTenantManagerRole(userRole) && !isPlatformAdminRole(userRole)}
+                disabled={!podeTrocarTecnico}
                 style={{ 
                   backgroundColor: 'var(--bg-tertiary)', 
                   border: '1px solid var(--border-color)', 
@@ -2169,8 +2195,8 @@ const OSForm: React.FC = () => {
                   padding: '12px 16px', 
                   color: 'var(--text-primary)', 
                   width: '100%',
-                  opacity: (!isTenantManagerRole(userRole) && !isPlatformAdminRole(userRole)) ? 0.7 : 1,
-                  cursor: (!isTenantManagerRole(userRole) && !isPlatformAdminRole(userRole)) ? 'not-allowed' : 'pointer'
+                  opacity: !podeTrocarTecnico ? 0.7 : 1,
+                  cursor: !podeTrocarTecnico ? 'not-allowed' : 'pointer'
                 }}
               >
                 <option value="">-- Selecione o Funcionário (Nenhum) --</option>
@@ -2235,6 +2261,7 @@ const OSForm: React.FC = () => {
                 title="R$ por hora"
                 value={servicoPrecoInput}
                 onChange={(e) => setServicoPrecoInput(e.target.value)}
+                disabled={!podeAlterarPrecoNaOs}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddServico(); } }}
                 style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
@@ -2277,6 +2304,7 @@ const OSForm: React.FC = () => {
                               type="number" 
                               value={s.preco} 
                               onChange={e => updatePrecoServico(index, Number(e.target.value))}
+                              disabled={!podeAlterarPrecoNaOs}
                               style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
                               min="0" 
                               step="0.01"
@@ -2408,6 +2436,7 @@ const OSForm: React.FC = () => {
                 title="R$ Valor"
                 value={pecaPrecoInput}
                 onChange={(e) => setPecaPrecoInput(e.target.value)}
+                disabled={!podeAlterarPrecoNaOs}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddPeca(); } }}
                 style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)' }}
               />
@@ -2447,6 +2476,7 @@ const OSForm: React.FC = () => {
                               type="number" 
                               value={p.preco} 
                               onChange={e => updatePrecoPeca(index, Number(e.target.value))}
+                              disabled={!podeAlterarPrecoNaOs}
                               style={{ width: '100%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px', borderRadius: '4px', fontSize: '13px' }} 
                               min="0" 
                               step="0.01"

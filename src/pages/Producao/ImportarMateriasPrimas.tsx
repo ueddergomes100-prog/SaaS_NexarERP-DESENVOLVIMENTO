@@ -5,6 +5,8 @@ import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore
 import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Factory, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -46,6 +48,8 @@ interface MateriaPrimaConfirmar {
 const ImportarMateriasPrimas: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): importar com permissao propria (quem tem a tela ja' tem marcada).
+  const podeImportar = usePodePermissao()(PERMISSAO_CADASTROS.materiaPrimaImportar);
 
   const [passo, setPasso] = useState<Passo>('upload');
   const [carregandoArquivo, setCarregandoArquivo] = useState(false);
@@ -132,6 +136,7 @@ const ImportarMateriasPrimas: React.FC = () => {
   ));
 
   const executarImportacao = async () => {
+    if (!podeImportar) { avisarSemPermissao(PERMISSAO_CADASTROS.materiaPrimaImportar, 'importar matérias-primas'); return; }
     if (!tenantId || !currentUser) return;
     if (!materiasPrimasProntas) {
       showError('Preencha todos os campos', 'Toda matéria-prima precisa de nome, unidade e quantidade (um número válido) antes de importar.');

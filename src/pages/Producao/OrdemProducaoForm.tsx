@@ -4,6 +4,8 @@ import { ArrowLeft, Save, Factory, Loader2, Play, Pause, CheckCircle2, XCircle, 
 import { collection, doc, getDoc, getDocs, updateDoc, serverTimestamp, query, where, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_PRODUCAO } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { reserveTenantSequence, formatSequenceValue, getCurrentMaxSequence } from '../../utils/firestoreAtomic';
@@ -146,6 +148,12 @@ const OrdemProducaoForm: React.FC = () => {
   const isEditing = !!id;
   const { currentUser, tenantId, userRole, userPermissions, isOwner, loteModoSaida, loteAvisarVencido } = useAuth();
   const canManageProducao = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('operacoes.producao'));
+  // Item 15 (25/11/2026): finalizar, estornar e cancelar com permissao propria (quem tem
+  // Ordens de Producao ja' tem marcadas). Grava pelo navegador: so' a tela confere ate' as rules.
+  const pode = usePodePermissao();
+  const podeFinalizar = pode(PERMISSAO_PRODUCAO.finalizar);
+  const podeEstornar = pode(PERMISSAO_PRODUCAO.estornar);
+  const podeCancelar = pode(PERMISSAO_PRODUCAO.cancelar);
 
   const [isFetching, setIsFetching] = useState(isEditing);
   // Decoupled de isFetching (que so controla o spinner de tela cheia, e
@@ -491,6 +499,7 @@ const OrdemProducaoForm: React.FC = () => {
 
   const handleCancelar = async () => {
     if (!id || !currentUser) return;
+    if (!podeCancelar) { avisarSemPermissao(PERMISSAO_PRODUCAO.cancelar, 'cancelar ordem de produção'); return; }
     if (!canManageProducao) {
       showError('Acesso negado', 'Você não tem permissão para cancelar ordens de produção.');
       return;
@@ -549,6 +558,7 @@ const OrdemProducaoForm: React.FC = () => {
   // padrao do cancelamento de OS/venda ja usado no sistema).
   const handleEstornar = async () => {
     if (!id || !tenantId || !currentUser || !ordem) return;
+    if (!podeEstornar) { avisarSemPermissao(PERMISSAO_PRODUCAO.estornar, 'estornar ordem de produção finalizada'); return; }
     if (!canManageProducao) {
       showError('Acesso negado', 'Você não tem permissão para estornar ordens de produção.');
       return;
@@ -650,6 +660,7 @@ const OrdemProducaoForm: React.FC = () => {
   // conferencia -- nada e gravado ainda aqui.
   const handleAbrirRevisaoFinalizacao = async () => {
     if (!ordem) return;
+    if (!podeFinalizar) { avisarSemPermissao(PERMISSAO_PRODUCAO.finalizar, 'finalizar ordem de produção'); return; }
     setIsLoadingRevisao(true);
     try {
       const composicaoSnap = await getDoc(doc(db, 'produtos_composicao', ordem.produtoId));
@@ -719,6 +730,7 @@ const OrdemProducaoForm: React.FC = () => {
   // a planejada) e a perda extra revisadas na tela de conferencia.
   const handleConfirmarFinalizacao = async (): Promise<boolean> => {
     if (!id || !tenantId || !currentUser || !ordem) return false;
+    if (!podeFinalizar) { avisarSemPermissao(PERMISSAO_PRODUCAO.finalizar, 'finalizar ordem de produção'); return false; }
 
     const quantidadeProduzida = Number(quantidadeProduzidaInput);
     if (!Number.isFinite(quantidadeProduzida) || quantidadeProduzida <= 0) {
@@ -976,9 +988,9 @@ const OrdemProducaoForm: React.FC = () => {
                     <button type="button" className="btn-secondary" disabled={isProcessing} onClick={handlePausar} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Pause size={16} /> Pausar
                     </button>
-                    <button type="button" className="btn-primary" disabled={isProcessing || isLoadingRevisao} onClick={handleAbrirRevisaoFinalizacao} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}>
+                    {podeFinalizar && <button type="button" className="btn-primary" disabled={isProcessing || isLoadingRevisao} onClick={handleAbrirRevisaoFinalizacao} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981', borderColor: '#10b981' }}>
                       {isLoadingRevisao ? <Loader2 size={16} className="spin-icon" /> : <CheckCircle2 size={16} />} Finalizar Produção
-                    </button>
+                    </button>}
                   </>
                 )}
                 {ordem.status === 'pausada' && (
@@ -986,12 +998,12 @@ const OrdemProducaoForm: React.FC = () => {
                     <RotateCcw size={16} /> Retomar
                   </button>
                 )}
-                {canManageProducao && ['criada', 'em_producao', 'pausada'].includes(ordem.status) && (
+                {canManageProducao && podeCancelar && ['criada', 'em_producao', 'pausada'].includes(ordem.status) && (
                   <button type="button" className="icon-btn" style={{ color: '#ef4444' }} title="Cancelar ordem" disabled={isProcessing} onClick={handleCancelar}>
                     <XCircle size={18} />
                   </button>
                 )}
-                {canManageProducao && ordem.status === 'finalizada' && (
+                {canManageProducao && podeEstornar && ordem.status === 'finalizada' && (
                   <button type="button" className="btn-secondary" disabled={isProcessing} onClick={handleEstornar} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
                     <Undo2 size={16} /> Estornar Produção
                   </button>

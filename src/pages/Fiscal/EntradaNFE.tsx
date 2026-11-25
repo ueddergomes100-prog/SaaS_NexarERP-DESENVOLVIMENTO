@@ -5,6 +5,8 @@ import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, getDocs, doc, getDoc, addDoc, increment, runTransaction, serverTimestamp, type DocumentData, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { escaparHtml, showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -190,6 +192,10 @@ const EntradaNFE: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
   const { tenantId, currentUser } = useAuth();
+  // Item 15 (25/11/2026): mudar o preco de venda na entrada pede "Estoque: Alterar o preco de venda";
+  // sem ela, vale o preco do cadastro (ou o padrao do item novo).
+  const podeAlterarPreco = usePodePermissao()(PERMISSAO_ESTOQUE.alterarPreco);
+  const avisarSemPreco = () => avisarSemPermissao(PERMISSAO_ESTOQUE.alterarPreco, 'alterar o preço de venda do produto', 'Sem ela, fica o preço do cadastro.');
   const [dragActive, setDragActive] = useState(false);
   /**
    * BUSCA DA NOTA PELA CHAVE (2026-09-21).
@@ -817,10 +823,12 @@ const EntradaNFE: React.FC = () => {
   });
 
   const handlePrecoVarejo = (idx: number, texto: string) => {
+    if (!podeAlterarPreco) { avisarSemPreco(); return; }
     handleAlterarConfigItem(idx, { precoVenda: texto, precoEditado: true });
     limparMarkup(`${idx}-v`);
   };
   const handleMarkupVarejo = (idx: number, texto: string) => {
+    if (!podeAlterarPreco) { avisarSemPreco(); return; }
     setMarkupDigitado((atual) => ({ ...atual, [`${idx}-v`]: texto }));
     const preco = precoPeloMarkup(custoUnitarioDoItem(idx), texto);
     if (preco !== null) handleAlterarConfigItem(idx, { precoVenda: String(preco), precoEditado: true });

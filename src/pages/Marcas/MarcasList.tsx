@@ -3,6 +3,8 @@ import { Search, Plus, Edit, Power } from 'lucide-react';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
@@ -29,6 +31,9 @@ const MarcasList: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
 
   useKeyboardShortcuts([
     { key: 'F2', handler: () => searchInputRef.current?.focus() },
@@ -49,6 +54,7 @@ const MarcasList: React.FC = () => {
   }, [currentUser, tenantId]);
 
   const handleToggleAtivo = async (marca: MarcaData) => {
+    if (!pode(PERMISSAO_CADASTROS.marcasInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.marcasInativar, 'inativar ou reativar marcas'); return; }
     if (!currentUser) return;
     const novoStatus = marca.ativo === false;
 

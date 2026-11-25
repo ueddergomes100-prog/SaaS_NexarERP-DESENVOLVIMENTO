@@ -3,6 +3,8 @@ import { ArrowLeft, Boxes, FileText, DollarSign, AlertCircle, XCircle } from 'lu
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess } from '../../utils/roles';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { useNavigate } from 'react-router-dom';
 import StatCard from '../../components/Reports/StatCard';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
@@ -13,6 +15,7 @@ import { fromCents } from '../../utils/financeDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import {
   formatarQuantidadeEstoque,
+  COLUNAS_DE_CUSTO_DO_ESTOQUE,
   montarDocumentoRelatorioEstoque,
   produtosDoRelatorioEstoque,
   resumirRelatorioEstoque,
@@ -77,7 +80,10 @@ const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: '
 
 const RelatorioEstoque: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId } = useAuth();
+  const { tenantId, userRole, isOwner, userPermissions } = useAuth();
+  // Item 15 (25/11/2026): custo e valor em estoque so' com "Estoque: Ver custo e margem dos produtos".
+  const podeVerCusto = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_ESTOQUE.verCusto);
+  const colunasDaTela = ORDEM_COLUNAS.filter((c) => podeVerCusto || !COLUNAS_DE_CUSTO_DO_ESTOQUE.includes(c));
 
   const [produtos, setProdutos] = useState<ProdutoRelatorio[]>([]);
   const [categorias, setCategorias] = useState<string[]>([]);
@@ -226,9 +232,10 @@ const RelatorioEstoque: React.FC = () => {
     composicoes,
     filtro,
     agora: new Date(),
-  }), [filtrados, desmarcados, composicoes, filtro]);
+    semCusto: !(hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_ESTOQUE.verCusto)),
+  }), [filtrados, desmarcados, composicoes, filtro, userRole, isOwner, userPermissions]);
 
-  const colunasAtivas = ORDEM_COLUNAS.filter((c) => c !== 'composicao' && colunas[c]);
+  const colunasAtivas = colunasDaTela.filter((c) => c !== 'composicao' && colunas[c]);
 
   const valorDaColuna = (p: ProdutoRelatorio, coluna: keyof ColunasVisiveis): string => {
     switch (coluna) {
@@ -356,7 +363,7 @@ const RelatorioEstoque: React.FC = () => {
       <div className="card" style={{ padding: '16px 20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Colunas da tela:</span>
-          {ORDEM_COLUNAS.map((chave) => (
+          {colunasDaTela.map((chave) => (
             <label key={chave} className="switch-row" style={{ minHeight: 'auto' }}>
               <input type="checkbox" checked={colunas[chave]} onChange={() => toggleColuna(chave)} />
               <span>{ROTULO_COLUNA[chave]}</span>
@@ -380,7 +387,7 @@ const RelatorioEstoque: React.FC = () => {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
         <StatCard title="Itens no relatório" value={String(stats.total)} icon={Boxes} color="#3b82f6" subtitle={`De ${filtrados.length} no filtro`} />
-        <StatCard title="Valor em Estoque" value={currency.format(fromCents(stats.valorEstoqueCentavos))} icon={DollarSign} color="#10b981" subtitle="Quantidade × custo" valorEmDinheiro />
+        {podeVerCusto && <StatCard title="Valor em Estoque" value={currency.format(fromCents(stats.valorEstoqueCentavos))} icon={DollarSign} color="#10b981" subtitle="Quantidade × custo" valorEmDinheiro />}
         <StatCard title="Estoque Baixo" value={String(stats.estoqueBaixo)} icon={AlertCircle} color="#f59e0b" subtitle="No ou abaixo do mínimo" />
         <StatCard title="Itens Esgotados" value={String(stats.esgotados)} icon={XCircle} color="#ef4444" subtitle="Quantidade zerada" />
       </div>

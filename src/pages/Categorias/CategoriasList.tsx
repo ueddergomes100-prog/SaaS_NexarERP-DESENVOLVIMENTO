@@ -4,6 +4,8 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, doc, where, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -41,6 +43,9 @@ const CategoriasList: React.FC = () => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
 
   useKeyboardShortcuts([
     { key: 'F2', handler: () => searchInputRef.current?.focus() },
@@ -60,6 +65,7 @@ const CategoriasList: React.FC = () => {
   }, [currentUser]);
 
   const handleToggleAtivo = async (categoria: CategoriaData) => {
+    if (!pode(PERMISSAO_CADASTROS.categoriasInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.categoriasInativar, 'inativar ou reativar categorias'); return; }
     if (!currentUser) return;
     const novoStatus = categoria.ativo === false;
 
@@ -84,6 +90,7 @@ const CategoriasList: React.FC = () => {
   };
 
   const handleFixNames = async () => {
+    if (!pode(PERMISSAO_CADASTROS.categoriasAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.categoriasAlterar, 'padronizar os nomes das categorias'); return; }
     if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Padronizar Nomes?',
@@ -146,8 +153,8 @@ const CategoriasList: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           <MenuMaisOpcoes
             itens={[
-              { texto: 'Importar categorias', Icone: Upload, onClick: () => openTab('/categorias/importar', 'Importar Categorias') },
-              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+              { texto: 'Importar categorias', Icone: Upload, oculto: !pode(PERMISSAO_CADASTROS.categoriasImportar), onClick: () => openTab('/categorias/importar', 'Importar Categorias') },
+              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, oculto: !pode(PERMISSAO_CADASTROS.categoriasAlterar), onClick: handleFixNames, separadorAntes: true },
             ]}
           />
           <button className="btn-primary" onClick={() => openTab('/categorias/nova')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

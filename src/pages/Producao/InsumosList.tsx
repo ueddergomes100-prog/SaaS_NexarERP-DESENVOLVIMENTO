@@ -3,6 +3,8 @@ import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, serverTim
 import { FileText, Loader2, Package, Pencil, Plus, Power, Search, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS, PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -61,6 +63,11 @@ const rotuloDoInsumo = (nome: string | undefined, codigo: string | undefined): s
 
 const InsumosList: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): saldo inicial e inativar com permissao propria (quem tem Materia-Prima
+  // ja' tem marcadas). Insumo grava pelo navegador: so' a tela confere ate' as rules.
+  const pode = usePodePermissao();
+  const podeSaldoInicial = pode(PERMISSAO_ESTOQUE.estoqueInicial);
+  const podeInativar = pode(PERMISSAO_CADASTROS.materiaPrimaInativar);
   const { linha } = useLinhaSelecionavel();
   const [insumos, setInsumos] = useState<InsumoDoCadastro[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,6 +178,10 @@ const InsumosList: React.FC = () => {
         showSuccess('Insumo atualizado!');
       } else {
         const quantidade = numeroDoInsumo(form.quantidade);
+        if (!podeSaldoInicial && quantidade !== 0) {
+          avisarSemPermissao(PERMISSAO_ESTOQUE.estoqueInicial, 'informar o saldo inicial', 'Sem ela, o insumo entra com saldo zero e o saldo entra pela nota de compra ou pelo Ajuste de Estoque.');
+          return;
+        }
         const novaRef = await addDoc(collection(db, 'insumos'), {
           ...dados,
           categoria: 'DIVERSOS',
@@ -207,6 +218,7 @@ const InsumosList: React.FC = () => {
 
   const alternarSituacao = async (insumo: InsumoDoCadastro) => {
     if (!currentUser) return;
+    if (!podeInativar) { avisarSemPermissao(PERMISSAO_CADASTROS.materiaPrimaInativar, 'inativar ou reativar insumos'); return; }
     try {
       await updateDoc(doc(db, 'insumos', insumo.id), { ativo: insumo.ativo === false, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
       // Historico de alteracoes (09/11/2026): inativar/reativar.
@@ -325,7 +337,7 @@ const InsumosList: React.FC = () => {
                   </td>
                   <td {...semAbrirLinha} style={{ padding: '14px', textAlign: 'center' }}>
                     <button className="icon-btn" title="Editar" onClick={() => abrirEdicao(i)} style={{ color: '#f59e0b' }}><Pencil size={16} /></button>
-                    <button className="icon-btn" title={i.ativo === false ? 'Reativar' : 'Inativar'} onClick={() => void alternarSituacao(i)} style={{ color: i.ativo === false ? '#10b981' : '#ef4444' }}><Power size={16} /></button>
+                    {podeInativar && <button className="icon-btn" title={i.ativo === false ? 'Reativar' : 'Inativar'} onClick={() => void alternarSituacao(i)} style={{ color: i.ativo === false ? '#10b981' : '#ef4444' }}><Power size={16} /></button>}
                   </td>
                 </tr>
               ))}
@@ -373,7 +385,7 @@ const InsumosList: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={rotuloStyle}>{editandoId ? 'Em estoque (só leitura)' : 'Saldo inicial'}</label>
-                  <input type="text" inputMode="decimal" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} disabled={Boolean(editandoId)} style={{ ...campoStyle, opacity: editandoId ? 0.6 : 1 }} />
+                  <input type="text" inputMode="decimal" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} disabled={Boolean(editandoId) || !podeSaldoInicial} style={{ ...campoStyle, opacity: editandoId ? 0.6 : 1 }} />
                   {editandoId && <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Para mudar o saldo use Entrada de NF-e ou Ajuste de Estoque (fica no histórico).</span>}
                 </div>
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

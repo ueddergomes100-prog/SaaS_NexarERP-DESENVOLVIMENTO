@@ -4,6 +4,8 @@ import { Search, Plus, LayoutGrid, Edit, Power, X, Loader2, AlertTriangle } from
 import { collection, query, onSnapshot, doc, where, updateDoc, addDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -66,6 +68,9 @@ const GradesList: React.FC = () => {
   const novaOpcaoRef = useRef<HTMLInputElement>(null);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, usaGradeDeProdutos } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
   const navigate = useNavigate();
 
   const canAccess = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('cadastros.grades'));
@@ -115,6 +120,7 @@ const GradesList: React.FC = () => {
   };
 
   const handleToggleAtivo = async (grade: GradeData) => {
+    if (!pode(PERMISSAO_CADASTROS.gradesInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.gradesInativar, 'inativar ou reativar grades'); return; }
     if (!currentUser) return;
     const novoStatus = grade.ativo === false;
 
@@ -198,6 +204,7 @@ const GradesList: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pode(PERMISSAO_CADASTROS.gradesAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.gradesAlterar, 'incluir ou alterar grades'); return; }
     if (!currentUser) return;
     const leitura = lerGrade(nome, opcoes);
     if (!leitura.ok) {

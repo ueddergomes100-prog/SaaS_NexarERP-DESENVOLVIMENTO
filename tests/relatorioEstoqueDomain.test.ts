@@ -142,3 +142,13 @@ test('sem produtos: documento vazio não quebra', () => {
   assert.equal(doc.secoes[0].linhas.length, 0);
   assert.equal(doc.secoes[1].linhas.length, 0);
 });
+
+test('sem "Ver custo": o relatorio sai sem a coluna de custo, o valor total e o valor em estoque (item 15, 25/11/2026)', () => {
+  const doc = montarDocumentoRelatorioEstoque({ filtrados: [], desmarcados: new Set(), composicoes: {}, filtro: filtroBase, agora: new Date(), semCusto: true });
+  const ids = doc.secoes[0].colunas.map((c) => c.id);
+  assert.ok(!ids.includes('custo') && !ids.includes('valorTotal'));
+  assert.ok(ids.includes('preco'));
+  assert.ok(!doc.indicadores.some((i) => /custo/.test(i.rotulo)));
+  const comCusto = montarDocumentoRelatorioEstoque({ filtrados: [], desmarcados: new Set(), composicoes: {}, filtro: filtroBase, agora: new Date() });
+  assert.ok(comCusto.secoes[0].colunas.some((c) => c.id === 'custo'));
+});

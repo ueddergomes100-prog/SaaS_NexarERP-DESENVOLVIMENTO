@@ -4,6 +4,8 @@ import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS, PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { useReservedRawMaterialStock } from '../../hooks/useReservedRawMaterialStock';
@@ -65,6 +67,12 @@ const MateriasPrimasList: React.FC = () => {
   const [previewAberto, setPreviewAberto] = useState(false);
 
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): inativar/excluir, importar e regravar o custo dos acabados com
+  // permissao propria (quem tem Materia-Prima ja' tem marcadas).
+  const pode = usePodePermissao();
+  const podeInativar = pode(PERMISSAO_CADASTROS.materiaPrimaInativar);
+  const podeImportar = pode(PERMISSAO_CADASTROS.materiaPrimaImportar);
+  const podeAtualizarCustoDosAcabados = pode(PERMISSAO_ESTOQUE.alterarCusto);
   const [atualizandoCustos, setAtualizandoCustos] = useState(false);
 
   // Refaz o custo de TODOS os produtos acabados a partir das materias-primas
@@ -72,6 +80,7 @@ const MateriasPrimasList: React.FC = () => {
   // para conferir e para acertar o que ficou velho (implantacao, importacao).
   const handleAtualizarCustos = async () => {
     if (!tenantId || !currentUser) return;
+    if (!podeAtualizarCustoDosAcabados) { avisarSemPermissao(PERMISSAO_ESTOQUE.alterarCusto, 'alterar o custo dos produtos acabados'); return; }
     setAtualizandoCustos(true);
     try {
       const resultado = await sincronizarCustosDaProducao({
@@ -211,10 +220,11 @@ const MateriasPrimasList: React.FC = () => {
                 desabilitado: loading,
                 onClick: () => setPreviewAberto(true),
               },
-              { texto: 'Importar matérias-primas', Icone: Upload, onClick: () => openTab('/materias-primas/importar', 'Importar Matérias-Primas'), separadorAntes: true },
+              { texto: 'Importar matérias-primas', Icone: Upload, oculto: !podeImportar, onClick: () => openTab('/materias-primas/importar', 'Importar Matérias-Primas'), separadorAntes: true },
               {
                 texto: 'Atualizar custo dos produtos acabados', Icone: RefreshCw,
                 desabilitado: atualizandoCustos,
+                oculto: !podeAtualizarCustoDosAcabados,
                 titulo: 'Recalcula o custo de todos os produtos acabados a partir do custo atual das matérias-primas. O preço de venda não é alterado.',
                 onClick: () => { void handleAtualizarCustos(); },
                 separadorAntes: true,
@@ -343,22 +353,22 @@ const MateriasPrimasList: React.FC = () => {
                           <button className="icon-btn" title="Editar" onClick={() => openTab(`/materias-primas/editar/${item.id}`)}>
                             <Edit size={16} />
                           </button>
-                          <button
+                          {podeInativar && <button
                             className="icon-btn"
                             title={item.ativo === false ? 'Ativar' : 'Inativar'}
                             style={{ color: item.ativo === false ? '#10b981' : '#ef4444' }}
                             onClick={() => handleToggleAtivo(item)}
                           >
                             <Power size={16} />
-                          </button>
-                          <button
+                          </button>}
+                          {podeInativar && <button
                             className="icon-btn"
                             title="Excluir (só sem movimentação)"
                             style={{ color: '#ef4444' }}
                             onClick={() => { void confirmarEExcluirCadastro('materias_primas', item.id, item.nome, 'a matéria-prima'); }}
                           >
                             <Trash2 size={16} />
-                          </button>
+                          </button>}
                         </div>
                       </td>
                     </tr>

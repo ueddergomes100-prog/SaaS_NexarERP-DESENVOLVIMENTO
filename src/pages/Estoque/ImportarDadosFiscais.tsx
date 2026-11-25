@@ -5,6 +5,8 @@ import { collection, doc, getDoc, getDocs, query, serverTimestamp, where, writeB
 import { ArrowLeft, CheckCircle2, Download, FileUp, Loader2, ScanBarcode } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import {
@@ -93,6 +95,8 @@ const estiloCampo: React.CSSProperties = {
 const ImportarDadosFiscais: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): importar com permissao propria (quem tem a tela ja' tem marcada).
+  const podeImportar = usePodePermissao()(PERMISSAO_ESTOQUE.importar);
   const inputArquivo = useRef<HTMLInputElement>(null);
 
   const [passo, setPasso] = useState<Passo>('upload');
@@ -235,6 +239,7 @@ const ImportarDadosFiscais: React.FC = () => {
   };
 
   const aplicar = async () => {
+    if (!podeImportar) { avisarSemPermissao(PERMISSAO_ESTOQUE.importar, 'importar dados fiscais dos produtos'); return; }
     if (!currentUser || !tenantId) return;
     const alvos = plano.resultados.filter((r) => r.status === 'atualizar' && r.produto);
     if (alvos.length === 0) return;

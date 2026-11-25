@@ -8,6 +8,8 @@ import { buscarProdutosNoBanco, contarResumoDoEstoque, TAMANHO_PAGINA_ESTOQUE } 
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
@@ -163,8 +165,16 @@ const EstoqueList: React.FC = () => {
   const canEditProduto = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('cadastros.estoque_alterar'));
   // Mesmo criterio das regras do Firestore para gravar configuracoes
   // (canEditTenantConfig): dono/admin ou a permissao de Configuracoes.
-  const podeAlterarConfiguracoes = isOwner || isPlatformAdminRole(userRole) || userRole === 'Master' || userRole === 'Admin'
-    || Boolean(userPermissions?.includes('administrativo.config'));
+  // Item 15 (25/11/2026): "Estoque: Escolher colunas e cartoes da lista" (vem com
+  // Configuracoes). As rules ainda pedem "Admin: Configuracoes" para gravar.
+  const pode = usePodePermissao();
+  const podeAlterarConfiguracoes = pode(PERMISSAO_ESTOQUE.configurarLista);
+  // Cada acao com a permissao propria (quem abre o cadastro ja' tem marcadas).
+  const podeInativarProduto = pode(PERMISSAO_ESTOQUE.produtoInativar);
+  const podeExcluirProduto = pode(PERMISSAO_ESTOQUE.produtoExcluir);
+  const podeIncluirProduto = Boolean(canEditProduto) && pode(PERMISSAO_ESTOQUE.produtoIncluir);
+  const podeImportar = pode(PERMISSAO_ESTOQUE.importar);
+  const podePadronizarNomes = pode(PERMISSAO_ESTOQUE.padronizarNomes);
 
   /** Atalho para a mesma opcao de Configuracoes Gerais (mostrarResumoEstoque). */
   const alternarResumo = async () => {
@@ -727,22 +737,22 @@ const EstoqueList: React.FC = () => {
             <button className="icon-btn" title={principal ? 'Abrir o produto principal' : 'Editar'} onClick={() => abrirProduto(idParaAbrir)}>
               <Edit size={16} />
             </button>
-            <button
+            {podeInativarProduto && <button
               className="icon-btn"
               title={peca.ativo === false ? 'Ativar' : 'Inativar'}
               style={{ color: peca.ativo === false ? '#10b981' : '#ef4444' }}
               onClick={() => handleToggleAtivo(peca)}
             >
               <Power size={16} />
-            </button>
-            <button
+            </button>}
+            {podeExcluirProduto && <button
               className="icon-btn"
               title="Excluir (só sem movimentação)"
               style={{ color: '#ef4444' }}
               onClick={() => { if (!avisarSeEmEdicao(travasProdutos, 'produto', peca.id)) void confirmarEExcluirCadastro('estoque', peca.id, peca.nome, principal ? 'a variação' : 'o produto'); }}
             >
               <Trash2 size={16} />
-            </button>
+            </button>}
           </div>
         )}
       </td>
@@ -860,14 +870,14 @@ const EstoqueList: React.FC = () => {
           {/* A vista so' o "Novo Produto"; o resto e' de uso eventual (dono, 02/10). */}
           <MenuMaisOpcoes
             itens={[
-              { texto: 'Importar produtos', Icone: Upload, onClick: () => openTab('/estoque/importar', 'Importar Produtos') },
-              { texto: 'Importar composição', Icone: Factory, onClick: () => openTab('/estoque/importar-composicao', 'Importar Composição') },
+              { texto: 'Importar produtos', Icone: Upload, oculto: !podeImportar, onClick: () => openTab('/estoque/importar', 'Importar Produtos') },
+              { texto: 'Importar composição', Icone: Factory, oculto: !podeImportar, onClick: () => openTab('/estoque/importar-composicao', 'Importar Composição') },
               {
-                texto: 'Importar dados fiscais', Icone: ScanBarcode,
+                texto: 'Importar dados fiscais', Icone: ScanBarcode, oculto: !podeImportar,
                 titulo: 'Atualiza código de barras, NCM e CEST dos produtos já cadastrados',
                 onClick: () => openTab('/estoque/importar-fiscal', 'Importar Dados Fiscais'),
               },
-              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, oculto: !podePadronizarNomes, onClick: handleFixNames, separadorAntes: true },
               {
                 texto: 'Colunas da lista', Icone: Columns3,
                 titulo: 'Escolher quais colunas aparecem nesta lista (vale para todos os usuários da filial)',
@@ -885,7 +895,7 @@ const EstoqueList: React.FC = () => {
               },
             ]}
           />
-          {canEditProduto && (
+          {podeIncluirProduto && (
             <button
               className="btn-primary"
               onClick={() => openTab('/estoque/nova')}

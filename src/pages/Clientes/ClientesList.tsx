@@ -9,6 +9,8 @@ import RodapeListaPaginada from '../../components/common/RodapeListaPaginada';
 import { obterCatalogo } from '../../services/catalogoEstoqueService';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
@@ -84,6 +86,9 @@ const ClientesList: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
 
   // Com limite (17/11/2026): 50 por vez pela ordem do nome, busca no banco;
   // situacao diferente de "Ativos", filtros e relatorio usam o cadastro inteiro
@@ -107,6 +112,7 @@ const ClientesList: React.FC = () => {
   );
 
   const handleToggleAtivo = async (cliente: ClienteData) => {
+    if (!pode(PERMISSAO_CADASTROS.clientesInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.clientesInativar, 'inativar ou reativar clientes'); return; }
     if (!currentUser) return;
     if (avisarSeEmEdicao(travasClientes, 'cliente', cliente.id)) return;
     const novoStatus = cliente.ativo === false;
@@ -133,6 +139,7 @@ const ClientesList: React.FC = () => {
   };
 
   const handleFixNames = async () => {
+    if (!pode(PERMISSAO_CADASTROS.clientesAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.clientesAlterar, 'padronizar os nomes dos clientes'); return; }
     if (!currentUser) return;
     const isConfirmed = await NexusSwal.fire({
       title: 'Padronizar Nomes?',
@@ -241,15 +248,15 @@ const ClientesList: React.FC = () => {
           <MenuMaisOpcoes
             itens={[
               {
-                texto: 'Relatório', Icone: FileText,
+                texto: 'Relatório', Icone: FileText, oculto: !pode(PERMISSAO_CADASTROS.relatorios),
                 titulo: 'Abre em PDF os clientes filtrados na tela (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
                 desabilitado: loading,
                 onClick: () => setPreviewAberto(true),
               },
-              { texto: 'Importar clientes', Icone: Upload, onClick: () => openTab('/clientes/importar', 'Importar Clientes'), separadorAntes: true },
-              { texto: 'Importar histórico do sistema anterior', Icone: Upload, onClick: () => openTab('/clientes/importar-historico', 'Importar Histórico') },
-              { texto: 'Importar pedidos do sistema anterior', Icone: Upload, onClick: () => openTab('/clientes/importar-pedidos-anteriores', 'Importar Pedidos') },
-              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, onClick: handleFixNames, separadorAntes: true },
+              { texto: 'Importar clientes', Icone: Upload, oculto: !pode(PERMISSAO_CADASTROS.clientesImportar), onClick: () => openTab('/clientes/importar', 'Importar Clientes'), separadorAntes: true },
+              { texto: 'Importar histórico do sistema anterior', Icone: Upload, oculto: !pode(PERMISSAO_CADASTROS.clientesImportar), onClick: () => openTab('/clientes/importar-historico', 'Importar Histórico') },
+              { texto: 'Importar pedidos do sistema anterior', Icone: Upload, oculto: !pode('vendas.importar'), onClick: () => openTab('/clientes/importar-pedidos-anteriores', 'Importar Pedidos') },
+              { texto: 'Padronizar nomes (A-Z)', Icone: CaseUpper, oculto: !pode(PERMISSAO_CADASTROS.clientesAlterar), onClick: handleFixNames, separadorAntes: true },
             ]}
           />
           <button className="btn-primary" onClick={() => openTab('/clientes/novo')} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

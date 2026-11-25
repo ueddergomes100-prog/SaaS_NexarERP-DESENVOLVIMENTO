@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { Plus, Search, Edit, Power, Car, MapPin, Calendar, Hash, FileText } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -49,6 +51,9 @@ const VeiculosList: React.FC = () => {
   const [previewAberto, setPreviewAberto] = useState(false);
   const { openTab } = useTabs();
   const { currentUser, tenantId, userPermissions, userRole, isOwner } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
   const { modo: modoOficina, rotulos } = useModoOficina();
   
   const canEdit = isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('cadastros.veiculos');
@@ -82,6 +87,7 @@ const VeiculosList: React.FC = () => {
   }, [tenantId]);
 
   const handleToggleAtivo = async (veiculo: Veiculo) => {
+    if (!pode(PERMISSAO_CADASTROS.veiculosInativar)) { avisarSemPermissao(PERMISSAO_CADASTROS.veiculosInativar, 'inativar ou reativar veículos'); return; }
     if (!canEdit) {
       showError('Acesso Negado', 'Você não tem permissão para alterar veículos.');
       return;
@@ -151,7 +157,7 @@ const VeiculosList: React.FC = () => {
         <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
           <MenuMaisOpcoes
             itens={[{
-              texto: 'Relatório', Icone: FileText,
+              texto: 'Relatório', Icone: FileText, oculto: !pode(PERMISSAO_CADASTROS.relatorios),
               titulo: `Abre em PDF os ${rotulos.veiculos.toLowerCase()} da lista (dali dá para imprimir, salvar o PDF ou salvar em Excel)`,
               desabilitado: isLoading,
               onClick: () => setPreviewAberto(true),

@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { collection, doc, getDoc, addDoc, updateDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CADASTROS } from '../../utils/permissoesNovasDomain';
 import { ArrowLeft, Save, Car, User, Settings, Hash, MapPin, Calendar, Activity } from 'lucide-react';
 import { showSuccess, showError } from '../../utils/alerts';
 import AvisoCadastroInativo from '../../components/common/AvisoCadastroInativo';
@@ -39,6 +41,9 @@ const VeiculoForm: React.FC = () => {
   const { id } = useParams();
   const isEditing = !!id;
   const { tenantId, currentUser } = useAuth();
+  // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
+  // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
+  const pode = usePodePermissao();
   /** Cadastro como estava ao abrir: o "antes" do Histórico de alterações. */
   const veiculoOriginalRef = useRef<Record<string, unknown> | null>(null);
 
@@ -136,6 +141,7 @@ const VeiculoForm: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pode(PERMISSAO_CADASTROS.veiculosAlterar)) { avisarSemPermissao(PERMISSAO_CADASTROS.veiculosAlterar, 'incluir ou alterar veículos'); return; }
     if (inativo) {
       showError('Veículo inativo', 'Este veículo está inativo e não pode ser alterado. Para alterar, reative-o na lista de Veículos.');
       return;

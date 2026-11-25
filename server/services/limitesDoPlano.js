@@ -62,11 +62,27 @@ const ehVendedorSemLogin = (r) => r && r.tipoRegistro === 'vendedor';
  * sobrescrito, e CNPJ que ja' e' de outra empresa nao gera indice novo.
  */
 const MENSAGEM_CNPJ_DE_OUTRA = 'O CNPJ das Configurações desta empresa também está cadastrado em outra empresa do sistema. Confira o CNPJ em Configurações; se estiver certo, fale com o suporte.';
-const cnpjEDeOutraEmpresa = async (tenantId, cnpj) => {
+/**
+ * Quem e' o DONO do CNPJ e' o registro `cnpjs_cadastrados/{cnpj}`, gravado no
+ * cadastro da empresa e da filial (unico, em transacao) -- nao o que cada empresa
+ * escreve nas Configuracoes (revisao de 25/11: CNPJ repetido so' nas
+ * Configuracoes, como empresa de demonstracao, nao trava ninguem). Recusa so'
+ * quando o CNPJ esta' registrado por OUTRA empresa fora do grupo desta.
+ */
+const cnpjEDeOutraEmpresa = async (tenantId, cnpj, grupoId) => {
   const digitos = String(cnpj || '').replace(/\D/g, '');
   if (digitos.length !== 14) return false;
-  const snap = await db.collection('configuracoes').where('cnpj', 'in', [digitos, ident.formatarCnpj(digitos)]).limit(5).get();
-  return snap.docs.some((d) => d.id !== tenantId);
+  const registro = await db.collection('cnpjs_cadastrados').doc(digitos).get();
+  if (!registro.exists) return false;
+  const dados = registro.data() || {};
+  const dono = String(dados.tenantId || '');
+  if (!dono || dono === tenantId) return false;
+  if (grupoId && dados.grupoId === grupoId) return false;
+  if (grupoId) {
+    const configDoDono = await db.collection('configuracoes').doc(dono).get();
+    if (configDoDono.exists && (configDoDono.data() || {}).grupoId === grupoId) return false;
+  }
+  return true;
 };
 
 /** Entregas do romaneio no app do motorista (src/pages/Vendedor/vendedorPermissoes.ts). */
@@ -121,7 +137,7 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
     appLiberado = registros.filter((r) => r.acessoAppMobile === true).length < limiteApp;
   }
 
-  if (await cnpjEDeOutraEmpresa(tenantId, checagemCnpj.cnpj)) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
+  if (await cnpjEDeOutraEmpresa(tenantId, checagemCnpj.cnpj, config.grupoId)) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
   const chave = ident.montarChaveUsername(checagemCnpj.cnpj, checagemUsuario.username);
   const email = ident.montarEmailSintetico(chave);
   // Usuario ja' usado (25/11/2026, dominio dos logins): o indice e' quem diz.
@@ -205,7 +221,7 @@ const alterarAcessoApp = async ({ user, tenantId, corpo }) => {
     }
     // Bloco B (25/11/2026): conferido ANTES de gravar qualquer coisa.
     if (chaveIndice) {
-      if (await cnpjEDeOutraEmpresa(tenantId, cnpj)) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
+      if (await cnpjEDeOutraEmpresa(tenantId, cnpj, config.grupoId)) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
       const existente = await db.collection('vendedores_mobile_login').doc(chaveIndice).get();
       if (existente.exists && existente.data().tenantId !== tenantId) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
     }

@@ -318,8 +318,9 @@ test('vendedor de balcao so pelo servidor (bloco B, 25/11/2026): id gerado aqui,
 
 test('CNPJ de outra empresa (bloco B, 25/11/2026): indice do app de outra empresa nunca e sobrescrito; login novo nao nasce com CNPJ alheio', async () => {
   const fake = criarBancoFalso(base({
-    // A "loja" gravou nas Configuracoes o CNPJ da "vitima".
+    // A "loja" gravou nas Configuracoes o CNPJ da "vitima" -- registrado no cadastro da vitima.
     'configuracoes/vitima': { tenantId: 'vitima', cnpj: '12.345.678/0001-99' },
+    [`cnpjs_cadastrados/${CNPJ}`]: { cnpj: CNPJ, tenantId: 'vitima' },
     [`vendedores_mobile_login/${CNPJ}-07`]: { tenantId: 'vitima', vendedorId: 'vv' },
     'usuarios/v1': { tenantId: 'loja', role: 'Funcionario', tipoRegistro: 'vendedor', codigoVendedor: '07' },
   }), { consultas: true });
@@ -335,4 +336,22 @@ test('CNPJ de outra empresa (bloco B, 25/11/2026): indice do app de outra empres
     (e) => e.status === 409 && /também está cadastrado em outra empresa/.test(e.message),
   );
   assert.equal(fake.ler(`usernames/${CNPJ}-maria`), undefined);
+});
+
+test('CNPJ repetido so nas Configuracoes (revisao de 25/11): sem registro de outra empresa, ou no mesmo grupo, nao trava', async () => {
+  // Demonstracao: outra empresa com o mesmo CNPJ nas Configuracoes, sem registro de dono.
+  const demo = criarBancoFalso(base({ 'configuracoes/demo': { tenantId: 'demo', cnpj: CNPJ } }), { consultas: true });
+  const r1 = await carregar(demo.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ usuario: 'ana' }) });
+  assert.ok(r1.uid);
+  // Registro em nome da propria empresa: passa.
+  const propria = criarBancoFalso(base({ [`cnpjs_cadastrados/${CNPJ}`]: { tenantId: 'loja' } }), { consultas: true });
+  assert.ok((await carregar(propria.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ usuario: 'ana' }) })).uid);
+  // Registro de uma empresa do MESMO grupo (matriz/filial): passa.
+  const grupo = criarBancoFalso({
+    ...base(),
+    'configuracoes/loja': { tenantId: 'loja', cnpj: CNPJ, grupoId: 'g1' },
+    'configuracoes/matriz': { tenantId: 'matriz', grupoId: 'g1' },
+    [`cnpjs_cadastrados/${CNPJ}`]: { tenantId: 'matriz' },
+  }, { consultas: true });
+  assert.ok((await carregar(grupo.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ usuario: 'ana' }) })).uid);
 });

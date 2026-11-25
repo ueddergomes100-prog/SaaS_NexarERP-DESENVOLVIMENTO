@@ -48,7 +48,7 @@ function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirma
         clients={clientes}
         onSelect={(cliente) => setEmConfirmacao(cliente)}
         buscaDeCliente
-        placeholder="Nome, CPF/CNPJ, telefone ou código"
+        placeholder="Nome, código, CPF/CNPJ, telefone, cidade ou bairro"
         ariaLabel="Buscar cliente"
         inputRef={campoRef}
       />

@@ -182,3 +182,16 @@ test('apelido que comeca com o termo sobe junto com o nome que comeca com ele', 
   ];
   assert.deepEqual(searchClients(lista, 'toninh').map((c) => c.id), ['a', 'x']);
 });
+
+test('buscar em Cidade (25/11/2026, app Vendas): so pela cidade, sem acento e sem caixa', () => {
+  const lista = [
+    { nome: 'MERCADO A', cidade: 'Manhuaçu', bairro: 'Centro', telefone: '(33) 3331-1111' },
+    { nome: 'MANHUACU MATERIAIS', cidade: 'Reduto', bairro: 'Vila Nova' },
+    { nome: 'PADARIA B', cidade: 'Manhumirim', bairro: 'Manhuaçu de Baixo' },
+  ];
+  assert.deepEqual(searchClients(lista, 'manhuacu', { campo: 'cidade' }).map((c) => c.nome), ['MERCADO A']);
+  assert.deepEqual(searchClients(lista, 'manhu', { campo: 'cidade' }).map((c) => c.nome), ['MERCADO A', 'PADARIA B']);
+  // Em "Tudo" a cidade, o bairro e o telefone tambem contam (cliente pelo nome vem antes).
+  assert.deepEqual(searchClients(lista, 'manhuacu').map((c) => c.nome), ['MANHUACU MATERIAIS', 'MERCADO A', 'PADARIA B']);
+  assert.deepEqual(searchClients(lista, '3331').map((c) => c.nome), ['MERCADO A']);
+});

@@ -53,6 +53,7 @@ const PLACEHOLDER_POR_CAMPO: Record<CampoBuscaCliente, string> = {
   telefone: 'Telefone ou celular',
   endereco: 'Rua ou avenida',
   bairro: 'Bairro',
+  cidade: 'Cidade',
 };
 
 const SITUACOES: Array<{ valor: SituacaoCliente; rotulo: string }> = [

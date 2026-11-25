@@ -53,7 +53,7 @@ export interface FiltroLocalCliente {
 }
 
 export type SituacaoCliente = 'ativos' | 'inativos' | 'todos';
-export type CampoBuscaCliente = 'tudo' | 'nome' | 'fantasia' | 'documento' | 'telefone' | 'endereco' | 'bairro';
+export type CampoBuscaCliente = 'tudo' | 'nome' | 'fantasia' | 'documento' | 'telefone' | 'endereco' | 'bairro' | 'cidade';
 export type ModoBuscaCliente = 'contem' | 'comeca';
 
 export interface FiltrosConsultaCliente extends FiltroLocalCliente {
@@ -85,6 +85,8 @@ export const CAMPOS_BUSCA_CLIENTE: Array<{ valor: CampoBuscaCliente; rotulo: str
   { valor: 'telefone', rotulo: 'Telefone' },
   { valor: 'endereco', rotulo: 'Endereço' },
   { valor: 'bairro', rotulo: 'Bairro' },
+  // Cidade (25/11/2026, pedido do dono para o app Vendas): digitar o comeco do nome da cidade.
+  { valor: 'cidade', rotulo: 'Cidade' },
 ];
 
 /** Chave da opcao "cliente sem cidade no cadastro". */
@@ -279,6 +281,8 @@ const ondeCasou = (indice: IndiceDoCliente, termo: TermoDaBusca, campo: CampoBus
       return casaTexto(indice.endereco, termo) ? 'local' : null;
     case 'bairro':
       return casaTexto(indice.bairro, termo) ? 'local' : null;
+    case 'cidade':
+      return casaTexto(indice.cidade, termo) ? 'local' : null;
     default: {
       const naIdentidade = casaTexto(indice.nome, termo)
         || casaTexto(indice.apelido, termo)

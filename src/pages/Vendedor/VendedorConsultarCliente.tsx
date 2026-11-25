@@ -159,7 +159,7 @@ const VendedorConsultarCliente: React.FC = () => {
           clients={clientes}
           onSelect={(cliente) => setSelecionado(cliente)}
           buscaDeCliente
-          placeholder="Nome, CPF/CNPJ, telefone ou código"
+          placeholder="Nome, código, CPF/CNPJ, telefone, cidade ou bairro"
           ariaLabel="Buscar cliente"
         />
       </div>

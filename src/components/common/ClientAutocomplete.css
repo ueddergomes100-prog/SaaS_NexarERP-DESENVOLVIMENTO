@@ -200,9 +200,9 @@
   outline-offset: 1px;
 }
 
+/* Celular (25/11/2026): o nome "Filtros" fica a vista -- so' o icone passava despercebido. */
 @media (max-width: 480px) {
-  .client-autocomplete__botao-filtros-texto { display: none; }
-  .client-autocomplete__botao-filtros { padding: 0 9px; }
+  .client-autocomplete__botao-filtros { padding: 0 10px; }
 }
 
 .linha-cliente__alerta {

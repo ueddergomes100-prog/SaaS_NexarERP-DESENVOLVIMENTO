@@ -5,7 +5,7 @@ import { PARAMETROS_VENDA_PADRAO, checarPrazoDevolucao, parseParametrosVenda, ty
 import { db } from '../../services/firebase';
 import { estornarCashbackDaDevolucaoSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showError, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
@@ -50,6 +50,8 @@ interface DevolucaoVendaModalProps {
   itens: Array<{ id: string; nome: string; precoUnitario: number; quantidade: number; desconto: number; quantidadeJaDevolvida?: number; fatorConversao?: number; unidadeMedidaSigla?: string }>;
   onClose: () => void;
   onSuccess: () => void;
+  /** Abre o comprovante da devolucao recem-gravada (25/11/2026). */
+  onComprovante?: (devolucaoId: string) => void;
   /** Data da venda ('AAAA-MM-DD'), para o prazo de devolucao da filial (parametros de venda). */
   dataVenda?: string;
 }
@@ -60,7 +62,7 @@ interface DevolucaoVendaModalProps {
  * DevolucoesVenda.tsx, que buscava o pedido pelo numero). Logica de
  * confirmar devolucao movida sem alteracao da tela antiga.
  */
-const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, numeroPedido, clienteNome, itens: itensOriginais, onClose, onSuccess, dataVenda }) => {
+const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, numeroPedido, clienteNome, itens: itensOriginais, onClose, onSuccess, onComprovante, dataVenda }) => {
   const { currentUser, tenantId, controlaFiscal, isOwner, userRole, userPermissions } = useAuth();
   const podeEmitirNota = Boolean(controlaFiscal) && (isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions?.includes('fiscal.emitir')));
   /** Devolucao recem-registrada cuja NF-e de devolucao esta sendo emitida (abre o pop-up fiscal). */
@@ -381,7 +383,6 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       // Cashback (20/10/2026): a parte proporcional ao valor devolvido volta (pelo servidor).
       void estornarCashbackDaDevolucaoSemFalhar(novaDevolucaoRef.id);
 
-      showSuccess('Devolução processada com sucesso!');
       onSuccess();
 
       // Pedido com NF-e/NFC-e autorizada: a devolucao tambem precisa de nota fiscal.
@@ -399,7 +400,21 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           return;
         }
       }
+      // Comprovante (25/11/2026, Jomarly): botao na mensagem de sucesso, sem
+      // pergunta a mais; tambem sai depois pela lista de devolucoes do pedido.
+      const fim = await NexusSwal.fire({
+        icon: 'success',
+        title: 'Devolução registrada',
+        text: destinoValor === 'credito'
+          ? 'O valor ficou como crédito do cliente.'
+          : 'O valor saiu do caixa/banco escolhido.',
+        showCancelButton: Boolean(onComprovante),
+        showConfirmButton: true,
+        confirmButtonText: onComprovante ? 'Imprimir comprovante' : 'OK',
+        cancelButtonText: 'Fechar',
+      });
       onClose();
+      if (fim.isConfirmed && onComprovante) onComprovante(novaDevolucaoRef.id);
     } catch (err) {
       console.error(err);
       showError('Erro', err instanceof Error ? err.message : 'Ocorreu um problema ao processar a devolução.');

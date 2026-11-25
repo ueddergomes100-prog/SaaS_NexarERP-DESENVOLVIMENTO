@@ -84,6 +84,7 @@ import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import DevolucaoVendaModal from './DevolucaoVendaModal';
+import ComprovanteDevolucao from './ComprovanteDevolucao';
 import { ehPedidoDoSistemaAnterior, mensagemPedidoDoSistemaAnterior } from '../../utils/importacaoPedidosAnterioresDomain';
 import {
   buildCardFeeSchedulesByBrand,
@@ -555,6 +556,8 @@ const PedidoVendaForm: React.FC = () => {
   const [itens, setItens] = useState<ItemVenda[]>([]);
   const [orcamentoId, setOrcamentoId] = useState('');
   const [showDevolucaoModal, setShowDevolucaoModal] = useState(false);
+  /** Comprovante da devolucao aberto por cima do pedido (25/11/2026). */
+  const [comprovanteDevolucaoId, setComprovanteDevolucaoId] = useState<string | null>(null);
   const [devolucoes, setDevolucoes] = useState<DevolucaoVenda[]>([]);
   const [estornandoDevolucaoId, setEstornandoDevolucaoId] = useState<string | null>(null);
 
@@ -6227,16 +6230,27 @@ const PedidoVendaForm: React.FC = () => {
                     {devolucao.itensDevolvidos.map((item) => `${item.quantidadeDevolvida}x ${item.nome}`).join(', ')}
                   </div>
                 </div>
-                {canReturnVenda && devolucao.status === 'concluida' && (
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                   <button
+                    type="button"
                     className="btn-secondary"
-                    onClick={() => handleEstornarDevolucao(devolucao)}
-                    disabled={estornandoDevolucaoId === devolucao.id}
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', whiteSpace: 'nowrap' }}
+                    onClick={() => setComprovanteDevolucaoId(devolucao.id)}
+                    title="Abre o comprovante desta devolução em PDF, para imprimir e o cliente assinar"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
                   >
-                    <Undo2 size={16} /> {estornandoDevolucaoId === devolucao.id ? 'Estornando...' : 'Estornar'}
+                    <Printer size={16} /> Imprimir
                   </button>
-                )}
+                  {canReturnVenda && devolucao.status === 'concluida' && (
+                    <button
+                      className="btn-secondary"
+                      onClick={() => handleEstornarDevolucao(devolucao)}
+                      disabled={estornandoDevolucaoId === devolucao.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', whiteSpace: 'nowrap' }}
+                    >
+                      <Undo2 size={16} /> {estornandoDevolucaoId === devolucao.id ? 'Estornando...' : 'Estornar'}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -6272,6 +6286,10 @@ const PedidoVendaForm: React.FC = () => {
         /* O desconto do cliente novo entra quando a lista recarregar -- ver o efeito abaixo. */
       />
 
+      {comprovanteDevolucaoId && (
+        <ComprovanteDevolucao devolucaoId={comprovanteDevolucaoId} onFechar={() => setComprovanteDevolucaoId(null)} />
+      )}
+
       {showDevolucaoModal && (
         <DevolucaoVendaModal
           pedidoId={id!}
@@ -6280,6 +6298,7 @@ const PedidoVendaForm: React.FC = () => {
           dataVenda={dataVenda}
           itens={itens}
           onClose={() => setShowDevolucaoModal(false)}
+          onComprovante={(devolucaoId) => setComprovanteDevolucaoId(devolucaoId)}
           onSuccess={async () => {
             await fetchDevolucoes(id!);
             const saleSnap = await getDoc(doc(db, 'pedidos_venda', id!));

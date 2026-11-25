@@ -90,3 +90,22 @@ test('totais da minuta com valores: soma em centavos; desconto = bruto - subtota
   ]), { bruto: 20.3, desconto: 2, total: 18.3 });
   assert.deepEqual(totaisDaMinutaComValores([]), { bruto: 0, desconto: 0, total: 0 });
 });
+
+test('pre-venda em meia folha: itens continuam na proxima, totais so na ultima (25/11/2026, Jomarly)', async () => {
+  const { folhasDaMeiaFolha } = await import('../src/utils/minutaDomain');
+  assert.deepEqual(folhasDaMeiaFolha(0), [[0, 0]]);
+  assert.deepEqual(folhasDaMeiaFolha(8), [[0, 8]]);
+  assert.deepEqual(folhasDaMeiaFolha(10), [[0, 9], [9, 10]]);
+  // 13 itens (o caso do video): 12 na primeira, 1 + totais na segunda
+  assert.deepEqual(folhasDaMeiaFolha(13), [[0, 12], [12, 13]]);
+  assert.deepEqual(folhasDaMeiaFolha(20), [[0, 13], [13, 20]]);
+  assert.deepEqual(folhasDaMeiaFolha(40), [[0, 13], [13, 26], [26, 39], [39, 40]]);
+  // nada se perde nem repete
+  for (let n = 0; n <= 60; n += 1) {
+    const folhas = folhasDaMeiaFolha(n);
+    assert.equal(folhas[0][0], 0);
+    assert.equal(folhas[folhas.length - 1][1], n);
+    folhas.slice(1).forEach(([ini], i) => assert.equal(ini, folhas[i][1]));
+    assert.ok(folhas[folhas.length - 1][1] - folhas[folhas.length - 1][0] <= 8);
+  }
+});

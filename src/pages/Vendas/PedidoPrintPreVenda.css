@@ -262,3 +262,19 @@
 .pv-page--simples .pv-assinatura {
   margin-top: 38px;
 }
+
+/* Muitos itens (25/11/2026, Jomarly): cada meia folha e' uma folha impressa,
+   com o cabecalho repetido; as que nao sao a ultima terminam com o aviso. */
+.pv-continua {
+  text-align: right;
+  font-style: italic;
+  border-top: 1px solid #000;
+  padding-top: 4px;
+}
+
+@media print {
+  .pv-page--simples + .pv-page--simples {
+    break-before: page;
+    page-break-before: always;
+  }
+}

@@ -4,6 +4,7 @@ import { ehPreVenda } from '../../utils/preVendaDomain';
 import {
   codigoENomeMinuta,
   condicaoPagamentoMinuta,
+  folhasDaMeiaFolha,
   formatarCepMinuta,
   formatarDataCurtaMinuta,
   formatarDocumentoMinuta,
@@ -117,8 +118,13 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
     .filter(Boolean).join(' / ');
   const enderecoCliente = [clientData?.endereco, clientData?.numero].filter(Boolean).join(', ');
 
-  return (
-    <div className={simplificado ? 'pv-page pv-page--simples' : 'pv-page'}>
+  // Jomarly (25/11/2026): muitos itens continuam em outra meia folha, com o
+  // cabecalho repetido; os totais e a assinatura so' na ultima (minutaDomain).
+  const folhas = simplificado ? folhasDaMeiaFolha(itens.length) : [[0, itens.length] as [number, number]];
+  const totalDePaginas = folhas.length;
+
+  const folha = (itensDaFolha: any[], inicio: number, pagina: number, ultima: boolean) => (
+    <div key={pagina} className={simplificado ? 'pv-page pv-page--simples' : 'pv-page'}>
       {simplificado ? (
         // Jomarly (17/11/2026): cabecalho no formato do DAV da Eletrica Terra
         // (exemplo do dono): aviso centralizado no alto; no quadro, logo +
@@ -138,7 +144,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
               {enderecoEmpresa && <div className="pv-empresa-endereco"><strong>ENDEREÇO:</strong> {enderecoEmpresa}</div>}
             </div>
             <div className="pv-empresa-direita">
-              <div className="pv-empresa-numero"><strong>{rotulo} - {numeroPedido}</strong> &nbsp;&nbsp; <strong>PÁGINA - 1/1</strong></div>
+              <div className="pv-empresa-numero"><strong>{rotulo} - {numeroPedido}</strong> &nbsp;&nbsp; <strong>PÁGINA - {pagina}/{totalDePaginas}</strong></div>
               <div><strong>VENDEDOR:</strong> {vendedorMinuta(extras.vendedorCodigo, pedidoData.vendedorNome)}</div>
               <div><strong>DATA:</strong> {dataHoraPedido}</div>
             </div>
@@ -219,11 +225,11 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
           </tr>
         </thead>
         <tbody>
-          {itens.length > 0 ? (
-            itens.map((item, i) => {
+          {itensDaFolha.length > 0 ? (
+            itensDaFolha.map((item, i) => {
               const extra = extras.itens[String(item.id)] || { codigo: '', marca: '' };
               return (
-                <tr key={`${item.id}-${i}`}>
+                <tr key={`${item.id}-${inicio + i}`}>
                   <td>{item.codigo || extra.codigo}</td>
                   <td>{item.nome}</td>
                   {!simplificado && <td>{item.marca || extra.marca}</td>}
@@ -243,6 +249,9 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
       </table>
 
       {/* Jomarly: totais, OBS. e assinatura presos no pe da folha (margin-top auto). */}
+      {!ultima ? (
+        <div className="pv-fim pv-continua">Continua na folha {pagina + 1} de {totalDePaginas}…</div>
+      ) : (
       <div className={simplificado ? 'pv-fim' : undefined}>
 
       {simplificado ? (
@@ -287,7 +296,14 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
         </>
       )}
       </div>
+      )}
     </div>
+  );
+
+  return (
+    <>
+      {folhas.map(([inicio, fim], indice) => folha(itens.slice(inicio, fim), inicio, indice + 1, indice === folhas.length - 1))}
+    </>
   );
 };
 

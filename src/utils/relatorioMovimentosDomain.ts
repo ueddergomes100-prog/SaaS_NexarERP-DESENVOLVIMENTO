@@ -347,3 +347,67 @@ export const montarDocumentoDevolucoes = (
     ],
   };
 };
+
+// ---------------------------------------------------------------------------
+// COMPROVANTE DE UMA DEVOLUCAO (25/11/2026, video da Jomarly: "fiz a devolucao,
+// mas o que eu precisava era imprimir"). Abre ao terminar a devolucao (botao
+// "Imprimir comprovante") e na lista de devolucoes do pedido.
+// ---------------------------------------------------------------------------
+
+export interface ItemDoComprovanteDeDevolucao {
+  nome: string;
+  quantidade: number;
+  precoUnitarioCentavos: number;
+  valorCentavos: number;
+}
+
+const precoDoItemDevolvido = (item: ItemDevolvidoDoRelatorio & { precoUnitario?: number }): number => centavos(Number(item.precoUnitario || 0));
+
+export const montarComprovanteDaDevolucao = (d: DevolucaoDoRelatorio): DocumentoRelatorioDeMovimento => {
+  const data = dataDaDevolucao(d);
+  const itens: ItemDoComprovanteDeDevolucao[] = (d.itensDevolvidos || []).map((item) => ({
+    nome: item.nome || '',
+    quantidade: Number(item.quantidadeDevolvida || 0),
+    precoUnitarioCentavos: precoDoItemDevolvido(item),
+    valorCentavos: centavos(Number(item.subtotal || 0)),
+  }));
+  const colunas: ColunaRelatorio<ItemDoComprovanteDeDevolucao>[] = [
+    { id: 'produto', titulo: 'Produto', tipo: 'texto', largura: 80, valor: (i) => i.nome },
+    { id: 'quantidade', titulo: 'Qtd', tipo: 'texto', largura: 14, valor: (i) => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(i.quantidade) },
+    { id: 'unitario', titulo: 'Vr. unit.', tipo: 'moeda', largura: 20, valor: (i) => i.precoUnitarioCentavos, total: 'nenhum' },
+    { id: 'valor', titulo: 'Valor', tipo: 'moeda', largura: 22, valor: (i) => i.valorCentavos },
+  ];
+  const destino = destinoDaDevolucao(d);
+  const frases = [
+    `Devolução de ${itens.length === 1 ? '1 item' : `${itens.length} itens`} da venda${d.numeroPedidoOriginal ? ` #${d.numeroPedidoOriginal}` : ''}${d.clienteNome ? `, cliente ${d.clienteNome}` : ''}.`,
+    d.destinoValor === 'credito'
+      ? `O valor de ${reais(valorDaDevolucao(d))} ficou como crédito do cliente, para usar nas próximas compras.`
+      : `O valor de ${reais(valorDaDevolucao(d))} foi devolvido em ${destino.toLowerCase()}.`,
+    ...(d.motivo ? [`Motivo: ${d.motivo}`] : []),
+    ...(d.observacao ? [`Observação: ${d.observacao}`] : []),
+    ...(ehEstornada(d) ? ['DEVOLUÇÃO ESTORNADA (desfeita): este comprovante não vale mais.'] : []),
+    'Assinatura do cliente: ________________________________________',
+  ];
+  return {
+    titulo: 'Comprovante de Devolução',
+    periodo: data ? `Data: ${new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }).format(data)}` : '',
+    filtros: frases,
+    indicadores: [
+      { rotulo: 'Cliente', valor: d.clienteNome || '—' },
+      { rotulo: 'Venda', valor: d.numeroPedidoOriginal ? `#${d.numeroPedidoOriginal}` : '—' },
+      { rotulo: 'Valor devolvido', valor: reais(valorDaDevolucao(d)) },
+      { rotulo: 'Valor devolvido em', valor: destino || '—' },
+    ],
+    secoes: [
+      {
+        id: 'itens',
+        titulo: 'Itens devolvidos',
+        colunas,
+        linhas: itens,
+        rotuloTotal: 'Total devolvido',
+        unidade: ['item', 'itens'],
+        mensagemVazia: 'Nenhum item.',
+      } as SecaoRelatorio,
+    ],
+  };
+};

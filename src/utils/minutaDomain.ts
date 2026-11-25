@@ -157,3 +157,38 @@ export const totaisDaMinutaComValores = (
   }
   return { bruto: bruto / 100, desconto: desconto / 100, total: total / 100 };
 };
+
+/*
+ * PRE-VENDA EM MEIA FOLHA COM MUITOS ITENS (25/11/2026, video da Jomarly).
+ * A folha esticava e os totais caiam no meio da proxima meia folha, torta;
+ * a loja tinha de imprimir em A4. Decisao do dono: continua em outra meia
+ * folha REPETINDO o cabecalho (empresa, cliente, numero e "Pagina 1/2"); os
+ * totais, o pagamento e a assinatura saem so' na ultima.
+ *
+ * Quantos itens cabem: a ultima folha leva o rodape (totais, pagamento,
+ * observacao e assinatura), as outras usam esse espaco para mais itens.
+ * Conta conservadora para nome de produto que quebra em duas linhas.
+ */
+export const ITENS_NA_ULTIMA_MEIA_FOLHA = 8;
+export const ITENS_POR_MEIA_FOLHA = 13;
+
+/** Fatias [inicio, fim) dos itens em cada meia folha. Sempre ao menos uma folha. */
+export const folhasDaMeiaFolha = (
+  quantidadeDeItens: number,
+  limites: { naUltima?: number; porFolha?: number } = {},
+): Array<[number, number]> => {
+  const naUltima = Math.max(1, limites.naUltima ?? ITENS_NA_ULTIMA_MEIA_FOLHA);
+  const porFolha = Math.max(naUltima, limites.porFolha ?? ITENS_POR_MEIA_FOLHA);
+  const total = Math.max(0, Math.floor(quantidadeDeItens || 0));
+  const folhas: Array<[number, number]> = [];
+  let inicio = 0;
+  // Enquanto o que sobra nao cabe com o rodape, enche uma folha sem rodape --
+  // deixando ao menos 1 item para a ultima (o total nunca fica sozinho).
+  while (total - inicio > naUltima) {
+    const leva = Math.min(porFolha, total - inicio - 1);
+    folhas.push([inicio, inicio + leva]);
+    inicio += leva;
+  }
+  folhas.push([inicio, total]);
+  return folhas;
+};

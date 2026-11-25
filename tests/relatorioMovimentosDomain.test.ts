@@ -89,3 +89,22 @@ test('devolucoes: destino do valor, estornada nao conta e itens em secao opciona
   assert.equal(doc.secoes[1].linhas.length, 1, 'item da estornada fica de fora');
   assert.equal(doc.secoes[1].opcional, true);
 });
+
+test('comprovante de uma devolucao: itens, valor, destino e assinatura (25/11/2026, Jomarly)', async () => {
+  const { montarComprovanteDaDevolucao } = await import('../src/utils/relatorioMovimentosDomain');
+  const doc = montarComprovanteDaDevolucao({
+    id: 'd1', numeroPedidoOriginal: '0386', clienteNome: 'ISABEL', valorTotalDevolvidoCentavos: 8600, destinoValor: 'credito',
+    motivo: 'Troca de medida', status: 'concluida', createdAt: { seconds: 1795000000 },
+    itensDevolvidos: [{ nome: 'LUVA DE CORRER 100MM', quantidadeDevolvida: 2, subtotal: 43, precoUnitario: 21.5 } as never],
+  });
+  assert.equal(doc.titulo, 'Comprovante de Devolução');
+  assert.ok(doc.filtros.some((f) => /crédito do cliente/.test(f) && f.includes('86,00')));
+  assert.ok(doc.filtros.some((f) => /Assinatura do cliente/.test(f)));
+  assert.ok(doc.indicadores.some((i) => i.rotulo === 'Venda' && i.valor === '#0386'));
+  const secao = doc.secoes[0] as unknown as { linhas: Array<{ valorCentavos: number; precoUnitarioCentavos: number }> };
+  assert.equal(secao.linhas[0].valorCentavos, 4300);
+  assert.equal(secao.linhas[0].precoUnitarioCentavos, 2150);
+  const estornada = montarComprovanteDaDevolucao({ id: 'd2', status: 'estornada', destinoValor: 'caixa', valorTotalDevolvido: 10 });
+  assert.ok(estornada.filtros.some((f) => /ESTORNADA/.test(f)));
+  assert.ok(estornada.filtros.some((f) => /dinheiro \(caixa\)/.test(f)));
+});

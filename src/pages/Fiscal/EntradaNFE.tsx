@@ -78,6 +78,16 @@ import PagamentoCard, { type BancoParaEntrada } from '../../components/fiscal/en
 import NotasRecebidasCard from '../../components/fiscal/entrada/NotasRecebidasCard';
 import { campoInputStyle } from '../../components/fiscal/entrada/estilos';
 import ItemDaNotaCard, { type CadastroVinculado } from '../../components/fiscal/entrada/ItemDaNotaCard';
+import CustoExtraParaTodos from '../../components/fiscal/entrada/CustoExtraParaTodos';
+import {
+  CUSTO_EXTRA_VAZIO,
+  aplicarCustoExtraEmTodos,
+  comCustoExtra,
+  erroDoCustoExtra,
+  totalDoCustoExtra,
+  type CustoExtraDoItem,
+  type TipoCustoExtra,
+} from '../../utils/custoExtraEntradaDomain';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
 import { parseNfeXml, rotuloDaFormaDePagamento, type ItemDaNota, type NotaParseada } from '../../utils/nfeXmlDomain';
 import {
@@ -286,10 +296,36 @@ const EntradaNFE: React.FC = () => {
 
   // Custo REAL de cada item (frete, seguro, despesas, IPI, ST, desconto, creditos)
   // e a conferencia da nota contra ela mesma.
-  const custosDosItens = useMemo(
+  // Custo extra (25/11/2026, Embala Minas): % ou R$ por item, "aplicar em
+  // todos" rateia; nao mexe no total da nota nem no financeiro, so' no custo
+  // dos produtos. Regra em custoExtraEntradaDomain.ts.
+  const [custosExtras, setCustosExtras] = useState<CustoExtraDoItem[]>([]);
+  useEffect(() => { setCustosExtras([]); }, [parsedData]);
+  const custosSemExtra = useMemo(
     () => (parsedData ? calcularCustoDaEntrada(parsedData.items, parsedData.nota.totais, frete.valor, opcoesCusto) : []),
     [parsedData, frete.valor, opcoesCusto],
   );
+  const custosDosItens = useMemo(
+    () => comCustoExtra(custosSemExtra, custosExtras, (parsedData?.items ?? []).map((i) => i.quantidade)),
+    [custosSemExtra, custosExtras, parsedData],
+  );
+  const custoExtraTotal = totalDoCustoExtra(custosDosItens);
+  const alterarCustoExtraDoItem = (idx: number, extra: CustoExtraDoItem) => {
+    setCustosExtras((atuais) => {
+      const proximos = custosSemExtra.map((_, i) => atuais[i] ?? CUSTO_EXTRA_VAZIO);
+      proximos[idx] = extra;
+      return proximos;
+    });
+  };
+  const aplicarCustoExtraEmTodosOsItens = (tipo: TipoCustoExtra, valor: number): boolean => {
+    const erro = erroDoCustoExtra(tipo, valor);
+    if (erro) {
+      showError('Custo extra', erro);
+      return false;
+    }
+    setCustosExtras(aplicarCustoExtraEmTodos(custosSemExtra.map((c) => c.custoTotal), tipo, valor));
+    return true;
+  };
   const conferencia = useMemo(
     () => (parsedData ? conferirNota(parsedData.items, parsedData.nota.totais) : null),
     [parsedData],
@@ -1133,6 +1169,14 @@ const EntradaNFE: React.FC = () => {
       }
     }
 
+    for (let i = 0; i < parsedData.items.length; i++) {
+      const extra = custosExtras[i];
+      const erroExtra = extra ? erroDoCustoExtra(extra.tipo, extra.valor, parsedData.items[i].descricao) : null;
+      if (erroExtra) {
+        showError('Confira o custo extra', erroExtra);
+        return;
+      }
+    }
     const problemaNoFrete = erroDoFrete(frete);
     if (problemaNoFrete) {
       showError('Confira o frete', problemaNoFrete);
@@ -1667,7 +1711,7 @@ const EntradaNFE: React.FC = () => {
             dataEntrada,
             observacao: observacao.trim() || undefined,
             totais: { ...nota.totais },
-            custo: { creditarIcms: opcoesCusto.creditarIcms, creditarPisCofins: opcoesCusto.creditarPisCofins, frete: frete.valor },
+            custo: { creditarIcms: opcoesCusto.creditarIcms, creditarPisCofins: opcoesCusto.creditarPisCofins, frete: frete.valor, ...(custoExtraTotal > 0 ? { custoExtra: custoExtraTotal } : {}) },
             pagamento: {
               modo: modoPagamentoEfetivo,
               categoria: categoriaDespesa,
@@ -2167,6 +2211,11 @@ const EntradaNFE: React.FC = () => {
                   onValor={setCfopParaTodos}
                   onAplicar={(modo) => void aplicarCfopParaTodos(modo)}
                 />
+                <CustoExtraParaTodos
+                  total={custoExtraTotal}
+                  onAplicar={aplicarCustoExtraEmTodosOsItens}
+                  onTirar={() => setCustosExtras([])}
+                />
                 {itemConfigs.some((c) => c.classificacao === 'novo') && (
                   <div style={{ padding: '10px 24px', borderBottom: '1px solid var(--border-color)', fontSize: '12.5px', color: '#fbbf24', lineHeight: 1.5 }}>
                     {itemConfigs.filter((c) => c.classificacao === 'novo').length} item(ns) serão cadastrados como <strong>novos</strong>. Se algum já existe no seu
@@ -2201,6 +2250,8 @@ const EntradaNFE: React.FC = () => {
                       item={item}
                       config={config}
                       custo={custosDosItens[idx]}
+                      custoExtra={custosExtras[idx] ?? CUSTO_EXTRA_VAZIO}
+                      onCustoExtra={(extra) => alterarCustoExtraDoItem(idx, extra)}
                       custoUnitarioEstoque={custoUnitarioDoItem(idx)}
                       cadastro={cadastro}
                       unidadesDaEmpresa={unidadesDaEmpresa}

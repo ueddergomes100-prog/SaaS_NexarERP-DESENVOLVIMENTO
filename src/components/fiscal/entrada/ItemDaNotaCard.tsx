@@ -3,6 +3,7 @@ import { Link2, Unlink } from 'lucide-react';
 import type { ItemDaNota } from '../../../utils/nfeXmlDomain';
 import type { ItemEntradaConfig, UnidadeDaEmpresa, UnidadeDoItemNovo } from '../../../utils/entradaNfeDomain';
 import type { CustoDoItemDeEntrada } from '../../../utils/custoEntradaDomain';
+import { erroDoCustoExtra, type CustoExtraDoItem, type TipoCustoExtra } from '../../../utils/custoExtraEntradaDomain';
 import { fatorValido, quantidadeNoEstoque } from '../../../utils/custoEntradaDomain';
 import { CSOSN_OPTIONS, ICMS_CST_OPTIONS, nomesTemPalavraEmComum } from '../../../utils/fiscalDomain';
 import { ROTULO_ORIGEM_VINCULO } from '../../../utils/vinculoItemNfeDomain';
@@ -38,7 +39,10 @@ interface ItemDaNotaCardProps {
   total: number;
   item: ItemDaNota;
   config: ItemEntradaConfig;
-  custo: CustoDoItemDeEntrada | undefined;
+  custo: (CustoDoItemDeEntrada & { custoExtra?: number }) | undefined;
+  /** Custo extra deste item (25/11/2026): % sobre o custo ou R$ da linha; fora do total da nota. */
+  custoExtra?: CustoExtraDoItem;
+  onCustoExtra?: (extra: CustoExtraDoItem) => void;
   /** Custo por unidade de ESTOQUE (ja dividido pelo fator). */
   custoUnitarioEstoque: number;
   cadastro: CadastroVinculado | undefined;
@@ -76,7 +80,7 @@ const Detalhe: React.FC<{ rotulo: string; valor: React.ReactNode }> = ({ rotulo,
 );
 
 const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
-  indice, total, item, config, custo, custoUnitarioEstoque, cadastro, unidadesDaEmpresa, unidadeNova, onUnidadeNova, exigeLote = false, usaCsosn,
+  indice, total, item, config, custo, custoExtra, onCustoExtra, custoUnitarioEstoque, cadastro, unidadesDaEmpresa, unidadeNova, onUnidadeNova, exigeLote = false, usaCsosn,
   markupVarejoDigitado, markupAtacadoDigitado,
   onAlterarTipo, onAlterarConfig, onAlterarCampo, onPrecoVarejo, onMarkupVarejo, onPrecoAtacado, onMarkupAtacado,
   onAbrirVinculo, onDesvincular, painelDeVinculo, blocoCfop, soRegistro = false,
@@ -204,6 +208,36 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
               )}
             </>
           )}
+          {onCustoExtra && (
+            <div className="input-group">
+              <label htmlFor={`custo-extra-${indice}`} style={campoLabelStyle}>Custo extra (fora da nota)</label>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <select
+                  aria-label={`Custo extra do item ${item.descricao} em reais ou percentual`}
+                  value={custoExtra?.tipo ?? 'valor'}
+                  onChange={(e) => onCustoExtra({ tipo: e.target.value as TipoCustoExtra, valor: custoExtra?.valor ?? 0 })}
+                  className="form-select"
+                  style={{ ...campoInputStyle, width: '64px', flex: '0 0 auto' }}
+                >
+                  <option value="valor">R$</option>
+                  <option value="percentual">%</option>
+                </select>
+                <input
+                  id={`custo-extra-${indice}`}
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={custoExtra && custoExtra.valor > 0 ? custoExtra.valor : ''}
+                  onChange={(e) => onCustoExtra({ tipo: custoExtra?.tipo ?? 'valor', valor: Number(e.target.value) || 0 })}
+                  title={custoExtra?.tipo === 'percentual' ? 'Percentual sobre o custo deste item' : 'Valor, em reais, da linha inteira deste item'}
+                  style={campoInputStyle}
+                />
+              </div>
+              {custoExtra && erroDoCustoExtra(custoExtra.tipo, custoExtra.valor) && (
+                <span style={{ fontSize: '11px', color: '#f59e0b' }}>{erroDoCustoExtra(custoExtra.tipo, custoExtra.valor)}</span>
+              )}
+            </div>
+          )}
           <Detalhe rotulo="Entra no estoque" valor={<strong>{quantidadeEntrando.toLocaleString('pt-BR', { maximumFractionDigits: 6 })}{siglaDoEstoque ? ` ${siglaDoEstoque}` : ''}</strong>} />
           <Detalhe rotulo="Custo real da entrada" valor={<strong>{moeda(custo?.custoTotal ?? 0)}</strong>} />
           <Detalhe rotulo="Custo por unidade de estoque" valor={<strong style={{ color: '#10b981' }}>{moeda4(custoUnitarioEstoque)}</strong>} />
@@ -231,7 +265,8 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
             {custo.icmsDesonerado > 0 ? ` − ICMS desonerado ${moeda(custo.icmsDesonerado)}` : ''}
             {custo.creditos.icms > 0 ? ` − crédito de ICMS ${moeda(custo.creditos.icms)}` : ''}
             {custo.creditos.pisCofins > 0 ? ` − crédito de PIS/COFINS ${moeda(custo.creditos.pisCofins)}` : ''}
-            {' '}= <strong>{moeda(custo.custoTotal)}</strong>.
+            {(custo.custoExtra ?? 0) > 0 ? ` + custo extra ${moeda(custo.custoExtra ?? 0)} (fora da nota)` : ''}
+            {' '}=<strong>{moeda(custo.custoTotal)}</strong>.
           </div>
         )}
       </div>

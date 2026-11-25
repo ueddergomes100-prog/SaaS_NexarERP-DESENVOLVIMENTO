@@ -81,7 +81,7 @@ export interface NotaFiscalEntradaRecordInput {
   /** Totais da nota como vieram no XML. */
   totais?: Record<string, number>;
   /** Como o custo foi calculado (creditos aproveitados, frete lancado). */
-  custo?: { creditarIcms: boolean; creditarPisCofins: boolean; frete: number };
+  custo?: { creditarIcms: boolean; creditarPisCofins: boolean; frete: number; /** Custo extra somado ao custo dos produtos (25/11/2026), fora do total da nota. */ custoExtra?: number };
   pagamento?: Record<string, unknown>;
   transporte?: Record<string, unknown>;
   /** XML original, gzip + base64 (ver xmlCompactoDomain). Ausente se passou do limite. */

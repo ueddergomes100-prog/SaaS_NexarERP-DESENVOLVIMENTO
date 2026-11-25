@@ -287,7 +287,7 @@ const ClientesList: React.FC = () => {
           onFiltro={mudarExtra}
         />
 
-        <div className="table-wrapper">
+        <div className="table-wrapper" data-tabela-janela>
           <table className="data-table">
             <thead>
               <tr>

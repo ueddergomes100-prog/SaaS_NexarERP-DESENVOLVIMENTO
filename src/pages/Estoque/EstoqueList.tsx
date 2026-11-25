@@ -1051,7 +1051,7 @@ const EstoqueList: React.FC = () => {
           )}
         </div>
 
-        <div className="table-wrapper">
+        <div className="table-wrapper" data-tabela-janela>
           {visao === 'precos' ? (
           <table className="data-table estoque-tabela">
             <thead>

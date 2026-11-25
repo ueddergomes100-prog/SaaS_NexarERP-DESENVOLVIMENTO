@@ -1,0 +1,66 @@
+/*
+ * TABELA DO TAMANHO DA JANELA (Embala Minas, item 3, 25/11/2026).
+ * A altura maxima vem de useTabelaNaJanela.ts; aqui so' a rolagem por dentro e o
+ * cabecalho fixo. Cores: as do tema de hoje (variaveis), nenhuma cor nova.
+ */
+[data-tabela-janela][data-tabela-janela-ativa] {
+  /* rola por dentro; chegando ao fim, a roda do mouse segue rolando a pagina */
+  overflow: auto;
+}
+
+/* Cabecalho fixo no topo da caixa enquanto as linhas rolam. O fundo precisa ser
+   cheio (sem transparencia), senao as linhas aparecem por tras do titulo.
+   `!important`: as colunas ajustaveis (useColunasAjustaveis) poem
+   `position: relative` direto na coluna para segurar a alca; sticky tambem segura. */
+[data-tabela-janela][data-tabela-janela-ativa] thead th {
+  position: sticky !important;
+  top: 0;
+  z-index: 2;
+  background-color: var(--bg-secondary);
+}
+
+[data-tabela-janela][data-tabela-janela-ativa] .data-table thead th {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--bg-tertiary) 42%, transparent),
+    color-mix(in srgb, var(--bg-tertiary) 42%, transparent)
+  );
+}
+
+/*
+ * MENOS ESPREMIDO EM MONITOR BAIXO (17" a 20", ate' ~860 px de altura).
+ * Nas telas de lista com a tabela nova, o titulo, os cartoes de totais e a barra
+ * de filtros chegavam a ocupar 4/5 da altura em 1366x768 e a tabela comecava no
+ * rodape. So' espacamento e tamanho: nenhum texto, botao ou cor muda.
+ */
+@media (min-width: 768px) and (max-height: 860px) {
+  .page-content:has([data-tabela-janela-ativa]) .page-header {
+    padding-top: 2px;
+    padding-bottom: 2px;
+    row-gap: 8px;
+  }
+  .page-content:has([data-tabela-janela-ativa]) .page-title {
+    font-size: 24px;
+  }
+  .page-content:has([data-tabela-janela-ativa]) .page-subtitle {
+    margin-top: 2px;
+    font-size: 13px;
+  }
+  .page-content:has([data-tabela-janela-ativa]) .dashboard-charts {
+    gap: 14px;
+  }
+  .page-content:has([data-tabela-janela-ativa]) .stat-card {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+  .page-content:has([data-tabela-janela-ativa]) .stat-card .stat-icon {
+    width: 34px;
+    height: 34px;
+  }
+  .page-content:has([data-tabela-janela-ativa]) .stat-card .stat-header {
+    height: auto;
+  }
+  .page-content:has([data-tabela-janela-ativa]) .list-toolbar {
+    margin-bottom: 12px;
+    gap: 10px;
+  }
+}

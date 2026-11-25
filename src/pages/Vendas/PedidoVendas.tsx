@@ -841,7 +841,7 @@ const PedidoVendas: React.FC = () => {
       </div>
 
       <div className="card" style={{ padding: '16px 14px 6px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'auto' }} data-tabela-janela>
           <table className="hd-tabela" style={{ ['--largura-cliente' as string]: `${larguraCliente.largura}px` } as React.CSSProperties}>
             <thead>
               <tr>

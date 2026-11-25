@@ -1561,7 +1561,7 @@ const ContasReceber: React.FC = () => {
       )}
 
       <div className="card lote-tom-entrada" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
-        <div className="table-wrapper">
+        <div className="table-wrapper" data-tabela-janela>
           <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>

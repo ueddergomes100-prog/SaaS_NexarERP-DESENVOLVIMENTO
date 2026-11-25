@@ -12,6 +12,7 @@ import TabBar from './TabBar';
 import { TabPanesArea } from './TabPane';
 import { useFaixaDoTopo } from './useFaixaDoTopo';
 import { useColunasAjustaveis } from './useColunasAjustaveis';
+import { useTabelaNaJanela } from './useTabelaNaJanela';
 import { useAtalhoSalvar } from './useAtalhoSalvar';
 import AvisoMensalidade from '../cobranca/AvisoMensalidade';
 import './Layout.css';
@@ -28,6 +29,7 @@ const AppLayout: React.FC = () => {
   useFaixaDoTopo();
   // Toda tabela do sistema com colunas de largura ajustavel (21/10/2026).
   useColunasAjustaveis();
+  useTabelaNaJanela();
   // F6 aciona o botao de salvar da tela que esta' na frente (18/11/2026).
   useAtalhoSalvar();
 

@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useAtualizarQuandoVisivel } from '../../hooks/useAtualizarQuandoVisivel';
 import { ArrowLeftRight, Landmark, Loader2, Pencil, Plus, Vault, Wallet, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -122,6 +123,28 @@ const CaixasTransferencias: React.FC = () => {
     }
   };
 
+  // Atualiza sozinho (25/11/2026, pedido do dono): a cada 30 s com a tela a vista,
+  // sem aviso de erro (tenta de novo na proxima). Extrato aberto: so' rele quando
+  // algum saldo mudou -- ler 30 dias de lancamentos a toa pesa.
+  const raizRef = useRef<HTMLDivElement>(null);
+  const assinaturaDosSaldos = useRef('');
+  const atualizarSozinho = async () => {
+    if (janela || salvando) return;
+    try {
+      const r = await listarCaixasEBancos();
+      const assinatura = [...r.caixas, ...r.bancos].map((c) => `${c.id}:${c.saldoCentavos}`).join('|');
+      const mudou = assinaturaDosSaldos.current !== '' && assinaturaDosSaldos.current !== assinatura;
+      assinaturaDosSaldos.current = assinatura;
+      setCaixas(r.caixas);
+      setBancos(r.bancos);
+      setGavetaAtiva(Boolean(r.gaveta?.ativo));
+      if (mudou && caixaAberto) setExtrato(await extratoDoCaixa(caixaAberto.id, diasDoExtrato));
+    } catch (erro) {
+      console.warn('Caixas e Transferências: atualização automática falhou; tenta de novo em 30 s.', erro);
+    }
+  };
+  useAtualizarQuandoVisivel(() => { void atualizarSozinho(); }, 30000, raizRef);
+
   const contas: Conta[] = [...caixas.filter((c) => c.ativo), ...bancos];
 
   const executar = async (acao: () => Promise<string>) => {
@@ -212,7 +235,7 @@ const CaixasTransferencias: React.FC = () => {
   );
 
   return (
-    <div className="financeiro-page" style={{ padding: '24px' }}>
+    <div ref={raizRef} className="financeiro-page" style={{ padding: '24px' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700 }}>Caixas e Transferências</h1>

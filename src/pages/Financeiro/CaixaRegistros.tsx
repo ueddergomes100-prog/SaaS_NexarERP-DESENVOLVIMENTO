@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -135,12 +135,17 @@ const CaixaRegistros: React.FC = () => {
     () => sessoesLidas.filter((s) => s.status === 'aberto').map((s) => s.id).sort().join('|'),
     [sessoesLidas],
   );
-  const carregarAoVivo = useCallback(async () => {
-    if (!tenantId) return;
+  // Lancamentos dos caixas ABERTOS ao vivo (25/11/2026, pedido do dono: "Caixas e
+  // sessao PDV tem que atualizar automatico tudo sem ter que ficar saindo da
+  // tela"). Antes: lidos uma vez ao abrir a tela. Agora cada caixa aberto e'
+  // escutado (onSnapshot): so' o que muda e' lido de novo.
+  const [versaoDosLancamentos, setVersaoDosLancamentos] = useState(0);
+  useEffect(() => {
+    if (!tenantId) return undefined;
     const ids = idsDosAbertos ? idsDosAbertos.split('|') : [];
-    try {
-      const pares = await Promise.all(ids.map(async (id) => {
-        const snap = await getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', id)));
+    const parar = ids.map((id) => onSnapshot(
+      query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', id)),
+      (snap) => {
         const lista: LancamentoDaSessao[] = snap.docs
           .filter((d) => d.data().tipo !== 'saida')
           .map((d) => {
@@ -158,12 +163,24 @@ const CaixaRegistros: React.FC = () => {
             };
           })
           .sort((a, b) => (a.criadoEm?.getTime() || 0) - (b.criadoEm?.getTime() || 0));
-        return [id, lista] as const;
-      }));
-      setLancamentosPorSessao(Object.fromEntries(pares));
-    } catch (erro) {
-      console.error('Caixa (Sessões PDV): não foi possível ler os lançamentos dos caixas abertos.', erro);
-    }
+        setLancamentosPorSessao((atual) => ({ ...atual, [id]: lista }));
+        // Venda nova no caixa: as vendas vinculadas ja' lidas deste caixa ficam velhas.
+        setVendasPorSessao((atual) => {
+          if (!atual[id]) return atual;
+          const resto = { ...atual };
+          delete resto[id];
+          return resto;
+        });
+        setVersaoDosLancamentos((v) => v + 1);
+      },
+      (erro) => console.error('Caixa (Sessões PDV): não foi possível acompanhar os lançamentos de um caixa aberto.', erro),
+    ));
+    return () => parar.forEach((p) => p());
+  }, [tenantId, idsDosAbertos]);
+
+  /** Saldo da gaveta (pelo servidor): relido ao abrir e quando entra lancamento no caixa. */
+  const carregarAoVivo = useCallback(async () => {
+    if (!tenantId) return;
     try {
       const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
       const ligada = lerConfigGaveta(configSnap.exists() ? configSnap.data() : null).ativo;
@@ -186,8 +203,12 @@ const CaixaRegistros: React.FC = () => {
       setGaveta(null);
       setComposicaoGaveta(null);
     }
-  }, [tenantId, idsDosAbertos]);
-  useEffect(() => { void carregarAoVivo(); }, [carregarAoVivo]);
+  }, [tenantId]);
+  // Espera 1,5 s depois do ultimo lancamento (varios chegam juntos numa venda).
+  useEffect(() => {
+    const id = window.setTimeout(() => { void carregarAoVivo(); }, versaoDosLancamentos === 0 ? 0 : 1500);
+    return () => window.clearTimeout(id);
+  }, [carregarAoVivo, versaoDosLancamentos]);
 
   const totalDeAbertos = idsDosAbertos ? idsDosAbertos.split('|').length : 0;
   /** Dinheiro das vendas do caixa e o saldo esperado de agora; null enquanto os lancamentos nao chegaram. */
@@ -431,6 +452,14 @@ const CaixaRegistros: React.FC = () => {
     return itens;
   };
 
+  // Caixa aberto e expandido: venda nova apagou a lista ja' lida (escuta acima); le de novo.
+  useEffect(() => {
+    if (!expandedId || vendasPorSessao[expandedId] || loadingVendas === expandedId) return;
+    const aberto = idsDosAbertos ? idsDosAbertos.split('|').includes(expandedId) : false;
+    if (aberto) void buscarVendasDaSessao(expandedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId, vendasPorSessao, idsDosAbertos]);
+
   if (previewAberto) {
     const rotuloPeriodo = diasFiltro > 0 ? `Fechadas nos últimos ${diasFiltro} dias + caixas abertos` : 'Todo o período + caixas abertos';
     const hoje = getDateInputInTimeZone();
@@ -477,12 +506,16 @@ const CaixaRegistros: React.FC = () => {
     // Caixa aberto: rele o que compoe o esperado (pode ter entrado venda desde que a tela abriu).
     if (sessao.status === 'aberto') void carregarAoVivo();
     if (vendasPorSessao[sessao.id]) return;
+    await buscarVendasDaSessao(sessao.id);
+  };
 
-    setLoadingVendas(sessao.id);
+  /** Vendas vinculadas a um caixa (aberto: relidas quando entra venda nova, 25/11/2026). */
+  const buscarVendasDaSessao = async (sessaoId: string) => {
+    setLoadingVendas(sessaoId);
     try {
       // tenantId na consulta: sem ele as regras (canReadTenantDocument) negam a
       // lista inteira e "Vendas vinculadas" ficava sempre vazio.
-      const q = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', sessao.id));
+      const q = query(collection(db, 'pedidos_venda'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', sessaoId));
       const snap = await getDocs(q);
       // As vendas listadas dentro da sessao de caixa seguem a mesma regra
       // de visibilidade das demais telas de venda.
@@ -491,7 +524,7 @@ const CaixaRegistros: React.FC = () => {
         vendasVisiveisDeUsuarioId,
       );
       vendas.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setVendasPorSessao((prev) => ({ ...prev, [sessao.id]: vendas }));
+      setVendasPorSessao((prev) => ({ ...prev, [sessaoId]: vendas }));
     } catch (error) {
       console.error('Erro ao buscar vendas da sessão de caixa:', error);
     } finally {

@@ -50,11 +50,11 @@ export const buscarCest = (busca: string, ncm = '') => chamar<{ linhas: LinhaCes
   `busca?tipo=cest&busca=${encodeURIComponent(busca)}&ncm=${encodeURIComponent(ncm)}`, { metodo: 'GET' },
 );
 
-export const cadastrarNcm = (codigo: string, descricao: string) => chamar<{ codigo: string; novo: boolean }>(
+export const cadastrarNcm = (codigo: string, descricao: string) => chamar<{ codigo: string; novo: boolean; soNestaEmpresa?: boolean }>(
   'ncm', { metodo: 'POST', corpo: { codigo, descricao } },
 );
 
-export const cadastrarCest = (codigo: string, descricao: string, ncm: string) => chamar<{ codigo: string; novo: boolean }>(
+export const cadastrarCest = (codigo: string, descricao: string, ncm: string) => chamar<{ codigo: string; novo: boolean; soNestaEmpresa?: boolean }>(
   'cest', { metodo: 'POST', corpo: { codigo, descricao, ncm } },
 );
 

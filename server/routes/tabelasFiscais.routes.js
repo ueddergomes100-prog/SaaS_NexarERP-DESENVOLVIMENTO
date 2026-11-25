@@ -41,7 +41,7 @@ const responderErro = (res, erro, operacao) => {
 /** Busca na base de NCM ou CEST (?tipo=ncm|cest&busca=...&ncm=...). Qualquer usuario da empresa le. */
 router.get('/busca', async (req, res) => {
   try {
-    const r = await buscar({ tipo: req.query.tipo, busca: req.query.busca, ncm: req.query.ncm });
+    const r = await buscar({ tipo: req.query.tipo, busca: req.query.busca, ncm: req.query.ncm, tenantId: req.user.tenantId });
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'buscar');
@@ -98,7 +98,7 @@ router.post('/ncm', limiteDoCadastro, async (req, res) => {
     registrarLog(req.user, {
       modulo: 'fiscal',
       acao: r.novo ? 'criacao' : 'edicao',
-      descricao: `NCM ${r.codigo} ${r.novo ? 'cadastrado' : 'descrito'} na base: ${r.descricao}.`,
+      descricao: `NCM ${r.codigo} ${r.novo ? 'cadastrado' : 'descrito'} ${r.soNestaEmpresa ? 'para esta empresa' : 'na base comum'}: ${r.descricao}.`,
       documentoTipo: 'tabela_fiscal',
       documentoNumero: `NCM ${r.codigo}`,
       ...(r.novo ? {} : { alteracoes: [{ campo: 'Descrição do NCM', valorAnterior: null, valorNovo: r.descricao }] }),
@@ -115,7 +115,7 @@ router.post('/cest', limiteDoCadastro, async (req, res) => {
     registrarLog(req.user, {
       modulo: 'fiscal',
       acao: r.novo ? 'criacao' : 'edicao',
-      descricao: `CEST ${r.codigo} ${r.novo ? 'cadastrado' : 'descrito'} na base: ${r.descricao}.`,
+      descricao: `CEST ${r.codigo} ${r.novo ? 'cadastrado' : 'descrito'} ${r.soNestaEmpresa ? 'para esta empresa' : 'na base comum'}: ${r.descricao}.`,
       documentoTipo: 'tabela_fiscal',
       documentoNumero: `CEST ${r.codigo}`,
       ...(r.novo ? {} : { alteracoes: [{ campo: 'Descrição do CEST', valorAnterior: null, valorNovo: r.descricao }] }),

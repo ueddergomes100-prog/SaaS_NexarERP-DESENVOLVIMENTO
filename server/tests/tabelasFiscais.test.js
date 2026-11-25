@@ -85,10 +85,13 @@ test('cadastro a mao: descreve o novo ou o sem descricao; ja descrito so o supor
   const s = carregar(fake.db);
   const r1 = await s.cadastrarNcm({ user: VENDEDOR, corpo: { codigo: '1104.12.00', descricao: '  Grãos  esmagados de aveia ' } });
   assert.equal(r1.novo, false);
-  assert.equal(fake.ler('tabela_ncm/11041200').descricao, 'Grãos esmagados de aveia');
+  // Bloco B (25/11/2026): a descricao da empresa fica so' nela; a base comum segue sem.
+  assert.equal(fake.ler('tabela_ncm/11041200').descricao, '');
+  assert.equal(fake.ler('tabela_fiscal_empresa/f20__ncm__11041200').descricao, 'Grãos esmagados de aveia');
   const r2 = await s.cadastrarNcm({ user: VENDEDOR, corpo: { codigo: '19059090', descricao: 'Outros produtos de padaria' } });
   assert.equal(r2.novo, true);
   assert.equal(fake.ler('tabela_ncm/19059090').origem, 'manual');
+  assert.equal(fake.ler('tabela_ncm/19059090').descricao, '');
   await assert.rejects(
     s.cadastrarNcm({ user: VENDEDOR, corpo: { codigo: '21069090', descricao: 'Outra coisa' } }),
     (e) => e.status === 409 && /Só o suporte/.test(e.message),
@@ -117,4 +120,19 @@ test('CEST a mao com NCM; busca por codigo, por descricao e CEST pelo NCM', asyn
   // Gravou: a memoria limpa e a busca ja ve o novo.
   await s.registrarUso({ itens: [{ ncm: '19059090' }] });
   assert.equal((await s.buscar({ tipo: 'ncm', busca: '' })).total, 3);
+});
+
+test('bloco B (25/11/2026): descricao digitada por uma empresa aparece so para ela; a do suporte vale para todas', async () => {
+  const fake = criarBancoFalso({ 'tabela_ncm/11041200': { codigo: '11041200', descricao: '' } }, { consultas: true });
+  const s = carregar(fake.db);
+  await s.cadastrarNcm({ user: VENDEDOR, corpo: { codigo: '11041200', descricao: 'Aveia em flocos da loja' } });
+  const daLoja = await s.buscar({ tipo: 'ncm', busca: 'aveia', tenantId: 'f20' });
+  assert.deepEqual(daLoja.linhas.map((l) => [l.codigo, l.descricao]), [['11041200', 'Aveia em flocos da loja']]);
+  const outra = await s.buscar({ tipo: 'ncm', busca: '1104', tenantId: 'outra-empresa' });
+  assert.deepEqual(outra.linhas.map((l) => [l.codigo, l.descricao]), [['11041200', '']], 'outra empresa nao ve a descricao');
+  assert.equal((await s.buscar({ tipo: 'ncm', busca: 'aveia', tenantId: 'outra-empresa' })).total, 0);
+  // O suporte descreve a base comum: vale para todas, e por cima da da empresa.
+  await s.cadastrarNcm({ user: SUPORTE, corpo: { codigo: '11041200', descricao: 'Grãos esmagados de aveia' } });
+  assert.equal((await s.buscar({ tipo: 'ncm', busca: '1104', tenantId: 'outra-empresa' })).linhas[0].descricao, 'Grãos esmagados de aveia');
+  assert.equal((await s.buscar({ tipo: 'ncm', busca: '1104', tenantId: 'f20' })).linhas[0].descricao, 'Grãos esmagados de aveia');
 });

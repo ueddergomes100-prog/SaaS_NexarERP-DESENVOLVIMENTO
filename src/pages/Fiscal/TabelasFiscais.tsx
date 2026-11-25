@@ -261,7 +261,8 @@ const AbaNcmCest: React.FC<{ tipo: 'ncm' | 'cest'; podeAlimentar: boolean }> = (
       const r = tipo === 'ncm'
         ? await cadastrarNcm(dados.codigo, dados.descricao)
         : await cadastrarCest(dados.codigo, dados.descricao, dados.ncm);
-      showSuccess(r.novo ? `${rotulo} cadastrado.` : `Descrição do ${rotulo} salva.`);
+      // Bloco B de seguranca (25/11/2026): a descricao digitada vale so' nesta empresa; a base comum so' o suporte descreve.
+      showSuccess(`${r.novo ? `${rotulo} cadastrado` : `Descrição do ${rotulo} salva`}${r.soNestaEmpresa ? ' (a descrição vale só para esta empresa)' : ''}.`);
       setRecarregar((n) => n + 1);
     } catch (e) {
       showError(`Não foi possível salvar o ${rotulo}`, e instanceof Error ? e.message : undefined);

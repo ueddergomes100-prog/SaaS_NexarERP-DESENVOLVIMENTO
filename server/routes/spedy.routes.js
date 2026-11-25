@@ -306,8 +306,13 @@ router.get('/:type/cities', async (req, res) => {
 // esta pedindo.
 router.put('/numbering', async (req, res) => {
   try {
-    if (!canUseFiscal(req.user)) {
-      return res.status(403).json({ error: 'Acesso negado ao modulo fiscal.' });
+    // Bloco B de seguranca (25/11/2026): serie, ambiente (homologacao/producao) e
+    // CSC sao configuracao da empresa, nao emissao de nota. Antes bastava a
+    // permissao de emitir nota. Mesma regra de quem grava Configuracoes.
+    const podeEditarConfiguracoes = req.user.isPlatformAdmin || req.user.isTenantManager
+      || (Array.isArray(req.user.permissoes) && req.user.permissoes.includes('administrativo.config'));
+    if (!podeEditarConfiguracoes) {
+      return res.status(403).json({ error: 'Só o dono, um administrador ou quem tem a permissão "Admin: Configurações" altera a série, o ambiente e o CSC das notas. Peça a um deles.' });
     }
 
     const tenantId = resolveTenantId(req);

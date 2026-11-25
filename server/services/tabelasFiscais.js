@@ -10,6 +10,12 @@
  *    "Registrar uso" (produto salvo, XML de entrada) cria so' o CODIGO que ainda
  *    nao existe -- nunca nome de produto. Cadastro a mao leva a descricao; ja'
  *    descrito, so' o suporte altera.
+ *
+ * Bloco B de seguranca (25/11/2026, decisao do dono): a descricao da BASE COMUM
+ * so' o suporte da Hennder grava. A que uma empresa digita fica SO' NELA
+ * (`tabela_fiscal_empresa/{empresa}__{ncm|cest}__{codigo}`, so' este servidor le
+ * e grava) e aparece por cima da comum, sem descricao, so' para ela. Antes a
+ * primeira empresa a descrever um codigo escrevia o que quisesse para todas.
  */
 const { db, admin } = require('../config/firebase');
 const cfopDominio = require('../domain/cfopDomain');
@@ -104,20 +110,33 @@ const registrarUso = async ({ itens }) => {
   return { novosNcm, novosCest };
 };
 
+const COLECAO_DA_EMPRESA = 'tabela_fiscal_empresa';
+const tipoDaColecao = (colecao) => (colecao === 'tabela_cest' ? 'cest' : 'ncm');
+const idDaEmpresa = (tenantId, colecao, codigo) => `${tenantId}__${tipoDaColecao(colecao)}__${codigo}`;
+
 const cadastrar = async ({ user, colecao, leitura, rotulo, extra }) => {
   exigirATela(user);
   if (!leitura.ok) throw new ErroTabelasFiscais(400, leitura.erro);
   const { codigo, descricao } = leitura.valor;
   const ref = db.collection(colecao).doc(codigo);
+  const tenantId = String(user.tenantId || '');
   const resultado = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (snap.exists && !tabelaDominio.podeDescrever(snap.data().descricao, user.isPlatformAdmin)) {
       throw new ErroTabelasFiscais(409, `Esse ${rotulo} já está na base com a descrição "${snap.data().descricao}". Só o suporte da Hennder altera uma descrição já cadastrada.`);
     }
-    const dados = { codigo, descricao, atualizadoEm: agora(), ...extra(snap) };
+    // Suporte: descreve na base comum. Empresa: o codigo entra na base comum
+    // (sem descricao) e a descricao fica so' nela.
+    const daPlataforma = user.isPlatformAdmin === true;
+    const dados = { codigo, ...(daPlataforma ? { descricao } : {}), atualizadoEm: agora(), ...extra(snap) };
     if (snap.exists) tx.update(ref, dados);
-    else tx.set(ref, { ...dados, origem: 'manual', criadoEm: agora() });
-    return { codigo, descricao, novo: !snap.exists };
+    else tx.set(ref, { descricao: '', ...dados, origem: 'manual', criadoEm: agora() });
+    if (!daPlataforma) {
+      tx.set(db.collection(COLECAO_DA_EMPRESA).doc(idDaEmpresa(tenantId, colecao, codigo)), {
+        tenantId, tipo: tipoDaColecao(colecao), codigo, descricao, atualizadoPor: user.uid, atualizadoEm: agora(),
+      });
+    }
+    return { codigo, descricao, novo: !snap.exists, soNestaEmpresa: !daPlataforma };
   });
   limparCache();
   return resultado;
@@ -169,10 +188,32 @@ const lerTabela = async (colecao) => {
   return linhas;
 };
 
-/** Busca na base: digitos pelo comeco do codigo, texto na descricao. CEST pode vir filtrado pelo NCM. */
-const buscar = async ({ tipo, busca, ncm }) => {
+/** Descricoes que ESTA empresa deu aos codigos (bloco B): codigo -> descricao. */
+const lerDescricoesDaEmpresa = async (tenantId, colecao) => {
+  if (!tenantId) return new Map();
+  const chave = `empresa:${tenantId}:${colecao}`;
+  const guardado = cache.get(chave);
+  if (guardado && Date.now() - guardado.em < VALIDADE_DO_CACHE_MS) return guardado.linhas;
+  const snap = await db.collection(COLECAO_DA_EMPRESA).where('tenantId', '==', tenantId).get();
+  const linhas = new Map();
+  snap.docs.forEach((d) => {
+    const x = d.data() || {};
+    if (x.tipo === tipoDaColecao(colecao) && typeof x.descricao === 'string' && x.descricao) linhas.set(String(x.codigo), x.descricao);
+  });
+  cache.set(chave, { em: Date.now(), linhas });
+  return linhas;
+};
+
+/**
+ * Busca na base: digitos pelo comeco do codigo, texto na descricao. CEST pode vir
+ * filtrado pelo NCM. `tenantId` (bloco B): a descricao que a empresa deu aparece
+ * so' para ela, onde a base comum nao tem descricao.
+ */
+const buscar = async ({ tipo, busca, ncm, tenantId }) => {
   const colecao = tipo === 'cest' ? 'tabela_cest' : 'tabela_ncm';
-  let linhas = tabelaDominio.filtrarTabela(await lerTabela(colecao), typeof busca === 'string' ? busca : '');
+  const daEmpresa = await lerDescricoesDaEmpresa(String(tenantId || ''), colecao);
+  const base = (await lerTabela(colecao)).map((l) => (!l.descricao && daEmpresa.has(l.codigo) ? { ...l, descricao: daEmpresa.get(l.codigo) } : l));
+  let linhas = tabelaDominio.filtrarTabela(base, typeof busca === 'string' ? busca : '');
   const doNcm = tabelaDominio.normalizarNcm(ncm);
   if (colecao === 'tabela_cest' && doNcm) linhas = linhas.filter((l) => l.ncms.includes(doNcm));
   return { linhas: linhas.slice(0, LIMITE_DA_RESPOSTA), total: linhas.length };

@@ -315,3 +315,24 @@ test('vendedor de balcao so pelo servidor (bloco B, 25/11/2026): id gerado aqui,
   assert.equal(z.codigoVendedor, '');
   assert.deepEqual(z.sistemaAnterior, { codigoVendedor: '501' });
 });
+
+test('CNPJ de outra empresa (bloco B, 25/11/2026): indice do app de outra empresa nunca e sobrescrito; login novo nao nasce com CNPJ alheio', async () => {
+  const fake = criarBancoFalso(base({
+    // A "loja" gravou nas Configuracoes o CNPJ da "vitima".
+    'configuracoes/vitima': { tenantId: 'vitima', cnpj: '12.345.678/0001-99' },
+    [`vendedores_mobile_login/${CNPJ}-07`]: { tenantId: 'vitima', vendedorId: 'vv' },
+    'usuarios/v1': { tenantId: 'loja', role: 'Funcionario', tipoRegistro: 'vendedor', codigoVendedor: '07' },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(
+    () => s.alterarAcessoApp({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'v1', ligar: true } }),
+    (e) => e.status === 409 && /também está cadastrado em outra empresa/.test(e.message),
+  );
+  assert.deepEqual(fake.ler(`vendedores_mobile_login/${CNPJ}-07`), { tenantId: 'vitima', vendedorId: 'vv' }, 'indice da vitima intacto');
+  assert.notEqual(fake.ler('usuarios/v1').acessoAppMobile, true, 'nada gravado no vendedor');
+  await assert.rejects(
+    () => s.criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ usuario: 'maria' }) }),
+    (e) => e.status === 409 && /também está cadastrado em outra empresa/.test(e.message),
+  );
+  assert.equal(fake.ler(`usernames/${CNPJ}-maria`), undefined);
+});

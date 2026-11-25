@@ -53,6 +53,22 @@ const registrosDaEmpresa = async (tenantId) => {
 
 const ehVendedorSemLogin = (r) => r && r.tipoRegistro === 'vendedor';
 
+/*
+ * CNPJ DE OUTRA EMPRESA (seguranca, bloco B, 25/11/2026, item 2.16). Os indices
+ * de login (`usernames/{cnpj}-{usuario}` e `vendedores_mobile_login/{cnpj}-{codigo}`)
+ * sao montados com o CNPJ das Configuracoes, que a propria empresa grava. Uma
+ * empresa que gravasse o CNPJ de outra sobrescrevia o indice dela e derrubava o
+ * login do app dos vendedores de la'. Agora: indice de outra empresa nunca e'
+ * sobrescrito, e CNPJ que ja' e' de outra empresa nao gera indice novo.
+ */
+const MENSAGEM_CNPJ_DE_OUTRA = 'O CNPJ das Configurações desta empresa também está cadastrado em outra empresa do sistema. Confira o CNPJ em Configurações; se estiver certo, fale com o suporte.';
+const cnpjEDeOutraEmpresa = async (tenantId, cnpj) => {
+  const digitos = String(cnpj || '').replace(/\D/g, '');
+  if (digitos.length !== 14) return false;
+  const snap = await db.collection('configuracoes').where('cnpj', 'in', [digitos, ident.formatarCnpj(digitos)]).limit(5).get();
+  return snap.docs.some((d) => d.id !== tenantId);
+};
+
 /** Entregas do romaneio no app do motorista (src/pages/Vendedor/vendedorPermissoes.ts). */
 const PERMISSAO_ENTREGAS_APP = 'operacoes.entregas_app';
 
@@ -105,6 +121,7 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
     appLiberado = registros.filter((r) => r.acessoAppMobile === true).length < limiteApp;
   }
 
+  if (await cnpjEDeOutraEmpresa(tenantId, checagemCnpj.cnpj)) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
   const chave = ident.montarChaveUsername(checagemCnpj.cnpj, checagemUsuario.username);
   const email = ident.montarEmailSintetico(chave);
   // Usuario ja' usado (25/11/2026, dominio dos logins): o indice e' quem diz.
@@ -186,6 +203,12 @@ const alterarAcessoApp = async ({ user, tenantId, corpo }) => {
     if (vendedor && !chaveIndice) {
       throw new ErroLimite(400, 'Para o vendedor entrar no app, a empresa precisa do CNPJ cadastrado (Configurações) e o vendedor de um código. Confira e tente de novo.');
     }
+    // Bloco B (25/11/2026): conferido ANTES de gravar qualquer coisa.
+    if (chaveIndice) {
+      if (await cnpjEDeOutraEmpresa(tenantId, cnpj)) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
+      const existente = await db.collection('vendedores_mobile_login').doc(chaveIndice).get();
+      if (existente.exists && existente.data().tenantId !== tenantId) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
+    }
     const { app: limite } = await limitesDaEmpresa(tenantId);
     const usados = (await registrosDaEmpresa(tenantId)).filter((r) => r.acessoAppMobile === true).length;
     if (usados >= limite) throw new ErroLimite(409, lim.mensagemLimiteDoApp(limite));
@@ -200,7 +223,12 @@ const alterarAcessoApp = async ({ user, tenantId, corpo }) => {
   // Indice do login pelo codigo (so' vendedor de balcao): o app procura por ele.
   if (chaveIndice) {
     const indice = db.collection('vendedores_mobile_login').doc(chaveIndice);
-    if (ligar) await indice.set({ tenantId, vendedorId: usuarioId });
+    if (ligar) {
+      // Bloco B (25/11/2026): indice de OUTRA empresa nunca e' sobrescrito.
+      const atual = await indice.get();
+      if (atual.exists && atual.data().tenantId !== tenantId) throw new ErroLimite(409, MENSAGEM_CNPJ_DE_OUTRA);
+      await indice.set({ tenantId, vendedorId: usuarioId });
+    }
     else {
       const atual = await indice.get();
       if (atual.exists && atual.data().vendedorId === usuarioId) await indice.delete();

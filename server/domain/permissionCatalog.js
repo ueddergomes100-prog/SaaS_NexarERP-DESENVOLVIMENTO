@@ -134,6 +134,36 @@ exports.PERMISSION_GROUPS = [
             { id: 'vendas.liberar_desconto', label: 'Vendas: Aprovar Desconto Acima do Limite', color: '#ef4444' },
             // Bonificacao (30/10/2026): item de brinde dentro do pedido -- ver bonificacaoDomain.ts.
             { id: 'vendas.bonificar', label: 'Vendas: Pode Bonificar (item de brinde no pedido)', color: '#ef4444' },
+            // Item 15 (fase Vendas, 25/11/2026): uma permissao por acao. Ja' vem marcada
+            // para quem usa a tela (pacote 'vendas-1', permissoesNovasDomain.ts). Sem a de
+            // preco/data/vendedor/desconto, o valor fica no padrao, travado e conferido no servidor.
+            { id: 'vendas.finalizar', label: 'Vendas: Finalizar venda (faturar)', color: '#ef4444' },
+            { id: 'vendas.alterar_data', label: 'Vendas: Lançar venda com data diferente de hoje', color: '#ef4444' },
+            { id: 'vendas.alterar_vendedor', label: 'Vendas: Escolher o vendedor da venda', color: '#f59e0b' },
+            { id: 'vendas.alterar_preco', label: 'Vendas: Alterar o preço do item (computador)', color: '#ef4444' },
+            { id: 'vendas.desconto', label: 'Vendas: Dar desconto no pedido (até o limite)', color: '#ef4444' },
+            { id: 'vendas.cancelar', label: 'Vendas: Cancelar/Estornar venda finalizada', color: '#ef4444' },
+            { id: 'vendas.alterar_transporte', label: 'Vendas: Corrigir transporte de venda finalizada', color: '#f59e0b' },
+            { id: 'vendas.alterar_nota_fiscal', label: 'Vendas: Trocar pedido entre com e sem nota fiscal', color: '#ef4444' },
+            { id: 'vendas.devolucao_estornar', label: 'Vendas: Estornar devolução de venda', color: '#ef4444' },
+            { id: 'vendas.pedidos_pendentes_recusar', label: 'Vendas: Pendente — Recusar pedido', color: '#ef4444' },
+            { id: 'vendas.imprimir', label: 'Vendas: Imprimir pedido, recibo e minuta', color: '#f59e0b' },
+            { id: 'vendas.documentos_cobranca', label: 'Vendas: Emitir promissória, carnê e duplicata', color: '#f59e0b' },
+            { id: 'vendas.pre_venda_relatorio_valores', label: 'Vendas: Pré-vendas em aberto — ver totais em valor', color: '#f59e0b' },
+            { id: 'vendas.importar', label: 'Vendas: Importar pedidos do sistema anterior', color: '#ef4444' },
+            { id: 'vendas.orcamentos_recusar', label: 'Vendas: Recusar orçamento', color: '#ef4444' },
+            { id: 'vendas.orcamentos_converter', label: 'Vendas: Converter orçamento em OS ou venda', color: '#f59e0b' },
+            { id: 'vendas.orcamentos_preco', label: 'Vendas: Alterar preço e desconto no orçamento', color: '#ef4444' },
+            { id: 'vendas.orcamentos_enviar', label: 'Vendas: Enviar orçamento ao cliente', color: '#f59e0b' },
+            { id: 'vendas.condicional_saida', label: 'Vendas: Condicional — registrar saída', color: '#f59e0b' },
+            { id: 'vendas.condicional_devolucao', label: 'Vendas: Condicional — registrar devolução', color: '#f59e0b' },
+            { id: 'vendas.condicional_fechar', label: 'Vendas: Condicional — fechar e gerar a pré-venda', color: '#f59e0b' },
+            { id: 'vendas.condicional_cancelar', label: 'Vendas: Condicional — cancelar', color: '#ef4444' },
+            { id: 'vendas.troca_aprovar', label: 'Vendas: Trocas — aprovar ou recusar', color: '#ef4444' },
+            { id: 'vendas.troca_entregar', label: 'Vendas: Trocas — entregar (baixa estoque)', color: '#ef4444' },
+            { id: 'vendas.troca_cancelar', label: 'Vendas: Trocas — cancelar', color: '#ef4444' },
+            { id: 'vendas.promocoes_encerrar', label: 'Vendas: Promoções — encerrar e reativar', color: '#f59e0b' },
+            { id: 'vendas.cashback_relatorio', label: 'Vendas: Cashback — relatório de saldos', color: '#f59e0b' },
         ],
     },
     {
@@ -214,6 +244,14 @@ exports.PERMISSION_GROUPS = [
             // (pedidos livres, despesas lancadas canceladas). Mesmo texto de
             // ROTULO_PERMISSAO_ROMANEIO_ENCERRADO (romaneioDomain.ts).
             { id: 'operacoes.romaneios_reabrir', label: 'Romaneio de Entrega: reabrir e cancelar depois de fechado', color: '#14b8a6' },
+            // Item 15 (fase Vendas, 25/11/2026): pacote 'vendas-1'.
+            { id: 'operacoes.expedicao_divergencia', label: 'Expedição: Fechar conferência com divergência', color: '#ef4444' },
+            { id: 'operacoes.entregas_futuras_registrar', label: 'Expedição: Registrar entrega futura (a nota de remessa pede também Fiscal: Emitir)', color: '#14b8a6' },
+            { id: 'operacoes.rotas_despesas', label: 'Rotas: Lançar despesas da viagem no financeiro', color: '#ef4444' },
+            { id: 'operacoes.rotas_configurar', label: 'Rotas: Configurar tipos de despesa', color: '#14b8a6' },
+            { id: 'operacoes.motoristas', label: 'Rotas: Cadastrar motoristas', color: '#14b8a6' },
+            { id: 'operacoes.frota', label: 'Rotas: Cadastrar veículos da frota', color: '#14b8a6' },
+            { id: 'operacoes.rotas_relatorio', label: 'Rotas: Relatório de custo por veículo', color: '#14b8a6' },
             // Entregas no app (motorista): no grupo "Aplicativo mobile".
         ],
     },
@@ -295,6 +333,8 @@ exports.PERMISSION_GROUPS = [
         itens: [
             { id: 'crm.agenda', label: 'CRM: Agendamentos', color: '#ec4899' },
             { id: 'crm.alertas', label: 'CRM: Alertas de Retorno', color: '#ec4899' },
+            { id: 'crm.agenda_cancelar', label: 'CRM: Cancelar agendamento', color: '#ec4899' },
+            { id: 'crm.alertas_cancelar', label: 'CRM: Cancelar lembrete', color: '#ec4899' },
         ],
     },
     {

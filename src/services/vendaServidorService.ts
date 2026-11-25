@@ -144,6 +144,11 @@ export interface ResultadoDaAlteracaoDePagamento {
   totalCentavos: number;
 }
 
+/** Pedido pendente do agente recusado pelo servidor (item 15, 25/11/2026). */
+export const recusarPendenteNoServidor = (pedidoId: string, motivo: string) =>
+  postarNoServidor<{ ok: true; pedidoId: string; numeroPedido: string }>('recusar-pendente', { pedidoId, motivo },
+    'Não foi possível recusar o pedido. Nada foi gravado. Tente novamente.', CONFIRA_ANTES);
+
 /** `pagamentos` = as linhas da tela (forma, valor, banco...). O total vem da venda gravada. */
 export const alterarPagamentoNoServidor = (pedidoId: string, pagamentos: unknown[]) =>
   postarNoServidor<ResultadoDaAlteracaoDePagamento>('alterar-pagamento', { pedidoId, pagamentos },

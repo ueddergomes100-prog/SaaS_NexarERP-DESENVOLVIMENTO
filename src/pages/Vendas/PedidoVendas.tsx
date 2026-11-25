@@ -13,12 +13,12 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs, TabActiveContext } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { spedyService } from '../../services/spedyService';
-import { isPlatformAdminRole } from '../../utils/roles';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { PEDIDO_PRINT_LOTE_SAFETY_LIMIT } from './pedidoPrintLoteConstants';
-import { cancelarPreVendaNoServidor } from '../../services/vendaServidorService';
+import { cancelarPreVendaNoServidor, recusarPendenteNoServidor } from '../../services/vendaServidorService';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { avisosDaSelecao, listaDeNumeros, resumoDoCancelamentoEmLote, separarPreVendasParaCancelar, type ResultadoDoCancelamentoEmLote } from '../../utils/cancelamentoPreVendaLoteDomain';
 import {
   contaComoFaturamento,
@@ -164,6 +164,10 @@ const PedidoVendas: React.FC = () => {
   // Mesma permissao cobre editar/finalizar E recusar um pedido pendente do
   // agente -- nao criar uma permissao a mais so pra recusar.
   const canEditPendenteVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.pedidos_pendentes_editar'));
+  // Item 15 (fase Vendas, 25/11/2026): recusar e imprimir com permissao propria.
+  const podeVenda = (permissao: string) => hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(permissao);
+  const podeRecusarPendente = podeVenda(PERMISSAO_VENDAS.pendenteRecusar);
+  const podeImprimir = podeVenda(PERMISSAO_VENDAS.imprimir);
   // Cancelar pre-vendas marcadas de uma vez (08/11/2026): a mesma permissao do
   // botao "Cancelar Pré-venda" do pedido; o servidor confere de novo.
   const canCancelarPreVenda = Boolean(trabalhaComPreVenda) && (isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions && userPermissions.includes('vendas.pre_venda_cancelar')));
@@ -387,31 +391,11 @@ const PedidoVendas: React.FC = () => {
     const motivo = (result.value as string).trim();
 
     try {
-      await updateDoc(doc(db, 'pedidos_venda', pedido.id), {
-        status: 'Cancelada',
-        motivoRecusa: motivo,
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Pedido pendente recusado: ${motivo}`),
-      });
-
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId,
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || '',
-          modulo: 'vendas',
-          acao: 'recusa_pedido_pendente',
-          descricao: `Pedido pendente #${pedido.numeroPedido} recusado. Motivo: ${motivo}`,
-          registroRelacionadoId: pedido.id,
-          status: 'sucesso',
-        });
-      } catch {
-        // ignore audit log error
-      }
-
+      // Pelo servidor (item 15, 25/11/2026): confere a permissao e grava o historico.
+      await recusarPendenteNoServidor(pedido.id, motivo);
       showSuccess('Pedido recusado.');
-    } catch {
-      showError('Erro', 'Não foi possível recusar o pedido.');
+    } catch (erro) {
+      showError('Pedido não recusado', erro instanceof Error && erro.message ? erro.message : 'Não foi possível recusar o pedido. Tente de novo.');
     }
   };
 
@@ -781,7 +765,7 @@ const PedidoVendas: React.FC = () => {
               Cancelar Pré-vendas ({selecaoParaCancelar.cancelaveis.length})
             </button>
           )}
-          {selectedIds.size > 0 && (
+          {selectedIds.size > 0 && podeImprimir && (
             <button
               onClick={handlePrintSelected}
               className="btn-primary"
@@ -1097,16 +1081,18 @@ const PedidoVendas: React.FC = () => {
                             <Printer size={18} />
                           </button>
                         ) : (
-                          <button onClick={() => void openTab(`/pedidos-venda/print/${p.id}`, `Imprimir ${p.numeroPedido || 'pedido'}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
-                            <Printer size={18} />
-                          </button>
+                          podeImprimir && (
+                            <button onClick={() => void openTab(`/pedidos-venda/print/${p.id}`, `Imprimir ${p.numeroPedido || 'pedido'}`)} className="icon-btn" title="Imprimir Recibo" style={{ color: '#10b981' }}>
+                              <Printer size={18} />
+                            </button>
+                          )
                         )}
-                        {(p.status === 'Finalizada' || p.status === 'Pré-venda') && (
+                        {(p.status === 'Finalizada' || p.status === 'Pré-venda') && podeImprimir && (
                           <button onClick={() => navigate(`/pedidos-venda/minuta/${p.id}`)} className="icon-btn" title="Imprimir Minuta de Entrega" style={{ color: '#3b82f6' }}>
                             <Truck size={18} />
                           </button>
                         )}
-                        {p.status === 'Em Análise' && canEditPendenteVenda && (
+                        {p.status === 'Em Análise' && canEditPendenteVenda && podeRecusarPendente && (
                           <button onClick={() => handleRecusar(p)} className="icon-btn" title="Recusar Pedido Pendente" style={{ color: '#ef4444' }}>
                             <XCircle size={18} />
                           </button>

@@ -247,6 +247,8 @@ import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../c
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
 import { createAuditLog as registrarHistorico } from '../../services/logService';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
+import { recusarPendenteNoServidor } from '../../services/vendaServidorService';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import AvisoQuemFez from '../../components/common/AvisoQuemFez';
 import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
@@ -811,8 +813,18 @@ const PedidoVendaForm: React.FC = () => {
   );
 
   const { baixarLotesNaTransacao, camposDeLoteDoItem, conferirLotesDoEstornoNaTransacao, devolucaoTotalDosLotes, devolverAosLotesNaTransacao, estornarLotesDaDevolucaoNaTransacao, linhasParaLote, prepararBaixaDeLotes } = loteBaixa;
-  const canEditVenda = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.alterar'));
+  // Item 15 (fase Vendas, 25/11/2026): uma permissao por acao, conferida tambem no
+  // servidor. Administrador segue liberado nesta fase. Sem a de preco, data, vendedor
+  // ou desconto, o valor fica no padrao e travado (permissoesVendas.js no servidor).
+  const podeVenda = (permissao: string) => hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(permissao);
+  const podeAlterarPrecoVenda = podeVenda(PERMISSAO_VENDAS.alterarPreco);
+  const podeDarDescontoVenda = podeVenda(PERMISSAO_VENDAS.desconto);
+  const podeAlterarDataVenda = podeVenda(PERMISSAO_VENDAS.alterarData);
+  const podeAlterarVendedorVenda = podeVenda(PERMISSAO_VENDAS.alterarVendedor);
+  const podeLiberarDescontoVenda = podeVenda('vendas.liberar_desconto');
+  const canEditVenda = podeVenda(PERMISSAO_VENDAS.cancelar);
   const canReturnVenda = !pedidoImportado && (isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.devolucao')));
+  const canEstornarDevolucao = !pedidoImportado && podeVenda(PERMISSAO_VENDAS.devolucaoEstornar);
   // Pedido pendente do agente de WhatsApp: nasce com status "Em Analise"
   // (nenhuma tela deste sistema grava esse texto). Fica editavel/finalizavel
   // atras da permissao mestre; as 4 granulares abaixo so controlam campos
@@ -879,7 +891,7 @@ const PedidoVendaForm: React.FC = () => {
   };
   /** Pedido ja' gravado e fechado (finalizado): a troca vai direto pelo servidor, com registro. */
   const notaFiscalTrocaPeloServidor = Boolean(id) && isViewing && !isPreVendaAberta && !isPendingFromAgent;
-  const podeTrocarNotaFiscalGravada = isOwner || userPermissions.includes('vendas.alterar');
+  const podeTrocarNotaFiscalGravada = podeVenda(PERMISSAO_VENDAS.alterarNotaFiscal);
   const [trocandoNotaFiscal, setTrocandoNotaFiscal] = useState(false);
   const escolherNotaFiscal = async (comNota: boolean) => {
     if (comNotaFiscalPedido === comNota) return;
@@ -1014,7 +1026,7 @@ const PedidoVendaForm: React.FC = () => {
   // Transporte da venda finalizada (07/11/2026, transporteNotaDomain): NF-e
   // transmitida ou cupom autorizado travam; rejeitada/cancelada nao.
   const canAjustarTransporteFinalizada = Boolean(
-    isViewing && status === 'Finalizada' && canEditVenda
+    isViewing && status === 'Finalizada' && podeVenda(PERMISSAO_VENDAS.alterarTransporte)
     && !notaTravaOTransporte(nfeVinculada?.status) && !nfceAutorizada,
   );
   const podeLiberarTravaPedido = usePodeLiberarTrava();
@@ -3689,6 +3701,11 @@ const PedidoVendaForm: React.FC = () => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
     if (bonificacaoAberta) return handleFaturarBonificacao();
+    // Item 15 (25/11/2026): venda direta e pedido do agente pedem "Finalizar venda".
+    if (!isPreVendaAberta && !podeVenda(PERMISSAO_VENDAS.finalizar)) {
+      showError('Sem permissão', 'Você não tem permissão para finalizar vendas. Peça a um responsável liberar "Vendas: Finalizar venda (faturar)" no seu cadastro de funcionário.');
+      return false;
+    }
     if (itens.length === 0) {
       showError('Atenção', 'Adicione pelo menos um item à venda.');
       return false;
@@ -3745,11 +3762,11 @@ const PedidoVendaForm: React.FC = () => {
         showError('Desconto acima do limite', `O desconto desta venda (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado para Pedido de Venda. Reduza o desconto para continuar.`);
         return false;
       }
-      if (modoLimiteDesconto === 'senha' && !aprovacaoDesconto) {
+      if ((modoLimiteDesconto === 'senha' || (modoLimiteDesconto === 'avisar' && !podeLiberarDescontoVenda)) && !aprovacaoDesconto) {
         setShowAprovacaoDesconto(true);
         return false;
       }
-      if (modoLimiteDesconto === 'avisar') {
+      if (modoLimiteDesconto === 'avisar' && podeLiberarDescontoVenda) {
         const confirm = await NexusSwal.fire({
           title: 'Desconto acima do limite',
           text: `O desconto desta venda (${checagemLimiteDesconto.percentualAplicado.toFixed(1)}%) excede o limite configurado para Pedido de Venda. Deseja finalizar mesmo assim?`,
@@ -4755,33 +4772,12 @@ const PedidoVendaForm: React.FC = () => {
     const motivo = (result.value as string).trim();
 
     try {
-      await updateDoc(doc(db, 'pedidos_venda', id), {
-        status: 'Cancelada',
-        motivoRecusa: motivo,
-        canceladaPor: currentUser.uid,
-        canceladaPorNome: userNome || currentUser.email || 'Usuário',
-        canceladaEm: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Pedido pendente recusado: ${motivo}`),
-      });
-      registrarHistorico({
-        tenantId,
-        usuarioId: currentUser.uid,
-        usuarioEmail: currentUser.email || currentUser.uid,
-        modulo: 'vendas',
-        acao: 'recusa_pedido_pendente',
-        descricao: `Pedido pendente #${numeroPedido} recusado.`,
-        registroRelacionadoId: id,
-        documentoTipo: 'pedido',
-        documentoNumero: `Pedido ${numeroPedido}`,
-        motivo,
-        alteracoes: [{ campo: 'Situação', valorAnterior: status, valorNovo: 'Cancelada' }],
-        status: 'sucesso',
-        critical: true,
-      });
+      // Pelo servidor (item 15, 25/11/2026): confere a permissao e grava o historico.
+      await recusarPendenteNoServidor(id, motivo);
       showSuccess('Pedido recusado.');
       navigate('/pedidos-venda');
-    } catch {
-      showError('Erro', 'Não foi possível recusar o pedido.');
+    } catch (erro) {
+      showError('Pedido não recusado', erro instanceof Error && erro.message ? erro.message : 'Não foi possível recusar o pedido. Tente de novo.');
     }
   };
 
@@ -6043,9 +6039,11 @@ const PedidoVendaForm: React.FC = () => {
                 </button>
               ) : null}
 
-              <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Printer size={18} /> Imprimir Recibo
-              </button>
+              {podeVenda(PERMISSAO_VENDAS.imprimir) && (
+                <button className="btn-secondary" onClick={() => navigate(`/pedidos-venda/print/${id}`)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Printer size={18} /> Imprimir Recibo
+                </button>
+              )}
 
               <div ref={maisAcoesRef} style={{ position: 'relative' }}>
                 <button
@@ -6069,10 +6067,14 @@ const PedidoVendaForm: React.FC = () => {
                   >
                     {/* Minuta tambem depois de finalizada (pedido do usuario,
                         2026-09-21): a venda fecha no balcao e a mercadoria sai depois. */}
-                    <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de entrega, com os itens e sem valores"
-                      onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/minuta/${id}`); }} />
-                    <ItemMaisAcoes Icone={FileText} texto="Documentos de cobrança" titulo="Promissória, carnê de parcelas e duplicata desta venda, em PDF"
-                      onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/documentos/${id}`); }} />
+                    {podeVenda(PERMISSAO_VENDAS.imprimir) && (
+                      <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de entrega, com os itens e sem valores"
+                        onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/minuta/${id}`); }} />
+                    )}
+                    {podeVenda(PERMISSAO_VENDAS.documentosCobranca) && (
+                      <ItemMaisAcoes Icone={FileText} texto="Documentos de cobrança" titulo="Promissória, carnê de parcelas e duplicata desta venda, em PDF"
+                        onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/documentos/${id}`); }} />
+                    )}
                     {podeCriarCopia && (
                       <ItemMaisAcoes Icone={Copy} texto="Criar cópia (nova venda)" titulo="Abre uma venda nova com o mesmo cliente e os mesmos itens, para conferir e gravar"
                         onClick={() => { setMaisAcoesAberto(false); void openTab(`/pedidos-venda/novo?copiarDe=${id}`, 'Cópia do pedido'); }} />
@@ -6106,7 +6108,7 @@ const PedidoVendaForm: React.FC = () => {
               </div>
             </>
           )}
-          {isPendingFromAgent && canEditPendingOrder && (
+          {isPendingFromAgent && canEditPendingOrder && podeVenda(PERMISSAO_VENDAS.pendenteRecusar) && (
             <button className="btn-secondary" onClick={handleRecusarPendente} disabled={isLoading} style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
               <XCircle size={18} /> Recusar Pedido
             </button>
@@ -6137,9 +6139,11 @@ const PedidoVendaForm: React.FC = () => {
                 >
                   {/* Pre-venda tambem imprime: e' nela que o estoque separa
                       (minuta) e o cliente leva o documento com valores. */}
-                  <ItemMaisAcoes Icone={Printer} texto="Imprimir Pré-venda" titulo="Imprime a pré-venda com valores e condição de pagamento, para o cliente"
-                    onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/print/${id}`); }} />
-                  {conferenciaMercadoriaAtiva && (
+                  {podeVenda(PERMISSAO_VENDAS.imprimir) && (
+                    <ItemMaisAcoes Icone={Printer} texto="Imprimir Pré-venda" titulo="Imprime a pré-venda com valores e condição de pagamento, para o cliente"
+                      onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/print/${id}`); }} />
+                  )}
+                  {conferenciaMercadoriaAtiva && podeVenda(PERMISSAO_VENDAS.imprimir) && (
                     <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de separação, com os itens e sem valores"
                       onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/minuta/${id}`); }} />
                   )}
@@ -6183,7 +6187,7 @@ const PedidoVendaForm: React.FC = () => {
               {isLoading ? 'Gravando...' : (isPreVendaAberta ? 'Salvar Pré-venda' : 'Gravar Pré-venda')}
             </button>
           )}
-          {((!isViewing && !esconderFinalizarEmPedidoNovo) || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
+          {((!isViewing && !esconderFinalizarEmPedidoNovo && podeVenda(PERMISSAO_VENDAS.finalizar)) || (isPendingFromAgent && canEditPendingOrder && podeVenda(PERMISSAO_VENDAS.finalizar)) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary" onClick={handleFinalizarVenda} disabled={isLoading} style={{ opacity: isLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#10b981' }}>
               <ShoppingCart size={18} />
               {isLoading ? 'Finalizando...' : (bonificacaoAberta ? 'Faturar Bonificação' : 'Finalizar Venda')}
@@ -6261,7 +6265,7 @@ const PedidoVendaForm: React.FC = () => {
                   >
                     <Printer size={16} /> Imprimir
                   </button>)}
-                  {canReturnVenda && devolucao.status === 'concluida' && (
+                  {canEstornarDevolucao && devolucao.status === 'concluida' && (
                     <button
                       className="btn-secondary"
                       onClick={() => handleEstornarDevolucao(devolucao)}
@@ -6401,7 +6405,8 @@ const PedidoVendaForm: React.FC = () => {
                   // Com identificacao por codigo+senha ligada, escolher o
                   // vendedor a mao derrubaria o proposito da trava: quem define
                   // e' o popup, contra senha.
-                  disabled={(isViewing && !canEditPendingOrder) || exigirIdentificacaoVendedor}
+                  disabled={(isViewing && !canEditPendingOrder) || exigirIdentificacaoVendedor || !podeAlterarVendedorVenda}
+                  title={!podeAlterarVendedorVenda ? 'Sem a permissão "Vendas: Escolher o vendedor da venda", a venda fica com o vendedor padrão.' : undefined}
                   style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 16px', color: 'var(--text-primary)', width: '100%' }}
                 >
                   {vendedoresDisponiveis.map((seller) => (
@@ -6652,6 +6657,8 @@ const PedidoVendaForm: React.FC = () => {
                       inputMode="decimal"
                       step="0.01"
                       value={produtoPreco ? produtoPreco : ''}
+                      readOnly={!podeAlterarPrecoVenda}
+                      title={!podeAlterarPrecoVenda ? 'Sem a permissão "Vendas: Alterar o preço do item (computador)", o item vai pelo preço do cadastro.' : undefined}
                       onChange={(e) => setProdutoPreco(Number(e.target.value))}
                       onKeyDown={(e) => {
                         if (e.key !== 'Enter') return;
@@ -6665,7 +6672,7 @@ const PedidoVendaForm: React.FC = () => {
 
                 {/* Some quando a empresa desliga desconto por item em
                     Configuracoes. O desconto GERAL da venda continua. */}
-                {permitirDescontoPorItem && (
+                {permitirDescontoPorItem && podeDarDescontoVenda && (
                   <div className="lanc-seg lanc-seg-desconto">
                     <label className="lanc-rotulo" htmlFor="item-desconto-valor">Desconto</label>
                     <span className="lanc-desconto">
@@ -6718,7 +6725,8 @@ const PedidoVendaForm: React.FC = () => {
               catalogo={produtosCatalogo}
               podeEditar={!isViewing || canEditPendingQtd}
               podeRemover={!isViewing || canDeletePendingItem}
-              permitirDescontoPorItem={permitirDescontoPorItem}
+              permitirDescontoPorItem={permitirDescontoPorItem && podeDarDescontoVenda}
+              podeEditarPreco={podeAlterarPrecoVenda}
               selectedIndex={selectedItemIndex}
               onSelect={setSelectedItemIndex}
               onAtualizarItem={aplicarEdicaoDeItem}
@@ -6768,7 +6776,7 @@ const PedidoVendaForm: React.FC = () => {
               </div>
             )}
 
-            {(!isViewing || canEditPendingOrder) && (
+            {(!isViewing || canEditPendingOrder) && podeDarDescontoVenda && (
               <div style={{ marginBottom: '16px' }}>
                 <DescontoInput
                   label="Desconto geral da venda"
@@ -6878,7 +6886,7 @@ const PedidoVendaForm: React.FC = () => {
                   <button type="button" className="btn-primary" onClick={aplicarTotalDigitado}>Aplicar</button>
                   <button type="button" className="btn-secondary" onClick={() => setEditandoTotal(false)}>Cancelar</button>
                 </span>
-              ) : (!isViewing || canEditPendingOrder) && itens.length > 0 ? (
+              ) : (!isViewing || canEditPendingOrder) && itens.length > 0 && podeDarDescontoVenda ? (
                 <button
                   type="button"
                   className="pedido-total__valor pedido-total__valor--editavel"
@@ -7009,6 +7017,7 @@ const PedidoVendaForm: React.FC = () => {
               tenantId={tenantId}
               totalCents={valorTotalPedidoCentavos}
               transactionDate={dataVenda}
+              transactionDateLocked={!podeAlterarDataVenda}
               transactionDateLabel="Data da venda"
               dueDateBase={faturandoPreVenda ? diaDoFaturamentoNaTela : undefined}
               transactionDateHint={faturandoPreVenda && dataVenda !== diaDoFaturamentoNaTela
@@ -7028,7 +7037,7 @@ const PedidoVendaForm: React.FC = () => {
             </button>
           )}
 
-          {((!isViewing && !esconderFinalizarEmPedidoNovo) || (isPendingFromAgent && canEditPendingOrder) || (isPreVendaAberta && canFinalizarPreVenda)) && (
+          {((!isViewing && !esconderFinalizarEmPedidoNovo && podeVenda(PERMISSAO_VENDAS.finalizar)) || (isPendingFromAgent && canEditPendingOrder && podeVenda(PERMISSAO_VENDAS.finalizar)) || (isPreVendaAberta && canFinalizarPreVenda)) && (
             <button className="btn-primary pedido-botao-final" onClick={handleFinalizarVenda} disabled={isLoading}>
               <ShoppingCart size={22} />
               {bonificacaoAberta ? 'Faturar bonificação' : 'Finalizar venda'}

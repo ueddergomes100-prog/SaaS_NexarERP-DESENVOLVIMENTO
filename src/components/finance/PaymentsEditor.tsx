@@ -125,6 +125,8 @@ interface PaymentsEditorProps {
   dueDateBase?: string;
   /** Aviso embaixo do campo de data. */
   transactionDateHint?: string;
+  /** Data travada (sem a permissao de lancar em outra data -- item 15, 25/11/2026). */
+  transactionDateLocked?: boolean;
   /** Banco que o pagamento ja' traz (26/10/2026): padrao do boleto e/ou o do dia, da filial. */
   bancoPadrao?: { config: ConfigBancoPadrao; usuarioId: string } | null;
 }
@@ -383,6 +385,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
   transactionDateLabel,
   dueDateBase,
   transactionDateHint,
+  transactionDateLocked = false,
   bancoPadrao = null,
 }) => {
   // Base dos vencimentos: o dia do faturamento quando a tela informa (pre-venda), senao a data do campo.
@@ -475,7 +478,8 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
       <div className="input-group">
         <label htmlFor={`${idPrefix}-date`}>{transactionDateLabel}</label>
         <input
-          disabled={disabled}
+          disabled={disabled || transactionDateLocked}
+          title={transactionDateLocked ? 'Sem a permissão de lançar em outra data, vale a data de hoje.' : undefined}
           id={`${idPrefix}-date`}
           onChange={(event) => onTransactionDateChange(event.target.value)}
           type="date"

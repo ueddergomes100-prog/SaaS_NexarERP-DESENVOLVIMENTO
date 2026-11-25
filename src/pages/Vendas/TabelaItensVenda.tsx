@@ -79,6 +79,8 @@ interface Props {
   podeEditar: boolean;
   podeRemover: boolean;
   permitirDescontoPorItem: boolean;
+  /** Sem "Vendas: Alterar o preco do item" o preco fica o do cadastro (item 15, 25/11/2026). */
+  podeEditarPreco?: boolean;
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
   /** Devolve a mensagem de erro em portugues, ou null quando aplicou. */
@@ -106,7 +108,7 @@ const ROTULO_ARIA: Record<CampoEditavel, string> = {
 };
 
 const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
-  itens, catalogo, podeEditar, podeRemover, permitirDescontoPorItem, selectedIndex, onSelect,
+  itens, catalogo, podeEditar, podeRemover, permitirDescontoPorItem, podeEditarPreco = true, selectedIndex, onSelect,
   onAtualizarItem, onTrocarProduto, onRemover, onAlternarBonificacao,
 }, ref) => {
   const [edicao, setEdicao] = useState<Edicao | null>(null);
@@ -126,7 +128,9 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
 
   const colunas = 6 + (podeRemover ? 1 : 0);
 
-  const campoEditavel = (campo: CampoEditavel) => podeEditar && (campo !== 'desconto' || permitirDescontoPorItem);
+  const campoEditavel = (campo: CampoEditavel) => podeEditar
+    && (campo !== 'desconto' || permitirDescontoPorItem)
+    && (campo !== 'precoUnitario' || podeEditarPreco);
 
   const iniciarEdicao = (index: number, campo: CampoEditavel) => {
     if (!campoEditavel(campo)) return;

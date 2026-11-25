@@ -29,11 +29,15 @@ const { permissionLabelMap } = require('../domain/permissionCatalog');
 /** Dar baixa, pelo tipo do titulo. */
 const PERMISSAO_DE_BAIXAR = { entrada: PF.receberBaixar, saida: PF.pagarBaixar };
 
-/** Pode, contando as permissoes novas que ja' vem marcadas. */
-const podeNoFinanceiro = (user, permissao) => temPermissao(
+/**
+ * Pode, contando as permissoes novas que ja' vem marcadas (todos os pacotes).
+ * Generico: as fases seguintes (Vendas, permissoesVendas.js) usam o mesmo.
+ */
+const podePelasEfetivas = (user, permissao) => temPermissao(
   { ...(user || {}), permissoes: permissoesEfetivas(user && user.permissoes) },
   permissao,
 );
+const podeNoFinanceiro = podePelasEfetivas;
 
 /** O que cada permissao deixa fazer, na frase "Voce nao tem permissao para ...", e o que fazer sem ela. */
 const ACOES = {
@@ -70,13 +74,14 @@ const juntar = (itens) => (itens.length <= 1 ? itens.join('') : `${itens.slice(0
  * Frase para o usuario quando faltam permissoes (ids). Cita o rotulo que o
  * dono ve no cadastro do funcionario e diz o que fazer.
  */
-const mensagemSemPermissao = (faltam) => {
+const montarMensagemSemPermissao = (acoesConhecidas) => (faltam) => {
   const ids = [...new Set(faltam)];
-  const acoes = ids.map((id) => (ACOES[id] ? ACOES[id].acao : `usar "${rotulo(id)}"`));
+  const acoes = ids.map((id) => (acoesConhecidas[id] ? acoesConhecidas[id].acao : `usar "${rotulo(id)}"`));
   const rotulos = ids.map((id) => `"${rotulo(id)}"`);
-  const dica = ids.length === 1 && ACOES[ids[0]] && ACOES[ids[0]].dica ? ` ${ACOES[ids[0]].dica}` : '';
+  const dica = ids.length === 1 && acoesConhecidas[ids[0]] && acoesConhecidas[ids[0]].dica ? ` ${acoesConhecidas[ids[0]].dica}` : '';
   return `Você não tem permissão para ${juntar(acoes)}. Peça a um responsável liberar ${juntar(rotulos)} no seu cadastro de funcionário.${dica}`;
 };
+const mensagemSemPermissao = montarMensagemSemPermissao(ACOES);
 
 /** Das permissoes pedidas, as que o usuario nao tem (efetivas). [] = pode. */
 const permissoesQueFaltam = (user, ids) => [...new Set(ids)].filter((id) => !podeNoFinanceiro(user, id));
@@ -107,6 +112,8 @@ const permissoesDaBaixa = ({ tipo, pedidos, hoje, lote = false }) => {
 const jurosNoPadrao = (user, tipo) => tipo === 'entrada' && !podeNoFinanceiro(user, PF.baixaJurosMulta);
 
 module.exports = {
+  podePelasEfetivas,
+  montarMensagemSemPermissao,
   jurosNoPadrao,
   PERMISSAO_DE_BAIXAR,
   podeNoFinanceiro,

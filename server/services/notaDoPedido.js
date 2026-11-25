@@ -14,6 +14,8 @@
 const { admin, db } = require('../config/firebase');
 const nd = require('../domain/notaDoPedidoDomain');
 const { ehPedidoDoSistemaAnterior, mensagemPedidoDoSistemaAnterior } = require('../domain/importacaoPedidosAnterioresDomain');
+const { podeEmVendas, mensagemSemPermissao } = require('./permissoesVendas');
+const { PERMISSAO_VENDAS: PV } = require('../domain/permissoesNovasDomain');
 
 class ErroNotaDoPedido extends Error {
   constructor(status, message) {
@@ -90,10 +92,13 @@ const definirComNotaFiscal = async ({ user, tenantId, pedidoId, comNotaFiscal })
   const { ref, pedido } = await lerPedidoDaEmpresa(tx, tenantId, pedidoId);
   const marcaAtual = nd.marcaNotaDoPedido(pedido.comNotaFiscal);
   const ehPreVenda = pedido.status === 'Pré-venda' || pedido.status === 'Pre-venda';
-  const podeAlterar = temPermissao(user, 'vendas.alterar') || (ehPreVenda && temPermissao(user, 'vendas.pre_venda_editar'));
+  // Item 15 (25/11/2026): pedido fechado pede a permissao propria (antes, "Alterar Pedidos").
+  const podeAlterar = podeEmVendas(user, PV.alterarNotaFiscal) || (ehPreVenda && temPermissao(user, 'vendas.pre_venda_editar'));
   const podeTirarAntigoDaEmissao = marcaAtual === 'nao_informado' && comNotaFiscal === false && temPermissao(user, 'fiscal.emitir');
   if (!podeAlterar && !podeTirarAntigoDaEmissao) {
-    throw new ErroNotaDoPedido(403, 'Você não tem permissão para alterar este pedido. Peça a um responsável liberar "Vendas: Alterar Pedidos" no seu usuário.');
+    throw new ErroNotaDoPedido(403, ehPreVenda
+      ? 'Você não tem permissão para alterar esta pré-venda. Peça a um responsável liberar "Vendas: Pré-venda — Editar em Aberto" no seu cadastro de funcionário.'
+      : mensagemSemPermissao([PV.alterarNotaFiscal]));
   }
   if (pedido.status === 'Cancelada') throw new ErroNotaDoPedido(409, 'Pedido cancelado não muda de com/sem nota fiscal.');
   const notasSnap = await tx.get(db.collection('notas_fiscais')

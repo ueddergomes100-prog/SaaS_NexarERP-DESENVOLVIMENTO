@@ -8,6 +8,9 @@ const { alterarPagamento, cancelarPreVenda, cancelarVenda } = require('../servic
 const cashback = require('../services/cashback');
 const { ErroNotaDoPedido, definirComNotaFiscal } = require('../services/notaDoPedido');
 const { lerPedidoDeMarcaNota } = require('../domain/notaDoPedidoDomain');
+const pv = require('../services/permissoesVendas');
+const { PERMISSAO_VENDAS: PV } = require('../domain/permissoesNovasDomain');
+const { recusarPedidoPendente } = require('../services/pedidoPendente');
 
 /**
  * VENDAS -- fechamento da venda pelo servidor (item 8 da auditoria, fatia 3).
@@ -76,9 +79,8 @@ const responderErro = (res, erro, oQue) => {
 router.post('/cancelar', async (req, res) => {
   try {
     const tenantId = empresaDaOperacao(req.user, req.body);
-    if (!temPermissao(req.user, 'vendas.alterar')) {
-      return res.status(403).json({ error: 'Você não tem permissão para cancelar vendas. Peça a um responsável liberar "Vendas: Alterar" no seu usuário.' });
-    }
+    // Item 15 (25/11/2026): permissao propria (antes era a de "Alterar Pedidos").
+    pv.exigir(req.user, [PV.cancelar], ErroVenda);
     const r = await cancelarVenda({ user: req.user, tenantId, corpo: req.body || {} });
     // Cashback (20/10/2026): o que a venda gerou volta (se ja' foi usado, vira saldo negativo).
     await cashback.estornarVendaSemFalhar({ user: req.user, tenantId, pedidoId: r.pedidoId });
@@ -128,6 +130,32 @@ router.post('/alterar-pagamento', async (req, res) => {
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'alterar a forma de pagamento');
+  }
+});
+
+/**
+ * POST /api/vendas/recusar-pendente -- { pedidoId, motivo }. Pedido pendente do
+ * agente (WhatsApp) recusado (item 15, 25/11/2026): antes a tela gravava direto.
+ */
+router.post('/recusar-pendente', async (req, res) => {
+  try {
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    pv.exigir(req.user, [PV.pendenteRecusar], ErroVenda);
+    const r = await recusarPedidoPendente({ user: req.user, tenantId, corpo: req.body || {} });
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'vendas',
+      acao: 'recusa_pedido_pendente',
+      descricao: `Pedido pendente #${r.numeroPedido} recusado.`,
+      registroId: r.pedidoId,
+      documentoTipo: 'pedido',
+      documentoNumero: `Pedido ${r.numeroPedido}`,
+      motivo: r.motivo,
+      alteracoes: [{ campo: 'Situação', valorAnterior: r.statusAnterior, valorNovo: 'Cancelada' }],
+      critico: true,
+    });
+    return res.json({ ok: true, pedidoId: r.pedidoId, numeroPedido: r.numeroPedido });
+  } catch (erro) {
+    return responderErro(res, erro, 'recusar o pedido pendente');
   }
 });
 

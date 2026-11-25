@@ -22,6 +22,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO, permissionLabelMap } from '../../utils/permissionCatalog';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { ehMarcadorInterno } from '../../utils/permissoesNovasDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
@@ -193,6 +194,8 @@ const VendedoresList: React.FC = () => {
   // no app) aprovaria o proprio desconto. Mesma trava nas rules e no servidor do PIN.
   const ehGestor = isTenantManagerRole(userRole);
   const podeGerenciar = ehGestor || userPermissions.includes(PERMISSAO_INCLUIR_VENDEDOR);
+  // Item 15 (25/11/2026): a senha do vendedor tem permissao propria, conferida no servidor.
+  const podeSenhaVendedor = ehGestor || userPermissions.includes(PERMISSAO_VENDAS.gerenciarPinVendedor);
   const vendedorEspecial = (v: VendedorData) => (v.permissoes || []).length > 0 || v.acessoAppMobile === true;
   const podeMexerNo = (v: VendedorData) => ehGestor || (podeGerenciar && !vendedorEspecial(v));
   const MENSAGEM_SO_GESTOR = 'Este vendedor libera desconto ou usa o aplicativo: só o dono ou o administrador da empresa altera.';
@@ -331,6 +334,10 @@ const VendedoresList: React.FC = () => {
     // Senha e' obrigatoria no cadastro novo: vendedor sem senha nao consegue
     // se identificar, e so descobriria isso no balcao, na primeira venda.
     const definindoPin = !!form.pin;
+    if (!podeSenhaVendedor && (definindoPin || !editando)) {
+      showError('Sem permissão', `${editando ? 'Trocar a senha do vendedor' : 'O cadastro novo pede a senha do vendedor, e'} precisa da permissão "Vendas: Gerenciar Código/Senha de Vendedor". Peça a um responsável liberar no seu cadastro de funcionário${editando ? ', ou salve sem mexer na senha' : ''}.`);
+      return;
+    }
     if (!editando && !definindoPin) {
       showError('Falta a senha', `Informe a senha deste vendedor (${AJUDA_TAMANHO_PIN.toLowerCase()}). É com ela que ele se identifica em cada venda.`);
       return;
@@ -860,6 +867,7 @@ const VendedoresList: React.FC = () => {
                   inputMode="numeric"
                   title={editando ? 'Deixe vazio para manter' : 'Senha'}
                   value={form.pin}
+                  disabled={!podeSenhaVendedor}
                   onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, '').slice(0, PIN_VENDEDOR_MAX_DIGITOS) })}
                   style={{ ...inputStyle, fontSize: '18px', letterSpacing: '6px', fontWeight: 700 }}
                 />

@@ -47,6 +47,13 @@
  * quotas e confere o preco cobrado contra o do sistema; abaixo dele, a
  * diferenca conta como DESCONTO e passa pelos mesmos limites (decisao do dono).
  * Acima e' livre. Regra em src/utils/conferenciaPrecoDomain.ts.
+ *
+ * Permissao por acao (item 15, fase Vendas, 25/11/2026 -- permissoesVendas.js),
+ * so' no Pedido de Venda (o PDV tem as dele): finalizar, data diferente de hoje,
+ * trocar o vendedor, preco diferente do sistema, desconto alem do cadastro do
+ * cliente e mudar a pre-venda/pedido do agente pedem a sua. Sem ela o valor fica
+ * no padrao e qualquer coisa diferente e' recusada aqui. No modo "avisar", o
+ * desconto acima do limite passa a pedir "Aprovar desconto" (ou a liberacao por senha).
  */
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
@@ -71,6 +78,8 @@ const ef = require('../domain/entregaFuturaDomain');
 const comprovantes = require('./comprovantes');
 const cashback = require('./cashback');
 const cb = require('../domain/cashbackDomain');
+const pv = require('./permissoesVendas');
+const { PERMISSAO_VENDAS: PV } = require('../domain/permissoesNovasDomain');
 
 class ErroVenda extends Error {
   constructor(status, message) {
@@ -210,6 +219,81 @@ const conferirPrecosNoServidor = async ({ tenantId, config, itens, pagamentos, i
   return cp.conferirPrecos({ itens, produtos, promocoes, hoje, condicao, vendidoPorPromocao });
 };
 
+/** Cadastros (usuarios) pelos ids, pela transacao ou direto. */
+const ID_DE_USUARIO = /^[A-Za-z0-9_-]{1,128}$/;
+const lerCadastros = async (leitor, uids) => {
+  const ids = [...new Set(uids.map((u) => String(u || '')).filter((u) => ID_DE_USUARIO.test(u)))];
+  if (!ids.length) return [];
+  const snaps = await leitor.getAll(...ids.map((id) => db.collection('usuarios').doc(id)));
+  return snaps.filter((s) => s.exists).map((s) => ({ uid: s.id, dados: s.data() }));
+};
+
+/** Orcamento de origem da venda (so' da empresa), com o cadastro de quem o gravou; null se nao existir. */
+const lerOrcamentoDeOrigem = async (tenantId, orcamentoId) => {
+  const snap = await db.collection('orcamentos').doc(String(orcamentoId)).get();
+  if (!snap.exists || snap.data().tenantId !== tenantId) return null;
+  const dados = snap.data();
+  return { dados, autores: await lerCadastros(db, [dados.criadoPor, dados.alteradoPor, dados.vendedorId]) };
+};
+
+/** Linhas de peca do orcamento gravado, com o preco (mesma leitura de linhasDoOrcamentoGravado). */
+const linhasDoOrcamento = (orcamento) => {
+  const pecas = Array.isArray(orcamento.pecas) ? orcamento.pecas : [];
+  const lista = pecas.length > 0 ? pecas : (Array.isArray(orcamento.itens) ? orcamento.itens : []);
+  return lista.filter((l) => l && l.tipo !== 'servico').map((l) => ({ id: l.id, precoUnitario: l.preco !== undefined ? l.preco : l.precoUnitario }));
+};
+
+/** Algum dos cadastros (lidos pelos ids gravados no proprio documento) tem uma das permissoes? */
+const algumPode = (cadastros, permissoes) => cadastros.some(({ uid, dados }) => permissoes.some((p) => pv.cadastroPode(uid, dados, p)));
+
+/**
+ * Permissao por acao no fechamento do Pedido de Venda (item 15, 25/11/2026).
+ * Valor fora do padrao sem a permissao = recusa em portugues dizendo o padrao.
+ * Roda dentro da transacao, na fase de leituras (le' o cadastro de quem gravou
+ * a pre-venda so' quando precisa).
+ */
+const conferirPermissoesDoFechamento = async ({ tx, user, pedido, aberto, totais, precos, vendedorId, doOrcamento, hoje, identificado, percentualDoCliente }) => {
+  const pode = (id) => pv.podeEmVendas(user, id);
+  const ehDoAgente = Boolean(aberto) && resolveOrigemPedido(aberto) === 'agente';
+  // Quem gravou a pre-venda (ou mexeu nela por ultimo) e o vendedor dela (app).
+  const autores = aberto ? [aberto.criadoPor, aberto.alteradoPor, aberto.vendedorId, aberto.usuarioResponsavelId] : [];
+  const precisaDosAutores = aberto && (!pode(PV.alterarPreco) || !pode(PV.desconto));
+  const cadastrosDosAutores = precisaDosAutores ? await lerCadastros(tx, autores) : [];
+
+  const { ids, motivo } = pv.permissoesDoFechamento({
+    pedido,
+    aberto,
+    ehDoAgente,
+    hoje,
+    vendedorId,
+    // Padrao: o vendedor gravado na pre-venda; sem ele, quem a gravou ou quem fatura
+    // (a tela abre com `vendedorId || usuarioResponsavelId || logado`). Venda direta:
+    // quem esta' logado ou o vendedor do orcamento de origem.
+    vendedoresPadrao: aberto && aberto.vendedorId
+      ? [aberto.vendedorId]
+      : [aberto ? aberto.usuarioResponsavelId : '', aberto ? aberto.criadoPor : '', user.uid, doOrcamento ? doOrcamento.dados.vendedorId : ''],
+    identificado,
+    baseCentavos: fin.toCents(totais.valorTotalItens),
+    descontoCentavos: fin.toCents(totais.valorTotalDescontos),
+    percentualDoCliente,
+    descontoGravadoCentavos: aberto ? Number(aberto.valorTotalDescontosCentavos ?? fin.toCents(Number(aberto.valorTotalDescontos) || 0)) || 0 : 0,
+    autorPodiaDarDesconto: algumPode(cadastrosDosAutores, [PV.desconto]),
+  });
+  const faltam = pv.permissoesQueFaltam(user, ids);
+  if (faltam.length) throw new ErroVenda(403, `${faltam.includes(PV.alterarData) ? motivo : ''}${pv.mensagemSemPermissao(faltam)}`);
+
+  // Preco: o do sistema, ou o combinado na pre-venda/orcamento por quem podia mexer
+  // no preco (computador: "Vendas: Alterar o preco"; app: "App: Alterar o preco").
+  if (!pode(PV.alterarPreco)) {
+    const permissoesDePreco = [PV.alterarPreco, pv.PERMISSAO_APP_ALTERAR_PRECO];
+    const combinados = [];
+    if (aberto && algumPode(cadastrosDosAutores, permissoesDePreco)) combinados.push(...(Array.isArray(aberto.itens) ? aberto.itens : []));
+    if (doOrcamento && algumPode(doOrcamento.autores, [...permissoesDePreco, PV.orcamentosPreco])) combinados.push(...linhasDoOrcamento(doOrcamento.dados));
+    const problema = pv.precoForaDoPadrao({ itens: pedido.itens, conferidos: precos.itens, combinados });
+    if (problema) throw new ErroVenda(403, `${problema}${pv.mensagemSemPermissao([PV.alterarPreco])}`);
+  }
+};
+
 const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const lido = venda.lerPedidoDeFechamento(corpo);
   if ('erro' in lido) throw new ErroVenda(400, lido.erro);
@@ -331,17 +415,24 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   const configDesconto = cd.configDoDesconto(config, tela);
   const baseDoDescontoCentavos = fin.toCents(totais.valorTotalItens) + precos.diferencaTotalCentavos;
   const descontoTotalCentavos = fin.toCents(totais.valorTotalDescontos) + precos.diferencaTotalCentavos;
+  const percentualDoCliente = await percentualDoClienteDaVenda(pedido.clienteId, tenantId);
   const situacaoDesconto = cd.situacaoDoDescontoTotal({
     tela,
     config: configDesconto,
     baseCentavos: baseDoDescontoCentavos,
     descontoCentavos: descontoTotalCentavos,
-    percentualDoCliente: await percentualDoClienteDaVenda(pedido.clienteId, tenantId),
+    percentualDoCliente,
   });
   // Preco abaixo do sistema: a mensagem diz de onde veio o desconto a mais.
   const indiceComDiferenca = precos.itens.findIndex((p) => p.diferencaCentavos > 0);
   const explicacaoDoPreco = indiceComDiferenca >= 0 ? cp.explicacaoDaDiferenca(pedido.itens[indiceComDiferenca], precos.itens[indiceComDiferenca]) : '';
   if (situacaoDesconto.erro) throw new ErroVenda(409, `${explicacaoDoPreco}${situacaoDesconto.erro}`);
+  // Modo "avisar" (item 15, 25/11/2026): passar do limite pede "Aprovar desconto
+  // acima do limite"; sem ela, a venda pede a liberacao de quem tem (como no "senha").
+  const pedidoDeVenda = !pedido.pdvSessionId;
+  if (pedidoDeVenda && situacaoDesconto.excedeu && configDesconto.modo === 'avisar' && !pv.podeEmVendas(user, cd.PERMISSAO_LIBERAR_DESCONTO)) {
+    situacaoDesconto.precisaLiberacao = true;
+  }
   // Identificacao do vendedor: so' o Pedido de Venda pede. O PDV nao -- nem na
   // pre-venda faturada no caixa, em que o vendedor vem da pre-venda gravada.
   const exigeIdentificacao = !pedido.pdvSessionId && cd.exigeIdentificacaoDoVendedor(config);
@@ -413,6 +504,12 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     if (!configCashback.ativo) throw new ErroVenda(409, 'O cashback está desligado nas Configurações. Troque a forma de pagamento.');
   }
   const hojeDaVenda = getDateInputInTimeZone();
+
+  // Orcamento de origem (venda direta convertida): o preco e o vendedor que vieram
+  // dele sao o "combinado" -- valem quando quem gravou o orcamento podia mexer no preco.
+  const doOrcamento = pedidoDeVenda && !pedido.pedidoId && pedido.orcamentoId
+    ? await lerOrcamentoDeOrigem(tenantId, pedido.orcamentoId)
+    : null;
 
   const pisoDaNumeracao = pedido.pedidoId ? 0 : await maiorNumeroGravado(tenantId);
 
@@ -494,6 +591,15 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
         : 'O vendedor selecionado não pertence à empresa ativa.');
     }
     const vendedorNome = vendedor.nome || vendedor.nomeResponsavel || user.nome || user.email || 'Vendedor';
+
+    // Permissao por acao (item 15, 25/11/2026): so' no Pedido de Venda.
+    if (pedidoDeVenda) {
+      await conferirPermissoesDoFechamento({
+        tx, user, pedido, aberto, totais, precos, vendedorId, doOrcamento, hoje: hojeDaVenda,
+        identificado: exigeIdentificacao,
+        percentualDoCliente,
+      });
+    }
 
     // Comprovantes do servidor (19/10/2026): liberacao do desconto e PIN do vendedor.
     const agoraMs = Date.now();

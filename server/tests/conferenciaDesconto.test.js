@@ -136,8 +136,15 @@ test('modo bloquear recusa (409); modo avisar passa sem aprovacao e a aprovacao 
   const bloquear = criarBancoFalso(base({ 'configuracoes/loja': config({ modoLimiteDesconto: 'bloquear' }) }), { consultas: true });
   await assert.rejects(() => finalizar(carregar(bloquear.db)), (erro) => erro.status === 409 && /passa do limite de 10%/.test(erro.message));
 
+  // Item 15 (25/11/2026): no modo avisar, sem "Aprovar desconto acima do limite", a venda
+  // pede a liberacao de quem tem (como no modo senha) e nada e' gravado.
+  const semAprovar = criarBancoFalso(base({ 'configuracoes/loja': config({ modoLimiteDesconto: 'avisar' }) }), { consultas: true });
+  await assert.rejects(() => finalizar(carregar(semAprovar.db)), pedeDeNovo());
+  assert.equal(semAprovar.ler('pedidos_venda/venda1'), undefined);
+
   const avisar = criarBancoFalso(base({ 'configuracoes/loja': config({ modoLimiteDesconto: 'avisar' }) }), { consultas: true });
-  await finalizar(carregar(avisar.db), venda({ descontoGeral: { tipo: 'valor', valorInformado: 4, aprovacao: { aprovadoPorId: 'loja', aprovadoPorNome: 'FORJADO' } } }));
+  const aprova = { ...CAIXA, permissoes: [...CAIXA.permissoes, 'vendas.liberar_desconto'] };
+  await finalizar(carregar(avisar.db), venda({ descontoGeral: { tipo: 'valor', valorInformado: 4, aprovacao: { aprovadoPorId: 'loja', aprovadoPorNome: 'FORJADO' } } }), aprova);
   const pedido = avisar.ler('pedidos_venda/venda1');
   assert.equal(pedido.descontoGeral.excedeuLimite, true);
   assert.equal(pedido.descontoGeral.aprovacao, undefined);

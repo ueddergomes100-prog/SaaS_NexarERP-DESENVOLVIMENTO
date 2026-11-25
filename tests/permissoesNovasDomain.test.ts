@@ -6,6 +6,7 @@ import {
   PERMISSAO_COMPRAS,
   PERMISSAO_FINANCEIRO,
   PERMISSAO_FISCAL,
+  PERMISSAO_VENDAS,
   ehMarcadorInterno,
   marcadorDoPacote,
   mexidasSemTer,
@@ -24,7 +25,8 @@ const F = PERMISSAO_FINANCEIRO;
 const MARCADOR_FIN = marcadorDoPacote('financeiro-1');
 const MARCADOR_FIN2 = marcadorDoPacote('financeiro-2');
 /** Todos os marcadores conhecidos: efetivas e o que gravar sempre levam todos. */
-const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2];
+const MARCADOR_VENDAS = marcadorDoPacote('vendas-1');
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -56,15 +58,15 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
     F.pagarLancar, F.pagarEditar, F.pagarCancelar, F.relatorios, F.importarTitulos,
     ...MARCADORES,
   ]));
-  assert.deepEqual(permissoesEfetivas(['vendas.pedidos']), ['vendas.pedidos', ...MARCADORES]);
+  assert.deepEqual(permissoesEfetivas(['vendas.minhas_vendas']), ['vendas.minhas_vendas', ...MARCADORES]);
   assert.deepEqual(permissoesEfetivas(undefined), MARCADORES);
-  assert.deepEqual(permissoesEfetivas(['vendas.pedidos', 7, null]), ['vendas.pedidos', ...MARCADORES], 'ignora lixo');
+  assert.deepEqual(permissoesEfetivas(['vendas.minhas_vendas', 7, null]), ['vendas.minhas_vendas', ...MARCADORES], 'ignora lixo');
 });
 
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
   assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2']);
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');
@@ -91,7 +93,7 @@ test('app + pacotes juntos: efetivas e o que gravar levam os dois marcadores', (
 test('gerente: as novas implicitas contam como dele; desmarcar conta como tirar', () => {
   const alvoAntes = ['financeiro.receber'];
   const gerenteComReceber = ['financeiro.receber', 'administrativo.equipe'];
-  const gerenteSemReceber = ['vendas.pedidos', 'administrativo.equipe'];
+  const gerenteSemReceber = ['vendas.minhas_vendas', 'administrativo.equipe'];
   // A tela abre com as efetivas: salvar sem mexer nao "mexe" em nada.
   const semMexer = permissoesEfetivasDoUsuario(alvoAntes);
   assert.deepEqual(mexidasSemTer({ antes: alvoAntes, depois: semMexer, doGerente: gerenteSemReceber }), []);
@@ -134,4 +136,27 @@ test('pacote 2 (fase 2): salvo antes (so com o pacote 1) ganha as novas pelas pe
   [...Object.values(PERMISSAO_FISCAL), ...Object.values(PERMISSAO_COMPRAS)].forEach((p: string) => {
     assert.ok(PERMISSION_CATALOG.some((i) => i.id === p), `${p} no catalogo`);
   });
+});
+
+test('pacote vendas-1: quem usa a tela ja tem as novas; o que hoje e so do administrador nao vem', () => {
+  const V = PERMISSAO_VENDAS;
+  const salvoNaFase2 = permissoesParaGravar(['vendas.pedidos', 'vendas.alterar', 'vendas.devolucao', 'cadastros.vendedores_incluir'])
+    .filter((p) => p !== MARCADOR_VENDAS);
+  const efetivas = permissoesEfetivas(salvoNaFase2);
+  for (const p of [V.finalizar, V.alterarData, V.alterarVendedor, V.alterarPreco, V.desconto, V.imprimir, V.documentosCobranca,
+    V.cancelar, V.alterarTransporte, V.alterarNotaFiscal, V.devolucaoEstornar, V.gerenciarPinVendedor]) {
+    assert.ok(efetivas.includes(p), p);
+  }
+  for (const p of [V.importar, V.preVendaRelatorioValores, 'vendas.liberar_desconto', 'operacoes.rotas_configurar']) {
+    assert.ok(!efetivas.includes(p), `${p} nao vem com nada`);
+  }
+  assert.ok(!permissoesEfetivas(['vendas.minhas_vendas']).includes(V.finalizar), 'Minhas Vendas nao fatura');
+  assert.ok(permissoesEfetivas(['vendas.condicional']).includes(V.condicionalCancelar));
+  assert.ok(permissoesEfetivas(['vendas.troca_gerenciar']).includes(V.trocaEntregar));
+  assert.ok(permissoesEfetivas(['operacoes.rotas']).includes('operacoes.frota'));
+  // Salvo de novo: desmarcou alterar preco, fica sem.
+  const salvo = permissoesParaGravar(permissoesEfetivas(['vendas.pedidos']).filter((p) => p !== V.alterarPreco));
+  assert.ok(!permissoesEfetivas(salvo).includes(V.alterarPreco));
+  assert.ok(permissoesEfetivas(salvo).includes(V.desconto));
+  Object.values(V).forEach((p: string) => assert.ok(PERMISSION_CATALOG.some((i) => i.id === p), `${p} no catalogo`));
 });

@@ -75,6 +75,62 @@ export const PERMISSAO_COMPRAS = {
   gerarPedido: 'compras.gerar_pedido',
 } as const;
 
+/**
+ * Vendas (item 15, fase Vendas, 25/11/2026): cada acao do Pedido de Venda,
+ * Orcamentos, Condicional, Trocas e Promocoes/Cashback ganha permissao propria.
+ * Falta de permissao para mexer num valor que protege a empresa = o valor fica
+ * no PADRAO, travado e conferido no servidor (preco do cadastro, data de hoje,
+ * vendedor identificado/logado, desconto so' o do cadastro do cliente).
+ */
+export const PERMISSAO_VENDAS = {
+  finalizar: 'vendas.finalizar',
+  alterarData: 'vendas.alterar_data',
+  alterarVendedor: 'vendas.alterar_vendedor',
+  alterarPreco: 'vendas.alterar_preco',
+  desconto: 'vendas.desconto',
+  cancelar: 'vendas.cancelar',
+  alterarTransporte: 'vendas.alterar_transporte',
+  alterarNotaFiscal: 'vendas.alterar_nota_fiscal',
+  devolucaoEstornar: 'vendas.devolucao_estornar',
+  pendenteRecusar: 'vendas.pedidos_pendentes_recusar',
+  imprimir: 'vendas.imprimir',
+  documentosCobranca: 'vendas.documentos_cobranca',
+  preVendaRelatorioValores: 'vendas.pre_venda_relatorio_valores',
+  importar: 'vendas.importar',
+  orcamentosRecusar: 'vendas.orcamentos_recusar',
+  orcamentosConverter: 'vendas.orcamentos_converter',
+  orcamentosPreco: 'vendas.orcamentos_preco',
+  orcamentosEnviar: 'vendas.orcamentos_enviar',
+  condicionalSaida: 'vendas.condicional_saida',
+  condicionalDevolucao: 'vendas.condicional_devolucao',
+  condicionalFechar: 'vendas.condicional_fechar',
+  condicionalCancelar: 'vendas.condicional_cancelar',
+  trocaAprovar: 'vendas.troca_aprovar',
+  trocaEntregar: 'vendas.troca_entregar',
+  trocaCancelar: 'vendas.troca_cancelar',
+  promocoesEncerrar: 'vendas.promocoes_encerrar',
+  cashbackRelatorio: 'vendas.cashback_relatorio',
+  /** Ja' existia no catalogo, sem ninguem conferir; passa a valer na senha do vendedor. */
+  gerenciarPinVendedor: 'vendas.gerenciar_pin_vendedor',
+} as const;
+
+/** Expedicao, entregas futuras e rotas (fase Vendas, 25/11/2026). */
+export const PERMISSAO_OPERACOES = {
+  expedicaoDivergencia: 'operacoes.expedicao_divergencia',
+  entregasFuturasRegistrar: 'operacoes.entregas_futuras_registrar',
+  rotasDespesas: 'operacoes.rotas_despesas',
+  rotasConfigurar: 'operacoes.rotas_configurar',
+  motoristas: 'operacoes.motoristas',
+  frota: 'operacoes.frota',
+  rotasRelatorio: 'operacoes.rotas_relatorio',
+} as const;
+
+/** CRM (fase Vendas, 25/11/2026). */
+export const PERMISSAO_CRM = {
+  agendaCancelar: 'crm.agenda_cancelar',
+  alertasCancelar: 'crm.alertas_cancelar',
+} as const;
+
 export interface PacoteDePermissoes {
   /** Nunca muda depois de publicado: e' o que fica gravado no cadastro. */
   id: string;
@@ -84,6 +140,8 @@ export interface PacoteDePermissoes {
 
 const F = PERMISSAO_FINANCEIRO;
 const FI = PERMISSAO_FISCAL;
+const V = PERMISSAO_VENDAS;
+const O = PERMISSAO_OPERACOES;
 
 /**
  * Pacotes conhecidos, na ordem em que sairam. Pacote novo entra NO FIM, com
@@ -129,6 +187,33 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
       'financeiro.comissoes': [F.relatorios],
       'fiscal.emitir': [FI.cartaCorrecao, FI.inutilizar, FI.devolucao, FI.emitirLote],
       'compras.cotacoes': [PERMISSAO_COMPRAS.gerarPedido],
+    },
+  },
+  {
+    // Fase Vendas (25/11/2026). Ficam FORA de proposito (hoje so' o
+    // administrador faz; quem precisar, o dono marca): valores do relatorio
+    // de pre-vendas, importar pedidos e configurar tipos de despesa da rota.
+    // "Aprovar desconto acima do limite" (vendas.liberar_desconto) tambem nao
+    // vem com nada: no modo "avisar" ela passou a ser exigida.
+    id: 'vendas-1',
+    implicacoes: {
+      'vendas.pedidos': [V.finalizar, V.alterarData, V.alterarVendedor, V.alterarPreco, V.desconto, V.imprimir, V.documentosCobranca],
+      'vendas.alterar': [V.cancelar, V.alterarTransporte, V.alterarNotaFiscal],
+      'vendas.devolucao': [V.devolucaoEstornar],
+      'vendas.pedidos_pendentes_editar': [V.pendenteRecusar],
+      'vendas.orcamentos': [V.orcamentosConverter, V.orcamentosPreco, V.orcamentosEnviar],
+      'vendas.orcamentos_excluir': [V.orcamentosRecusar],
+      'vendas.condicional': [V.condicionalSaida, V.condicionalDevolucao, V.condicionalFechar, V.condicionalCancelar],
+      'vendas.troca_gerenciar': [V.trocaAprovar, V.trocaEntregar, V.trocaCancelar],
+      'vendas.promocoes': [V.promocoesEncerrar],
+      'vendas.cashback': [V.cashbackRelatorio],
+      // A senha do vendedor era conferida por "Cadastros: Vendedores — incluir".
+      'cadastros.vendedores_incluir': [V.gerenciarPinVendedor],
+      'operacoes.expedicao': [O.expedicaoDivergencia],
+      'operacoes.entregas_futuras': [O.entregasFuturasRegistrar],
+      'operacoes.rotas': [O.rotasDespesas, O.motoristas, O.frota, O.rotasRelatorio],
+      'crm.agenda': [PERMISSAO_CRM.agendaCancelar],
+      'crm.alertas': [PERMISSAO_CRM.alertasCancelar],
     },
   },
 ];

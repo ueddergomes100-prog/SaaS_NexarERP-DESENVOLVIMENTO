@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreFalso');
+const { getDateInputInTimeZone } = require('../domain/dateTime');
 
 /*
  * Fechamento da venda pelo servidor (item 8, fatia 3). O servidor refaz
@@ -21,7 +22,9 @@ const pagamento = (extra = {}) => ({
 
 const corpo = (extra = {}) => ({
   idDocumento: 'venda1',
-  dataVenda: '2026-10-13',
+  // Pre-venda faturada sai sempre com o dia do faturamento (a tela manda hoje); a
+  // venda direta de VENDEDOR pode outra data (tem "Vendas: Pedidos" -> alterar_data).
+  dataVenda: extra.pedidoId ? getDateInputInTimeZone() : '2026-10-13',
   vendedorId: 'vend1',
   clienteId: 'cli1',
   clienteNome: 'Maria',
@@ -116,7 +119,7 @@ test('pre-venda: consome a propria reserva, mantem o numero e exige a permissao 
   const inicial = base({
     'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 5, quantidadeReservada: 4 },
     'pedidos_venda/pv1': {
-      tenantId: 'loja', status: 'Pré-venda', numeroPedido: '0042', origem: 'balcao', estoqueReservado: true,
+      tenantId: 'loja', status: 'Pré-venda', numeroPedido: '0042', origem: 'balcao', estoqueReservado: true, clienteId: 'cli1', clienteNome: 'MARIA',
       itens: [{ id: 'p1', nome: 'RAÇÃO', quantidade: 2 }], createdAt: 'antes', criadoPor: 'vend1', statusConferencia: 'conferido', conferidoPor: 'exp1',
     },
   });
@@ -188,9 +191,10 @@ test('entrega futura (23/10): fatura sem baixar o estoque (reserva), regra da fi
   const pv = criarBancoFalso(base({
     'configuracoes/loja': { tenantId: 'loja', trabalhaComEntregaFutura: true },
     'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 10, quantidadeReservada: 2 },
-    'pedidos_venda/pv1': { tenantId: 'loja', status: 'Pré-venda', numeroPedido: '0042', origem: 'balcao', estoqueReservado: true, itens: [{ id: 'p1', nome: 'RAÇÃO', quantidade: 2 }], createdAt: 'antes', criadoPor: 'vend1' },
+    'pedidos_venda/pv1': { tenantId: 'loja', status: 'Pré-venda', numeroPedido: '0042', origem: 'balcao', estoqueReservado: true, clienteId: 'cli1', clienteNome: 'MARIA', itens: [{ id: 'p1', nome: 'RAÇÃO', quantidade: 2 }], createdAt: 'antes', criadoPor: 'vend1' },
   }), { consultas: true });
-  await carregar(pv.db).finalizarVenda({ user: FATURISTA, tenantId: 'loja', corpo: corpo({ idDocumento: undefined, pedidoId: 'pv1', entregaFutura: true, itens: [{ id: 'p1', nome: 'RAÇÃO', precoUnitario: 10, quantidade: 3, desconto: 0, subtotal: 30 }], pagamentos: [pagamento({ valor: '30' })] }) });
+  // Quantidade mudou na hora de faturar: pede "Pre-venda — Editar em Aberto" (item 15).
+  await carregar(pv.db).finalizarVenda({ user: { ...FATURISTA, permissoes: [...FATURISTA.permissoes, 'vendas.pre_venda_editar'] }, tenantId: 'loja', corpo: corpo({ idDocumento: undefined, pedidoId: 'pv1', entregaFutura: true, itens: [{ id: 'p1', nome: 'RAÇÃO', precoUnitario: 10, quantidade: 3, desconto: 0, subtotal: 30 }], pagamentos: [pagamento({ valor: '30' })] }) });
   assert.equal(pv.ler('estoque/p1').quantidade, 10);
   assert.equal(pv.ler('estoque/p1').quantidadeReservada, 3);
   assert.equal(pv.ler('pedidos_venda/pv1').estoqueReservado, true);

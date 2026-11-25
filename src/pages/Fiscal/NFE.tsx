@@ -4631,7 +4631,7 @@ const NFE: React.FC = () => {
                                       style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '12px', textAlign: 'right' }}
                                     />
                                   </td>
-                                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>R$ {totalDaLinhaManual(item).toFixed(2)}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>R$ {totalDaLinhaManual(item).toFixed(2).replace('.', ',')}</td>
                                 </>
                               ) : (
                                 <>

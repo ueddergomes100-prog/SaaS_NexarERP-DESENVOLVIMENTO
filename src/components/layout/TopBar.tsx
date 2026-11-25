@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck, Cake, UserRoundCog } from 'lucide-react';
+import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck, Cake, UserRoundCog, PanelLeft, PanelTop } from 'lucide-react';
 import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
+import { usePosicaoDoMenu } from '../../hooks/usePosicaoDoMenu';
+import { LARGURA_MINIMA_MENU_NO_TOPO } from '../../utils/menuNoTopoDomain';
 import { proximaPreferenciaTema, tituloDoBotaoDeTema } from '../../utils/temaDomain';
 import FilialSeletor from './FilialSeletor';
 import { useNavigate } from 'react-router-dom';
@@ -63,6 +65,9 @@ const TopBar: React.FC = () => {
   // Escuro -> claro -> automatico (segue o aparelho) -> escuro. Ver utils/temaDomain.ts.
   const { preferencia: temaPreferido, aparelhoEscuro, escolher: escolherTema } = usePreferenciaTema();
   const toggleTheme = () => escolherTema(proximaPreferenciaTema(temaPreferido));
+  const { posicao: posicaoDoMenu, noTopo: menuNoTopo, escolher: escolherPosicaoDoMenu } = usePosicaoDoMenu(currentUser?.uid);
+  // A escolha so' aparece onde o menu do topo cabe (computador; no celular o menu e' a gaveta lateral).
+  const podeMenuNoTopo = typeof window !== 'undefined' && window.innerWidth >= LARGURA_MINIMA_MENU_NO_TOPO;
 
   // Avisos do sino (otimizacao de leituras, 2026-10-14). Cada fonte tem a
   // SUA escuta, ja' limitada no banco ao que o sino mostra. Antes eram todos
@@ -489,8 +494,10 @@ const TopBar: React.FC = () => {
   };
 
   return (
-    <header className="topbar">
+    <header className={menuNoTopo ? 'topbar topbar--menu-no-topo' : 'topbar'}>
       <div className="topbar-left">
+        {/* Menu no topo (Embala Minas item 4): o menu entra aqui (MenuTopo, por portal). */}
+        {menuNoTopo && <div id="menu-topo-slot" className="menu-topo-slot" />}
         <button 
           className="mobile-menu-btn" 
           onClick={() => document.body.classList.toggle('mobile-sidebar-open')}
@@ -726,6 +733,20 @@ const TopBar: React.FC = () => {
                 >
                   <User size={16} /> Meu Perfil
                 </button>
+
+                {podeMenuNoTopo && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowProfileDropdown(false); escolherPosicaoDoMenu(posicaoDoMenu === 'topo' ? 'lateral' : 'topo'); }}
+                    title="Escolha onde fica o menu neste computador"
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}
+                    onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                  >
+                    {posicaoDoMenu === 'topo' ? <PanelLeft size={16} /> : <PanelTop size={16} />}
+                    {posicaoDoMenu === 'topo' ? 'Menu na lateral' : 'Menu no topo'}
+                  </button>
+                )}
 
                 {(isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions?.includes('administrativo.config')) && (
                   <button 

@@ -1,0 +1,189 @@
+/*
+ * MENU NO TOPO (Embala Minas, item 4, 25/11/2026). Cores: as que o sistema ja'
+ * usa -- os botoes seguem os da faixa de cima (branco translucido sobre o
+ * degrade) e o cartao segue o menu lateral (mesmas variaveis --nexus-*).
+ */
+
+/* Barra de cima com o menu: a busca encolhe para os grupos caberem. */
+.topbar.topbar--menu-no-topo {
+  padding-left: 14px;
+  gap: 12px;
+}
+.topbar.topbar--menu-no-topo .topbar-left {
+  min-width: 0;
+  gap: 12px;
+}
+.topbar.topbar--menu-no-topo .topbar-search {
+  flex: 0 1 200px;
+  max-width: 200px;
+  min-width: 140px;
+}
+.topbar.topbar--menu-no-topo .topbar-search .search-input::placeholder {
+  text-overflow: ellipsis;
+}
+
+.menu-topo-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.menu-topo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+.menu-topo__logo {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.menu-topo__logo img { width: 30px; height: 30px; object-fit: contain; }
+.menu-topo__logo:hover { background: rgba(255, 255, 255, 0.14); }
+
+.menu-topo__linha {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.menu-topo__grupo {
+  flex: none;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.86);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.menu-topo__grupo:hover,
+.menu-topo__grupo.aberto { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.menu-topo__grupo.ativo { background: rgba(255, 255, 255, 0.24); color: #fff; font-weight: 700; }
+.menu-topo__grupo:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.7); outline-offset: 1px; }
+.menu-topo__seta { opacity: 0.75; }
+
+/* Fora da tela: so' para medir quantos grupos cabem. */
+.menu-topo__medidor {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  display: flex;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Cartao das telas do grupo: mesmo visual do menu lateral. */
+.menu-topo__cartao {
+  --nexus-hover: rgba(183, 147, 242, 0.10);
+  --nexus-text: #f4f1fa;
+  --nexus-text-secondary: #c6bcda;
+  --nexus-text-muted: #8e85a6;
+  --nexus-border: rgba(183, 147, 242, 0.16);
+  position: absolute;
+  top: calc(100% - 6px);
+  z-index: 120;
+  width: 290px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--nexus-border);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--bg-elevated);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+  color: var(--nexus-text-secondary);
+}
+body.light-theme .menu-topo__cartao {
+  --nexus-hover: rgba(43, 16, 87, 0.07);
+  --nexus-text: var(--text-primary);
+  --nexus-text-secondary: var(--text-secondary);
+  --nexus-text-muted: var(--text-muted);
+  --nexus-border: var(--border-color);
+}
+.menu-topo__cartao--mais {
+  left: 0;
+  width: min(1000px, calc(100vw - 40px));
+  max-height: none;
+  overflow: visible;
+  columns: 4 210px;
+  column-gap: 10px;
+}
+.menu-topo__cartao--mais .menu-topo__item { min-height: 28px; font-size: 13px; }
+.menu-topo__bloco { break-inside: avoid; margin-bottom: 6px; }
+
+.menu-topo__titulo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--nexus-text-muted);
+}
+.menu-topo__bloco .menu-topo__titulo { color: var(--nexus-text); font-size: 13px; }
+
+.menu-topo__item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nexus-text-secondary);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-topo__item span { flex: 1; min-width: 0; }
+.menu-topo__item small { font-size: 11px; color: var(--nexus-text-muted); white-space: nowrap; }
+.menu-topo__item:hover { background: var(--nexus-hover); color: var(--nexus-text); }
+.menu-topo__item.ativo { background: var(--brand-soft); color: var(--nexus-text); font-weight: 600; }
+.menu-topo__item.ativo svg { color: var(--brand-ink); }
+.menu-topo__item:focus-visible { outline: 2px solid var(--brand-ring); outline-offset: 1px; }
+
+/* Com o menu no topo, a direita da barra ocupa menos: o perfil mostra so' a
+   inicial (nome e empresa continuam no menu do perfil) e o nome da filial corta
+   com reticencias (o nome inteiro aparece ao abrir o seletor). */
+.topbar.topbar--menu-no-topo .topbar-actions { gap: 8px; flex: none; }
+.topbar.topbar--menu-no-topo .profile-info { display: none; }
+.topbar.topbar--menu-no-topo .filial-seletor { max-width: 170px; min-width: 0; }
+.topbar.topbar--menu-no-topo .filial-seletor * { min-width: 0; }
+.topbar.topbar--menu-no-topo .filial-seletor__nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Monitor de 17" a 19" (ate' 1500 px): grupos so' com o nome, sem o icone, para
+   caber mais grupos a' vista. O icone continua dentro do cartao. */
+@media (max-width: 1500px) {
+  .menu-topo__grupo > svg:first-child { display: none; }
+}

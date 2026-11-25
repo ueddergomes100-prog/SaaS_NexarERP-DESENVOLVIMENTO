@@ -74,6 +74,8 @@ import { usePilulaDoMenu } from '../../hooks/usePilulaDoMenu';
 import { NexusSwal } from '../../utils/alerts';
 import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
 import { useDevolucoesAguardando } from '../../hooks/useDevolucoesAguardando';
+import { usePosicaoDoMenu } from '../../hooks/usePosicaoDoMenu';
+import MenuTopo from './MenuTopo';
 import './Layout.css';
 
 type NavItem = {
@@ -588,6 +590,18 @@ const Sidebar: React.FC = () => {
   const chavePilula = `${currentPath}|${miniSidebar}`;
   const { containerRef: railRef, pilulaRef: railPilulaRef } = usePilulaDoMenu<HTMLDivElement>('.nexus-rail-item', chavePilula);
   const { containerRef: menuRef, pilulaRef: menuPilulaRef } = usePilulaDoMenu<HTMLElement>('.nexus-nav-link', chavePilula);
+  // Menu no topo (Embala Minas item 4, 25/11/2026): mesmos grupos ja' filtrados, na barra de cima.
+  const { noTopo: menuNoTopo } = usePosicaoDoMenu(currentUser?.uid);
+
+  if (menuNoTopo) {
+    return (
+      <>
+        <MenuTopo grupos={visibleGroups} caminhoAtual={currentPath} abrir={navigateTo} irParaInicio={handleGoHome} />
+        {isLoggingOut && <BootSplash titulo="Até logo!" legenda="ENCERRANDO SESSÃO..." />}
+        {isNavigatingHome && <BootSplash titulo="Dashboard" legenda="CARREGANDO..." />}
+      </>
+    );
+  }
 
   return (
     <>

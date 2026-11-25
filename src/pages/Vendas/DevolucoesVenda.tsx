@@ -388,7 +388,8 @@ const DevolucoesVenda: React.FC = () => {
                     <td style={td}>{ROTULO_ORIGEM_DEVOLUCAO[l.origem]}</td>
                     <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }}>
                       {l.situacao === STATUS_DEVOLUCAO.aguardando ? (
-                        <div style={{ display: 'inline-flex', gap: '8px' }}>
+                        // Um embaixo do outro: lado a lado a coluna estourava a largura da tela e o "Recusar" ficava escondido.
+                        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'stretch', gap: '6px' }}>
                           <button type="button" className="btn-primary" disabled={ocupado} onClick={() => void confirmar(l)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}>
                             <Check size={16} /> {ocupado ? 'Aguarde...' : 'Confirmar'}
                           </button>

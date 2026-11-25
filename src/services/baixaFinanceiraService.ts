@@ -315,6 +315,10 @@ export interface ResultadoBaixaPeloRetorno {
   descricao?: string;
   clienteNome?: string;
   valorCentavos?: number;
+  /** Valor que o banco recebeu e as diferencas lancadas a parte (25/11/2026). */
+  valorPagoCentavos?: number;
+  acrescimoCentavos?: number;
+  descontoCentavos?: number;
 }
 
 /** Boletos > baixa de UM boleto pelo arquivo de retorno. Boleto ja' pago volta com jaEstavaPago. */

@@ -53,6 +53,14 @@ import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
 import '../OS/OS.css';
 import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
 import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
+import {
+  AJUDA_NAO_ENCONTRADOS,
+  gravidadeDoRetorno,
+  movimentacaoPorDia,
+  tituloDoRetorno,
+  type BaixaDoRetorno,
+  type ResumoDoRetorno,
+} from '../../utils/movimentacaoBoletosDomain';
 
 /**
  * FINANCEIRO > BOLETOS (2026-09-22).
@@ -764,8 +772,10 @@ const Boletos: React.FC = () => {
       if (!confirmacao.isConfirmed) return;
 
       setProcessando(true);
-      let baixados = 0;
-      let naoEncontrados = 0;
+      // Resumo do fim (25/11/2026): o que entrou e o que ficou de fora, por nome.
+      const baixadosLista: BaixaDoRetorno[] = [];
+      const naoEncontradosLista: string[] = [];
+      let jaPagos = 0;
       try {
         // A tela carrega os em aberto e os pagos do mes: boleto pago ha' mais
         // tempo (ou fora da lista por qualquer motivo) e' procurado no banco
@@ -791,8 +801,8 @@ const Boletos: React.FC = () => {
         const canceladosPagos: Array<{ titulo: TituloBoleto; valorPagoCentavos: number; dataPagamento?: string; descricao: string; clienteNome: string }> = [];
         for (const linha of resumo.liquidados) {
           const titulo = candidatos.find((t) => t.boleto?.nossoNumero === linha.nossoNumero);
-          if (!titulo) { naoEncontrados += 1; continue; }
-          if (titulo.status === 'Paga') continue;
+          if (!titulo) { naoEncontradosLista.push(String(linha.nossoNumero || '')); continue; }
+          if (titulo.status === 'Paga') { jaPagos += 1; continue; }
           const valorPagoCentavos = linha.valorPagoCentavos || titulo.valorCentavos;
           try {
             const resultado = await darBaixaBoleto(titulo, valorPagoCentavos, linha.dataOcorrencia);
@@ -808,7 +818,17 @@ const Boletos: React.FC = () => {
               }
               continue;
             }
-            if (!resultado.jaEstavaPago) baixados += 1;
+            if (resultado.jaEstavaPago) jaPagos += 1;
+            else {
+              baixadosLista.push({
+                clienteNome: titulo.clienteNome || titulo.fornecedorNome || titulo.descricao || '',
+                nossoNumero: String(linha.nossoNumero || ''),
+                dataPagamento: linha.dataOcorrencia || '',
+                valorPagoCentavos: resultado.valorPagoCentavos || valorPagoCentavos,
+                acrescimoCentavos: resultado.acrescimoCentavos || 0,
+                descontoCentavos: resultado.descontoCentavos || 0,
+              });
+            }
           } catch (erro: any) {
             recusados.push(erro?.message || `O boleto "${titulo.descricao || titulo.id}" não pôde receber baixa.`);
           }
@@ -849,20 +869,43 @@ const Boletos: React.FC = () => {
           }
         }
 
-        const naoEncontradosTexto = naoEncontrados > 0 ? ` ${naoEncontrados} do arquivo não foram encontrados aqui.` : '';
-        const avulsosTexto = avulsosLancados > 0 ? ` ${avulsosLancados} recebimento(s) avulso(s) de boleto cancelado lançado(s).` : '';
-        if (recusados.length > 0) {
-          await NexusSwal.fire({
-            icon: 'warning',
-            title: `${baixados} boleto(s) baixados; ${recusados.length} ficou(aram) de fora`,
-            html: `<div style="text-align:left;font-size:14px">`
-              + `O banco recebeu o pagamento, mas o sistema não pôde dar baixa em:<ul style="margin:8px 0 0 18px;padding:0">`
-              + recusados.map((m) => `<li>${escaparHtml(m)}</li>`).join('')
-              + `</ul>Confira esses títulos em Boletos e no Financeiro.${avulsosTexto}${naoEncontradosTexto}</div>`,
-          });
-        } else {
-          showSuccess(`${baixados} boleto(s) baixados.${avulsosTexto}${naoEncontradosTexto}`);
-        }
+        // Fim da importacao (25/11/2026): lista do que foi baixado e do que ficou
+        // de fora. Nada encontrado e' AVISO -- a Embala Minas viu "concluido" em
+        // verde com 0 baixados e os boletos continuaram em aberto.
+        const resumoDoRetorno: ResumoDoRetorno = { baixados: baixadosLista, naoEncontrados: naoEncontradosLista, jaPagos, recusados, avulsosLancados };
+        const dataBr = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '—');
+        const tabelaBaixados = baixadosLista.length === 0 ? '' : `<div style="max-height:260px;overflow:auto;margin:6px 0 12px">`
+          + `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left">`
+          + `<th style="padding:4px 6px">Cliente</th><th style="padding:4px 6px">Nosso nº</th><th style="padding:4px 6px">Pago em</th><th style="padding:4px 6px;text-align:right">Valor pago</th></tr></thead><tbody>`
+          + baixadosLista.map((b) => `<tr style="border-top:1px solid var(--border-color)">`
+            + `<td style="padding:4px 6px">${escaparHtml(b.clienteNome)}</td>`
+            + `<td style="padding:4px 6px">${escaparHtml(formatarNossoNumeroSicoobExibicao(b.nossoNumero))}</td>`
+            + `<td style="padding:4px 6px">${dataBr(b.dataPagamento)}</td>`
+            + `<td style="padding:4px 6px;text-align:right">${currency.format(fromCents(b.valorPagoCentavos))}`
+            + (b.acrescimoCentavos > 0 ? `<div style="font-size:11px;color:var(--text-muted)">+ ${currency.format(fromCents(b.acrescimoCentavos))} de juros/multa</div>` : '')
+            + (b.descontoCentavos > 0 ? `<div style="font-size:11px;color:var(--text-muted)">${currency.format(fromCents(b.descontoCentavos))} a menos (desconto)</div>` : '')
+            + `</td></tr>`).join('')
+          + `</tbody></table></div>`;
+        const naoEncontradosTexto = naoEncontradosLista.length === 0 ? ''
+          : `<p style="margin:8px 0 4px"><b>${naoEncontradosLista.length} pago(s) no banco não encontrado(s) aqui</b> (nosso número): `
+            + `${naoEncontradosLista.slice(0, 15).map((n) => escaparHtml(formatarNossoNumeroSicoobExibicao(n))).join(', ')}${naoEncontradosLista.length > 15 ? '…' : ''}.</p>`
+            + `<p style="margin:0 0 8px;color:var(--text-muted)">${escaparHtml(AJUDA_NAO_ENCONTRADOS)}</p>`;
+        const recusadosTexto = recusados.length === 0 ? ''
+          : `<p style="margin:8px 0 4px"><b>O banco recebeu, mas o sistema não pôde dar baixa em:</b></p><ul style="margin:0 0 8px 18px;padding:0">`
+            + recusados.map((m) => `<li>${escaparHtml(m)}</li>`).join('') + `</ul>`;
+        const extras = [
+          jaPagos > 0 ? `${jaPagos} já estava(m) pago(s) aqui (nada mudou).` : '',
+          avulsosLancados > 0 ? `${avulsosLancados} recebimento(s) avulso(s) de boleto cancelado lançado(s).` : '',
+        ].filter(Boolean).join(' ');
+        await NexusSwal.fire({
+          icon: gravidadeDoRetorno(resumoDoRetorno) === 'sucesso' ? 'success' : 'warning',
+          title: tituloDoRetorno(resumoDoRetorno),
+          width: 720,
+          html: `<div style="text-align:left;font-size:14px">${tabelaBaixados}${naoEncontradosTexto}${recusadosTexto}`
+            + (extras ? `<p style="margin:8px 0 0;color:var(--text-muted)">${escaparHtml(extras)}</p>` : '')
+            + (baixadosLista.length > 0 ? `<p style="margin:8px 0 0;color:var(--text-muted)">Os baixados estão na aba "Pagos" e em Mais opções › "Ver movimentação".</p>` : '')
+            + `</div>`,
+        });
       } catch (erro: any) {
         console.error('Erro ao aplicar retorno:', erro);
         showError('Não foi possível concluir a baixa', erro?.message || 'Confira os títulos e tente novamente.');
@@ -976,6 +1019,52 @@ const Boletos: React.FC = () => {
     leitor.readAsText(arquivo, 'UTF-8');
   };
 
+  /**
+   * Ver movimentacao (25/11/2026, pedido do dono): os boletos pagos, dia por dia
+   * (data do pagamento), com cliente, nosso numero e o que o banco recebeu --
+   * como o "ver movimentacao" de Caixas e Transferencias. Usa os pagos que a
+   * tela ja' leu (deste mes, ou de todo o periodo quando pedido na aba Pagos).
+   */
+  const verMovimentacao = () => {
+    const pagos = titulos
+      .filter((t) => t.status === 'Paga' && t.boleto)
+      .map((t) => ({
+        id: t.id,
+        clienteNome: t.clienteNome || t.fornecedorNome || '—',
+        descricao: t.descricao,
+        nossoNumero: String(t.boleto?.nossoNumero || ''),
+        dataPagamento: t.dataPagamento || '',
+        valorCentavos: t.valorCentavos,
+        valorPagoCentavos: t.valorPagoCentavos || t.valorCentavos,
+        bancoNome: t.bancoNome || '',
+      }));
+    const dias = movimentacaoPorDia(pagos);
+    const dataBr = (iso: string) => (iso ? iso.split('-').reverse().join('/') : 'Sem data de pagamento');
+    const periodo = pagosDeTodoPeriodo ? 'todo o período' : 'este mês';
+    const total = dias.reduce((soma, d) => soma + d.totalPagoCentavos, 0);
+    const corpo = dias.length === 0
+      ? `<p style="margin:0">Nenhum boleto pago em ${periodo}.</p>`
+      : dias.map((d) => `<div style="margin:0 0 14px">`
+        + `<div style="display:flex;justify-content:space-between;gap:12px;font-weight:700;padding:6px 8px;border-radius:8px;background:var(--bg-tertiary)">`
+        + `<span>${escaparHtml(dataBr(d.data))} · ${d.boletos.length} boleto(s)</span><span>${currency.format(fromCents(d.totalPagoCentavos))}</span></div>`
+        + `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px"><tbody>`
+        + d.boletos.map((b) => `<tr style="border-bottom:1px solid var(--border-color)">`
+          + `<td style="padding:4px 8px">${escaparHtml(b.clienteNome)}<div style="font-size:11px;color:var(--text-muted)">${escaparHtml(b.descricao)}</div></td>`
+          + `<td style="padding:4px 8px;white-space:nowrap">${escaparHtml(b.nossoNumero ? formatarNossoNumeroSicoobExibicao(b.nossoNumero) : '—')}</td>`
+          + `<td style="padding:4px 8px;white-space:nowrap">${escaparHtml(b.bancoNome)}</td>`
+          + `<td style="padding:4px 8px;text-align:right;white-space:nowrap">${currency.format(fromCents(b.valorPagoCentavos || b.valorCentavos))}</td></tr>`).join('')
+        + `</tbody></table></div>`).join('');
+    void NexusSwal.fire({
+      title: 'Movimentação dos boletos pagos',
+      width: 820,
+      html: `<div style="text-align:left;font-size:14px">`
+        + `<p style="margin:0 0 12px;color:var(--text-muted)">Pagos em ${periodo}: ${pagos.length} boleto(s), ${currency.format(fromCents(total))}.`
+        + (pagosDeTodoPeriodo ? '' : ' Para ver os meses anteriores, abra a aba "Pagos", clique em "Ver pagos de todo o período" e abra esta janela de novo.')
+        + `</p><div style="max-height:60vh;overflow:auto">${corpo}</div></div>`,
+      confirmButtonText: 'Fechar',
+    });
+  };
+
   /** Baixa de um boleto pago no retorno: titulo + saldo do banco gravados pelo servidor. */
   const darBaixaBoleto = (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string) => (
     baixarBoletoPeloRetorno({
@@ -1052,6 +1141,12 @@ const Boletos: React.FC = () => {
           />
           <MenuMaisOpcoes
             itens={[{
+              texto: 'Ver movimentação',
+              Icone: Receipt,
+              titulo: 'Boletos pagos dia por dia (data do pagamento), com cliente, nosso número, banco e o valor que entrou',
+              desabilitado: loading,
+              onClick: verMovimentacao,
+            }, {
               texto: 'Vincular boletos do sistema anterior',
               Icone: Link2,
               titulo: 'Planilha da migração: liga as contas a receber importadas ao boleto que o sistema anterior já registrou no banco, para o retorno dar baixa nelas',
@@ -1246,6 +1341,9 @@ const Boletos: React.FC = () => {
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Descrição</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Faturado em</th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Vencimento</th>
+                  {aba === 'pagos' && (
+                    <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }} title="Dia em que o cliente pagou (vem do arquivo de retorno)">Pago em</th>
+                  )}
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>
                     <button type="button" onClick={inverterOrdemNumero} title="Inverter a ordem"
                       style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
@@ -1284,6 +1382,11 @@ const Boletos: React.FC = () => {
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                         {vencimento ? vencimento.split('-').reverse().join('/') : '—'}
                       </td>
+                      {aba === 'pagos' && (
+                        <td style={{ padding: '14px 16px', fontWeight: 600 }}>
+                          {t.dataPagamento ? t.dataPagamento.split('-').reverse().join('/') : '—'}
+                        </td>
+                      )}
                       <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: '13px' }}>
                         {t.boleto?.nossoNumero ? formatarNossoNumeroSicoobExibicao(t.boleto.nossoNumero) : '—'}
                         {t.boleto?.sistemaAnterior && (
@@ -1303,6 +1406,11 @@ const Boletos: React.FC = () => {
                       </td>
                       <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 600 }}>
                         {currency.format(fromCents(t.valorCentavos))}
+                        {t.valorPagoCentavos && t.valorPagoCentavos !== t.valorCentavos && (
+                          <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-muted)' }} title="O que o banco recebeu; a diferença está lançada à parte (juros/multa ou desconto)">
+                            pago {currency.format(fromCents(t.valorPagoCentavos))}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '14px 16px', textAlign: 'right' }}>
                         {!t.boleto ? (

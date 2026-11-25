@@ -63,6 +63,10 @@ export interface TituloBoleto {
   boleto?: BoletoDetails;
   /** Dia em que o titulo nasceu (faturamento da venda/OS), AAAA-MM-DD; vazio em lancamento antigo. */
   faturadoEm: string;
+  /** Dia em que o cliente pagou (boleto pago), AAAA-MM-DD. */
+  dataPagamento?: string;
+  /** Valor que o banco recebeu (retorno), quando gravado (25/11/2026). */
+  valorPagoCentavos?: number;
 }
 
 /** Documento de `transacoes` -> titulo de boleto (tambem usado pelo retorno do banco). */
@@ -83,6 +87,10 @@ export const paraTituloBoleto = (id: string, data: DocumentData): TituloBoleto =
   paymentIndex: data.paymentIndex,
   boleto: data.boleto || undefined,
   faturadoEm: data.createdAt?.toDate ? getDateInputInTimeZone(data.createdAt.toDate()) : '',
+  ...(data.dataPagamento ? { dataPagamento: String(data.dataPagamento) } : {}),
+  ...(Number.isFinite(Number(data.boleto?.valorPagoCentavos)) && Number(data.boleto?.valorPagoCentavos) > 0
+    ? { valorPagoCentavos: Number(data.boleto.valorPagoCentavos) }
+    : {}),
 } as TituloBoleto);
 
 /** Bancos ativos da empresa preparados para boleto (leitura unica). */

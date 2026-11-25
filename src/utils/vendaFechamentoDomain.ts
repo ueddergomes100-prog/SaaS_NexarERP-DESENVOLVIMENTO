@@ -311,3 +311,32 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
 
 /** Chave da empresa: liga o fechamento pelo servidor (SuperAdmin, por empresa). */
 export const parseVendaPeloServidor = (valor: unknown): boolean => valor === true;
+
+/**
+ * "Nota" (Pagamento a Prazo) na Frente de Caixa (25/11/2026, Jomarly).
+ * Caixa de marcar da filial, desligada por padrao: o caixa so' tinha
+ * dinheiro, Pix, cartao e cheque. Ligada, o pagamento ganha "Pagamento a
+ * Prazo" com as mesmas regras do Pedido de Venda (cliente identificado,
+ * limite de credito, bloqueio por atraso) e gera o titulo no Contas a Receber.
+ */
+export const parseAPrazoNaFrenteDeCaixa = (valor: unknown): boolean => valor === true;
+
+export const FORMA_A_PRAZO = 'Pagamento a Prazo';
+
+/**
+ * O que impede a venda a prazo no caixa, ou null. `clienteId` vazio ou o
+ * cliente padrao (consumidor final) = sem cliente identificado.
+ */
+export const erroDoAPrazoNoCaixa = (
+  formas: unknown[],
+  opcoes: { ativo: boolean; clienteId: unknown; clienteEhPadrao?: boolean },
+): string | null => {
+  if (!formas.some((forma) => forma === FORMA_A_PRAZO)) return null;
+  if (!opcoes.ativo) {
+    return 'A venda a prazo não está liberada na Frente de Caixa desta filial. Para liberar, marque "Frente de Caixa: aceitar Pagamento a Prazo (nota)" em Configurações da Filial, ou faça a venda pelo Pedido de Venda.';
+  }
+  if (!String(opcoes.clienteId ?? '').trim() || opcoes.clienteEhPadrao) {
+    return 'Venda a prazo precisa do cliente identificado. Escolha o cliente (F2) e abra o pagamento de novo.';
+  }
+  return null;
+};

@@ -309,6 +309,15 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   pagamentos = fin.explodeInstallmentPaymentRecords(pagamentos);
   const resumo = fin.summarizePayments(pagamentos);
   const aPrazo = resumo.paymentCondition === 'aprazo';
+  // "Nota" na Frente de Caixa (25/11/2026): so' com a caixa da filial marcada
+  // e com o cliente identificado. O resto (atraso, limite) e' o de sempre, abaixo.
+  if (pedido.pdvSessionId) {
+    const erroDoAPrazo = venda.erroDoAPrazoNoCaixa(pagamentos.map((p) => p.formaPagamento), {
+      ativo: venda.parseAPrazoNaFrenteDeCaixa(config.aPrazoNaFrenteDeCaixa),
+      clienteId: pedido.clienteId,
+    });
+    if (erroDoAPrazo) throw new ErroVenda(409, erroDoAPrazo);
+  }
 
   // Preco de cada item contra o do sistema (21/10/2026): abaixo dele, a
   // diferenca entra no desconto -- do item e do total.

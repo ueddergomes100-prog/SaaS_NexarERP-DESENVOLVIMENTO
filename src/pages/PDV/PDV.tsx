@@ -64,7 +64,17 @@ import { aberturaConfereComAGaveta, avisoDaAbertura, lerConfigGaveta } from '../
 import { finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
-import { parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
+import { erroDoAPrazoNoCaixa, parseAPrazoNaFrenteDeCaixa, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
+import {
+  CAMPO_CREDITO_VERSAO,
+  MENSAGEM_CREDITO_CONCORRENTE,
+  creditoFoiAlteradoDurante,
+  excedeLimiteCredito,
+  parseCreditoVersao,
+  parseTrabalhaComLimiteCredito,
+} from '../../utils/creditoDomain';
+import { situacaoEmAbertoDoCliente } from '../../utils/contasReceberQuery';
+import { PARAMETROS_VENDA_PADRAO, bloqueioPorAtraso, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { DEFAULT_PRODUCT_SEARCH_MODE, findEmbalagemIdByExactCode, type ProductSearchMode } from '../../utils/productSearch';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { mensagemQuantidadeInteira } from '../../utils/vendaFracionadaDomain';
@@ -212,6 +222,11 @@ const PDV: React.FC = () => {
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
   // Chave "Venda pelo servidor" da empresa (SuperAdmin) -- fatia 3c, 19/10/2026.
   const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
+  // "Nota" na Frente de Caixa (25/11/2026): caixa de marcar da filial.
+  const [aPrazoNoCaixa, setAPrazoNoCaixa] = useState(false);
+  const [regrasDoAPrazo, setRegrasDoAPrazo] = useState<{ trabalhaComLimite: boolean; parametros: ParametrosVenda; noGrupo: boolean }>({
+    trabalhaComLimite: false, parametros: PARAMETROS_VENDA_PADRAO, noGrupo: false,
+  });
   // Id da venda gerado na tela: reenviar o mesmo cupom nao duplica no servidor.
   const idVendaServidorRef = useRef('');
   const [venderPorEmbalagem, setVenderPorEmbalagem] = useState(DEFAULT_VENDER_POR_EMBALAGEM);
@@ -476,6 +491,12 @@ const PDV: React.FC = () => {
         setClients(nextClients);
         setAllowNegativeStock(configData?.venderSemEstoque === true);
         setVendaPeloServidor(parseVendaPeloServidor(configData?.vendaPeloServidor));
+        setAPrazoNoCaixa(parseAPrazoNaFrenteDeCaixa(configData?.aPrazoNaFrenteDeCaixa));
+        setRegrasDoAPrazo({
+          trabalhaComLimite: parseTrabalhaComLimiteCredito(configData?.trabalhaComLimiteCredito),
+          parametros: parseParametrosVenda(configData?.parametrosVenda),
+          noGrupo: Boolean(configData?.grupoId),
+        });
         setFormasPrecoAVista(parseFormasAVista(configData?.formasPrecoAVista));
         setVenderPorEmbalagem(configData?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
         setLimiteDescontoPdv(parseLimiteDescontoConfig(configData?.limiteDescontoPdv));
@@ -1380,9 +1401,14 @@ const PDV: React.FC = () => {
    * (pedidoId + pdvSessionId), pelo servidor. O vendedor enviado e' o da
    * pre-venda -- nunca o operador -- e o servidor ainda usa o do pedido gravado.
    */
-  const faturarPreVenda = async (carregada: PreVendaCarregada, drafts: PaymentDraft[], observation: string) => {
+  const faturarPreVenda = async (carregada: PreVendaCarregada, drafts: PaymentDraft[], observation: string, trocoCentavos = 0) => {
     if (saleLockRef.current) return;
     if (!currentUser || !tenantId || !session) return;
+    const erroDoAPrazo = erroDoAPrazoNoCaixa(drafts.map((d) => d.forma), { ativo: aPrazoNoCaixa, clienteId: carregada.clienteId });
+    if (erroDoAPrazo) {
+      showError('Pagamento a prazo', erroDoAPrazo);
+      return;
+    }
     const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda no PDV');
     if (travaDoBalanco) {
       showError('Balanço em andamento', travaDoBalanco);
@@ -1517,7 +1543,7 @@ const PDV: React.FC = () => {
           ...(carregada.estoqueReservado ? { quantidadeReservada: Math.max(0, Number(product.quantidadeReservada || 0) - vendido) } : {}),
         };
       }));
-      showSuccess(`Pré-venda #${resposta.numeroPedido} faturada. Vendedor: ${resposta.vendedorNome}`);
+      showSuccess(`Pré-venda #${resposta.numeroPedido} faturada. Vendedor: ${resposta.vendedorNome}${textoDoTroco(trocoCentavos)}`);
       resetSale();
       void entregarCupom({ pedidoId: resposta.pedidoId, numeroPedido: resposta.numeroPedido, clienteId: carregada.clienteId, comNotaFiscal: carregada.comNotaFiscal });
     } catch (error) {
@@ -1534,10 +1560,51 @@ const PDV: React.FC = () => {
     }
   };
 
-  const finalizeSale = async (drafts: PaymentDraft[], observation: string) => {
+  /** Troco (25/11/2026): repetido no aviso de venda finalizada. */
+  const textoDoTroco = (trocoCentavos: number): string => (
+    trocoCentavos > 0 ? ` — troco ${currency.format(fromCents(trocoCentavos))}` : ''
+  );
+
+  /**
+   * Venda a prazo gravada pela tela: bloqueio por atraso e limite de credito,
+   * como no Pedido de Venda (25/11/2026). Devolve o erro em portugues ou a
+   * versao do credito lida, que a transacao reconfere.
+   */
+  const conferirCreditoDoAPrazo = async (
+    clienteId: string,
+    clienteNome: string,
+    totalCentavos: number,
+  ): Promise<{ erro: string | null; guarda: { clienteId: string; versaoNaChecagem: number } | null }> => {
+    if (!tenantId) return { erro: null, guarda: null };
+    const { parametros, trabalhaComLimite, noGrupo } = regrasDoAPrazo;
+    if (!parametros.bloqueioAtraso.ativo && !trabalhaComLimite) return { erro: null, guarda: null };
+    const situacao = await situacaoEmAbertoDoCliente(tenantId, clienteId, noGrupo);
+    if (parametros.bloqueioAtraso.ativo) {
+      const bloqueio = bloqueioPorAtraso(parametros, situacao.maiorAtrasoDias, clienteNome);
+      if (bloqueio) return { erro: bloqueio, guarda: null };
+    }
+    if (!trabalhaComLimite) return { erro: null, guarda: null };
+    // Depois do saldo, nunca antes (creditoDomain.ts): o que foi gravado ate'
+    // aqui ja' esta' no saldo OU na versao.
+    const clienteSnap = await getDoc(doc(db, 'clientes', clienteId));
+    const cliente = clienteSnap.exists() ? clienteSnap.data() : null;
+    const limite = cliente && cliente.limiteDeCredito != null ? Math.round(Number(cliente.limiteDeCredito) * 100) : null;
+    const checagem = excedeLimiteCredito(limite, situacao.saldoCentavos, totalCentavos);
+    if (checagem.bloqueado) {
+      return {
+        erro: checagem.motivo === 'sem_limite'
+          ? `O cliente "${clienteNome}" não tem limite de crédito cadastrado. Cadastre o limite em Clientes ou receba de outra forma.`
+          : `Esta venda ultrapassaria o limite de crédito de "${clienteNome}" (saldo em aberto + valor desta venda). Receba de outra forma ou aumente o limite em Clientes.`,
+        guarda: null,
+      };
+    }
+    return { erro: null, guarda: { clienteId, versaoNaChecagem: parseCreditoVersao(cliente?.[CAMPO_CREDITO_VERSAO]) } };
+  };
+
+  const finalizeSale = async (drafts: PaymentDraft[], observation: string, trocoCentavos = 0) => {
     // Pre-venda no caixa: fatura sobre ela, com o vendedor dela (faturarPreVenda).
     if (preVenda) {
-      await faturarPreVenda(preVenda, drafts, observation);
+      await faturarPreVenda(preVenda, drafts, observation, trocoCentavos);
       return;
     }
     // Cashback so' e' consumido pelo servidor: gravado pela tela, o cupom nao
@@ -1548,6 +1615,13 @@ const PDV: React.FC = () => {
     }
     if (saleLockRef.current) return;
     if (!currentUser || !tenantId || !session) return;
+    const erroDoAPrazo = erroDoAPrazoNoCaixa(drafts.map((d) => d.forma), {
+      ativo: aPrazoNoCaixa, clienteId: selectedClient?.id, clienteEhPadrao: selectedClient?.isPadrao,
+    });
+    if (erroDoAPrazo) {
+      showError('Pagamento a prazo', erroDoAPrazo);
+      return;
+    }
     if (cartItems.length === 0) {
       showError('Venda vazia', 'Adicione pelo menos um produto.');
       return;
@@ -1643,6 +1717,26 @@ const PDV: React.FC = () => {
     }
     paymentRecords = explodeInstallmentPaymentRecords(paymentRecords);
 
+    // Venda a prazo gravada pela tela (25/11/2026): as mesmas conferencias do
+    // Pedido de Venda e da OS -- bloqueio por atraso e limite de credito. Pelo
+    // servidor, quem confere e' o servidor (vendaFechamento.js).
+    const vendaAPrazo = summarizePayments(paymentRecords).paymentCondition === 'aprazo';
+    let guardaDoCredito: { clienteId: string; versaoNaChecagem: number } | null = null;
+    if (!vendaPeloServidor && vendaAPrazo && selectedClient?.id && !selectedClient.isPadrao) {
+      try {
+        const conferido = await conferirCreditoDoAPrazo(selectedClient.id, selectedClient.nome, totals.totalCentavos);
+        if (conferido.erro) {
+          showError('Venda a prazo não liberada', conferido.erro);
+          return;
+        }
+        guardaDoCredito = conferido.guarda;
+      } catch (erro) {
+        console.error('Erro ao conferir o crédito do cliente:', erro);
+        showError('Não foi possível conferir o crédito do cliente', 'Confira a internet e tente de novo. Se continuar, faça esta venda a prazo pelo Pedido de Venda.');
+        return;
+      }
+    }
+
     saleLockRef.current = true;
     setSaving(true);
     try {
@@ -1710,7 +1804,7 @@ const PDV: React.FC = () => {
           pagamentos: drafts,
         });
         idVendaServidorRef.current = '';
-        showSuccess(`Venda PDV #${resposta.numeroPedido} finalizada`);
+        showSuccess(`Venda PDV #${resposta.numeroPedido} finalizada${textoDoTroco(trocoCentavos)}`);
         espelharBaixaNaTela();
         const clienteDoCupom = selectedClient?.id || null;
         resetSale();
@@ -1740,6 +1834,16 @@ const PDV: React.FC = () => {
           throw new Error('O operador não pertence à empresa ativa.');
         }
         const sellerName = sellerProfile.nome || sellerProfile.nomeResponsavel || operatorName;
+
+        // Venda a prazo: outra venda do mesmo cliente nao pode ter passado no
+        // meio (mesma guarda da OS e do Pedido de Venda, creditoDomain.ts).
+        const clienteDoCreditoRef = guardaDoCredito ? doc(db, 'clientes', guardaDoCredito.clienteId) : null;
+        let creditoVersaoAtual = 0;
+        if (clienteDoCreditoRef && guardaDoCredito) {
+          const clienteSnap = await transaction.get(clienteDoCreditoRef);
+          creditoVersaoAtual = parseCreditoVersao(clienteSnap.data()?.[CAMPO_CREDITO_VERSAO]);
+          if (creditoFoiAlteradoDurante(guardaDoCredito.versaoNaChecagem, creditoVersaoAtual)) throw new Error(MENSAGEM_CREDITO_CONCORRENTE);
+        }
 
         const bankBalancesById = new Map<string, number>();
         for (const bancoId of bankCreditsByBanco.keys()) {
@@ -1889,6 +1993,7 @@ const PDV: React.FC = () => {
             ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Crédito da venda PDV #${finalNumeroPedido}`),
           });
         });
+        if (clienteDoCreditoRef) transaction.update(clienteDoCreditoRef, { [CAMPO_CREDITO_VERSAO]: creditoVersaoAtual + 1, updatedAt: serverTimestamp() });
 
         persistedPayments.forEach((payment) => {
           const parcelaLabel = payment.cartao?.numero
@@ -1955,7 +2060,7 @@ const PDV: React.FC = () => {
       // venda avisa o servidor, que confere se esta' paga e gera (idempotente).
       if (!vendaPeloServidor && newPedidoId) void gerarCashbackSemFalhar(newPedidoId);
 
-      showSuccess(`Venda PDV #${finalNumeroPedido} finalizada`);
+      showSuccess(`Venda PDV #${finalNumeroPedido} finalizada${textoDoTroco(trocoCentavos)}`);
       espelharBaixaNaTela();
       const clienteDoCupom = selectedClient?.id || null;
       resetSale();
@@ -2243,6 +2348,7 @@ const PDV: React.FC = () => {
         tenantId={tenantId}
         saving={saving}
         cashbackDisponivel={cashbackDoCliente}
+        aPrazoAtivo={aPrazoNoCaixa}
         observacaoInicial={preVenda?.observacao || ''}
         rotuloFinalizar={preVenda ? 'Receber e faturar' : undefined}
         onClose={() => setPaymentModalOpen(false)}

@@ -597,3 +597,31 @@ test('bonificacao: o vendedor que bonificou tem a permissao e quem aprova descon
   assert.equal(pedido.bonificacao.liberadaPorId, 'fat1');
   assert.equal(pedido.bonificacao.liberadaPorNome, 'GERENTE');
 });
+
+test('PDV a prazo (25/11/2026, Jomarly): so com a caixa da filial marcada e cliente identificado; gera o titulo pendente', async () => {
+  const aPrazo = { pagamentos: [pagamento({ forma: 'Pagamento a Prazo', prazoDias: '30' })] };
+  // caixa da filial desligada (padrao)
+  const desligada = criarBancoFalso(base({ ...caixaAberto }), { consultas: true });
+  await assert.rejects(
+    () => carregar(desligada.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1', ...aPrazo }) }),
+    (erro) => erro.status === 409 && /Configurações da Filial/.test(erro.message),
+  );
+  assert.equal(desligada.ler('pedidos_venda/venda1'), undefined);
+
+  // ligada, mas sem cliente
+  const ligada = () => criarBancoFalso(base({ ...caixaAberto, 'configuracoes/loja': { tenantId: 'loja', aPrazoNaFrenteDeCaixa: true } }), { consultas: true });
+  const semCliente = ligada();
+  await assert.rejects(
+    () => carregar(semCliente.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1', clienteId: null, clienteNome: 'CONSUMIDOR FINAL', ...aPrazo }) }),
+    (erro) => erro.status === 409 && /cliente identificado/.test(erro.message),
+  );
+
+  // ligada e com cliente: titulo a receber, venda a prazo
+  const ok = ligada();
+  const r = await carregar(ok.db).finalizarVenda({ user: OPERADOR, tenantId: 'loja', corpo: corpo({ pdvSessionId: 'cx1', ...aPrazo }) });
+  assert.equal(r.condicaoPagamento, 'aprazo');
+  const titulo = ok.ler('transacoes/venda1');
+  assert.equal(titulo.status, 'Pendente');
+  assert.equal(titulo.formaPagamento, 'Pagamento a Prazo');
+  assert.equal(titulo.movimentaCaixaFisico, false);
+});

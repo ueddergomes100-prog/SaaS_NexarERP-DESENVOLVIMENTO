@@ -123,3 +123,18 @@ test('fatia 3c: o PDV manda a sessão do caixa; com pedidoId é pré-venda fatur
   const preVenda = lerPedidoDeFechamento({ ...base, idDocumento: undefined, pedidoId: 'pv1', pdvSessionId: 'cx_1' });
   assert.ok('pedido' in preVenda && preVenda.pedido.pedidoId === 'pv1' && preVenda.pedido.pdvSessionId === 'cx_1' && preVenda.pedido.idDocumento === null);
 });
+
+test('a prazo na Frente de Caixa: so com a caixa da filial e com cliente identificado (25/11/2026, Jomarly)', async () => {
+  const { erroDoAPrazoNoCaixa, parseAPrazoNaFrenteDeCaixa, FORMA_A_PRAZO } = await import('../src/utils/vendaFechamentoDomain');
+  assert.equal(parseAPrazoNaFrenteDeCaixa(true), true);
+  assert.equal(parseAPrazoNaFrenteDeCaixa('true'), false);
+  assert.equal(parseAPrazoNaFrenteDeCaixa(undefined), false);
+  // sem a prazo: nada a conferir
+  assert.equal(erroDoAPrazoNoCaixa(['Dinheiro', 'Pix'], { ativo: false, clienteId: '' }), null);
+  // a prazo com a caixa desligada
+  assert.match(erroDoAPrazoNoCaixa([FORMA_A_PRAZO], { ativo: false, clienteId: 'c1' }) || '', /Configurações da Filial/);
+  // a prazo sem cliente ou com o consumidor final
+  assert.match(erroDoAPrazoNoCaixa([FORMA_A_PRAZO], { ativo: true, clienteId: '' }) || '', /cliente identificado/);
+  assert.match(erroDoAPrazoNoCaixa([FORMA_A_PRAZO], { ativo: true, clienteId: 'cf', clienteEhPadrao: true }) || '', /F2/);
+  assert.equal(erroDoAPrazoNoCaixa(['Dinheiro', FORMA_A_PRAZO], { ativo: true, clienteId: 'c1' }), null);
+});

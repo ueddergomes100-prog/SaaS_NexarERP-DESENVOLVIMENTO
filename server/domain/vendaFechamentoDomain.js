@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
+exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
 /*
  * FECHAMENTO DA VENDA NO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026).
  *
@@ -227,3 +227,29 @@ exports.lerPedidoDeFechamento = lerPedidoDeFechamento;
 /** Chave da empresa: liga o fechamento pelo servidor (SuperAdmin, por empresa). */
 const parseVendaPeloServidor = (valor) => valor === true;
 exports.parseVendaPeloServidor = parseVendaPeloServidor;
+/**
+ * "Nota" (Pagamento a Prazo) na Frente de Caixa (25/11/2026, Jomarly).
+ * Caixa de marcar da filial, desligada por padrao: o caixa so' tinha
+ * dinheiro, Pix, cartao e cheque. Ligada, o pagamento ganha "Pagamento a
+ * Prazo" com as mesmas regras do Pedido de Venda (cliente identificado,
+ * limite de credito, bloqueio por atraso) e gera o titulo no Contas a Receber.
+ */
+const parseAPrazoNaFrenteDeCaixa = (valor) => valor === true;
+exports.parseAPrazoNaFrenteDeCaixa = parseAPrazoNaFrenteDeCaixa;
+exports.FORMA_A_PRAZO = 'Pagamento a Prazo';
+/**
+ * O que impede a venda a prazo no caixa, ou null. `clienteId` vazio ou o
+ * cliente padrao (consumidor final) = sem cliente identificado.
+ */
+const erroDoAPrazoNoCaixa = (formas, opcoes) => {
+    if (!formas.some((forma) => forma === exports.FORMA_A_PRAZO))
+        return null;
+    if (!opcoes.ativo) {
+        return 'A venda a prazo não está liberada na Frente de Caixa desta filial. Para liberar, marque "Frente de Caixa: aceitar Pagamento a Prazo (nota)" em Configurações da Filial, ou faça a venda pelo Pedido de Venda.';
+    }
+    if (!String(opcoes.clienteId ?? '').trim() || opcoes.clienteEhPadrao) {
+        return 'Venda a prazo precisa do cliente identificado. Escolha o cliente (F2) e abra o pagamento de novo.';
+    }
+    return null;
+};
+exports.erroDoAPrazoNoCaixa = erroDoAPrazoNoCaixa;

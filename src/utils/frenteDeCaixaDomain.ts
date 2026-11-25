@@ -85,3 +85,61 @@ export const nomeDoOperador = (
 };
 
 export const MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.';
+
+/*
+ * TROCO NA FRENTE DE CAIXA (25/11/2026, video da Jomarly: "deu 160, a pessoa
+ * deu 200 -- qual o troco? A pessoa nao tem que ficar na calculadora").
+ * Decisao do dono: para todos, sem chave. So' o DINHEIRO pode passar do total:
+ * o que passa e' o troco, e a venda e o caixa ficam com o valor da venda (o
+ * troco sai da gaveta na hora). Pix, cartao e cheque continuam exatos.
+ */
+export interface PagamentoParaTroco {
+  forma: string;
+  valorCentavos: number;
+}
+
+export interface ContaDoTroco {
+  pagoCentavos: number;
+  /** Quanto falta pagar (0 se pago). */
+  faltaCentavos: number;
+  /** Dinheiro a mais que volta ao cliente. */
+  trocoCentavos: number;
+  /** Excesso que NAO pode virar troco (passou do total sem ser dinheiro). */
+  excessoSemTrocoCentavos: number;
+}
+
+const centavos = (valor: unknown): number => Math.max(0, Math.round(Number(valor) || 0));
+
+export const contaDoTroco = (totalCentavos: number, pagamentos: PagamentoParaTroco[]): ContaDoTroco => {
+  const total = centavos(totalCentavos);
+  const pago = pagamentos.reduce((soma, p) => soma + centavos(p.valorCentavos), 0);
+  const dinheiro = pagamentos.filter((p) => p.forma === 'Dinheiro').reduce((soma, p) => soma + centavos(p.valorCentavos), 0);
+  const outros = pago - dinheiro;
+  const excesso = Math.max(0, pago - total);
+  // Troco so' sai do dinheiro: as outras formas sozinhas nao podem passar do total.
+  const excessoSemTroco = Math.max(0, outros - total);
+  const troco = Math.min(Math.max(0, excesso - excessoSemTroco), dinheiro);
+  return {
+    pagoCentavos: pago,
+    faltaCentavos: Math.max(0, total - pago),
+    trocoCentavos: troco,
+    excessoSemTrocoCentavos: excesso - troco,
+  };
+};
+
+/**
+ * Os pagamentos como ficam gravados: o troco sai do dinheiro (do ultimo para
+ * o primeiro), para a venda somar exatamente o total. Dinheiro que zera sai
+ * da lista.
+ */
+export const pagamentosSemOTroco = <T extends PagamentoParaTroco>(pagamentos: T[], trocoCentavos: number): T[] => {
+  let resta = centavos(trocoCentavos);
+  const ajustados = [...pagamentos];
+  for (let i = ajustados.length - 1; i >= 0 && resta > 0; i -= 1) {
+    if (ajustados[i].forma !== 'Dinheiro') continue;
+    const tirar = Math.min(resta, centavos(ajustados[i].valorCentavos));
+    ajustados[i] = { ...ajustados[i], valorCentavos: centavos(ajustados[i].valorCentavos) - tirar };
+    resta -= tirar;
+  }
+  return ajustados.filter((p) => !(p.forma === 'Dinheiro' && p.valorCentavos === 0));
+};

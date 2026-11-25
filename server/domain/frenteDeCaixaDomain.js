@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = exports.nomeDoOperador = exports.destinoAposLogin = exports.entraDiretoNoCaixa = exports.podeUsarFrenteDeCaixa = exports.ehAppDoCaixa = exports.CAMINHO_INSTALACAO_CAIXA = exports.CAMINHO_LOGIN_CAIXA = exports.CAMINHO_APP_CAIXA = exports.MODULO_DO_CAIXA = exports.PERMISSOES_QUE_OPERAM_O_CAIXA = exports.PERMISSAO_SO_CAIXA = exports.PERMISSAO_PDV = void 0;
+exports.pagamentosSemOTroco = exports.contaDoTroco = exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = exports.nomeDoOperador = exports.destinoAposLogin = exports.entraDiretoNoCaixa = exports.podeUsarFrenteDeCaixa = exports.ehAppDoCaixa = exports.CAMINHO_INSTALACAO_CAIXA = exports.CAMINHO_LOGIN_CAIXA = exports.CAMINHO_APP_CAIXA = exports.MODULO_DO_CAIXA = exports.PERMISSOES_QUE_OPERAM_O_CAIXA = exports.PERMISSAO_SO_CAIXA = exports.PERMISSAO_PDV = void 0;
 /*
  * FRENTE DE CAIXA COMO APP SEPARADO (pedido do dono, 19/10/2026).
  *
@@ -69,3 +69,39 @@ const nomeDoOperador = (perfil, gravado) => {
 };
 exports.nomeDoOperador = nomeDoOperador;
 exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.';
+const centavos = (valor) => Math.max(0, Math.round(Number(valor) || 0));
+const contaDoTroco = (totalCentavos, pagamentos) => {
+    const total = centavos(totalCentavos);
+    const pago = pagamentos.reduce((soma, p) => soma + centavos(p.valorCentavos), 0);
+    const dinheiro = pagamentos.filter((p) => p.forma === 'Dinheiro').reduce((soma, p) => soma + centavos(p.valorCentavos), 0);
+    const outros = pago - dinheiro;
+    const excesso = Math.max(0, pago - total);
+    // Troco so' sai do dinheiro: as outras formas sozinhas nao podem passar do total.
+    const excessoSemTroco = Math.max(0, outros - total);
+    const troco = Math.min(Math.max(0, excesso - excessoSemTroco), dinheiro);
+    return {
+        pagoCentavos: pago,
+        faltaCentavos: Math.max(0, total - pago),
+        trocoCentavos: troco,
+        excessoSemTrocoCentavos: excesso - troco,
+    };
+};
+exports.contaDoTroco = contaDoTroco;
+/**
+ * Os pagamentos como ficam gravados: o troco sai do dinheiro (do ultimo para
+ * o primeiro), para a venda somar exatamente o total. Dinheiro que zera sai
+ * da lista.
+ */
+const pagamentosSemOTroco = (pagamentos, trocoCentavos) => {
+    let resta = centavos(trocoCentavos);
+    const ajustados = [...pagamentos];
+    for (let i = ajustados.length - 1; i >= 0 && resta > 0; i -= 1) {
+        if (ajustados[i].forma !== 'Dinheiro')
+            continue;
+        const tirar = Math.min(resta, centavos(ajustados[i].valorCentavos));
+        ajustados[i] = { ...ajustados[i], valorCentavos: centavos(ajustados[i].valorCentavos) - tirar };
+        resta -= tirar;
+    }
+    return ajustados.filter((p) => !(p.forma === 'Dinheiro' && p.valorCentavos === 0));
+};
+exports.pagamentosSemOTroco = pagamentosSemOTroco;

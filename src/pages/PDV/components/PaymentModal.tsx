@@ -11,7 +11,9 @@ import {
 } from '../../../utils/financeDomain';
 import { useTenantCollection, type TenantCollectionItem } from '../../../hooks/useTenantCollection';
 import ChequeCaptureModal from '../../../components/finance/ChequeCaptureModal';
-import { getDateInputInTimeZone } from '../../../utils/dateTime';
+import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../../utils/dateTime';
+import { contaDoTroco, pagamentosSemOTroco } from '../../../utils/frenteDeCaixaDomain';
+import { FORMA_A_PRAZO } from '../../../utils/vendaFechamentoDomain';
 import type { PdvFinanceConfig } from '../pdvHelpers';
 import { currency } from '../pdvHelpers';
 import { faixasDisponiveis, valorSugeridoDoCashback, type CashbackDisponivel } from '../../../utils/cashbackDomain';
@@ -34,8 +36,11 @@ interface PaymentModalProps {
   observacaoInicial?: string;
   /** Texto do botao de finalizar (a pre-venda diz "Receber e faturar"). */
   rotuloFinalizar?: string;
+  /** "Nota" na Frente de Caixa (25/11/2026): caixa de marcar da filial. */
+  aPrazoAtivo?: boolean;
   onClose: () => void;
-  onFinalize: (drafts: PaymentDraft[], observation: string) => void;
+  /** Os pagamentos chegam SEM o troco (somam o total); o troco vem a parte, so' para avisar. */
+  onFinalize: (drafts: PaymentDraft[], observation: string, trocoCentavos: number) => void;
 }
 
 const paymentMethods: PaymentMethod[] = [
@@ -61,6 +66,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   cashbackDisponivel = null,
   observacaoInicial = '',
   rotuloFinalizar = 'Finalizar venda',
+  aPrazoAtivo = false,
   onClose,
   onFinalize,
 }) => {
@@ -79,8 +85,18 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   }, [financeConfig.defaultTermDays, open, totalCents, observacaoInicial]);
 
   const paidCents = useMemo(() => drafts.reduce((sum, draft) => sum + toCents(draft.valor), 0), [drafts]);
+  // Troco (25/11/2026): so' o dinheiro pode passar do total; o que passa volta ao cliente.
+  const conta = useMemo(() => contaDoTroco(totalCents, drafts.map((d) => ({ forma: d.forma, valorCentavos: toCents(d.valor) }))), [drafts, totalCents]);
   const remainingCents = totalCents - paidCents;
-  const canFinalize = totalCents > 0 && remainingCents === 0 && !saving;
+  const canFinalize = totalCents > 0 && conta.faltaCentavos === 0 && conta.excessoSemTrocoCentavos === 0 && !saving;
+  const hojeDoCaixa = getDateInputInTimeZone();
+  const finalizar = () => {
+    const semTroco = pagamentosSemOTroco(
+      drafts.map((draft) => ({ forma: draft.forma as string, valorCentavos: toCents(draft.valor), draft })),
+      conta.trocoCentavos,
+    ).map((p) => ({ ...p.draft, valor: fromCents(p.valorCentavos).toFixed(2) }));
+    onFinalize(semTroco, observation, conta.trocoCentavos);
+  };
 
   if (!open) return null;
 
@@ -90,7 +106,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
     : [];
   const ofereceCashback = cashbackDisponivel !== null
     && (cashbackDisponivel.modelo === 'reais' ? cashbackDisponivel.saldoCentavos > 0 : faixasDoCashback.length > 0);
-  const formas: PaymentMethod[] = ofereceCashback ? [...paymentMethods, 'Cashback'] : paymentMethods;
+  const formasBase: PaymentMethod[] = aPrazoAtivo ? [...paymentMethods, FORMA_A_PRAZO as PaymentMethod] : paymentMethods;
+  const formas: PaymentMethod[] = ofereceCashback ? [...formasBase, 'Cashback'] : formasBase;
 
   const updateDraft = (id: string, changes: Partial<PaymentDraft>) => {
     setDrafts((current) => current.map((draft) => {
@@ -99,6 +116,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
       if (changes.forma === 'Cartão de Débito') {
         next.parcelas = '1';
       }
+      // A prazo: o vencimento sai do prazo em dias (o padrao da filial).
+      if (changes.forma && changes.forma !== draft.forma) next.dataVencimento = '';
       // Cashback ja' entra com o saldo (ate' o que falta pagar) ou a maior faixa.
       if (changes.forma === 'Cashback' && draft.forma !== 'Cashback' && cashbackDisponivel) {
         const faltaPagar = Math.max(0, totalCents - (paidCents - toCents(draft.valor)));
@@ -136,14 +155,19 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
         <div className="pdv-payment-total">
           <span>Total da venda</span>
           <strong>{currency.format(fromCents(totalCents))}</strong>
-          <small className={remainingCents === 0 ? 'ok' : remainingCents > 0 ? 'warn' : 'danger'}>
-            {remainingCents === 0
-              ? 'Pagamento completo'
-              : remainingCents > 0
-                ? `Faltam ${currency.format(fromCents(remainingCents))}`
-                : `Excedeu ${currency.format(fromCents(Math.abs(remainingCents)))}`
+          <small className={conta.faltaCentavos > 0 ? 'warn' : conta.excessoSemTrocoCentavos > 0 ? 'danger' : 'ok'}>
+            {conta.faltaCentavos > 0
+              ? `Faltam ${currency.format(fromCents(conta.faltaCentavos))}`
+              : conta.excessoSemTrocoCentavos > 0
+                ? `Excedeu ${currency.format(fromCents(conta.excessoSemTrocoCentavos))} — só o dinheiro pode passar do total (vira troco)`
+                : 'Pagamento completo'
             }
           </small>
+          {conta.trocoCentavos > 0 && conta.excessoSemTrocoCentavos === 0 && (
+            <strong className="pdv-payment-troco" aria-live="polite" style={{ display: 'block', marginTop: '6px', fontSize: '22px', color: '#059669' }}>
+              Troco: {currency.format(fromCents(conta.trocoCentavos))}
+            </strong>
+          )}
         </div>
 
         <div className="pdv-payment-list">
@@ -231,6 +255,36 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
               )}
 
+              {draft.forma === FORMA_A_PRAZO && (
+                <>
+                  <label>
+                    <span>Prazo (dias)</span>
+                    <input
+                      value={draft.prazoDias}
+                      inputMode="numeric"
+                      aria-label="Prazo em dias do pagamento a prazo"
+                      onChange={(event) => updateDraft(draft.id, { prazoDias: event.target.value.replace(/\D/g, ''), dataVencimento: '' })}
+                    />
+                  </label>
+                  <label>
+                    <span>Parcelas</span>
+                    <input
+                      value={draft.parcelasAPrazo || '1'}
+                      inputMode="numeric"
+                      aria-label="Quantidade de parcelas do pagamento a prazo"
+                      onChange={(event) => updateDraft(draft.id, { parcelasAPrazo: event.target.value.replace(/\D/g, '') })}
+                    />
+                  </label>
+                  <div className="pdv-payment-placeholder" title="Vencimento da (primeira) parcela">
+                    <span>
+                      {Number.parseInt(draft.prazoDias, 10) > 0
+                        ? `Vence ${formatDateInputPtBr(addDaysToDateInput(hojeDoCaixa, Number.parseInt(draft.prazoDias, 10)))}`
+                        : 'Informe o prazo'}
+                    </span>
+                  </div>
+                </>
+              )}
+
               {draft.forma === 'Cheque' && (
                 <div className="pdv-payment-placeholder">
                   <button type="button" className="btn-secondary" onClick={() => setChequeModalDraftId(draft.id)}>
@@ -241,7 +295,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
               )}
 
-              {draft.forma !== 'Cheque' && draft.forma !== 'Cashback' && (draft.forma !== 'Cartão de Crédito' || financeConfig.pagamentoCartaoSimplificadoAtivo) && (
+              {draft.forma !== 'Cheque' && draft.forma !== 'Cashback' && draft.forma !== FORMA_A_PRAZO && (draft.forma !== 'Cartão de Crédito' || financeConfig.pagamentoCartaoSimplificadoAtivo) && (
                 <div className="pdv-payment-placeholder">
                   <span>
                     {isCardPayment(draft.forma) && financeConfig.pagamentoCartaoSimplificadoAtivo
@@ -258,7 +312,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
           ))}
         </div>
 
-        <button type="button" className="btn-secondary pdv-add-payment" onClick={addPayment} disabled={remainingCents <= 0}>
+        <button type="button" className="btn-secondary pdv-add-payment" onClick={addPayment} disabled={conta.faltaCentavos <= 0}>
           <Plus size={17} />
           Adicionar forma
         </button>
@@ -276,7 +330,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
         <button
           type="button"
           className="btn-primary pdv-modal-submit"
-          onClick={() => onFinalize(drafts, observation)}
+          onClick={finalizar}
           disabled={!canFinalize}
         >
           <CreditCard size={20} />

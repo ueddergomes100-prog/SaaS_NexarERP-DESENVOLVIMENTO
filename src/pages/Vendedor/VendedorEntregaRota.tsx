@@ -9,6 +9,7 @@ import { podeUsarEntregasNoApp } from './vendedorPermissoes';
 import { lerRomaneio } from '../../services/romaneioService';
 import { rotaEhDoMotorista, useMotoristaVinculado, veTodasAsRotas } from './entregasDoMotorista';
 import {
+  clienteDaEntrega,
   ROTULO_STATUS_ENTREGA,
   dataDaEntrega,
   diferencaDoRecebido,
@@ -74,7 +75,7 @@ const CartaoEntrega: React.FC<{
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
-            <span style={{ color: 'var(--text-muted)', marginRight: '6px' }}>{ordem}.</span>{entrega.clienteNome}
+            <span style={{ color: 'var(--text-muted)', marginRight: '6px' }}>{ordem}.</span>{clienteDaEntrega(entrega)}
           </div>
           {(entrega.endereco || entrega.cidade) && (
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.4 }}>

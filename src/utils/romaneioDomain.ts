@@ -402,6 +402,24 @@ export const erroDoPedidoParaRomaneio = (pedido: PedidoParaRomaneio, aceitaPreVe
   return `O pedido #${numero} ainda não foi faturado (situação: ${status || 'sem situação'}). Fature o pedido antes de colocá-lo na rota.`;
 };
 
+/** "1639 · MUNIZ E BRAGA" -- codigo do cliente na frente do nome (25/11/2026, pedido do dono). Sem codigo, so' o nome. */
+export const clienteDaEntrega = (entrega: { clienteCodigo?: unknown; clienteNome?: unknown }): string => {
+  const codigo = limpar(entrega.clienteCodigo);
+  const nome = limpar(entrega.clienteNome);
+  return codigo && nome ? `${codigo} · ${nome}` : (nome || codigo);
+};
+
+/**
+ * Entrega gravada antes do codigo existir (ou com o cliente sem codigo na epoca):
+ * completa pelo cadastro atual. Nao muda o que ja' veio preenchido.
+ */
+export const completarCodigosDosClientes = <T extends { clienteId?: string; clienteCodigo?: string }>(
+  entregas: T[],
+  codigoPorCliente: Record<string, string>,
+): T[] => entregas.map((e) => (!limpar(e.clienteCodigo) && e.clienteId && codigoPorCliente[e.clienteId]
+  ? { ...e, clienteCodigo: codigoPorCliente[e.clienteId] }
+  : e));
+
 export const enderecoDoCliente = (cliente: ClienteParaRomaneio | null | undefined): string => {
   if (!cliente) return '';
   const rua = [limpar(cliente.endereco), limpar(cliente.numero)].filter(Boolean).join(', ');
@@ -1062,6 +1080,7 @@ export const montarDocumentoRelatorioRomaneios = (
         colunas: [
           { id: 'pedido', titulo: 'Pedido', tipo: 'texto', largura: 14, valor: (e: LinhaEntrega) => e.numeroPedido },
           { id: 'nf', titulo: 'N/F', tipo: 'texto', largura: 14, valor: (e: LinhaEntrega) => e.notaNumero || 'S/N' },
+          { id: 'codigo', titulo: 'Cód.', tipo: 'texto', largura: 12, valor: (e: LinhaEntrega) => e.clienteCodigo },
           { id: 'cliente', titulo: 'Cliente', tipo: 'texto', largura: 50, valor: (e: LinhaEntrega) => e.clienteNome },
           { id: 'cidade', titulo: 'Cidade', tipo: 'texto', largura: 26, padrao: false, valor: (e: LinhaEntrega) => e.cidade },
           { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, valor: (e: LinhaEntrega) => ROTULO_STATUS_ENTREGA[e.status] },

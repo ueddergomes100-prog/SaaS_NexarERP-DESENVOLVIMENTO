@@ -569,3 +569,17 @@ test('data da entrega (09/11/2026): informada pelo motorista, conferida e com o 
     'Pedido #0373 (MERCEARIA): Entregue em 08/11/2026, recebeu ANA.',
   );
 });
+
+test('codigo do cliente no romaneio (25/11/2026): na frente do nome e completado pelo cadastro', async () => {
+  const { clienteDaEntrega, completarCodigosDosClientes } = await import('../src/utils/romaneioDomain');
+  assert.equal(clienteDaEntrega({ clienteCodigo: '1639', clienteNome: 'MUNIZ E BRAGA' }), '1639 · MUNIZ E BRAGA');
+  assert.equal(clienteDaEntrega({ clienteCodigo: '', clienteNome: 'CONSUMIDOR' }), 'CONSUMIDOR');
+  const entregas = [
+    { clienteId: 'c1', clienteCodigo: '', clienteNome: 'A' },
+    { clienteId: 'c2', clienteCodigo: '22', clienteNome: 'B' },
+    { clienteId: '', clienteCodigo: '', clienteNome: 'C' },
+  ];
+  const completas = completarCodigosDosClientes(entregas, { c1: '11', c2: '99' });
+  assert.deepEqual(completas.map((e) => e.clienteCodigo), ['11', '22', ''], 'nao troca o que ja veio gravado');
+  assert.equal(completas[1], entregas[1]);
+});

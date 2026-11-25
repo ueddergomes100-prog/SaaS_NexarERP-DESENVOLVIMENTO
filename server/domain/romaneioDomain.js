@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resumoDoRomaneio = exports.formulaDoSaldo = exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.erroDaDataDaEntrega = exports.dataDaEntrega = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.erroDoPedidoParaRomaneio = exports.recebidoEmMaosCentavos = exports.parseFormasNoSaldo = exports.FORMAS_NO_SALDO_PADRAO = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.VERSAO_TIPOS_ACERTO = exports.ROTULO_NATUREZA_ACERTO = exports.ehNaturezaAcerto = exports.NATUREZAS_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
-exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = void 0;
+exports.situacaoDoPedidoAoEncerrar = exports.erroParaCancelar = exports.cancelamentoDesfazEntregas = exports.ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = exports.PERMISSAO_ROMANEIO_ENCERRADO = exports.erroParaFechar = exports.linkDoMapa = exports.separarEntregas = exports.caminhosDoRegistro = exports.erroDaDataDaEntrega = exports.dataDaEntrega = exports.registroParaGravar = exports.aplicarRegistros = exports.CAMPOS_DO_REGISTRO = exports.erroDoRegistroDeEntrega = exports.textoDaDiferenca = exports.TAMANHO_MINIMO_JUSTIFICATIVA = exports.precisaJustificarValor = exports.diferencaDoRecebido = exports.erroParaLiberar = exports.ordenarPorCidade = exports.moverEntrega = exports.normalizarEntrega = exports.montarEntregaDoPedido = exports.enderecoDoCliente = exports.completarCodigosDosClientes = exports.clienteDaEntrega = exports.erroDoPedidoParaRomaneio = exports.recebidoEmMaosCentavos = exports.parseFormasNoSaldo = exports.FORMAS_NO_SALDO_PADRAO = exports.parseTiposAcerto = exports.parseMotivosNaoEntrega = exports.normalizarNomeCadastro = exports.numeracaoMensalDoRomaneio = exports.tituloDoRomaneio = exports.textoDosCentavos = exports.centavosDoTexto = exports.entregasDaBusca = exports.formaRecebidaPadrao = exports.FORMAS_RECEBIDAS_NA_ENTREGA = exports.MOTIVOS_NAO_ENTREGA_PADRAO = exports.TIPOS_ACERTO_PADRAO = exports.VERSAO_TIPOS_ACERTO = exports.ROTULO_NATUREZA_ACERTO = exports.ehNaturezaAcerto = exports.NATUREZAS_ACERTO = exports.STATUS_ROMANEIO_ATIVO = exports.ROTULO_STATUS_ENTREGA = exports.ROTULO_STATUS_ROMANEIO = void 0;
+exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMudaramNaRota = exports.alteracoesDaRota = exports.rotuloDoRomaneioNoHistorico = exports.alteracoesDesdeOFechamento = exports.fotoDoFechamento = exports.textoDoPlano = exports.contagemDoPlano = exports.planoDeDespesas = exports.despesasJaLancadas = exports.despesasDoAcerto = exports.planoDeReabertura = exports.travaLivreOuDestaRota = exports.eventoDoHistorico = exports.parseHistorico = exports.ROTULO_ACAO_HISTORICO = exports.erroParaReabrir = exports.erroDoMotivo = exports.TAMANHO_MINIMO_MOTIVO_ROMANEIO = exports.camposEditaveisDaRota = exports.romaneioDoDocumento = exports.montarDocumentoRelatorioRomaneios = exports.montarDocumentoRomaneio = exports.linhasDoAcerto = exports.acertoParaGravar = exports.erroDoAcerto = exports.resumoDoRomaneio = exports.formulaDoSaldo = void 0;
 const preVendaDomain_1 = require("./preVendaDomain");
 const historicoAlteracoesDomain_1 = require("./historicoAlteracoesDomain");
 const dateTime_1 = require("./dateTime");
@@ -226,6 +226,21 @@ const erroDoPedidoParaRomaneio = (pedido, aceitaPreVenda = false) => {
     return `O pedido #${numero} ainda não foi faturado (situação: ${status || 'sem situação'}). Fature o pedido antes de colocá-lo na rota.`;
 };
 exports.erroDoPedidoParaRomaneio = erroDoPedidoParaRomaneio;
+/** "1639 · MUNIZ E BRAGA" -- codigo do cliente na frente do nome (25/11/2026, pedido do dono). Sem codigo, so' o nome. */
+const clienteDaEntrega = (entrega) => {
+    const codigo = limpar(entrega.clienteCodigo);
+    const nome = limpar(entrega.clienteNome);
+    return codigo && nome ? `${codigo} · ${nome}` : (nome || codigo);
+};
+exports.clienteDaEntrega = clienteDaEntrega;
+/**
+ * Entrega gravada antes do codigo existir (ou com o cliente sem codigo na epoca):
+ * completa pelo cadastro atual. Nao muda o que ja' veio preenchido.
+ */
+const completarCodigosDosClientes = (entregas, codigoPorCliente) => entregas.map((e) => (!limpar(e.clienteCodigo) && e.clienteId && codigoPorCliente[e.clienteId]
+    ? { ...e, clienteCodigo: codigoPorCliente[e.clienteId] }
+    : e));
+exports.completarCodigosDosClientes = completarCodigosDosClientes;
 const enderecoDoCliente = (cliente) => {
     if (!cliente)
         return '';
@@ -760,6 +775,7 @@ const montarDocumentoRelatorioRomaneios = (romaneios, filtro, rotuloMotorista) =
                 colunas: [
                     { id: 'pedido', titulo: 'Pedido', tipo: 'texto', largura: 14, valor: (e) => e.numeroPedido },
                     { id: 'nf', titulo: 'N/F', tipo: 'texto', largura: 14, valor: (e) => e.notaNumero || 'S/N' },
+                    { id: 'codigo', titulo: 'Cód.', tipo: 'texto', largura: 12, valor: (e) => e.clienteCodigo },
                     { id: 'cliente', titulo: 'Cliente', tipo: 'texto', largura: 50, valor: (e) => e.clienteNome },
                     { id: 'cidade', titulo: 'Cidade', tipo: 'texto', largura: 26, padrao: false, valor: (e) => e.cidade },
                     { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 22, valor: (e) => exports.ROTULO_STATUS_ENTREGA[e.status] },

@@ -15,6 +15,7 @@ import CameraFoto from '../../components/common/CameraFoto';
 import { cameraLeCodigo } from '../../components/common/LeitorCameraCodigo';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
+  clienteDaEntrega,
   FORMAS_RECEBIDAS_NA_ENTREGA,
   dataDaEntrega,
   formaRecebidaPadrao,
@@ -233,7 +234,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
         ) : (
           <>
             <div style={cardStyle}>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{entrega.clienteNome}</div>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>{clienteDaEntrega(entrega)}</div>
               {(entrega.endereco || entrega.cidade) && (
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>{entrega.endereco}{entrega.endereco && entrega.cidade ? ' · ' : ''}{entrega.cidade}</div>
               )}

@@ -39,6 +39,8 @@ import {
 } from '../../services/romaneioService';
 import { parseModoRotaPreVenda, preVendaEntraNaRota } from '../../utils/rotaPreVendaDomain';
 import {
+  clienteDaEntrega,
+  completarCodigosDosClientes,
   cancelamentoDesfazEntregas,
   erroDoMotivo,
   erroParaCancelar,
@@ -286,6 +288,24 @@ const RomaneioForm: React.FC = () => {
 
   const mudar = (mudanca: Partial<Romaneio>) => setRomaneio((atual) => ({ ...atual, ...mudanca }));
 
+  // Codigo do cliente (25/11/2026): entrega gravada sem ele e' completada pelo cadastro
+  // atual, na tela e no romaneio impresso. So' le os clientes que faltam.
+  const [codigosDosClientes, setCodigosDosClientes] = useState<Record<string, string>>({});
+  const clientesSemCodigo = [...new Set(romaneio.entregas
+    .filter((e) => !String(e.clienteCodigo || '').trim() && e.clienteId)
+    .map((e) => e.clienteId))].sort().join('|');
+  useEffect(() => {
+    const ids = clientesSemCodigo ? clientesSemCodigo.split('|').filter((id) => !(id in codigosDosClientes)) : [];
+    if (ids.length === 0) return undefined;
+    let vivo = true;
+    Promise.all(ids.map((id) => getDoc(doc(db, 'clientes', id))
+      .then((snap) => [id, snap.exists() ? String(snap.data().codigo || '').trim() : ''] as const)
+      .catch(() => [id, ''] as const)))
+      .then((pares) => { if (vivo) setCodigosDosClientes((atual) => ({ ...atual, ...Object.fromEntries(pares) })); });
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientesSemCodigo]);
+
   const escolherMotorista = (motoristaId: string) => {
     const m = motoristasAtivos.find((x) => x.id === motoristaId);
     // O veiculo que tem esse motorista como padrao ja' vem escolhido (pode trocar).
@@ -516,7 +536,11 @@ const RomaneioForm: React.FC = () => {
     return (
       <RelatorioPreview
         relatorioId="romaneio-entrega"
-        documento={montarDocumentoRomaneio({ ...romaneio, acerto: emMontagem ? romaneio.acerto : acertoNaTela.filter((l) => l.valorCentavos > 0) })}
+        documento={montarDocumentoRomaneio({
+          ...romaneio,
+          entregas: completarCodigosDosClientes(romaneio.entregas, codigosDosClientes),
+          acerto: emMontagem ? romaneio.acerto : acertoNaTela.filter((l) => l.valorCentavos > 0),
+        })}
         nomeArquivo={`${tituloDoRomaneio(romaneio.numero, romaneio.nome)} ${dataBr(romaneio.dataSaida).replace(/\//g, '-')}.pdf`}
         onFechar={() => setImprimindo(false)}
         rotuloFechar="Voltar ao romaneio"
@@ -738,7 +762,7 @@ const RomaneioForm: React.FC = () => {
                     {preVendasNaRota.has(e.pedidoId) && <div style={{ fontSize: '11px', fontWeight: 700, color: '#f59e0b' }}>Pré-venda (falta faturar)</div>}
                   </td>
                   <td style={{ padding: '8px' }}>
-                    <div style={{ fontWeight: 600 }}>{e.clienteCodigo ? `${e.clienteCodigo} · ` : ''}{e.clienteNome}</div>
+                    <div style={{ fontWeight: 600 }}>{clienteDaEntrega({ ...e, clienteCodigo: e.clienteCodigo || codigosDosClientes[e.clienteId] || '' })}</div>
                     {e.endereco && <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{e.endereco}</div>}
                   </td>
                   <td style={{ padding: '8px' }}>{e.cidade || '—'}</td>
@@ -1187,7 +1211,7 @@ const AdicionarPedidosModal: React.FC<{
                   </td>
                   <td style={{ padding: '8px' }}>{p.notaNumero || 'S/N'}</td>
                   <td style={{ padding: '8px' }}>
-                    {p.clienteNome}
+                    {clienteDaEntrega(p)}
                     {p.emOutraRota && <div style={{ fontSize: '12px', color: '#f59e0b' }}>{p.emOutraRota}</div>}
                   </td>
                   <td style={{ padding: '8px' }}>{p.cidade || '—'}</td>

@@ -35,6 +35,17 @@ substituir('services/datasFaltantes', {
     return { tenantId: opcoes.tenantId || null, aplicar: opcoes.aplicar, desfazer: opcoes.desfazer, colecoes: [{ nome: 'pedidos_venda', campo: 'dataVenda', alterados: 3 }] };
   },
 });
+// Logins no dominio do dono (25/11/2026): servico falso, so' registra o modo.
+substituir('services/dominioDosLogins', {
+  migrarDominioDosLogins: async (opcoes) => {
+    chamadas.push(['dominio', { aplicar: opcoes.aplicar }]);
+    return {
+      dominioNovo: 'login.nexarcompany.com.br', aplicar: opcoes.aplicar, lote: 100, contasNoDominioAntigo: 2,
+      totais: { trocados: 2, soCadastro: 0, semConta: 0, jaNoDominioNovo: 0, pendentes: 0, falhas: 0, indicesSoltos: 0 },
+      empresas: [{ tenantId: 'T1', nome: 'LOJA', trocados: 2, totalFalhas: 0, falhas: [] }],
+    };
+  },
+});
 const rotaCaminho = require.resolve(path.join(base, 'routes/manutencao.routes'));
 delete require.cache[rotaCaminho];
 const rota = require(rotaCaminho);
@@ -104,4 +115,35 @@ test('aplicar e desfazer gravam e deixam registro de auditoria', async () => {
   assert.equal(logs.length, 2);
   assert.equal(logs[0][2].acao, 'datas_faltantes_preenchidas');
   assert.equal(logs[1][2].acao, 'datas_faltantes_desfeitas');
+});
+
+test('logins no dominio do dono: so a plataforma, so Simular e Aplicar, e Aplicar deixa auditoria', async () => {
+  chamadas.length = 0;
+  const servidor = app.listen(0);
+  try {
+    const { port } = servidor.address();
+    const post = (corpo, usuario) => fetch(`http://127.0.0.1:${port}/api/manutencao/dominio-dos-logins`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-usuario-teste': JSON.stringify(usuario) },
+      body: JSON.stringify(corpo),
+    });
+    assert.equal((await post({ modo: 'aplicar' }, DONO_DE_EMPRESA)).status, 403);
+    const desfazer = await post({ modo: 'desfazer' }, PLATAFORMA);
+    assert.equal(desfazer.status, 400);
+    assert.match((await desfazer.json()).error, /só tem Simular e Aplicar/);
+    const simulado = await post({}, PLATAFORMA);
+    assert.equal(simulado.status, 200);
+    const corpo = await simulado.json();
+    assert.equal(corpo.modo, 'simular');
+    assert.equal(corpo.projeto, 'projeto-teste');
+    assert.equal(corpo.totais.trocados, 2);
+    assert.equal((await post({ modo: 'aplicar' }, PLATAFORMA)).status, 200);
+  } finally {
+    servidor.close();
+  }
+  assert.deepEqual(chamadas.filter(([tipo]) => tipo === 'dominio').map(([, o]) => o), [{ aplicar: false }, { aplicar: true }]);
+  const logs = chamadas.filter(([tipo]) => tipo === 'log');
+  assert.equal(logs.length, 1, 'so o Aplicar registra');
+  assert.equal(logs[0][2].acao, 'dominio_dos_logins');
+  assert.match(logs[0][2].descricao, /@login\.nexarcompany\.com\.br: 2 conta\(s\) trocada\(s\)/);
 });

@@ -30,7 +30,7 @@
  * e' o unico comportamento honesto.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checarUsername = exports.checarPrefixoDaEmpresa = exports.montarEmailSintetico = exports.montarChaveUsername = exports.USERNAME_MIN_LENGTH = exports.normalizarUsername = exports.CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY = exports.CNPJ_LEMBRADO_STORAGE_KEY = exports.formatarCnpj = exports.normalizarCnpj = void 0;
+exports.checarUsername = exports.checarPrefixoDaEmpresa = exports.emailNoDominioDoLogin = exports.ehEmailDoDominioAntigo = exports.montarEmailSintetico = exports.DOMINIO_DO_LOGIN_ANTIGO = exports.DOMINIO_DO_LOGIN = exports.montarChaveUsername = exports.USERNAME_MIN_LENGTH = exports.normalizarUsername = exports.CODIGO_VENDEDOR_LEMBRADO_STORAGE_KEY = exports.CNPJ_LEMBRADO_STORAGE_KEY = exports.formatarCnpj = exports.normalizarCnpj = void 0;
 /** Só dígitos, do jeito que a tela de login normaliza o CNPJ digitado. */
 const normalizarCnpj = (valor) => String(valor ?? '').replace(/\D/g, '');
 exports.normalizarCnpj = normalizarCnpj;
@@ -68,9 +68,47 @@ const montarChaveUsername = (cnpj, username) => {
     return `${cnpjLimpo}-${usuarioLimpo}`;
 };
 exports.montarChaveUsername = montarChaveUsername;
+/**
+ * DOMINIO DOS E-MAILS INTERNOS DE LOGIN (25/11/2026, auditoria de seguranca,
+ * item 1.3; decisao do dono).
+ *
+ * O login do funcionario no Firebase Auth e' um e-mail que ele nunca ve
+ * (`{cnpj}-{usuario}@<dominio>`). Ate' 25/11 o dominio era `nexar.app`, que
+ * NAO e' do dono: quem controla a caixa de e-mail de um dominio pode pedir ao
+ * Firebase "esqueci a senha" para qualquer um desses enderecos (previsiveis:
+ * o CNPJ e' publico), receber o link e entrar como o funcionario.
+ *
+ * O dominio agora e' um SUBDOMINIO do dono SEM registro DNS nenhum (sem MX,
+ * sem A): nao existe caixa de entrada, entao nenhum link de redefinicao chega
+ * a ninguem. REGRA PARA SEMPRE: nunca criar e-mail, MX, A ou curinga
+ * (`*.nexarcompany.com.br`) que cubra este subdominio.
+ *
+ * Um lugar so': o servidor cria o login com isto (gerado em server/domain) e a
+ * tarefa da Manutencao migra os antigos. O login NAO monta o e-mail: le o
+ * indice `usernames`, por isso a troca e' invisivel para o funcionario.
+ */
+exports.DOMINIO_DO_LOGIN = 'login.nexarcompany.com.br';
+/** Dominio ANTIGO, de terceiro. So' a migracao (Manutencao) usa; nada cria
+ *  nem aceita login nele. Um teste do servidor falha se ele aparecer em outro
+ *  arquivo do codigo. */
+exports.DOMINIO_DO_LOGIN_ANTIGO = 'nexar.app';
 /** Email sintetico do Firebase Auth. O funcionario nunca ve isso. */
-const montarEmailSintetico = (chaveUsername) => `${chaveUsername}@nexar.app`;
+const montarEmailSintetico = (chaveUsername) => `${chaveUsername}@${exports.DOMINIO_DO_LOGIN}`;
 exports.montarEmailSintetico = montarEmailSintetico;
+const emailMinusculo = (email) => String(email ?? '').trim().toLowerCase();
+/** O e-mail e' um login interno no dominio antigo (de terceiro)? */
+const ehEmailDoDominioAntigo = (email) => emailMinusculo(email).endsWith(`@${exports.DOMINIO_DO_LOGIN_ANTIGO}`);
+exports.ehEmailDoDominioAntigo = ehEmailDoDominioAntigo;
+/** O mesmo login no dominio novo: troca so' o que vem depois do "@".
+ *  Vazio quando nao e' um login do dominio antigo (nada a trocar). */
+const emailNoDominioDoLogin = (email) => {
+    const atual = emailMinusculo(email);
+    if (!(0, exports.ehEmailDoDominioAntigo)(atual))
+        return '';
+    const local = atual.slice(0, atual.lastIndexOf('@'));
+    return local ? `${local}@${exports.DOMINIO_DO_LOGIN}` : '';
+};
+exports.emailNoDominioDoLogin = emailNoDominioDoLogin;
 /**
  * A empresa esta apta a cadastrar funcionario?
  *

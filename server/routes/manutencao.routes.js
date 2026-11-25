@@ -9,6 +9,7 @@ const { protegerSegredos } = require('../services/protegerSegredos');
 const { zerarEstoqueECustosDaMigracao } = require('../services/zerarEstoqueMigracao');
 const { corrigirVendaFracionada } = require('../services/vendaFracionadaProdutos');
 const { ligarCreditosAoCliente } = require('../services/creditosDoCliente');
+const { migrarDominioDosLogins } = require('../services/dominioDosLogins');
 
 /**
  * MANUTENCAO DO BANCO, pelo Painel da Plataforma (2026-10-15).
@@ -339,6 +340,49 @@ router.post('/creditos-do-cliente', limite, async (req, res) => {
         : modo === 'aplicar'
           ? 'A tarefa parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no crédito que ainda não tem o cliente).'
           : 'Não foi possível ler os créditos da empresa agora. Tente de novo em alguns minutos.',
+    });
+  } finally {
+    emAndamento = false;
+  }
+});
+
+// Logins de funcionario no dominio do dono (25/11/2026, auditoria de seguranca
+// item 1.3): o dominio antigo e' de terceiro. Troca conta do Auth, indice `usernames`
+// e ficha. Sem "desfazer" (voltaria a abrir a porta). Em lotes: cada Aplicar
+// troca ate' `lote` logins e diz quantos faltam. Ver services/dominioDosLogins.js.
+router.post('/dominio-dos-logins', limite, async (req, res) => {
+  if (!req.user?.isPlatformAdmin) {
+    return res.status(403).json({ error: 'Só o administrador da plataforma pode rodar a manutenção do banco.' });
+  }
+  const modo = typeof req.body?.modo === 'string' ? req.body.modo : 'simular';
+  if (modo !== 'simular' && modo !== 'aplicar') {
+    return res.status(400).json({ error: 'Esta tarefa só tem Simular e Aplicar (desfazer voltaria os logins para o domínio de terceiro).' });
+  }
+  if (emAndamento) {
+    return res.status(409).json({ error: 'Já tem uma tarefa de manutenção rodando. Espere ela terminar e tente de novo.' });
+  }
+  emAndamento = true;
+  const projeto = projectId || admin.app().options.projectId || null;
+  try {
+    const resultado = await migrarDominioDosLogins({ aplicar: modo === 'aplicar' });
+    const t = resultado.totais;
+    console.log(`[Manutencao] dominio dos logins: ${modo} por ${req.user.email || req.user.uid} no projeto ${projeto} -- ${resultado.contasNoDominioAntigo} contas no dominio antigo; trocados ${t.trocados}, so' cadastro ${t.soCadastro}, sem conta ${t.semConta}, pendentes ${t.pendentes}, falhas ${t.falhas}`);
+    if (modo === 'aplicar' && t.trocados + t.soCadastro + t.semConta > 0) {
+      registrarLog(req.user, {
+        modulo: 'manutencao',
+        acao: 'dominio_dos_logins',
+        descricao: `Logins de funcionário passados para @${resultado.dominioNovo}: ${t.trocados} conta(s) trocada(s), ${t.soCadastro + t.semConta} cadastro(s) acertado(s), ${t.falhas} falha(s), ${t.pendentes} para o próximo lote.`,
+        alteracoes: resultado.empresas.map((e) => ({ empresa: e.nome, tenantId: e.tenantId, trocados: e.trocados, falhas: e.totalFalhas })),
+        critico: true,
+      });
+    }
+    return res.json({ projeto, modo, ...resultado });
+  } catch (erro) {
+    console.error(`[Manutencao] dominio dos logins (${modo}) falhou:`, erro.message);
+    return res.status(500).json({
+      error: modo === 'aplicar'
+        ? 'A troca parou no meio. Rode "Simular" de novo para ver o que falta (rodar de novo é seguro: só mexe no login que ainda está no domínio antigo).'
+        : 'Não foi possível ler os logins agora. Tente de novo em alguns minutos.',
     });
   } finally {
     emAndamento = false;

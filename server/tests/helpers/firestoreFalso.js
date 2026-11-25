@@ -188,6 +188,30 @@ const carregarComBancoFalso = (db, ...servicos) => {
       }
       return { uid, ...conta };
     },
+    // Troca de e-mail/senha (dominio dos logins, 25/11/2026), sobre as mesmas contas de
+    // `db.__contasDoAuth`: e-mail repetido e conta inexistente falham como no Firebase;
+    // `falharTroca: '<codigo>'` na conta simula outra recusa. Cada troca fica em `db.__trocasNoAuth`.
+    updateUser: async (uid, campos) => {
+      const contasDoAuth = db.__contasDoAuth || new Map();
+      const conta = contasDoAuth.get(uid);
+      const falhar = (codigo) => { const erro = new Error(codigo); erro.code = codigo; throw erro; };
+      if (!conta) falhar('auth/user-not-found');
+      if (conta.falharTroca) falhar(conta.falharTroca);
+      if (campos.email !== undefined) {
+        const novo = String(campos.email).toLowerCase();
+        for (const [outro, dados] of contasDoAuth) if (outro !== uid && String(dados.email || '').toLowerCase() === novo) falhar('auth/email-already-exists');
+      }
+      Object.assign(conta, campos);
+      (db.__trocasNoAuth || (db.__trocasNoAuth = [])).push([uid, campos]);
+      return { uid, ...conta };
+    },
+    // Lista de contas em paginas (o Admin SDK devolve pageToken enquanto houver mais).
+    listUsers: async (max = 1000, pageToken) => {
+      const todas = [...(db.__contasDoAuth || new Map()).entries()].map(([uid, conta]) => ({ uid, ...conta }));
+      const inicio = Number(pageToken || 0);
+      const fim = inicio + Math.min(max, db.__tamanhoDaPaginaDoAuth || max);
+      return { users: todas.slice(inicio, fim), ...(fim < todas.length ? { pageToken: String(fim) } : {}) };
+    },
     // Token de entrada (caixa com codigo e senha, 22/11/2026): "custom:<uid>:<marcas em JSON>".
     createCustomToken: async (uid, marcas) => `custom:${uid}:${JSON.stringify(marcas || {})}`,
     // Token falso "falso:<uid>:<auth_time em segundos>" (liberacao de desconto, 19/10/2026).

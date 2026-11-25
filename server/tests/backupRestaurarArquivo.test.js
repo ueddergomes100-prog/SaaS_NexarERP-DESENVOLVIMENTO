@@ -59,3 +59,29 @@ test('arquivo enviado errado e barrado ANTES do backup de emergencia e de qualqu
   assert.deepEqual(emergencias, [], 'nem o backup de emergencia foi gerado');
   assert.equal(fake.ler('clientes/c9').nome, 'ATUAL', 'dados atuais intactos');
 });
+
+test('restaurar backup de antes da troca de dominio nao traz de volta o e-mail antigo de login (25/11/2026)', async () => {
+  // A conta do Auth e o indice `usernames` nao voltam com o backup: a ficha segue o login de HOJE.
+  const chave = '12345678000190-ana';
+  const antigo = `${chave}@${'nexar'}.app`;
+  const novo = `${chave}@login.nexarcompany.com.br`;
+  const fake = criarBancoFalso({
+    'configuracoes/loja': { nomeOficina: 'LOJA' },
+    'usuarios/ana': { tenantId: 'loja', role: 'Funcionario', nome: 'ANA', username: chave, email: novo },
+    [`usernames/${chave}`]: { tenantId: 'loja', email: novo },
+  }, { consultas: true });
+  const dados = {
+    configuracoes: { id: 'loja', nomeOficina: 'LOJA' },
+    usuarios: [
+      { id: 'ana', tenantId: 'loja', role: 'Funcionario', nome: 'ANA', username: chave, email: antigo },
+      // Sem indice hoje (ex.: excluido depois do backup): fica como veio.
+      { id: 'beto', tenantId: 'loja', role: 'Funcionario', nome: 'BETO', username: '12345678000190-beto', email: `12345678000190-beto@${'nexar'}.app` },
+    ],
+    clientes: [],
+  };
+  await carregar(fake.db).restoreCompanyBackup('loja', 'LOJA', 'arquivo.json.gz', 'suporte@hennder', arquivoDeBackup('loja', dados));
+  assert.equal(fake.ler('usuarios/ana').email, novo);
+  assert.equal(fake.ler('usuarios/ana').nome, 'ANA');
+  assert.equal(fake.ler('usuarios/beto').email, `12345678000190-beto@${'nexar'}.app`);
+  assert.deepEqual(fake.ler(`usernames/${chave}`), { tenantId: 'loja', email: novo }, 'indice intacto');
+});

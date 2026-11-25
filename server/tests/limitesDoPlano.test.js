@@ -31,7 +31,8 @@ test('criar login dentro do limite: conta, cadastro e indice de login', async ()
   assert.deepEqual(cadastro.permissoes, []);
   assert.equal(cadastro.codigoVendedor, '07');
   assert.equal(cadastro.username, `${CNPJ}-joao`);
-  assert.deepEqual(fake.ler(`usernames/${CNPJ}-joao`), { email: `${CNPJ}-joao@nexar.app`, tenantId: 'loja' });
+  assert.equal(cadastro.email, `${CNPJ}-joao@login.nexarcompany.com.br`);
+  assert.deepEqual(fake.ler(`usernames/${CNPJ}-joao`), { email: `${CNPJ}-joao@login.nexarcompany.com.br`, tenantId: 'loja' });
 });
 
 test('criar login acima do limite e\' recusado; vendedor de balcao nao conta', async () => {
@@ -65,6 +66,18 @@ test('usuario repetido, codigo em uso e CNPJ faltando sao recusados com mensagem
   await assert.rejects(() => s.criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ usuario: 'maria', codigoVendedor: '5' }) }), (erro) => erro.status === 409 && /código 05/.test(erro.message));
   const semCnpj = criarBancoFalso({ 'configuracoes/loja': { tenantId: 'loja' }, 'usuarios/loja': { tenantId: 'loja', role: 'Master' } }, { consultas: true });
   await assert.rejects(() => carregar(semCnpj.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo() }), (erro) => erro.status === 400 && /CNPJ/.test(erro.message));
+});
+
+test('usuario que ainda esta no dominio antigo nao e criado de novo no dominio novo (25/11/2026)', async () => {
+  // Entre publicar o codigo e rodar a migracao, o Auth nao acusa repetido (e-mails diferentes):
+  // e' o indice que segura, senao o login novo tomaria o indice do funcionario antigo.
+  const antigo = { email: `${CNPJ}-joao@${'nexar'}.app`, tenantId: 'loja' };
+  const fake = criarBancoFalso(base({ [`usernames/${CNPJ}-joao`]: antigo }), { consultas: true });
+  await assert.rejects(
+    () => carregar(fake.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo() }),
+    (erro) => erro.status === 409 && /já está em uso/.test(erro.message),
+  );
+  assert.deepEqual(fake.ler(`usernames/${CNPJ}-joao`), antigo, 'indice do funcionario antigo intacto');
 });
 
 test('ligar o app confere a vaga; vendedor ganha o indice de login', async () => {

@@ -162,7 +162,7 @@ interface AuthContextType {
    *  mobile do vendedor externo liberado. Ver acessoMobileDomain.ts. */
   acessoAppMobile: boolean;
   /** Nome de verdade do login (campo `nome` do doc usuarios/{uid}), nao o
-   *  e-mail sintetico (`{cnpj}-{usuario}@nexar.app`) que auth.currentUser
+   *  e-mail sintetico (`{cnpj}-{usuario}@login.nexarcompany.com.br`) que auth.currentUser
    *  carrega pra login de Funcionario. */
   userNome: string;
   /** "Meu Perfil" gravou um nome novo (11/11/2026): o topo, o historico e as

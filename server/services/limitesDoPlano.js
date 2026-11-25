@@ -107,6 +107,12 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
 
   const chave = ident.montarChaveUsername(checagemCnpj.cnpj, checagemUsuario.username);
   const email = ident.montarEmailSintetico(chave);
+  // Usuario ja' usado (25/11/2026, dominio dos logins): o indice e' quem diz.
+  // So' o Auth nao basta -- um login ainda no dominio antigo tem outro e-mail,
+  // e o login novo tomaria o indice dele (o funcionario antigo nao entraria mais).
+  if ((await db.collection('usernames').doc(chave).get()).exists) {
+    throw new ErroLimite(409, 'Este nome de usuário já está em uso. Escolha outro.');
+  }
   let novo;
   try {
     novo = await admin.auth().createUser({ email, password: senha, displayName: nome });

@@ -122,6 +122,20 @@ async function clearCompanyData(companyId, colecoes) {
 }
 
 /**
+ * E-mail que o login deste funcionario usa hoje, pelo indice `usernames` (que a
+ * restauracao nao mexe). Vazio quando nao ha indice desta empresa: a ficha
+ * fica como veio no backup (a tarefa "Logins no dominio do dono" da Manutencao
+ * acerta o que sobrar).
+ */
+async function emailDoLoginAtual(ficha, companyId) {
+  const chave = typeof ficha.username === 'string' ? ficha.username.trim() : '';
+  if (!chave || !ficha.email || chave.includes('/')) return '';
+  const snap = await db.collection('usernames').doc(chave).get();
+  const indice = snap.exists ? snap.data() || {} : {};
+  return indice.tenantId === companyId && typeof indice.email === 'string' && indice.email ? indice.email : '';
+}
+
+/**
  * Restaura os dados importados no Firestore usando batches sequenciais.
  */
 async function writeRestoredData(companyId, arquivo) {
@@ -155,6 +169,12 @@ async function writeRestoredData(companyId, arquivo) {
         await db.collection('usuarios').doc(docId).set(uData, { merge: true });
         continue;
       }
+
+      // E-mail do login (25/11/2026, dominio dos logins): a conta do Auth e o
+      // indice `usernames` NAO voltam com o backup. Uma ficha de antes da troca
+      // de dominio voltaria com o endereco antigo; ela segue o que o login usa HOJE.
+      const emailDoLoginHoje = await emailDoLoginAtual(uData, companyId);
+      if (emailDoLoginHoje) uData.email = emailDoLoginHoje;
 
       batch.set(db.collection('usuarios').doc(docId), uData);
       opCount++;

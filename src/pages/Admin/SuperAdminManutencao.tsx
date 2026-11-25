@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, CalendarCheck, KeyRound, Loader2, PackageX, RotateCcw, Ruler, Search, Wallet, Wrench } from 'lucide-react';
+import { Building2, CalendarCheck, KeyRound, Loader2, PackageX, RotateCcw, Ruler, Search, ShieldCheck, Wallet, Wrench } from 'lucide-react';
 import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
 import {
   rodarDatasFaltantes,
@@ -8,8 +8,10 @@ import {
   rodarZerarEstoqueMigracao,
   rodarVendaFracionada,
   rodarCreditosDoCliente,
+  rodarDominioDosLogins,
   type ModoDatasFaltantes,
   type ResultadoCreditosDoCliente,
+  type ResultadoDominioDosLogins,
   type ResultadoConfiguracoesGerais,
   type ResultadoDatasFaltantes,
   type ResultadoProtecaoDeSegredos,
@@ -50,6 +52,150 @@ const ListaDetalhe: React.FC<{ titulo: string; total: number; itens: string[] }>
         {itens.map((item) => <li key={item}>{item}</li>)}
       </ul>
     </details>
+  );
+};
+
+/**
+ * Logins de funcionario no dominio do dono (25/11/2026, auditoria de seguranca
+ * item 1.3): o dominio antigo dos logins internos e' de terceiro. Troca a conta
+ * do login, o indice usado na tela de entrada e a ficha. Sem "desfazer" (voltaria
+ * a abrir a porta). Em lotes: o Aplicar diz quantos faltam.
+ */
+const CartaoDominioDosLogins: React.FC = () => {
+  const [rodando, setRodando] = useState<'simular' | 'aplicar' | null>(null);
+  const [resultado, setResultado] = useState<ResultadoDominioDosLogins | null>(null);
+  const ambienteIdentificado = Boolean(resultado?.projeto);
+  const t = resultado?.totais;
+  const aFazer = t ? t.trocados + t.soCadastro + t.semConta : 0;
+  // Aplicar libera depois de um Simular com trabalho ou de um Aplicar que deixou lote pendente.
+  const podeAplicar = ambienteIdentificado && Boolean(t) && (
+    (resultado?.modo === 'simular' && aFazer > 0) || (resultado?.modo === 'aplicar' && (t?.pendentes ?? 0) > 0)
+  );
+  const empresasComAlgo = (resultado?.empresas ?? []).filter((e) => e.trocados + e.soCadastro + e.semConta + e.pendentes + e.totalFalhas > 0);
+
+  const rodar = async (modo: 'simular' | 'aplicar') => {
+    if (modo === 'aplicar') {
+      const quantos = resultado?.modo === 'simular' ? aFazer : (t?.pendentes ?? 0);
+      const confirmacao = await NexusSwal.fire({
+        title: `Passar ${quantos} ${quantos === 1 ? 'login' : 'logins'} para o domínio novo?`,
+        html: `Ambiente: <strong>${escaparHtml(rotuloDoProjeto(resultado?.projeto ?? null))}</strong>.<br/>`
+          + 'Cada funcionário continua entrando com o mesmo CNPJ, usuário e senha.<br/>'
+          + '<strong>Quem estiver com o sistema aberto pode ter de entrar de novo</strong> (o Firebase encerra as sessões quando o login muda). Rode fora do horário de movimento das lojas.<br/>'
+          + `Cada Aplicar troca até ${escaparHtml(String(resultado?.lote ?? 100))} logins; se sobrar, o botão continua liberado para o próximo lote.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Trocar os logins',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirmacao.isConfirmed) return;
+    }
+    setRodando(modo);
+    try {
+      const novo = await rodarDominioDosLogins(modo);
+      setResultado(novo);
+      if (modo === 'aplicar') {
+        const feitos = novo.totais.trocados + novo.totais.soCadastro + novo.totais.semConta;
+        if (novo.totais.falhas > 0) {
+          showError('Parte dos logins não foi trocada', `${feitos} acertado(s) e ${novo.totais.falhas} com problema. Veja a lista de cada empresa nesta tela, resolva e rode Simular de novo.`);
+        } else {
+          showSuccess(novo.totais.pendentes > 0
+            ? `${feitos} login(s) trocado(s). Faltam ${novo.totais.pendentes}: clique em Aplicar de novo.`
+            : `${feitos} login(s) trocado(s). Nenhum login ficou no domínio antigo.`);
+        }
+      }
+    } catch (erro) {
+      showError('Não foi possível rodar a tarefa', erro instanceof Error ? erro.message : undefined);
+    } finally {
+      setRodando(null);
+    }
+  };
+
+  return (
+    <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+        <span style={{ width: '42px', height: '42px', borderRadius: '13px', backgroundColor: 'rgba(124, 58, 237, 0.12)', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+          <ShieldCheck size={21} />
+        </span>
+        <div>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, margin: '0 0 4px' }}>Logins de funcionário no domínio da empresa</h2>
+          <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+            O login interno dos funcionários usava um domínio de e-mail que não é nosso. Esta tarefa passa cada um para
+            <strong> login.nexarcompany.com.br</strong>, que não recebe e-mail. O funcionário não percebe: entra com o mesmo CNPJ, usuário e senha
+            (sistema, Frente de Caixa e app Vendas). Quem estiver com o sistema aberto pode ter de entrar de novo.
+            <strong> Comece por Simular: nada é gravado.</strong>
+          </p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+        <button type="button" className="btn-secondary" onClick={() => rodar('simular')} disabled={rodando !== null} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {rodando === 'simular' ? <Loader2 size={18} className="spin-icon" /> : <Search size={18} />}
+          {rodando === 'simular' ? 'Simulando...' : 'Simular'}
+        </button>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => rodar('aplicar')}
+          disabled={rodando !== null || !podeAplicar}
+          title={podeAplicar ? undefined : 'Rode Simular primeiro; Aplicar libera quando houver login no domínio antigo.'}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: rodando !== null || !podeAplicar ? 0.6 : 1 }}
+        >
+          {rodando === 'aplicar' ? <Loader2 size={18} className="spin-icon" /> : <ShieldCheck size={18} />}
+          {rodando === 'aplicar' ? 'Trocando...' : `Aplicar${podeAplicar ? ` (${resultado?.modo === 'simular' ? aFazer : t?.pendentes})` : ''}`}
+        </button>
+      </div>
+
+      {rodando === 'aplicar' && (
+        <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
+          Trocando os logins com uma pausa entre cada um (limite do Firebase). Pode levar alguns minutos; não feche a tela.
+        </p>
+      )}
+
+      {resultado && t && !rodando && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Ambiente: <strong style={{ color: 'var(--text-primary)' }}>{rotuloDoProjeto(resultado.projeto)}</strong>
+            {' · '}
+            {resultado.modo === 'simular' ? 'Simulação (nada foi gravado)' : 'Gravado'}
+            {' · '}
+            {resultado.contasNoDominioAntigo} {resultado.contasNoDominioAntigo === 1 ? 'login ainda' : 'logins ainda'} no domínio antigo
+          </div>
+          <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+            <strong style={{ color: 'var(--text-primary)' }}>{resultado.modo === 'simular' ? 'A trocar' : 'Trocados'}: {t.trocados}</strong>
+            {t.soCadastro > 0 && <> · só o cadastro a acertar: {t.soCadastro}</>}
+            {t.semConta > 0 && <> · ficha sem login: {t.semConta}</>}
+            {' · '}já no domínio novo: {t.jaNoDominioNovo}
+            {t.pendentes > 0 && <> · <strong style={{ color: 'var(--text-primary)' }}>faltam {t.pendentes} (clique em Aplicar de novo)</strong></>}
+            {t.falhas > 0 && <> · <strong style={{ color: '#ef4444' }}>com problema: {t.falhas}</strong></>}
+          </div>
+          {empresasComAlgo.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: '18px', color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
+              {empresasComAlgo.map((e) => (
+                <li key={e.tenantId || 'sem-empresa'}>
+                  <strong>{e.nome}</strong>: {resultado.modo === 'simular' ? 'a trocar' : 'trocados'} {e.trocados}
+                  {e.soCadastro + e.semConta > 0 && <>, cadastro {e.soCadastro + e.semConta}</>}
+                  {e.jaNoDominioNovo > 0 && <>, já estavam {e.jaNoDominioNovo}</>}
+                  {e.pendentes > 0 && <>, faltam {e.pendentes}</>}
+                  {e.totalFalhas > 0 && <>, <span style={{ color: '#ef4444', fontWeight: 600 }}>com problema {e.totalFalhas}</span></>}
+                  {e.falhas.length > 0 && (
+                    <ul style={{ margin: '4px 0 0', paddingLeft: '18px', color: 'var(--text-muted)' }}>
+                      {e.falhas.map((f) => <li key={f.uid}><strong>{f.nome || f.usuario}</strong>: {f.motivo}</li>)}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>Nada a trocar: nenhum login no domínio antigo.</p>
+          )}
+          {!ambienteIdentificado && (
+            <p style={{ margin: 0, fontSize: '14px', color: '#ef4444', fontWeight: 600 }}>
+              O servidor não informou em qual banco está ligado, então o Aplicar fica bloqueado. Avise o suporte.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -841,6 +987,7 @@ const SuperAdminManutencao: React.FC = () => {
         )}
       </div>
 
+      <CartaoDominioDosLogins />
       <CartaoConfiguracoesGerais />
       <CartaoProtegerSegredos />
       <CartaoZerarEstoqueMigracao />

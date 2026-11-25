@@ -237,3 +237,51 @@ export const rodarCreditosDoCliente = async (modo: 'simular' | 'aplicar', tenant
   if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
   return dados as ResultadoCreditosDoCliente;
 };
+
+export interface EmpresaDominioDosLogins {
+  tenantId: string;
+  nome: string;
+  /** Funcionarios desta empresa que ja' entram pelo dominio novo. */
+  jaNoDominioNovo: number;
+  /** Contas trocadas (Aplicar) ou a trocar (Simular). */
+  trocados: number;
+  /** So' indice/ficha acertados: a conta ja' estava no dominio novo. */
+  soCadastro: number;
+  /** Ficha no dominio antigo cuja conta nao existe mais no login. */
+  semConta: number;
+  /** Ficaram para o proximo Aplicar (lote). */
+  pendentes: number;
+  totalFalhas: number;
+  falhas: Array<{ uid: string; nome: string; usuario: string; motivo: string }>;
+}
+
+export interface ResultadoDominioDosLogins {
+  projeto: string | null;
+  modo: 'simular' | 'aplicar';
+  dominioNovo: string;
+  dominioAntigo: string;
+  lote: number;
+  contasNoDominioAntigo: number;
+  totais: { trocados: number; soCadastro: number; semConta: number; jaNoDominioNovo: number; pendentes: number; falhas: number; indicesSoltos: number };
+  empresas: EmpresaDominioDosLogins[];
+}
+
+/** Logins de funcionario no dominio do dono (25/11/2026, auditoria de seguranca item 1.3). */
+export const rodarDominioDosLogins = async (modo: 'simular' | 'aplicar'): Promise<ResultadoDominioDosLogins> => {
+  if (!API_URL) throw new ManutencaoError('Esta operação precisa do servidor, que não está configurado neste ambiente. Avise o suporte.', 0);
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) throw new ManutencaoError('Sua sessão expirou. Entre novamente para continuar.', 401);
+  let resposta: Response;
+  try {
+    resposta = await fetchComTimeout(`${API_URL}/api/manutencao/dominio-dos-logins`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo }),
+    }, TEMPO_LIMITE.manutencao);
+  } catch (erro) {
+    throw new ManutencaoError(mensagemDeFalhaDeRede(erro), 0);
+  }
+  const dados = await resposta.json().catch(() => ({}));
+  if (!resposta.ok) throw new ManutencaoError(dados.error || 'Não foi possível concluir a tarefa. Tente novamente.', resposta.status);
+  return dados as ResultadoDominioDosLogins;
+};

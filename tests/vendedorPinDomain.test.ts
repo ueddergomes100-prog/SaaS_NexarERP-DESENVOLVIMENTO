@@ -137,7 +137,7 @@ test('montarChaveUsername devolve vazio sem CNPJ ou sem usuario', () => {
 });
 
 test('montarEmailSintetico usa a chave completa', () => {
-  assert.equal(montarEmailSintetico('12345678000199-joao'), '12345678000199-joao@nexar.app');
+  assert.equal(montarEmailSintetico('12345678000199-joao'), '12345678000199-joao@login.nexarcompany.com.br');
 });
 
 test('checarPrefixoDaEmpresa BLOQUEIA empresa sem CNPJ, em vez de inventar prefixo', () => {

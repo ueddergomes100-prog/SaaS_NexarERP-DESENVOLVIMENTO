@@ -71,9 +71,50 @@ export const montarChaveUsername = (cnpj: unknown, username: unknown): string =>
   return `${cnpjLimpo}-${usuarioLimpo}`;
 };
 
+/**
+ * DOMINIO DOS E-MAILS INTERNOS DE LOGIN (25/11/2026, auditoria de seguranca,
+ * item 1.3; decisao do dono).
+ *
+ * O login do funcionario no Firebase Auth e' um e-mail que ele nunca ve
+ * (`{cnpj}-{usuario}@<dominio>`). Ate' 25/11 o dominio era `nexar.app`, que
+ * NAO e' do dono: quem controla a caixa de e-mail de um dominio pode pedir ao
+ * Firebase "esqueci a senha" para qualquer um desses enderecos (previsiveis:
+ * o CNPJ e' publico), receber o link e entrar como o funcionario.
+ *
+ * O dominio agora e' um SUBDOMINIO do dono SEM registro DNS nenhum (sem MX,
+ * sem A): nao existe caixa de entrada, entao nenhum link de redefinicao chega
+ * a ninguem. REGRA PARA SEMPRE: nunca criar e-mail, MX, A ou curinga
+ * (`*.nexarcompany.com.br`) que cubra este subdominio.
+ *
+ * Um lugar so': o servidor cria o login com isto (gerado em server/domain) e a
+ * tarefa da Manutencao migra os antigos. O login NAO monta o e-mail: le o
+ * indice `usernames`, por isso a troca e' invisivel para o funcionario.
+ */
+export const DOMINIO_DO_LOGIN = 'login.nexarcompany.com.br';
+
+/** Dominio ANTIGO, de terceiro. So' a migracao (Manutencao) usa; nada cria
+ *  nem aceita login nele. Um teste do servidor falha se ele aparecer em outro
+ *  arquivo do codigo. */
+export const DOMINIO_DO_LOGIN_ANTIGO = 'nexar.app';
+
 /** Email sintetico do Firebase Auth. O funcionario nunca ve isso. */
 export const montarEmailSintetico = (chaveUsername: string): string =>
-  `${chaveUsername}@nexar.app`;
+  `${chaveUsername}@${DOMINIO_DO_LOGIN}`;
+
+const emailMinusculo = (email: unknown): string => String(email ?? '').trim().toLowerCase();
+
+/** O e-mail e' um login interno no dominio antigo (de terceiro)? */
+export const ehEmailDoDominioAntigo = (email: unknown): boolean =>
+  emailMinusculo(email).endsWith(`@${DOMINIO_DO_LOGIN_ANTIGO}`);
+
+/** O mesmo login no dominio novo: troca so' o que vem depois do "@".
+ *  Vazio quando nao e' um login do dominio antigo (nada a trocar). */
+export const emailNoDominioDoLogin = (email: unknown): string => {
+  const atual = emailMinusculo(email);
+  if (!ehEmailDoDominioAntigo(atual)) return '';
+  const local = atual.slice(0, atual.lastIndexOf('@'));
+  return local ? `${local}@${DOMINIO_DO_LOGIN}` : '';
+};
 
 export interface ChecagemPrefixo {
   ok: boolean;

@@ -596,6 +596,20 @@ service cloud.firestore {
       return collectionName != 'clientes' || !('cashback' in request.resource.data);
     }
 
+    // Limite de credito do cliente (bloco B de seguranca, 25/11/2026): so' quem
+    // cadastra clientes (ou o dono/administrador) muda. Antes quem so' agenda, ou
+    // so' opera o caixa, aumentava o limite de qualquer cliente.
+    function limiteDeCreditoProtegido(collectionName) {
+      return collectionName != 'clientes'
+        || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['limiteDeCredito', 'limiteDeCreditoCents'])
+        || hasPermission('cadastros.clientes') || isTenantAdmin();
+    }
+    function limiteDeCreditoNaoNasceSemPermissao(collectionName) {
+      return collectionName != 'clientes'
+        || request.resource.data.get('limiteDeCredito', null) == null
+        || hasPermission('cadastros.clientes') || isTenantAdmin();
+    }
+
     function cadastroDoGrupoRespeitado(collectionName) {
       return !(collectionName in ['clientes', 'estoque']) ||
         resource.data.get('filialOrigem', currentTenantId()) == currentTenantId() ||
@@ -1097,7 +1111,7 @@ service cloud.firestore {
         'notas_avulsas',
         // So' o administrador (canManageTenantData em canWriteTenantCollection).
         'historico_sistema_anterior'
-      ] && canCreateTenantDocument() && romaneioNasceEmMontagem(collectionName) && cashbackNaoNasceNaTela(collectionName) && canWriteTenantCollection(collectionName);
+      ] && canCreateTenantDocument() && romaneioNasceEmMontagem(collectionName) && cashbackNaoNasceNaTela(collectionName) && limiteDeCreditoNaoNasceSemPermissao(collectionName) && canWriteTenantCollection(collectionName);
 
       allow update: if collectionName in [
         'clientes',
@@ -1146,7 +1160,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && cashbackSoPeloServidor(collectionName) && romaneioAbertoNaTela(collectionName) && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && cashbackSoPeloServidor(collectionName) && limiteDeCreditoProtegido(collectionName) && romaneioAbertoNaTela(collectionName) && (
         // Gestor da empresa (Master/Admin) primeiro (2026-10-20): ele ja' era
         // liberado por canWriteTenantCollection, mas so' depois de avaliar
         // canAdjustStockQuantity inteira -- um Admin SEM as permissoes de venda

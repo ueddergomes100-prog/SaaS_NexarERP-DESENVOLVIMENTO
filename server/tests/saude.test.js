@@ -37,3 +37,24 @@ test('leitura que nunca responde = erro por tempo limite', async () => {
   assert.equal(estado.ok, false);
   assert.match(estado.motivo, /não respondeu/);
 });
+
+test('bloco B (25/11/2026): diagnostico do /health so para a equipe da plataforma logada', async () => {
+  const { pedidoDaPlataforma } = require('../services/saude');
+  const auth = {
+    verifyIdToken: async (t) => {
+      if (t === 'plataforma') return { uid: 'p1', role: 'SuperAdmin', firebase: { sign_in_provider: 'password' } };
+      if (t === 'ficha-plataforma') return { uid: 'p2', firebase: { sign_in_provider: 'password' } };
+      if (t === 'codigo') return { uid: 'p3', role: 'SuperAdmin', firebase: { sign_in_provider: 'custom' } };
+      if (t === 'empresa') return { uid: 'u1', role: 'Master', firebase: { sign_in_provider: 'password' } };
+      throw new Error('token invalido');
+    },
+  };
+  const db = { collection: () => ({ doc: (id) => ({ get: async () => ({ exists: id === 'p2', data: () => ({ role: 'NexarAdmin' }) }) }) }) };
+  const pedido = (token) => ({ headers: token ? { authorization: `Bearer ${token}` } : {} });
+  assert.equal(await pedidoDaPlataforma(pedido(''), { auth, db }), false, 'sem login: publico');
+  assert.equal(await pedidoDaPlataforma(pedido('lixo'), { auth, db }), false);
+  assert.equal(await pedidoDaPlataforma(pedido('empresa'), { auth, db }), false, 'dono de empresa nao ve');
+  assert.equal(await pedidoDaPlataforma(pedido('codigo'), { auth, db }), false, 'login por codigo nunca e plataforma');
+  assert.equal(await pedidoDaPlataforma(pedido('plataforma'), { auth, db }), true);
+  assert.equal(await pedidoDaPlataforma(pedido('ficha-plataforma'), { auth, db }), true);
+});

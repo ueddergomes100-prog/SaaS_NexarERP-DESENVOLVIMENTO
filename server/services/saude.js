@@ -49,4 +49,25 @@ const limparCacheDaSonda = () => {
   ultimaSonda = { em: 0, resultado: null };
 };
 
-module.exports = { estadoDoFirestore, limparCacheDaSonda, INTERVALO_CACHE_MS, TEMPO_LIMITE_MS };
+/**
+ * O pedido do /health veio da equipe da plataforma logada? (bloco B de seguranca,
+ * 25/11/2026: so' ela ve o diagnostico.) Login por codigo nunca vale como plataforma
+ * (mesma regra do middleware/auth.js). Qualquer falha = nao (resposta publica).
+ */
+const PAPEIS_DA_PLATAFORMA = ['NexarAdmin', 'SuperAdmin'];
+const pedidoDaPlataforma = async (req, { auth, db } = {}) => {
+  const cabecalho = String((req && req.headers && req.headers.authorization) || '');
+  if (!auth || !cabecalho.startsWith('Bearer ')) return false;
+  try {
+    const token = await auth.verifyIdToken(cabecalho.slice(7));
+    if (token.firebase && token.firebase.sign_in_provider === 'custom') return false;
+    if (token.nexarAdmin === true || token.superAdmin === true || PAPEIS_DA_PLATAFORMA.includes(token.role)) return true;
+    if (!db) return false;
+    const ficha = await db.collection('usuarios').doc(token.uid).get();
+    return ficha.exists && PAPEIS_DA_PLATAFORMA.includes(ficha.data().role);
+  } catch {
+    return false;
+  }
+};
+
+module.exports = { estadoDoFirestore, limparCacheDaSonda, pedidoDaPlataforma, INTERVALO_CACHE_MS, TEMPO_LIMITE_MS };

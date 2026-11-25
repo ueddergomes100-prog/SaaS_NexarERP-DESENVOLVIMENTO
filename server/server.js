@@ -7,12 +7,12 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const { version: VERSAO } = require('./package.json');
-const { db } = require('./config/firebase');
+const { db, auth } = require('./config/firebase');
 const { initScheduler } = require('./services/scheduler');
 const { initQueueService } = require('./services/queue');
 const { iniciarRotinasDiarias } = require('./services/rotinasDiarias');
 const { diagnosticoConfiguracao, pendenciasDeProducao, trustProxyHops, emProducao } = require('./services/configuracaoAmbiente');
-const { estadoDoFirestore } = require('./services/saude');
+const { estadoDoFirestore, pedidoDaPlataforma: daPlataforma } = require('./services/saude');
 const { limitadorGlobalApi, limitadorDoWebhook } = require('./middleware/rateLimit');
 const { verificadorAppCheck } = require('./middleware/appCheck');
 const { ipDoCliente } = require('./utils/requestIp');
@@ -167,16 +167,26 @@ app.use('/api', verificadorAppCheck());
  * nao esta acessivel (credencial faltando, rede) -- e' isso que um monitor
  * externo precisa pra avisar. `configuracao` diz so' se cada variavel esta
  * PRESENTE, nunca o valor.
+ *
+ * Bloco B de seguranca (25/11/2026): para qualquer um, so' status, horario,
+ * tempo no ar e versao (o monitor externo e a conferencia depois do deploy usam
+ * isso). O diagnostico (o que falta configurar, versao do Node, motivo da falha
+ * do banco, IP visto) so' para a equipe da plataforma logada (Authorization:
+ * Bearer <token>), ver services/saude.js pedidoDaPlataforma.
  */
 app.get('/health', async (req, res) => {
   const firestore = await estadoDoFirestore(db);
-  const configuracao = diagnosticoConfiguracao();
-  const pendencias = emProducao() ? pendenciasDeProducao(configuracao) : [];
-  res.status(firestore.ok ? 200 : 503).json({
+  const publico = {
     status: firestore.ok ? 'online' : 'degradado',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     versao: VERSAO,
+  };
+  if (!(await daPlataforma(req, { auth, db }))) return res.status(firestore.ok ? 200 : 503).json(publico);
+  const configuracao = diagnosticoConfiguracao();
+  const pendencias = emProducao() ? pendenciasDeProducao(configuracao) : [];
+  res.status(firestore.ok ? 200 : 503).json({
+    ...publico,
     node: process.version,
     firestore: firestore.ok ? 'ok' : 'erro',
     ...(firestore.ok ? {} : { firestoreMotivo: firestore.motivo }),

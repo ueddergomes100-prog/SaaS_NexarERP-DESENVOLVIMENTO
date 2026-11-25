@@ -12,8 +12,10 @@
  *    QR que nao paga.
  *  - SO' NO QUE FALTA PAGAR, para o cliente nao pagar duas vezes:
  *      pre-venda / pedido em analise  -> o valor total;
- *      venda finalizada               -> o que ficou em Boleto ou Pagamento a
- *                                        Prazo (o que o cliente ainda deve);
+ *      venda finalizada               -> o que ficou em Pagamento a Prazo (o
+ *                                        que o cliente ainda deve);
+ *      BOLETO NUNCA (25/11/2026): o cliente paga pelo boleto; na pre-venda
+ *      com boleto combinado, essa parte sai do valor do QR;
  *      venda paga na hora (dinheiro, Pix, cartao, cheque) ou cancelada -> sem QR.
  *    Cartao fica "pendente" no sistema enquanto a operadora nao repassa, mas o
  *    cliente ja' pagou: nao conta.
@@ -127,22 +129,36 @@ export const montarPixCopiaECola = (args: {
 
 type Registro = Record<string, unknown>;
 
-/** Formas em que o cliente ainda deve depois da venda. */
-const FORMAS_A_RECEBER_DO_CLIENTE = ['Boleto', 'Pagamento a Prazo'];
+/**
+ * Forma em que o cliente ainda deve depois da venda e que o Pix pode pagar.
+ * BOLETO NAO ENTRA (25/11/2026, decisao do dono): o cliente paga pelo boleto;
+ * um QR Pix no mesmo papel convidava a pagar duas vezes.
+ */
+const FORMAS_A_RECEBER_DO_CLIENTE = ['Pagamento a Prazo'];
+const FORMA_BOLETO = 'Boleto';
 
-/** Quanto o cliente ainda tem a pagar neste pedido (centavos). 0 = sem QR. */
+const centavosDoPagamento = (p: Registro): number => (
+  p.valorCentavos !== undefined && p.valorCentavos !== null ? Math.round(Number(p.valorCentavos)) : toCents(Number(p.valor || 0))
+);
+
+/** Quanto o cliente ainda tem a pagar neste pedido por Pix (centavos). 0 = sem QR. */
 export const valorDoPixDoPedido = (pedido: Registro): number => {
   if (String(pedido.status || '').trim() === STATUS_CANCELADA) return 0;
+  const pagamentos = Array.isArray(pedido.pagamentos) ? pedido.pagamentos as Registro[] : [];
   if (isPedidoAberto(pedido.status)) {
     const total = pedido.valorTotalCentavos !== undefined && pedido.valorTotalCentavos !== null
       ? Math.round(Number(pedido.valorTotalCentavos))
       : toCents(Number(pedido.valorTotal || 0));
-    return Number.isFinite(total) && total > 0 ? total : 0;
+    // Pre-venda que ja' combinou boleto: a parte em boleto sai do QR.
+    const emBoleto = pagamentos
+      .filter((p) => String(p?.formaPagamento || '') === FORMA_BOLETO)
+      .reduce((soma, p) => soma + centavosDoPagamento(p), 0);
+    const restante = total - emBoleto;
+    return Number.isFinite(restante) && restante > 0 ? restante : 0;
   }
-  const pagamentos = Array.isArray(pedido.pagamentos) ? pedido.pagamentos as Registro[] : [];
   return pagamentos
     .filter((p) => FORMAS_A_RECEBER_DO_CLIENTE.includes(String(p?.formaPagamento || '')) && p?.status !== 'confirmado')
-    .reduce((soma, p) => soma + (p.valorCentavos !== undefined && p.valorCentavos !== null ? Math.round(Number(p.valorCentavos)) : toCents(Number(p.valor || 0))), 0);
+    .reduce((soma, p) => soma + centavosDoPagamento(p), 0);
 };
 
 export interface QrPixDoPedido {

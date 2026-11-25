@@ -2544,8 +2544,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       <strong>Imprimir QR Code Pix no pedido</strong>
                       <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
                         O pedido em <strong>meia folha</strong> sai com um QR Code Pix já com o valor: o cliente escaneia no app do banco e paga.
-                        Sai só no que falta pagar: na pré-venda, o total; na venda, o que ficou em boleto ou a prazo. Venda paga na hora
-                        (dinheiro, Pix, cartão) e venda cancelada saem sem QR.
+                        Sai só no que falta pagar: na pré-venda, o total; na venda, o que ficou a prazo. Boleto nunca entra no QR
+                        (o cliente paga pelo boleto). Venda paga na hora (dinheiro, Pix, cartão) e venda cancelada saem sem QR.
                       </span>
                     </span>
                   </label>

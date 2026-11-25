@@ -62,7 +62,7 @@ test('chave Pix: CNPJ, CPF, e-mail, telefone e aleatoria; o resto e recusado em 
   assert.match(String((normalizarChavePix('') as { erro: string }).erro), /Informe/);
 });
 
-test('so o que falta pagar: pre-venda = total; venda = boleto e a prazo; pago na hora ou cancelada = sem QR', () => {
+test('so o que falta pagar: pre-venda = total; venda = so o a prazo; pago na hora, boleto ou cancelada = sem QR', () => {
   assert.equal(valorDoPixDoPedido({ status: 'Pré-venda', valorTotalCentavos: 82320 }), 82320);
   assert.equal(valorDoPixDoPedido({ status: 'Em Análise', valorTotal: 50 }), 5000);
   assert.equal(valorDoPixDoPedido({ status: 'Finalizada', valorTotalCentavos: 82320, pagamentos: [{ formaPagamento: 'Dinheiro', status: 'confirmado', valorCentavos: 82320 }] }), 0, 'pago em dinheiro');
@@ -72,9 +72,22 @@ test('so o que falta pagar: pre-venda = total; venda = boleto e a prazo; pago na
     { formaPagamento: 'Boleto', status: 'pendente', valorCentavos: 30000 },
     { formaPagamento: 'Boleto', status: 'pendente', valorCentavos: 30000 },
     { formaPagamento: 'Pagamento a Prazo', status: 'pendente', valor: 10.5 },
-  ] }), 61050);
+  ] }), 1050, 'o boleto o cliente paga pelo boleto: so o a prazo vai no QR (25/11/2026)');
+  assert.equal(valorDoPixDoPedido({ status: 'Finalizada', pagamentos: [
+    { formaPagamento: 'Boleto', status: 'pendente', valorCentavos: 38221 },
+    { formaPagamento: 'Boleto', status: 'pendente', valorCentavos: 38221 },
+  ] }), 0, 'venda so em boleto: sem QR');
   assert.equal(valorDoPixDoPedido({ status: 'Cancelada', valorTotalCentavos: 82320 }), 0);
   assert.equal(valorDoPixDoPedido({ status: 'Pré-venda', valorTotalCentavos: 0 }), 0);
+});
+
+test('pre-venda com boleto combinado: a parte em boleto sai do QR; so boleto = sem QR', () => {
+  assert.equal(valorDoPixDoPedido({ status: 'Pré-venda', valorTotalCentavos: 100000, pagamentos: [{ formaPagamento: 'Boleto', valor: 1000 }] }), 0);
+  assert.equal(valorDoPixDoPedido({ status: 'Pré-venda', valorTotalCentavos: 100000, pagamentos: [
+    { formaPagamento: 'Boleto', valorCentavos: 60000 },
+    { formaPagamento: 'Pix', valorCentavos: 40000 },
+  ] }), 40000);
+  assert.equal(valorDoPixDoPedido({ status: 'Pré-venda', valorTotalCentavos: 100000, pagamentos: [{ formaPagamento: 'Dinheiro', valorCentavos: 100000 }] }), 100000, 'sem boleto: o total, como antes');
 });
 
 const embalaMinas = {

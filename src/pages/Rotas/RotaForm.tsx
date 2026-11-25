@@ -5,6 +5,8 @@ import { AlertTriangle, ArrowLeft, Loader2, Plus, Save, Settings2, Trash2, Truck
 import { db } from '../../services/firebase';
 import { createAuditLog } from '../../services/logService';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OPERACOES } from '../../utils/permissoesNovasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
@@ -59,6 +61,8 @@ const RotaForm: React.FC = () => {
   const { id } = useParams();
   const somenteLeitura = Boolean(id);
   const { currentUser, tenantId, userRole, isOwner } = useAuth();
+  // Item 15 (25/11/2026): lancar despesas e configurar tipos com permissao propria.
+  const pode = usePodePermissao();
   const { items: motoristas } = useTenantCollection<MotoristaBasico>('motoristas', tenantId);
   // Veiculos da FROTA da empresa (Rotas > Frota) viram sugestao no campo Veiculo,
   // como no Romaneio. Ate 15/10/2026 lia `veiculos` (Cadastros > Veiculos), que e' o
@@ -73,7 +77,7 @@ const RotaForm: React.FC = () => {
   const [gerenciandoTipos, setGerenciandoTipos] = useState(false);
   const [novoTipo, setNovoTipo] = useState('');
   const [salvandoTipos, setSalvandoTipos] = useState(false);
-  const podeGerenciarTipos = hasTenantFullAccess(userRole, isOwner) && !somenteLeitura;
+  const podeGerenciarTipos = (hasTenantFullAccess(userRole, isOwner) || pode(PERMISSAO_OPERACOES.rotasConfigurar)) && !somenteLeitura;
   const tiposDisponiveis = tiposDeDespesaDisponiveis(tiposPersonalizados);
 
   useEffect(() => {
@@ -217,6 +221,11 @@ const RotaForm: React.FC = () => {
         cancelButtonText: 'Voltar e revisar',
       });
       if (!confirma.isConfirmed) return;
+    }
+
+    if (despesasValidas(rota.despesas).length > 0 && !pode(PERMISSAO_OPERACOES.rotasDespesas)) {
+      showError('Sem permissão', 'Você não tem permissão para lançar as despesas da viagem no financeiro. Peça a um responsável liberar "Rotas: Lançar despesas da viagem no financeiro" no seu cadastro de funcionário.');
+      return;
     }
 
     setSalvando(true);

@@ -10,6 +10,8 @@ import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '
 import { db } from '../../services/firebase';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { avisarSeEmEdicao, useTravasAtivas } from '../../hooks/useTravaDeEdicao';
 import { MarcaEmEdicao } from '../../components/common/TravaDeEdicaoAviso';
@@ -56,7 +58,10 @@ const Orcamentos: React.FC = () => {
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
   const canEditOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_alterar'));
-  const canDeleteOrcamento = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('vendas.orcamentos_excluir'));
+  // Item 15 (25/11/2026): recusar e enviar com permissao propria (recusar era a de "Excluir").
+  const pode = usePodePermissao();
+  const canDeleteOrcamento = pode(PERMISSAO_VENDAS.orcamentosRecusar);
+  const podeEnviarOrcamento = pode(PERMISSAO_VENDAS.orcamentosEnviar);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
@@ -409,13 +414,15 @@ const Orcamentos: React.FC = () => {
                       </td>
                       <td style={{ padding: '16px', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                          <button
-                            title="Enviar o PDF ao cliente pelo WhatsApp"
-                            onClick={() => handleShareWhatsApp(orc)}
-                            style={{ padding: '8px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'none', cursor: 'pointer' }}
-                          >
-                            <Share2 size={18} />
-                          </button>
+                          {podeEnviarOrcamento && (
+                            <button
+                              title="Enviar o PDF ao cliente pelo WhatsApp"
+                              onClick={() => handleShareWhatsApp(orc)}
+                              style={{ padding: '8px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'none', cursor: 'pointer' }}
+                            >
+                              <Share2 size={18} />
+                            </button>
+                          )}
                           <button
                             title="Imprimir"
                             onClick={() => navigate(`/orcamentos/print/${orc.id}`)}

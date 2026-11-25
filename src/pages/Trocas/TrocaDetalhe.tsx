@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { COR_CONFERENCIA, ROTULO_CONFERENCIA, avisoEntregarTrocaSemConferencia } from '../../utils/conferenciaDomain';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
 import { hasTenantFullAccess } from '../../utils/roles';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { trocaService } from '../../services/trocaService';
 import {
   ESTILO_STATUS_TROCA,
@@ -145,7 +146,15 @@ const TrocaDetalhe: React.FC = () => {
   }
 
   const estilo = ESTILO_STATUS_TROCA[troca.status] || ESTILO_STATUS_TROCA.Solicitada;
-  const acoes = podeGerenciar ? acoesDaLoja(troca.status) : [];
+  // Item 15 (25/11/2026): aprovar/recusar, entregar e cancelar com a permissao propria (conferida no servidor).
+  const podeAcao = (p: string) => hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(p);
+  const PERMISSAO_DA_ACAO: Record<string, string> = {
+    aprovar: PERMISSAO_VENDAS.trocaAprovar,
+    recusar: PERMISSAO_VENDAS.trocaAprovar,
+    entregar: PERMISSAO_VENDAS.trocaEntregar,
+    cancelar: PERMISSAO_VENDAS.trocaCancelar,
+  };
+  const acoes = podeGerenciar ? acoesDaLoja(troca.status).filter((a) => !PERMISSAO_DA_ACAO[a] || podeAcao(PERMISSAO_DA_ACAO[a])) : [];
 
   const aprovar = async () => {
     const r = await NexusSwal.fire({

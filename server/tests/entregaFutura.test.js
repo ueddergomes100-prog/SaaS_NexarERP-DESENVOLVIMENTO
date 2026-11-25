@@ -121,13 +121,17 @@ test('empresa com fiscal sem NF-e de faturamento: entrega sai sem nota e avisa; 
     'notas_fiscais/n1': { tenantId: 'loja', pedidoId: 'v1', tipo: 'NF-e', status: 'authorized', number: 120, accessKey: '3'.repeat(44), finalidade: 'faturamento_entrega_futura', data: '2026-10-20T12:00:00.000Z' },
   }), { consultas: true });
   const sa = carregar(autorizada.db);
-  const ra = await sa.entregar({ user: GESTOR, tenantId: 'loja', pedidoId: 'v1', corpo: { itens: [{ indice: 0, quantidade: 1 }] } });
+  // Item 15 (25/11/2026): a nota de remessa pede tambem "Fiscal: Emitir Nota Fiscal".
+  const semFiscal = await sa.entregar({ user: GESTOR, tenantId: 'loja', pedidoId: 'v1', corpo: { itens: [{ indice: 0, quantidade: 1 }] } });
+  assert.equal(semFiscal.nota, null);
+  assert.match(semFiscal.avisos.join(' '), /"Fiscal: Emitir Nota Fiscal"/);
+  const ra = await sa.entregar({ user: { ...GESTOR, permissoes: [...GESTOR.permissoes, 'fiscal.emitir'] }, tenantId: 'loja', pedidoId: 'v1', corpo: { itens: [{ indice: 0, quantidade: 1 }] } });
   assert.equal(ra.nota.ok, false);
   assert.match(ra.avisos[0], /nota de remessa não saiu/);
   const entrega = autorizada.ler(`entregas_futuras/${ra.entregaId}`);
   assert.equal(entrega.notaFiscal.status, 'nao_emitida');
   assert.equal(entrega.notaFiscal.notaFaturamentoChave, '3'.repeat(44));
-  assert.equal(autorizada.ler('estoque/p1').quantidade, 9, 'a entrega vale mesmo sem a nota');
+  assert.equal(autorizada.ler('estoque/p1').quantidade, 8, 'as duas entregas valem mesmo sem a nota');
 });
 
 test('rota: a entrega entra no romaneio em montagem como linha propria, com trava; rota liberada e recusada', async () => {

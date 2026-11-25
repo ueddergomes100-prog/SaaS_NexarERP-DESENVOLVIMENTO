@@ -14,6 +14,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { enviarOrcamentoPorWhatsApp, prepararEnvioDeOrcamento } from './enviarOrcamentoPdf';
 import { parseParametrosVenda, validadeOrcamentoPadrao } from '../../utils/parametrosVendaDomain';
@@ -247,6 +249,13 @@ const OrcamentoForm: React.FC = () => {
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
 
   const { currentUser, tenantId, userRole, userPermissions, isOwner, vendasVisiveisDeUsuarioId } = useAuth();
+  // Item 15 (25/11/2026): alterar (tambem pela URL), preco/desconto, converter e enviar
+  // com a permissao propria. O orcamento ainda grava pelo navegador: so' as rules fecham.
+  const podeOrc = usePodePermissao();
+  const podeAlterarOrcamentoGravado = podeOrc('vendas.orcamentos_alterar');
+  const podePrecoOrcamento = podeOrc(PERMISSAO_VENDAS.orcamentosPreco);
+  const podeConverterOrcamento = podeOrc(PERMISSAO_VENDAS.orcamentosConverter);
+  const podeEnviarOrcamento = podeOrc(PERMISSAO_VENDAS.orcamentosEnviar);
   // Quem recusou e quando (aviso no topo do orcamento recusado, 09/11/2026).
   const [recusaInfo, setRecusaInfo] = useState<{ nome: string; quando: unknown } | null>(null);
   // Oficina de maquinas pesadas: so' os rotulos mudam aqui (oficinaDomain.ts).
@@ -690,6 +699,10 @@ const OrcamentoForm: React.FC = () => {
   const handleSave = async (e?: React.FormEvent) => {
     if (submitLockRef.current) return;
     if (e) e.preventDefault();
+    if (isEditing && !podeAlterarOrcamentoGravado) {
+      showError('Sem permissão', 'Você não tem permissão para alterar orçamentos gravados. Peça a um responsável liberar "Vendas: Alterar Orçamentos" no seu cadastro de funcionário.');
+      return;
+    }
     if (!formData.clienteNome) {
       showError('Erro', 'Informe o nome do cliente.');
       return;
@@ -1011,9 +1024,11 @@ const OrcamentoForm: React.FC = () => {
         <div style={{ display: 'flex', gap: '12px' }}>
           {isEditing && (
             <>
-              <button className="btn-secondary" onClick={handleShareWhatsApp} title="Enviar o PDF ao cliente pelo WhatsApp">
-                <Share2 size={18} />
-              </button>
+              {podeEnviarOrcamento && (
+                <button className="btn-secondary" onClick={handleShareWhatsApp} title="Enviar o PDF ao cliente pelo WhatsApp">
+                  <Share2 size={18} />
+                </button>
+              )}
               <button className="btn-secondary" onClick={() => navigate(`/orcamentos/print/${id}`)}>
                 <Printer size={18} />
               </button>
@@ -1026,7 +1041,7 @@ const OrcamentoForm: React.FC = () => {
                   'Finalizado' (nao 'Convertido') -- sem checar o valor certo
                   aqui, os botoes nunca sumiam e dava pra converter o mesmo
                   orcamento duas vezes, quebrando o vinculo unico geradoId. */}
-              {formData.status !== 'Finalizado' && formData.status !== 'Convertido' && (
+              {formData.status !== 'Finalizado' && formData.status !== 'Convertido' && podeConverterOrcamento && (
                 <>
                   {(configOrcamento.converterEmOS || temServicoNoOrcamento) && (
                     <button className="btn-secondary" onClick={handleConvertToOS} style={{ color: '#8b5cf6', borderColor: 'rgba(139, 92, 246, 0.3)' }}>
@@ -1377,7 +1392,7 @@ const OrcamentoForm: React.FC = () => {
                 </div>
                 <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
-                  <input type="text" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
+                  <input type="text" value={pecaPrecoInput} readOnly={!podePrecoOrcamento} title={podePrecoOrcamento ? undefined : 'Sem a permissão "Vendas: Alterar preço e desconto no orçamento", vale o preço do cadastro.'} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
                 </div>
                 <button className="add-item-btn" onClick={() => handleAddItem('peca')} title="Adicionar Produto">
                   <Plus size={20} />
@@ -1443,7 +1458,7 @@ const OrcamentoForm: React.FC = () => {
               </div>
             )}
 
-            <div style={{ margin: '12px 0', maxWidth: '260px' }}>
+            <div style={{ margin: '12px 0', maxWidth: '260px', display: podePrecoOrcamento ? undefined : 'none' }}>
               <DescontoInput
                 label="Desconto"
                 idPrefix="orcamento-desconto"

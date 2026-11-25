@@ -10,6 +10,8 @@ const {
   fecharCondicional,
   cancelarCondicional,
 } = require('../services/condicionais');
+const pv = require('../services/permissoesVendas');
+const { PERMISSAO_VENDAS: PV } = require('../domain/permissoesNovasDomain');
 
 /**
  * CONDICIONAL -- ver services/condicionais.js e src/utils/condicionalDomain.ts.
@@ -44,11 +46,14 @@ const responderErro = (res, erro, acao) => {
  * ({ acao, descricao, ... }) ou null para nao registrar. O cancelamento NAO
  * registra aqui: grava dentro da propria transacao (services/condicionais.js).
  */
-const acao = (nome, operacao, montarRegistro) => async (req, res) => {
+const acao = (nome, operacao, montarRegistro, propria) => async (req, res) => {
   try {
     if (!temPermissao(req.user)) {
       return res.status(403).json({ error: 'Você não tem permissão para usar o condicional. Peça a um responsável liberar "Vendas: Condicional" no seu usuário.' });
     }
+    // Item 15 (25/11/2026): saida, devolucao, fechar e cancelar tem permissao propria
+    // (ja' vem marcada para quem tem "Vendas: Condicional" -- pacote 'vendas-1').
+    if (propria) pv.exigir(req.user, [propria], ErroCondicional);
     const tenantId = empresaDaOperacao(req.user, req.body);
     const resultado = await operacao({
       user: req.user,
@@ -80,7 +85,7 @@ router.post('/', acao('criar o condicional', criarCondicional,
   (r) => (r.jaEnviado ? null : {
     acao: 'criacao',
     descricao: `Condicional nº ${r.numeroCondicional} criado para ${r.clienteNome || 'o cliente'}: saída de ${r.pecasLevadas || 0} peça(s), ${reais(r.valorLevado)} (estoque reservado).`,
-  })));
+  }), PV.condicionalSaida));
 
 /** POST /api/condicionais/:id/devolucao  { itens:[{id,quantidade}] } */
 router.post('/:id/devolucao', acao('registrar a devolução', devolverItens,
@@ -88,7 +93,7 @@ router.post('/:id/devolucao', acao('registrar a devolução', devolverItens,
     acao: 'devolucao',
     descricao: `Condicional nº ${r.numeroCondicional} (${r.clienteNome}): devolução de ${r.pecasDevolvidas} peça(s)${r.tudoDevolvido ? ' — tudo devolvido' : ''}.`,
     ...(r.tudoDevolvido ? { alteracoes: [{ campo: 'Situação', valorAnterior: 'Aberto', valorNovo: 'Tudo devolvido' }] } : {}),
-  })));
+  }), PV.condicionalDevolucao));
 
 /** POST /api/condicionais/:id/fechar  { itens?:[{id,quantidade}] }  -- itens = devolução final */
 router.post('/:id/fechar', acao('fechar o condicional', fecharCondicional,
@@ -100,10 +105,10 @@ router.post('/:id/fechar', acao('fechar o condicional', fecharCondicional,
     // A pre-venda gerada tambem mostra este registro no historico dela.
     ...(r.pedidoId ? { documentosRelacionados: [r.pedidoId] } : {}),
     alteracoes: [{ campo: 'Situação', valorAnterior: 'Aberto', valorNovo: r.numeroPedido ? `Finalizado (pré-venda nº ${r.numeroPedido})` : 'Tudo devolvido' }],
-  })));
+  }), PV.condicionalFechar));
 
 /** POST /api/condicionais/:id/cancelar  { motivo } */
 // O registro do cancelamento (critico, com motivo) e' gravado na transacao do servico.
-router.post('/:id/cancelar', acao('cancelar o condicional', cancelarCondicional, null));
+router.post('/:id/cancelar', acao('cancelar o condicional', cancelarCondicional, null, PV.condicionalCancelar));
 
 module.exports = router;

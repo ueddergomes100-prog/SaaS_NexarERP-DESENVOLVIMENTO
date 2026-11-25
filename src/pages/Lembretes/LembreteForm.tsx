@@ -4,6 +4,8 @@ import { ArrowLeft, Save, Bell, Loader2, Plus, XCircle } from 'lucide-react';
 import { collection, addDoc, serverTimestamp, getDocs, query, where, doc, getDoc, updateDoc, getCountFromServer } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CRM } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -45,6 +47,8 @@ const LembreteForm: React.FC = () => {
   const [veiculosDoCliente, setVeiculosDoCliente] = useState<VeiculoBasico[]>([]);
   const [isVeiculoDropdownOpen, setIsVeiculoDropdownOpen] = useState(false);
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): cancelar lembrete tem permissao propria.
+  const podeCancelarLembrete = usePodePermissao()(PERMISSAO_CRM.alertasCancelar);
   
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -202,6 +206,10 @@ const LembreteForm: React.FC = () => {
 
   const handleCancelar = async () => {
     if (!id || !currentUser) return;
+    if (!podeCancelarLembrete) {
+      showError('Sem permissão', 'Você não tem permissão para cancelar lembretes. Peça a um responsável liberar "CRM: Cancelar lembrete" no seu cadastro de funcionário.');
+      return;
+    }
     const confirm = await NexusSwal.fire({
       title: 'Cancelar lembrete?',
       text: 'O lembrete some da fila de retorno, mas o registro continua existindo com o status Cancelado.',

@@ -3,6 +3,8 @@ import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, serverTim
 import { FileText, IdCard, Loader2, Pencil, Plus, Power, Search, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OPERACOES } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -44,6 +46,8 @@ interface Motorista {
 
 const MotoristasList: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): cadastrar, alterar e inativar com permissao propria.
+  const podeCadastrar = usePodePermissao()(PERMISSAO_OPERACOES.motoristas);
   const { linha } = useLinhaSelecionavel();
   const [motoristas, setMotoristas] = useState<Motorista[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,6 +97,10 @@ const MotoristasList: React.FC = () => {
 
   const salvar = async () => {
     if (!currentUser || !tenantId) return;
+    if (!podeCadastrar) {
+      showError('Sem permissão', 'Você não tem permissão para cadastrar motoristas. Peça a um responsável liberar "Rotas: Cadastrar motoristas" no seu cadastro de funcionário.');
+      return;
+    }
     if (!form.nome.trim()) {
       showError('Nome obrigatório', 'Informe o nome do motorista.');
       return;
@@ -132,6 +140,10 @@ const MotoristasList: React.FC = () => {
 
   const alternarSituacao = async (motorista: Motorista) => {
     if (!currentUser) return;
+    if (!podeCadastrar) {
+      showError('Sem permissão', 'Você não tem permissão para cadastrar motoristas. Peça a um responsável liberar "Rotas: Cadastrar motoristas" no seu cadastro de funcionário.');
+      return;
+    }
     try {
       await updateDoc(doc(db, 'motoristas', motorista.id), {
         ativo: motorista.ativo === false,

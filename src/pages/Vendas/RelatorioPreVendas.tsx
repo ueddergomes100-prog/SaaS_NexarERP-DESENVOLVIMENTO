@@ -6,6 +6,8 @@ import { ClipboardList, FileText, FilterX, Loader2, Printer, Search } from 'luci
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents } from '../../utils/financeDomain';
 import { isPedidoAberto, STATUS_PEDIDO_ABERTO, type OrigemPedido } from '../../utils/preVendaDomain';
@@ -73,7 +75,9 @@ const RelatorioPreVendas: React.FC = () => {
   const travasPedidos = useTravasAtivas('pedido_venda');
   // Funcionario comum nao ve valor nem contagem em resumo nenhum -- so' dono
   // e gestor (Master/Admin) enxergam este quadro de totais.
-  const podeVerResumo = hasTenantFullAccess(userRole, isOwner);
+  // Item 15 (25/11/2026): ou quem tem "Pre-vendas em aberto — ver totais em valor".
+  const podeVerTotais = usePodePermissao()(PERMISSAO_VENDAS.preVendaRelatorioValores);
+  const podeVerResumo = hasTenantFullAccess(userRole, isOwner) || podeVerTotais;
   const [linhas, setLinhas] = useState<PreVendaLinha[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

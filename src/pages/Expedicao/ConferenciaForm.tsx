@@ -4,6 +4,8 @@ import { ArrowLeft, ScanLine, CheckCircle2, AlertTriangle, XCircle, Loader2, Pac
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OPERACOES } from '../../utils/permissoesNovasDomain';
 import { NexusSwal, showError } from '../../utils/alerts';
 import {
   aplicarBipagem,
@@ -46,6 +48,8 @@ const ConferenciaForm: React.FC = () => {
   const alvo: AlvoDaConferencia = { tipo: ehTroca ? 'troca' : 'pedido', id: pedidoId || '' };
   const navigate = useNavigate();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
+  // Item 15 (25/11/2026): fechar com divergencia tem permissao propria.
+  const podeFecharComDivergencia = usePodePermissao()(PERMISSAO_OPERACOES.expedicaoDivergencia);
   // Trava de edicao (15/10/2026): uma pessoa por conferencia, no computador ou no celular.
   // A vez e' pega ANTES de abrir: quem chega depois nao reabre nem mexe no que o outro esta conferindo.
   const trava = useTravaDeEdicao({ tipo: 'conferencia', registroId: pedidoId, ativa: true });
@@ -290,6 +294,10 @@ const ConferenciaForm: React.FC = () => {
   const handleFecharConferencia = async () => {
     if (!pedidoId || !tenantId || !currentUser || !pedido) return;
     const final = computeStatusFinal(itens);
+    if (final !== 'conferido' && !podeFecharComDivergencia) {
+      showError('Sem permissão', 'Você não tem permissão para fechar a conferência com divergência. Peça a um responsável liberar "Expedição: Fechar conferência com divergência" no seu cadastro de funcionário. Sem ela, confira de novo até tudo bater.');
+      return;
+    }
     const divergentes = itens.filter((item) => item.quantidadeConferida !== item.quantidadePedida);
     const resumoDivergencias = divergentes
       .map((item) => `• ${item.nome}: pedido ${item.quantidadePedida}, conferido ${item.quantidadeConferida}`)

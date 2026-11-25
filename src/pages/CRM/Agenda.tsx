@@ -4,6 +4,8 @@ import { collection, query, where, onSnapshot, addDoc, serverTimestamp, doc, upd
 import { db } from '../../services/firebase';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CRM } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -47,6 +49,8 @@ const Agenda: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): cancelar agendamento tem permissao propria.
+  const podeCancelarAgendamento = usePodePermissao()(PERMISSAO_CRM.agendaCancelar);
   const { openTab } = useTabs();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -217,6 +221,10 @@ const Agenda: React.FC = () => {
       return;
     }
 
+    if (result.isDenied && !podeCancelarAgendamento) {
+      showError('Sem permissão', 'Você não tem permissão para cancelar agendamentos. Peça a um responsável liberar "CRM: Cancelar agendamento" no seu cadastro de funcionário.');
+      return;
+    }
     if (result.isDenied) {
       const confirm = await NexusSwal.fire({
         title: 'Cancelar agendamento?',

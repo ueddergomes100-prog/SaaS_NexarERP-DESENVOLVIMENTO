@@ -203,3 +203,69 @@ test('pedido pendente do agente: finalizar pede editar/finalizar pendente; recus
   assert.equal(recusar.ler('pedidos_venda/ag1').motivoRecusa, 'cliente desistiu da compra');
   await assert.rejects(() => recusarPedidoPendente({ user: salvo('g1', []), tenantId: 'loja', corpo: { pedidoId: 'ag1', motivo: 'de novo, outra vez' } }), (e) => e.status === 409);
 });
+
+// ---------------------------------------------------------------------------
+// Rotas de Condicional, Trocas e Entregas futuras (fase Vendas, parte 2)
+// ---------------------------------------------------------------------------
+
+const path = require('node:path');
+const express = require('express');
+
+/** Sobe a rota com o banco falso e o usuario vindo do cabecalho (auth falso). */
+const comRota = async (fake, arquivo, base, corpoDoTeste) => {
+  carregarComBancoFalso(fake.db, 'services/vendaFechamento');
+  const raiz = path.join(__dirname, '..');
+  const substituir = (modulo, exportado) => {
+    const caminho = require.resolve(path.join(raiz, modulo));
+    require.cache[caminho] = { id: caminho, filename: caminho, loaded: true, exports: exportado };
+  };
+  substituir('middleware/auth', {
+    authenticate: (req, res, next) => { req.user = JSON.parse(req.headers['x-usuario-teste'] || '{}'); next(); },
+  });
+  substituir('services/auditoria', { registrarLog: () => {}, registrarLogNaTransacao: () => {} });
+  const rotaCaminho = require.resolve(path.join(raiz, arquivo));
+  delete require.cache[rotaCaminho];
+  const app = express();
+  app.use(express.json());
+  app.use(base, require(rotaCaminho));
+  const servidor = app.listen(0);
+  try {
+    const { port } = servidor.address();
+    const chamar = async (rota, usuario, corpo = {}) => {
+      const resposta = await fetch(`http://127.0.0.1:${port}${base}${rota}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-usuario-teste': JSON.stringify({ tenantId: 'loja', ...usuario }) },
+        body: JSON.stringify(corpo),
+      });
+      return { status: resposta.status, corpo: await resposta.json() };
+    };
+    await corpoDoTeste(chamar);
+  } finally {
+    servidor.close();
+  }
+};
+
+test('condicional, trocas e entregas futuras: cada acao pede a sua permissao (nota de remessa pede Fiscal: Emitir)', async () => {
+  const fake = criarBancoFalso(base(), { consultas: true });
+  await comRota(fake, 'routes/condicionais.routes', '/api/condicionais', async (chamar) => {
+    const r = await chamar('/c1/cancelar', salvo('u1', ['vendas.condicional', 'vendas.condicional_saida']), { motivo: 'cliente desistiu' });
+    assert.equal(r.status, 403);
+    assert.match(r.corpo.error, /"Vendas: Condicional — cancelar"/);
+  });
+  await comRota(fake, 'routes/trocas.routes', '/api/trocas', async (chamar) => {
+    const r = await chamar('/t1/aprovar', salvo('u1', ['vendas.troca_gerenciar', 'vendas.troca_entregar']));
+    assert.equal(r.status, 403);
+    assert.match(r.corpo.error, /aprovar ou recusar trocas/);
+    const e = await chamar('/t1/entregar', salvo('u1', ['vendas.troca_gerenciar', 'vendas.troca_aprovar']));
+    assert.equal(e.status, 403);
+    assert.match(e.corpo.error, /"Vendas: Trocas — entregar \(baixa estoque\)"/);
+  });
+  await comRota(fake, 'routes/entregasFuturas.routes', '/api/entregas-futuras', async (chamar) => {
+    const nota = await chamar('/entregas/e1/emitir-nota', salvo('u1', ['operacoes.entregas_futuras', 'operacoes.entregas_futuras_registrar']));
+    assert.equal(nota.status, 403);
+    assert.match(nota.corpo.error, /"Fiscal: Emitir Nota Fiscal"/);
+    const entregar = await chamar('/p1/entregar', salvo('u1', ['operacoes.entregas_futuras']));
+    assert.equal(entregar.status, 403);
+    assert.match(entregar.corpo.error, /registrar entregas futuras/);
+  });
+});

@@ -5,6 +5,8 @@ import { db } from '../../services/firebase';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { dentroDoPeriodo } from '../../utils/filtroListaDomain';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OPERACOES } from '../../utils/permissoesNovasDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
@@ -23,6 +25,8 @@ const campoStyle: React.CSSProperties = { padding: '11px 13px', backgroundColor:
 
 const CustoPorVeiculo: React.FC = () => {
   const { tenantId } = useAuth();
+  // Item 15 (25/11/2026): o relatorio tem permissao propria.
+  const podeRelatorio = usePodePermissao()(PERMISSAO_OPERACOES.rotasRelatorio);
   const hoje = getDateInputInTimeZone();
   const [titulos, setTitulos] = useState<TituloDeVeiculo[]>([]);
   const [frota, setFrota] = useState<VeiculoDaFrota[]>([]);
@@ -143,7 +147,7 @@ const CustoPorVeiculo: React.FC = () => {
         )}
 
         <div>
-          <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={carregando} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={carregando || !podeRelatorio} title={podeRelatorio ? undefined : 'Sem a permissão "Rotas: Relatório de custo por veículo".'} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={18} /> Gerar relatório
           </button>
         </div>

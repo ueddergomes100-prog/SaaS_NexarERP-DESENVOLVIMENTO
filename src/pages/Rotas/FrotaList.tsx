@@ -3,6 +3,8 @@ import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, serverTim
 import { FileText, Loader2, Pencil, Plus, Power, Search, Truck, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OPERACOES } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
@@ -41,6 +43,8 @@ const rotuloStyle: React.CSSProperties = { fontSize: '13px', color: 'var(--text-
 
 const FrotaList: React.FC = () => {
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): cadastrar, alterar e inativar com permissao propria.
+  const podeCadastrar = usePodePermissao()(PERMISSAO_OPERACOES.frota);
   const { linha } = useLinhaSelecionavel();
   const [veiculos, setVeiculos] = useState<VeiculoDaFrota[]>([]);
   const [motoristas, setMotoristas] = useState<MotoristaOpcao[]>([]);
@@ -97,6 +101,10 @@ const FrotaList: React.FC = () => {
 
   const salvar = async () => {
     if (!currentUser || !tenantId) return;
+    if (!podeCadastrar) {
+      showError('Sem permissão', 'Você não tem permissão para cadastrar veículos da frota. Peça a um responsável liberar "Rotas: Cadastrar veículos da frota" no seu cadastro de funcionário.');
+      return;
+    }
     const problema = erroDoVeiculo(form, veiculos, editandoId);
     if (problema) {
       showError('Confira o veículo', problema);
@@ -136,6 +144,10 @@ const FrotaList: React.FC = () => {
 
   const alternarSituacao = async (veiculo: VeiculoDaFrota) => {
     if (!currentUser) return;
+    if (!podeCadastrar) {
+      showError('Sem permissão', 'Você não tem permissão para cadastrar veículos da frota. Peça a um responsável liberar "Rotas: Cadastrar veículos da frota" no seu cadastro de funcionário.');
+      return;
+    }
     try {
       await updateDoc(doc(db, 'frota', veiculo.id), { ativo: veiculo.ativo === false, ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()) });
       showSuccess(veiculo.ativo === false ? 'Veículo reativado!' : 'Veículo inativado!');

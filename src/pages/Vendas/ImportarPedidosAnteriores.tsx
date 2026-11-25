@@ -9,6 +9,8 @@ import { db } from '../../services/firebase';
 import { createAuditLog } from '../../services/logService';
 import { criarVendedorNoServidor } from '../../services/usuarioAcessoService';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { decodificarArquivoTexto, detectarDelimitador, parseDelimitedText } from '../../utils/importacaoEstoqueDomain';
 import { normalizarDocumentoParte, resolverVinculoParte, type ParteCadastrada } from '../../utils/importacaoContasDomain';
@@ -86,7 +88,9 @@ const criadoNaDataDaVenda = (p: PedidoImportadoLido) => {
 const ImportarPedidosAnteriores: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, tenantId, userRole, isOwner, conferenciaMercadoriaAtiva } = useAuth();
-  const podeImportar = hasTenantFullAccess(userRole, Boolean(isOwner));
+  // Item 15 (25/11/2026): ou quem tem "Vendas: Importar pedidos do sistema anterior".
+  const podeImportarPelaPermissao = usePodePermissao()(PERMISSAO_VENDAS.importar);
+  const podeImportar = hasTenantFullAccess(userRole, Boolean(isOwner)) || podeImportarPelaPermissao;
   const [passo, setPasso] = useState<Passo>('upload');
   const [ocupado, setOcupado] = useState(false);
   const [nomeArquivo, setNomeArquivo] = useState('');

@@ -20,6 +20,7 @@
  * A colecao `entregas_futuras` e' so' do servidor (sem regra no Firestore).
  */
 const { admin, db } = require('../config/firebase');
+const { podeEmVendas } = require('./permissoesVendas');
 const ef = require('../domain/entregaFuturaDomain');
 const reserva = require('../domain/estoqueReservaDomain');
 const { toStockAdjustmentItems, toBaseQuantity } = require('../domain/embalagemDomain');
@@ -339,7 +340,11 @@ const entregar = async ({ user, tenantId, pedidoId, corpo }) => {
 
   // Daqui em diante a entrega EXISTE: nota e rota nunca desfazem o que foi gravado.
   let notaRemessa = null;
-  if (emiteRemessa) {
+  // Item 15 (25/11/2026): nota de remessa e' nota fiscal -- sem "Fiscal: Emitir Nota
+  // Fiscal", a entrega fica registrada e a nota espera quem pode emitir.
+  if (emiteRemessa && !podeEmVendas(user, 'fiscal.emitir')) {
+    avisos.push('A entrega foi registrada, mas a nota de remessa não foi emitida: você não tem a permissão "Fiscal: Emitir Nota Fiscal". Peça a quem tem para usar "Emitir a nota de novo" na entrega.');
+  } else if (emiteRemessa) {
     notaRemessa = await emitirRemessa({ user, tenantId, entregaId: entregaRef.id }).catch((erro) => {
       console.error('[Entrega futura] remessa nao emitida:', erro);
       return { ok: false, motivo: 'nao_emitida', mensagem: erro.message || 'A nota de remessa não foi emitida.' };

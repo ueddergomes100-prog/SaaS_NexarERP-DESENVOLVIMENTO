@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_OPERACOES } from '../../utils/permissoesNovasDomain';
 import { AlertTriangle, CalendarClock, CheckCircle2, FileText, Loader2, PackageCheck, RefreshCw, Route, Search, Truck } from 'lucide-react';
 import { useTabs } from '../../contexts/TabsContext';
 import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
@@ -46,6 +48,11 @@ const ROTULO_NOTA: Record<string, string> = {
 };
 
 const EntregasFuturas: React.FC = () => {
+  // Item 15 (25/11/2026): registrar a entrega tem permissao propria; a nota de
+  // remessa e' nota fiscal e pede tambem "Fiscal: Emitir" (conferido no servidor).
+  const pode = usePodePermissao();
+  const podeRegistrar = pode(PERMISSAO_OPERACOES.entregasFuturasRegistrar);
+  const podeEmitirRemessa = podeRegistrar && pode('fiscal.emitir');
   const { openTab } = useTabs();
   const [lista, setLista] = useState<PedidoAEntregar[] | null>(null);
   const [erro, setErro] = useState('');
@@ -321,7 +328,7 @@ const EntregasFuturas: React.FC = () => {
               Observação (opcional)
               <input value={observacao} onChange={(e) => setObservacao(e.target.value)} maxLength={300} disabled={enviando} style={{ padding: '9px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
             </label>
-            <button type="button" className="btn-primary" onClick={() => void entregar()} disabled={enviando || aberto.notaFaturamento.situacao === 'em_transito'} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 18px' }}>
+            <button type="button" className="btn-primary" onClick={() => void entregar()} disabled={enviando || !podeRegistrar || aberto.notaFaturamento.situacao === 'em_transito'} title={podeRegistrar ? undefined : 'Sem a permissão "Expedição: Registrar entrega futura".'} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 18px' }}>
               {enviando ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Truck size={16} />} Registrar entrega
             </button>
           </div>
@@ -345,14 +352,14 @@ const EntregasFuturas: React.FC = () => {
                           {st === 'authorized' ? <CheckCircle2 size={14} /> : <FileText size={14} />}
                           {e.notaFiscal ? `Remessa ${e.notaFiscal.number ? `nº ${e.notaFiscal.number} · ` : ''}${ROTULO_NOTA[st] || st}` : 'Sem nota'}
                         </span>
-                        {notaFalhou && (
+                        {notaFalhou && podeEmitirRemessa && (
                           <button type="button" className="btn-secondary" onClick={() => void reemitir(e.id)} disabled={enviando} style={{ padding: '6px 10px', fontSize: '12px' }} title={e.notaFiscal?.mensagem || ''}>
                             Emitir a nota de novo
                           </button>
                         )}
                         {e.romaneio
                           ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Route size={14} /> {e.romaneio.titulo}</span>
-                          : (
+                          : podeRegistrar && (
                             <button type="button" className="btn-secondary" onClick={() => void porNaRota(e.id)} style={{ padding: '6px 10px', fontSize: '12px' }}>
                               Colocar na rota
                             </button>

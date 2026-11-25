@@ -3,6 +3,8 @@ import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestor
 import { AlertTriangle, Coins, FileText, Search, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
@@ -66,6 +68,8 @@ const CashbackClientes: React.FC = () => {
   // Olhinho (21/11/2026): os saldos somados escondem junto com as outras telas.
   const { mostrar: mostrarValor } = useValoresOcultos();
   const podeVer = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_CASHBACK);
+  // Item 15 (25/11/2026): o relatorio em PDF tem permissao propria.
+  const podeRelatorio = usePodePermissao()(PERMISSAO_VENDAS.cashbackRelatorio);
   const { linha } = useLinhaSelecionavel();
   const hoje = getDateInputInTimeZone();
 
@@ -222,7 +226,7 @@ const CashbackClientes: React.FC = () => {
             itens={[{
               texto: 'Relatório', Icone: FileText,
               titulo: 'Abre em PDF os clientes da lista, com saldo e vencimento (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
-              desabilitado: carregando,
+              desabilitado: carregando || !podeRelatorio,
               onClick: () => setPreviewAberto(true),
             }]}
           />

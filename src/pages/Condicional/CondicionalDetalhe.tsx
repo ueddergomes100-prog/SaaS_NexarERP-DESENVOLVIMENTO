@@ -6,6 +6,8 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Printer, ShoppingBag, 
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
@@ -45,6 +47,7 @@ const CondicionalDetalhe: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
   const { tenantId, trabalhaComCondicional, userNome, currentUser } = useAuth();
+  const pode = usePodePermissao();
   const podeUsar = usePodeUsarCondicional();
   const [condicional, setCondicional] = useState<CondicionalDoc | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -101,7 +104,14 @@ const CondicionalDetalhe: React.FC = () => {
     );
   }
 
-  const acoes = acoesDoCondicional(condicional.status);
+  // Item 15 (25/11/2026): cada acao com a sua permissao (conferida tambem no servidor).
+  const acoesDoStatus = acoesDoCondicional(condicional.status);
+  const acoes = {
+    ...acoesDoStatus,
+    devolver: acoesDoStatus.devolver && pode(PERMISSAO_VENDAS.condicionalDevolucao),
+    fechar: acoesDoStatus.fechar && pode(PERMISSAO_VENDAS.condicionalFechar),
+    cancelar: acoesDoStatus.cancelar && pode(PERMISSAO_VENDAS.condicionalCancelar),
+  };
   const resumo = resumirCondicional(itens);
   const vencido = estaVencido(condicional, hoje);
   const estilo = ESTILO_STATUS[condicional.status] || ESTILO_STATUS.cancelado;

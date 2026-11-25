@@ -35,6 +35,9 @@ router.use(authenticate);
  * pelo DevTools). O tenant sai sempre do token de quem chamou.
  */
 
+const pv = require('../services/permissoesVendas');
+const { PERMISSAO_VENDAS: PV } = require('../domain/permissoesNovasDomain');
+
 class ErroTroca extends Error {
   constructor(status, message) {
     super(message);
@@ -61,7 +64,13 @@ const exigirSolicitar = (user) => {
   }
 };
 
-const exigirGerenciar = (user) => {
+const exigirGerenciar = (user, propria) => {
+  // Item 15 (25/11/2026): aprovar/recusar, entregar e cancelar tem permissao propria
+  // (ja' vem marcada para quem gerencia trocas -- pacote 'vendas-1').
+  if (propria) {
+    pv.exigir(user, [propria], ErroTroca);
+    return;
+  }
   if (!temPermissao(user, 'vendas.troca_gerenciar')) {
     throw new ErroTroca(403, 'Seu usuário não tem permissão para gerenciar trocas. Peça ao administrador para liberar "Trocas: gerenciar" no seu cadastro.');
   }
@@ -285,7 +294,7 @@ router.post('/minuta-impressa', async (req, res) => {
 
 router.post('/:id/aprovar', async (req, res) => {
   try {
-    exigirGerenciar(req.user);
+    exigirGerenciar(req.user, PV.trocaAprovar);
     const user = req.user;
     const nome = await nomeDoUsuario(user);
     let resumo;
@@ -321,7 +330,7 @@ router.post('/:id/aprovar', async (req, res) => {
 
 router.post('/:id/recusar', async (req, res) => {
   try {
-    exigirGerenciar(req.user);
+    exigirGerenciar(req.user, PV.trocaAprovar);
     const motivo = String(req.body?.motivo ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
     if (motivo.length < 5) throw new ErroTroca(400, 'Informe o motivo da recusa (o vendedor vai ver no aplicativo).');
     const user = req.user;
@@ -360,7 +369,7 @@ router.post('/:id/cancelar', async (req, res) => {
     await db.runTransaction(async (tx) => {
       const { ref, troca } = await lerTroca(tx, user.tenantId, req.params.id);
       const ehDono = troca.vendedorId === user.uid && troca.status === STATUS_TROCA.SOLICITADA && temPermissao(user, 'vendas.troca_solicitar');
-      if (!ehDono) exigirGerenciar(user);
+      if (!ehDono) exigirGerenciar(user, PV.trocaCancelar);
       const erroEstado = erroDeTransicao(troca.status, STATUS_TROCA.CANCELADA);
       if (erroEstado) throw new ErroTroca(409, erroEstado);
 
@@ -393,7 +402,7 @@ router.post('/:id/cancelar', async (req, res) => {
 /** Confirma a entrega: baixa o estoque (UMA vez) e grava um ajuste de saida por item. */
 router.post('/:id/entregar', async (req, res) => {
   try {
-    exigirGerenciar(req.user);
+    exigirGerenciar(req.user, PV.trocaEntregar);
     const user = req.user;
     const nome = await nomeDoUsuario(user);
     const lotesEscolhidos = {};

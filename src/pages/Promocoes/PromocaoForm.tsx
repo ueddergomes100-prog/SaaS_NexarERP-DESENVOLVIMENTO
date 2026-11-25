@@ -4,6 +4,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { AlertTriangle, ArrowLeft, Loader2, Plus, Power, Save, Tag, Trash2 } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
@@ -76,6 +78,8 @@ const PromocaoForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { currentUser, tenantId } = useAuth();
+  // Item 15 (25/11/2026): encerrar/reativar tem permissao propria.
+  const podeEncerrar = usePodePermissao()(PERMISSAO_VENDAS.promocoesEncerrar);
   const { items: todosProdutos } = useTenantCollection<ProdutoDoEstoque>('estoque', tenantId);
   const produtos = useMemo(() => todosProdutos.filter((p) => p.produtoRevenda !== false && (p.ativo ?? p.statusAtivo ?? true) !== false), [todosProdutos]);
   const porId = useMemo(() => new Map(produtos.map((p) => [p.id, p])), [produtos]);
@@ -162,6 +166,10 @@ const PromocaoForm: React.FC = () => {
 
   const alternarSituacao = async () => {
     if (!id || !currentUser) return;
+    if (!podeEncerrar) {
+      showError('Sem permissão', 'Você não tem permissão para encerrar ou reativar promoções. Peça a um responsável liberar "Vendas: Promoções — encerrar e reativar" no seu cadastro de funcionário.');
+      return;
+    }
     const inativar = !promocao.inativa;
     const confirma = await NexusSwal.fire({
       icon: 'question',

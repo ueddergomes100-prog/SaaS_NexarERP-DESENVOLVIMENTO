@@ -3,6 +3,21 @@ const { authenticate } = require('../middleware/auth');
 const s = require('../services/entregaFutura');
 const { registrarLog } = require('../services/auditoria');
 const { PERMISSAO_ENTREGAS_FUTURAS } = require('../domain/entregaFuturaDomain');
+const pv = require('../services/permissoesVendas');
+const { PERMISSAO_OPERACOES: PO } = require('../domain/permissoesNovasDomain');
+
+/**
+ * Item 15 (25/11/2026): registrar a entrega pede a permissao propria (ja' vem
+ * marcada para quem tem Entregas futuras); a nota de remessa e' nota fiscal e
+ * pede tambem "Fiscal: Emitir Nota Fiscal". Joga o erro com status 403.
+ */
+class ErroPermissao extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+const REMESSA = [PO.entregasFuturasRegistrar, 'fiscal.emitir'];
 
 /*
  * Venda com entrega futura -- entregas (23/10/2026). Tudo pelo servidor:
@@ -32,6 +47,7 @@ router.get('/pendentes', rota('carregar as entregas pendentes', async (req) => (
 router.get('/:pedidoId', rota('carregar o pedido', async (req) => s.detalhe({ tenantId: req.user.tenantId, pedidoId: req.params.pedidoId })));
 // Historico de alteracoes (09/11/2026): registrar entrega, emitir remessa e colocar na rota.
 router.post('/:pedidoId/entregar', rota('registrar a entrega', async (req) => {
+  pv.exigir(req.user, [PO.entregasFuturasRegistrar], ErroPermissao);
   const r = await s.entregar({ user: req.user, tenantId: req.user.tenantId, pedidoId: req.params.pedidoId, corpo: req.body || {} });
   const naRota = r.rota && r.rota.rota ? r.rota.rota : null;
   registrarLog(req.user, {
@@ -46,6 +62,7 @@ router.post('/:pedidoId/entregar', rota('registrar a entrega', async (req) => {
   return r;
 }));
 router.post('/entregas/:entregaId/emitir-nota', rota('emitir a nota de remessa', async (req) => {
+  pv.exigir(req.user, REMESSA, ErroPermissao);
   const r = await s.emitirRemessa({ user: req.user, tenantId: req.user.tenantId, entregaId: req.params.entregaId });
   registrarLog(req.user, {
     modulo: 'fiscal',
@@ -58,6 +75,7 @@ router.post('/entregas/:entregaId/emitir-nota', rota('emitir a nota de remessa',
   return r;
 }));
 router.post('/entregas/:entregaId/rota', rota('colocar a entrega na rota', async (req) => {
+  pv.exigir(req.user, [PO.entregasFuturasRegistrar], ErroPermissao);
   const r = await s.colocarEntregaNaRota({ user: req.user, tenantId: req.user.tenantId, entregaId: req.params.entregaId, romaneioId: String((req.body || {}).romaneioId || '') });
   if (r && r.acao === 'colocado' && r.rota) {
     registrarLog(req.user, {

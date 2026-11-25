@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Plus, Save, ShoppingBag, Trash2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
@@ -57,6 +59,8 @@ const CondicionalForm: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
   const { tenantId, trabalhaComCondicional, permiteVendaSemEstoque } = useAuth();
+  // Item 15 (25/11/2026): registrar a saida tem permissao propria (conferida tambem no servidor).
+  const podeRegistrarSaida = usePodePermissao()(PERMISSAO_VENDAS.condicionalSaida);
   const podeUsar = usePodeUsarCondicional();
   const ativo = trabalhaComCondicional && podeUsar;
   const { items: clientes } = useTenantCollection<ClienteBusca>('clientes', tenantId, { enabled: ativo });
@@ -255,7 +259,7 @@ const CondicionalForm: React.FC = () => {
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
         <button type="button" className="btn-secondary" onClick={() => navigate('/vendas/condicional')}>Cancelar</button>
-        <button type="button" className="btn-primary" disabled={salvando} onClick={() => void registrar()} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button type="button" className="btn-primary" disabled={salvando || !podeRegistrarSaida} title={podeRegistrarSaida ? undefined : 'Sem a permissão "Vendas: Condicional — registrar saída".'} onClick={() => void registrar()} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {salvando ? <Loader2 size={18} className="spin-icon" /> : <Save size={18} />}
           {salvando ? 'Registrando...' : 'Registrar saída'}
         </button>

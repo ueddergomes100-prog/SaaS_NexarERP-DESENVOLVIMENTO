@@ -181,27 +181,6 @@ test('entrar: cadastro com o id de uma filial ou de uma conta da plataforma nao 
   assert.match(r.token, /^custom:ana:/);
 });
 
-test('segredo do computador troca a cada entrada; o anterior vale so por alguns minutos (bloco B, 25/11/2026)', async () => {
-  const { fake, terminais, terminal } = await preparar();
-  const entrar = (segredo) => terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo, codigo: '07', pin: '4826' });
-  const primeira = await entrar(terminal.segredo);
-  assert.equal(primeira.novoSegredo.length, 64);
-  assert.notEqual(primeira.novoSegredo, terminal.segredo);
-  const gravado = fake.ler(`terminais_caixa/${terminal.terminalId}`);
-  assert.equal(gravado.segredoHash, terminais.hashDoSegredo(primeira.novoSegredo));
-  assert.ok(!JSON.stringify(gravado).includes(primeira.novoSegredo), 'so o hash fica no banco');
-  // Resposta perdida no caminho: o segredo anterior ainda entra (sem trocar de novo).
-  const comAnterior = await entrar(terminal.segredo);
-  assert.equal(comAnterior.novoSegredo, undefined);
-  // O novo continua valendo e troca de novo.
-  const segunda = await entrar(primeira.novoSegredo);
-  assert.ok(segunda.novoSegredo);
-  // Depois da folga, o anterior nao vale mais.
-  await fake.db.collection('terminais_caixa').doc(terminal.terminalId).update({ segredoTrocadoEm: new Date(Date.now() - terminais.SEGREDO_ANTERIOR_VALE_MS - 1000) });
-  await assert.rejects(entrar(primeira.novoSegredo), (e) => e.status === 401 && /não está mais ativado/.test(e.message));
-  await entrar(segunda.novoSegredo);
-});
-
 test('computador parado ha mais de 180 dias precisa ser ativado de novo', async () => {
   const { fake, terminais, terminal } = await preparar();
   await fake.db.collection('terminais_caixa').doc(terminal.terminalId).update({ ultimoUsoEm: new Date(Date.now() - terminais.VALIDADE_SEM_USO_MS - 60000) });
@@ -213,11 +192,21 @@ test('computador parado ha mais de 180 dias precisa ser ativado de novo', async 
 
 test('desativar o computador encerra a sessao de quem entrou por ele', async () => {
   const { fake, terminais, terminal } = await preparar();
-  const r = await terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo: '07', pin: '4826' });
-  await terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: r.novoSegredo, codigo: '10', pin: '4826' });
+  await terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo: '07', pin: '4826' });
+  await terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo: '10', pin: '4826' });
   const d = await terminais.desativarTerminal({ user: GERENTE, terminalId: terminal.terminalId });
   assert.equal(d.sessoesEncerradas, 2);
   assert.deepEqual(fake.db.__sessoesEncerradas.sort(), ['ana', 'balcao']);
   assert.ok(fake.ler('usuarios/ana').sessaoValidaApos instanceof Date, 'o servidor recusa o login de antes');
   assert.equal(fake.ler('usuarios/bia').sessaoValidaApos, undefined, 'quem nao entrou por ele segue');
+});
+
+test('revisao de 25/11: o segredo do computador NAO troca a cada entrada (resposta perdida ou duas abas nao travam o caixa)', async () => {
+  const { fake, terminais, terminal } = await preparar();
+  const antes = fake.ler(`terminais_caixa/${terminal.terminalId}`).segredoHash;
+  for (let i = 0; i < 3; i += 1) {
+    const r = await terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo: '07', pin: '4826' });
+    assert.equal(r.novoSegredo, undefined);
+  }
+  assert.equal(fake.ler(`terminais_caixa/${terminal.terminalId}`).segredoHash, antes);
 });

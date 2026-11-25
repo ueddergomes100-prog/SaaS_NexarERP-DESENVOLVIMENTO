@@ -32,11 +32,13 @@ const { encerrarSessoes } = require('./sessoes');
  * (25/11/2026, decisao do dono) so' com senha de 6 digitos ou mais. Funcionario
  * entra com 4 ou mais (caixa e sistema). Gestor da plataforma nunca entra assim.
  *
- * SEGREDO DO COMPUTADOR (bloco B): troca a cada entrada que da' certo (o
- * servidor devolve o novo e o computador guarda); o anterior ainda vale por
- * alguns minutos, caso a resposta se perca no caminho. Computador parado ha'
- * mais de 180 dias precisa ser ativado de novo. Desativar o computador encerra
- * a sessao de quem entrou por ele.
+ * COMPUTADOR PARADO (bloco B): ha' mais de 180 dias sem ninguem entrar, precisa
+ * ser ativado de novo. Desativar o computador encerra a sessao de quem entrou
+ * por ele. A TROCA do segredo a cada entrada ficou de fora de proposito
+ * (revisao de 25/11): resposta perdida, duas abas abertas ou duas entradas ao
+ * mesmo tempo deixariam o caixa sem segredo valido, e o vendedor de balcao nao
+ * tem outro jeito de entrar. Volta so' com troca em transacao e o computador
+ * lendo o segredo do armazenamento a cada entrada.
  */
 
 const COLECAO = 'terminais_caixa';
@@ -60,8 +62,6 @@ const mesmoHash = (a, b) => {
 const DIGITOS_MINIMOS_NO_SISTEMA = 4;
 /** Dono e administrador: so' com senha de 6 digitos ou mais (bloco B, 25/11/2026, decisao do dono). */
 const DIGITOS_MINIMOS_GESTOR = 6;
-/** Por quanto tempo o segredo anterior ainda vale depois da troca (resposta perdida no caminho). */
-const SEGREDO_ANTERIOR_VALE_MS = 10 * 60 * 1000;
 /** Computador sem uso ha' mais que isto precisa ser ativado de novo. */
 const VALIDADE_SEM_USO_MS = 180 * 24 * 60 * 60 * 1000;
 /** Quantos operadores o computador lembra para encerrar a sessao ao desativar. */
@@ -118,26 +118,19 @@ const emMs = (t) => {
   return t instanceof Date ? t.getTime() : 0;
 };
 
-/**
- * Confere o computador. `segredoAtual` diz se veio o segredo de agora (true) ou
- * o anterior, ainda dentro da folga (false) -- so' o de agora gera troca.
- */
 async function conferirTerminal({ terminalId, segredo }) {
   exigirBanco();
   const id = String(terminalId || '').trim();
   if (!id || !segredo || id.includes('/')) throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
   const snap = await db.collection(COLECAO).doc(id).get();
   const dados = snap.exists ? snap.data() : null;
-  if (!dados || dados.ativo !== true) throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
-  const hash = hashDoSegredo(segredo);
-  const segredoAtual = mesmoHash(hash, dados.segredoHash);
-  const anteriorNaFolga = !segredoAtual
-    && mesmoHash(hash, dados.segredoHashAnterior)
-    && Date.now() - emMs(dados.segredoTrocadoEm) <= SEGREDO_ANTERIOR_VALE_MS;
-  if (!segredoAtual && !anteriorNaFolga) throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
+  if (!dados || dados.ativo !== true || !mesmoHash(hashDoSegredo(segredo), dados.segredoHash)) {
+    throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
+  }
+  // Bloco B: parado ha' mais de 180 dias, ativa de novo.
   const ultimoUsoMs = emMs(dados.ultimoUsoEm) || emMs(dados.criadoEm);
   if (ultimoUsoMs && Date.now() - ultimoUsoMs > VALIDADE_SEM_USO_MS) throw new ErroTerminal(401, MENSAGEM_TERMINAL_VENCIDO);
-  return { id, ...dados, segredoAtual };
+  return { id, ...dados };
 }
 
 /**
@@ -192,9 +185,8 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   const marcas = { viaTerminalCaixa: terminal.id, ...(!noSistema && usuario.tipoRegistro === 'vendedor' ? { isVendedorBalcao: true } : {}) };
   const token = await admin.auth().createCustomToken(identificado.vendedorId, marcas);
 
-  // Segredo novo a cada entrada (so' quando veio o de agora: duas entradas ao
-  // mesmo tempo nao trocam duas vezes). O anterior vale mais alguns minutos.
-  const novoSegredo = terminal.segredoAtual ? crypto.randomBytes(32).toString('hex') : '';
+  // Ultimo uso + quem entrou por aqui (para encerrar a sessao ao desativar).
+  // Falha aqui nao impede a entrada.
   const operadores = Array.isArray(terminal.operadoresIds) ? terminal.operadoresIds : [];
   await db.collection(COLECAO).doc(terminal.id).update({
     ultimoUsoEm: admin.firestore.FieldValue.serverTimestamp(),
@@ -203,19 +195,9 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
     ...(operadores.includes(identificado.vendedorId) ? {} : {
       operadoresIds: [...operadores, identificado.vendedorId].slice(-MAX_OPERADORES_LEMBRADOS),
     }),
-    ...(novoSegredo ? {
-      segredoHash: hashDoSegredo(novoSegredo),
-      segredoHashAnterior: terminal.segredoHash,
-      segredoTrocadoEm: admin.firestore.Timestamp.now(),
-    } : {}),
-  });
+  }).catch((erro) => console.warn('[TerminaisCaixa] nao foi possivel registrar o ultimo uso:', erro.message));
 
-  return {
-    token,
-    operadorNome: identificado.vendedorNome,
-    tenantId: terminal.tenantId,
-    ...(novoSegredo ? { novoSegredo } : {}),
-  };
+  return { token, operadorNome: identificado.vendedorNome, tenantId: terminal.tenantId };
 }
 
 async function listarTerminais({ user }) {
@@ -266,7 +248,6 @@ module.exports = {
   COLECAO,
   DIGITOS_MINIMOS_NO_SISTEMA,
   DIGITOS_MINIMOS_GESTOR,
-  SEGREDO_ANTERIOR_VALE_MS,
   VALIDADE_SEM_USO_MS,
   // expostos pros testes
   hashDoSegredo,

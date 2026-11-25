@@ -223,6 +223,10 @@ const carregarComBancoFalso = (db, ...servicos) => {
       const fim = inicio + Math.min(max, db.__tamanhoDaPaginaDoAuth || max);
       return { users: todas.slice(inicio, fim), ...(fim < todas.length ? { pageToken: String(fim) } : {}) };
     },
+    // Encerrar sessoes (bloco B, 25/11/2026): cada uid fica em `db.__sessoesEncerradas`.
+    revokeRefreshTokens: async (uid) => {
+      (db.__sessoesEncerradas || (db.__sessoesEncerradas = [])).push(uid);
+    },
     // Token de entrada (caixa com codigo e senha, 22/11/2026): "custom:<uid>:<marcas em JSON>".
     createCustomToken: async (uid, marcas) => `custom:${uid}:${JSON.stringify(marcas || {})}`,
     // Token falso "falso:<uid>:<auth_time em segundos>" (liberacao de desconto, 19/10/2026).
@@ -234,7 +238,8 @@ const carregarComBancoFalso = (db, ...servicos) => {
   };
   require.cache[firebase] = {
     id: firebase, filename: firebase, loaded: true,
-    exports: { db, admin: { auth: () => authFalso, firestore: { FieldValue: {
+    // Timestamp vira Date (o banco falso copia com structuredClone, que nao leva funcao).
+    exports: { db, admin: { auth: () => authFalso, firestore: { Timestamp: { fromMillis: (ms) => new Date(ms), now: () => new Date() }, FieldValue: {
       serverTimestamp: () => TS,
       delete: () => DEL,
       increment: (n) => ({ __incremento: n }),
@@ -245,7 +250,7 @@ const carregarComBancoFalso = (db, ...servicos) => {
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));
   // Servicos usados por dentro de outros (guardam o `db` ao carregar): sempre com o banco novo.
-  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/contaDoCadastro', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades', 'services/travaDeRotina']
+  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/contaDoCadastro', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades', 'services/sessoes', 'services/travaDeRotina']
     .map((s) => require.resolve(path.join(base, s)));
   [...sempreNovos, ...caminhos].forEach((c) => { delete require.cache[c]; });
   return caminhos.map((c) => require(c));

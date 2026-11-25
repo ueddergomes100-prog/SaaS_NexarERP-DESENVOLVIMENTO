@@ -7,6 +7,7 @@ const { isTenantManagerRole } = require('../domain/roles');
 const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
 const { empresaBloqueada } = require('./mensalidades');
 const { conferirContaDoCadastro, ErroContaDoCadastro } = require('./contaDoCadastro');
+const { encerrarSessoes } = require('./sessoes');
 
 /**
  * COMPUTADOR DO CAIXA + ENTRADA COM CODIGO E SENHA (22/11/2026, pedido do dono:
@@ -25,11 +26,17 @@ const { conferirContaDoCadastro, ErroContaDoCadastro } = require('./contaDoCadas
  *    vendas, sangrias, descontos e fechamento ficam no nome e nas permissoes
  *    dele -- igual a entrar com usuario e senha.
  *
- * Senha curta (a partir de 2 digitos) nunca abre conta de dono ou de
- * administrador. Desde 24/11/2026 (pedido do dono: "o dono tem que conseguir
- * entrar no caixa com codigo tambem") eles entram no computador ativado com
- * senha de 4 digitos ou mais (a mesma regra do funcionario no sistema), com o
- * bloqueio por tentativas de sempre. Gestor da plataforma nunca entra assim.
+ * Senha curta nunca abre conta de dono ou de administrador. Desde 24/11/2026
+ * (pedido do dono: "o dono tem que conseguir entrar no caixa com codigo
+ * tambem") eles entram no computador ativado; desde o bloco B de seguranca
+ * (25/11/2026, decisao do dono) so' com senha de 6 digitos ou mais. Funcionario
+ * entra com 4 ou mais (caixa e sistema). Gestor da plataforma nunca entra assim.
+ *
+ * SEGREDO DO COMPUTADOR (bloco B): troca a cada entrada que da' certo (o
+ * servidor devolve o novo e o computador guarda); o anterior ainda vale por
+ * alguns minutos, caso a resposta se perca no caminho. Computador parado ha'
+ * mais de 180 dias precisa ser ativado de novo. Desativar o computador encerra
+ * a sessao de quem entrou por ele.
  */
 
 const COLECAO = 'terminais_caixa';
@@ -49,8 +56,18 @@ const mesmoHash = (a, b) => {
   return x.length === y.length && x.length > 0 && crypto.timingSafeEqual(x, y);
 };
 
-/** Entrar no SISTEMA completo (nao so' no caixa) pede senha mais longa (decisao do dono, 22/11/2026). */
+/** Funcionario: senha de 4 digitos ou mais, no caixa e no sistema (canal 'terminal' do validarPin). */
 const DIGITOS_MINIMOS_NO_SISTEMA = 4;
+/** Dono e administrador: so' com senha de 6 digitos ou mais (bloco B, 25/11/2026, decisao do dono). */
+const DIGITOS_MINIMOS_GESTOR = 6;
+/** Por quanto tempo o segredo anterior ainda vale depois da troca (resposta perdida no caminho). */
+const SEGREDO_ANTERIOR_VALE_MS = 10 * 60 * 1000;
+/** Computador sem uso ha' mais que isto precisa ser ativado de novo. */
+const VALIDADE_SEM_USO_MS = 180 * 24 * 60 * 60 * 1000;
+/** Quantos operadores o computador lembra para encerrar a sessao ao desativar. */
+const MAX_OPERADORES_LEMBRADOS = 50;
+
+const MENSAGEM_TERMINAL_VENCIDO = 'Este computador ficou mais de 6 meses sem ninguém entrar com código e senha e precisa ser ativado de novo. Entre com usuário e senha, ou peça ao dono ou a um administrador para ativar ("Ativar de novo", embaixo do login).';
 
 const MENSAGEM_TERMINAL_INVALIDO = 'Este computador não está mais ativado para entrar com código e senha. Entre com usuário e senha, ou peça ao dono ou a um administrador para ativar de novo ("Ativar de novo", embaixo do login).';
 
@@ -96,16 +113,31 @@ async function ativarTerminal({ user, nome }) {
   return { terminalId: ref.id, segredo, tenantId, cnpj, empresa: nomeDaEmpresa(config), nome: nomeLimpo };
 }
 
+const emMs = (t) => {
+  if (t && typeof t.toMillis === 'function') return t.toMillis();
+  return t instanceof Date ? t.getTime() : 0;
+};
+
+/**
+ * Confere o computador. `segredoAtual` diz se veio o segredo de agora (true) ou
+ * o anterior, ainda dentro da folga (false) -- so' o de agora gera troca.
+ */
 async function conferirTerminal({ terminalId, segredo }) {
   exigirBanco();
   const id = String(terminalId || '').trim();
   if (!id || !segredo || id.includes('/')) throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
   const snap = await db.collection(COLECAO).doc(id).get();
   const dados = snap.exists ? snap.data() : null;
-  if (!dados || dados.ativo !== true || !mesmoHash(hashDoSegredo(segredo), dados.segredoHash)) {
-    throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
-  }
-  return { id, ...dados };
+  if (!dados || dados.ativo !== true) throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
+  const hash = hashDoSegredo(segredo);
+  const segredoAtual = mesmoHash(hash, dados.segredoHash);
+  const anteriorNaFolga = !segredoAtual
+    && mesmoHash(hash, dados.segredoHashAnterior)
+    && Date.now() - emMs(dados.segredoTrocadoEm) <= SEGREDO_ANTERIOR_VALE_MS;
+  if (!segredoAtual && !anteriorNaFolga) throw new ErroTerminal(401, MENSAGEM_TERMINAL_INVALIDO);
+  const ultimoUsoMs = emMs(dados.ultimoUsoEm) || emMs(dados.criadoEm);
+  if (ultimoUsoMs && Date.now() - ultimoUsoMs > VALIDADE_SEM_USO_MS) throw new ErroTerminal(401, MENSAGEM_TERMINAL_VENCIDO);
+  return { id, ...dados, segredoAtual };
 }
 
 /**
@@ -117,8 +149,9 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   const noSistema = destino === 'sistema';
   const terminal = await conferirTerminal({ terminalId, segredo });
 
-  // Hash scrypt + status Ativo + bloqueio por tentativas: tudo do validarPin.
-  const identificado = await validarPin({ tenantId: terminal.tenantDosUsuarios, codigo, pin });
+  // Hash scrypt + status Ativo + bloqueio por tentativas + senha de 4 digitos
+  // ou mais: tudo do validarPin, no canal do computador (contador proprio).
+  const identificado = await validarPin({ tenantId: terminal.tenantDosUsuarios, codigo, pin, canal: 'terminal' });
 
   const usuarioSnap = await db.collection('usuarios').doc(identificado.vendedorId).get();
   const usuario = usuarioSnap.exists ? usuarioSnap.data() : {};
@@ -127,9 +160,9 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   if (papel !== 'Funcionario' && !gestor) {
     throw new ErroTerminal(403, 'Este cadastro não entra com código e senha: entre pelo usuário e senha ("Entrar com usuário e senha", logo abaixo).');
   }
-  // Dono e administrador (24/11/2026): so' com senha de 4 digitos ou mais, no caixa e no sistema.
-  if (gestor && String(pin || '').length < DIGITOS_MINIMOS_NO_SISTEMA) {
-    throw new ErroTerminal(403, `Dono e administrador entram com código só com senha de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos ou mais. Cadastre uma senha maior em Administração › Usuários (lápis na sua linha), ou entre pelo usuário e senha.`);
+  // Dono e administrador (bloco B, 25/11/2026): so' com senha de 6 digitos ou mais, no caixa e no sistema.
+  if (gestor && String(pin || '').length < DIGITOS_MINIMOS_GESTOR) {
+    throw new ErroTerminal(403, `Dono e administrador entram com código só com senha de ${DIGITOS_MINIMOS_GESTOR} dígitos ou mais. Cadastre uma senha maior em Administração › Usuários (lápis na sua linha), ou entre pelo usuário e senha.`);
   }
   const permissoes = Array.isArray(usuario.permissoes) ? usuario.permissoes : [];
   if (noSistema && usuario.tipoRegistro === 'vendedor') {
@@ -159,13 +192,30 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   const marcas = { viaTerminalCaixa: terminal.id, ...(!noSistema && usuario.tipoRegistro === 'vendedor' ? { isVendedorBalcao: true } : {}) };
   const token = await admin.auth().createCustomToken(identificado.vendedorId, marcas);
 
+  // Segredo novo a cada entrada (so' quando veio o de agora: duas entradas ao
+  // mesmo tempo nao trocam duas vezes). O anterior vale mais alguns minutos.
+  const novoSegredo = terminal.segredoAtual ? crypto.randomBytes(32).toString('hex') : '';
+  const operadores = Array.isArray(terminal.operadoresIds) ? terminal.operadoresIds : [];
   await db.collection(COLECAO).doc(terminal.id).update({
     ultimoUsoEm: admin.firestore.FieldValue.serverTimestamp(),
     ultimoOperadorId: identificado.vendedorId,
     ultimoOperadorNome: identificado.vendedorNome,
-  }).catch((erro) => console.warn('[TerminaisCaixa] nao foi possivel registrar o ultimo uso:', erro.message));
+    ...(operadores.includes(identificado.vendedorId) ? {} : {
+      operadoresIds: [...operadores, identificado.vendedorId].slice(-MAX_OPERADORES_LEMBRADOS),
+    }),
+    ...(novoSegredo ? {
+      segredoHash: hashDoSegredo(novoSegredo),
+      segredoHashAnterior: terminal.segredoHash,
+      segredoTrocadoEm: admin.firestore.Timestamp.now(),
+    } : {}),
+  });
 
-  return { token, operadorNome: identificado.vendedorNome, tenantId: terminal.tenantId };
+  return {
+    token,
+    operadorNome: identificado.vendedorNome,
+    tenantId: terminal.tenantId,
+    ...(novoSegredo ? { novoSegredo } : {}),
+  };
 }
 
 async function listarTerminais({ user }) {
@@ -199,7 +249,11 @@ async function desativarTerminal({ user, terminalId }) {
     desativadoPorNome: user.nome || '',
     desativadoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
-  return { id: ref.id, nome: snap.data().nome || '' };
+  // Bloco B (25/11/2026): quem entrou por este computador sai (em ate' 1 hora no
+  // banco; no servidor, na hora). Antes desativar so' impedia entradas novas.
+  const operadores = Array.isArray(snap.data().operadoresIds) ? snap.data().operadoresIds : [];
+  const encerradas = await encerrarSessoes(operadores, 'computador do caixa desativado');
+  return { id: ref.id, nome: snap.data().nome || '', sessoesEncerradas: encerradas };
 }
 
 module.exports = {
@@ -211,6 +265,9 @@ module.exports = {
   ErroTerminal,
   COLECAO,
   DIGITOS_MINIMOS_NO_SISTEMA,
+  DIGITOS_MINIMOS_GESTOR,
+  SEGREDO_ANTERIOR_VALE_MS,
+  VALIDADE_SEM_USO_MS,
   // expostos pros testes
   hashDoSegredo,
   ehGerente,

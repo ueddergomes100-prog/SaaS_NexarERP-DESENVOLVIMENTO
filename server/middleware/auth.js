@@ -1,6 +1,7 @@
 const { auth, db } = require('../config/firebase');
 const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
+const { sessaoEncerrada } = require('../services/sessoes');
 
 /** Timestamp do Firestore (ou Date) em ms; outra coisa = 0. */
 const instanteEmMs = (v) => {
@@ -83,6 +84,13 @@ async function authenticate(req, res, next) {
       permissoes = Array.isArray(userData.permissoes) ? userData.permissoes : [];
       nivelAcesso = parseNivelAcesso(userData.nivelAcesso);
       nome = String(userData.nome || userData.nomeResponsavel || '').trim();
+
+      // Sessao encerrada pelo servidor (bloco B, 25/11/2026: senha/PIN trocado,
+      // usuario inativado, computador do caixa desativado): login feito antes
+      // disso nao vale mais aqui. Ver services/sessoes.js.
+      if (sessaoEncerrada(userData, decodedToken.auth_time)) {
+        return res.status(401).json({ error: 'Sua sessão foi encerrada (a senha foi trocada, o usuário foi inativado ou o computador do caixa foi desativado). Entre de novo.', codigo: 'sessao_encerrada' });
+      }
 
       // Funcionario inativado perde o acesso ao servidor tambem, nao so' a
       // tela (mesma regra de perfilAtivo() nas firestore.rules, 2026-09-29).

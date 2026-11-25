@@ -25,11 +25,38 @@ const { admin, db } = require('../config/firebase');
 
 const COLECAO_PIN = 'usuarios_pin';
 /** Faixa de tamanho do PIN. Tem que bater com src/utils/vendedorPinDomain.ts
- *  (PIN_VENDEDOR_MIN_DIGITOS / PIN_VENDEDOR_MAX_DIGITOS): a tela avisa cedo,
- *  mas quem decide e' esta validacao. */
+ *  (PIN_VENDEDOR_MIN_DIGITOS / PIN_VENDEDOR_MAX_DIGITOS / PIN_DIGITADO_MIN_DIGITOS):
+ *  a tela avisa cedo, mas quem decide e' esta validacao.
+ *
+ * Seguranca, bloco B (25/11/2026, decisao do dono): PIN NOVO so' com 4 digitos
+ * ou mais. O PIN curto de antes (2 ou 3 digitos) continua valendo SO' no balcao
+ * e na liberacao de desconto, onde ja' ha' alguem logado; nas entradas sem
+ * login (app Vendas, computador ativado) so' vale 4 ou mais. */
 const PIN_MIN_DIGITOS = 2;
+const PIN_MIN_DIGITOS_NOVO = 4;
 const PIN_MAX_DIGITOS = 10;
 const CODIGO_DIGITOS = 2;
+
+/**
+ * CANAIS (bloco B, 25/11/2026): cada canal conta as tentativas erradas
+ * separado. Antes era um contador so': 5 erros pela internet (app, rota
+ * publica) travavam o vendedor tambem no balcao -- qualquer um com o CNPJ da
+ * loja tirava um vendedor do ar. `minimo` = menor PIN aceito ali.
+ */
+const CANAIS = {
+  balcao: { minimo: PIN_MIN_DIGITOS },
+  desconto: { minimo: PIN_MIN_DIGITOS },
+  app: { minimo: PIN_MIN_DIGITOS_NOVO },
+  terminal: { minimo: PIN_MIN_DIGITOS_NOVO },
+};
+
+/** Mensagem UNICA para codigo que nao existe, vendedor sem senha e senha errada
+ *  (bloco B): a resposta nao ajuda a descobrir codigo nem quantas tentativas
+ *  restam, e ainda diz o que fazer. */
+const MENSAGEM_CODIGO_OU_SENHA = 'Código ou senha inválidos. Confira os dois; se esqueceu a senha ou ainda não tem uma, peça ao responsável para cadastrar em Usuários.';
+
+/** Depois de 24 h sem errar, o bloqueio volta ao comeco (5 minutos). */
+const ESQUECER_BLOQUEIOS_MS = 24 * 60 * 60 * 1000;
 
 /** Tentativas erradas antes de bloquear, e por quanto tempo (o PRIMEIRO
  *  bloqueio; os seguintes dobram -- ver duracaoDoBloqueioMinutos). */
@@ -38,12 +65,17 @@ const BLOQUEIO_MINUTOS = 5;
 const BLOQUEIO_MAXIMO_MINUTOS = 24 * 60;
 
 /**
- * Bloqueio progressivo (auditoria de 2026-09-29): cada bloqueio seguido, sem
- * um acerto no meio, DOBRA o tempo -- 5, 10, 20, 40 minutos... ate 24 horas.
- * Com o bloqueio fixo de 5 minutos, quem tentasse senhas no automatico pelo
- * login do aplicativo (rota publica, so' precisa do CNPJ e do codigo) acertava
- * um PIN de 4 digitos em poucos dias e um de 2 digitos em menos de 2 horas.
- * Acertar a senha, ou o responsavel cadastrar uma senha nova, zera a contagem.
+ * Bloqueio progressivo (auditoria de 2026-09-29): cada bloqueio seguido DOBRA
+ * o tempo -- 5, 10, 20, 40 minutos... ate 24 horas. Com o bloqueio fixo de 5
+ * minutos, quem tentasse senhas no automatico pelo login do aplicativo (rota
+ * publica, so' precisa do CNPJ e do codigo) acertava um PIN de 4 digitos em
+ * poucos dias e um de 2 digitos em menos de 2 horas.
+ *
+ * Bloco B (25/11/2026): ACERTAR a senha zera so' os erros da rodada, NAO a
+ * escada de bloqueios -- antes o acerto do vendedor de verdade devolvia o
+ * bloqueio aos 5 minutos e o atacante recomecava do zero. A escada so' volta
+ * ao comeco depois de 24 h sem nenhum erro naquele canal, ou quando o
+ * responsavel cadastra uma senha nova.
  */
 const duracaoDoBloqueioMinutos = (bloqueiosSeguidos) => Math.min(
   BLOQUEIO_MINUTOS * (2 ** Math.max(0, Math.floor(Number(bloqueiosSeguidos) || 0))),
@@ -76,8 +108,11 @@ const reservarTentativa = (dados, agoraMs) => {
     return { permitida: false, faltamMinutos: Math.ceil((bloqueadoAteMs - agoraMs) / 60000) };
   }
 
-  const tentativa = Number(dados?.tentativasFalhas || 0) + 1;
-  const bloqueiosSeguidos = Math.max(0, Math.floor(Number(dados?.bloqueiosSeguidos || 0)));
+  // 24 h sem errar: a rodada e a escada de bloqueios recomecam.
+  const ultimaFalhaMs = Number(dados?.ultimaFalhaMs || 0);
+  const esquecer = ultimaFalhaMs > 0 && agoraMs - ultimaFalhaMs > ESQUECER_BLOQUEIOS_MS;
+  const tentativa = (esquecer ? 0 : Number(dados?.tentativasFalhas || 0)) + 1;
+  const bloqueiosSeguidos = esquecer ? 0 : Math.max(0, Math.floor(Number(dados?.bloqueiosSeguidos || 0)));
   if (tentativa >= MAX_TENTATIVAS) {
     const minutosDeBloqueio = duracaoDoBloqueioMinutos(bloqueiosSeguidos);
     return {
@@ -85,16 +120,24 @@ const reservarTentativa = (dados, agoraMs) => {
       tentativa,
       bloqueiaSeErrar: true,
       minutosDeBloqueio,
-      seErrar: { tentativasFalhas: 0, bloqueadoAteMs: agoraMs + minutosDeBloqueio * 60 * 1000, bloqueiosSeguidos: bloqueiosSeguidos + 1 },
+      seErrar: { tentativasFalhas: 0, bloqueadoAteMs: agoraMs + minutosDeBloqueio * 60 * 1000, bloqueiosSeguidos: bloqueiosSeguidos + 1, ultimaFalhaMs: agoraMs },
     };
   }
   return {
     permitida: true,
     tentativa,
     bloqueiaSeErrar: false,
-    seErrar: { tentativasFalhas: tentativa, bloqueadoAteMs: null, bloqueiosSeguidos },
+    seErrar: { tentativasFalhas: tentativa, bloqueadoAteMs: null, bloqueiosSeguidos, ultimaFalhaMs: agoraMs },
   };
 };
+
+/** Como o registro do canal fica quando a senha CONFERE: zera a rodada, mantem a escada. */
+const depoisDoAcerto = (dados) => ({
+  tentativasFalhas: 0,
+  bloqueadoAteMs: null,
+  bloqueiosSeguidos: Math.max(0, Math.floor(Number(dados?.bloqueiosSeguidos || 0))),
+  ultimaFalhaMs: Number(dados?.ultimaFalhaMs || 0) || null,
+});
 
 /** Parametros do scrypt. Custo alto o suficiente pra tornar forca bruta cara
  *  mesmo com poucas combinacoes possiveis, e baixo o suficiente pra nao pesar
@@ -116,6 +159,7 @@ const normalizarCodigo = (valor) => {
 };
 
 const isPinValido = (valor) => new RegExp(`^\\d{${PIN_MIN_DIGITOS},${PIN_MAX_DIGITOS}}$`).test(String(valor ?? ''));
+const isPinNovoValido = (valor) => new RegExp(`^\\d{${PIN_MIN_DIGITOS_NOVO},${PIN_MAX_DIGITOS}}$`).test(String(valor ?? ''));
 
 /** Erro com status HTTP, pra rota so repassar. */
 class ErroPin extends Error {
@@ -134,8 +178,8 @@ class ErroPin extends Error {
  */
 async function definirPin({ tenantId, usuarioId, pin, autorId, restrito = false }) {
   if (!db) throw new ErroPin(503, 'Backend sem acesso ao banco de dados.');
-  if (!isPinValido(pin)) {
-    throw new ErroPin(400, `A senha do vendedor deve ter de ${PIN_MIN_DIGITOS} a ${PIN_MAX_DIGITOS} dígitos numéricos.`);
+  if (!isPinNovoValido(pin)) {
+    throw new ErroPin(400, `A senha do vendedor deve ter de ${PIN_MIN_DIGITOS_NOVO} a ${PIN_MAX_DIGITOS} dígitos numéricos.`);
   }
 
   const usuarioRef = db.collection('usuarios').doc(String(usuarioId || ''));
@@ -172,10 +216,8 @@ async function definirPin({ tenantId, usuarioId, pin, autorId, restrito = false 
     tenantId,
     pinHash,
     pinSalt: salt,
-    // Zera qualquer bloqueio: definir senha nova destrava o funcionario.
-    tentativasFalhas: 0,
-    bloqueadoAte: null,
-    bloqueiosSeguidos: 0,
+    // Zera qualquer bloqueio, em todos os canais: definir senha nova destrava o funcionario.
+    canais: {},
     definidoPor: autorId || null,
     definidoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -186,6 +228,8 @@ async function definirPin({ tenantId, usuarioId, pin, autorId, restrito = false 
   // o vendedor so descobriria isso no balcao, com cliente na frente.
   await usuarioRef.update({
     pinDefinidoEm: admin.firestore.FieldValue.serverTimestamp(),
+    // Senha nova tem 4 digitos ou mais: o aviso de "senha curta" sai.
+    pinCurto: admin.firestore.FieldValue.delete(),
   });
 
   return { usuarioId: usuarioRef.id, codigo };
@@ -207,6 +251,7 @@ async function removerPin({ tenantId, usuarioId }) {
   // tem mais senha e' pior que nao mostrar nada.
   await db.collection('usuarios').doc(String(usuarioId)).update({
     pinDefinidoEm: admin.firestore.FieldValue.delete(),
+    pinCurto: admin.firestore.FieldValue.delete(),
   }).catch(() => {
     // Usuario ja excluido: o PIN sumiu, que era o que importava.
   });
@@ -214,20 +259,60 @@ async function removerPin({ tenantId, usuarioId }) {
   return { removido: true };
 }
 
+/** Registro de tentativas de UM canal, do jeito que reservarTentativa le. */
+const lerCanal = (dadosPin, canal) => {
+  const c = (dadosPin && dadosPin.canais && dadosPin.canais[canal]) || {};
+  const ms = (v) => {
+    if (v && typeof v.toMillis === 'function') return v.toMillis();
+    if (v instanceof Date) return v.getTime();
+    return Number(v || 0);
+  };
+  return {
+    tentativasFalhas: c.tentativasFalhas,
+    bloqueiosSeguidos: c.bloqueiosSeguidos,
+    bloqueadoAteMs: ms(c.bloqueadoAte),
+    ultimaFalhaMs: ms(c.ultimaFalhaEm),
+  };
+};
+
+/** O registro do canal como vai para o banco (datas como Timestamp, nunca undefined). */
+const gravarCanal = (registro) => ({
+  tentativasFalhas: Number(registro.tentativasFalhas || 0),
+  bloqueiosSeguidos: Number(registro.bloqueiosSeguidos || 0),
+  bloqueadoAte: registro.bloqueadoAteMs ? admin.firestore.Timestamp.fromMillis(registro.bloqueadoAteMs) : null,
+  ultimaFalhaEm: registro.ultimaFalhaMs ? admin.firestore.Timestamp.fromMillis(registro.ultimaFalhaMs) : null,
+});
+
+/** Senha digitada menor que o minimo do canal: diz o que fazer, sem tocar no banco. */
+const mensagemSenhaCurta = (canal) => {
+  const onde = canal === 'app' ? 'no aplicativo' : 'no computador do caixa';
+  return `Senhas com menos de ${PIN_MIN_DIGITOS_NOVO} dígitos não valem ${onde}. Peça ao responsável uma senha nova de ${PIN_MIN_DIGITOS_NOVO} dígitos ou mais, em Usuários.`;
+};
+
 /**
  * Valida codigo + PIN e devolve quem e' o vendedor.
  *
  * O `tenantId` vem SEMPRE do token de quem chamou (a estacao logada), nunca
  * do corpo da requisicao -- assim uma estacao nao consegue validar vendedor
  * de outra empresa nem por engano nem de proposito.
+ *
+ * `canal` (bloco B, 25/11/2026): 'balcao' (identificar a venda, logado),
+ * 'desconto' (liberar desconto, logado), 'app' (login do app Vendas, publico)
+ * ou 'terminal' (computador ativado, publico). Cada canal tem o proprio
+ * contador de erros e o proprio tamanho minimo de senha (CANAIS).
  */
-async function validarPin({ tenantId, codigo, pin }) {
+async function validarPin({ tenantId, codigo, pin, canal = 'balcao' }) {
   if (!db) throw new ErroPin(503, 'Backend sem acesso ao banco de dados.');
+  const regras = CANAIS[canal];
+  if (!regras) throw new Error(`canal de PIN desconhecido: ${canal}`);
 
   const codigoNormalizado = normalizarCodigo(codigo);
   if (!codigoNormalizado || !isPinValido(pin)) {
     // Formato errado morre aqui, sem tocar no banco.
-    throw new ErroPin(400, 'Código ou senha inválidos.');
+    throw new ErroPin(400, MENSAGEM_CODIGO_OU_SENHA);
+  }
+  if (String(pin).length < regras.minimo) {
+    throw new ErroPin(400, mensagemSenhaCurta(canal));
   }
 
   // Duas igualdades: o Firestore resolve com os indices de campo unico, sem
@@ -239,7 +324,7 @@ async function validarPin({ tenantId, codigo, pin }) {
     .get();
 
   if (consulta.empty) {
-    throw new ErroPin(401, 'Código ou senha inválidos.');
+    throw new ErroPin(401, MENSAGEM_CODIGO_OU_SENHA);
   }
   if (consulta.size > 1) {
     // Nao escolhe um "provavel": dois vendedores com o mesmo codigo
@@ -249,11 +334,6 @@ async function validarPin({ tenantId, codigo, pin }) {
 
   const usuarioDoc = consulta.docs[0];
   const usuario = usuarioDoc.data();
-
-  if (usuario.status && usuario.status !== 'Ativo') {
-    throw new ErroPin(403, 'Este vendedor está inativo e não pode registrar vendas.');
-  }
-
   const pinRef = db.collection(COLECAO_PIN).doc(usuarioDoc.id);
 
   // Conta a tentativa (como se fosse errar) ANTES de conferir a senha -- ver
@@ -262,31 +342,21 @@ async function validarPin({ tenantId, codigo, pin }) {
   const reserva = await db.runTransaction(async (tx) => {
     const pinSnap = await tx.get(pinRef);
     if (!pinSnap.exists) {
-      // Mensagem distinta de propósito: o codigo do vendedor e' publico (todo
-      // mundo ve o do colega), entao nao ha segredo a proteger aqui -- e sem
-      // essa distincao o balcao ficaria travado sem saber o que fazer.
-      throw new ErroPin(409, 'Este vendedor ainda não tem senha cadastrada. Peça ao responsável para cadastrar em Usuários.');
+      // Sem senha cadastrada: mesma resposta de senha errada (bloco B). A
+      // mensagem ja' diz para pedir a senha ao responsavel.
+      throw new ErroPin(401, MENSAGEM_CODIGO_OU_SENHA);
     }
 
     const dadosPin = pinSnap.data();
-    const decisao = reservarTentativa({
-      tentativasFalhas: dadosPin.tentativasFalhas,
-      bloqueiosSeguidos: dadosPin.bloqueiosSeguidos,
-      bloqueadoAteMs: dadosPin.bloqueadoAte ? dadosPin.bloqueadoAte.toMillis() : 0,
-    }, Date.now());
+    const registro = lerCanal(dadosPin, canal);
+    const decisao = reservarTentativa(registro, Date.now());
 
     if (!decisao.permitida) {
       throw new ErroPin(429, `Muitas tentativas erradas. Este vendedor está bloqueado por mais ${formatarDuracao(decisao.faltamMinutos)}. O responsável pode cadastrar uma senha nova em Usuários para liberar na hora.`);
     }
 
-    tx.update(pinRef, {
-      tentativasFalhas: decisao.seErrar.tentativasFalhas,
-      bloqueadoAte: decisao.seErrar.bloqueadoAteMs
-        ? admin.firestore.Timestamp.fromMillis(decisao.seErrar.bloqueadoAteMs)
-        : null,
-      bloqueiosSeguidos: decisao.seErrar.bloqueiosSeguidos,
-    });
-    return { ...decisao, pinHash: dadosPin.pinHash, pinSalt: dadosPin.pinSalt };
+    tx.update(pinRef, { [`canais.${canal}`]: gravarCanal(decisao.seErrar) });
+    return { ...decisao, registro, pinHash: dadosPin.pinHash, pinSalt: dadosPin.pinSalt };
   });
 
   const hashInformado = await scrypt(String(pin), reserva.pinSalt);
@@ -296,27 +366,40 @@ async function validarPin({ tenantId, codigo, pin }) {
   );
 
   if (!confere) {
-    // O erro ja' ficou gravado na reserva -- aqui so' se explica.
+    // O erro ja' ficou gravado na reserva -- aqui so' se explica. Sem dizer
+    // quantas tentativas restam (bloco B).
     if (reserva.bloqueiaSeErrar) {
-      throw new ErroPin(429, `Senha incorreta ${MAX_TENTATIVAS} vezes. Este vendedor ficou bloqueado por ${formatarDuracao(reserva.minutosDeBloqueio)}. O responsável pode cadastrar uma senha nova em Usuários para liberar na hora.`);
+      throw new ErroPin(429, `Muitas tentativas erradas. Este vendedor ficou bloqueado por ${formatarDuracao(reserva.minutosDeBloqueio)}. O responsável pode cadastrar uma senha nova em Usuários para liberar na hora.`);
     }
-
-    const restantes = MAX_TENTATIVAS - reserva.tentativa;
-    throw new ErroPin(401, `Código ou senha inválidos. Mais ${restantes} tentativa(s) antes de bloquear este vendedor.`);
+    throw new ErroPin(401, MENSAGEM_CODIGO_OU_SENHA);
   }
 
-  // Acertou: desfaz a tentativa reservada (e qualquer bloqueio que ela armou).
+  // Acertou: desfaz a tentativa reservada (a escada de bloqueios fica -- ver depoisDoAcerto).
   await pinRef.update({
-    tentativasFalhas: 0,
-    bloqueadoAte: null,
-    bloqueiosSeguidos: 0,
+    [`canais.${canal}`]: gravarCanal(depoisDoAcerto(reserva.registro)),
     ultimaValidacaoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
+
+  // Situacao so' depois da senha certa: quem nao sabe a senha nao descobre
+  // que o cadastro existe e esta' inativo.
+  if (usuario.status && usuario.status !== 'Ativo') {
+    throw new ErroPin(403, 'Este vendedor está inativo e não pode registrar vendas.');
+  }
+
+  // Aviso na tela de Usuarios (bloco B): quem ainda usa senha de 2 ou 3 digitos
+  // precisa de uma nova. So' o "sim/nao" vai para o cadastro, nunca a senha.
+  const curto = String(pin).length < PIN_MIN_DIGITOS_NOVO;
+  if (curto !== (usuario.pinCurto === true)) {
+    await db.collection('usuarios').doc(usuarioDoc.id)
+      .update({ pinCurto: curto ? true : admin.firestore.FieldValue.delete() })
+      .catch((erro) => console.warn('[VendedorPin] nao foi possivel marcar a senha curta:', erro.message));
+  }
 
   return {
     vendedorId: usuarioDoc.id,
     vendedorNome: usuario.nome || usuario.nomeResponsavel || usuario.email || 'Vendedor',
     codigo: codigoNormalizado,
+    digitos: String(pin).length,
   };
 }
 
@@ -327,8 +410,12 @@ module.exports = {
   ErroPin,
   MAX_TENTATIVAS,
   BLOQUEIO_MINUTOS,
+  PIN_MIN_DIGITOS_NOVO,
+  MENSAGEM_CODIGO_OU_SENHA,
+  CANAIS,
   // expostos pros testes
   reservarTentativa,
+  depoisDoAcerto,
   duracaoDoBloqueioMinutos,
   formatarDuracao,
   normalizarCodigo,

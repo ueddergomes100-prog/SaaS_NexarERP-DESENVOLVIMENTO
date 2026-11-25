@@ -92,9 +92,9 @@ router.post('/mobile-login', limitePorIp, limitePorVendedor, async (req, res) =>
       throw erro;
     }
 
-    // validarPin ja confere hash, status Ativo e bloqueio por tentativas --
-    // reaproveitado sem nenhuma alteracao.
-    const identificado = await validarPin({ tenantId, codigo, pin: req.body?.pin });
+    // validarPin ja confere hash, status Ativo e bloqueio por tentativas. Canal
+    // 'app' (bloco B, 25/11/2026): contador proprio e senha de 4 digitos ou mais.
+    const identificado = await validarPin({ tenantId, codigo, pin: req.body?.pin, canal: 'app' });
 
     // Defesa extra: confere no proprio cadastro que o acesso mobile
     // continua ligado, caso o indice esteja desatualizado.

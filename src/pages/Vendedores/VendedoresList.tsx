@@ -35,6 +35,7 @@ import {
   isPinVendedorFraco,
   isPinVendedorValido,
   MENSAGEM_CODIGO_INVALIDO,
+  MENSAGEM_PIN_CURTO,
   MENSAGEM_PIN_FRACO,
   MENSAGEM_PIN_INVALIDO,
   normalizarCodigoVendedor,
@@ -86,6 +87,9 @@ interface VendedorData {
    *  avisar ANTES do vendedor descobrir isso no balcao com cliente na
    *  frente. Ver server/services/vendedorPin.js. */
   pinDefinidoEm?: unknown;
+  /** Senha de 2 ou 3 digitos (bloco B, 25/11/2026): marcado pelo servidor quando
+   *  ela e' conferida; vale so' no balcao ate' cadastrar uma nova. */
+  pinCurto?: boolean;
   /** Acesso ao aplicativo mobile do vendedor externo, com o mesmo codigo+PIN
    *  do balcao. Ver acessoMobileDomain.ts. */
   acessoAppMobile?: boolean;
@@ -759,9 +763,11 @@ const VendedoresList: React.FC = () => {
                     <td style={{ padding: '16px', fontWeight: 700, fontSize: '17px', letterSpacing: '3px' }}>{vendedor.codigoVendedor || '--'}</td>
                     <td style={{ padding: '16px', fontWeight: 500 }}>{vendedor.nome}</td>
                     <td style={{ padding: '16px' }}>
-                      {vendedor.pinDefinidoEm
-                        ? badge('Cadastrada', '#10b981')
-                        : badge('Sem senha — não vende', '#ef4444')}
+                      {!vendedor.pinDefinidoEm
+                        ? badge('Sem senha — não vende', '#ef4444')
+                        : vendedor.pinCurto
+                          ? <span title={MENSAGEM_PIN_CURTO}>{badge('Curta — trocar', '#f59e0b')}</span>
+                          : badge('Cadastrada', '#10b981')}
                     </td>
                     <td style={{ padding: '16px', color: 'var(--text-secondary)', fontSize: '13px' }}>{textoComissao(vendedor)}</td>
                     <td style={{ padding: '16px' }}>

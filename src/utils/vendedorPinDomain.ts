@@ -38,22 +38,21 @@ import { podeVerVendasDeTodos, type NivelAcesso } from './visibilidadeVendasDoma
 export const CODIGO_VENDEDOR_DIGITOS = 2;
 
 /**
- * Faixa de tamanho do PIN (decisao de produto, 2026-08-31): a empresa escolhe
- * quantos digitos usar, de 2 a 10. O que ja esta cadastrado com 4 continua
- * valendo -- o backend guarda o hash, nao o tamanho, entao nao ha migracao.
+ * Faixa de tamanho do PIN.
  *
- * O piso de 2 e' uma escolha de conveniencia do balcao, nao de seguranca: com
- * 2 digitos sao 100 combinacoes. Quem segura o estrago e' o limite de
- * tentativas do backend (5 erros bloqueiam o vendedor por 5 minutos), nao o
- * tamanho do PIN -- por isso a tela avisa quando o PIN esta curto demais
- * (ver `isPinVendedorFraco`).
+ * Seguranca, bloco B (25/11/2026, decisao do dono): senha NOVA so' com 4
+ * digitos ou mais (`PIN_VENDEDOR_MIN_DIGITOS`). A de 2 ou 3 digitos cadastrada
+ * antes (a faixa era de 2 a 10 desde 2026-08-31) continua valendo SO' no balcao
+ * e na liberacao de desconto, onde ja' ha' alguem logado -- por isso o campo
+ * de digitar do balcao aceita a partir de 2 (`PIN_DIGITADO_MIN_DIGITOS`). No
+ * app Vendas e no computador ativado do caixa, so' 4 ou mais; dono e
+ * administrador entram por codigo so' com 6 ou mais (`PIN_GESTOR_MIN_DIGITOS`).
+ * Quem decide e' o servidor (server/services/vendedorPin.js e terminaisCaixa.js).
  */
-export const PIN_VENDEDOR_MIN_DIGITOS = 2;
+export const PIN_VENDEDOR_MIN_DIGITOS = 4;
 export const PIN_VENDEDOR_MAX_DIGITOS = 10;
-
-/** Tamanho abaixo do qual a tela avisa que o PIN e' facil de adivinhar.
- *  Nao bloqueia -- a decisao continua sendo do dono da empresa. */
-const PIN_VENDEDOR_DIGITOS_SEGUROS = 4;
+export const PIN_DIGITADO_MIN_DIGITOS = 2;
+export const PIN_GESTOR_MIN_DIGITOS = 6;
 
 /** Teto de funcionarios com codigo por empresa: 00 a 99. */
 export const MAX_VENDEDORES_COM_CODIGO = 10 ** CODIGO_VENDEDOR_DIGITOS;
@@ -75,21 +74,26 @@ export const normalizarCodigoVendedor = (valor: unknown): string => {
 export const isCodigoVendedorValido = (valor: unknown): boolean =>
   normalizarCodigoVendedor(valor) !== '';
 
-/** PIN e' de MIN a MAX digitos -- nada alem de digito, sem espaco nem letra. */
+/** Senha NOVA: de MIN a MAX digitos -- nada alem de digito, sem espaco nem letra. */
 export const isPinVendedorValido = (valor: unknown): boolean => {
   const bruto = String(valor ?? '');
   return new RegExp(`^\\d{${PIN_VENDEDOR_MIN_DIGITOS},${PIN_VENDEDOR_MAX_DIGITOS}}$`).test(bruto);
 };
 
+/** Senha DIGITADA no balcao: aceita a curta de antes (o servidor diz onde ela vale). */
+export const isPinDigitadoValido = (valor: unknown): boolean => {
+  const bruto = String(valor ?? '');
+  return new RegExp(`^\\d{${PIN_DIGITADO_MIN_DIGITOS},${PIN_VENDEDOR_MAX_DIGITOS}}$`).test(bruto);
+};
+
 /**
  * PIN obvio demais. Nao BLOQUEIA (a decisao e' do dono da empresa), mas a
- * tela avisa: com poucos digitos e um codigo publico, "12", "1234" e "0000"
- * entregam a conta pro primeiro colega curioso.
+ * tela avisa: com um codigo publico, "1234" e "0000" entregam a conta pro
+ * primeiro colega curioso.
  */
 export const isPinVendedorFraco = (valor: unknown): boolean => {
   if (!isPinVendedorValido(valor)) return false;
   const pin = String(valor);
-  if (pin.length < PIN_VENDEDOR_DIGITOS_SEGUROS) return true;
   const todosIguais = /^(\d)\1+$/.test(pin);
   const crescente = '0123456789'.includes(pin);
   const decrescente = '9876543210'.includes(pin);
@@ -104,7 +108,11 @@ export const MENSAGEM_PIN_INVALIDO =
   `A senha do vendedor tem de ${PIN_VENDEDOR_MIN_DIGITOS} a ${PIN_VENDEDOR_MAX_DIGITOS} dígitos numéricos.`;
 
 export const MENSAGEM_PIN_FRACO =
-  'Esta senha é fácil de adivinhar (curta demais, ou uma sequência como 1234 e 0000). Como o código do vendedor é visível para os colegas, prefira uma senha mais longa e menos óbvia.';
+  'Esta senha é fácil de adivinhar (uma sequência como 1234 ou números repetidos como 0000). Como o código do vendedor é visível para os colegas, prefira uma senha menos óbvia.';
+
+/** Aviso de quem ainda usa senha de 2 ou 3 digitos (o servidor marca `pinCurto` ao conferir). */
+export const MENSAGEM_PIN_CURTO =
+  `Senha com menos de ${PIN_VENDEDOR_MIN_DIGITOS} dígitos: vale só no balcão. Cadastre uma senha nova de ${PIN_VENDEDOR_MIN_DIGITOS} dígitos ou mais para ela valer também no aplicativo e no computador do caixa.`;
 
 /** Texto curto de ajuda, pro campo de senha em cada tela dizer o mesmo. */
 export const AJUDA_TAMANHO_PIN =

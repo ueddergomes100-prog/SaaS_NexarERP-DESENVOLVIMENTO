@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isCodigoVendedorValido,
+  isPinDigitadoValido,
   isPinVendedorFraco,
   isPinVendedorValido,
   listaGeralDeVendasEscondidaParaFuncionario,
@@ -55,15 +56,21 @@ test('o teto de codigos e 100 (00 a 99)', () => {
 
 // --- PIN -------------------------------------------------------------------
 
-test('isPinVendedorValido aceita de 2 a 10 digitos', () => {
-  // Faixa aberta em 2026-08-31. Os PINs de 4 digitos ja cadastrados seguem
-  // valendo -- por isso eles continuam no teste.
-  assert.equal(isPinVendedorValido('42'), true);
+test('senha NOVA: de 4 a 10 digitos (bloco B de seguranca, 25/11/2026)', () => {
   assert.equal(isPinVendedorValido('1357'), true);
   assert.equal(isPinVendedorValido('0042'), true);
-  assert.equal(isPinVendedorValido('135'), true);
   assert.equal(isPinVendedorValido('13570'), true);
   assert.equal(isPinVendedorValido('1234567890'), true);
+  assert.equal(isPinVendedorValido('42'), false);
+  assert.equal(isPinVendedorValido('135'), false);
+});
+
+test('senha DIGITADA no balcao: aceita a curta de antes (o servidor diz onde vale)', () => {
+  assert.equal(isPinDigitadoValido('42'), true);
+  assert.equal(isPinDigitadoValido('135'), true);
+  assert.equal(isPinDigitadoValido('1357'), true);
+  assert.equal(isPinDigitadoValido('7'), false);
+  assert.equal(isPinDigitadoValido('12a'), false);
 });
 
 test('isPinVendedorValido recusa fora da faixa e o que nao e digito', () => {
@@ -87,12 +94,9 @@ test('isPinVendedorFraco pega repetido e sequencia, nos dois sentidos', () => {
   assert.equal(isPinVendedorFraco('6789'), true);
 });
 
-test('isPinVendedorFraco avisa sobre PIN curto -- mas nao bloqueia', () => {
-  // Curto e' PERMITIDO (a empresa decide); a tela so avisa. Quem segura a
-  // forca bruta e' o limite de tentativas do backend.
-  assert.equal(isPinVendedorFraco('42'), true);
-  assert.equal(isPinVendedorFraco('135'), true);
-  assert.equal(isPinVendedorValido('42'), true);
+test('isPinVendedorFraco nao opina sobre senha curta: ela nem e aceita como senha nova', () => {
+  assert.equal(isPinVendedorFraco('42'), false);
+  assert.equal(isPinVendedorFraco('135'), false);
 });
 
 test('isPinVendedorFraco deixa passar PIN comum, curto ou longo', () => {

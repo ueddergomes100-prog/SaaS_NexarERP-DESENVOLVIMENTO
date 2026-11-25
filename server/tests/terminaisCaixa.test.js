@@ -6,7 +6,15 @@ const assert = require('node:assert/strict');
  * computador ativado por gerente aceita codigo e senha; a conta e' a do
  * proprio funcionario, que precisa ter acesso a Frente de Caixa.
  */
+const crypto = require('node:crypto');
 const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreFalso');
+
+/** Senha curta de ANTES do bloco B (25/11/2026): definirPin nao aceita mais; grava o hash como o servidor gravava. */
+const pinLegado = (fake, id, pin) => {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const pinHash = crypto.scryptSync(pin, salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
+  return fake.db.collection('usuarios_pin').doc(id).set({ tenantId: 'loja', pinHash, pinSalt: salt, canais: {} });
+};
 
 const carregar = (db) => {
   const [terminais, pin] = carregarComBancoFalso(db, 'services/terminaisCaixa', 'services/vendedorPin').slice(-2);
@@ -31,7 +39,7 @@ const preparar = async () => {
     await pin.definirPin({ tenantId: 'loja', usuarioId: id, pin: '4826', autorId: 'dono' });
   }
   const terminal = await terminais.ativarTerminal({ user: GERENTE, nome: '  Caixa   1 ' });
-  return { fake, terminais, terminal };
+  return { fake, terminais, terminal, pin };
 };
 
 test('ativar: so dono/administrador; nome obrigatorio; guarda so o hash do segredo', async () => {
@@ -81,14 +89,17 @@ test('entrar: segredo errado, computador desconhecido ou desativado nao deixa ne
   );
 });
 
-test('entrar: administrador entra com 4 digitos ou mais (nunca com senha curta); sem acesso ao caixa e recusado; senha errada conta tentativa', async () => {
-  const { terminais, terminal } = await preparar();
-  const com = (codigo, pin = '4826') => terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo, pin });
-  // Dono/administrador (24/11/2026): entra no caixa com senha de 4 digitos, mesmo sem a permissao do PDV.
-  const chefe = await com('09');
+test('entrar: administrador so com 6 digitos ou mais; sem acesso ao caixa e recusado; senha errada conta tentativa sem dizer quantas restam', async () => {
+  const { fake, terminais, terminal, pin } = await preparar();
+  const com = (codigo, senha = '4826') => terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo, pin: senha });
+  // Dono/administrador (bloco B, 25/11/2026): 4 digitos nao bastam; 6 entram, mesmo sem a permissao do PDV.
+  await assert.rejects(com('09'), (e) => e.status === 403 && /6 dígitos ou mais/.test(e.message));
+  await pin.definirPin({ tenantId: 'loja', usuarioId: 'chefe', pin: '482613', autorId: 'dono' });
+  const chefe = await com('09', '482613');
   assert.match(chefe.token, /^custom:chefe:/);
   await assert.rejects(com('08'), (e) => e.status === 403 && /BIA não tem acesso à Frente de Caixa/.test(e.message));
-  await assert.rejects(com('07', '1111'), (e) => e.status === 401 && /tentativa/.test(e.message));
+  await assert.rejects(com('07', '1111'), (e) => e.status === 401 && /Código ou senha inválidos/.test(e.message) && !/tentativa/.test(e.message));
+  assert.equal(fake.ler('usuarios_pin/ana').canais.terminal.tentativasFalhas, 1, 'erro contado no canal do computador');
   // Vendedor de balcao com permissao do PDV: entra, com a marca que o middleware exige.
   const balcao = await com('10');
   assert.deepEqual(JSON.parse(balcao.token.split(':').slice(2).join(':')), { viaTerminalCaixa: terminal.terminalId, isVendedorBalcao: true });
@@ -113,19 +124,22 @@ test('entrar no SISTEMA: senha de 4 digitos ou mais; sem exigir caixa; vendedor 
   assert.match(bia.token, /^custom:bia:/);
   assert.deepEqual(JSON.parse(bia.token.split(':').slice(2).join(':')), { viaTerminalCaixa: terminal.terminalId });
   await assert.rejects(comSistema('10', '4826'), (e) => e.status === 403 && /vendedor de balcão/.test(e.message));
-  const chefe = await comSistema('09', '4826');
-  assert.match(chefe.token, /^custom:chefe:/);
-  // Senha curta: identifica venda e entra no caixa, mas nao no sistema.
+  await assert.rejects(comSistema('09', '4826'), (e) => e.status === 403 && /6 dígitos ou mais/.test(e.message));
+  // Senha curta de antes (bloco B): identifica a venda no balcao, mas nao entra no computador (nem caixa, nem sistema).
   const fake2 = criarBancoFalso(BASE, { consultas: true });
   const { terminais: t2, pin } = carregar(fake2.db);
-  await pin.definirPin({ tenantId: 'loja', usuarioId: 'ana', pin: '73', autorId: 'dono' });
+  await pinLegado(fake2, 'ana', '73');
   const term2 = await t2.ativarTerminal({ user: GERENTE, nome: 'Caixa 2' });
-  await assert.rejects(
-    t2.entrarComCodigo({ terminalId: term2.terminalId, segredo: term2.segredo, codigo: '07', pin: '73', destino: 'sistema' }),
-    (e) => e.status === 403 && /menos de 4 dígitos/.test(e.message),
-  );
-  const noCaixa = await t2.entrarComCodigo({ terminalId: term2.terminalId, segredo: term2.segredo, codigo: '07', pin: '73' });
-  assert.match(noCaixa.token, /^custom:ana:/);
+  for (const destino of ['sistema', 'caixa']) {
+    await assert.rejects(
+      t2.entrarComCodigo({ terminalId: term2.terminalId, segredo: term2.segredo, codigo: '07', pin: '73', destino }),
+      (e) => e.status === 400 && /menos de 4 dígitos não valem no computador do caixa/.test(e.message),
+      destino,
+    );
+  }
+  const noBalcao = await pin.validarPin({ tenantId: 'loja', codigo: '07', pin: '73', canal: 'balcao' });
+  assert.equal(noBalcao.vendedorId, 'ana');
+  assert.equal(fake2.ler('usuarios/ana').pinCurto, true, 'a tela de Usuarios avisa que a senha e curta');
 });
 
 test('dono/administrador com senha curta nao entra por codigo; gestor da plataforma nunca', async () => {
@@ -135,12 +149,12 @@ test('dono/administrador com senha curta nao entra por codigo; gestor da platafo
     'usuarios/plataforma': { tenantId: 'loja', role: 'SuperAdmin', status: 'Ativo', codigoVendedor: '11', permissoes: [], nome: 'PLATAFORMA' },
   }, { consultas: true });
   const { terminais, pin } = carregar(fake.db);
-  await pin.definirPin({ tenantId: 'loja', usuarioId: 'chefe', pin: '73', autorId: 'dono' });
+  await pin.definirPin({ tenantId: 'loja', usuarioId: 'chefe', pin: '48261', autorId: 'dono' });
   await pin.definirPin({ tenantId: 'loja', usuarioId: 'plataforma', pin: '482613', autorId: 'dono' });
   const t = await terminais.ativarTerminal({ user: GERENTE, nome: 'Caixa 3' });
   const entrar = (codigo, senha, destino) => terminais.entrarComCodigo({ terminalId: t.terminalId, segredo: t.segredo, codigo, pin: senha, destino });
-  await assert.rejects(entrar('09', '73'), (e) => e.status === 403 && /4 dígitos ou mais/.test(e.message));
-  await assert.rejects(entrar('09', '73', 'sistema'), (e) => e.status === 403 && /4 dígitos ou mais/.test(e.message));
+  await assert.rejects(entrar('09', '48261'), (e) => e.status === 403 && /6 dígitos ou mais/.test(e.message));
+  await assert.rejects(entrar('09', '48261', 'sistema'), (e) => e.status === 403 && /6 dígitos ou mais/.test(e.message));
   await assert.rejects(entrar('11', '482613', 'sistema'), (e) => e.status === 403 && /não entra com código/.test(e.message));
 });
 
@@ -165,4 +179,45 @@ test('entrar: cadastro com o id de uma filial ou de uma conta da plataforma nao 
   // O funcionario de verdade continua entrando.
   const r = await com('07');
   assert.match(r.token, /^custom:ana:/);
+});
+
+test('segredo do computador troca a cada entrada; o anterior vale so por alguns minutos (bloco B, 25/11/2026)', async () => {
+  const { fake, terminais, terminal } = await preparar();
+  const entrar = (segredo) => terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo, codigo: '07', pin: '4826' });
+  const primeira = await entrar(terminal.segredo);
+  assert.equal(primeira.novoSegredo.length, 64);
+  assert.notEqual(primeira.novoSegredo, terminal.segredo);
+  const gravado = fake.ler(`terminais_caixa/${terminal.terminalId}`);
+  assert.equal(gravado.segredoHash, terminais.hashDoSegredo(primeira.novoSegredo));
+  assert.ok(!JSON.stringify(gravado).includes(primeira.novoSegredo), 'so o hash fica no banco');
+  // Resposta perdida no caminho: o segredo anterior ainda entra (sem trocar de novo).
+  const comAnterior = await entrar(terminal.segredo);
+  assert.equal(comAnterior.novoSegredo, undefined);
+  // O novo continua valendo e troca de novo.
+  const segunda = await entrar(primeira.novoSegredo);
+  assert.ok(segunda.novoSegredo);
+  // Depois da folga, o anterior nao vale mais.
+  await fake.db.collection('terminais_caixa').doc(terminal.terminalId).update({ segredoTrocadoEm: new Date(Date.now() - terminais.SEGREDO_ANTERIOR_VALE_MS - 1000) });
+  await assert.rejects(entrar(primeira.novoSegredo), (e) => e.status === 401 && /não está mais ativado/.test(e.message));
+  await entrar(segunda.novoSegredo);
+});
+
+test('computador parado ha mais de 180 dias precisa ser ativado de novo', async () => {
+  const { fake, terminais, terminal } = await preparar();
+  await fake.db.collection('terminais_caixa').doc(terminal.terminalId).update({ ultimoUsoEm: new Date(Date.now() - terminais.VALIDADE_SEM_USO_MS - 60000) });
+  await assert.rejects(
+    terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo: '07', pin: '4826' }),
+    (e) => e.status === 401 && /mais de 6 meses/.test(e.message),
+  );
+});
+
+test('desativar o computador encerra a sessao de quem entrou por ele', async () => {
+  const { fake, terminais, terminal } = await preparar();
+  const r = await terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo: '07', pin: '4826' });
+  await terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: r.novoSegredo, codigo: '10', pin: '4826' });
+  const d = await terminais.desativarTerminal({ user: GERENTE, terminalId: terminal.terminalId });
+  assert.equal(d.sessoesEncerradas, 2);
+  assert.deepEqual(fake.db.__sessoesEncerradas.sort(), ['ana', 'balcao']);
+  assert.ok(fake.ler('usuarios/ana').sessaoValidaApos instanceof Date, 'o servidor recusa o login de antes');
+  assert.equal(fake.ler('usuarios/bia').sessaoValidaApos, undefined, 'quem nao entrou por ele segue');
 });

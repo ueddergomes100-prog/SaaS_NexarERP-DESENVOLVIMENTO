@@ -72,6 +72,7 @@ router.post('/validar', async (req, res) => {
       tenantId: req.user.tenantId,
       codigo: req.body?.codigo,
       pin: req.body?.pin,
+      canal: 'balcao',
     });
     // Venda pelo servidor (19/10/2026): com a identificacao exigida, o Finalizar
     // gasta este comprovante -- prova que o vendedor da venda digitou o PIN.

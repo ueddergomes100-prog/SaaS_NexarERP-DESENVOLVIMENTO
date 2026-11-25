@@ -16,11 +16,14 @@ import {
   isPinVendedorFraco,
   isPinVendedorValido,
   MENSAGEM_CODIGO_INVALIDO,
+  MENSAGEM_PIN_CURTO,
   MENSAGEM_PIN_FRACO,
+  PIN_GESTOR_MIN_DIGITOS,
   MENSAGEM_PIN_INVALIDO,
   normalizarCodigoVendedor,
   AJUDA_TAMANHO_PIN,
   PIN_VENDEDOR_MAX_DIGITOS,
+  PIN_VENDEDOR_MIN_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
 import { criarLoginNoServidor, redefinirSenhaAcesso, salvarFichaNoServidor, UsuarioAcessoError, vincularMotoristaNoServidor } from '../../services/usuarioAcessoService';
@@ -44,6 +47,9 @@ const UsuarioForm: React.FC = () => {
    *  `null` enquanto carrega. */
   const [checagemPrefixo, setChecagemPrefixo] = useState<ChecagemPrefixo | null>(null);
   const [pinVendedor, setPinVendedor] = useState('');
+  // Bloco B de seguranca (25/11/2026): senha de 2 ou 3 digitos (so' vale no balcao) e papel de gestor (entra por codigo so' com 6+).
+  const [pinCurto, setPinCurto] = useState(false);
+  const [alvoEhGestor, setAlvoEhGestor] = useState(false);
   const [salvandoPin, setSalvandoPin] = useState(false);
   const [novaSenhaAcesso, setNovaSenhaAcesso] = useState('');
   const [salvandoSenhaAcesso, setSalvandoSenhaAcesso] = useState(false);
@@ -102,6 +108,8 @@ const UsuarioForm: React.FC = () => {
             senha: '',
             codigoVendedor: data.codigoVendedor || ''
           });
+          setPinCurto(data.pinCurto === true);
+          setAlvoEhGestor(data.role === 'Master' || data.role === 'Admin');
         }
         // Ja e' motorista? O vinculo e' motoristas/{uid} (criado aqui) ou o
         // motorista ja' cadastrado vinculado depois (usuarios.motoristaId, 26/10/2026).
@@ -193,6 +201,7 @@ const UsuarioForm: React.FC = () => {
     try {
       await definirPinVendedor(id, pinVendedor);
       setPinVendedor('');
+      setPinCurto(false);
       showSuccess('Senha do vendedor salva!');
     } catch (error) {
       const mensagem = error instanceof VendedorPinError
@@ -511,8 +520,14 @@ const UsuarioForm: React.FC = () => {
               </button>
             </div>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Cadastre aqui também quando o funcionário <strong>esquecer a senha</strong> — salvar uma nova substitui a antiga e destrava na hora quem estiver bloqueado por tentativas. Para <strong>entrar no sistema</strong> com código e senha nos computadores ativados, a senha precisa ter 4 dígitos ou mais (na Frente de Caixa vale qualquer tamanho).
+              Cadastre aqui também quando o funcionário <strong>esquecer a senha</strong> — salvar uma nova substitui a antiga e destrava na hora quem estiver bloqueado por tentativas. A senha tem de {PIN_VENDEDOR_MIN_DIGITOS} a {PIN_VENDEDOR_MAX_DIGITOS} dígitos; <strong>dono e administrador</strong> só entram com código nos computadores ativados se a senha deles tiver {PIN_GESTOR_MIN_DIGITOS} dígitos ou mais.
             </span>
+            {pinCurto && (
+              <span style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600, marginTop: '4px' }}>{MENSAGEM_PIN_CURTO}</span>
+            )}
+            {alvoEhGestor && !pinCurto && (
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Para entrar com código no computador do caixa, use {PIN_GESTOR_MIN_DIGITOS} dígitos ou mais.</span>
+            )}
           </div>
         )}
 

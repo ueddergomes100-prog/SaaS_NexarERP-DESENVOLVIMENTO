@@ -184,7 +184,7 @@ const confirmarGerente = async (user, tenantId, usuario, credencial) => {
   }
   const codigo = String(usuario.codigoVendedor || '').trim();
   if (!codigo) throw new ErroLiberacaoRemota(400, 'Seu cadastro não tem código de vendedor com PIN. Use a senha do seu login.');
-  const { vendedorId } = await validarPin({ tenantId, codigo, pin: credencial.pin });
+  const { vendedorId } = await validarPin({ tenantId, codigo, pin: credencial.pin, canal: 'desconto' });
   if (vendedorId !== user.uid) throw new ErroLiberacaoRemota(403, 'O PIN digitado não é o do seu usuário.');
 };
 

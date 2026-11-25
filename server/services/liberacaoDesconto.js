@@ -45,7 +45,7 @@ const liberarDesconto = async ({ user, tenantId, corpo }) => {
     aprovadorId = token.uid;
   } else {
     // Erra o PIN = conta tentativa e pode bloquear, como na identificacao.
-    aprovadorId = (await validarPin({ tenantId, codigo: aprovador.codigo, pin: aprovador.pin })).vendedorId;
+    aprovadorId = (await validarPin({ tenantId, codigo: aprovador.codigo, pin: aprovador.pin, canal: 'desconto' })).vendedorId;
   }
 
   const snap = await db.collection('usuarios').doc(aprovadorId).get();

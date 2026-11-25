@@ -5,6 +5,7 @@ import { API_URL, chamarServidor, ErroDoServidor } from './apiServidor';
 import { entrarNaFilial } from './filialService';
 import { fetchComTimeout, mensagemDeFalhaDeRede } from '../utils/fetchComTimeout';
 import type { TerminalDoCaixa } from '../utils/terminalCaixaDomain';
+import { guardarTerminal } from '../utils/terminalCaixaStorage';
 
 /**
  * Computador do caixa + entrada com codigo e senha (22/11/2026). Ver
@@ -58,6 +59,13 @@ export const pedirEntradaPorCodigo = async (
   }
   const dados = await resposta.json().catch(() => ({}));
   if (!resposta.ok) throw new ErroDoServidor(dados.error || 'Não foi possível entrar. Confira o código e a senha e tente de novo.', resposta.status);
+  // Segredo do computador troca a cada entrada (bloco B de seguranca, 25/11/2026):
+  // guarda o novo ANTES de seguir, e atualiza o objeto que a tela tem em memoria
+  // (a tela do caixa fica aberta o dia todo, com varios operadores entrando).
+  if (typeof dados.novoSegredo === 'string' && dados.novoSegredo) {
+    terminal.segredo = dados.novoSegredo;
+    await guardarTerminal(terminal);
+  }
   return { token: String(dados.token || ''), operadorNome: String(dados.operadorNome || '') };
 };
 

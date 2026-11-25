@@ -3,9 +3,8 @@ import { UserCheck, X, Loader2 } from 'lucide-react';
 import {
   CODIGO_VENDEDOR_DIGITOS,
   isCodigoVendedorValido,
-  isPinVendedorValido,
+  isPinDigitadoValido,
   MENSAGEM_CODIGO_INVALIDO,
-  MENSAGEM_PIN_INVALIDO,
   PIN_VENDEDOR_MAX_DIGITOS,
   type VendedorIdentificado,
 } from '../../utils/vendedorPinDomain';
@@ -106,8 +105,8 @@ const IdentificarVendedorModal: React.FC<IdentificarVendedorModalProps> = ({
       codigoRef.current?.focus();
       return;
     }
-    if (!isPinVendedorValido(pin)) {
-      setErro(MENSAGEM_PIN_INVALIDO);
+    if (!isPinDigitadoValido(pin)) {
+      setErro('Digite a senha do vendedor (só números).');
       pinRef.current?.focus();
       return;
     }

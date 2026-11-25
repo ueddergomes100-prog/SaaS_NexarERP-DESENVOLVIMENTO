@@ -74,12 +74,12 @@ router.post('/:id/desativar', authenticate, async (req, res) => {
     registrarLog(req.user, {
       modulo: 'vendas',
       acao: 'edicao',
-      descricao: `Desativou o computador "${terminal.nome}" do caixa: ninguém mais entra nele com código e senha até ser ativado de novo.`,
+      descricao: `Desativou o computador "${terminal.nome}" do caixa: ninguém mais entra nele com código e senha até ser ativado de novo${terminal.sessoesEncerradas ? `, e ${terminal.sessoesEncerradas} pessoa(s) que tinham entrado por ele precisam entrar de novo` : ''}.`,
       registroId: terminal.id,
       documentoTipo: 'terminal_caixa',
       documentoNumero: terminal.nome,
     });
-    return res.json({ ok: true });
+    return res.json({ ok: true, sessoesEncerradas: terminal.sessoesEncerradas || 0 });
   } catch (erro) {
     return responderErro(res, erro, 'desativar o computador do caixa');
   }

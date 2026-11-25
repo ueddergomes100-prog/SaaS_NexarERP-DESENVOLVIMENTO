@@ -19,8 +19,22 @@ import { montarDocumentoExtratoBanco } from '../../utils/relatorioExtratoBancoDo
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import './Financeiro.css';
+import './BancoPorBanco.css';
 import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
 import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
+import {
+  agruparExtratoPorBanco,
+  chaveDoBanco,
+  corDoBanco,
+  dataDoExtrato,
+  formatarDataDoExtrato,
+  NOME_SEM_BANCO,
+  pertenceAoFiltro,
+  SEM_BANCO,
+  TODOS_OS_BANCOS,
+  type GrupoDoExtrato,
+  type LinhaDoExtrato,
+} from '../../utils/extratoBancoDomain';
 
 interface CartaoInfo {
   bandeira?: string;
@@ -79,6 +93,20 @@ const isCardMethod = (formaPagamento?: string) => (
   formaPagamento === 'Cartão de Crédito' || formaPagamento === 'Cartão de Débito'
 );
 
+const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+
+/** Linha do extrato separado por banco (25/11/2026): o lancamento + o valor liquido em centavos. */
+type LinhaDoBanco = LinhaDoExtrato & { transacao: TransacaoData };
+
+/** O que a tabela do extrato desenha: o cabecalho de cada banco (so' em "Todos") e as linhas. */
+type ItemDoExtrato =
+  | { tipo: 'grupo'; chave: string; grupo: GrupoDoExtrato<LinhaDoBanco> }
+  | { tipo: 'linha'; chave: string; grupoChave: string; linha: LinhaDoBanco };
+
+const criadoEmMs = (t: TransacaoData) => (
+  t.createdAt?.toMillis ? Number(t.createdAt.toMillis()) : Number(t.createdAt?.seconds || 0) * 1000
+);
+
 const Banco: React.FC = () => {
   // Olhinho (21/11/2026): esconde os saldos e o total do cartao junto com as outras telas.
   const { mostrar: mostrarValor } = useValoresOcultos();
@@ -89,7 +117,7 @@ const Banco: React.FC = () => {
   const [previewAberto, setPreviewAberto] = useState(false);
   const { currentUser, tenantId } = useAuth();
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
-  const bancosAtivos = bancos.filter((b) => b.ativo);
+  const bancosAtivos = useMemo(() => bancos.filter((b) => b.ativo), [bancos]);
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14): cartoes PENDENTES de
   // qualquer data (a conciliar) + extrato PAGO nos ultimos N dias ("Todo o
@@ -168,14 +196,21 @@ const Banco: React.FC = () => {
     return date >= limit;
   };
 
-  const pendentesCartao = transacoes
-    .filter((t) => t.status === 'Pendente' && isCardMethod(t.formaPagamento))
+  // Banco por banco (25/11/2026): o cartao de saldo escolhido filtra a tela
+  // inteira; "Todos" mostra o extrato separado por banco. Regra em utils/extratoBancoDomain.ts.
+  const [filtroBanco, setFiltroBanco] = useState<string>(TODOS_OS_BANCOS);
+  const bancosDoExtrato = useMemo(() => bancosAtivos.map((b) => ({ id: b.id, nome: b.nome })), [bancosAtivos]);
+  const doFiltro = (t: TransacaoData) => pertenceAoFiltro(t, filtroBanco, bancosDoExtrato);
+
+  const todosPendentesCartao = transacoes.filter((t) => t.status === 'Pendente' && isCardMethod(t.formaPagamento));
+  const pendentesCartao = todosPendentesCartao
+    .filter(doFiltro)
     .filter((t) => !searchTerm.trim() || `${t.descricao} ${t.clienteNome || ''}`.toLowerCase().includes(searchTerm.trim().toLowerCase()))
     .sort((a, b) => (a.dataPrevistaRecebimento || a.data || '').localeCompare(b.dataPrevistaRecebimento || b.data || ''));
 
   const totalPendenteCartao = pendentesCartao.reduce((acc, t) => acc + transactionNetAmount(t), 0);
 
-  const extratoDigital = transacoes.filter((t) => (
+  const extratoDoPeriodo = transacoes.filter((t) => (
     t.status === 'Paga' &&
     !transactionMovesPhysicalCash(t) &&
     t.formaPagamento !== 'Crédito de Devolução' &&
@@ -184,22 +219,64 @@ const Banco: React.FC = () => {
     t.formaPagamento !== FORMA_ACERTO_FORNECEDOR &&
     isWithinSelectedDays(t)
   ));
+  const extratoDigital = extratoDoPeriodo.filter(doFiltro);
+
+  const grupos = agruparExtratoPorBanco<LinhaDoBanco>(
+    extratoDigital.map((t) => ({
+      id: t.id,
+      bancoId: t.bancoId,
+      bancoNome: t.bancoNome,
+      tipo: t.tipo === 'saida' ? 'saida' : 'entrada',
+      centavos: Math.round(transactionNetAmount(t) * 100),
+      dataPagamento: t.dataPagamento,
+      data: t.data,
+      criadoEmMs: criadoEmMs(t),
+      transacao: t,
+    })),
+    bancosDoExtrato,
+  );
+  const separarPorBanco = filtroBanco === TODOS_OS_BANCOS;
+  const itensDoExtrato: ItemDoExtrato[] = grupos.flatMap((grupo) => [
+    ...(separarPorBanco ? [{ tipo: 'grupo' as const, chave: `grupo-${grupo.chave}`, grupo }] : []),
+    ...grupo.linhas.map((linha) => ({ tipo: 'linha' as const, chave: linha.id, grupoChave: grupo.chave, linha })),
+  ]);
+  const totalEntradas = grupos.reduce((soma, g) => soma + g.entradasCentavos, 0);
+  const totalSaidas = grupos.reduce((soma, g) => soma + g.saidasCentavos, 0);
+
+  // Cartao a conciliar por banco e lancamentos sem banco (para o cartao "Sem banco definido").
+  const pendentesPorBanco = new Map<string, number>();
+  todosPendentesCartao.forEach((t) => {
+    const chave = chaveDoBanco(t, bancosDoExtrato);
+    pendentesPorBanco.set(chave, (pendentesPorBanco.get(chave) || 0) + 1);
+  });
+  const temSemBanco = (pendentesPorBanco.get(SEM_BANCO) || 0) > 0
+    || extratoDoPeriodo.some((t) => chaveDoBanco(t, bancosDoExtrato) === SEM_BANCO);
+  const saldoTotal = bancosAtivos.reduce((soma, b) => soma + Number(b.saldoCentavos || 0), 0);
+  const nomeDoFiltro = filtroBanco === TODOS_OS_BANCOS
+    ? ''
+    : filtroBanco === SEM_BANCO ? NOME_SEM_BANCO : (bancosAtivos.find((b) => b.id === filtroBanco)?.nome || '');
+
   // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
-  const blocos = useLinhasEmBlocos(extratoDigital);
+  const blocos = useLinhasEmBlocos(itensDoExtrato);
   const blocosPendentes = useLinhasEmBlocos(pendentesCartao);
 
   if (previewAberto) {
     const hoje = getDateInputInTimeZone();
     const periodo = diasFiltro === 0 ? 'Todo o período' : `Últimos ${diasFiltro} dias`;
+    const bancosDoRelatorio = filtroBanco === TODOS_OS_BANCOS ? bancosAtivos : bancosAtivos.filter((b) => b.id === filtroBanco);
     return (
       <RelatorioPreview
         relatorioId="extrato-banco"
         documento={montarDocumentoExtratoBanco({
-          extrato: extratoDigital,
+          // Na ordem da tela: banco por banco, do mais recente para o mais antigo.
+          extrato: grupos.flatMap((g) => g.linhas.map((l) => l.transacao)),
           cartaoAConciliar: pendentesCartao,
-          saldos: bancosAtivos.map((b) => ({ nome: b.nome, saldoCentavos: Number(b.saldoCentavos || 0) })),
+          saldos: bancosDoRelatorio.map((b) => ({ nome: b.nome, saldoCentavos: Number(b.saldoCentavos || 0) })),
           periodo,
-          filtrosAplicados: searchTerm.trim() ? [`Busca no cartão a conciliar: "${searchTerm.trim()}"`] : [],
+          filtrosAplicados: [
+            ...(nomeDoFiltro ? [`Banco: ${nomeDoFiltro}`] : []),
+            ...(searchTerm.trim() ? [`Busca no cartão a conciliar: "${searchTerm.trim()}"`] : []),
+          ],
         })}
         nomeArquivo={nomeArquivoRelatorio('Extrato do Banco', diasFiltro === 0 ? '' : addDaysToDateInput(hoje, -diasFiltro), hoje)}
         onFechar={() => setPreviewAberto(false)}
@@ -208,43 +285,61 @@ const Banco: React.FC = () => {
     );
   }
 
+  const cartaoDeSaldo = (props: {
+    chave: string;
+    nome: string;
+    saldoCentavos?: number;
+    cor: string;
+    nota: string;
+    alerta?: boolean;
+    todos?: boolean;
+  }) => {
+    const ativo = filtroBanco === props.chave;
+    return (
+      <button
+        key={props.chave}
+        type="button"
+        className={`bpb-saldo${props.todos ? ' bpb-saldo--todos' : ''}`}
+        style={{ ['--cor-banco' as string]: props.cor } as React.CSSProperties}
+        aria-pressed={ativo}
+        title={ativo ? 'Mostrando só este banco' : `Mostrar só ${props.nome}`}
+        onClick={() => setFiltroBanco(props.chave)}
+      >
+        <span className="bpb-saldo__nome">
+          {!props.todos && <span className="bpb-ponto" aria-hidden="true" />}
+          {props.nome}
+        </span>
+        {props.saldoCentavos !== undefined && (
+          <span className={`bpb-saldo__valor${props.saldoCentavos < 0 ? ' bpb-saldo__valor--negativo' : ''}`}>
+            {mostrarValor(moeda(fromCents(props.saldoCentavos)))}
+          </span>
+        )}
+        <span className={`bpb-saldo__nota${props.alerta ? ' bpb-saldo__nota--alerta' : ''}`}>{props.nota}</span>
+      </button>
+    );
+  };
+
+  const notaDoCartao = (qtd: number) => (qtd === 0 ? 'Nenhum cartão a conciliar' : `${qtd} cartão(ões) a conciliar`);
+
   return (
     <div className="financeiro-page" style={{ padding: '24px' }}>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Landmark size={26} color="#37d7ff" />
+            <Landmark size={26} color="var(--brand)" />
             Banco
           </h1>
           <p className="page-subtitle" style={{ color: 'var(--text-muted)' }}>
-            Conciliação de cartão e extrato digital (Pix, Transferência, cartão de crédito/débito)
+            Saldo, cartão a conciliar e extrato de cada banco. Clique num banco para ver só ele.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           {bancosAtivos.length > 0 && <BotaoOlhoValores />}
-          {bancosAtivos.length === 0 ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(55, 215, 255, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(55, 215, 255, 0.2)' }}>
-              <CheckCircle size={24} color="#37d7ff" />
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Nenhum banco cadastrado ainda</div>
-            </div>
-          ) : (
-            bancosAtivos.map((banco) => (
-              <div key={banco.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(55, 215, 255, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(55, 215, 255, 0.2)' }}>
-                <CheckCircle size={24} color="#37d7ff" />
-                <div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{banco.nome}</div>
-                  <div style={{ fontSize: '20px', fontWeight: 700, color: '#37d7ff' }}>
-                    {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(banco.saldoCentavos || 0)))}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
           {/* No fim (canto direito): o menu abre para a esquerda sem passar por cima do menu lateral. */}
           <MenuMaisOpcoes
             itens={[{
               texto: 'Relatório', Icone: FileText,
-              titulo: 'Abre em PDF o extrato do período escolhido e o cartão a conciliar (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
+              titulo: 'Abre em PDF o extrato do período e o cartão a conciliar do banco escolhido (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
               desabilitado: loading,
               onClick: () => setPreviewAberto(true),
             }]}
@@ -252,14 +347,51 @@ const Banco: React.FC = () => {
         </div>
       </div>
 
-      <div className="card" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', padding: '24px', marginBottom: '24px' }}>
-        <div className="section-header" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <CreditCard size={20} color="#f59e0b" />
-            <h3 style={{ margin: 0 }}>Cartão pendente de conciliação</h3>
-          </div>
-          <div style={{ fontSize: '14px', color: '#f59e0b', fontWeight: 700 }}>
-            {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendenteCartao))}
+      {bancosAtivos.length === 0 ? (
+        <div className="bpb-cartao" style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-muted)' }}>
+          <CheckCircle size={22} color="var(--brand)" />
+          Nenhum banco cadastrado ainda. Cadastre em Cadastros Auxiliares › Bancos para ver o saldo de cada um aqui.
+        </div>
+      ) : (
+        <div className="bpb-saldos" role="group" aria-label="Escolha o banco que a tela mostra">
+          {cartaoDeSaldo({
+            chave: TODOS_OS_BANCOS,
+            nome: 'Todos os bancos',
+            saldoCentavos: saldoTotal,
+            cor: 'var(--brand)',
+            nota: notaDoCartao(todosPendentesCartao.length),
+            alerta: todosPendentesCartao.length > 0,
+            todos: true,
+          })}
+          {bancosAtivos.map((banco) => {
+            const qtd = pendentesPorBanco.get(banco.id) || 0;
+            return cartaoDeSaldo({
+              chave: banco.id,
+              nome: banco.nome,
+              saldoCentavos: Number(banco.saldoCentavos || 0),
+              cor: corDoBanco(banco.id, bancosDoExtrato),
+              nota: notaDoCartao(qtd),
+              alerta: qtd > 0,
+            });
+          })}
+          {temSemBanco && cartaoDeSaldo({
+            chave: SEM_BANCO,
+            nome: NOME_SEM_BANCO,
+            cor: corDoBanco(SEM_BANCO, bancosDoExtrato),
+            nota: 'Lançamentos que não dizem em que banco caíram',
+          })}
+        </div>
+      )}
+
+      <section className="bpb-cartao" aria-labelledby="bpb-titulo-cartao">
+        <div className="bpb-cartao__topo">
+          <h3 id="bpb-titulo-cartao" className="bpb-cartao__titulo">
+            <CreditCard size={20} color="var(--status-yellow)" />
+            Cartão pendente de conciliação
+            {nomeDoFiltro && <span className="bpb-filtro-ativo">{nomeDoFiltro}</span>}
+          </h3>
+          <div style={{ fontSize: '16px', color: 'var(--status-yellow)', fontWeight: 800 }}>
+            {mostrarValor(moeda(totalPendenteCartao))}
           </div>
         </div>
 
@@ -268,21 +400,22 @@ const Banco: React.FC = () => {
           <input
             type="text"
             placeholder="Buscar por descrição ou cliente..."
+            aria-label="Buscar no cartão a conciliar por descrição ou cliente"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+            style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '999px', color: 'var(--text-primary)' }}
           />
         </div>
 
         <div className="table-wrapper">
-          <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table className="data-table financeiro-table bpb-tabela" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                 <th style={{ padding: '12px 8px' }}>Vencimento previsto</th>
                 <th style={{ padding: '12px 8px' }}>Descrição</th>
                 <th style={{ padding: '12px 8px' }}>Cliente</th>
                 <th style={{ padding: '12px 8px' }}>Bandeira</th>
-                <th style={{ padding: '12px 8px' }}>Banco</th>
+                {separarPorBanco && <th style={{ padding: '12px 8px' }}>Banco</th>}
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Valor Bruto</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Taxa</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Valor Líquido</th>
@@ -291,39 +424,37 @@ const Banco: React.FC = () => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={separarPorBanco ? 9 : 8} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : pendentesCartao.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    <CheckCircle size={40} color="#10b981" style={{ margin: '0 auto 12px', opacity: 0.5, display: 'block' }} />
-                    Nenhum cartão pendente de conciliação no momento.
+                  <td colSpan={separarPorBanco ? 9 : 8} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                    <CheckCircle size={36} color="var(--status-green)" style={{ margin: '0 auto 10px', opacity: 0.6, display: 'block' }} />
+                    {nomeDoFiltro ? `Nenhum cartão a conciliar em ${nomeDoFiltro}.` : 'Nenhum cartão pendente de conciliação no momento.'}
                   </td>
                 </tr>
               ) : (
                 blocosPendentes.visiveis.map((t) => {
                   const vencimento = t.dataPrevistaRecebimento || t.data;
                   const parcelaLabel = t.cartao?.numero ? ` (${t.cartao.numero}/${t.cartao.totalParcelas})` : '';
+                  const cor = corDoBanco(chaveDoBanco(t, bancosDoExtrato), bancosDoExtrato);
                   return (
-                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{vencimento ? vencimento.split('-').reverse().join('/') : '-'}</td>
+                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)', ['--cor-banco' as string]: cor } as React.CSSProperties}>
+                      <td style={{ padding: '10px 8px 10px 14px', color: 'var(--text-muted)' }}>{vencimento ? vencimento.split('-').reverse().join('/') : '-'}</td>
                       <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}{parcelaLabel}</td>
                       <td style={{ padding: '10px 8px' }}>{t.clienteNome || '-'}</td>
                       <td style={{ padding: '10px 8px' }}>{t.cartao?.bandeira || '-'}</td>
-                      <td style={{ padding: '10px 8px' }}>{t.bancoNome || <span style={{ color: 'var(--text-muted)' }}>A definir</span>}</td>
-                      <td style={{ padding: '10px 8px', textAlign: 'right' }}>
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
-                      </td>
-                      <td style={{ padding: '10px 8px', textAlign: 'right', color: '#ef4444' }}>
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fromCents(t.cartao?.valorTaxaCentavos || 0))}
-                      </td>
-                      <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
-                      </td>
+                      {separarPorBanco && (
+                        <td style={{ padding: '10px 8px' }}>{t.bancoNome || <span style={{ color: 'var(--text-muted)' }}>A definir</span>}</td>
+                      )}
+                      <td className="bpb-valor" style={{ padding: '10px 8px' }}>{moeda(Number(t.valor))}</td>
+                      <td className="bpb-valor bpb-saida" style={{ padding: '10px 8px' }}>{moeda(fromCents(t.cartao?.valorTaxaCentavos || 0))}</td>
+                      <td className="bpb-valor bpb-entrada" style={{ padding: '10px 8px' }}>{moeda(transactionNetAmount(t))}</td>
                       <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                         <button
+                          type="button"
+                          className="bpb-confirmar"
                           onClick={() => confirmarRecebimentoCartao(t)}
                           disabled={processingId === t.id}
-                          style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', opacity: processingId === t.id ? 0.7 : 1 }}
                         >
                           <CheckCircle size={14} /> {processingId === t.id ? 'Confirmando...' : 'Confirmar no banco'}
                         </button>
@@ -336,20 +467,22 @@ const Banco: React.FC = () => {
           </table>
         </div>
         <MostrarMaisLinhas blocos={blocosPendentes} />
-      </div>
+      </section>
 
-      <div className="card list-container" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', padding: '24px' }}>
-        <div className="list-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Clock size={20} color="#37d7ff" />
-            <h3 style={{ margin: 0 }}>Extrato digital confirmado</h3>
-          </div>
+      <section className="bpb-cartao list-container" aria-labelledby="bpb-titulo-extrato" style={{ marginBottom: 0 }}>
+        <div className="bpb-cartao__topo">
+          <h3 id="bpb-titulo-extrato" className="bpb-cartao__titulo">
+            <Clock size={20} color="var(--brand)" />
+            Extrato digital confirmado
+            {nomeDoFiltro && <span className="bpb-filtro-ativo">{nomeDoFiltro}</span>}
+          </h3>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <Calendar size={18} style={{ color: 'var(--text-muted)' }} />
             <select
               value={diasFiltro}
+              aria-label="Período do extrato"
               onChange={(e) => setDiasFiltro(Number(e.target.value))}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: 'var(--radius-md)' }}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: '999px' }}
             >
               <option value={7}>Últimos 7 dias</option>
               <option value={15}>Últimos 15 dias</option>
@@ -360,42 +493,95 @@ const Banco: React.FC = () => {
           </div>
         </div>
 
+        {!loading && grupos.length > 0 && (
+          <div className="bpb-resumo" style={{ marginBottom: '14px' }}>
+            <div className="bpb-resumo__item">
+              <span className="bpb-resumo__rotulo">Entradas no período</span>
+              <span className="bpb-resumo__valor bpb-entrada">{mostrarValor(moeda(fromCents(totalEntradas)))}</span>
+            </div>
+            <div className="bpb-resumo__item">
+              <span className="bpb-resumo__rotulo">Saídas no período</span>
+              <span className="bpb-resumo__valor bpb-saida">{mostrarValor(moeda(fromCents(totalSaidas)))}</span>
+            </div>
+            <div className="bpb-resumo__item">
+              <span className="bpb-resumo__rotulo">Resultado</span>
+              <span className={`bpb-resumo__valor ${totalEntradas - totalSaidas < 0 ? 'bpb-saida' : 'bpb-entrada'}`}>
+                {mostrarValor(moeda(fromCents(totalEntradas - totalSaidas)))}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="table-wrapper">
-          <table className="data-table financeiro-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table className="data-table financeiro-table bpb-tabela" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <th style={{ padding: '12px 8px' }}>Data</th>
+                <th style={{ padding: '12px 8px 12px 14px' }} title="Dia em que o dinheiro entrou ou saiu do banco">Data do pagamento</th>
                 <th style={{ padding: '12px 8px' }}>Descrição</th>
+                <th style={{ padding: '12px 8px' }}>Cliente</th>
                 <th style={{ padding: '12px 8px' }}>Forma</th>
                 <th style={{ padding: '12px 8px', textAlign: 'right' }}>Valor (R$)</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
-              ) : extratoDigital.length === 0 ? (
-                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Nenhuma movimentação digital no período selecionado.</td></tr>
+                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+              ) : itensDoExtrato.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                    {nomeDoFiltro ? `Nenhuma movimentação digital em ${nomeDoFiltro} no período escolhido.` : 'Nenhuma movimentação digital no período selecionado.'}
+                  </td>
+                </tr>
               ) : (
-                blocos.visiveis.map((t) => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{t.data ? t.data.split('-').reverse().join('/') : '-'}</td>
-                    <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                        {t.formaPagamento || 'Não informada'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: t.tipo === 'entrada' ? '#10b981' : '#ef4444' }}>
-                      {t.tipo === 'entrada' ? '+' : '-'} {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t))}
-                    </td>
-                  </tr>
-                ))
+                blocos.visiveis.map((item) => {
+                  if (item.tipo === 'grupo') {
+                    const g = item.grupo;
+                    const cor = corDoBanco(g.chave, bancosDoExtrato);
+                    return (
+                      <tr key={item.chave} className="bpb-grupo" style={{ ['--cor-banco' as string]: cor } as React.CSSProperties}>
+                        <td colSpan={5}>
+                          <div className="bpb-grupo__linha">
+                            <span className="bpb-grupo__nome">
+                              <span className="bpb-ponto" aria-hidden="true" />
+                              {g.nome}
+                              <span className="bpb-grupo__qtd">{g.linhas.length} lançamento(s)</span>
+                            </span>
+                            <span className="bpb-grupo__totais">
+                              <span className="bpb-entrada">Entradas {mostrarValor(moeda(fromCents(g.entradasCentavos)))}</span>
+                              <span className="bpb-saida">Saídas {mostrarValor(moeda(fromCents(g.saidasCentavos)))}</span>
+                              <span className={g.resultadoCentavos < 0 ? 'bpb-saida' : 'bpb-entrada'}>
+                                Resultado {mostrarValor(moeda(fromCents(g.resultadoCentavos)))}
+                              </span>
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  const t = item.linha.transacao;
+                  const cor = corDoBanco(item.grupoChave, bancosDoExtrato);
+                  return (
+                    <tr key={item.chave} style={{ borderBottom: '1px solid var(--border-color)', ['--cor-banco' as string]: cor } as React.CSSProperties}>
+                      <td style={{ padding: '10px 8px 10px 14px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {formatarDataDoExtrato(dataDoExtrato(t))}
+                      </td>
+                      <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}</td>
+                      <td style={{ padding: '10px 8px' }}>{t.clienteNome || '-'}</td>
+                      <td style={{ padding: '10px 8px' }}>
+                        <span className="bpb-pilula">{t.formaPagamento || 'Não informada'}</span>
+                      </td>
+                      <td className={`bpb-valor ${t.tipo === 'entrada' ? 'bpb-entrada' : 'bpb-saida'}`} style={{ padding: '10px 8px' }}>
+                        {t.tipo === 'entrada' ? '+' : '-'} {moeda(transactionNetAmount(t))}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
         <MostrarMaisLinhas blocos={blocos} />
-      </div>
+      </section>
     </div>
   );
 };

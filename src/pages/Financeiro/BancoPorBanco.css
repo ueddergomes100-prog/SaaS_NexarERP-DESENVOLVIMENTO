@@ -1,0 +1,287 @@
+/*
+ * Tela Banco separada por banco (25/11/2026). Cada banco tem uma cor (a faixa do
+ * cartao de saldo e das linhas dele no extrato), dada pela posicao no cadastro --
+ * ver CORES_DOS_BANCOS em utils/extratoBancoDomain.ts. A cor chega por --cor-banco.
+ * Classes com prefixo bpb- para nao cruzar com as de outras telas.
+ */
+
+.bpb-saldos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.bpb-saldo {
+  --cor-banco: var(--brand);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 96px;
+  padding: 14px 16px 14px 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-subtle);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+/* A faixa do banco, na borda esquerda. */
+.bpb-saldo::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: var(--cor-banco);
+}
+
+.bpb-saldo:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card);
+}
+
+.bpb-saldo:focus-visible {
+  outline: 3px solid var(--brand-ring);
+  outline-offset: 2px;
+}
+
+.bpb-saldo[aria-pressed='true'] {
+  border-color: var(--cor-banco);
+  box-shadow: 0 0 0 2px var(--cor-banco), var(--shadow-card);
+}
+
+.bpb-saldo__nome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bpb-saldo__valor {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.bpb-saldo__valor--negativo {
+  color: var(--status-red);
+}
+
+.bpb-saldo__nota {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bpb-saldo__nota--alerta {
+  color: var(--status-yellow);
+  font-weight: 600;
+}
+
+.bpb-saldo--todos {
+  --cor-banco: var(--brand);
+  background: linear-gradient(135deg, var(--brand-softer), var(--bg-secondary) 70%);
+}
+
+.bpb-cartao {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  box-shadow: var(--shadow-subtle);
+  padding: 20px 22px;
+  margin-bottom: 24px;
+}
+
+.bpb-cartao__topo {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.bpb-cartao__titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.bpb-filtro-ativo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--brand-softer);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bpb-ponto {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 999px;
+  background: var(--cor-banco, var(--brand));
+}
+
+/* Resumo do periodo: entradas, saidas e resultado. */
+.bpb-resumo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bpb-resumo__item {
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+}
+
+.bpb-resumo__rotulo {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.bpb-resumo__valor {
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.bpb-entrada { color: var(--status-green); }
+.bpb-saida { color: var(--status-red); }
+
+/* Extrato: a faixa do banco na primeira coluna de cada linha. */
+.bpb-tabela td:first-child {
+  box-shadow: inset 4px 0 0 var(--cor-banco, transparent);
+}
+
+.bpb-tabela .bpb-valor {
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bpb-grupo td {
+  padding: 14px 10px 10px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.bpb-grupo:not(:first-child) td {
+  border-top: 10px solid var(--bg-secondary);
+}
+
+.bpb-grupo__linha {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 18px;
+}
+
+.bpb-grupo__nome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.bpb-grupo__qtd {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.bpb-grupo__totais {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bpb-pilula {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bpb-confirmar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--status-green);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bpb-confirmar:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.bpb-confirmar:focus-visible {
+  outline: 3px solid var(--brand-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bpb-saldo,
+  .bpb-saldo:hover {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* Monitores pequenos (1366 de largura e menos): mais compacto. */
+@media (max-width: 1400px) {
+  .bpb-saldos {
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 10px;
+  }
+  .bpb-saldo { min-height: 84px; padding: 12px 14px 12px 18px; }
+  .bpb-saldo__valor { font-size: 19px; }
+  .bpb-cartao { padding: 16px; }
+}

@@ -174,6 +174,14 @@ exports.PERMISSION_GROUPS = [
             // OS no app (tecnico): no grupo "Aplicativo mobile".
             { id: 'mecanica.os_excluir', label: 'Serviços: Excluir OS', color: '#ef4444' },
             { id: 'mecanica.relatorios', label: 'Serviços: Relatórios', color: '#3b82f6' },
+            // Item 15 (fase Estoque e cadastros, 25/11/2026): pacote 'estoque-1'. Trocar o tecnico
+            // nao vem com nada (hoje so' o administrador troca).
+            { id: 'mecanica.os_finalizar', label: 'Serviços: Finalizar OS (baixa estoque e gera financeiro)', color: '#3b82f6' },
+            { id: 'mecanica.os_reabrir', label: 'Serviços: Reabrir OS finalizada', color: '#ef4444' },
+            { id: 'mecanica.os_cancelar', label: 'Serviços: Cancelar OS', color: '#ef4444' },
+            { id: 'mecanica.os_alterar_preco', label: 'Serviços: Alterar o preço do item na OS', color: '#3b82f6' },
+            { id: 'mecanica.os_responsavel', label: 'Serviços: Trocar o técnico responsável da OS', color: '#3b82f6' },
+            { id: 'mecanica.os_fotos', label: 'Serviços: Anexar e apagar fotos da OS', color: '#3b82f6' },
         ],
     },
     {
@@ -196,6 +204,34 @@ exports.PERMISSION_GROUPS = [
             // 21/10/2026 (pedido do dono): incluir e alterar vendedor sem ser o dono. Liberar
             // desconto e o app continuam so' com o dono/administrador (ver VendedoresList.tsx).
             { id: 'cadastros.vendedores_incluir', label: 'Cadastros: Vendedores — incluir e alterar', color: '#8b5cf6' },
+            // Item 15 (fase Estoque e cadastros, 25/11/2026): pacote 'estoque-1' -- ja' vem marcadas
+            // para quem tem a permissao da tela do cadastro.
+            { id: 'cadastros.clientes_alterar', label: 'Cadastros: Clientes — incluir e alterar (alerta e padronizar nomes)', color: '#8b5cf6' },
+            { id: 'cadastros.clientes_inativar', label: 'Cadastros: Clientes — inativar e excluir', color: '#ef4444' },
+            { id: 'cadastros.clientes_importar', label: 'Cadastros: Clientes — importar planilha e histórico do sistema anterior', color: '#8b5cf6' },
+            { id: 'cadastros.clientes_limite_credito', label: 'Cadastros: Clientes — alterar limite de crédito', color: '#ef4444' },
+            { id: 'cadastros.fornecedores_alterar', label: 'Cadastros: Fornecedores — incluir e alterar', color: '#8b5cf6' },
+            { id: 'cadastros.fornecedores_inativar', label: 'Cadastros: Fornecedores — inativar e excluir', color: '#ef4444' },
+            { id: 'cadastros.fornecedores_importar', label: 'Cadastros: Fornecedores — importar planilha', color: '#8b5cf6' },
+            { id: 'cadastros.servicos_alterar', label: 'Cadastros: Serviços — incluir e alterar', color: '#8b5cf6' },
+            { id: 'cadastros.servicos_inativar', label: 'Cadastros: Serviços — inativar', color: '#ef4444' },
+            { id: 'cadastros.servicos_preco', label: 'Cadastros: Serviços — alterar preço', color: '#8b5cf6' },
+            { id: 'cadastros.servicos_comissao', label: 'Cadastros: Serviços — definir comissão', color: '#8b5cf6' },
+            { id: 'cadastros.categorias_alterar', label: 'Cadastros: Categorias — incluir e alterar', color: '#8b5cf6' },
+            { id: 'cadastros.categorias_inativar', label: 'Cadastros: Categorias — inativar', color: '#ef4444' },
+            { id: 'cadastros.categorias_importar', label: 'Cadastros: Categorias — importar planilha', color: '#8b5cf6' },
+            { id: 'cadastros.marcas_alterar', label: 'Cadastros: Marcas — incluir e alterar', color: '#8b5cf6' },
+            { id: 'cadastros.marcas_inativar', label: 'Cadastros: Marcas — inativar', color: '#ef4444' },
+            { id: 'cadastros.unidades_medida_alterar', label: 'Cadastros: Unidades de Medida — incluir e alterar', color: '#8b5cf6' },
+            { id: 'cadastros.unidades_medida_inativar', label: 'Cadastros: Unidades de Medida — inativar', color: '#ef4444' },
+            { id: 'cadastros.grades_alterar', label: 'Cadastros: Grades — incluir e alterar', color: '#8b5cf6' },
+            { id: 'cadastros.grades_inativar', label: 'Cadastros: Grades — inativar', color: '#ef4444' },
+            { id: 'cadastros.veiculos_alterar', label: 'Cadastros: Veículos — incluir e alterar', color: '#8b5cf6' },
+            { id: 'cadastros.veiculos_inativar', label: 'Cadastros: Veículos — inativar', color: '#ef4444' },
+            { id: 'cadastros.materia_prima_inativar', label: 'Cadastros: Matéria-Prima — inativar e excluir (zera o saldo)', color: '#ef4444' },
+            { id: 'cadastros.materia_prima_custo', label: 'Cadastros: Matéria-Prima — alterar custo', color: '#8b5cf6' },
+            { id: 'cadastros.materia_prima_importar', label: 'Cadastros: Matéria-Prima — importar planilha', color: '#8b5cf6' },
+            { id: 'cadastros.relatorios', label: 'Cadastros: Relatórios dos cadastros (PDF e Excel)', color: '#8b5cf6' },
         ],
     },
     {
@@ -223,6 +259,25 @@ exports.PERMISSION_GROUPS = [
             { id: 'estoque.nota_avulsa_cheque_cliente', label: 'Estoque: Nota Avulsa — pagar com cheque de cliente (repasse)', color: '#ef4444' },
             { id: 'estoque.precificacao', label: 'Estoque: Precificação (preços em lote)', color: '#0ea5e9' },
             { id: 'estoque.etiquetas', label: 'Estoque: Etiquetas (gerar e imprimir)', color: '#0ea5e9' },
+            // Item 15 (fase Estoque e cadastros, 25/11/2026): pacote 'estoque-1'. Preco e custo de
+            // produto ja' gravado; quem inclui o produto define os de partida.
+            { id: 'estoque.produto_incluir', label: 'Estoque: Incluir produto', color: '#0ea5e9' },
+            { id: 'estoque.estoque_inicial', label: 'Estoque: Informar estoque inicial ao incluir produto ou matéria-prima', color: '#ef4444' },
+            { id: 'estoque.alterar_preco', label: 'Estoque: Alterar o preço de venda do produto', color: '#0ea5e9' },
+            { id: 'estoque.alterar_custo', label: 'Estoque: Alterar o custo do produto', color: '#0ea5e9' },
+            { id: 'estoque.ver_custo', label: 'Estoque: Ver custo e margem dos produtos', color: '#0ea5e9' },
+            { id: 'estoque.produto_inativar', label: 'Estoque: Inativar e reativar produto (zera o saldo)', color: '#ef4444' },
+            { id: 'estoque.produto_excluir', label: 'Estoque: Excluir produto sem movimentação', color: '#ef4444' },
+            { id: 'estoque.padronizar_nomes', label: 'Estoque: Padronizar os nomes de todos os produtos', color: '#0ea5e9' },
+            { id: 'estoque.importar', label: 'Estoque: Importar produtos, composição e dados fiscais (planilha)', color: '#0ea5e9' },
+            { id: 'estoque.configurar_lista', label: 'Estoque: Escolher colunas e cartões da lista (vale para a filial)', color: '#0ea5e9' },
+            { id: 'estoque.composicao', label: 'Estoque: Alterar a composição (receita) do produto', color: '#0ea5e9' },
+            { id: 'estoque.comissao_desconto', label: 'Estoque: Definir comissão e desconto máximo do produto', color: '#0ea5e9' },
+            { id: 'estoque.balanco_fechar', label: 'Estoque: Balanço — fechar e aplicar as diferenças', color: '#ef4444' },
+            { id: 'estoque.balanco_cancelar', label: 'Estoque: Balanço — cancelar', color: '#0ea5e9' },
+            { id: 'estoque.etiquetas_modelo', label: 'Estoque: Etiquetas — salvar o modelo padrão da filial', color: '#0ea5e9' },
+            { id: 'estoque.nota_avulsa_cancelar', label: 'Estoque: Nota Avulsa — cancelar', color: '#ef4444' },
+            { id: 'estoque.nota_avulsa_pagamento', label: 'Estoque: Nota Avulsa — lançar pagamento (banco e Contas a Pagar)', color: '#ef4444' },
         ],
     },
     {
@@ -232,6 +287,10 @@ exports.PERMISSION_GROUPS = [
             // Separada de operacoes.producao em 2026-08-27: marcar Ordens de
             // Producao liberava o Relatorio junto, sem controle independente.
             { id: 'operacoes.producao_relatorios', label: 'Produção: Relatório de Produção', color: '#f97316' },
+            // Item 15 (fase Estoque e cadastros, 25/11/2026): pacote 'estoque-1'.
+            { id: 'operacoes.producao_finalizar', label: 'Produção: Finalizar ordem (baixa componentes e dá entrada no acabado)', color: '#f97316' },
+            { id: 'operacoes.producao_estornar', label: 'Produção: Estornar ordem finalizada', color: '#ef4444' },
+            { id: 'operacoes.producao_cancelar', label: 'Produção: Cancelar ordem', color: '#ef4444' },
             { id: 'operacoes.expedicao', label: 'Expedição: Conferência de Mercadoria', color: '#14b8a6' },
             // Venda com entrega futura (23/10/2026): registrar entregas, nota de remessa e rota.
             { id: 'operacoes.entregas_futuras', label: 'Expedição: Entregas futuras (registrar entrega, nota de remessa e rota)', color: '#14b8a6' },
@@ -325,6 +384,8 @@ exports.PERMISSION_GROUPS = [
             { id: 'fiscal.inutilizar', label: 'Fiscal: Inutilizar numeração', color: '#f59e0b' },
             { id: 'fiscal.devolucao', label: 'Fiscal: emitir NF-e de devolução (de venda e ao fornecedor)', color: '#f59e0b' },
             { id: 'fiscal.emitir_lote', label: 'Fiscal: emitir notas em lote', color: '#f59e0b' },
+            // Item 15 (fase Estoque e cadastros, 25/11/2026): ja' vem marcada para quem da' entrada (pacote 'estoque-1').
+            { id: 'fiscal.entrada_excluir', label: 'Fiscal: Excluir nota de entrada (reverte estoque e títulos)', color: '#ef4444' },
             { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
         ],
     },
@@ -353,6 +414,11 @@ exports.PERMISSION_GROUPS = [
         grupo: 'Filiais',
         itens: [
             { id: 'filiais.utilizar', label: 'Filiais: Utiliza outras filiais (trocar de filial, ver itens e transferir)', color: '#8b5cf6' },
+            // Item 15 (fase Estoque e cadastros, 25/11/2026): pacote 'estoque-1'. Sem nota vem
+            // para quem e' gerente hoje (o nivel liberava sozinho).
+            { id: 'filiais.transferir_sem_nota', label: 'Filiais: Transferir estoque sem nota fiscal', color: '#ef4444' },
+            { id: 'filiais.transferencia_receber', label: 'Filiais: Receber transferência', color: '#8b5cf6' },
+            { id: 'filiais.transferencia_cancelar', label: 'Filiais: Recusar e cancelar transferência (tudo volta)', color: '#ef4444' },
         ],
     },
     {

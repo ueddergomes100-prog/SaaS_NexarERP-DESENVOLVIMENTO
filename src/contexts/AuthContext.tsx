@@ -503,7 +503,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Permissoes do app (26/10/2026) e permissoes novas por acao (25/11/2026): quem
             // ainda nao teve as permissoes salvas de novo conta com as chaves novas (ninguem
             // perde acesso) -- permissoesAppDomain.ts e permissoesNovasDomain.ts.
-            const finalPermissions = permissoesEfetivasDoUsuario(toStringArray(data.permissoes));
+            // O nivel gerente traz o que liberava sozinho (Modo Avancado, transferencia sem nota).
+            const finalPermissions = permissoesEfetivasDoUsuario(toStringArray(data.permissoes), data.nivelAcesso);
             setAcessoAppMobile(data.acessoAppMobile === true);
             setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];

@@ -3,6 +3,8 @@ const { authenticate } = require('../middleware/auth');
 const { db } = require('../config/firebase');
 const { registrarLog } = require('../services/auditoria');
 const b = require('../services/balanco');
+const permissoesEstoque = require('../services/permissoesEstoque');
+const { PERMISSAO_ESTOQUE } = require('../domain/permissoesNovasDomain');
 const { PERMISSAO_BALANCO_GERENCIAR, PERMISSAO_BALANCO_CONTAR, ROTULO_REGRA_NEGATIVO } = require('../domain/balancoDomain');
 
 /**
@@ -81,7 +83,9 @@ router.post('/:id/trocar-contador', rota(PERMISSAO_BALANCO_GERENCIAR, 'trocar qu
   });
   return r;
 }));
+// Item 15 (25/11/2026): fechar e cancelar pedem a permissao propria (quem gerencia ja' tem marcada).
 router.post('/:id/fechar', rota(PERMISSAO_BALANCO_GERENCIAR, 'fechar o balanço', async (req) => {
+  permissoesEstoque.exigir(req.user, [PERMISSAO_ESTOQUE.balancoFechar], b.ErroBalanco);
   const r = await b.fechar(ctx(req));
   const s = r.resumo || {};
   registrarLog(req.user, {
@@ -91,6 +95,7 @@ router.post('/:id/fechar', rota(PERMISSAO_BALANCO_GERENCIAR, 'fechar o balanço'
   return r;
 }));
 router.post('/:id/cancelar', rota(PERMISSAO_BALANCO_GERENCIAR, 'cancelar o balanço', async (req) => {
+  permissoesEstoque.exigir(req.user, [PERMISSAO_ESTOQUE.balancoCancelar], b.ErroBalanco);
   const r = await b.cancelar(ctx(req));
   // Mesmo texto do motivo que o servico gravou no balanco (espacos juntados).
   const motivo = String((req.body && req.body.motivo) || '').replace(/\s+/g, ' ').trim();

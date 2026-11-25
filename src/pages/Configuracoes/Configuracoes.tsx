@@ -1566,7 +1566,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     setCopiarPermissoesDeId('');
     if (uId) {
       const user = tenantUsers.find(u => u.id === uId);
-      setSelectedUserPermissions(permissoesEfetivas(user?.permissoes || []));
+      setSelectedUserPermissions(permissoesEfetivas(user?.permissoes || [], user?.nivelAcesso));
       setSelectedUserNivelAcesso(parseNivelAcesso(user?.nivelAcesso));
       setRecebeComissaoServicos(user?.recebeComissaoServicos || false);
       setComissaoPercentualServicos(user?.comissaoPercentualServicos != null ? String(user.comissaoPercentualServicos) : '');
@@ -1590,7 +1590,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     if (!copiarPermissoesDeId) return;
     const origem = tenantUsers.find(u => u.id === copiarPermissoesDeId);
     if (!origem) return;
-    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || []));
+    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || [], origem.nivelAcesso));
     setSelectedUserNivelAcesso(parseNivelAcesso(origem.nivelAcesso));
     showWarning('Permissões copiadas', `Permissões e nível de acesso de ${origem.nome} copiados para a tela. Revise e clique em "Salvar Acessos" para confirmar.`);
   };
@@ -1677,7 +1677,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const usuarioAntes = tenantUsers.find((u) => u.id === selectedUserId) || {};
       // Sem os marcadores internos (app e pacotes) -- permissoesNovasDomain.ts.
       const rotuloPermissao = (id: string) => permissionLabelMap[id] || id;
-      const { entraram, sairam } = mudancasDePermissoes(usuarioAntes.permissoes || [], permissoesParaGravar(selectedUserPermissions));
+      const { entraram, sairam } = mudancasDePermissoes(usuarioAntes.permissoes || [], permissoesParaGravar(selectedUserPermissions), usuarioAntes.nivelAcesso);
       const alteracoesUsuario: MudancaDeCampo[] = [
         ...entraram.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
         ...sairam.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),

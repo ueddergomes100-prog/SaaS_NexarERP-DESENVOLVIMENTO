@@ -7,7 +7,7 @@
  *   Recusada (destino) / Cancelada (origem) -> tudo volta para a origem
  *
  * Sem nota: so' com "Transferencia sem nota" ligada na filial de origem e so'
- * dono ou gerente (decisao do dono). Com nota: fase 4.
+ * dono/administrador ou com a permissao propria (25/11/2026). Com nota: fase 4.
  *
  * O produto e' o MESMO cadastro do grupo nas duas filiais (espelho, fase 1):
  * a copia no destino tem id previsivel (chave do grupo + filial).
@@ -19,6 +19,7 @@
  */
 
 import { mensagemPrincipalDeGrade } from './gradeProdutosDomain';
+import { PERMISSAO_FILIAIS, permissoesEfetivasDoUsuario } from './permissoesNovasDomain';
 
 export type StatusTransferencia = 'em_transito' | 'recebida' | 'recusada' | 'cancelada';
 
@@ -36,9 +37,16 @@ export const MOTIVO_TRANSFERENCIA_RETORNO = 'transferencia_retorno';
 
 export const parseTransferenciaSemNota = (valor: unknown): boolean => valor === true;
 
-/** Sem nota: so' dono/administrador ou funcionario de nivel gerente (decisao do dono). */
-export const podeTransferirSemNota = (usuario: { role?: unknown; nivelAcesso?: unknown }): boolean => (
-  ['Master', 'Admin'].includes(String(usuario.role ?? '')) || ['gerente', 'administracao'].includes(String(usuario.nivelAcesso ?? ''))
+/**
+ * Sem nota: dono/administrador ou quem tem "Filiais: Transferir estoque sem
+ * nota fiscal" (item 15, 25/11/2026). O nivel gerente nao libera mais
+ * sozinho: ele traz a permissao marcada pelo pacote 'estoque-1'
+ * (permissoesNovasDomain.ts) ate' as permissoes da pessoa serem salvas de novo.
+ * `permissoes` cru do cadastro ou as efetivas da tela (aplicar de novo nao muda nada).
+ */
+export const podeTransferirSemNota = (usuario: { role?: unknown; nivelAcesso?: unknown; permissoes?: unknown }): boolean => (
+  ['Master', 'Admin'].includes(String(usuario.role ?? ''))
+  || permissoesEfetivasDoUsuario(usuario.permissoes, usuario.nivelAcesso).includes(PERMISSAO_FILIAIS.transferirSemNota)
 );
 
 export interface LoteMovido {

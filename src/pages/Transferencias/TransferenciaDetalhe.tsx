@@ -4,6 +4,8 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileText, Loader2, PackageCheck, R
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_FILIAIS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { ROTULO_STATUS_TRANSFERENCIA } from '../../utils/transferenciaDomain';
@@ -29,6 +31,11 @@ import { ESTILO_STATUS_TRANSFERENCIA, dataHora, moeda, quantidade as fmtQtd, typ
 const TransferenciaDetalhe: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { tenantId } = useAuth();
+  // Item 15 (25/11/2026): receber, recusar/cancelar e emitir a nota de novo com permissao propria (o servidor confere).
+  const pode = usePodePermissao();
+  const podeReceber = pode(PERMISSAO_FILIAIS.transferenciaReceber);
+  const podeDesfazer = pode(PERMISSAO_FILIAIS.transferenciaCancelar);
+  const podeEmitirNota = pode('fiscal.emitir');
   const { openTab } = useTabs();
   const [t, setT] = useState<TransferenciaDoc | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -201,7 +208,7 @@ const TransferenciaDetalhe: React.FC = () => {
             <button type="button" className="btn-secondary" disabled={consultandoNota} onClick={() => { void atualizarNota(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '13px' }}>
               {consultandoNota ? <Loader2 size={14} className="spin-icon" /> : <RefreshCw size={14} />} Atualizar situação
             </button>
-            {souOrigem && emTransito && notaSemValor && (
+            {souOrigem && emTransito && notaSemValor && podeEmitirNota && (
               <button type="button" className="btn-primary" disabled={salvando} onClick={() => { void emitirDeNovo(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', fontSize: '13px' }}>
                 <Send size={14} /> Emitir a nota de novo
               </button>
@@ -289,15 +296,15 @@ const TransferenciaDetalhe: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
             {souDestino && (
               <>
-                <button type="button" className="btn-secondary" disabled={salvando} onClick={() => { void desfazer('recusar'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
+                {podeDesfazer && <button type="button" className="btn-secondary" disabled={salvando} onClick={() => { void desfazer('recusar'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
                   <XCircle size={16} /> Recusar
-                </button>
-                <button type="button" className="btn-primary" disabled={salvando || recebimentoTravado} title={recebimentoTravado ? 'Aguarde a nota fiscal ser autorizada' : undefined} onClick={() => { void receber(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                </button>}
+                {podeReceber && <button type="button" className="btn-primary" disabled={salvando || recebimentoTravado} title={recebimentoTravado ? 'Aguarde a nota fiscal ser autorizada' : undefined} onClick={() => { void receber(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                   {salvando ? <Loader2 size={16} className="spin-icon" /> : <CheckCircle2 size={16} />} Confirmar recebimento
-                </button>
+                </button>}
               </>
             )}
-            {souOrigem && (
+            {souOrigem && podeDesfazer && (
               <button type="button" className="btn-secondary" disabled={salvando} onClick={() => { void desfazer('cancelar'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                 <Undo2 size={16} /> Cancelar transferência
               </button>

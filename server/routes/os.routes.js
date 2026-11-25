@@ -4,6 +4,8 @@ const { registrarLog } = require('../services/auditoria');
 const { fromCents } = require('../domain/financeDomain');
 const { ErroVenda, temPermissao } = require('../services/vendaFechamento');
 const { cancelarOs, finalizarOs, reabrirOs } = require('../services/osServidor');
+const permissoesEstoque = require('../services/permissoesEstoque');
+const { PERMISSAO_OS } = require('../domain/permissoesNovasDomain');
 
 /**
  * ORDEM DE SERVICO -- finalizar, reabrir e cancelar pelo servidor (item 8 da
@@ -36,6 +38,8 @@ router.post('/finalizar', async (req, res) => {
   try {
     const tenantId = empresaDaOperacao(req.user, req.body);
     if (!temPermissao(req.user, 'mecanica.os')) return res.status(403).json({ error: SEM_PERMISSAO });
+    // Item 15 (25/11/2026): finalizar, reabrir e cancelar com permissao propria (quem tem OS ja' tem marcadas).
+    permissoesEstoque.exigir(req.user, [PERMISSAO_OS.finalizar], ErroVenda);
     const r = await finalizarOs({ user: req.user, tenantId, corpo: req.body || {} });
     if (!r.jaEnviado) {
       registrarLog({ ...req.user, tenantId }, {
@@ -58,6 +62,7 @@ router.post('/reabrir', async (req, res) => {
   try {
     const tenantId = empresaDaOperacao(req.user, req.body);
     if (!temPermissao(req.user, 'mecanica.os')) return res.status(403).json({ error: SEM_PERMISSAO });
+    permissoesEstoque.exigir(req.user, [PERMISSAO_OS.reabrir], ErroVenda);
     const r = await reabrirOs({ user: req.user, tenantId, corpo: req.body || {} });
     registrarLog({ ...req.user, tenantId }, {
       modulo: 'mecanica',
@@ -79,6 +84,7 @@ router.post('/cancelar', async (req, res) => {
   try {
     const tenantId = empresaDaOperacao(req.user, req.body);
     if (!temPermissao(req.user, 'mecanica.os')) return res.status(403).json({ error: SEM_PERMISSAO });
+    permissoesEstoque.exigir(req.user, [PERMISSAO_OS.cancelar], ErroVenda);
     const r = await cancelarOs({ user: req.user, tenantId, corpo: req.body || {} });
     registrarLog({ ...req.user, tenantId }, {
       modulo: 'mecanica',

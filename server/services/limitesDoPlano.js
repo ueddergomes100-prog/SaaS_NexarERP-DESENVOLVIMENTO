@@ -471,7 +471,7 @@ const salvarPermissoes = async ({ user, tenantId, corpo, gerente }) => {
   if (!Array.isArray(c.permissoes)) throw new ErroLimite(400, 'Lista de permissões inválida. Atualize a tela e tente de novo.');
   const novas = c.permissoes.filter(permApp.permissaoValida);
   if (gerente) {
-    const semTer = permNovas.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes });
+    const semTer = permNovas.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes, nivelAntes: alvo.nivelAcesso, nivelDoGerente: user.nivelAcesso });
     if (semTer.length > 0) {
       throw new ErroLimite(403, `Você só pode liberar ou retirar as permissões que você mesmo tem. Fora do seu alcance: ${semTer.join(', ')}. Peça ao dono ou a um administrador.`);
     }

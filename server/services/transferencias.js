@@ -144,7 +144,10 @@ const enviarTransferencia = async ({ user, corpo, hoje }) => {
     if (!regras.parseTransferenciaSemNota(configOrigem.exists ? configOrigem.data().transferenciaSemNota : undefined)) {
       throw new ErroTransferencia(400, 'A transferência sem nota está desligada nesta filial. Ligue em Configurações ("Permitir transferência sem nota") ou use a transferência com nota.');
     }
-    if (!regras.podeTransferirSemNota(usuario)) throw new ErroTransferencia(403, 'Só o dono ou um gerente faz transferência sem nota.');
+    // Item 15 (25/11/2026): pela permissao propria (o nivel gerente traz marcada pelo pacote 'estoque-1').
+    if (!regras.podeTransferirSemNota(usuario)) {
+      throw new ErroTransferencia(403, 'Você não tem permissão para transferir estoque sem nota fiscal. Peça a um responsável liberar "Filiais: Transferir estoque sem nota fiscal" no seu cadastro de funcionário, ou use a transferência com nota.');
+    }
   }
 
   const pedidos = (Array.isArray(corpo?.itens) ? corpo.itens : [])

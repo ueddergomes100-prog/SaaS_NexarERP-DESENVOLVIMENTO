@@ -83,7 +83,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         // Efetivas (26/10/2026): quem nunca teve o app gravado ja' aparece com as chaves do app marcadas.
         // Idem as permissoes novas por acao (25/11/2026, permissoesNovasDomain.ts): aparecem marcadas
         // para quem tem a permissao da tela; ao salvar, o servidor grava o marcado de verdade.
-        setPermissoes(permissoesEfetivasDoUsuario(snap.exists() ? snap.data().permissoes : []));
+        setPermissoes(permissoesEfetivasDoUsuario(snap.exists() ? snap.data().permissoes : [], snap.exists() ? snap.data().nivelAcesso : undefined));
         setNivelAcesso(parseNivelAcesso(snap.exists() ? snap.data().nivelAcesso : undefined));
         const acessoMobileAtual = snap.exists() && snap.data().acessoAppMobile === true;
         setAcessoAppMobile(acessoMobileAtual);

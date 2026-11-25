@@ -69,7 +69,7 @@ const estiloOpcao = (marcada: boolean, desligada: boolean): React.CSSProperties 
  * filiais do mesmo CNPJ so' existe sem nota.
  */
 const TransferenciaForm: React.FC = () => {
-  const { tenantId, filialAtual, filiaisDoUsuario, userRole, nivelAcesso } = useAuth();
+  const { tenantId, filialAtual, filiaisDoUsuario, userRole, nivelAcesso, userPermissions, isOwner } = useAuth();
   const { openTab } = useTabs();
   const { items: produtos } = useTenantCollection<ProdutoTransferivel>('estoque', tenantId);
   const [destino, setDestino] = useState('');
@@ -86,7 +86,8 @@ const TransferenciaForm: React.FC = () => {
   const [modo, setModo] = useState<'com' | 'sem'>('com');
 
   const destinos = filiaisDoUsuario.filter((f) => f.tenantId !== tenantId);
-  const podeSemNota = podeTransferirSemNota({ role: userRole, nivelAcesso });
+  // 25/11/2026: pela permissao "Filiais: Transferir estoque sem nota fiscal" (o gerente de hoje ja' tem marcada).
+  const podeSemNota = Boolean(isOwner) || podeTransferirSemNota({ role: userRole, nivelAcesso, permissoes: userPermissions });
   const comEstoque = useMemo(() => produtos.filter((p) => p.ativo !== false && disponivel(p) > 0), [produtos]);
 
   const adicionar = (produto: ProdutoTransferivel) => {
@@ -147,7 +148,7 @@ const TransferenciaForm: React.FC = () => {
 
   const bloqueioSemNota = !semNotaLigada
     ? 'A transferência sem nota está desligada. Para ligar: Configurações Gerais → Cadastro, crédito e transferência → "Permitir transferência sem nota" (só dono e gerente usam).'
-    : !podeSemNota ? 'Só o dono ou um gerente faz transferência sem nota.' : null;
+    : !podeSemNota ? 'Você não tem permissão para transferir sem nota. Peça a um responsável liberar "Filiais: Transferir estoque sem nota fiscal" no seu cadastro de funcionário, ou use a transferência com nota.' : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

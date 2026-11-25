@@ -91,7 +91,7 @@ const cadastroPode = (uid, registro, permissao) => {
   if (!registro) return false;
   const ehDono = Boolean(uid) && String(registro.tenantId || uid) === String(uid);
   if (hasTenantFullAccess(registro.role, ehDono)) return true;
-  return permissoesEfetivasDoUsuario(registro.permissoes).includes(permissao);
+  return permissoesEfetivasDoUsuario(registro.permissoes, registro.nivelAcesso).includes(permissao);
 };
 
 // ---------------------------------------------------------------------------

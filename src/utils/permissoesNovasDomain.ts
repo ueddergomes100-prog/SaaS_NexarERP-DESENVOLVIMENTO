@@ -70,6 +70,11 @@ export const PERMISSAO_FISCAL = {
   emitirLote: 'fiscal.emitir_lote',
 } as const;
 
+/** Fase Estoque e cadastros (25/11/2026): excluir nota de entrada (reverte estoque e titulos). */
+export const PERMISSAO_FISCAL_ENTRADA = {
+  excluir: 'fiscal.entrada_excluir',
+} as const;
+
 /** Fase 2 (25/11/2026): gerar pedido de compra da cotacao (antes bastava a da cotacao). */
 export const PERMISSAO_COMPRAS = {
   gerarPedido: 'compras.gerar_pedido',
@@ -131,17 +136,111 @@ export const PERMISSAO_CRM = {
   alertasCancelar: 'crm.alertas_cancelar',
 } as const;
 
+/**
+ * Estoque (item 15, fase Estoque e cadastros, 25/11/2026). Preco e custo:
+ * quem INCLUI o produto define os de partida; mudar os de um produto ja'
+ * gravado pede a permissao propria (sem ela, ficam os gravados, travados).
+ * Estoque inicial: sem a permissao, o produto entra com saldo zero.
+ */
+export const PERMISSAO_ESTOQUE = {
+  produtoIncluir: 'estoque.produto_incluir',
+  estoqueInicial: 'estoque.estoque_inicial',
+  alterarPreco: 'estoque.alterar_preco',
+  alterarCusto: 'estoque.alterar_custo',
+  verCusto: 'estoque.ver_custo',
+  produtoInativar: 'estoque.produto_inativar',
+  produtoExcluir: 'estoque.produto_excluir',
+  padronizarNomes: 'estoque.padronizar_nomes',
+  importar: 'estoque.importar',
+  configurarLista: 'estoque.configurar_lista',
+  /** Ja' existia (03/11/2026); o nivel gerente passa a trazer pelo pacote, nao mais liberar direto. */
+  produtoAvancado: 'estoque.produto_avancado',
+  composicao: 'estoque.composicao',
+  comissaoDesconto: 'estoque.comissao_desconto',
+  balancoFechar: 'estoque.balanco_fechar',
+  balancoCancelar: 'estoque.balanco_cancelar',
+  etiquetasModelo: 'estoque.etiquetas_modelo',
+  notaAvulsaCancelar: 'estoque.nota_avulsa_cancelar',
+  notaAvulsaPagamento: 'estoque.nota_avulsa_pagamento',
+} as const;
+
+/** Transferencias entre filiais (fase Estoque e cadastros, 25/11/2026). */
+export const PERMISSAO_FILIAIS = {
+  transferirSemNota: 'filiais.transferir_sem_nota',
+  transferenciaReceber: 'filiais.transferencia_receber',
+  transferenciaCancelar: 'filiais.transferencia_cancelar',
+} as const;
+
+/** Ordens de producao (fase Estoque e cadastros, 25/11/2026). */
+export const PERMISSAO_PRODUCAO = {
+  finalizar: 'operacoes.producao_finalizar',
+  estornar: 'operacoes.producao_estornar',
+  cancelar: 'operacoes.producao_cancelar',
+} as const;
+
+/** Cadastros: o par alterar/inativar de cada um, importar, e um relatorio unico (25/11/2026). */
+export const PERMISSAO_CADASTROS = {
+  relatorios: 'cadastros.relatorios',
+  clientesAlterar: 'cadastros.clientes_alterar',
+  clientesInativar: 'cadastros.clientes_inativar',
+  clientesImportar: 'cadastros.clientes_importar',
+  clientesLimiteCredito: 'cadastros.clientes_limite_credito',
+  fornecedoresAlterar: 'cadastros.fornecedores_alterar',
+  fornecedoresInativar: 'cadastros.fornecedores_inativar',
+  fornecedoresImportar: 'cadastros.fornecedores_importar',
+  servicosAlterar: 'cadastros.servicos_alterar',
+  servicosInativar: 'cadastros.servicos_inativar',
+  servicosPreco: 'cadastros.servicos_preco',
+  servicosComissao: 'cadastros.servicos_comissao',
+  categoriasAlterar: 'cadastros.categorias_alterar',
+  categoriasInativar: 'cadastros.categorias_inativar',
+  categoriasImportar: 'cadastros.categorias_importar',
+  marcasAlterar: 'cadastros.marcas_alterar',
+  marcasInativar: 'cadastros.marcas_inativar',
+  unidadesMedidaAlterar: 'cadastros.unidades_medida_alterar',
+  unidadesMedidaInativar: 'cadastros.unidades_medida_inativar',
+  gradesAlterar: 'cadastros.grades_alterar',
+  gradesInativar: 'cadastros.grades_inativar',
+  veiculosAlterar: 'cadastros.veiculos_alterar',
+  veiculosInativar: 'cadastros.veiculos_inativar',
+  materiaPrimaInativar: 'cadastros.materia_prima_inativar',
+  materiaPrimaCusto: 'cadastros.materia_prima_custo',
+  materiaPrimaImportar: 'cadastros.materia_prima_importar',
+} as const;
+
+/** Ordem de Servico (fase Estoque e cadastros, 25/11/2026). */
+export const PERMISSAO_OS = {
+  finalizar: 'mecanica.os_finalizar',
+  reabrir: 'mecanica.os_reabrir',
+  cancelar: 'mecanica.os_cancelar',
+  alterarPreco: 'mecanica.os_alterar_preco',
+  responsavel: 'mecanica.os_responsavel',
+  fotos: 'mecanica.os_fotos',
+} as const;
+
 export interface PacoteDePermissoes {
   /** Nunca muda depois de publicado: e' o que fica gravado no cadastro. */
   id: string;
   /** Permissao de tela -> permissoes novas que ela traz para quem ainda nao tem o pacote. */
   implicacoes: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Nivel de acesso (`nivelAcesso` do cadastro) -> permissoes que ele traz
+   * para quem ainda nao tem o pacote. Existe para o nivel "gerente" deixar de
+   * liberar coisas sozinho (Modo Avancado do produto, transferencia sem nota)
+   * sem que o gerente de hoje perca nada: vira permissao marcada.
+   */
+  implicacoesDoNivel?: Readonly<Record<string, readonly string[]>>;
 }
 
 const F = PERMISSAO_FINANCEIRO;
 const FI = PERMISSAO_FISCAL;
 const V = PERMISSAO_VENDAS;
 const O = PERMISSAO_OPERACOES;
+const E = PERMISSAO_ESTOQUE;
+const FL = PERMISSAO_FILIAIS;
+const P = PERMISSAO_PRODUCAO;
+const C = PERMISSAO_CADASTROS;
+const OS = PERMISSAO_OS;
 
 /**
  * Pacotes conhecidos, na ordem em que sairam. Pacote novo entra NO FIM, com
@@ -216,6 +315,43 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
       'crm.alertas': [PERMISSAO_CRM.alertasCancelar],
     },
   },
+  {
+    // Fase Estoque e cadastros (25/11/2026). Fica FORA de proposito (hoje so'
+    // o administrador faz; quem precisar, o dono marca): trocar o tecnico da
+    // OS. Colunas da lista e modelo de etiqueta vem com "Admin: Configuracoes",
+    // que era o que liberava. O nivel gerente traz o Modo Avancado e a
+    // transferencia sem nota, que ele liberava sozinho.
+    id: 'estoque-1',
+    implicacoes: {
+      'cadastros.estoque_alterar': [
+        E.produtoIncluir, E.estoqueInicial, E.alterarPreco, E.alterarCusto, E.verCusto,
+        E.produtoInativar, E.produtoExcluir, E.padronizarNomes, E.importar,
+      ],
+      'estoque.produto_avancado': [E.composicao, E.comissaoDesconto],
+      'estoque.precificacao': [E.verCusto],
+      'estoque.relatorio': [E.verCusto],
+      'estoque.balanco_gerenciar': [E.balancoFechar, E.balancoCancelar],
+      'estoque.nota_avulsa': [E.notaAvulsaCancelar, E.notaAvulsaPagamento],
+      'administrativo.config': [E.configurarLista, E.etiquetasModelo],
+      'fiscal.entrada': [E.alterarPreco, PERMISSAO_FISCAL_ENTRADA.excluir, C.fornecedoresAlterar],
+      'filiais.utilizar': [FL.transferenciaReceber, FL.transferenciaCancelar],
+      'operacoes.producao': [P.finalizar, P.estornar, P.cancelar],
+      'cadastros.materia_prima': [C.materiaPrimaInativar, C.materiaPrimaCusto, C.materiaPrimaImportar, E.estoqueInicial, E.alterarCusto],
+      'cadastros.grades': [C.gradesAlterar, C.gradesInativar],
+      'cadastros.unidades_medida': [C.unidadesMedidaAlterar, C.unidadesMedidaInativar],
+      'cadastros.categorias': [C.categoriasAlterar, C.categoriasInativar, C.categoriasImportar],
+      'cadastros.marcas': [C.marcasAlterar, C.marcasInativar],
+      'cadastros.servicos': [C.servicosAlterar, C.servicosInativar, C.servicosPreco, C.servicosComissao, C.relatorios],
+      'cadastros.clientes': [C.clientesAlterar, C.clientesInativar, C.clientesImportar, C.clientesLimiteCredito, C.relatorios],
+      'cadastros.fornecedores': [C.fornecedoresAlterar, C.fornecedoresInativar, C.fornecedoresImportar, C.relatorios],
+      'cadastros.veiculos': [C.veiculosAlterar, C.veiculosInativar, C.relatorios],
+      'mecanica.os': [OS.finalizar, OS.reabrir, OS.cancelar, OS.alterarPreco, OS.fotos],
+      'mecanica.os_app': [OS.fotos],
+    },
+    implicacoesDoNivel: {
+      gerente: [E.produtoAvancado, E.composicao, E.comissaoDesconto, FL.transferirSemNota],
+    },
+  },
 ];
 
 export const PREFIXO_MARCADOR_PACOTE = 'pacote.';
@@ -245,21 +381,32 @@ export const pacotesGravados = (permissoes: unknown): string[] => {
 };
 
 /**
+ * Nivel de acesso como o pacote conhece. 'administracao' e' o nome antigo do
+ * gerente (mesma regra de parseNivelAcesso, visibilidadeVendasDomain.ts).
+ */
+const nivelDoPacote = (nivelAcesso: unknown): string => (
+  nivelAcesso === 'administracao' ? 'gerente' : (typeof nivelAcesso === 'string' ? nivelAcesso : '')
+);
+
+/**
  * Permissoes que valem de verdade: as gravadas + (para cada pacote que a
  * pessoa ainda NAO tem gravado) as novas que vem com as permissoes de tela
- * dela. O resultado SEMPRE leva os marcadores de todos os pacotes, para aplicar
- * de novo nao mudar nada (o AuthContext ja' entrega as efetivas e as telas
- * podem aplicar outra vez -- mesma licao do app).
+ * dela e com o nivel de acesso dela. O resultado SEMPRE leva os marcadores de
+ * todos os pacotes, para aplicar de novo nao mudar nada (o AuthContext ja'
+ * entrega as efetivas e as telas podem aplicar outra vez -- mesma licao do app).
  */
-export const permissoesEfetivas = (permissoes: unknown): string[] => {
+export const permissoesEfetivas = (permissoes: unknown, nivelAcesso?: unknown): string[] => {
   const gravadas = lista(permissoes);
   const temGravada = new Set(gravadas);
   const resultado = new Set(gravadas);
+  const nivel = nivelDoPacote(nivelAcesso);
   for (const pacote of PACOTES_DE_PERMISSOES) {
     if (temGravada.has(marcadorDoPacote(pacote.id))) continue;
     for (const [daTela, novas] of Object.entries(pacote.implicacoes)) {
       if (temGravada.has(daTela)) novas.forEach((p) => resultado.add(p));
     }
+    const doNivel = nivel && pacote.implicacoesDoNivel ? pacote.implicacoesDoNivel[nivel] : undefined;
+    if (doNivel) doNivel.forEach((p) => resultado.add(p));
   }
   MARCADORES_DOS_PACOTES.forEach((m) => resultado.add(m));
   return [...resultado];
@@ -274,9 +421,12 @@ export const permissoesParaGravar = (marcadas: unknown): string[] => (
 // Tudo junto (app + pacotes): o que as telas e o servidor usam no cadastro.
 // ---------------------------------------------------------------------------
 
-/** Efetivas do usuario: chaves do app (permissoesAppDomain) + pacotes. Idempotente. */
-export const permissoesEfetivasDoUsuario = (permissoes: unknown): string[] => (
-  permissoesEfetivas(permissoesEfetivasDoApp(permissoes))
+/**
+ * Efetivas do usuario: chaves do app (permissoesAppDomain) + pacotes. Idempotente.
+ * `nivelAcesso` (do cadastro): o que o nivel traz enquanto o pacote nao foi salvo.
+ */
+export const permissoesEfetivasDoUsuario = (permissoes: unknown, nivelAcesso?: unknown): string[] => (
+  permissoesEfetivas(permissoesEfetivasDoApp(permissoes), nivelAcesso)
 );
 
 /** O que gravar no cadastro: marcadas + marcador do app + marcadores dos pacotes. */
@@ -290,18 +440,25 @@ export const permissoesParaGravarDoUsuario = (marcadas: unknown): string[] => (
  * tela mandou gravar: conta como gravado (com os marcadores), entao desmarcar
  * uma permissao nova aparece como "tirou". Devolve as que ele mexeu sem ter.
  */
-export const mexidasSemTer = (args: { antes: unknown; depois: unknown; doGerente: unknown }): string[] => {
-  const antes = new Set(permissoesEfetivasDoUsuario(args.antes));
+export const mexidasSemTer = (args: {
+  antes: unknown;
+  depois: unknown;
+  doGerente: unknown;
+  /** Nivel de acesso do funcionario editado e o do gerente (o que o nivel traz conta dos dois lados). */
+  nivelAntes?: unknown;
+  nivelDoGerente?: unknown;
+}): string[] => {
+  const antes = new Set(permissoesEfetivasDoUsuario(args.antes, args.nivelAntes));
   const depois = new Set(permissoesEfetivasDoUsuario(permissoesParaGravarDoUsuario(args.depois)));
-  const dele = new Set(permissoesEfetivasDoUsuario(args.doGerente));
+  const dele = new Set(permissoesEfetivasDoUsuario(args.doGerente, args.nivelDoGerente));
   const mexidas = [...depois].filter((p) => !antes.has(p)).concat([...antes].filter((p) => !depois.has(p)));
   return mexidas.filter((p) => !dele.has(p) && !ehMarcadorInterno(p));
 };
 
 /** Permissoes que entraram e sairam (efetivas, sem marcadores), para o historico de alteracoes. */
-export const mudancasDePermissoes = (antes: unknown, depois: unknown): { entraram: string[]; sairam: string[] } => {
-  const semMarcador = (l: unknown) => new Set(permissoesEfetivasDoUsuario(l).filter((p) => !ehMarcadorInterno(p)));
-  const a = semMarcador(antes);
+export const mudancasDePermissoes = (antes: unknown, depois: unknown, nivelAntes?: unknown): { entraram: string[]; sairam: string[] } => {
+  const semMarcador = (l: unknown, nivel?: unknown) => new Set(permissoesEfetivasDoUsuario(l, nivel).filter((p) => !ehMarcadorInterno(p)));
+  const a = semMarcador(antes, nivelAntes);
   const d = semMarcador(depois);
   return {
     entraram: [...d].filter((p) => !a.has(p)),

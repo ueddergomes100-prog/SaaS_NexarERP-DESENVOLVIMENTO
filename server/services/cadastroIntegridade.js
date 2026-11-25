@@ -2,6 +2,7 @@ const { admin, db } = require('../config/firebase');
 const { registrarLog } = require('./auditoria');
 const grade = require('../domain/gradeProdutosDomain');
 const { chaveDoProdutoPeloId } = require('../domain/cadastroGrupoDomain');
+const permissoesEstoque = require('./permissoesEstoque');
 
 /**
  * INTEGRIDADE DOS CADASTROS -- inativar, reativar e excluir (2026-09-19).
@@ -423,13 +424,31 @@ const receitasQueUsamTodas = async (tenantId, origem, componenteId) => {
 // Operacoes
 // ---------------------------------------------------------------------------
 
-const carregar = async (user, colecao, id) => {
-  const cfg = CADASTROS[colecao];
-  if (!cfg) throw new ErroCadastro(400, 'Tipo de cadastro inválido.');
-  if (!id || typeof id !== 'string') throw new ErroCadastro(400, 'Cadastro não informado.');
+/**
+ * Item 15 (fase Estoque e cadastros, 25/11/2026): inativar/reativar e excluir
+ * pedem a permissao PROPRIA de cada cadastro ("Clientes — inativar e excluir",
+ * "Estoque: Inativar e reativar produto"...), conferida pelas efetivas (quem
+ * tem a tela ja' tem marcada ate' as permissoes serem salvas de novo). Bancos e
+ * bandeiras seguem com a permissao da tela.
+ */
+const conferirPermissao = (user, colecao, cfg, operacao) => {
+  const propria = operacao === 'excluir'
+    ? permissoesEstoque.permissaoDeExcluir(colecao)
+    : permissoesEstoque.permissaoDaSituacao(colecao);
+  if (propria) {
+    permissoesEstoque.exigir(user, [propria], ErroCadastro);
+    return;
+  }
   if (!temPermissao(user, cfg.permissoes)) {
     throw new ErroCadastro(403, `Você não tem permissão para alterar ${cfg.plural}. Peça ao administrador da empresa.`);
   }
+};
+
+const carregar = async (user, colecao, id, operacao = 'situacao') => {
+  const cfg = CADASTROS[colecao];
+  if (!cfg) throw new ErroCadastro(400, 'Tipo de cadastro inválido.');
+  if (!id || typeof id !== 'string') throw new ErroCadastro(400, 'Cadastro não informado.');
+  conferirPermissao(user, colecao, cfg, operacao);
   const ref = db.collection(colecao).doc(id);
   const snap = await ref.get();
   // Documento de outra empresa responde igual a inexistente: nao confirma
@@ -601,7 +620,7 @@ async function alterarSituacao({ user, colecao, id, ativo }) {
 
 /** Exclui um cadastro que nunca teve movimentacao (o principal de uma grade leva as variacoes junto). */
 async function excluirCadastro({ user, colecao, id }) {
-  const { cfg, ref, dados } = await carregar(user, colecao, id);
+  const { cfg, ref, dados } = await carregar(user, colecao, id, 'excluir');
   if (!cfg.excluivel) throw new ErroCadastro(400, `${cfg.rotulo.charAt(0).toUpperCase()}${cfg.rotulo.slice(1)} não pode ser excluíd${cfg.artigo} — apenas inativad${cfg.artigo}.`);
   const nome = nomeDoCadastro(dados);
   if (dados.isPadrao) throw new ErroCadastro(409, `"${nome}" é um cadastro padrão do sistema e não pode ser excluído.`);
@@ -643,6 +662,7 @@ async function excluirCadastro({ user, colecao, id }) {
 }
 
 module.exports = {
+  conferirPermissao,
   ErroCadastro,
   alterarSituacao,
   excluirCadastro,

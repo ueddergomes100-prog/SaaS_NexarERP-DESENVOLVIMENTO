@@ -90,7 +90,15 @@ test('travas: sem nota desligada, funcionario sem nivel gerente, sem a permissao
   const s = carregar(fake.db);
   await assert.rejects(
     () => s.enviarTransferencia({ user: { uid: 'vend', tenantId: 'baixada' }, corpo: { destino: 'centro', itens: [{ produtoId: 'p1_baixada', quantidade: 1 }] }, hoje: HOJE }),
-    /Só o dono ou um gerente/,
+    /"Filiais: Transferir estoque sem nota fiscal"/,
+  );
+  // Item 15 (25/11/2026): o nivel gerente nao libera mais sozinho -- traz a permissao
+  // marcada so' enquanto o pacote 'estoque-1' nao foi salvo; salvo sem ela, fica sem.
+  const MARCADORES = ['pacote.financeiro-1', 'pacote.financeiro-2', 'pacote.vendas-1', 'pacote.estoque-1'];
+  const gerenteSalvoSem = criarBancoFalso(base({ 'usuarios/vend': { tenantId: 'baixada', role: 'Funcionario', permissoes: ['filiais.utilizar', ...MARCADORES], nivelAcesso: 'gerente' } }), { consultas: true });
+  await assert.rejects(
+    () => carregar(gerenteSalvoSem.db).enviarTransferencia({ user: { uid: 'vend', tenantId: 'baixada' }, corpo: { destino: 'centro', itens: [{ produtoId: 'p1_baixada', quantidade: 1 }] }, hoje: HOJE }),
+    /Transferir estoque sem nota fiscal/,
   );
   const semPermissao = criarBancoFalso(base({ 'usuarios/vend': { tenantId: 'baixada', role: 'Funcionario', permissoes: [] } }), { consultas: true });
   await assert.rejects(

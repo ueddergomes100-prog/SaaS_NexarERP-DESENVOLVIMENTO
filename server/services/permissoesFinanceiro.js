@@ -34,7 +34,7 @@ const PERMISSAO_DE_BAIXAR = { entrada: PF.receberBaixar, saida: PF.pagarBaixar }
  * Generico: as fases seguintes (Vendas, permissoesVendas.js) usam o mesmo.
  */
 const podePelasEfetivas = (user, permissao) => temPermissao(
-  { ...(user || {}), permissoes: permissoesEfetivas(user && user.permissoes) },
+  { ...(user || {}), permissoes: permissoesEfetivas(user && user.permissoes, user && user.nivelAcesso) },
   permissao,
 );
 const podeNoFinanceiro = podePelasEfetivas;

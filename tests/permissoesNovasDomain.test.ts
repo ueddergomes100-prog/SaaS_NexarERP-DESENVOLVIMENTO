@@ -7,6 +7,11 @@ import {
   PERMISSAO_FINANCEIRO,
   PERMISSAO_FISCAL,
   PERMISSAO_VENDAS,
+  PERMISSAO_CADASTROS,
+  PERMISSAO_ESTOQUE,
+  PERMISSAO_FILIAIS,
+  PERMISSAO_OS,
+  PERMISSAO_PRODUCAO,
   ehMarcadorInterno,
   marcadorDoPacote,
   mexidasSemTer,
@@ -26,7 +31,8 @@ const MARCADOR_FIN = marcadorDoPacote('financeiro-1');
 const MARCADOR_FIN2 = marcadorDoPacote('financeiro-2');
 /** Todos os marcadores conhecidos: efetivas e o que gravar sempre levam todos. */
 const MARCADOR_VENDAS = marcadorDoPacote('vendas-1');
-const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS];
+const MARCADOR_ESTOQUE = marcadorDoPacote('estoque-1');
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -66,7 +72,7 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
   assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1']);
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');
@@ -159,4 +165,58 @@ test('pacote vendas-1: quem usa a tela ja tem as novas; o que hoje e so do admin
   assert.ok(!permissoesEfetivas(salvo).includes(V.alterarPreco));
   assert.ok(permissoesEfetivas(salvo).includes(V.desconto));
   Object.values(V).forEach((p: string) => assert.ok(PERMISSION_CATALOG.some((i) => i.id === p), `${p} no catalogo`));
+});
+
+test('pacote estoque-1: quem usa a tela ja tem as novas; o que hoje e so do administrador nao vem', () => {
+  const E = PERMISSAO_ESTOQUE;
+  const C = PERMISSAO_CADASTROS;
+  const salvoNaFaseVendas = permissoesParaGravar(['cadastros.estoque_alterar', 'cadastros.clientes', 'mecanica.os', 'estoque.balanco_gerenciar'])
+    .filter((p) => p !== MARCADOR_ESTOQUE);
+  const efetivas = permissoesEfetivas(salvoNaFaseVendas);
+  for (const p of [E.produtoIncluir, E.estoqueInicial, E.alterarPreco, E.alterarCusto, E.verCusto, E.produtoInativar, E.produtoExcluir,
+    E.importar, E.padronizarNomes, C.clientesAlterar, C.clientesInativar, C.clientesLimiteCredito, C.relatorios,
+    PERMISSAO_OS.finalizar, PERMISSAO_OS.cancelar, E.balancoFechar, E.balancoCancelar]) {
+    assert.ok(efetivas.includes(p), p);
+  }
+  // Modo Avancado, composicao e trocar o tecnico: nao vem com a tela.
+  for (const p of [E.produtoAvancado, E.composicao, E.comissaoDesconto, PERMISSAO_OS.responsavel, FILIAL_SEM_NOTA]) {
+    assert.ok(!efetivas.includes(p), `${p} nao vem com a tela`);
+  }
+  assert.ok(!permissoesEfetivas(['cadastros.estoque']).includes(E.alterarPreco), 'so ver a lista nao mexe em preco');
+  assert.ok(permissoesEfetivas(['estoque.relatorio']).includes(E.verCusto));
+  assert.ok(permissoesEfetivas(['operacoes.producao']).includes(PERMISSAO_PRODUCAO.estornar));
+  assert.ok(permissoesEfetivas(['filiais.utilizar']).includes(PERMISSAO_FILIAIS.transferenciaReceber));
+  assert.ok(permissoesEfetivas(['fiscal.entrada']).includes('fiscal.entrada_excluir'));
+  // Salvo de novo: desmarcou preco, fica sem.
+  const salvo = permissoesParaGravar(permissoesEfetivas(['cadastros.estoque_alterar']).filter((p) => p !== E.alterarPreco));
+  assert.ok(!permissoesEfetivas(salvo).includes(E.alterarPreco));
+  assert.ok(permissoesEfetivas(salvo).includes(E.alterarCusto));
+  [E, C, PERMISSAO_FILIAIS, PERMISSAO_OS, PERMISSAO_PRODUCAO].forEach((grupo) => Object.values(grupo).forEach((p: string) => {
+    assert.ok(PERMISSION_CATALOG.some((i) => i.id === p), `${p} no catalogo`);
+  }));
+  assert.ok(PERMISSION_CATALOG.some((i) => i.id === 'fiscal.entrada_excluir'));
+});
+
+const FILIAL_SEM_NOTA = PERMISSAO_FILIAIS.transferirSemNota;
+
+test('nivel gerente: traz Modo Avancado e sem nota enquanto o pacote nao foi salvo; depois vale o marcado', () => {
+  const E = PERMISSAO_ESTOQUE;
+  const doGerente = [E.produtoAvancado, E.composicao, E.comissaoDesconto, FILIAL_SEM_NOTA];
+  const gerente = permissoesEfetivas(['cadastros.estoque_alterar'], 'gerente');
+  doGerente.forEach((p) => assert.ok(gerente.includes(p), p));
+  assert.ok(permissoesEfetivas([], 'administracao').includes(FILIAL_SEM_NOTA), 'nome antigo do gerente');
+  doGerente.forEach((p) => assert.ok(!permissoesEfetivas(['cadastros.estoque_alterar'], 'funcionario').includes(p), `${p} nao vem para funcionario`));
+  doGerente.forEach((p) => assert.ok(!permissoesEfetivas(['cadastros.estoque_alterar'], 'supervisor').includes(p), `${p} nao vem para supervisor`));
+  // Salvo de novo sem a permissao: o nivel nao libera mais sozinho.
+  const salvoSem = permissoesParaGravar(gerente.filter((p) => p !== FILIAL_SEM_NOTA));
+  assert.ok(!permissoesEfetivas(salvoSem, 'gerente').includes(FILIAL_SEM_NOTA));
+  assert.ok(permissoesEfetivas(salvoSem, 'gerente').includes(E.produtoAvancado));
+  // Idempotente com o nivel.
+  assert.deepEqual(ordenar(permissoesEfetivasDoUsuario(permissoesEfetivasDoUsuario(['cadastros.estoque'], 'gerente'), 'gerente')),
+    ordenar(permissoesEfetivasDoUsuario(['cadastros.estoque'], 'gerente')));
+  // Gerente de equipe (nivel gerente) editando outro gerente: abrir e salvar sem mexer nao "mexe" em nada.
+  const alvo = ['cadastros.estoque_alterar'];
+  const telaAbre = permissoesEfetivasDoUsuario(alvo, 'gerente');
+  assert.deepEqual(mexidasSemTer({ antes: alvo, depois: telaAbre, doGerente: ['cadastros.estoque_alterar', 'administrativo.equipe'], nivelAntes: 'gerente', nivelDoGerente: 'gerente' }), []);
+  assert.deepEqual(mudancasDePermissoes(alvo, permissoesParaGravarDoUsuario(telaAbre), 'gerente'), { entraram: [], sairam: [] });
 });

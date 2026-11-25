@@ -29,6 +29,10 @@ test('quem faz transferencia sem nota: dono, administrador ou gerente', () => {
   assert.equal(podeTransferirSemNota({ role: 'Master' }), true);
   assert.equal(podeTransferirSemNota({ role: 'Funcionario', nivelAcesso: 'gerente' }), true);
   assert.equal(podeTransferirSemNota({ role: 'Funcionario', nivelAcesso: 'funcionario' }), false);
+  // Item 15 (25/11/2026): virou permissao; o gerente de hoje tem marcada ate' as permissoes serem salvas.
+  assert.equal(podeTransferirSemNota({ role: 'Funcionario', permissoes: ['filiais.transferir_sem_nota'] }), true);
+  const salvoSem = ['filiais.utilizar', 'pacote.financeiro-1', 'pacote.financeiro-2', 'pacote.vendas-1', 'pacote.estoque-1'];
+  assert.equal(podeTransferirSemNota({ role: 'Funcionario', nivelAcesso: 'gerente', permissoes: salvoSem }), false);
 });
 
 test('produto no destino: original na filial do cadastro, copia nas outras', () => {

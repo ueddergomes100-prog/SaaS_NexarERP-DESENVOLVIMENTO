@@ -3,6 +3,8 @@ const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { ErroTransferencia, enviarTransferencia, receberTransferencia, desfazerTransferencia, reemitirNota, consultarNota } = require('../services/transferencias');
+const permissoesEstoque = require('../services/permissoesEstoque');
+const { PERMISSAO_FILIAIS } = require('../domain/permissoesNovasDomain');
 
 /**
  * TRANSFERENCIAS ENTRE FILIAIS (fase 3) -- ver services/transferencias.js.
@@ -12,6 +14,11 @@ const { ErroTransferencia, enviarTransferencia, receberTransferencia, desfazerTr
  *   POST /api/transferencias/:id/cancelar  origem cancela: tudo volta
  *   POST /api/transferencias/:id/nota      origem emite a nota de novo (fase 4)
  *   GET  /api/transferencias/:id/nota      situacao da nota (consulta a Spedy)
+ *
+ * Item 15 (25/11/2026): receber, recusar/cancelar e emitir a nota de novo pedem
+ * a permissao propria ("Filiais: Receber transferencia", "Filiais: Recusar e
+ * cancelar transferencia" -- quem usa outras filiais ja' tem marcadas -- e
+ * "Fiscal: Emitir Nota Fiscal"). Sem nota: services/transferencias.js.
  */
 const router = express.Router();
 router.use(authenticate);
@@ -43,6 +50,7 @@ router.post('/', async (req, res) => {
 
 router.post('/:id/receber', async (req, res) => {
   try {
+    permissoesEstoque.exigir(req.user, [PERMISSAO_FILIAIS.transferenciaReceber], ErroTransferencia);
     const r = await receberTransferencia({ user: req.user, id: req.params.id, corpo: req.body || {} });
     logNasDuas(req.user, { ...r.transferencia, id: req.params.id }, `Recebeu a transferência nº ${r.numeroTransferencia}${r.divergente ? ' (com falta, que voltou para a origem)' : ''}`);
     return res.json({ ok: true, divergente: r.divergente });
@@ -54,6 +62,7 @@ router.post('/:id/receber', async (req, res) => {
 for (const acao of ['recusar', 'cancelar']) {
   router.post(`/:id/${acao}`, async (req, res) => {
     try {
+      permissoesEstoque.exigir(req.user, [PERMISSAO_FILIAIS.transferenciaCancelar], ErroTransferencia);
       const r = await desfazerTransferencia({ user: req.user, id: req.params.id, corpo: req.body || {}, acao });
       logNasDuas(req.user, { ...r.transferencia, id: req.params.id }, `${acao === 'recusar' ? 'Recusou' : 'Cancelou'} a transferência nº ${r.numeroTransferencia}: ${String(req.body?.motivo || '').slice(0, 120)}`);
       return res.json({ ok: true });
@@ -65,6 +74,7 @@ for (const acao of ['recusar', 'cancelar']) {
 
 router.post('/:id/nota', async (req, res) => {
   try {
+    permissoesEstoque.exigir(req.user, ['fiscal.emitir'], ErroTransferencia);
     const r = await reemitirNota({ user: req.user, id: req.params.id });
     logNasDuas(req.user, { ...r, id: req.params.id }, `Emitiu de novo a nota da transferência nº ${r.numeroTransferencia}`);
     return res.json({ ok: true, nota: r.nota, avisos: r.avisos || [] });

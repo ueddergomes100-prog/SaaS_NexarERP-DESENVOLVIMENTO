@@ -8,7 +8,7 @@
  *   Recusada (destino) / Cancelada (origem) -> tudo volta para a origem
  *
  * Sem nota: so' com "Transferencia sem nota" ligada na filial de origem e so'
- * dono ou gerente (decisao do dono). Com nota: fase 4.
+ * dono/administrador ou com a permissao propria (25/11/2026). Com nota: fase 4.
  *
  * O produto e' o MESMO cadastro do grupo nas duas filiais (espelho, fase 1):
  * a copia no destino tem id previsivel (chave do grupo + filial).
@@ -21,6 +21,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.proximoStatusPermitido = exports.retornoCompleto = exports.planejarRecebimento = exports.planejarEnvio = exports.escolherLotesParaEnvio = exports.custoMedioDepoisDaEntrada = exports.idDoProdutoNaFilial = exports.podeTransferirSemNota = exports.parseTransferenciaSemNota = exports.MOTIVO_TRANSFERENCIA_RETORNO = exports.MOTIVO_TRANSFERENCIA_ENTRADA = exports.MOTIVO_TRANSFERENCIA_SAIDA = exports.ROTULO_STATUS_TRANSFERENCIA = void 0;
 const gradeProdutosDomain_1 = require("./gradeProdutosDomain");
+const permissoesNovasDomain_1 = require("./permissoesNovasDomain");
 exports.ROTULO_STATUS_TRANSFERENCIA = {
     em_transito: 'Em trânsito',
     recebida: 'Recebida',
@@ -33,8 +34,15 @@ exports.MOTIVO_TRANSFERENCIA_ENTRADA = 'transferencia_entrada';
 exports.MOTIVO_TRANSFERENCIA_RETORNO = 'transferencia_retorno';
 const parseTransferenciaSemNota = (valor) => valor === true;
 exports.parseTransferenciaSemNota = parseTransferenciaSemNota;
-/** Sem nota: so' dono/administrador ou funcionario de nivel gerente (decisao do dono). */
-const podeTransferirSemNota = (usuario) => (['Master', 'Admin'].includes(String(usuario.role ?? '')) || ['gerente', 'administracao'].includes(String(usuario.nivelAcesso ?? '')));
+/**
+ * Sem nota: dono/administrador ou quem tem "Filiais: Transferir estoque sem
+ * nota fiscal" (item 15, 25/11/2026). O nivel gerente nao libera mais
+ * sozinho: ele traz a permissao marcada pelo pacote 'estoque-1'
+ * (permissoesNovasDomain.ts) ate' as permissoes da pessoa serem salvas de novo.
+ * `permissoes` cru do cadastro ou as efetivas da tela (aplicar de novo nao muda nada).
+ */
+const podeTransferirSemNota = (usuario) => (['Master', 'Admin'].includes(String(usuario.role ?? ''))
+    || (0, permissoesNovasDomain_1.permissoesEfetivasDoUsuario)(usuario.permissoes, usuario.nivelAcesso).includes(permissoesNovasDomain_1.PERMISSAO_FILIAIS.transferirSemNota));
 exports.podeTransferirSemNota = podeTransferirSemNota;
 const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
 const texto = (v) => (typeof v === 'string' ? v.trim() : '');

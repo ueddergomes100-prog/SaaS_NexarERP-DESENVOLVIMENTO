@@ -36,11 +36,44 @@ const gerentePodeGerir = async (user, usuarioId) => {
 
 const MENSAGEM_GERENTE = 'O gerente só altera funcionário comum: nunca outro gerente, um administrador, o dono ou a si mesmo.';
 
+/*
+ * DONO E ADMINISTRADOR COMO ALVO (seguranca, bloco B, 25/11/2026, decisao do dono).
+ * Antes qualquer administrador passava sem olhar quem era o alvo: trocava a senha,
+ * o PIN e o codigo do DONO e entrava como ele pelo computador do caixa. Agora:
+ *  - os dados do dono (senha, PIN, codigo, ficha) so' o proprio dono muda;
+ *  - os de um administrador so' o dono muda (e o proprio administrador, na
+ *    propria ficha -- inativar a si mesmo o servico recusa);
+ *  - a equipe da plataforma segue podendo tudo (suporte).
+ * Funcionario comum: como sempre.
+ */
+const PAPEIS_DE_GESTOR = ['Master', 'Admin'];
+const MENSAGEM_ALVO_DONO = 'Só o próprio dono da empresa altera a senha, a senha de vendedor, o código e a situação dele.';
+const MENSAGEM_ALVO_ADMIN = 'Só o dono da empresa altera um administrador (senha, senha de vendedor, código, permissões e situação).';
+
+/** Motivo em portugues quando este gestor NAO pode mexer no alvo; '' quando pode (ou quando o servico e' quem decide). */
+const motivoGestorNaoPodeNoAlvo = async (user, usuarioId) => {
+  if (!user || user.isPlatformAdmin) return '';
+  const id = String(usuarioId ?? '');
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) return '';
+  const snap = await db.collection('usuarios').doc(id).get();
+  const alvo = snap.exists ? snap.data() : null;
+  if (!alvo) return '';
+  // A propria ficha (codigo e senha de vendedor) cada um muda; inativar a si mesmo o servico recusa.
+  if (id === user.uid) return '';
+  if (alvo.tenantId === id) return MENSAGEM_ALVO_DONO;
+  if (PAPEIS_DE_GESTOR.includes(alvo.role) && !user.dono) return MENSAGEM_ALVO_ADMIN;
+  return '';
+};
+
 /** Middleware: dono/administrador, ou gerente sobre funcionario comum (marca req.gerenteDaEquipe). */
 const podeGerirFuncionario = async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Usuário não autenticado.' });
-    if (ehGestor(req.user)) return next();
+    if (ehGestor(req.user)) {
+      const motivo = await motivoGestorNaoPodeNoAlvo(req.user, req.body?.usuarioId);
+      if (motivo) return res.status(403).json({ error: motivo });
+      return next();
+    }
     if (await gerentePodeGerir(req.user, req.body?.usuarioId)) {
       req.gerenteDaEquipe = true;
       return next();
@@ -56,4 +89,4 @@ const podeGerirFuncionario = async (req, res, next) => {
   }
 };
 
-module.exports = { podeGerirFuncionario, gerentePodeGerir, ehGestor, ehGerenteDaEquipe };
+module.exports = { podeGerirFuncionario, gerentePodeGerir, ehGestor, ehGerenteDaEquipe, motivoGestorNaoPodeNoAlvo };

@@ -402,6 +402,8 @@ const alterarSituacao = async ({ user, tenantId, corpo }) => {
   const c = corpo || {};
   const { ref, alvo } = await lerFuncionario(tenantId, c.usuarioId);
   if (ref.id === tenantId) throw new ErroLimite(400, 'O dono da empresa não pode ser inativado.');
+  // Bloco B (25/11/2026): ninguem inativa o proprio usuario (perderia o acesso na hora).
+  if (ref.id === user.uid) throw new ErroLimite(400, 'Você não pode inativar o seu próprio usuário. Peça ao dono da empresa.');
   const ativo = c.ativo === true;
   await ref.update({
     status: ativo ? 'Ativo' : 'Inativo',

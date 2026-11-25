@@ -3,7 +3,8 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { definirPin, removerPin, validarPin } = require('../services/vendedorPin');
 const { emitirComprovante } = require('../services/comprovantes');
 const { TIPO_IDENTIFICACAO } = require('../domain/conferenciaDescontoDomain');
-const { gerentePodeGerir } = require('../middleware/gestaoEquipe');
+const { gerentePodeGerir, motivoGestorNaoPodeNoAlvo } = require('../middleware/gestaoEquipe');
+const { encerrarSessoes } = require('../services/sessoes');
 const { db } = require('../config/firebase');
 const { registrarLog } = require('../services/auditoria');
 
@@ -103,7 +104,17 @@ const PERMISSAO_INCLUIR_VENDEDOR = 'cadastros.vendedores_incluir';
 const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.isTenantManager));
 const podeDefinirPin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Usuario nao autenticado.' });
-  if (ehGestor(req.user)) return next();
+  if (ehGestor(req.user)) {
+    // Bloco B (25/11/2026): PIN do dono so' ele; de administrador, so' o dono.
+    try {
+      const motivo = await motivoGestorNaoPodeNoAlvo(req.user, req.body?.usuarioId);
+      if (motivo) return res.status(403).json({ error: motivo });
+    } catch (erro) {
+      console.error('[PIN] conferir o alvo:', erro);
+      return res.status(500).json({ error: 'Não foi possível conferir sua permissão agora. Tente de novo em instantes.' });
+    }
+    return next();
+  }
   // 26/10/2026: o gerente (Equipe e Acessos) define o PIN de funcionario comum, sem a restricao de "so' balcao".
   try {
     if (await gerentePodeGerir(req.user, req.body?.usuarioId)) {
@@ -127,6 +138,8 @@ router.post('/definir', podeDefinirPin, async (req, res) => {
       restrito: !ehGestor(req.user) && !req.gerenteDaEquipe,
     });
     registrarSenhaNoHistorico(req.user, resultado.usuarioId, 'edicao', 'definida');
+    // Bloco B: senha trocada derruba quem ja' tinha entrado com ela (menos quem trocou a propria).
+    if (resultado.usuarioId !== req.user.uid) await encerrarSessoes([resultado.usuarioId], 'senha de vendedor trocada');
     return res.json({ ...resultado, ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'definir');
@@ -136,11 +149,16 @@ router.post('/definir', podeDefinirPin, async (req, res) => {
 /** Remove o PIN (funcionario deixa de poder ser identificado na venda). */
 router.post('/remover', requireAdmin, async (req, res) => {
   try {
+    const motivo = await motivoGestorNaoPodeNoAlvo(req.user, req.body?.usuarioId);
+    if (motivo) return res.status(403).json({ error: motivo });
     const resultado = await removerPin({
       tenantId: req.user.tenantId,
       usuarioId: req.body?.usuarioId,
     });
-    if (resultado.removido) registrarSenhaNoHistorico(req.user, req.body?.usuarioId, 'exclusao', 'removida');
+    if (resultado.removido) {
+      registrarSenhaNoHistorico(req.user, req.body?.usuarioId, 'exclusao', 'removida');
+      if (String(req.body?.usuarioId) !== req.user.uid) await encerrarSessoes([String(req.body?.usuarioId)], 'senha de vendedor removida');
+    }
     return res.json({ ...resultado, ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'remover');

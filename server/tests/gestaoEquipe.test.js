@@ -45,3 +45,25 @@ test('gerente sem Equipe e Acessos e funcionario comum nao gerem; administrador 
   assert.equal(await chamar(m, { ...GERENTE, nivelAcesso: 'funcionario' }, 'f1'), 403);
   assert.equal(await chamar(m, { uid: 'adm', tenantId: 'loja', role: 'Admin', isTenantManager: true }, 'g2'), 'passou');
 });
+
+test('bloco B (25/11/2026): dados do dono so o proprio dono; de administrador, so o dono; plataforma pode tudo', async () => {
+  const db = criarBancoFalso({
+    'usuarios/loja': { tenantId: 'loja', role: 'Master' },
+    'usuarios/adm': { tenantId: 'loja', role: 'Admin' },
+    'usuarios/adm2': { tenantId: 'loja', role: 'Admin' },
+    'usuarios/f1': { tenantId: 'loja', role: 'Funcionario' },
+  }).db;
+  const m = carregar(db);
+  const DONO = { uid: 'loja', tenantId: 'loja', role: 'Master', isTenantManager: true, dono: true };
+  const ADM = { uid: 'adm', tenantId: 'loja', role: 'Admin', isTenantManager: true, dono: false };
+  const PLATAFORMA = { uid: 'p1', tenantId: 'p1', role: 'SuperAdmin', isPlatformAdmin: true };
+  assert.equal(await chamar(m, ADM, 'loja'), 403, 'administrador nao mexe no dono');
+  assert.equal(await chamar(m, ADM, 'adm2'), 403, 'administrador nao mexe em outro administrador');
+  assert.equal(await chamar(m, ADM, 'adm'), 'passou', 'administrador mexe na propria ficha');
+  assert.equal(await chamar(m, ADM, 'f1'), 'passou');
+  assert.equal(await chamar(m, DONO, 'adm'), 'passou', 'o dono mexe no administrador');
+  assert.equal(await chamar(m, DONO, 'loja'), 'passou', 'o dono mexe na propria ficha');
+  assert.equal(await chamar(m, PLATAFORMA, 'loja'), 'passou');
+  const motivo = await m.motivoGestorNaoPodeNoAlvo(ADM, 'loja');
+  assert.match(motivo, /Só o próprio dono/);
+});

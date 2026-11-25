@@ -474,11 +474,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             }
 
-            // Funcionario inativado em Equipe & Acessos (UsuariosList.tsx) --
-            // derruba a sessao ao vivo, nao so na proxima tela. O dono/gestor
-            // nunca cai aqui: a tela nem mostra o botao de inativar pra
-            // Master/Admin, so pra Funcionario/Mecanico/Vendedor com login.
-            if (data.status === 'Inativo' && !isTenantManagerRole(finalRole)) {
+            // Inativado em Equipe & Acessos (UsuariosList.tsx) -- derruba a
+            // sessao ao vivo, nao so na proxima tela. Bloco B de seguranca
+            // (25/11/2026): vale tambem para o administrador; so' o dono
+            // (nunca inativado) e a plataforma ficam de fora.
+            if (data.status === 'Inativo' && !isPlatformAdminRole(finalRole) && data.tenantId !== user.uid) {
               clearUserState();
               if (unsubscribeUserSnapshot) {
                 unsubscribeUserSnapshot();

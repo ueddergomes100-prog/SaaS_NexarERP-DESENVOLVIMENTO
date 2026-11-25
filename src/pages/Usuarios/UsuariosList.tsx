@@ -125,8 +125,17 @@ const UsuariosList: React.FC = () => {
     return Boolean(isOwner) && user.id !== tenantId;
   };
 
+  /**
+   * Inativar/reativar ADMINISTRADOR (bloco B de seguranca, 25/11/2026, decisao do
+   * dono): so' o dono, nunca a si mesmo. Administrador inativado perde o acesso
+   * de verdade (servidor e banco), e a sessao dele cai.
+   */
+  const podeMudarSituacao = (user: UsuarioData) => podeGerir(user) || (
+    Boolean(isOwner) && isTenantManagerRole(user.role) && user.id !== currentUser?.uid && user.id !== tenantId
+  );
+
   const handleToggleStatus = async (user: UsuarioData) => {
-    if (!podeGerir(user)) {
+    if (!podeMudarSituacao(user)) {
       showError('Sem permissão', 'Você não pode alterar o acesso deste usuário.');
       return;
     }
@@ -357,6 +366,16 @@ const UsuariosList: React.FC = () => {
                                   <Power size={18} />
                                 </button>
                               </>
+                            )}
+                            {!podeGerir(user) && podeMudarSituacao(user) && (
+                              <button
+                                className="icon-btn"
+                                style={{ color: (user.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}
+                                onClick={() => handleToggleStatus(user)}
+                                title={(user.status || 'Ativo') === 'Ativo' ? 'Inativar administrador' : 'Ativar administrador'}
+                              >
+                                <Power size={18} />
+                              </button>
                             )}
                           </div>
                         )}

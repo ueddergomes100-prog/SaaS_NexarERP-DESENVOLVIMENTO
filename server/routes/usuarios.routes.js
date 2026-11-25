@@ -3,6 +3,7 @@ const { authenticate } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
 const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes } = require('../services/limitesDoPlano');
 const { podeGerirFuncionario } = require('../middleware/gestaoEquipe');
+const { encerrarSessoes } = require('../services/sessoes');
 const { registrarLog } = require('../services/auditoria');
 const { podeCriarLoginDeEquipe, NIVEL_ACESSO_LABELS, parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 const { permissoesEfetivas, MARCADOR_APP_DEFINIDO } = require('../domain/permissoesAppDomain');
@@ -83,6 +84,8 @@ router.post('/redefinir-senha', podeGerirFuncionario, async (req, res) => {
       usuarioId: req.body?.usuarioId,
       novaSenha: req.body?.novaSenha,
     });
+    // Bloco B (25/11/2026): senha trocada derruba quem ja' tinha entrado (menos quem trocou a propria).
+    if (resultado.usuarioId !== req.user.uid) await encerrarSessoes([resultado.usuarioId], 'senha de acesso trocada');
     // Historico de alteracoes (09/11/2026): quem redefiniu a senha de quem -- NUNCA a senha.
     void (async () => {
       const alvo = await lerUsuarioParaHistorico(resultado.usuarioId);
@@ -227,6 +230,8 @@ router.post('/permissoes', podeGerirFuncionario, async (req, res) => {
 router.post('/situacao', podeGerirFuncionario, async (req, res) => {
   try {
     const r = await alterarSituacao({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    // Bloco B (25/11/2026): inativado sai na hora do servidor e em ate' 1 hora do banco (as rules ja' recusam o perfil inativo).
+    if (!r.ativo) await encerrarSessoes([r.usuarioId], 'usuário inativado');
     registrarLog(req.user, {
       modulo: 'usuarios',
       acao: r.ativo ? 'reativacao' : 'inativacao',

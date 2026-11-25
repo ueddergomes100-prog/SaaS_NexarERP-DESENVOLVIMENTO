@@ -48,8 +48,13 @@ service cloud.firestore {
       return tokenIsSuperAdmin() || (hasProfile() && currentProfile().role in ['NexarAdmin', 'SuperAdmin']);
     }
 
+    // Bloco B de seguranca (25/11/2026, decisao do dono): administrador INATIVO
+    // nao e' mais administrador -- antes seguia gravando tudo pelo navegador. O
+    // dono (uid = id da empresa) nunca e' inativado. Uma leitura do perfil.
     function isTenantAdmin() {
-      return hasProfile() && currentProfile().role in ['Master', 'Admin'];
+      let perfil = hasProfile() ? currentProfile() : {};
+      return perfil.get('role', '') in ['Master', 'Admin']
+        && (perfil.get('status', 'Ativo') != 'Inativo' || perfil.get('tenantId', '') == request.auth.uid);
     }
 
     // Funcionario nivel Gerente (nivelAcesso, campo de VISIBILIDADE DE
@@ -299,14 +304,16 @@ service cloud.firestore {
     // sistema, mas so' o AuthContext barrava: o login dele no Firebase Auth
     // continua valido, e pelo console do navegador ele lia e gravava tudo o
     // que as permissoes davam. Dono/Admin nao sao inativados pela tela e
-    // ficam de fora de proposito (mesma regra do AuthContext).
+    // ficavam de fora de proposito ate' o bloco B de seguranca (25/11/2026): agora
+    // so' o dono (uid = id da empresa, nunca inativado) e a plataforma ficam de fora.
     function perfilAtivo() {
       // Uma leitura do perfil (2026-10-20); a conferencia do vendedor de balcao
       // (sessaoCombinaComOCadastro) esta' repetida aqui pelo mesmo motivo.
       let perfil = currentProfile();
       return (
         perfil.get('status', 'Ativo') != 'Inativo' ||
-        perfil.get('role', '') in ['Master', 'Admin', 'NexarAdmin', 'SuperAdmin']
+        perfil.get('role', '') in ['NexarAdmin', 'SuperAdmin'] ||
+        perfil.get('tenantId', '') == request.auth.uid
       ) && (perfil.get('tipoRegistro', '') != 'vendedor' || request.auth.token.get('isVendedorBalcao', false) == true)
         && semBloqueioDeCobranca(perfil);
     }

@@ -92,9 +92,11 @@ async function authenticate(req, res, next) {
         return res.status(401).json({ error: 'Sua sessão foi encerrada (a senha foi trocada, o usuário foi inativado ou o computador do caixa foi desativado). Entre de novo.', codigo: 'sessao_encerrada' });
       }
 
-      // Funcionario inativado perde o acesso ao servidor tambem, nao so' a
-      // tela (mesma regra de perfilAtivo() nas firestore.rules, 2026-09-29).
-      if (userData.status === 'Inativo' && !plataformaPeloToken && !isPlatformAdminRole(role) && !isTenantManagerRole(role)) {
+      // Inativado perde o acesso ao servidor tambem, nao so' a tela (mesma regra
+      // de perfilAtivo() nas firestore.rules, 2026-09-29). Bloco B (25/11/2026):
+      // vale tambem para o ADMINISTRADOR -- antes ele seguia com acesso total.
+      // So' o dono (nunca pode ser inativado) e a plataforma ficam de fora.
+      if (userData.status === 'Inativo' && !plataformaPeloToken && !isPlatformAdminRole(role) && userData.tenantId !== uid) {
         return res.status(403).json({ error: 'Seu usuário foi inativado pelo administrador da empresa. Fale com ele para reativar o acesso.' });
       }
       // Vendedor de balcao (sem login) so' pelo app, com o token do codigo+PIN

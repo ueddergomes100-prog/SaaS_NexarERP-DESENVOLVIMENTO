@@ -249,6 +249,16 @@ test('situacao: inativa e reativa; dono nao', async () => {
   await assert.rejects(() => s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'loja', ativo: false } }), (e) => e.status === 400);
 });
 
+test('situacao (bloco B, 25/11/2026): ninguem inativa o proprio usuario', async () => {
+  const fake = criarBancoFalso(base({ 'usuarios/adm': { tenantId: 'loja', role: 'Admin', nome: 'ADM', status: 'Ativo' } }), { consultas: true });
+  const s = carregar(fake.db);
+  await assert.rejects(
+    () => s.alterarSituacao({ user: { ...ADMIN, uid: 'adm' }, tenantId: 'loja', corpo: { usuarioId: 'adm', ativo: false } }),
+    (e) => e.status === 400 && /seu próprio usuário/.test(e.message),
+  );
+  assert.equal(fake.ler('usuarios/adm').status, 'Ativo');
+});
+
 test('permissoes pelo servidor: grava com o marcador do app; gerente so mexe no que tem (26/10/2026)', async () => {
   const fake = criarBancoFalso(base({
     'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', permissoes: ['vendas.pedidos'] },

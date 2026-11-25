@@ -41,7 +41,6 @@ const documentoEPaisDoCliente = (d: Record<string, unknown>) => {
   const pais = paisDoCliente(d as { estrangeiro?: boolean; pais?: string });
   return { pais, documento: String((pais ? d.documentoEstrangeiro : d.documento) || '') };
 };
-import Swal from 'sweetalert2';
 import { motivoPedidoNaoEmiteNota, notaDeveAparecer } from '../../utils/notaFiscalVisibilidadeDomain';
 import { escolherIntegrationIdDoReenvio, rejeicaoPrendeConfiguracaoNaNota } from '../../utils/reenvioNotaDomain';
 import { emitirNfceDoPedido } from '../../services/nfceEmissaoService';
@@ -1325,7 +1324,7 @@ const NFE: React.FC = () => {
       title: 'Importando Pedido...',
       text: 'Buscando informações fiscais dos produtos...',
       allowOutsideClick: false,
-      didOpen: () => Swal.showLoading()
+      didOpen: () => NexusSwal.showLoading()
     });
 
     try {
@@ -1338,10 +1337,10 @@ const NFE: React.FC = () => {
       setImportedAcessorios(montada.acessorios);
       setFormData(prev => ({ ...prev, ...montada.form }));
 
-      Swal.close();
+      NexusSwal.close();
     } catch (err) {
       console.error("Erro ao carregar dados do pedido:", err);
-      Swal.close();
+      NexusSwal.close();
       showError('Erro ao importar', 'Não foi possível carregar os dados fiscais dos produtos.');
     }
   };
@@ -1729,7 +1728,7 @@ const NFE: React.FC = () => {
     NexusSwal.fire({
       title: 'Consultando Spedy...',
       allowOutsideClick: false,
-      didOpen: () => Swal.showLoading()
+      didOpen: () => NexusSwal.showLoading()
     });
 
     try {
@@ -1750,11 +1749,11 @@ const NFE: React.FC = () => {
         processingCode: spedyNote.processingDetail?.code || null
       });
 
-      Swal.close();
+      NexusSwal.close();
       showSuccess('Nota sincronizada com sucesso!');
       loadLocalInvoices(false);
     } catch (err) {
-      Swal.close();
+      NexusSwal.close();
       showError('Erro na sincronização', (err as Error).message || 'Erro ao consultar nota.');
     }
   };
@@ -1768,7 +1767,7 @@ const NFE: React.FC = () => {
    */
   const handleConsultarNaSpedy = async (note: LocalInvoice) => {
     if (!config?.spedyApiKey) return;
-    NexusSwal.fire({ title: 'Consultando a Spedy...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    NexusSwal.fire({ title: 'Consultando a Spedy...', allowOutsideClick: false, didOpen: () => NexusSwal.showLoading() });
     try {
       const spedyNote: SpedyInvoice = note.tipo === 'NFS-e'
         ? await spedyService.getServiceInvoice(config.spedyApiKey, config.spedyEnvironment, note.spedyId)
@@ -1811,7 +1810,7 @@ const NFE: React.FC = () => {
       });
       loadLocalInvoices(false);
     } catch (err) {
-      Swal.close();
+      NexusSwal.close();
       showError('Não foi possível consultar a Spedy', (err as Error).message || 'Tente novamente em instantes.');
     }
   };
@@ -2091,7 +2090,7 @@ const NFE: React.FC = () => {
       NexusSwal.fire({
         title: 'Solicitando cancelamento na prefeitura/SEFAZ...',
         allowOutsideClick: false,
-        didOpen: () => Swal.showLoading()
+        didOpen: () => NexusSwal.showLoading()
       });
 
       try {
@@ -2141,7 +2140,7 @@ const NFE: React.FC = () => {
           });
         }
 
-        Swal.close();
+        NexusSwal.close();
         loadLocalInvoices(false);
         // Nota de VENDA cancelada: a venda continua finalizada no sistema (estoque
         // baixado, financeiro lançado). Cancelar a nota nao desfaz a venda sozinho --
@@ -2161,7 +2160,7 @@ const NFE: React.FC = () => {
           showSuccess('Cancelamento solicitado com sucesso!');
         }
       } catch (err) {
-        Swal.close();
+        NexusSwal.close();
         const mensagemErro = (err as Error).message || 'Erro ao cancelar a nota.';
         // Fora do prazo normal (24h apos a autorizacao). CANCELAMENTO EXTEMPORANEO
         // (2026-09-30): em MG a SEFAZ aceita entre 24h e 168h, mas a empresa pede
@@ -3318,7 +3317,7 @@ const NFE: React.FC = () => {
         integrationIdAtual: idNaSpedy,
       });
 
-      NexusSwal.fire({ title: 'Transmitindo o cupom fiscal...', text: 'Aguardando a SEFAZ.', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+      NexusSwal.fire({ title: 'Transmitindo o cupom fiscal...', text: 'Aguardando a SEFAZ.', allowOutsideClick: false, didOpen: () => NexusSwal.showLoading() });
       const itensDoPedido = Array.isArray(pedido.itens) ? pedido.itens as Array<Record<string, unknown>> : [];
       const pagamentosDoPedido = Array.isArray(pedido.pagamentos) ? pedido.pagamentos as Array<Record<string, unknown>> : [];
       const { nota, itensFiscais } = await emitirNfceDoPedido({
@@ -3364,7 +3363,7 @@ const NFE: React.FC = () => {
         origem: pedido.numeroPedido ? `Pedido ${pedido.numeroPedido}` : '',
         reenvio: true,
       });
-      Swal.close();
+      NexusSwal.close();
       loadLocalInvoices(false);
 
       if (nota.status === 'authorized') {
@@ -3378,7 +3377,7 @@ const NFE: React.FC = () => {
         showWarning('Cupom enviado. A SEFAZ ainda está processando; a situação aparece na lista em instantes.');
       }
     } catch (erro) {
-      Swal.close();
+      NexusSwal.close();
       if (enviouParaSpedy) {
         // O cupom JA' esta na Spedy: so' a lista nao foi atualizada. Nao pode parecer
         // "nao emitido" -- transmitir de novo duplicaria.

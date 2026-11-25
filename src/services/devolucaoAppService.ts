@@ -54,6 +54,8 @@ export interface DadosDevolucaoNoApp {
   motivos: string[];
   formasBancarias: string[];
   jaConfirmada: boolean;
+  /** O vendedor escolhe o destino do valor (permissao propria, 25/11/2026)? */
+  podeEscolherDestino?: boolean;
   prazo: { foraDoPrazo: boolean; acao: string; mensagem: string };
 }
 

@@ -83,13 +83,15 @@ const VendedorNovaDevolucao: React.FC = () => {
     );
   }, [dados, quantidades]);
 
+  // Sem a permissao "App: Devolucao - escolher para onde vai o valor" quem decide e' o escritorio (25/11/2026).
+  const escolheDestino = dados?.podeEscolherDestino === true;
   const algumItem = Object.values(quantidades).some((q) => Number(String(q).replace(',', '.')) > 0);
   const valorTotal = montagem && montagem.ok ? montagem.valorTotal : 0;
   const bloqueadoPeloPrazo = Boolean(dados?.prazo.foraDoPrazo && dados.prazo.acao === 'bloquear');
   const faltando = !algumItem ? 'Escolha os itens e as quantidades.'
     : montagem && !montagem.ok ? montagem.erro
       : !motivo ? 'Escolha o motivo.'
-        : destino === 'banco' && !bancoId ? 'Escolha o banco.'
+        : escolheDestino && destino === 'banco' && !bancoId ? 'Escolha o banco.'
           : '';
 
   const mudarQtd = (indice: number, valor: string, disponivel: number) => {
@@ -114,7 +116,7 @@ const VendedorNovaDevolucao: React.FC = () => {
       html: `<div style="text-align:left;font-size:15px;line-height:1.5">`
         + `<p style="margin:0 0 6px">${montagem.itensDevolvidos.map((i) => escaparHtml(`${i.quantidadeDevolvida.toLocaleString('pt-BR')}x ${i.nome}`)).join('<br>')}</p>`
         + `<p style="margin:0 0 6px">Valor: <strong>${moeda(valorTotal)}</strong></p>`
-        + `<p style="margin:0">${ROTULO_DESTINO_DEVOLUCAO[destino]}${banco ? escaparHtml(` — ${formaBancaria} (${banco.nome})`) : ''}</p>`
+        + `<p style="margin:0">${escolheDestino ? `${ROTULO_DESTINO_DEVOLUCAO[destino]}${banco ? escaparHtml(` — ${formaBancaria} (${banco.nome})`) : ''}` : (dados.jaConfirmada ? 'O valor fica como crédito do cliente.' : 'O escritório decide para onde vai o valor ao confirmar.')}</p>`
         + `<p style="margin:10px 0 0;font-size:13px;opacity:.8">${dados.jaConfirmada ? 'Ela vale na hora: o estoque e o valor já mudam.' : 'A loja confere e confirma. Até lá, nada muda no estoque nem no dinheiro.'}</p>`
         + '</div>',
       showCancelButton: true,
@@ -130,9 +132,9 @@ const VendedorNovaDevolucao: React.FC = () => {
         itens: montagem.itensDevolvidos.map((i) => ({ indice: Number(i.indice), quantidade: i.quantidadeDevolvida })),
         motivo,
         observacao: observacao.trim(),
-        destino,
-        bancoId: destino === 'banco' ? bancoId : '',
-        formaBancaria: destino === 'banco' ? formaBancaria : '',
+        destino: escolheDestino ? destino : 'credito',
+        bancoId: escolheDestino && destino === 'banco' ? bancoId : '',
+        formaBancaria: escolheDestino && destino === 'banco' ? formaBancaria : '',
         idDocumento: idDocumento.current,
       });
       showSuccess(r.status === 'concluida'
@@ -224,6 +226,12 @@ const VendedorNovaDevolucao: React.FC = () => {
               </div>
             </div>
 
+            {!escolheDestino ? (
+              <div style={{ ...cartao, fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                <div style={tituloSecao}>Para onde vai o valor</div>
+                {dados.jaConfirmada ? 'O valor fica como crédito do cliente.' : 'O escritório decide ao confirmar: crédito, dinheiro, Pix ou abater das parcelas do cliente.'}
+              </div>
+            ) : (
             <div style={cartao}>
               <div style={tituloSecao}>Para onde vai o valor</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -249,6 +257,7 @@ const VendedorNovaDevolucao: React.FC = () => {
                 </div>
               )}
             </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label htmlFor="devolucao-observacao" style={tituloSecao}>Observação</label>

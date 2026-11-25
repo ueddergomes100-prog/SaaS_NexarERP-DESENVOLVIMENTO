@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ExternalLink, RotateCcw, Search, X } from 'lucide-react';
-import { Timestamp, collection, getDocs, query, where } from 'firebase/firestore';
+import { Timestamp, collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -16,8 +16,13 @@ import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFilt
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
 import DevolucaoVendaModal from './DevolucaoVendaModal';
 import EscolherPedidoDevolucaoModal, { type PedidoParaDevolucao } from './EscolherPedidoDevolucaoModal';
+import DestinoDoValorModal from './DestinoDoValorModal';
+import DevolucaoPorClienteModal from './DevolucaoPorClienteModal';
+import { devolucaoEscritorioService } from '../../services/devolucaoEscritorioService';
+import { textoDoDestino } from './destinoDoValorTexto';
 import {
   LIMITE_MOTIVO_RECUSA,
+  ROTULO_ABATIMENTO,
   ROTULO_DESTINO_DEVOLUCAO,
   ROTULO_ORIGEM_DEVOLUCAO,
   ROTULO_SITUACAO_DEVOLUCAO,
@@ -26,10 +31,11 @@ import {
   origemDaDevolucao,
   situacaoDaDevolucao,
   type DestinoDevolucao,
+  type DestinoDoValor,
   type OrigemDevolucao,
   type StatusDevolucao,
 } from '../../utils/devolucaoVendaDomain';
-import { efetivarDevolucaoVenda, recusarDevolucaoVenda, registrarHistoricoDaDevolucao } from '../../services/devolucaoVendaService';
+import { recusarDevolucaoVenda } from '../../services/devolucaoVendaService';
 
 /**
  * DEVOLUCOES DE VENDA (24/11/2026).
@@ -67,8 +73,13 @@ interface LinhaDevolucao {
   solicitadoPorNome: string;
   valor: number;
   destino: DestinoDevolucao;
+  bancoId: string;
   bancoNome: string;
   formaDevolucao: string;
+  /** O vendedor escolheu o destino no app (com a permissao)? */
+  destinoDoVendedor: boolean;
+  abatidoEmParcelas: boolean;
+  semPedido: boolean;
   situacao: StatusDevolucao;
   origem: OrigemDevolucao;
   motivo: string;
@@ -98,8 +109,12 @@ const paraLinha = (id: string, x: Record<string, unknown>): LinhaDevolucao => ({
   solicitadoPorNome: String(x.solicitadoPorNome || ''),
   valor: Number(x.valorTotalDevolvido || 0),
   destino: destinoDaDevolucao(x.destinoValor),
+  bancoId: String(x.bancoId || ''),
   bancoNome: String(x.bancoNome || ''),
   formaDevolucao: String(x.formaDevolucao || ''),
+  destinoDoVendedor: x.origem === 'app' && x.destinoDoVendedor !== false,
+  abatidoEmParcelas: x.abatidoEmParcelas === true,
+  semPedido: x.semPedido === true,
   situacao: situacaoDaDevolucao(x),
   origem: origemDaDevolucao(x),
   motivo: String(x.motivo || ''),
@@ -127,11 +142,22 @@ const DevolucoesVenda: React.FC = () => {
   const [periodoDe, setPeriodoDe] = useState('');
   const [periodoAte, setPeriodoAte] = useState('');
   const [escolhendoPedido, setEscolhendoPedido] = useState(false);
+  /** Devolucao escolhendo cliente e produtos (25/11/2026): a porta principal. */
+  const [porCliente, setPorCliente] = useState(false);
+  /** Devolucao do app em confirmacao: a janela do destino do valor. */
+  const [confirmando, setConfirmando] = useState<{ linha: LinhaDevolucao; clienteId: string } | null>(null);
   const [pedidoSelecionado, setPedidoSelecionado] = useState<PedidoParaDevolucao | null>(null);
   const [processandoId, setProcessandoId] = useState<string | null>(null);
   const [notaDaDevolucao, setNotaDaDevolucao] = useState<{ id: string; numeroPedido: string } | null>(null);
   /** Comprovante da devolucao (o mesmo do pedido, 25/11/2026). */
   const [comprovanteId, setComprovanteId] = useState<string | null>(null);
+  /** Devolucao por cliente gera uma devolucao por pedido: os comprovantes saem um depois do outro. */
+  const [comprovantesNaFila, setComprovantesNaFila] = useState<string[]>([]);
+  useEffect(() => {
+    if (comprovanteId || comprovantesNaFila.length === 0) return;
+    setComprovanteId(comprovantesNaFila[0]);
+    setComprovantesNaFila((fila) => fila.slice(1));
+  }, [comprovanteId, comprovantesNaFila]);
 
   const padrao = inicioPadrao();
   const inicioDaConsulta = /^\d{4}-\d{2}-\d{2}$/.test(periodoDe) && periodoDe < padrao ? periodoDe : padrao;
@@ -215,16 +241,30 @@ const DevolucoesVenda: React.FC = () => {
     const escolha = await NexusSwal.fire({
       icon: 'question',
       title: 'Confirmar a devolução?',
-      html: `${resumoHtml(l)}<p style="margin:12px 0 0;font-size:13px">Ao confirmar, a mercadoria volta para o estoque e o valor ${l.destino === 'credito' ? 'vira crédito do cliente' : l.destino === 'caixa' ? 'sai do caixa' : 'sai do banco'} hoje.</p>`,
+      html: `${resumoHtml(l)}<p style="margin:12px 0 0;font-size:13px">Ao continuar, a mercadoria volta para o estoque e você escolhe o que fazer com o valor: crédito, dinheiro, Pix ou abater das parcelas do cliente.</p>`,
       showCancelButton: true,
-      confirmButtonText: 'Confirmar devolução',
+      confirmButtonText: 'Continuar',
       cancelButtonText: 'Voltar',
     });
     if (!escolha.isConfirmed) return;
+    // O cliente (codigo) vem do pedido: e' por ele que a janela acha as parcelas em aberto.
+    let clienteId = '';
+    try {
+      const snap = await getDoc(doc(db, 'pedidos_venda', l.pedidoId));
+      clienteId = snap.exists() ? String(snap.data().clienteId || '') : '';
+    } catch (erro) {
+      console.error('Erro ao ler o cliente do pedido:', erro);
+    }
+    setConfirmando({ linha: l, clienteId });
+  };
+
+  const confirmarComDestino = async (destino: DestinoDoValor) => {
+    if (!confirmando || processandoId) return;
+    const l = confirmando.linha;
     setProcessandoId(l.id);
     try {
-      const resultado = await efetivarDevolucaoVenda(q, { pendenteId: l.id });
-      registrarHistoricoDaDevolucao(q, resultado, 'confirmada');
+      const resultado = await devolucaoEscritorioService.confirmar(l.id, destino);
+      setConfirmando(null);
       // Pedido com NF-e/NFC-e autorizada: a devolucao tambem precisa de nota fiscal (como na devolucao feita aqui).
       if (podeEmitirNota && await pedidoTemNotaAutorizada(resultado.pedidoId)) {
         const nota = await NexusSwal.fire({
@@ -240,11 +280,10 @@ const DevolucoesVenda: React.FC = () => {
           return;
         }
       }
-      // Comprovante (o mesmo da devolucao feita no sistema): botao na mensagem de sucesso.
       const fim = await NexusSwal.fire({
         icon: 'success',
         title: 'Devolução confirmada',
-        text: resultado.destino === 'credito' ? 'O valor ficou como crédito do cliente.' : 'O valor saiu do caixa/banco escolhido.',
+        text: textoDoDestino(resultado.destino, resultado.bancoNome, resultado.sobraDeCreditoCentavos),
         showCancelButton: true,
         confirmButtonText: 'Imprimir comprovante',
         cancelButtonText: 'Fechar',
@@ -306,7 +345,7 @@ const DevolucoesVenda: React.FC = () => {
             {aguardando > 0 && <strong style={{ color: '#d97706' }}> {aguardando} aguardando confirmação.</strong>}
           </p>
         </div>
-        <button type="button" className="btn-primary" onClick={() => setEscolhendoPedido(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+        <button type="button" className="btn-primary" onClick={() => setPorCliente(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
           <RotateCcw size={18} /> Fazer devolução
         </button>
       </div>
@@ -372,11 +411,11 @@ const DevolucoesVenda: React.FC = () => {
                 return (
                   <tr key={l.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                     <td style={td}>{dataDaLinha(l)}</td>
-                    <td style={{ ...td, fontWeight: 600 }}>#{l.numeroPedido}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>{l.semPedido ? <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Sem pedido</span> : `#${l.numeroPedido}`}</td>
                     <td style={td}>{l.clienteNome}</td>
                     <td style={td}>{l.vendedorNome || '-'}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{moeda(l.valor)}</td>
-                    <td style={td}>{ROTULO_DESTINO_DEVOLUCAO[l.destino]}{l.destino === 'banco' && l.bancoNome ? ` (${l.bancoNome})` : ''}</td>
+                    <td style={td}>{l.abatidoEmParcelas ? ROTULO_ABATIMENTO : `${ROTULO_DESTINO_DEVOLUCAO[l.destino]}${l.destino === 'banco' && l.bancoNome ? ` (${l.bancoNome})` : ''}`}{l.situacao === STATUS_DEVOLUCAO.aguardando && !l.destinoDoVendedor ? <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)' }}>o escritório decide</span> : null}</td>
                     <td style={td}>
                       <span
                         title={l.situacao === STATUS_DEVOLUCAO.recusada && l.motivoRecusa ? `Motivo da recusa: ${l.motivoRecusa}` : undefined}
@@ -411,6 +450,25 @@ const DevolucoesVenda: React.FC = () => {
         </div>
         <MostrarMaisLinhas blocos={blocos} />
       </div>
+
+      {porCliente && (
+        <DevolucaoPorClienteModal
+          onClose={() => setPorCliente(false)}
+          onPeloNumeroDoPedido={() => { setPorCliente(false); setEscolhendoPedido(true); }}
+          onComprovantes={(ids) => setComprovantesNaFila(ids)}
+        />
+      )}
+
+      {confirmando && (
+        <DestinoDoValorModal
+          valor={confirmando.linha.valor}
+          cliente={{ id: confirmando.clienteId, nome: confirmando.linha.clienteNome }}
+          sugerido={{ destino: confirmando.linha.destino, bancoId: confirmando.linha.bancoId, formaBancaria: confirmando.linha.formaDevolucao, doVendedor: confirmando.linha.destinoDoVendedor }}
+          ocupado={processandoId === confirmando.linha.id}
+          onConfirmar={(d) => void confirmarComDestino(d)}
+          onVoltar={() => setConfirmando(null)}
+        />
+      )}
 
       {escolhendoPedido && (
         <EscolherPedidoDevolucaoModal

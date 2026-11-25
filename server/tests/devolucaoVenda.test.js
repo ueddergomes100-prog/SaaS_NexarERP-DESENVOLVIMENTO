@@ -138,7 +138,9 @@ test('confirmar (filial com "ja entra confirmada"): estoque na unidade base, lot
 
 test('confirmar com saida pelo banco: lancamento "Devolução de Venda" e saldo debitado', async () => {
   const fake = criarBancoFalso(base({ 'configuracoes/emp1': { appDevolucaoPermitida: true, appDevolucaoJaConfirmada: true } }), { consultas: true });
-  await carregar(fake.db).solicitarPeloApp({ user: VENDEDOR, tenantId: T, corpo: corpo({ destino: 'banco', bancoId: 'b1', formaBancaria: 'Pix' }), hoje: HOJE });
+  // Escolher o destino no app exige a permissao propria (25/11/2026); sem ela vira credito.
+  const comPermissao = { ...VENDEDOR, permissoes: ['app.devolucao_destino'] };
+  await carregar(fake.db).solicitarPeloApp({ user: comPermissao, tenantId: T, corpo: corpo({ destino: 'banco', bancoId: 'b1', formaBancaria: 'Pix' }), hoje: HOJE });
   const t = fake.ler('transacoes/devolucao_dev00000001');
   assert.equal(t.categoria, 'Devolução de Venda');
   assert.equal(t.tipo, 'saida');

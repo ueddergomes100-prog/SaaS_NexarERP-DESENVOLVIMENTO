@@ -22,6 +22,10 @@ const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { registrarLogNaTransacao } = require('./auditoria');
 const cashback = require('./cashback');
+const { temPermissao } = require('./baixaFinanceiraRegras');
+
+/** O vendedor escolhe no app para onde vai o valor? So' com a permissao (decisao do dono, 25/11/2026). */
+const podeEscolherDestinoNoApp = (user) => temPermissao(user, dv.PERMISSAO_APP_DEVOLUCAO_DESTINO);
 
 class ErroDevolucaoVenda extends Error {
   constructor(status, message) {
@@ -93,6 +97,8 @@ const dadosParaDevolver = async ({ user, tenantId, pedidoId, hoje = getDateInput
     motivos: [...dv.MOTIVOS_DEVOLUCAO],
     formasBancarias: [...dv.FORMAS_BANCARIAS_DEVOLUCAO],
     jaConfirmada: dv.parseConfigDevolucaoApp(configBruta).jaConfirmada,
+    // Sem a permissao o app nao pergunta o destino: o escritorio decide ao confirmar (ou vira credito, se ja' entra confirmada).
+    podeEscolherDestino: podeEscolherDestinoNoApp(user),
     prazo: { foraDoPrazo: prazo.foraDoPrazo, acao: prazo.acao, mensagem: prazo.mensagem },
   };
 };
@@ -157,8 +163,11 @@ const gravarEfeito = (tx, { user, tenantId, pedidoRef, pedido, efeito, dinheiro,
 // ---------------------------------------------------------------------------
 
 const solicitarPeloApp = async ({ user, tenantId, corpo, hoje = getDateInputInTimeZone() }) => {
-  const lido = dv.lerPedidoDeDevolucaoDoApp(corpo);
-  if ('erro' in lido) throw new ErroDevolucaoVenda(400, lido.erro);
+  const escolhe = podeEscolherDestinoNoApp(user);
+  // Sem a permissao, o destino que vier do app nao vale: credito (o escritorio troca na confirmacao).
+  const lidoBruto = dv.lerPedidoDeDevolucaoDoApp(escolhe ? corpo : { ...(corpo && typeof corpo === 'object' ? corpo : {}), destino: 'credito', bancoId: '', formaBancaria: '' });
+  if ('erro' in lidoBruto) throw new ErroDevolucaoVenda(400, lidoBruto.erro);
+  const lido = lidoBruto;
   const configBruta = await lerConfiguracao(tenantId);
   const config = dv.parseConfigDevolucaoApp(configBruta);
   if (!config.permitida) throw new ErroDevolucaoVenda(403, MENSAGEM_DESLIGADA);
@@ -239,6 +248,7 @@ const solicitarPeloApp = async ({ user, tenantId, corpo, hoje = getDateInputInTi
         dataSolicitacao: hoje,
         foraDoPrazo: prazo.foraDoPrazo,
       }),
+      ...(escolhe ? {} : { destinoDoVendedor: false }),
       ...(efeito ? {
         confirmadaAutomaticamente: true,
         confirmadaPorId: user.uid,

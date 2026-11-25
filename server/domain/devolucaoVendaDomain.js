@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.lerMotivoDaRecusa = exports.lerPedidoDeDevolucaoDoApp = exports.LIMITE_MOTIVO_RECUSA = exports.LIMITE_OBSERVACAO_DEVOLUCAO = exports.parseConfigDevolucaoApp = exports.CONFIG_DEVOLUCAO_APP_PADRAO = exports.erroParaDevolverPeloApp = exports.ehPedidoDoAppVendas = exports.erroDoPedidoParaDevolucao = exports.erroParaDecidirDevolucao = exports.camposDaDevolucao = exports.saldoDoBancoAposDevolucao = exports.creditoDaDevolucao = exports.lancamentoDaDevolucao = exports.idDoDinheiroDaDevolucao = exports.comissaoAposDevolucao = exports.planoDaDevolucao = exports.montarItensDevolvidos = exports.disponivelParaDevolver = exports.quantidadesEmAguardo = exports.destinoDaDevolucao = exports.origemDaDevolucao = exports.devolucaoTeveEfeito = exports.situacaoDaDevolucao = exports.ROTULO_DESTINO_DEVOLUCAO = exports.FORMAS_BANCARIAS_DEVOLUCAO = exports.MOTIVOS_DEVOLUCAO = exports.ROTULO_ORIGEM_DEVOLUCAO = exports.ORIGEM_DEVOLUCAO = exports.ROTULO_SITUACAO_DEVOLUCAO = exports.STATUS_DEVOLUCAO = void 0;
+exports.lerMotivoDaRecusa = exports.lerDevolucaoDoSistema = exports.itemDevolvidoSemPedido = exports.erroDaParcelaParaAbater = exports.planoDoAbatimento = exports.destinoGravadoDoValor = exports.lerDestinoDoValor = exports.ROTULO_ABATIMENTO = exports.PERMISSAO_APP_DEVOLUCAO_DESTINO = exports.PERMISSAO_DEVOLUCAO_ABATER = exports.PERMISSAO_DEVOLUCAO_ALTERAR_PRECO = exports.PERMISSAO_DEVOLUCAO_SEM_PEDIDO = exports.PERMISSAO_DEVOLUCAO = exports.lerPedidoDeDevolucaoDoApp = exports.LIMITE_MOTIVO_RECUSA = exports.LIMITE_OBSERVACAO_DEVOLUCAO = exports.parseConfigDevolucaoApp = exports.CONFIG_DEVOLUCAO_APP_PADRAO = exports.erroParaDevolverPeloApp = exports.ehPedidoDoAppVendas = exports.erroDoPedidoParaDevolucao = exports.erroParaDecidirDevolucao = exports.camposDaDevolucao = exports.saldoDoBancoAposDevolucao = exports.creditoDaDevolucao = exports.lancamentoDaDevolucao = exports.idDoDinheiroDaDevolucao = exports.comissaoAposDevolucao = exports.planoDaDevolucao = exports.montarItensDevolvidos = exports.disponivelParaDevolver = exports.quantidadesEmAguardo = exports.destinoDaDevolucao = exports.origemDaDevolucao = exports.devolucaoTeveEfeito = exports.situacaoDaDevolucao = exports.ROTULO_DESTINO_DEVOLUCAO = exports.FORMAS_BANCARIAS_DEVOLUCAO = exports.MOTIVOS_DEVOLUCAO = exports.ROTULO_ORIGEM_DEVOLUCAO = exports.ORIGEM_DEVOLUCAO = exports.ROTULO_SITUACAO_DEVOLUCAO = exports.STATUS_DEVOLUCAO = void 0;
 /*
  * DEVOLUCAO DE VENDA -- regra num lugar so' (24/11/2026).
  *
@@ -410,6 +410,177 @@ const lerPedidoDeDevolucaoDoApp = (corpo) => {
     return { pedidoId, itens, motivo, observacao, destino, bancoId, formaBancaria, idDocumento };
 };
 exports.lerPedidoDeDevolucaoDoApp = lerPedidoDeDevolucaoDoApp;
+// ---------------------------------------------------------------------------
+// Destino do valor escolhido AO CONFIRMAR (25/11/2026, Embala Minas)
+// ---------------------------------------------------------------------------
+//
+// Toda devolucao (a do sistema e a confirmacao da que veio do app) passa por
+// uma janela: gerar credito, devolver em dinheiro (caixa) ou Pix/transferencia
+// (banco escolhido), ou ABATER das parcelas em aberto do cliente no Contas a
+// Receber. Abater = o credito nasce e e' usado na hora nas parcelas marcadas,
+// igual ao "abater com credito" do Contas a Receber (forma "Credito de
+// Devolucao"); o que sobrar fica de credito. Assim o estorno da devolucao
+// enxerga o credito usado como sempre enxergou.
+/** Permissoes novas (25/11/2026; catalogo em permissionCatalog.ts). */
+exports.PERMISSAO_DEVOLUCAO = 'vendas.devolucao';
+exports.PERMISSAO_DEVOLUCAO_SEM_PEDIDO = 'vendas.devolucao_sem_pedido';
+exports.PERMISSAO_DEVOLUCAO_ALTERAR_PRECO = 'vendas.devolucao_alterar_preco';
+exports.PERMISSAO_DEVOLUCAO_ABATER = 'vendas.devolucao_abater_parcelas';
+/** App Vendas: o vendedor escolhe para onde vai o valor (sem ela, quem decide e' o escritorio). */
+exports.PERMISSAO_APP_DEVOLUCAO_DESTINO = 'app.devolucao_destino';
+exports.ROTULO_ABATIMENTO = 'Abatido nas parcelas do cliente';
+const ID_SEGURO = /^[A-Za-z0-9_-]{1,64}$/;
+/** Le e confere o destino que a tela mandou. */
+const lerDestinoDoValor = (bruto) => {
+    const c = (bruto && typeof bruto === 'object' ? bruto : {});
+    const tipo = String(c.tipo || '');
+    if (tipo === 'credito' || tipo === 'caixa')
+        return { tipo };
+    if (tipo === 'banco') {
+        const bancoId = String(c.bancoId || '').trim();
+        const formaBancaria = String(c.formaBancaria || 'Pix');
+        if (!ID_SEGURO.test(bancoId))
+            return { erro: 'Escolha de qual banco o dinheiro sai.' };
+        if (!exports.FORMAS_BANCARIAS_DEVOLUCAO.includes(formaBancaria))
+            return { erro: 'Escolha a forma: Pix ou Transferência.' };
+        return { tipo, bancoId, formaBancaria: formaBancaria };
+    }
+    if (tipo === 'abater') {
+        const parcelas = (Array.isArray(c.parcelas) ? c.parcelas : []).map((p) => String(p || '').trim());
+        if (parcelas.length === 0)
+            return { erro: 'Marque pelo menos uma parcela em aberto para abater o valor.' };
+        if (parcelas.length > 60)
+            return { erro: 'Marque no máximo 60 parcelas de uma vez.' };
+        if (parcelas.some((p) => !ID_SEGURO.test(p)))
+            return { erro: 'Uma das parcelas marcadas é inválida. Abra a janela de novo.' };
+        if (new Set(parcelas).size !== parcelas.length)
+            return { erro: 'Uma parcela apareceu duas vezes. Abra a janela de novo.' };
+        return { tipo, parcelas };
+    }
+    return { erro: 'Escolha o que fazer com o valor: crédito, dinheiro, Pix ou abater das parcelas.' };
+};
+exports.lerDestinoDoValor = lerDestinoDoValor;
+/** O `destinoValor` gravado na devolucao (abater e' um credito usado na hora). */
+const destinoGravadoDoValor = (d) => (d.tipo === 'abater' ? 'credito' : d.tipo);
+exports.destinoGravadoDoValor = destinoGravadoDoValor;
+/**
+ * Distribui o valor da devolucao nas parcelas marcadas, NA ORDEM marcada:
+ * quita uma por uma; a ultima pode ficar com resto em aberto. O que passar da
+ * soma das parcelas sobra como credito do cliente.
+ */
+const planoDoAbatimento = (valorCentavos, parcelas) => {
+    let resta = Math.max(0, Math.round(valorCentavos));
+    const usos = [];
+    for (const p of parcelas) {
+        if (resta <= 0)
+            break;
+        const aberto = Math.max(0, Math.round(p.centavos));
+        if (aberto <= 0)
+            continue;
+        const usa = Math.min(aberto, resta);
+        usos.push({ id: p.id, centavos: usa, quita: usa === aberto });
+        resta -= usa;
+    }
+    return { usos, sobraCentavos: resta };
+};
+exports.planoDoAbatimento = planoDoAbatimento;
+/** Formas de recebimento que nao se abatem com credito (o dinheiro vem da operadora ou do banco do cheque). */
+const FORMAS_QUE_NAO_ABATEM = ['Cartão de Crédito', 'Cartão de Débito', 'Cheque'];
+/** A parcela pode receber o abatimento? Mensagem em portugues, ou null. */
+const erroDaParcelaParaAbater = (titulo, cliente) => {
+    if (!titulo)
+        return 'Uma das parcelas marcadas não existe mais. Abra a janela de novo.';
+    const descricao = String(titulo.descricao || 'parcela');
+    if (titulo.tipo !== 'entrada')
+        return `"${descricao}" não é uma conta a receber.`;
+    if (titulo.status !== 'Pendente')
+        return `A parcela "${descricao}" não está mais em aberto (talvez já tenha sido recebida). Abra a janela de novo.`;
+    if (FORMAS_QUE_NAO_ABATEM.includes(String(titulo.formaPagamento || ''))) {
+        return `A parcela "${descricao}" é de ${String(titulo.formaPagamento)}: esse dinheiro vem da operadora ou do banco do cheque, não dá para abater com a devolução.`;
+    }
+    const idDoTitulo = String(titulo.clienteId || '').trim();
+    const idDoCliente = String(cliente.id || '').trim();
+    const mesmoCliente = idDoTitulo && idDoCliente
+        ? idDoTitulo === idDoCliente
+        : String(titulo.clienteNome || '').trim().toUpperCase() === String(cliente.nome || '').trim().toUpperCase();
+    if (!mesmoCliente)
+        return `A parcela "${descricao}" é de outro cliente. Só dá para abater parcelas do cliente da devolução.`;
+    return null;
+};
+exports.erroDaParcelaParaAbater = erroDaParcelaParaAbater;
+/** Item devolvido SEM pedido (comprou antes do sistema): preco do cadastro, ou o alterado por quem pode. */
+const itemDevolvidoSemPedido = (produto, quantidade, precoUnitario) => {
+    const q = arred4(num(quantidade));
+    const preco = Math.round(num(precoUnitario) * 100) / 100;
+    return {
+        id: produto.id,
+        nome: String(produto.nome || '').trim() || 'Produto sem nome',
+        precoUnitario: preco,
+        quantidadeDevolvida: q,
+        descontoProporcional: 0,
+        subtotal: Math.round(q * preco * 100) / 100,
+        ...(produto.unidadeMedidaSigla ? { unidadeMedidaSigla: String(produto.unidadeMedidaSigla) } : {}),
+    };
+};
+exports.itemDevolvidoSemPedido = itemDevolvidoSemPedido;
+/** Le e confere o corpo da devolucao feita no sistema (um ou varios pedidos e/ou sem pedido). */
+const lerDevolucaoDoSistema = (corpo) => {
+    const c = (corpo && typeof corpo === 'object' ? corpo : {});
+    const idDocumento = String(c.idDocumento || '').trim();
+    if (!/^[A-Za-z0-9_-]{8,48}$/.test(idDocumento))
+        return { erro: 'Identificador da devolução inválido. Abra a tela de novo.' };
+    const clienteId = String(c.clienteId || '').trim();
+    if (clienteId && !ID_SEGURO.test(clienteId))
+        return { erro: 'Cliente inválido. Escolha o cliente de novo.' };
+    const clienteNome = String(c.clienteNome || '').trim().slice(0, 200);
+    const pedidos = [];
+    for (const brutoGrupo of (Array.isArray(c.pedidos) ? c.pedidos : [])) {
+        const g = (brutoGrupo && typeof brutoGrupo === 'object' ? brutoGrupo : {});
+        const lido = (0, exports.lerPedidoDeDevolucaoDoApp)({ pedidoId: g.pedidoId, itens: g.itens, motivo: exports.MOTIVOS_DEVOLUCAO[0], destino: 'credito' });
+        if ('erro' in lido)
+            return { erro: lido.erro };
+        if (pedidos.some((p) => p.pedidoId === lido.pedidoId))
+            return { erro: 'Um pedido apareceu duas vezes na devolução. Escolha de novo.' };
+        pedidos.push({ pedidoId: lido.pedidoId, itens: lido.itens });
+    }
+    if (pedidos.length > 20)
+        return { erro: 'Uma devolução pode ter itens de no máximo 20 pedidos.' };
+    const semPedido = [];
+    for (const bruto of (Array.isArray(c.semPedido) ? c.semPedido : [])) {
+        const s = (bruto && typeof bruto === 'object' ? bruto : {});
+        const produtoId = String(s.produtoId || '').trim();
+        const quantidade = Number(s.quantidade);
+        const precoBruto = s.precoUnitario;
+        const precoUnitario = precoBruto === null || precoBruto === undefined || precoBruto === '' ? null : Number(precoBruto);
+        if (!ID_SEGURO.test(produtoId))
+            return { erro: 'Produto inválido na devolução sem pedido. Escolha de novo.' };
+        if (!Number.isFinite(quantidade) || quantidade <= 0)
+            return { erro: 'Confira a quantidade dos itens sem pedido: precisa ser maior que zero.' };
+        if (precoUnitario !== null && (!Number.isFinite(precoUnitario) || precoUnitario <= 0))
+            return { erro: 'Confira o preço dos itens sem pedido: precisa ser maior que zero.' };
+        if (semPedido.some((x) => x.produtoId === produtoId))
+            return { erro: 'Um produto apareceu duas vezes nos itens sem pedido. Junte numa linha só.' };
+        semPedido.push({ produtoId, quantidade: arred4(quantidade), precoUnitario });
+    }
+    if (semPedido.length > 100)
+        return { erro: 'No máximo 100 itens sem pedido numa devolução.' };
+    if (pedidos.length === 0 && semPedido.length === 0)
+        return { erro: 'Escolha pelo menos um item para devolver.' };
+    if (semPedido.length > 0 && !clienteId)
+        return { erro: 'Devolução sem pedido precisa do cliente cadastrado: escolha o cliente.' };
+    const motivo = String(c.motivo || '');
+    if (!exports.MOTIVOS_DEVOLUCAO.includes(motivo))
+        return { erro: 'Escolha o motivo da devolução.' };
+    const destino = (0, exports.lerDestinoDoValor)(c.destino);
+    if ('erro' in destino)
+        return destino;
+    if (semPedido.length > 0 && destino.tipo !== 'credito') {
+        return { erro: 'Devolução com itens sem pedido só gera crédito do cliente. Escolha "Gerar crédito".' };
+    }
+    const observacao = String(c.observacao || '').trim().slice(0, exports.LIMITE_OBSERVACAO_DEVOLUCAO);
+    return { idDocumento, clienteId, clienteNome, pedidos, semPedido, motivo, observacao, destino };
+};
+exports.lerDevolucaoDoSistema = lerDevolucaoDoSistema;
 /** Motivo da recusa: obrigatorio, curto. */
 const lerMotivoDaRecusa = (bruto) => {
     const motivo = String(bruto || '').trim().slice(0, exports.LIMITE_MOTIVO_RECUSA);

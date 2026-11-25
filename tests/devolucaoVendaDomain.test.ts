@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   STATUS_DEVOLUCAO,
+  erroDaParcelaParaAbater,
+  itemDevolvidoSemPedido,
+  lerDestinoDoValor,
+  lerDevolucaoDoSistema,
+  planoDoAbatimento,
   camposDaDevolucao,
   comissaoAposDevolucao,
   creditoDaDevolucao,
@@ -156,4 +161,35 @@ test('movimento de estoque: aguardando e recusada nao entram; confirmada entra n
   const confirmada = movimentosDaDevolucaoVenda({ ...base, status: 'concluida', confirmadaEmMillis: 5000 });
   assert.equal(confirmada[0].dataMillis, 5000);
   assert.equal(movimentosDaDevolucaoVenda({ ...base }).length, 1);
+});
+
+test('abatimento: quita na ordem marcada, a ultima fica com resto, o que passa vira credito', () => {
+  assert.deepEqual(planoDoAbatimento(7000, [{ id: 'a', centavos: 1500 }, { id: 'b', centavos: 4000 }, { id: 'c', centavos: 9000 }]), {
+    usos: [{ id: 'a', centavos: 1500, quita: true }, { id: 'b', centavos: 4000, quita: true }, { id: 'c', centavos: 1500, quita: false }],
+    sobraCentavos: 0,
+  });
+  assert.equal(planoDoAbatimento(7000, [{ id: 'a', centavos: 1500 }]).sobraCentavos, 5500);
+});
+
+test('destino do valor e parcela que aceita abatimento', () => {
+  assert.deepEqual(lerDestinoDoValor({ tipo: 'banco', bancoId: 'b1', formaBancaria: 'Pix' }), { tipo: 'banco', bancoId: 'b1', formaBancaria: 'Pix' });
+  assert.match((lerDestinoDoValor({ tipo: 'abater', parcelas: [] }) as { erro: string }).erro, /Marque/);
+  assert.match((lerDestinoDoValor({}) as { erro: string }).erro, /Escolha o que fazer/);
+  const parcela = { tipo: 'entrada', status: 'Pendente', descricao: 'P1', clienteId: 'c1', formaPagamento: 'Boleto' };
+  assert.equal(erroDaParcelaParaAbater(parcela, { id: 'c1' }), null);
+  assert.match(erroDaParcelaParaAbater({ ...parcela, clienteId: 'c2' }, { id: 'c1' }) || '', /outro cliente/);
+  assert.match(erroDaParcelaParaAbater({ ...parcela, status: 'Paga' }, { id: 'c1' }) || '', /não está mais em aberto/);
+  assert.match(erroDaParcelaParaAbater({ ...parcela, formaPagamento: 'Cheque' }, { id: 'c1' }) || '', /Cheque/);
+});
+
+test('devolucao do sistema: varios pedidos e sem pedido (so credito, com cliente)', () => {
+  const base = { idDocumento: 'dv12345678', clienteId: 'c1', clienteNome: 'JOAO', motivo: 'Troca', destino: { tipo: 'credito' } };
+  const ok = lerDevolucaoDoSistema({ ...base, pedidos: [{ pedidoId: 'P1', itens: [{ indice: 0, quantidade: 2 }] }], semPedido: [{ produtoId: 'p3', quantidade: 1 }] });
+  assert.ok(!('erro' in ok));
+  assert.match((lerDevolucaoDoSistema({ ...base, semPedido: [{ produtoId: 'p3', quantidade: 1 }], destino: { tipo: 'caixa' } }) as { erro: string }).erro, /só gera crédito/);
+  assert.match((lerDevolucaoDoSistema({ ...base, clienteId: '', semPedido: [{ produtoId: 'p3', quantidade: 1 }] }) as { erro: string }).erro, /cliente/);
+  assert.match((lerDevolucaoDoSistema({ ...base }) as { erro: string }).erro, /pelo menos um item/);
+  const item = itemDevolvidoSemPedido({ id: 'p3', nome: 'SACO', unidadeMedidaSigla: 'UN' }, 4, 7.5);
+  assert.equal(item.subtotal, 30);
+  assert.equal(item.descontoProporcional, 0);
 });

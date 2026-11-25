@@ -41,6 +41,9 @@ exports.PERMISSION_GROUPS = [
             // Nao vem marcada para ninguem (permissoesAppDomain.ts): mexe no valor da venda.
             { id: 'app.alterar_preco', label: 'App: Alterar o preço do item (pedido e orçamento)', color: '#ef4444' },
             { id: 'app.clientes', label: 'App: Consultar Cliente', color: '#8b5cf6' },
+            // Nao vem marcada para ninguem (25/11/2026): sem ela, quem decide o destino do
+            // valor da devolucao e' o escritorio, na confirmacao. Conferida no servidor.
+            { id: 'app.devolucao_destino', label: 'App: Devolução — escolher para onde vai o valor (crédito, caixa ou banco)', color: '#ef4444' },
             { id: 'vendas.troca_solicitar', label: 'App: Trocas — pedir troca e Minhas Trocas', color: '#8b5cf6' },
             { id: 'mecanica.os_app', label: 'App: OS (técnico) — ver e atender pelo celular', color: '#8b5cf6' },
             { id: 'mecanica.os_app_abrir', label: 'App: OS — abrir OS nova no campo', color: '#8b5cf6' },
@@ -81,6 +84,12 @@ exports.PERMISSION_GROUPS = [
             { id: 'vendas.alterar', label: 'Vendas: Alterar Pedidos', color: '#f59e0b' },
             { id: 'vendas.excluir', label: 'Vendas: Excluir Pedidos', color: '#ef4444' },
             { id: 'vendas.devolucao', label: 'Vendas: Devolução de Venda', color: '#ef4444' },
+            // Devolucao escolhendo cliente e produtos (25/11/2026, Embala Minas): sem pedido
+            // (comprou antes do sistema) gera credito pelo preco do cadastro; mudar o preco
+            // e abater das parcelas do cliente tem permissao propria. Conferidas no servidor.
+            { id: 'vendas.devolucao_sem_pedido', label: 'Vendas: Devolução sem pedido (cliente comprou antes do sistema)', color: '#ef4444' },
+            { id: 'vendas.devolucao_alterar_preco', label: 'Vendas: Devolução sem pedido — alterar o preço do cadastro', color: '#ef4444' },
+            { id: 'vendas.devolucao_abater_parcelas', label: 'Vendas: Devolução — abater o valor das parcelas em aberto do cliente', color: '#ef4444' },
             { id: 'vendas.promocoes', label: 'Vendas: Promoções (criar e encerrar)', color: '#f59e0b' },
             // Cashback (20/10/2026): so' consulta -- saldo, lotes e movimentos dos clientes.
             { id: 'vendas.cashback', label: 'Vendas: Cashback (ver o saldo dos clientes)', color: '#f59e0b' },

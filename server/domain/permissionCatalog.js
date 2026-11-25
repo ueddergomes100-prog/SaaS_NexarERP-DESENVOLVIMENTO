@@ -243,6 +243,19 @@ exports.PERMISSION_GROUPS = [
             // 2026-10-15: desconto no "Dar Baixa" e na baixa em lote (Receber e Pagar). Conferida
             // no servidor; mesmo texto de ROTULO_PERMISSAO_DESCONTO_NA_BAIXA (ajustesDaBaixaDomain.ts).
             { id: 'financeiro.desconto_baixa', label: 'Financeiro: dar desconto na baixa (Contas a Receber e a Pagar)', color: '#10b981' },
+            // Item 15 da Embala Minas, fase 1 (25/11/2026): uma permissao por acao, conferida
+            // no servidor. Ja' vem marcada para quem tem Contas a Receber/Pagar e ainda nao
+            // teve as permissoes salvas de novo (pacote 'financeiro-1', permissoesNovasDomain.ts).
+            { id: 'financeiro.receber_baixar', label: 'Financeiro: Contas a Receber — dar baixa (receber)', color: '#10b981' },
+            { id: 'financeiro.pagar_baixar', label: 'Financeiro: Contas a Pagar — dar baixa (pagar)', color: '#10b981' },
+            { id: 'financeiro.baixa_juros_multa', label: 'Financeiro: cobrar juros e multa na baixa (Contas a Receber e a Pagar)', color: '#10b981' },
+            { id: 'financeiro.baixa_data_anterior', label: 'Financeiro: dar baixa com data anterior a hoje (Contas a Receber e a Pagar)', color: '#10b981' },
+            { id: 'financeiro.baixa_lote', label: 'Financeiro: baixa em lote (Contas a Receber e a Pagar)', color: '#10b981' },
+            { id: 'financeiro.receber_lancar', label: 'Financeiro: Contas a Receber — lançar conta à mão', color: '#10b981' },
+            { id: 'financeiro.receber_editar', label: 'Financeiro: Contas a Receber — alterar vencimento e dados da conta', color: '#10b981' },
+            { id: 'financeiro.receber_cancelar', label: 'Financeiro: Contas a Receber — cancelar conta', color: '#10b981' },
+            { id: 'financeiro.categorias', label: 'Financeiro: criar categoria no plano de contas', color: '#10b981' },
+            { id: 'financeiro.acerto_fornecedor', label: 'Financeiro: Acerto com fornecedor (baixa no Receber e no Pagar sem caixa)', color: '#10b981' },
         ],
     },
     {

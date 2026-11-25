@@ -20,6 +20,8 @@ import {
   type TipoDoLote,
 } from '../../utils/baixaEmLoteDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
+import { permissionLabelMap } from '../../utils/permissionCatalog';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
 import './BaixaEmLote.css';
 
 /**
@@ -27,6 +29,11 @@ import './BaixaEmLote.css';
  * Regras em utils/baixaEmLoteDomain.ts; a gravação é do servidor, conta por
  * conta, igual à baixa individual (/api/financeiro/baixa-lote).
  */
+
+/** Rotulos das permissoes do item 15 (25/11/2026), como no cadastro do funcionario. */
+const rotuloDa = (id: string) => permissionLabelMap[id] || id;
+const ROTULO_JUROS_MULTA = rotuloDa(PERMISSAO_FINANCEIRO.baixaJurosMulta);
+const ROTULO_DATA_ANTERIOR = rotuloDa(PERMISSAO_FINANCEIRO.baixaDataAnterior);
 
 const reais = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
 const dataBr = (dia: string) => (dia ? dia.split('-').reverse().join('/') : '—');
@@ -72,9 +79,14 @@ export const BarraDeSelecaoLote: React.FC<{
   totalCentavos: number;
   onLimpar: () => void;
   onDarBaixa: () => void;
+  /**
+   * Sem a permissao de baixa em lote (item 15, 25/11/2026): o botao fica
+   * desabilitado com esta explicacao. Ausente = pode.
+   */
+  semPermissaoDeBaixa?: string;
   /** Botao a mais (ex.: "Renegociar", no Contas a Receber). */
   acaoExtra?: { texto: string; onClick: () => void; titulo?: string };
-}> = ({ tipo, quantidade, totalCentavos, onLimpar, onDarBaixa, acaoExtra }) => {
+}> = ({ tipo, quantidade, totalCentavos, onLimpar, onDarBaixa, semPermissaoDeBaixa, acaoExtra }) => {
   if (quantidade === 0) return null;
   const contas = quantidade === 1 ? '1 conta selecionada' : `${quantidade} contas selecionadas`;
   return (
@@ -90,7 +102,13 @@ export const BarraDeSelecaoLote: React.FC<{
             {acaoExtra.texto}
           </button>
         )}
-        <button type="button" className="lote-botao lote-botao-principal" onClick={onDarBaixa}>
+        <button
+          type="button"
+          className="lote-botao lote-botao-principal"
+          onClick={onDarBaixa}
+          disabled={Boolean(semPermissaoDeBaixa)}
+          title={semPermissaoDeBaixa || undefined}
+        >
           <CheckCircle2 size={18} aria-hidden="true" />
           {tipo === 'entrada' ? `Receber ${quantidade}` : `Dar baixa em ${quantidade}`}
         </button>
@@ -179,11 +197,15 @@ export const BaixaEmLoteModal: React.FC<{
   tenantId: string;
   /** Desconto por conta so' com a permissao propria (15/10/2026). */
   podeDescontar: boolean;
+  /** Item 15 (25/11/2026): sem a permissao, juros e multa ficam em branco e travados. Ausente = pode. */
+  podeJurosMulta?: boolean;
+  /** Item 15: sem a permissao, a data fica em hoje. Ausente = pode. */
+  podeDataAnterior?: boolean;
   /** Formas "Usa" da filial (Receber, 16/10/2026); sem isto, todas as do lote. */
   formasPermitidas?: string[];
   /** Fecha a janela; recebe os ids que foram baixados (vazio se cancelou). */
   onFechar: (idsBaixados: string[]) => void;
-}> = ({ tipo, itens, tenantId, podeDescontar, formasPermitidas, onFechar }) => {
+}> = ({ tipo, itens, tenantId, podeDescontar, podeJurosMulta = true, podeDataAnterior = true, formasPermitidas, onFechar }) => {
   const textos = TEXTOS[tipo];
   const hoje = getDateInputInTimeZone();
   const formas = formasPermitidas ? FORMAS_DA_BAIXA_EM_LOTE[tipo].filter((f) => formasPermitidas.includes(f)) : FORMAS_DA_BAIXA_EM_LOTE[tipo];
@@ -198,9 +220,10 @@ export const BaixaEmLoteModal: React.FC<{
   const [bancoId, setBancoId] = useState('');
   const [bancos, setBancos] = useState<Array<{ id: string; nome: string }> | null>(null);
   // Juros e multa calculados pela filial (Receber em atraso): a caixa liga/desliga o calculado.
-  const temSugestao = itens.some((i) => (i.jurosSugeridoCentavos || 0) + (i.multaSugeridaCentavos || 0) > 0);
-  const [cobrarAcrescimo, setCobrarAcrescimo] = useState(true);
-  const [campos, setCampos] = useState<Record<string, CamposDaConta>>(() => Object.fromEntries(itens.map((i) => [i.id, camposSugeridos(i, true)])));
+  // Sem a permissao de juros/multa (item 15), nada calculado entra e a caixa nem aparece.
+  const temSugestao = podeJurosMulta && itens.some((i) => (i.jurosSugeridoCentavos || 0) + (i.multaSugeridaCentavos || 0) > 0);
+  const [cobrarAcrescimo, setCobrarAcrescimo] = useState(podeJurosMulta);
+  const [campos, setCampos] = useState<Record<string, CamposDaConta>>(() => Object.fromEntries(itens.map((i) => [i.id, camposSugeridos(i, podeJurosMulta)])));
   const mudarCampo = (id: string, campo: keyof CamposDaConta, valor: string) => {
     setCampos((atual) => ({ ...atual, [id]: { ...(atual[id] || { juros: '', multa: '', desconto: '' }), [campo]: valor } }));
   };
@@ -260,7 +283,9 @@ export const BaixaEmLoteModal: React.FC<{
   const confirmar = async () => {
     const novosErros: typeof erros = {};
     if (!forma) novosErros.forma = textos.semForma;
-    const erroData = validarDataBaixa(data, hoje);
+    const erroData = validarDataBaixa(data, hoje) || (!podeDataAnterior && data !== hoje
+      ? `A baixa precisa ficar com a data de hoje: dar baixa com data anterior precisa da permissão "${ROTULO_DATA_ANTERIOR}".`
+      : '');
     if (erroData) novosErros.data = erroData;
     if (precisaBanco && !bancoId) novosErros.banco = bancos && bancos.length === 0
       ? 'Nenhum banco ativo. Cadastre em Cadastros › Bancos antes de continuar.'
@@ -275,7 +300,9 @@ export const BaixaEmLoteModal: React.FC<{
       const ajustes = ajustesDosCampos(campos[item.id]);
       const erroDaConta = ajustes === null
         ? 'juros, multa ou desconto com valor digitado errado (use reais com vírgula, ex.: 12,50).'
-        : erroDosAjustes(item.valorCentavos, ajustes, { podeDescontar });
+        : !podeJurosMulta && ajustes.jurosCentavos + ajustes.multaCentavos > 0
+          ? `juros e multa precisam da permissão "${ROTULO_JUROS_MULTA}". Deixe em branco ou peça ao responsável liberar no seu cadastro de funcionário.`
+          : erroDosAjustes(item.valorCentavos, ajustes, { podeDescontar });
       if (erroDaConta) {
         setErroGeral(`${item.nome} (${reais(item.valorCentavos)}): ${erroDaConta}`);
         return;
@@ -349,14 +376,18 @@ export const BaixaEmLoteModal: React.FC<{
                 type="date"
                 value={data}
                 max={hoje}
-                disabled={bloqueado}
+                min={podeDataAnterior ? undefined : hoje}
+                disabled={bloqueado || !podeDataAnterior}
+                title={podeDataAnterior ? undefined : `Precisa da permissão ${ROTULO_DATA_ANTERIOR}`}
                 aria-invalid={Boolean(erros.data)}
                 aria-describedby={erros.data ? 'lote-data-erro' : 'lote-data-ajuda'}
                 onChange={(e) => { setData(e.target.value); setErros((atual) => ({ ...atual, data: undefined })); }}
               />
               {erros.data
                 ? <span id="lote-data-erro" className="lote-erro-campo">{erros.data}</span>
-                : <span id="lote-data-ajuda" className="lote-ajuda">Vale para todas as contas. Foi em outro dia? Troque aqui; a data entra no Fluxo de Caixa e nos relatórios.</span>}
+                : <span id="lote-data-ajuda" className="lote-ajuda">{podeDataAnterior
+                  ? 'Vale para todas as contas. Foi em outro dia? Troque aqui; a data entra no Fluxo de Caixa e nos relatórios.'
+                  : `Vale para todas as contas e fica com a data de hoje. Dar baixa com data anterior precisa da permissão "${ROTULO_DATA_ANTERIOR}": peça ao responsável liberar no seu cadastro de funcionário.`}</span>}
             </div>
 
             {precisaBanco && (
@@ -396,6 +427,7 @@ export const BaixaEmLoteModal: React.FC<{
 
             <p className="lote-ajuda">
               Juros, multa e desconto são por conta, no borderô. A conta fica quitada pelo valor cheio; os ajustes entram como lançamentos próprios.
+              {!podeJurosMulta && ` Juros e multa: só com a permissão "${ROTULO_JUROS_MULTA}"; sem ela, a baixa sai sem juros e multa.`}
               {!podeDescontar && ` Desconto: só com a permissão "${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}".`}
             </p>
 
@@ -425,15 +457,15 @@ export const BaixaEmLoteModal: React.FC<{
                     const resultado = resultados.get(item.id);
                     const daConta = campos[item.id] || { juros: '', multa: '', desconto: '' };
                     const ajustes = ajustesDosCampos(daConta);
-                    const campoDeValor = (campo: keyof CamposDaConta, rotulo: string, desabilitado = false) => (
+                    const campoDeValor = (campo: keyof CamposDaConta, rotulo: string, faltaPermissao = '') => (
                       <input
                         type="text"
                         inputMode="decimal"
                         className="lote-campo-valor"
                         value={daConta[campo]}
-                        disabled={bloqueado || desabilitado}
+                        disabled={bloqueado || Boolean(faltaPermissao)}
                         aria-label={`${rotulo} de ${item.nome}, em reais`}
-                        title={desabilitado ? `Precisa da permissão ${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}` : undefined}
+                        title={faltaPermissao ? `Precisa da permissão ${faltaPermissao}` : undefined}
                         aria-invalid={centavosDoCampo(daConta[campo]) === null}
                         onChange={(e) => mudarCampo(item.id, campo, e.target.value)}
                       />
@@ -450,9 +482,9 @@ export const BaixaEmLoteModal: React.FC<{
                           <span className="lote-descricao">{item.descricao}</span>
                         </td>
                         <td className="lote-direita lote-numero">{reais(item.valorCentavos)}</td>
-                        <td className="lote-direita">{campoDeValor('juros', 'Juros')}</td>
-                        <td className="lote-direita">{campoDeValor('multa', 'Multa')}</td>
-                        <td className="lote-direita">{campoDeValor('desconto', 'Desconto', !podeDescontar)}</td>
+                        <td className="lote-direita">{campoDeValor('juros', 'Juros', podeJurosMulta ? '' : ROTULO_JUROS_MULTA)}</td>
+                        <td className="lote-direita">{campoDeValor('multa', 'Multa', podeJurosMulta ? '' : ROTULO_JUROS_MULTA)}</td>
+                        <td className="lote-direita">{campoDeValor('desconto', 'Desconto', podeDescontar ? '' : ROTULO_PERMISSAO_DESCONTO_NA_BAIXA)}</td>
                         <td className="lote-direita lote-numero">{ajustes ? reais(valorPagoDaBaixa(item.valorCentavos, ajustes)) : '—'}</td>
                         {etapa === 'resultado' && (
                           <td>

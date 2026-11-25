@@ -15,6 +15,7 @@ const ident = require('../domain/loginIdentidadeDomain');
 const { normalizarCodigo } = require('./vendedorPin');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const permApp = require('../domain/permissoesAppDomain');
+const permNovas = require('../domain/permissoesNovasDomain');
 const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 const { camposDaCobrancaParaNovoUsuario } = require('./mensalidades');
 
@@ -458,9 +459,10 @@ const alterarSituacao = async ({ user, tenantId, corpo }) => {
 
 /**
  * Permissoes do funcionario (26/10/2026: pelo servidor). Grava com o marcador do
- * app (permissoesAppDomain): dai' em diante as chaves do app valem como marcadas.
- * Gerente: so' da'/tira o que ELE MESMO tem (contando as chaves implicitas do
- * app) e nunca muda o nivel de acesso.
+ * app (permissoesAppDomain) e os dos pacotes de permissoes novas
+ * (permissoesNovasDomain, 25/11/2026): dai' em diante vale o que esta' marcado.
+ * Gerente: so' da'/tira o que ELE MESMO tem (contando as implicitas do app e
+ * dos pacotes) e nunca muda o nivel de acesso.
  */
 const salvarPermissoes = async ({ user, tenantId, corpo, gerente }) => {
   const c = corpo || {};
@@ -469,14 +471,14 @@ const salvarPermissoes = async ({ user, tenantId, corpo, gerente }) => {
   if (!Array.isArray(c.permissoes)) throw new ErroLimite(400, 'Lista de permissões inválida. Atualize a tela e tente de novo.');
   const novas = c.permissoes.filter(permApp.permissaoValida);
   if (gerente) {
-    const semTer = permApp.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes });
+    const semTer = permNovas.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes });
     if (semTer.length > 0) {
       throw new ErroLimite(403, `Você só pode liberar ou retirar as permissões que você mesmo tem. Fora do seu alcance: ${semTer.join(', ')}. Peça ao dono ou a um administrador.`);
     }
   }
   const nivel = !gerente && c.nivelAcesso !== undefined ? parseNivelAcesso(c.nivelAcesso) : null;
   await ref.update({
-    permissoes: permApp.permissoesParaGravar(novas),
+    permissoes: permNovas.permissoesParaGravarDoUsuario(novas),
     ...(nivel ? { nivelAcesso: nivel } : {}),
     ...buildDocumentUpdateMetadata(user.uid, agora(), 'Permissões atualizadas'),
   });

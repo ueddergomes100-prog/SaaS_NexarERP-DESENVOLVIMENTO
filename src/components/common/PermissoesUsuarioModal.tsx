@@ -23,7 +23,7 @@ import {
 import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
 import { MENSAGEM_FORA_DO_PLANO, permissaoForaDoPlano } from '../../utils/permissaoModuloDomain';
 import { alterarAcessoAppNoServidor, salvarPermissoesNoServidor } from '../../services/usuarioAcessoService';
-import { permissoesEfetivas } from '../../utils/permissoesAppDomain';
+import { permissoesEfetivasDoUsuario } from '../../utils/permissoesNovasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { podeUsarOutrasFiliais, rotuloFilial } from '../../utils/filialDomain';
 import { definirFilialPadrao } from '../../services/filialService';
@@ -81,7 +81,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
       try {
         const snap = await getDoc(doc(db, 'usuarios', usuarioId));
         // Efetivas (26/10/2026): quem nunca teve o app gravado ja' aparece com as chaves do app marcadas.
-        setPermissoes(permissoesEfetivas(snap.exists() ? snap.data().permissoes : []));
+        // Idem as permissoes novas por acao (25/11/2026, permissoesNovasDomain.ts): aparecem marcadas
+        // para quem tem a permissao da tela; ao salvar, o servidor grava o marcado de verdade.
+        setPermissoes(permissoesEfetivasDoUsuario(snap.exists() ? snap.data().permissoes : []));
         setNivelAcesso(parseNivelAcesso(snap.exists() ? snap.data().nivelAcesso : undefined));
         const acessoMobileAtual = snap.exists() && snap.data().acessoAppMobile === true;
         setAcessoAppMobile(acessoMobileAtual);

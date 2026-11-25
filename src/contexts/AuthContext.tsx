@@ -7,7 +7,7 @@ import { collection, doc, getDoc, limit, onSnapshot, query, runTransaction, serv
 import { NexusSwal as Swal } from '../utils/alerts';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, ehSessaoDeEstacao, getStoredSessionId, setStoredSessionId } from '../utils/session';
-import { permissoesEfetivas } from '../utils/permissoesAppDomain';
+import { permissoesEfetivasDoUsuario } from '../utils/permissoesNovasDomain';
 import { modulosBloqueadosEfetivos } from '../utils/moduleCatalog';
 import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../utils/cashbackDomain';
 import {
@@ -500,9 +500,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // firestore.rules usam a mesma regra em currentTenantId().
             const homeTenant = typeof data.tenantId === 'string' && data.tenantId ? data.tenantId : user.uid;
             const finalTenant = typeof data.filialAtiva === 'string' && data.filialAtiva ? data.filialAtiva : homeTenant;
-            // Permissoes do app (26/10/2026): quem nunca teve o app gravado conta com as
-            // chaves novas do app (ninguem perde acesso) -- permissoesAppDomain.ts.
-            const finalPermissions = permissoesEfetivas(toStringArray(data.permissoes));
+            // Permissoes do app (26/10/2026) e permissoes novas por acao (25/11/2026): quem
+            // ainda nao teve as permissoes salvas de novo conta com as chaves novas (ninguem
+            // perde acesso) -- permissoesAppDomain.ts e permissoesNovasDomain.ts.
+            const finalPermissions = permissoesEfetivasDoUsuario(toStringArray(data.permissoes));
             setAcessoAppMobile(data.acessoAppMobile === true);
             setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];

@@ -120,6 +120,8 @@ const MODULOS = [
   'src/utils/movimentosEstoqueDomain.ts',
   // Permissoes do app mobile (26/10/2026): bloco proprio e chaves implicitas de quem ja' usava.
   'src/utils/permissoesAppDomain.ts',
+  // Permissao nova "ja' vem marcada" (item 15, 25/11/2026): pacotes de permissoes por acao.
+  'src/utils/permissoesNovasDomain.ts',
   // Pesagem da producao (26/10/2026): taras, pacotes fechados, residuo e ganho de peso.
   'src/utils/producaoPesagemDomain.ts',
   // Frete e transporte na nota de venda (27/10/2026).

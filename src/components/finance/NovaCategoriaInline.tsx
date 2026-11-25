@@ -3,12 +3,18 @@ import { Check, Loader2, Plus } from 'lucide-react';
 import { showError } from '../../utils/alerts';
 import { criarCategoriaDoPlano } from '../../services/baixaFinanceiraService';
 import type { TipoDeCategoria } from '../../utils/configuracoesGeraisDomain';
+import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess } from '../../utils/roles';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
 
 /*
  * CATEGORIA NOVA NA TELA DE LANCAMENTO (pedido do dono, 19/10/2026): quem lanca
  * a conta cria a categoria ali mesmo, sem ir em Configuracoes. O servidor
  * acrescenta ao plano de contas de todas as filiais (so' acrescenta).
  * Fica dentro de um <form>: Enter cria a categoria, nao envia o lancamento.
+ * Desde 25/11/2026 (item 15) so' aparece para quem tem "criar categoria no plano
+ * de contas" (ja' vem marcada para quem tem Contas a Receber ou a Pagar); dono e
+ * administrador sempre. O servidor confere a mesma permissao.
  */
 interface Props {
   tipo: TipoDeCategoria;
@@ -17,6 +23,8 @@ interface Props {
 }
 
 const NovaCategoriaInline: React.FC<Props> = ({ tipo, tenantId, onCriada }) => {
+  const { userRole, userPermissions, isOwner } = useAuth();
+  const podeCriar = hasTenantFullAccess(userRole, isOwner) || (userPermissions || []).includes(PERMISSAO_FINANCEIRO.categorias);
   // Mesma cor da janela: receita verde, despesa vermelha.
   const cor = tipo === 'despesa' ? '#ef4444' : '#10b981';
   const [aberta, setAberta] = useState(false);
@@ -38,6 +46,8 @@ const NovaCategoriaInline: React.FC<Props> = ({ tipo, tenantId, onCriada }) => {
       setSalvando(false);
     }
   };
+
+  if (!podeCriar) return null;
 
   if (!aberta) {
     return (

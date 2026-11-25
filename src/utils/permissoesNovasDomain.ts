@@ -1,0 +1,184 @@
+import {
+  MARCADOR_APP_DEFINIDO,
+  permissoesEfetivas as permissoesEfetivasDoApp,
+  permissoesParaGravar as permissoesParaGravarDoApp,
+} from './permissoesAppDomain';
+
+/**
+ * PERMISSAO NOVA "JA' VEM MARCADA" (item 15 da Embala Minas, 25/11/2026).
+ *
+ * Decisao do dono: "toda funcao, sem excecao, com permissao no cadastro do
+ * funcionario; o dono sempre pode; o resto so' com a permissao marcada". Para
+ * isso, cada acao (dar baixa, baixa em lote, cancelar conta...) ganha uma
+ * permissao propria. Quem ja' usa a tela nao pode perder nada no dia em que a
+ * permissao nova aparece: ela JA' VEM MARCADA para quem tem a permissao da tela.
+ *
+ * Como, sem janela de quebra (sem rodar migracao antes do deploy):
+ *
+ * - Cada leva de permissoes novas e' um PACOTE. O pacote diz quais permissoes
+ *   novas cada permissao de tela traz (`implicacoes`).
+ * - Enquanto o cadastro do funcionario NAO tem o marcador do pacote
+ *   (`pacote.<id>` dentro de `permissoes`), as permissoes novas valem pelo que
+ *   ele ja' tinha: tem "Contas a Receber" -> tem "Contas a Receber -- dar
+ *   baixa", e assim por diante.
+ * - Ao SALVAR as permissoes dele (tela ou servidor), gravamos de verdade o que
+ *   esta' marcado + o marcador de TODOS os pacotes conhecidos. Dai' em diante
+ *   vale so' o que o dono marcou (desmarcou "dar baixa", fica sem).
+ *
+ * Por que o marcador mora DENTRO de `permissoes` (e nao num campo proprio): a
+ * tela de Configuracoes > Permissao de Usuarios grava `permissoes` direto no
+ * Firestore, e as rules so' deixam o administrador mexer nos campos da lista
+ * `tenantUserEditableFields()`. Um campo novo seria recusado ate' alguem
+ * publicar rules novas em dev e producao. Dentro de `permissoes`, igual ao
+ * `app.definido` do app (permissoesAppDomain.ts), nada nas rules muda. O
+ * catalogo nao lista os marcadores, entao eles nao aparecem na tela.
+ *
+ * O ADMINISTRADOR (Master/Admin) e a plataforma continuam liberados pelos
+ * helpers de papel (temPermissao no servidor, hasTenantFullAccess na tela);
+ * isto aqui so' decide o que o FUNCIONARIO tem.
+ */
+
+/** Permissoes novas do Financeiro, fase 1 (o que ja' grava pelo servidor). */
+export const PERMISSAO_FINANCEIRO = {
+  receberBaixar: 'financeiro.receber_baixar',
+  pagarBaixar: 'financeiro.pagar_baixar',
+  baixaJurosMulta: 'financeiro.baixa_juros_multa',
+  baixaDataAnterior: 'financeiro.baixa_data_anterior',
+  baixaLote: 'financeiro.baixa_lote',
+  receberLancar: 'financeiro.receber_lancar',
+  receberEditar: 'financeiro.receber_editar',
+  receberCancelar: 'financeiro.receber_cancelar',
+  categorias: 'financeiro.categorias',
+  acertoFornecedor: 'financeiro.acerto_fornecedor',
+} as const;
+
+export interface PacoteDePermissoes {
+  /** Nunca muda depois de publicado: e' o que fica gravado no cadastro. */
+  id: string;
+  /** Permissao de tela -> permissoes novas que ela traz para quem ainda nao tem o pacote. */
+  implicacoes: Readonly<Record<string, readonly string[]>>;
+}
+
+const F = PERMISSAO_FINANCEIRO;
+
+/**
+ * Pacotes conhecidos, na ordem em que sairam. Pacote novo entra NO FIM, com
+ * id novo; nunca mexa nas implicacoes de um pacote ja' publicado (quem ja' foi
+ * salvo com ele nao seria recalculado).
+ */
+export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
+  {
+    id: 'financeiro-1',
+    implicacoes: {
+      'financeiro.receber': [
+        F.receberBaixar,
+        F.receberLancar,
+        F.receberEditar,
+        F.receberCancelar,
+        F.baixaJurosMulta,
+        F.baixaDataAnterior,
+        F.baixaLote,
+        F.categorias,
+        F.acertoFornecedor,
+      ],
+      'financeiro.pagar': [
+        F.pagarBaixar,
+        F.baixaJurosMulta,
+        F.baixaDataAnterior,
+        F.baixaLote,
+        F.categorias,
+      ],
+    },
+  },
+];
+
+export const PREFIXO_MARCADOR_PACOTE = 'pacote.';
+
+/** O que fica gravado em `permissoes` quando o pacote ja' foi salvo para a pessoa. */
+export const marcadorDoPacote = (id: string): string => `${PREFIXO_MARCADOR_PACOTE}${id}`;
+
+export const MARCADORES_DOS_PACOTES: string[] = PACOTES_DE_PERMISSOES.map((p) => marcadorDoPacote(p.id));
+
+const lista = (permissoes: unknown): string[] => (
+  Array.isArray(permissoes) ? permissoes.filter((p): p is string => typeof p === 'string') : []
+);
+
+export const ehMarcadorDePacote = (permissao: unknown): boolean => (
+  typeof permissao === 'string' && permissao.startsWith(PREFIXO_MARCADOR_PACOTE)
+);
+
+/** Marcador interno (app ou pacote): nao e' permissao que o dono veja nem que entre no historico. */
+export const ehMarcadorInterno = (permissao: unknown): boolean => (
+  permissao === MARCADOR_APP_DEFINIDO || ehMarcadorDePacote(permissao)
+);
+
+/** Ids dos pacotes ja' gravados no cadastro (o que o dono marcou vale sozinho). */
+export const pacotesGravados = (permissoes: unknown): string[] => {
+  const gravadas = new Set(lista(permissoes));
+  return PACOTES_DE_PERMISSOES.filter((p) => gravadas.has(marcadorDoPacote(p.id))).map((p) => p.id);
+};
+
+/**
+ * Permissoes que valem de verdade: as gravadas + (para cada pacote que a
+ * pessoa ainda NAO tem gravado) as novas que vem com as permissoes de tela
+ * dela. O resultado SEMPRE leva os marcadores de todos os pacotes, para aplicar
+ * de novo nao mudar nada (o AuthContext ja' entrega as efetivas e as telas
+ * podem aplicar outra vez -- mesma licao do app).
+ */
+export const permissoesEfetivas = (permissoes: unknown): string[] => {
+  const gravadas = lista(permissoes);
+  const temGravada = new Set(gravadas);
+  const resultado = new Set(gravadas);
+  for (const pacote of PACOTES_DE_PERMISSOES) {
+    if (temGravada.has(marcadorDoPacote(pacote.id))) continue;
+    for (const [daTela, novas] of Object.entries(pacote.implicacoes)) {
+      if (temGravada.has(daTela)) novas.forEach((p) => resultado.add(p));
+    }
+  }
+  MARCADORES_DOS_PACOTES.forEach((m) => resultado.add(m));
+  return [...resultado];
+};
+
+/** O que gravar: o que a tela marcou + o marcador de todos os pacotes (dai' em diante nada e' implicito). */
+export const permissoesParaGravar = (marcadas: unknown): string[] => (
+  [...new Set([...lista(marcadas).filter((p) => !ehMarcadorDePacote(p)), ...MARCADORES_DOS_PACOTES])]
+);
+
+// ---------------------------------------------------------------------------
+// Tudo junto (app + pacotes): o que as telas e o servidor usam no cadastro.
+// ---------------------------------------------------------------------------
+
+/** Efetivas do usuario: chaves do app (permissoesAppDomain) + pacotes. Idempotente. */
+export const permissoesEfetivasDoUsuario = (permissoes: unknown): string[] => (
+  permissoesEfetivas(permissoesEfetivasDoApp(permissoes))
+);
+
+/** O que gravar no cadastro: marcadas + marcador do app + marcadores dos pacotes. */
+export const permissoesParaGravarDoUsuario = (marcadas: unknown): string[] => (
+  permissoesParaGravar(permissoesParaGravarDoApp(marcadas))
+);
+
+/**
+ * Gerente so' da' e tira o que ELE MESMO tem (decisao de 19/10/2026), contando
+ * as permissoes implicitas dos dois lados (app e pacotes). `depois` e' o que a
+ * tela mandou gravar: conta como gravado (com os marcadores), entao desmarcar
+ * uma permissao nova aparece como "tirou". Devolve as que ele mexeu sem ter.
+ */
+export const mexidasSemTer = (args: { antes: unknown; depois: unknown; doGerente: unknown }): string[] => {
+  const antes = new Set(permissoesEfetivasDoUsuario(args.antes));
+  const depois = new Set(permissoesEfetivasDoUsuario(permissoesParaGravarDoUsuario(args.depois)));
+  const dele = new Set(permissoesEfetivasDoUsuario(args.doGerente));
+  const mexidas = [...depois].filter((p) => !antes.has(p)).concat([...antes].filter((p) => !depois.has(p)));
+  return mexidas.filter((p) => !dele.has(p) && !ehMarcadorInterno(p));
+};
+
+/** Permissoes que entraram e sairam (efetivas, sem marcadores), para o historico de alteracoes. */
+export const mudancasDePermissoes = (antes: unknown, depois: unknown): { entraram: string[]; sairam: string[] } => {
+  const semMarcador = (l: unknown) => new Set(permissoesEfetivasDoUsuario(l).filter((p) => !ehMarcadorInterno(p)));
+  const a = semMarcador(antes);
+  const d = semMarcador(depois);
+  return {
+    entraram: [...d].filter((p) => !a.has(p)),
+    sairam: [...a].filter((p) => !d.has(p)),
+  };
+};

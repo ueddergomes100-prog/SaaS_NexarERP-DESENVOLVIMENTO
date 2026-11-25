@@ -6,7 +6,7 @@ const { podeGerirFuncionario } = require('../middleware/gestaoEquipe');
 const { encerrarSessoes } = require('../services/sessoes');
 const { registrarLog } = require('../services/auditoria');
 const { podeCriarLoginDeEquipe, NIVEL_ACESSO_LABELS, parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
-const { permissoesEfetivas, MARCADOR_APP_DEFINIDO } = require('../domain/permissoesAppDomain');
+const { mudancasDePermissoes: mudancasEfetivas } = require('../domain/permissoesNovasDomain');
 const { db } = require('../config/firebase');
 
 // ---------------------------------------------------------------------------
@@ -47,16 +47,8 @@ const rotuloDaPermissao = (id) => {
   return acao ? `${nomeDaArea}: ${acao}` : nomeDaArea;
 };
 
-/** Permissoes que entraram e sairam (sem o marcador interno do app). */
-const mudancasDePermissoes = (antes, depois) => {
-  const efetivas = (lista) => new Set(permissoesEfetivas(Array.isArray(lista) ? lista : []).filter((p) => p !== MARCADOR_APP_DEFINIDO));
-  const a = efetivas(antes);
-  const d = efetivas(depois);
-  return {
-    entraram: [...d].filter((p) => !a.has(p)),
-    sairam: [...a].filter((p) => !d.has(p)),
-  };
-};
+/** Permissoes que entraram e sairam (efetivas, sem os marcadores internos do app e dos pacotes). */
+const mudancasDePermissoes = (antes, depois) => mudancasEfetivas(Array.isArray(antes) ? antes : [], Array.isArray(depois) ? depois : []);
 
 /** Le' o cadastro para o historico; falha aqui nunca derruba a operacao. */
 const lerUsuarioParaHistorico = async (usuarioId) => {

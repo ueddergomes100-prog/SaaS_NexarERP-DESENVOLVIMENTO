@@ -26,6 +26,8 @@ import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/da
 import { gerarPdfBoletos } from '../../utils/boletoPdf';
 import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
+import { permissionLabelMap } from '../../utils/permissionCatalog';
 import { PERMISSAO_DESCONTO_NA_BAIXA, SEM_AJUSTES, acrescimoDosAjustes, type AjustesDaBaixa } from '../../utils/ajustesDaBaixaDomain';
 import { bloqueioDoParcial, principalDaBaixa, textoDoParcial, type TituloParaParcial } from '../../utils/baixaParcialDomain';
 import { MENSAGEM_SEM_FORMA_DE_RECEBIMENTO, formasDeRecebimento, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
@@ -190,6 +192,21 @@ const ContasReceber: React.FC = () => {
   const podeAlterarValor = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_ALTERAR_VALOR));
   const podeMexerEmBoleto = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.boletos'));
   const podeRenegociar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_RENEGOCIAR));
+  // Uma permissao por acao (item 15, 25/11/2026): o servidor confere a mesma. Dono,
+  // administrador e plataforma sempre; o funcionario, pelas efetivas do AuthContext
+  // (ja' vem marcadas para quem tem Contas a Receber e ainda nao foi salvo de novo).
+  const acessoTotal = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole);
+  const temAcao = (permissao: string) => acessoTotal || Boolean(userPermissions?.includes(permissao));
+  const podeReceberBaixar = temAcao(PERMISSAO_FINANCEIRO.receberBaixar);
+  const podeJurosMulta = temAcao(PERMISSAO_FINANCEIRO.baixaJurosMulta);
+  const podeDataAnterior = temAcao(PERMISSAO_FINANCEIRO.baixaDataAnterior);
+  const podeBaixaLote = temAcao(PERMISSAO_FINANCEIRO.baixaLote);
+  const podeLancarConta = temAcao(PERMISSAO_FINANCEIRO.receberLancar);
+  const podeEditarConta = temAcao(PERMISSAO_FINANCEIRO.receberEditar);
+  const podeCancelarConta = temAcao(PERMISSAO_FINANCEIRO.receberCancelar);
+  // O acerto da' baixa nos dois lados: alem da permissao dele, dar baixa em Receber e em Pagar.
+  const podeAcerto = temAcao(PERMISSAO_FINANCEIRO.acertoFornecedor) && podeReceberBaixar && temAcao(PERMISSAO_FINANCEIRO.pagarBaixar);
+  const semPermissao = (permissao: string, acao: string) => `Você não tem permissão para ${acao}. Peça a um responsável liberar "${permissionLabelMap[permissao] || permissao}" no seu cadastro de funcionário.`;
   const [renegociando, setRenegociando] = useState<{ clienteNome: string; titulos: ParcelaParaRenegociar[] } | null>(null);
   
   const [modalConciliacao, setModalConciliacao] = useState<{ ativo: boolean, transacao: TransacaoData | null, creditos: any[], saldoTotal: number }>({
@@ -524,6 +541,8 @@ const ContasReceber: React.FC = () => {
       bloqueioParcial: bloqueioDoParcial(t as TituloParaParcial),
       sugestao: sugestao ? { jurosCentavos: sugestao.jurosCentavos, multaCentavos: sugestao.multaCentavos, detalhe: descricaoDoAcrescimo(sugestao) } : null,
       podeDescontar,
+      podeJurosMulta,
+      podeDataAnterior,
       formasSemAjuste: ['Cheque', FORMA_BOLETO],
       dica: vencido && semPercentuais
         ? 'Conta vencida. Para o sistema já calcular os juros e a multa, preencha as % em Configurações da filial › Parâmetros de venda › "Juros e multa do crediário em atraso".'
@@ -609,6 +628,10 @@ const ContasReceber: React.FC = () => {
   };
 
   const handleConciliar = async (t: TransacaoData) => {
+    if (!podeReceberBaixar) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.receberBaixar, 'dar baixa em contas a receber'));
+      return;
+    }
     // Parcela de renegociacao: o abatimento com credito grava pelo navegador e nao
     // quitaria as vendas de origem quando a renegociacao fecha -- recebe pelo servidor.
     if (ehParcelaDeRenegociacao(t)) {
@@ -666,6 +689,10 @@ const ContasReceber: React.FC = () => {
     const erroData = validarDataBaixa(dataBaixaCredito, getDateInputInTimeZone());
     if (erroData) {
       showError('Data inválida', erroData);
+      return;
+    }
+    if (!podeDataAnterior && dataBaixaCredito !== getDateInputInTimeZone()) {
+      showError('Data inválida', semPermissao(PERMISSAO_FINANCEIRO.baixaDataAnterior, 'dar baixa com data anterior a hoje'));
       return;
     }
 
@@ -1076,6 +1103,10 @@ const ContasReceber: React.FC = () => {
 
   // ---- Conta lancada a mao (19/10/2026): lancar, editar e cancelar pelo servidor, com log.
   const abrirEdicao = (t: TransacaoData) => {
+    if (!podeEditarConta) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.receberEditar, 'alterar contas a receber'));
+      return;
+    }
     const bloqueio = bloqueioParaMexerNaConta(t, 'editar');
     if (bloqueio) { showWarning('Não dá para editar esta conta', bloqueio); return; }
     setLancamento({
@@ -1099,6 +1130,10 @@ const ContasReceber: React.FC = () => {
 
   const handleCancelarConta = async (t: TransacaoData) => {
     if (!tenantId) return;
+    if (!podeCancelarConta) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.receberCancelar, 'cancelar contas a receber'));
+      return;
+    }
     const bloqueio = bloqueioParaMexerNaConta(t, 'cancelar');
     if (bloqueio) { showWarning('Não dá para cancelar esta conta', bloqueio); return; }
     const valorTexto = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(transactionNetAmount(t));
@@ -1278,6 +1313,7 @@ const ContasReceber: React.FC = () => {
   };
   const totalSelecionadoCentavos = selecaoValida.reduce((soma, id) => soma + transactionNetCents(elegiveis.get(id) as TransacaoData), 0);
   const abrirBaixaEmLote = () => {
+    if (!podeBaixaLote || !podeReceberBaixar) return;
     // O borderô congela ao abrir: as contas baixadas saem da lista ao vivo,
     // mas o resultado de cada uma continua na janela.
     setItensDoLote(selecaoValida.map((id) => montarItemDoLote(elegiveis.get(id) as TransacaoData)));
@@ -1441,23 +1477,25 @@ const ContasReceber: React.FC = () => {
                 titulo: 'Relatório do que foi recebido no dia (ou num período): forma, banco ou caixa e totais. Abre em PDF, dá para imprimir e salvar em Excel',
                 onClick: () => { void pedirPeriodoDosRecebimentos().then((filtro) => { if (filtro) setRelatorioRecebimentos(filtro); }); },
               },
-              {
+              ...(podeAcerto ? [{
                 texto: 'Acerto com fornecedor', Icone: ArrowLeftRight,
                 titulo: 'O cliente pagou direto um fornecedor: dá baixa na conta dele e na conta do fornecedor de uma vez, sem mexer em caixa nem em banco',
                 onClick: () => setAcertoAberto(true),
-              },
+              }] : []),
               { texto: 'Importar títulos', Icone: Upload, separadorAntes: true, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') },
             ]}
           />
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => setLancamento({ aberto: true, editando: null })}
-            style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
-            title="Lançar à mão um valor que um cliente ou fornecedor deve à empresa"
-          >
-            <Plus size={18} /> Lançar conta
-          </button>
+          {podeLancarConta && (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setLancamento({ aberto: true, editando: null })}
+              style={{ backgroundColor: '#10b981', borderColor: '#10b981' }}
+              title="Lançar à mão um valor que um cliente ou fornecedor deve à empresa"
+            >
+              <Plus size={18} /> Lançar conta
+            </button>
+          )}
           <BotaoOlhoValores />
           {/* Clicavel (25/11/2026, Jomarly): "tenho o valor, mas nao vejo as contas
               que foram pagas no dia" -- abre o relatorio Contas Recebidas de hoje. */}
@@ -1799,15 +1837,17 @@ const ContasReceber: React.FC = () => {
                                             >
                                               <Barcode size={14} /> Emitir boleto
                                             </button>
-                                            <button
-                                              onClick={() => handleConciliar(t)}
-                                              title="O cliente pagou de outro jeito (dinheiro, Pix...): dar baixa sem boleto"
-                                              style={{ backgroundColor: 'transparent', border: '1px solid #10b981', color: '#10b981', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
-                                            >
-                                              <CheckCircle size={13} /> Dar Baixa
-                                            </button>
+                                            {podeReceberBaixar && (
+                                              <button
+                                                onClick={() => handleConciliar(t)}
+                                                title="O cliente pagou de outro jeito (dinheiro, Pix...): dar baixa sem boleto"
+                                                style={{ backgroundColor: 'transparent', border: '1px solid #10b981', color: '#10b981', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
+                                              >
+                                                <CheckCircle size={13} /> Dar Baixa
+                                              </button>
+                                            )}
                                           </>
-                                        ) : (
+                                        ) : podeReceberBaixar && (
                                           <button
                                             onClick={() => handleConciliar(t)}
                                             style={{ backgroundColor: '#10b981', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px' }}
@@ -1837,6 +1877,7 @@ const ContasReceber: React.FC = () => {
                                         )}
                                         {ehContaAvulsa(t) && (
                                           <>
+                                            {podeEditarConta && (
                                             <button
                                               onClick={() => abrirEdicao(t)}
                                               disabled={isProcessing}
@@ -1846,6 +1887,8 @@ const ContasReceber: React.FC = () => {
                                             >
                                               <Pencil size={14} />
                                             </button>
+                                            )}
+                                            {podeCancelarConta && (
                                             <button
                                               onClick={() => void handleCancelarConta(t)}
                                               disabled={isProcessing}
@@ -1855,6 +1898,7 @@ const ContasReceber: React.FC = () => {
                                             >
                                               <XCircle size={14} />
                                             </button>
+                                            )}
                                           </>
                                         )}
                                       </div>
@@ -1883,6 +1927,9 @@ const ContasReceber: React.FC = () => {
         totalCentavos={totalSelecionadoCentavos}
         onLimpar={() => setSelecionados(new Set())}
         onDarBaixa={abrirBaixaEmLote}
+        semPermissaoDeBaixa={!podeReceberBaixar
+          ? semPermissao(PERMISSAO_FINANCEIRO.receberBaixar, 'dar baixa em contas a receber')
+          : !podeBaixaLote ? semPermissao(PERMISSAO_FINANCEIRO.baixaLote, 'dar baixa em lote') : undefined}
         acaoExtra={podeRenegociar ? {
           texto: `Renegociar ${selecaoValida.length}`,
           onClick: abrirRenegociacao,
@@ -1898,6 +1945,8 @@ const ContasReceber: React.FC = () => {
           itens={itensDoLote}
           tenantId={tenantId}
           podeDescontar={podeDescontar}
+          podeJurosMulta={podeJurosMulta}
+          podeDataAnterior={podeDataAnterior}
           formasPermitidas={formasDeRecebimento(FORMAS_DA_BAIXA_EM_LOTE.entrada, ordemFormasDaFilial, formasOcultasDaFilial)}
           onFechar={fecharBaixaEmLote}
         />
@@ -1973,11 +2022,16 @@ const ContasReceber: React.FC = () => {
                   type="date"
                   value={dataBaixaCredito}
                   max={getDateInputInTimeZone()}
+                  min={podeDataAnterior ? undefined : getDateInputInTimeZone()}
+                  disabled={!podeDataAnterior}
+                  title={podeDataAnterior ? undefined : `Precisa da permissão ${permissionLabelMap[PERMISSAO_FINANCEIRO.baixaDataAnterior]}`}
                   onChange={(e) => setDataBaixaCredito(e.target.value)}
                   style={{ padding: '12px', fontSize: '16px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }}
                 />
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
-                  Foi recebido em outro dia? Troque a data. Vale para a parte paga com crédito; se receber sem usar crédito, a data é perguntada na próxima tela.
+                  {podeDataAnterior
+                    ? 'Foi recebido em outro dia? Troque a data. Vale para a parte paga com crédito; se receber sem usar crédito, a data é perguntada na próxima tela.'
+                    : `Fica com a data de hoje. Dar baixa com data anterior precisa da permissão "${permissionLabelMap[PERMISSAO_FINANCEIRO.baixaDataAnterior]}": peça ao responsável liberar no seu cadastro de funcionário.`}
                 </span>
               </div>
             </div>

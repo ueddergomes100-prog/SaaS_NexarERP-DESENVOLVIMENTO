@@ -22,6 +22,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO, permissionLabelMap } from '../../utils/permissionCatalog';
+import { ehMarcadorInterno } from '../../utils/permissoesNovasDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
@@ -151,8 +152,8 @@ const metaNoHistorico = (valor: number) => (valor > 0 ? `R$ ${valor.toFixed(2).r
 
 /** Permissoes que entraram e sairam, pelo nome da tela de permissoes. */
 const mudancasDePermissoes = (antes: string[], depois: string[]): MudancaDeCampo[] => {
-  // O marcador interno do app (permissoesAppDomain) nao e' permissao que o dono veja.
-  const semMarcador = (lista: string[]) => new Set(lista.filter((p) => p !== 'app.definido'));
+  // Os marcadores internos (app e pacotes de permissoes novas) nao sao permissao que o dono veja.
+  const semMarcador = (lista: string[]) => new Set(lista.filter((p) => !ehMarcadorInterno(p)));
   const a = semMarcador(antes);
   const d = semMarcador(depois);
   const rotulo = (id: string) => permissionLabelMap[id] || id;

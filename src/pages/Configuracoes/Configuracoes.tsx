@@ -22,7 +22,11 @@ import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
-import { permissoesEfetivas, permissoesParaGravar } from '../../utils/permissoesAppDomain';
+import {
+  mudancasDePermissoes,
+  permissoesEfetivasDoUsuario as permissoesEfetivas,
+  permissoesParaGravarDoUsuario as permissoesParaGravar,
+} from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { documentoService } from '../../services/documentoService';
 import { isCnpjValido } from '../../utils/documentoValidacao';
@@ -1651,7 +1655,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const percentualServicosValor = parseComissaoPercentualInput(comissaoPercentualServicos);
       const percentualPecasValor = parseComissaoPercentualInput(comissaoPercentualPecas);
       const updatePayload: Record<string, unknown> = {
-        // Com o marcador do app (26/10/2026): dai' em diante vale o que esta' marcado.
+        // Com o marcador do app (26/10/2026) e os dos pacotes de permissoes novas
+        // (25/11/2026, dentro de `permissoes` -- as rules nao mudam): dai' em diante vale o marcado.
         permissoes: permissoesParaGravar(selectedUserPermissions),
         nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
@@ -1670,12 +1675,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       // Historico de alteracoes (09/11/2026): permissoes que entraram e sairam
       // (pelo nome da tela de permissoes), nivel de acesso e comissao.
       const usuarioAntes = tenantUsers.find((u) => u.id === selectedUserId) || {};
-      const marcador = 'app.definido';
-      const permissoesAntes = new Set(permissoesEfetivas(usuarioAntes.permissoes || []).filter((p) => p !== marcador));
-      const permissoesDepois = new Set(permissoesEfetivas(permissoesParaGravar(selectedUserPermissions)).filter((p) => p !== marcador));
+      // Sem os marcadores internos (app e pacotes) -- permissoesNovasDomain.ts.
       const rotuloPermissao = (id: string) => permissionLabelMap[id] || id;
-      const entraram = [...permissoesDepois].filter((p) => !permissoesAntes.has(p));
-      const sairam = [...permissoesAntes].filter((p) => !permissoesDepois.has(p));
+      const { entraram, sairam } = mudancasDePermissoes(usuarioAntes.permissoes || [], permissoesParaGravar(selectedUserPermissions));
       const alteracoesUsuario: MudancaDeCampo[] = [
         ...entraram.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
         ...sairam.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),

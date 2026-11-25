@@ -8,6 +8,8 @@ import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
+import { permissionLabelMap } from '../../utils/permissionCatalog';
 import { PERMISSAO_DESCONTO_NA_BAIXA } from '../../utils/ajustesDaBaixaDomain';
 import { bloqueioDoParcial, principalDaBaixa, textoDoParcial, type TituloParaParcial } from '../../utils/baixaParcialDomain';
 import {
@@ -164,6 +166,17 @@ const ContasPagar: React.FC = () => {
   const podeEstornar = Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('financeiro.estornar'));
   // Desconto na baixa (15/10/2026): permissao propria; dono e administrador ja' tem.
   const podeDescontar = Boolean(hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole) || userPermissions?.includes(PERMISSAO_DESCONTO_NA_BAIXA));
+  // Uma permissao por acao (item 15, 25/11/2026): o servidor confere a mesma. Dono,
+  // administrador e plataforma sempre; o funcionario, pelas efetivas do AuthContext
+  // (ja' vem marcadas para quem tem Contas a Pagar e ainda nao foi salvo de novo).
+  // Lancar, editar e cancelar despesa ainda gravam pelo navegador: ficam para a fase 2.
+  const acessoTotal = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole);
+  const temAcao = (permissao: string) => acessoTotal || Boolean(userPermissions?.includes(permissao));
+  const podePagarBaixar = temAcao(PERMISSAO_FINANCEIRO.pagarBaixar);
+  const podeJurosMulta = temAcao(PERMISSAO_FINANCEIRO.baixaJurosMulta);
+  const podeDataAnterior = temAcao(PERMISSAO_FINANCEIRO.baixaDataAnterior);
+  const podeBaixaLote = temAcao(PERMISSAO_FINANCEIRO.baixaLote);
+  const semPermissao = (permissao: string, acao: string) => `Você não tem permissão para ${acao}. Peça a um responsável liberar "${permissionLabelMap[permissao] || permissao}" no seu cadastro de funcionário.`;
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14 -- useTitulosFinanceiros):
   // em aberto de qualquer data (soma o Total Pendente e o aviso de vencidas) +
@@ -277,6 +290,10 @@ const ContasPagar: React.FC = () => {
 
   const handleConciliar = async (t: TransacaoData) => {
     if (!currentUser || !tenantId) return;
+    if (!podePagarBaixar) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.pagarBaixar, 'dar baixa em contas a pagar'));
+      return;
+    }
     // Banco na mesma janela (23/11/2026): tudo que nao e' dinheiro sai de um banco.
     const formasComBanco = FORMAS_PAGAMENTO.filter((forma) => forma !== 'Dinheiro');
     let bancosDisponiveis: Array<{ id: string; nome: string }>;
@@ -302,6 +319,8 @@ const ContasPagar: React.FC = () => {
       // Pagamento parcial (16/10/2026): menos que o total deixa o resto em aberto.
       bloqueioParcial: bloqueioDoParcial(t as TituloParaParcial),
       podeDescontar,
+      podeJurosMulta,
+      podeDataAnterior,
       formas: FORMAS_PAGAMENTO,
       formaInicial: formaInicialDaBaixa(t),
       // O cheque ja' emitido tem valor escrito: sai inteiro, sem juros, multa, desconto ou parcial.
@@ -669,6 +688,7 @@ const ContasPagar: React.FC = () => {
         </>
       )}
       {/* Cheque emitido (24/11/2026): o mesmo Dar Baixa, ja' em Cheque e no banco do cheque. */}
+      {podePagarBaixar && (
       <button
         onClick={() => handleConciliar(t)}
         title={t.formaPagamento === 'Cheque' || t.cheque ? `Cheque nº ${t.cheque?.numeroCheque || '-'}: dê baixa quando ele compensar (o valor sai do banco nessa hora).` : undefined}
@@ -678,6 +698,7 @@ const ContasPagar: React.FC = () => {
       >
         <CheckCircle size={14} /> Dar Baixa
       </button>
+      )}
     </div>
     )
   );
@@ -816,6 +837,7 @@ const ContasPagar: React.FC = () => {
   const centavosDoTitulo = (t: TransacaoData) => toCents(Number(t.valor || 0));
   const totalSelecionadoCentavos = selecaoValida.reduce((soma, id) => soma + centavosDoTitulo(elegiveis.get(id) as TransacaoData), 0);
   const abrirBaixaEmLote = () => {
+    if (!podeBaixaLote || !podePagarBaixar) return;
     // O borderô congela ao abrir: as contas pagas saem da lista ao vivo, mas o
     // resultado de cada uma continua na janela.
     setItensDoLote(selecaoValida.map((id) => {
@@ -1271,9 +1293,20 @@ const ContasPagar: React.FC = () => {
         totalCentavos={totalSelecionadoCentavos}
         onLimpar={() => setSelecionados(new Set())}
         onDarBaixa={abrirBaixaEmLote}
+        semPermissaoDeBaixa={!podePagarBaixar
+          ? semPermissao(PERMISSAO_FINANCEIRO.pagarBaixar, 'dar baixa em contas a pagar')
+          : !podeBaixaLote ? semPermissao(PERMISSAO_FINANCEIRO.baixaLote, 'dar baixa em lote') : undefined}
       />
       {itensDoLote && tenantId && (
-        <BaixaEmLoteModal tipo="saida" itens={itensDoLote} tenantId={tenantId} podeDescontar={podeDescontar} onFechar={fecharBaixaEmLote} />
+        <BaixaEmLoteModal
+          tipo="saida"
+          itens={itensDoLote}
+          tenantId={tenantId}
+          podeDescontar={podeDescontar}
+          podeJurosMulta={podeJurosMulta}
+          podeDataAnterior={podeDataAnterior}
+          onFechar={fecharBaixaEmLote}
+        />
       )}
 
       {/* Modal de Novo Lançamento */}

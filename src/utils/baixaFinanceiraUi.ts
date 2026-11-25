@@ -13,6 +13,12 @@ import {
   type AjustesDaBaixa,
 } from './ajustesDaBaixaDomain';
 import { erroDoValorRecebido, principalDaBaixa, separarValorRecebido, totalParaQuitar } from './baixaParcialDomain';
+import { permissionLabelMap } from './permissionCatalog';
+import { PERMISSAO_FINANCEIRO } from './permissoesNovasDomain';
+
+/** Rotulos das permissoes de juros/multa e data anterior (item 15), como no cadastro do funcionario. */
+const ROTULO_JUROS_MULTA = permissionLabelMap[PERMISSAO_FINANCEIRO.baixaJurosMulta] || 'Financeiro: cobrar juros e multa na baixa';
+const ROTULO_DATA_ANTERIOR = permissionLabelMap[PERMISSAO_FINANCEIRO.baixaDataAnterior] || 'Financeiro: dar baixa com data anterior a hoje';
 
 const escaparHtml = (texto: string) => texto
   .replace(/&/g, '&amp;')
@@ -125,6 +131,14 @@ export const pedirDadosBaixa = async (args: {
   sugestao?: SugestaoDeAcrescimo | null;
   /** Sem a permissao propria o Desconto fica bloqueado, com o aviso. */
   podeDescontar: boolean;
+  /**
+   * Item 15 (25/11/2026): sem "cobrar juros e multa na baixa", Juros e Multa
+   * ficam em branco e travados (o servidor recusa juros/multa sem ela).
+   * Ausente = pode.
+   */
+  podeJurosMulta?: boolean;
+  /** Item 15: sem "dar baixa com data anterior a hoje", a data fica em hoje. Ausente = pode. */
+  podeDataAnterior?: boolean;
   /** Dica pequena (ex.: onde configurar as % de juros e multa). */
   dica?: string;
   /** Formas que nao levam juros/multa/desconto nem parcial (cheque aguarda compensacao; boleto so' emite). */
@@ -143,18 +157,23 @@ export const pedirDadosBaixa = async (args: {
   const opcoes = args.formas
     .map((forma) => `<option value="${escaparHtml(forma)}"${forma === args.formaInicial ? ' selected' : ''}>${escaparHtml(args.rotulosDasFormas?.[forma] || forma)}</option>`)
     .join('');
-  const sugestaoJuros = args.sugestao?.jurosCentavos || 0;
-  const sugestaoMulta = args.sugestao?.multaCentavos || 0;
+  const podeJurosMulta = args.podeJurosMulta !== false;
+  const podeDataAnterior = args.podeDataAnterior !== false;
+  // Sem a permissao de juros/multa, a sugestao da filial nao entra (a baixa sai sem juros e multa).
+  const sugestao = podeJurosMulta ? args.sugestao : null;
+  const sugestaoJuros = sugestao?.jurosCentavos || 0;
+  const sugestaoMulta = sugestao?.multaCentavos || 0;
   const totalInicial = totalParaQuitar(saldo, { jurosCentavos: sugestaoJuros, multaCentavos: sugestaoMulta, descontoCentavos: 0 });
   const notas = [
-    args.sugestao ? `Juros e multa pelas % da filial (${args.sugestao.detalhe}).` : '',
+    sugestao ? `Juros e multa pelas % da filial (${sugestao.detalhe}).` : '',
+    !podeJurosMulta ? `Juros e multa: só com a permissão "${ROTULO_JUROS_MULTA}"; sem ela, a baixa sai sem juros e multa. Para cobrar, peça ao responsável liberar no seu cadastro de funcionário.` : '',
     !args.podeDescontar ? `Desconto: só com a permissão "${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}".` : '',
-    args.dica || '',
+    podeJurosMulta ? args.dica || '' : '',
   ].filter(Boolean);
-  const miniCampo = (id: string, rotulo: string, valor: number, bloqueado = false) => `
+  const miniCampo = (id: string, rotulo: string, valor: number, bloqueioPorPermissao = '') => `
     <div style="flex:1;min-width:0;">
       <label for="${id}" style="${ESTILO_MINI_ROTULO}">${rotulo}</label>
-      <input id="${id}" type="text" inputmode="decimal" class="swal2-input" value="${textoDoCampo(valor)}" style="${ESTILO_MINI_CAMPO}" aria-label="${rotulo} em reais"${bloqueado ? ` disabled title="${escaparHtml(`Precisa da permissão ${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}`)}"` : ''} />
+      <input id="${id}" type="text" inputmode="decimal" class="swal2-input" value="${textoDoCampo(valor)}" style="${ESTILO_MINI_CAMPO}" aria-label="${rotulo} em reais"${bloqueioPorPermissao ? ` disabled title="${escaparHtml(`Precisa da permissão ${bloqueioPorPermissao}`)}"` : ''} />
     </div>`;
 
   const lerCentavos = (id: string) => centavosDoCampo((document.getElementById(id) as HTMLInputElement | null)?.value || '');
@@ -169,9 +188,9 @@ export const pedirDadosBaixa = async (args: {
     html: `
       <div id="baixa-texto" style="text-align:left;font-size:13.5px;color:var(--text-secondary);">${escaparHtml(args.texto)}</div>
       <div id="baixa-ajustes" style="display:flex;gap:8px;margin-top:12px;padding:8px 10px;border-radius:8px;background:var(--bg-tertiary);">
-        ${miniCampo('baixa-juros', 'Juros', sugestaoJuros)}
-        ${miniCampo('baixa-multa', 'Multa', sugestaoMulta)}
-        ${miniCampo('baixa-desconto', 'Desconto', 0, !args.podeDescontar)}
+        ${miniCampo('baixa-juros', 'Juros', sugestaoJuros, podeJurosMulta ? '' : ROTULO_JUROS_MULTA)}
+        ${miniCampo('baixa-multa', 'Multa', sugestaoMulta, podeJurosMulta ? '' : ROTULO_JUROS_MULTA)}
+        ${miniCampo('baixa-desconto', 'Desconto', 0, args.podeDescontar ? '' : ROTULO_PERMISSAO_DESCONTO_NA_BAIXA)}
       </div>
       ${notas.length ? `<div id="baixa-notas" style="text-align:left;font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4;">${notas.map(escaparHtml).join(' ')}</div>` : ''}
       <label for="baixa-forma" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloForma)}</label>
@@ -196,9 +215,11 @@ export const pedirDadosBaixa = async (args: {
         <input id="baixa-cheque" type="text" maxlength="30" class="swal2-input" value="${escaparHtml(args.cheque.inicial || '')}" style="${ESTILO_CAMPO}" />
       </div>` : ''}
       <label for="baixa-data" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloData)}</label>
-      <input id="baixa-data" type="date" class="swal2-input" value="${hoje}" max="${hoje}" style="${ESTILO_CAMPO}" />
+      <input id="baixa-data" type="date" class="swal2-input" value="${hoje}" max="${hoje}"${podeDataAnterior ? '' : ` min="${hoje}" disabled title="${escaparHtml(`Precisa da permissão ${ROTULO_DATA_ANTERIOR}`)}"`} style="${ESTILO_CAMPO}" />
       <div style="text-align:left;font-size:12px;color:var(--text-muted);margin-top:6px;">
-        Foi pago em outro dia? Troque a data acima. Ela vale para o Fluxo de Caixa e os relatórios.
+        ${podeDataAnterior
+    ? 'Foi pago em outro dia? Troque a data acima. Ela vale para o Fluxo de Caixa e os relatórios.'
+    : escaparHtml(`A baixa fica com a data de hoje. Dar baixa com data anterior precisa da permissão "${ROTULO_DATA_ANTERIOR}": peça ao responsável liberar no seu cadastro de funcionário.`)}
       </div>
       <label for="baixa-valor" style="${ESTILO_ROTULO}">${escaparHtml(args.rotuloValor)} (R$)</label>
       <input id="baixa-valor" type="text" inputmode="decimal" class="swal2-input" value="${textoDoCampo(totalInicial)}" style="${ESTILO_CAMPO};font-size:18px;font-weight:700;text-align:right;" aria-label="${escaparHtml(args.rotuloValor)} em reais" />
@@ -248,7 +269,7 @@ export const pedirDadosBaixa = async (args: {
       const aoMexerNoValor = () => {
         valorMexido = true;
         const recebido = lerCentavos('baixa-valor');
-        if (args.sugestao && !ajustesMexidos && recebido !== null) {
+        if (sugestao && !ajustesMexidos && recebido !== null) {
           const partes = separarValorRecebido(saldo, recebido, { jurosCentavos: sugestaoJuros, multaCentavos: sugestaoMulta }, lerCentavos('baixa-desconto') ?? 0);
           escrever('baixa-juros', partes.jurosCentavos);
           escrever('baixa-multa', partes.multaCentavos);
@@ -353,6 +374,10 @@ export const pedirDadosBaixa = async (args: {
         NexusSwal.showValidationMessage(erroData);
         return false;
       }
+      if (!podeDataAnterior && data !== hoje) {
+        NexusSwal.showValidationMessage(`A baixa precisa ficar com a data de hoje: dar baixa com data anterior precisa da permissão "${ROTULO_DATA_ANTERIOR}".`);
+        return false;
+      }
       const campos: Array<[string, string]> = [['baixa-juros', 'Juros'], ['baixa-multa', 'Multa'], ['baixa-desconto', 'Desconto'], ['baixa-valor', args.rotuloValor]];
       const valores: number[] = [];
       for (const [id, rotulo] of campos) {
@@ -365,6 +390,10 @@ export const pedirDadosBaixa = async (args: {
       }
       const ajustes: AjustesDaBaixa = { jurosCentavos: valores[0], multaCentavos: valores[1], descontoCentavos: valores[2] };
       const recebido = valores[3];
+      if (!podeJurosMulta && ajustes.jurosCentavos + ajustes.multaCentavos > 0) {
+        NexusSwal.showValidationMessage(`Juros e multa precisam da permissão "${ROTULO_JUROS_MULTA}". Deixe os dois em branco ou peça ao responsável liberar no seu cadastro de funcionário.`);
+        return false;
+      }
       if ((args.formasSemAjuste || []).includes(forma)) {
         // Cheque/boleto: sem ajuste e sem parcial. O que veio calculado e
         // ninguem mexeu sai calado (como antes); o resto e' avisado.

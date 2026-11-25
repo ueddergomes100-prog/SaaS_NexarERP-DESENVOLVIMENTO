@@ -70,6 +70,17 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'financeiro.alterar_valor_documento': ['financeiro.receber'],
   'financeiro.renegociar': ['financeiro.receber'],
   'financeiro.desconto_baixa': ['financeiro.receber', 'financeiro.pagar'],
+  // Item 15 (25/11/2026): uma permissao por acao do Contas a Receber/Pagar.
+  'financeiro.receber_baixar': ['financeiro.receber'],
+  'financeiro.pagar_baixar': ['financeiro.pagar'],
+  'financeiro.baixa_juros_multa': ['financeiro.receber', 'financeiro.pagar'],
+  'financeiro.baixa_data_anterior': ['financeiro.receber', 'financeiro.pagar'],
+  'financeiro.baixa_lote': ['financeiro.receber', 'financeiro.pagar'],
+  'financeiro.receber_lancar': ['financeiro.receber'],
+  'financeiro.receber_editar': ['financeiro.receber'],
+  'financeiro.receber_cancelar': ['financeiro.receber'],
+  'financeiro.categorias': ['financeiro.receber', 'financeiro.pagar'],
+  'financeiro.acerto_fornecedor': ['financeiro.receber'],
   // Caixas e transferencias (21/10/2026): parte do modulo do Fluxo de Caixa.
   'financeiro.caixas': ['financeiro.caixa'],
 

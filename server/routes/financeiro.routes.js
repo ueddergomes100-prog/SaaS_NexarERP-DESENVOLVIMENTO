@@ -4,7 +4,6 @@ const { registrarLog } = require('../services/auditoria');
 const { fromCents } = require('../domain/financeDomain');
 const {
   ErroBaixa,
-  PERMISSAO_DA_BAIXA,
   temPermissao,
   validarPedidoDeBaixa,
   validarPedidoDeBaixaEmLote,
@@ -38,6 +37,12 @@ const {
 const { depositarCheque, devolverCheque, voltarChequeParaCarteira } = require('../services/chequeSituacao');
 const acertoFornecedor = require('../services/acertoFornecedor');
 const { vincularBoletosAnteriores } = require('../services/boletoSistemaAnterior');
+const {
+  permissoesQueFaltam,
+  permissoesDaBaixa,
+  mensagemSemPermissao,
+} = require('../services/permissoesFinanceiro');
+const { PERMISSAO_FINANCEIRO } = require('../domain/permissoesNovasDomain');
 const { db } = require('../config/firebase');
 
 /**
@@ -68,6 +73,18 @@ const semPermissaoDeBaixa = (tipo) => (tipo === 'saida'
   ? 'Você não tem permissão para dar baixa em contas a pagar. Peça a um responsável liberar "Financeiro: Contas a Pagar" no seu usuário.'
   : 'Você não tem permissão para dar baixa em contas a receber. Peça a um responsável liberar "Financeiro: Contas a Receber" no seu usuário.');
 
+/**
+ * Item 15 (25/11/2026): confere as permissoes POR ACAO (efetivas: quem tem a da
+ * tela e ainda nao teve as permissoes salvas de novo ja' tem as novas). Devolve
+ * true se respondeu 403 com a frase em portugues.
+ */
+const barrarSemPermissoes = (req, res, ids) => {
+  const faltam = permissoesQueFaltam(req.user, ids);
+  if (faltam.length === 0) return false;
+  res.status(403).json({ error: mensagemSemPermissao(faltam) });
+  return true;
+};
+
 /** Como o usuario conhece o titulo no Historico de alteracoes. */
 const numeroDoTitulo = (tipo, descricao, transacaoId) => `${tipo === 'saida' ? 'Conta a pagar' : 'Conta a receber'} ${descricao || transacaoId}`;
 
@@ -95,12 +112,12 @@ const registrarLogDaBaixa = (user, tenantId, pedido, resumo, sufixo = '') => {
 /** POST /api/financeiro/baixa  { tipo, transacaoId, formaPagamento, dataPagamento, bancoId?, tenantId? } */
 router.post('/baixa', async (req, res) => {
   try {
-    const { erro, pedido } = validarPedidoDeBaixa(req.body, hojeNoBrasil());
+    const hoje = hojeNoBrasil();
+    const { erro, pedido } = validarPedidoDeBaixa(req.body, hoje);
     if (erro) return res.status(400).json({ error: erro });
 
-    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA[pedido.tipo])) {
-      return res.status(403).json({ error: semPermissaoDeBaixa(pedido.tipo) });
-    }
+    // Dar baixa do tipo + juros/multa e data anterior, se o pedido trouxer (item 15).
+    if (barrarSemPermissoes(req, res, permissoesDaBaixa({ tipo: pedido.tipo, pedidos: [pedido], hoje }))) return undefined;
 
     const tenantId = empresaDaOperacao(req.user, req.body);
     const resumo = await registrarBaixa({ user: req.user, tenantId, pedido });
@@ -125,13 +142,13 @@ router.post('/baixa', async (req, res) => {
  */
 router.post('/baixa-lote', async (req, res) => {
   try {
-    const { erro, pedidos } = validarPedidoDeBaixaEmLote(req.body, hojeNoBrasil());
+    const hoje = hojeNoBrasil();
+    const { erro, pedidos } = validarPedidoDeBaixaEmLote(req.body, hoje);
     if (erro) return res.status(400).json({ error: erro });
 
     const { tipo } = pedidos[0];
-    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA[tipo])) {
-      return res.status(403).json({ error: semPermissaoDeBaixa(tipo) });
-    }
+    // Baixa em lote + dar baixa do tipo + juros/multa e data anterior (item 15), antes de gravar qualquer conta.
+    if (barrarSemPermissoes(req, res, permissoesDaBaixa({ tipo, pedidos, hoje, lote: true }))) return undefined;
 
     const tenantId = empresaDaOperacao(req.user, req.body);
     const resultados = [];
@@ -184,7 +201,8 @@ router.post('/estorno', async (req, res) => {
  *   GET  /api/financeiro/acerto-fornecedor            ultimos acertos
  *   POST /api/financeiro/acerto-fornecedor            { idAcerto, receber:[{transacaoId,valorCentavos}], pagar:[...], data, observacao }
  *   POST /api/financeiro/acerto-fornecedor/desfazer   { acertoId, motivo }
- * Quem faz precisa dar baixa em Receber E em Pagar; desfazer pede a permissao de estorno.
+ * Quem faz precisa da permissao do acerto e de dar baixa em Receber E em Pagar
+ * (item 15, 25/11/2026); desfazer pede a do acerto e a de estorno.
  */
 router.get('/acerto-fornecedor', async (req, res) => {
   try {
@@ -200,11 +218,12 @@ router.get('/acerto-fornecedor', async (req, res) => {
 
 router.post('/acerto-fornecedor', async (req, res) => {
   try {
-    if (!temPermissao(req.user, 'financeiro.receber') || !temPermissao(req.user, 'financeiro.pagar')) {
-      return res.status(403).json({
-        error: 'O acerto com fornecedor dá baixa em Contas a Receber e em Contas a Pagar ao mesmo tempo. Peça a um responsável liberar as duas permissões no seu usuário.',
-      });
-    }
+    // O acerto da' baixa nos dois lados: alem da permissao dele, as de dar baixa em Receber e Pagar.
+    if (barrarSemPermissoes(req, res, [
+      PERMISSAO_FINANCEIRO.acertoFornecedor,
+      PERMISSAO_FINANCEIRO.receberBaixar,
+      PERMISSAO_FINANCEIRO.pagarBaixar,
+    ])) return undefined;
     const tenantId = empresaDaOperacao(req.user, req.body);
     let usuarioNome = '';
     try {
@@ -220,6 +239,7 @@ router.post('/acerto-fornecedor', async (req, res) => {
 
 router.post('/acerto-fornecedor/desfazer', async (req, res) => {
   try {
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.acertoFornecedor])) return undefined;
     if (!temPermissao(req.user, 'financeiro.estornar')) {
       return res.status(403).json({
         error: 'Você não tem permissão para desfazer acertos. Peça a um responsável liberar "Financeiro: Estornar Pagamento/Recebimento" no seu usuário.',
@@ -276,12 +296,10 @@ router.post('/alterar-valor', async (req, res) => {
 // CONTA A RECEBER LANCADA A MAO (19/10/2026) -- services/lancamentoReceber.js
 // ---------------------------------------------------------------------------
 
-const SEM_PERMISSAO_RECEBER = 'Você não tem permissão para lançar contas a receber. Peça a um responsável liberar "Financeiro: Contas a Receber" no seu usuário.';
-
 /** POST /api/financeiro/receber/lancar -- { idLancamento, devedor, descricao, categoria, formaPrevista, documento, observacao, parcelas } */
 router.post('/receber/lancar', async (req, res) => {
   try {
-    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA.entrada)) return res.status(403).json({ error: SEM_PERMISSAO_RECEBER });
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.receberLancar])) return undefined;
     const tenantId = empresaDaOperacao(req.user, req.body);
     const r = await lancarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
     if (!r.jaLancado) {
@@ -307,7 +325,7 @@ router.post('/receber/lancar', async (req, res) => {
 /** POST /api/financeiro/receber/editar -- conta avulsa em aberto: descritivos, vencimento e quem paga (valor, so' pelo "Alterar valor"). */
 router.post('/receber/editar', async (req, res) => {
   try {
-    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA.entrada)) return res.status(403).json({ error: SEM_PERMISSAO_RECEBER });
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.receberEditar])) return undefined;
     const tenantId = empresaDaOperacao(req.user, req.body);
     const r = await editarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
     if (r.alteracoes.length > 0) {
@@ -330,7 +348,7 @@ router.post('/receber/editar', async (req, res) => {
 /** POST /api/financeiro/receber/cancelar -- { transacaoId, motivo } */
 router.post('/receber/cancelar', async (req, res) => {
   try {
-    if (!temPermissao(req.user, PERMISSAO_DA_BAIXA.entrada)) return res.status(403).json({ error: SEM_PERMISSAO_RECEBER });
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.receberCancelar])) return undefined;
     const tenantId = empresaDaOperacao(req.user, req.body);
     // O Historico de alteracoes do cancelamento e' gravado DENTRO da transacao (services/lancamentoReceber.js).
     await cancelarContaAReceber({ user: req.user, tenantId, corpo: req.body || {} });
@@ -342,15 +360,12 @@ router.post('/receber/cancelar', async (req, res) => {
 
 /**
  * POST /api/financeiro/categorias -- { tipo: 'receita'|'despesa', nome }. Categoria nova no plano
- * de contas pela tela de lancamento (19/10/2026): quem lanca a conta pode criar; so' acrescenta.
+ * de contas pela tela de lancamento (19/10/2026); so' acrescenta. Desde 25/11/2026 (item 15)
+ * pede a permissao propria (ja' vem marcada para quem tem Contas a Receber ou a Pagar).
  */
 router.post('/categorias', async (req, res) => {
   try {
-    const tipo = req.body?.tipo === 'despesa' ? 'despesa' : 'receita';
-    const permissao = tipo === 'despesa' ? PERMISSAO_DA_BAIXA.saida : PERMISSAO_DA_BAIXA.entrada;
-    if (!temPermissao(req.user, permissao)) {
-      return res.status(403).json({ error: `Você não tem permissão para criar categorias de ${tipo}. Peça a um responsável liberar "${tipo === 'despesa' ? 'Financeiro: Contas a Pagar' : 'Financeiro: Contas a Receber'}" no seu usuário.` });
-    }
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.categorias])) return undefined;
     const tenantId = empresaDaOperacao(req.user, req.body);
     const r = await adicionarCategoria({ user: req.user, tenantId, corpo: req.body || {} });
     if (!r.jaExistia) {

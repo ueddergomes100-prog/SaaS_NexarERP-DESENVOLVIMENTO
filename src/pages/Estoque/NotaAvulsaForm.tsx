@@ -30,12 +30,15 @@ import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { acompanharCatalogo, acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 import { hasTenantFullAccess } from '../../utils/roles';
 import ChequesDeClienteNaNota from './ChequesDeClienteNaNota';
+import ImportarXmlNaNotaAvulsa, { type OrigemXmlDaNota } from './ImportarXmlNaNotaAvulsa';
 import { notaAvulsaChequesService, type ChequeDaCarteira } from '../../services/notaAvulsaChequesService';
 
 interface FornecedorBasico {
   id: string;
   nome: string;
   codigo?: string;
+  /** CNPJ/CPF do cadastro: acha o fornecedor do XML (25/11/2026). */
+  documento?: string;
 }
 
 interface ProdutoBasico {
@@ -45,6 +48,10 @@ interface ProdutoBasico {
   categoria?: string;
   precoCusto?: number;
   precoVenda?: number;
+  /** Vinculo dos itens do XML (o mesmo da Entrada de XML): codigo de barras e o codigo de cada fornecedor. */
+  codigoBarras?: string;
+  codigosFornecedor?: Record<string, string>;
+  fatoresFornecedor?: Record<string, number>;
   unidadeMedidaSigla?: string;
   unidadeMedidaCasasDecimais?: number;
   unidadeMedidaFracionado?: boolean;
@@ -104,12 +111,15 @@ const NotaAvulsaForm: React.FC = () => {
   const [observacao, setObservacao] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
+  /** XML de outro CNPJ que deu origem a nota (25/11/2026). */
+  const [xmlOrigem, setXmlOrigem] = useState<OrigemXmlDaNota | null>(null);
+  const [cnpjDaEmpresa, setCnpjDaEmpresa] = useState('');
 
   useEffect(() => {
     if (!tenantId) return;
     const unsubscribe = acompanharCatalogo(
       'fornecedores', tenantId,
-      (snap) => setFornecedores(snap.docs.map((d) => ({ id: d.id, nome: d.data().nome || '', codigo: d.data().codigo }))),
+      (snap) => setFornecedores(snap.docs.map((d) => ({ id: d.id, nome: d.data().nome || '', codigo: d.data().codigo, documento: String(d.data().cnpj || d.data().cpfCnpj || d.data().documento || '') }))),
       (error) => console.error('Erro ao carregar fornecedores:', error),
     );
     return unsubscribe;
@@ -133,6 +143,9 @@ const NotaAvulsaForm: React.FC = () => {
         categoria: d.data().categoria,
         precoCusto: Number(d.data().precoCusto) || 0,
         precoVenda: Number(d.data().precoVenda) || 0,
+        codigoBarras: d.data().codigoBarras,
+        codigosFornecedor: d.data().codigosFornecedor || {},
+        fatoresFornecedor: d.data().fatoresFornecedor || {},
         unidadeMedidaSigla: d.data().unidadeMedidaSigla,
         unidadeMedidaCasasDecimais: d.data().unidadeMedidaCasasDecimais,
         unidadeMedidaFracionado: d.data().unidadeMedidaFracionado,
@@ -149,7 +162,10 @@ const NotaAvulsaForm: React.FC = () => {
     if (!tenantId) return;
     const unsubscribe = onSnapshot(
       doc(db, 'configuracoes', tenantId),
-      (snap) => setVenderPorEmbalagem(snap.data()?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM),
+      (snap) => {
+        setVenderPorEmbalagem(snap.data()?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
+        setCnpjDaEmpresa(String(snap.data()?.cnpj || ''));
+      },
       (error) => console.error('Erro ao carregar configuração de embalagem:', error),
     );
     return unsubscribe;
@@ -301,6 +317,28 @@ const NotaAvulsaForm: React.FC = () => {
     setEmbalagemSelecionadaId('');
   };
 
+  /** Itens, frete/desconto e boletos vindos do XML de outro CNPJ (ImportarXmlNaNotaAvulsa). */
+  const aplicarXml: React.ComponentProps<typeof ImportarXmlNaNotaAvulsa<ProdutoBasico, FornecedorBasico>>['onAplicar'] = (r) => {
+    setItens((atual) => {
+      const juntos = [...atual];
+      r.itens.forEach((novo) => {
+        const i = juntos.findIndex((x) => x.produtoId === novo.produtoId && !x.embalagemId && Math.abs(x.precoCusto - novo.precoCusto) < 0.0001);
+        if (i >= 0) juntos[i] = { ...juntos[i], quantidade: Math.round((juntos[i].quantidade + novo.quantidade) * 1000) / 1000 };
+        else juntos.push(novo);
+      });
+      return juntos;
+    });
+    if (r.frete > 0) setFrete(String(r.frete));
+    if (r.desconto > 0) setDesconto(String(r.desconto));
+    if (r.parcelas.length > 0) {
+      setFormaPagamento('pendente');
+      setFormaPadraoParcelas('Boleto');
+      setParcelas(r.parcelas);
+      setParcelasMexidas(true);
+    }
+    setXmlOrigem(r.origem);
+  };
+
   const removerItem = (produtoId: string, embalagemId?: string) => {
     setItens((atual) => atual.filter((item) => !(item.produtoId === produtoId && (item.embalagemId || '') === (embalagemId || ''))));
   };
@@ -415,7 +453,7 @@ const NotaAvulsaForm: React.FC = () => {
         // duas vezes na nota, uma em cada unidade (KG e SC) -- sem agrupar,
         // a segunda escrita sobrescreveria a primeira em vez de somar, ja
         // que as duas leem o mesmo snapshot original.
-        const incrementoPorProduto = new Map<string, { quantidadeBase: number; precoCusto: number }>();
+        const incrementoPorProduto = new Map<string, { quantidadeBase: number; precoCusto: number; codigoFornecedor?: string; fatorXml?: number }>();
         itensComRateio.forEach((item) => {
           const anterior = incrementoPorProduto.get(item.produtoId);
           // CMV do item (custo + parte do frete - parte do desconto), na
@@ -425,9 +463,12 @@ const NotaAvulsaForm: React.FC = () => {
           // 20x maior que o real.
           const cmv = custoUnitarioComRateio(item);
           const precoCustoBase = item.fatorConversao ? cmv / item.fatorConversao : cmv;
+          const doXml = item as NotaAvulsaItem & { codigoFornecedor?: string; fatorXml?: number };
           incrementoPorProduto.set(item.produtoId, {
             quantidadeBase: (anterior?.quantidadeBase || 0) + quantidadeEstoqueNotaAvulsaItem(item),
             precoCusto: precoCustoBase,
+            ...(doXml.codigoFornecedor ? { codigoFornecedor: doXml.codigoFornecedor } : anterior?.codigoFornecedor ? { codigoFornecedor: anterior.codigoFornecedor } : {}),
+            ...(doXml.fatorXml ? { fatorXml: doXml.fatorXml } : anterior?.fatorXml ? { fatorXml: anterior.fatorXml } : {}),
           });
         });
         const produtoRefs = Array.from(incrementoPorProduto.entries()).map(([produtoId, dados]) => ({
@@ -439,7 +480,7 @@ const NotaAvulsaForm: React.FC = () => {
         numeroFinal = formatSequenceValue(nextNumero, 4);
         writeTenantSequenceValue(transaction, db, tenantId, 'notas_avulsas', nextNumero);
 
-        produtoRefs.forEach(({ ref, quantidadeBase, precoCusto }, index) => {
+        produtoRefs.forEach(({ ref, quantidadeBase, precoCusto, codigoFornecedor, fatorXml }, index) => {
           const snap = produtoSnaps[index];
           // Produto apagado entre a busca e a confirmacao (bem raro): o item
           // fica registrado na nota do mesmo jeito, so nao ha estoque pra
@@ -456,6 +497,9 @@ const NotaAvulsaForm: React.FC = () => {
           transaction.update(ref, {
             quantidade: quantidadeAtualEstoque + quantidadeBase,
             precoCusto,
+            // Item vindo do XML: guarda o vinculo (o mesmo da Entrada de XML) para a proxima nota deste fornecedor.
+            ...(codigoFornecedor ? { [`codigosFornecedor.${fornecedorSelecionado.id}`]: codigoFornecedor } : {}),
+            ...(fatorXml ? { [`fatoresFornecedor.${fornecedorSelecionado.id}`]: fatorXml } : {}),
             updatedAt: serverTimestamp(),
           });
         });
@@ -547,6 +591,7 @@ const NotaAvulsaForm: React.FC = () => {
           valorTotal: totalNota,
           valorTotalCentavos: toCents(totalNota),
           formaPagamento,
+          ...(xmlOrigem ? { xmlOrigem } : {}),
           // Cheques de clientes (25/11/2026): o servidor repassa logo depois (services/repasseCheques.js).
           ...(chequesEscolhidos.length > 0 ? { pagamentoComCheques: { chequeIds: chequesEscolhidos.map((c) => c.id), totalCentavos: chequesCentavos, situacao: 'a_repassar' } } : {}),
           ...(!(restanteDaNota > 0) ? {} : formaPagamento === 'a_vista'
@@ -649,9 +694,19 @@ const NotaAvulsaForm: React.FC = () => {
       <div className="card form-section" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3>Itens da Compra</h3>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <ImportarXmlNaNotaAvulsa<ProdutoBasico, FornecedorBasico>
+            produtos={produtos}
+            fornecedores={fornecedores}
+            fornecedorSelecionado={fornecedorSelecionado}
+            cnpjDaEmpresa={cnpjDaEmpresa}
+            onFornecedor={(f) => { setFornecedorNome(f.nome); setFornecedorSelecionado(f); }}
+            onAplicar={aplicarXml}
+          />
           <button type="button" className="btn-secondary" onClick={() => setShowCadastroProduto(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <PackagePlus size={16} /> Cadastrar Produto
           </button>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: opcoesUnidadeVenda.length > 1 ? '2fr 0.8fr 1fr 1fr 1fr auto' : '2fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'flex-end' }}>

@@ -281,3 +281,37 @@ test('permissoes pelo servidor: grava com o marcador do app; gerente so mexe no 
   // Administrador/dono nao tem permissao por modulo.
   await assert.rejects(() => s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'adm', permissoes: [] }, gerente: false }), (e) => e.status === 400);
 });
+
+test('vendedor de balcao so pelo servidor (bloco B, 25/11/2026): id gerado aqui, permissao conferida, codigo unico', async () => {
+  const fake = criarBancoFalso(base({ 'usuarios/ana': { tenantId: 'loja', role: 'Funcionario', codigoVendedor: '07', nome: 'ANA' } }), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.criarVendedorBalcao({ user: ADMIN, tenantId: 'loja', corpo: {
+    nome: '  JOAO   DA SILVA ', codigoVendedor: '9', status: 'Ativo', permissoes: ['vendas.liberar_desconto', 'nao valida'],
+    recebeComissaoPecas: true, comissaoPercentualPecas: '3', usuarioId: 'id-escolhido', id: 'outro', role: 'Admin', tenantId: 'outra',
+  } });
+  assert.notEqual(r.usuarioId, 'id-escolhido');
+  const v = fake.ler(`usuarios/${r.usuarioId}`);
+  assert.equal(v.nome, 'JOAO DA SILVA');
+  assert.equal(v.codigoVendedor, '09');
+  assert.equal(v.tipoRegistro, 'vendedor');
+  assert.equal(v.role, 'Funcionario');
+  assert.equal(v.tenantId, 'loja');
+  assert.equal(v.acessoAppMobile, false);
+  assert.deepEqual(v.permissoes, ['vendas.liberar_desconto']);
+  assert.equal(v.comissaoPercentualPecas, 3);
+  assert.equal(v.comissaoPercentualServicos, undefined, 'sem percentual = sem a chave (nunca undefined)');
+  assert.ok(!Object.values(v).includes(undefined));
+  // Codigo repetido, sem nome, sem permissao.
+  await assert.rejects(() => s.criarVendedorBalcao({ user: ADMIN, tenantId: 'loja', corpo: { nome: 'X', codigoVendedor: '07' } }), (e) => e.status === 409 && /código 07/.test(e.message));
+  await assert.rejects(() => s.criarVendedorBalcao({ user: ADMIN, tenantId: 'loja', corpo: { nome: ' ', codigoVendedor: '11' } }), (e) => e.status === 400);
+  await assert.rejects(() => s.criarVendedorBalcao({ user: { uid: 'f1', permissoes: ['cadastros.vendedores'] }, tenantId: 'loja', corpo: { nome: 'X', codigoVendedor: '12' } }), (e) => e.status === 403);
+  // Quem so tem "incluir e alterar vendedor": vendedor comum, sem permissao nenhuma.
+  const comum = await s.criarVendedorBalcao({ user: { uid: 'f2', permissoes: ['cadastros.vendedores_incluir'] }, tenantId: 'loja', corpo: { nome: 'Y', codigoVendedor: '13', permissoes: ['vendas.liberar_desconto'] } });
+  assert.deepEqual(fake.ler(`usuarios/${comum.usuarioId}`).permissoes, []);
+  // Importacao de pedidos de outro sistema: sem codigo, inativo, com o codigo antigo guardado.
+  const importado = await s.criarVendedorBalcao({ user: ADMIN, tenantId: 'loja', corpo: { nome: 'Z', codigoVendedor: '', status: 'Inativo', sistemaAnterior: { codigoVendedor: '501' } } });
+  const z = fake.ler(`usuarios/${importado.usuarioId}`);
+  assert.equal(z.status, 'Inativo');
+  assert.equal(z.codigoVendedor, '');
+  assert.deepEqual(z.sistemaAnterior, { codigoVendedor: '501' });
+});

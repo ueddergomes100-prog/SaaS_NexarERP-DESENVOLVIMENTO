@@ -439,4 +439,88 @@ const salvarPermissoes = async ({ user, tenantId, corpo, gerente }) => {
   return { usuarioId: ref.id, nome: alvo.nome || '' };
 };
 
-module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes };
+// ===========================================================================
+// VENDEDOR DE BALCAO (sem login) -- so' pelo servidor
+// ===========================================================================
+
+/*
+ * Seguranca, bloco B (25/11/2026; sobra do bloco A). O cadastro de vendedor de
+ * balcao nascia pela tela (addDoc/setDoc em `usuarios`), com o id que quem
+ * criasse quisesse. Com o id de outra conta (uma filial, a equipe da
+ * plataforma), a "conta do cadastro" era a de outra pessoa. O bloco A ja'
+ * conferia isso antes de trocar senha ou dar login (contaDoCadastro.js); agora
+ * o cadastro nasce aqui, com id gerado pelo servidor, e as rules nao deixam mais
+ * o navegador criar `usuarios`.
+ *
+ * Quem cria: dono/administrador (com permissoes, ex.: liberar desconto) ou quem
+ * tem "Cadastros: Vendedores — incluir e alterar" (vendedor COMUM: sem permissao
+ * e no nivel padrao) -- a mesma regra que as rules tinham.
+ */
+const PERMISSAO_INCLUIR_VENDEDOR = 'cadastros.vendedores_incluir';
+
+const lerPercentual = (valor) => {
+  if (valor === undefined || valor === null || valor === '') return null;
+  const n = Number(valor);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : NaN;
+};
+
+const criarVendedorBalcao = async ({ user, tenantId, corpo }) => {
+  const c = corpo || {};
+  const gestor = Boolean(user && (user.isTenantManager || user.isPlatformAdmin));
+  if (!gestor && !((user && user.permissoes) || []).includes(PERMISSAO_INCLUIR_VENDEDOR)) {
+    throw new ErroLimite(403, 'Só o dono, um administrador ou quem tem a permissão "Cadastros: Vendedores — incluir e alterar" cadastra vendedor.');
+  }
+  const nome = String(c.nome ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!nome) throw new ErroLimite(400, 'Informe o nome do vendedor. É ele que aparece na venda e no relatório de comissões.');
+
+  // Importacao de pedidos de outro sistema: o vendedor nasce sem codigo, inativo,
+  // guardando o codigo que ele tinha la'.
+  const sistemaAnterior = c.sistemaAnterior && typeof c.sistemaAnterior === 'object'
+    ? { codigoVendedor: String(c.sistemaAnterior.codigoVendedor ?? '').trim().slice(0, 20) }
+    : null;
+  const codigo = String(c.codigoVendedor ?? '').trim() ? normalizarCodigo(c.codigoVendedor) : '';
+  if (String(c.codigoVendedor ?? '').trim() && !codigo) {
+    throw new ErroLimite(400, 'O código do vendedor tem 2 dígitos (de 00 a 99). Confira o código.');
+  }
+  if (!codigo && !sistemaAnterior) throw new ErroLimite(400, 'Informe o código do vendedor (2 dígitos, de 00 a 99).');
+  if (codigo && (await registrosDaEmpresa(tenantId)).some((reg) => reg.codigoVendedor === codigo)) {
+    throw new ErroLimite(409, `Outro funcionário desta empresa já usa o código ${codigo}. Escolha um código diferente.`);
+  }
+
+  const percentualServicos = lerPercentual(c.comissaoPercentualServicos);
+  const percentualPecas = lerPercentual(c.comissaoPercentualPecas);
+  if (Number.isNaN(percentualServicos) || Number.isNaN(percentualPecas)) {
+    throw new ErroLimite(400, 'O percentual de comissão tem de ser um número de 0 a 100.');
+  }
+  // Sem ser dono/administrador: vendedor comum, sem permissao nenhuma.
+  const permissoes = gestor && Array.isArray(c.permissoes)
+    ? [...new Set(c.permissoes.filter(permApp.permissaoValida))].slice(0, 60)
+    : [];
+
+  const ref = db.collection('usuarios').doc();
+  await ref.set({
+    nome,
+    codigoVendedor: codigo,
+    // A marca que diz "este registro nao tem login" (vendedorCadastroDomain.ts).
+    tipoRegistro: 'vendedor',
+    role: 'Funcionario',
+    permissoes,
+    // Nasce sem o app: ligar e' POST /api/usuarios/acesso-app, que confere a vaga.
+    acessoAppMobile: false,
+    nivelAcesso: 'funcionario',
+    status: c.status === 'Inativo' ? 'Inativo' : 'Ativo',
+    tenantId,
+    recebeComissaoServicos: c.recebeComissaoServicos === true,
+    recebeComissaoPecas: c.recebeComissaoPecas === true,
+    ...(percentualServicos !== null ? { comissaoPercentualServicos: percentualServicos } : {}),
+    ...(percentualPecas !== null ? { comissaoPercentualPecas: percentualPecas } : {}),
+    ...(sistemaAnterior ? { sistemaAnterior } : {}),
+    createdAt: agora(),
+    createdBy: user.uid,
+    ...(await camposDaCobrancaParaNovoUsuario(tenantId)),
+    ...buildDocumentMetadata(user.uid, agora()),
+  });
+  return { usuarioId: ref.id, nome, codigo };
+};
+
+module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes, criarVendedorBalcao };

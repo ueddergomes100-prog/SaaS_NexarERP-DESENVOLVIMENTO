@@ -77,6 +77,24 @@ export const salvarFichaNoServidor = (dados: { usuarioId: string; nome: string; 
 export const salvarPermissoesNoServidor = (usuarioId: string, permissoes: string[], nivelAcesso?: string) =>
   postar<{ ok: boolean }>('permissoes', { usuarioId, permissoes, ...(nivelAcesso ? { nivelAcesso } : {}) }, 'Não foi possível salvar as permissões. Tente novamente.');
 
+/**
+ * Cadastro de vendedor de balcao (sem login) pelo servidor (bloco B de seguranca,
+ * 25/11/2026): o id nasce no servidor; o navegador nao cria mais `usuarios`.
+ */
+export interface NovoVendedorBalcao {
+  nome: string;
+  codigoVendedor: string;
+  status: 'Ativo' | 'Inativo';
+  permissoes?: string[];
+  recebeComissaoServicos?: boolean;
+  recebeComissaoPecas?: boolean;
+  comissaoPercentualServicos?: number;
+  comissaoPercentualPecas?: number;
+  sistemaAnterior?: { codigoVendedor: string };
+}
+export const criarVendedorNoServidor = (dados: NovoVendedorBalcao) =>
+  postar<{ usuarioId: string; nome: string; codigo: string }>('vendedor', { ...dados }, 'Não foi possível cadastrar o vendedor. Tente novamente.');
+
 /** Inativa ou reativa o usuario (26/10/2026: pelo servidor). */
 export const alterarSituacaoNoServidor = (usuarioId: string, ativo: boolean) =>
   postar<{ ativo: boolean }>('situacao', { usuarioId, ativo }, 'Não foi possível alterar a situação do usuário. Tente novamente.');

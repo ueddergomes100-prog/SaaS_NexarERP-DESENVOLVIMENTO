@@ -619,34 +619,12 @@ service cloud.firestore {
       allow list: if isSuperAdmin() ||
         (hasProfile() && perfilAtivo() && resource.data.tenantId == currentTenantId());
 
-      // Limites do plano (19/10/2026): login novo so' pelo servidor
-      // (POST /api/usuarios/criar, confere o limite). Pela tela nasce so'
-      // cadastro de vendedor de balcao, e sem o app ligado (ligar o app e'
-      // POST /api/usuarios/acesso-app, que confere a vaga).
-      allow create: if isSuperAdmin() ||
-        (
-          isTenantAdmin() &&
-          semBloqueioDeCobranca(currentProfile()) &&
-          request.resource.data.tenantId == currentTenantId() &&
-          request.resource.data.role == 'Funcionario' &&
-          request.resource.data.get('tipoRegistro', '') == 'vendedor' &&
-          request.resource.data.get('acessoAppMobile', false) != true &&
-          !request.resource.data.keys().hasAny(platformManagedFields())
-        ) ||
-        (
-          // 21/10/2026: quem tem "Cadastros: Vendedores — incluir e alterar" cria
-          // vendedor de balcao COMUM: sem permissao nenhuma (liberar desconto, app) e
-          // no nivel padrao. O resto continua so' com o dono/administrador.
-          hasPermission('cadastros.vendedores_incluir') &&
-          perfilAtivo() &&
-          request.resource.data.tenantId == currentTenantId() &&
-          request.resource.data.role == 'Funcionario' &&
-          request.resource.data.get('tipoRegistro', '') == 'vendedor' &&
-          request.resource.data.get('acessoAppMobile', false) != true &&
-          request.resource.data.get('permissoes', []).size() == 0 &&
-          request.resource.data.get('nivelAcesso', 'funcionario') == 'funcionario' &&
-          !request.resource.data.keys().hasAny(platformManagedFields())
-        );
+      // Cadastro novo so' pelo servidor: login (POST /api/usuarios/criar, confere
+      // o limite do plano, 19/10/2026) e, desde o bloco B de seguranca
+      // (25/11/2026), tambem o vendedor de balcao (POST /api/usuarios/vendedor),
+      // com id gerado la' -- antes o navegador escolhia o id, e o id de outra
+      // conta (filial, equipe da plataforma) virava a "conta" do cadastro.
+      allow create: if isSuperAdmin();
 
       allow update: if isSuperAdmin() ||
         (

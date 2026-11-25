@@ -1,7 +1,7 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
-const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes } = require('../services/limitesDoPlano');
+const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes, criarVendedorBalcao } = require('../services/limitesDoPlano');
 const { podeGerirFuncionario } = require('../middleware/gestaoEquipe');
 const { encerrarSessoes } = require('../services/sessoes');
 const { registrarLog } = require('../services/auditoria');
@@ -223,6 +223,28 @@ router.post('/permissoes', podeGerirFuncionario, async (req, res) => {
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErroLimite(res, erro, 'salvar as permissões');
+  }
+});
+
+/**
+ * POST /api/usuarios/vendedor -- cadastro de vendedor de balcao, sem login (bloco B
+ * de seguranca, 25/11/2026): o id nasce aqui, nunca no navegador. Ver
+ * criarVendedorBalcao em services/limitesDoPlano.js (quem pode e o que grava).
+ */
+router.post('/vendedor', async (req, res) => {
+  try {
+    const r = await criarVendedorBalcao({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    registrarLog(req.user, {
+      modulo: 'cadastros',
+      acao: 'criacao',
+      descricao: `Vendedor ${r.nome}${r.codigo ? ` (código ${r.codigo})` : ''} cadastrado.`,
+      registroId: r.usuarioId,
+      documentoTipo: 'vendedor',
+      documentoNumero: `Vendedor ${r.nome}${r.codigo ? ` (código ${r.codigo})` : ''}`,
+    });
+    return res.status(201).json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErroLimite(res, erro, 'cadastrar o vendedor');
   }
 });
 

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BadgeCheck, Edit, FileText, KeyRound, Plus, Power, Search, UserCheck, X } from 'lucide-react';
 import {
-  addDoc,
   collection,
   deleteDoc,
   deleteField,
@@ -18,10 +17,9 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess, showWarning, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
-import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO, permissionLabelMap } from '../../utils/permissionCatalog';
 import { createAuditLog } from '../../services/logService';
@@ -43,7 +41,7 @@ import {
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
-import { alterarAcessoAppNoServidor } from '../../services/usuarioAcessoService';
+import { alterarAcessoAppNoServidor, criarVendedorNoServidor } from '../../services/usuarioAcessoService';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -413,28 +411,20 @@ const VendedoresList: React.FC = () => {
           ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
         });
       } else {
-        const novo = await addDoc(collection(db, 'usuarios'), {
+        // Bloco B de seguranca (25/11/2026): o cadastro nasce no servidor, com id
+        // gerado la' (tipoRegistro 'vendedor', sem login, sem o app -- ligar o app
+        // e' pelo servidor, logo abaixo, que confere a vaga).
+        const novo = await criarVendedorNoServidor({
           nome,
           codigoVendedor: codigo,
-          // A marca que diz "este registro nao tem login". Sem ela, o
-          // vendedor apareceria em Equipe & Acessos e comeria uma vaga do
-          // plano -- ver vendedorCadastroDomain.ts.
-          tipoRegistro: 'vendedor',
-          role: 'Funcionario',
+          status: form.status === 'Inativo' ? 'Inativo' : 'Ativo',
           permissoes,
-          // Nasce sem o app: ligar e' pelo servidor, que confere a vaga (logo abaixo).
-          acessoAppMobile: false,
-          nivelAcesso: DEFAULT_NIVEL_ACESSO,
-          status: form.status,
-          tenantId,
-          ...comissao,
+          recebeComissaoServicos: form.recebeComissaoServicos,
+          recebeComissaoPecas: form.recebeComissaoPecas,
           ...(percentualServicos !== undefined ? { comissaoPercentualServicos: percentualServicos } : {}),
           ...(percentualPecas !== undefined ? { comissaoPercentualPecas: percentualPecas } : {}),
-          createdAt: serverTimestamp(),
-          createdBy: currentUser.uid,
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
         });
-        vendedorId = novo.id;
+        vendedorId = novo.usuarioId;
       }
 
       // Historico de alteracoes (09/11/2026): o que este salvar mudou. A senha

@@ -2,11 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
-  Timestamp, addDoc, collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where, writeBatch,
+  Timestamp, collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where, writeBatch,
 } from 'firebase/firestore';
 import { ArrowLeft, CheckCircle2, FileUp, Loader2, ShoppingCart, Upload } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { createAuditLog } from '../../services/logService';
+import { criarVendedorNoServidor } from '../../services/usuarioAcessoService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, showSuccess } from '../../utils/alerts';
 import { decodificarArquivoTexto, detectarDelimitador, parseDelimitedText } from '../../utils/importacaoEstoqueDomain';
@@ -15,7 +16,6 @@ import { applyStockFieldDeltas, writeTenantSequenceValue } from '../../utils/fir
 import { computeReservationDelta } from '../../utils/estoqueReservaDomain';
 import { toStockAdjustmentItems } from '../../utils/embalagemDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { DEFAULT_NIVEL_ACESSO } from '../../utils/visibilidadeVendasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import {
   CAMPOS_OBRIGATORIOS_PEDIDOS,
@@ -236,24 +236,14 @@ const ImportarPedidosAnteriores: React.FC = () => {
           continue;
         }
         setProgresso(`Criando o vendedor ${v.nome}...`);
-        const novo = await addDoc(collection(db, 'usuarios'), {
+        // Bloco B de seguranca (25/11/2026): o cadastro nasce no servidor (id gerado la').
+        const novo = await criarVendedorNoServidor({
           nome: v.nome,
           codigoVendedor: '',
-          tipoRegistro: 'vendedor',
-          role: 'Funcionario',
-          permissoes: [],
-          acessoAppMobile: false,
-          nivelAcesso: DEFAULT_NIVEL_ACESSO,
           status: 'Inativo',
-          tenantId,
-          recebeComissaoPecas: false,
-          recebeComissaoServicos: false,
-          sistemaAnterior: { codigoVendedor: v.codigo },
-          createdAt: serverTimestamp(),
-          createdBy: currentUser.uid,
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
+          sistemaAnterior: { codigoVendedor: String(v.codigo || '') },
         });
-        vendedorPorChave.set(chave, { id: novo.id, nome: v.nome });
+        vendedorPorChave.set(chave, { id: novo.usuarioId, nome: v.nome });
         feitos.vendedoresCriados += 1;
       }
       const vendedorDo = (p: PedidoImportadoLido) => vendedorPorChave.get(chaveDoVendedor(p)) || { id: currentUser.uid, nome: currentUser.displayName || 'Sistema anterior' };

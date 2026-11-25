@@ -30,6 +30,7 @@ const {
   validateBankTransfer,
 } = require('../domain/financeDomain');
 const { montarBaixaManual, validarDataBaixa } = require('../domain/baixaFinanceiraDomain');
+const { CATEGORIA_DO_ACRESCIMO, CATEGORIA_DO_DESCONTO } = require('../domain/ajustesDaBaixaDomain');
 const { centavosParaAOrigem } = require('../domain/alteracaoValorTituloDomain');
 const { recusarSeRenegociada, lerRenegociacaoDoTitulo, quitarOrigensSeRenegociacaoPaga } = require('./renegociacaoOrigem');
 const cashback = require('./cashback');
@@ -51,6 +52,9 @@ const {
   lerBanco,
   centavosDoTitulo,
 } = require('./baixaFinanceira');
+
+/** "R$ 532,00" para as descricoes gravadas. */
+const reaisSimples = (centavos) => `R$ ${(Number(centavos || 0) / 100).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -297,12 +301,80 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
     const origem = await lerOrigemSemTravar(tx, tenantId, dados);
     resumo.descricao = String(dados.descricao || '');
 
+    // Pago diferente do titulo (25/11/2026): o banco recebe o valor pago, mas o
+    // extrato so' mostrava o titulo -- a Embala Minas teve R$ 9,33 de juros no
+    // saldo sem linha nenhuma. A diferenca vira lancamento proprio, como na baixa
+    // manual: a mais = "Juros e multa" (ou "Valor pago a mais" no boleto do
+    // sistema anterior com parte ja' paga la'); a menos = "Desconto concedido".
+    const valorTituloCentavos = centavosDoTitulo(dados);
+    const aMaisCentavos = Math.max(0, valorPagoCentavos - valorTituloCentavos);
+    const aMenosCentavos = Math.max(0, valorTituloCentavos - valorPagoCentavos);
+    const valorNoBancoCentavos = Number((dados.boleto && dados.boleto.valorNoBancoCentavos) || 0);
+    const pagoAMaisDoSistemaAnterior = aMaisCentavos > 0 && valorNoBancoCentavos > valorTituloCentavos;
+    const acrescimoRef = aMaisCentavos > 0 ? db.collection('transacoes').doc() : null;
+    const descontoRef = aMenosCentavos > 0 ? db.collection('transacoes').doc() : null;
+    const lancamentoDaDiferenca = ({ tipo, categoria, descricao, valorCentavos, ligacao, motivo }) => ({
+      tenantId,
+      tipo,
+      status: 'Paga',
+      descricao,
+      categoria,
+      valor: valorCentavos / 100,
+      valorCentavos,
+      data: dataPagamento,
+      dataVencimento: dataPagamento,
+      dataPagamento,
+      formaPagamento: 'Boleto',
+      naturezaFinanceira: settledFinancialNatureForPayment('Boleto'),
+      movimentaCaixaFisico: false,
+      ...(banco ? { bancoId: String(dados.bancoId), bancoNome: String(banco.dados.nome || dados.bancoNome || '') } : {}),
+      clienteId: dados.clienteId || null,
+      clienteNome: dados.clienteNome || null,
+      ...(dados.filialId ? { filialId: dados.filialId } : {}),
+      ...(dados.vendedorId ? { vendedorId: dados.vendedorId } : {}),
+      ...ligacao,
+      origemLancamento: 'retorno_boleto',
+      createdAt: agora(),
+      ...(tipo === 'entrada' ? { recebidoEm: agora() } : {}),
+      updatedAt: agora(),
+      criadoPor: user.uid,
+      criadoEm: agora(),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), motivo),
+    });
+    if (acrescimoRef) {
+      tx.set(acrescimoRef, lancamentoDaDiferenca({
+        tipo: 'entrada',
+        categoria: pagoAMaisDoSistemaAnterior ? 'Valor pago a mais' : CATEGORIA_DO_ACRESCIMO.entrada,
+        descricao: pagoAMaisDoSistemaAnterior
+          ? `Valor pago a mais — ${resumo.descricao} (o boleto do sistema anterior valia ${reaisSimples(valorNoBancoCentavos)}; parte já tinha sido paga lá)`
+          : `Juros e multa — ${resumo.descricao}`,
+        valorCentavos: aMaisCentavos,
+        ligacao: { acrescimoDaTransacaoId: transacaoId, jurosCentavos: aMaisCentavos, multaCentavos: 0 },
+        motivo: `Diferença a mais do boleto pago (retorno do banco): "${resumo.descricao}"`,
+      }));
+    }
+    if (descontoRef) {
+      tx.set(descontoRef, lancamentoDaDiferenca({
+        tipo: 'saida',
+        categoria: CATEGORIA_DO_DESCONTO.entrada,
+        descricao: `Desconto concedido — ${resumo.descricao}`,
+        valorCentavos: aMenosCentavos,
+        ligacao: { descontoDaTransacaoId: transacaoId },
+        motivo: `Boleto pago com valor menor que o título (retorno do banco): "${resumo.descricao}"`,
+      }));
+    }
+    resumo.valorPagoCentavos = valorPagoCentavos;
+    resumo.acrescimoCentavos = aMaisCentavos;
+    resumo.descontoCentavos = aMenosCentavos;
+
     tx.update(titulo.ref, {
       status: 'Paga',
       dataPagamento,
       naturezaFinanceira: settledFinancialNatureForPayment('Boleto'),
       movimentaCaixaFisico: false,
-      boleto: { ...(dados.boleto || {}), status: 'pago' },
+      boleto: { ...(dados.boleto || {}), status: 'pago', valorPagoCentavos },
+      ...(acrescimoRef ? { acrescimoCentavos: aMaisCentavos, acrescimoTransacaoId: acrescimoRef.id, jurosCentavos: aMaisCentavos, multaCentavos: 0 } : {}),
+      ...(descontoRef ? { descontoCentavos: aMenosCentavos, descontoTransacaoId: descontoRef.id } : {}),
       recebidoEm: agora(),
       updatedAt: agora(),
       ...buildDocumentUpdateMetadata(user.uid, agora(), 'Baixa pelo retorno do banco'),

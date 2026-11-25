@@ -91,6 +91,64 @@ test('boleto: baixa pelo retorno com o valor pago do arquivo; repetir o arquivo 
   await assert.rejects(() => s.baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'bl1', valorPagoCentavos: 0 }, hoje: HOJE }), /valor pago inválido/);
 });
 
+test('retorno com valor pago diferente do titulo: a diferenca vira lancamento proprio e o extrato fecha com o banco (25/11/2026)', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/juros': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Duplicata 3893-8', formaPagamento: 'Boleto', boleto: { nossoNumero: '3893-8' }, valorCentavos: 28145, bancoId: 'bs', clienteId: 'c1', clienteNome: 'JULIANA SOARES' },
+    'transacoes/menos': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Duplicata 4000-1', formaPagamento: 'Boleto', boleto: { nossoNumero: '4000-1' }, valorCentavos: 10000, bancoId: 'bs' },
+    'transacoes/antigo': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Duplicata 703-6', formaPagamento: 'Boleto', boleto: { nossoNumero: '703-6', sistemaAnterior: true, valorNoBancoCentavos: 53200 }, valorCentavos: 4180, bancoId: 'bs' },
+    'transacoes/exato': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Duplicata 3773-9', formaPagamento: 'Boleto', boleto: { nossoNumero: '3773-9' }, valorCentavos: 425000, bancoId: 'bs' },
+    'bancos/bs': { tenantId: 'emp1', nome: 'SICOOB SANTO ANTONIO', saldoCentavos: 0 },
+  });
+  const s = carregar(fake.db);
+  const baixar = (transacaoId, valorPagoCentavos) => s.baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', corpo: { transacaoId, valorPagoCentavos, dataPagamento: '2026-11-23' }, hoje: HOJE });
+  const lancamentos = () => fake.listar('transacoes/').filter((t) => t.origemLancamento === 'retorno_boleto');
+
+  // Pago com juros: titulo pela parte dele, juros num lancamento ligado; banco recebe tudo.
+  const r = await baixar('juros', 29078);
+  assert.equal(r.acrescimoCentavos, 933);
+  assert.equal(fake.ler('bancos/bs').saldoCentavos, 29078);
+  const titulo = fake.ler('transacoes/juros');
+  assert.equal(titulo.boleto.valorPagoCentavos, 29078);
+  assert.equal(titulo.acrescimoCentavos, 933);
+  const [juros] = lancamentos();
+  assert.equal(juros.valorCentavos, 933);
+  assert.equal(juros.tipo, 'entrada');
+  assert.equal(juros.categoria, 'Juros e multa recebidos');
+  assert.equal(juros.descricao, 'Juros e multa — Duplicata 3893-8');
+  assert.equal(juros.dataPagamento, '2026-11-23');
+  assert.equal(juros.bancoNome, 'SICOOB SANTO ANTONIO');
+  assert.equal(juros.clienteNome, 'JULIANA SOARES');
+  assert.equal(juros.acrescimoDaTransacaoId, 'juros');
+  assert.equal(titulo.acrescimoTransacaoId, juros.id || titulo.acrescimoTransacaoId);
+  assert.ok(Object.values(juros).every((v) => v !== undefined), 'nada undefined no Firestore');
+
+  // Pago a menos: desconto concedido (saida); banco recebe so o pago.
+  await baixar('menos', 9500);
+  const desconto = lancamentos().find((t) => t.descontoDaTransacaoId === 'menos');
+  assert.equal(desconto.tipo, 'saida');
+  assert.equal(desconto.valorCentavos, 500);
+  assert.equal(desconto.categoria, 'Descontos concedidos');
+  assert.equal(fake.ler('transacoes/menos').descontoCentavos, 500);
+
+  // Boleto do sistema anterior com parte ja paga la: o excesso nao e juros.
+  await baixar('antigo', 53200);
+  const aMais = lancamentos().find((t) => t.acrescimoDaTransacaoId === 'antigo');
+  assert.equal(aMais.valorCentavos, 49020);
+  assert.equal(aMais.categoria, 'Valor pago a mais');
+  assert.match(aMais.descricao, /sistema anterior valia R\$ 532,00/);
+
+  // Pago exato: nenhum lancamento a mais.
+  const antes = lancamentos().length;
+  await baixar('exato', 425000);
+  assert.equal(lancamentos().length, antes);
+  assert.equal(fake.ler('transacoes/exato').acrescimoTransacaoId, undefined);
+  assert.equal(fake.ler('bancos/bs').saldoCentavos, 29078 + 9500 + 53200 + 425000);
+
+  // Mesmo arquivo de novo: nada repete.
+  await baixar('juros', 29078);
+  assert.equal(lancamentos().filter((t) => t.acrescimoDaTransacaoId === 'juros').length, 1);
+});
+
 test('boleto cancelado pago no banco: retorno nao baixa nem derruba; recebimento avulso nasce pago e nao repete', async () => {
   const fake = criarBancoFalso({
     'transacoes/bc1': {

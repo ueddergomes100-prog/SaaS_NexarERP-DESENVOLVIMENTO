@@ -44,10 +44,10 @@ const CODIGO_DIGITOS = 2;
  * loja tirava um vendedor do ar. `minimo` = menor PIN aceito ali.
  */
 const CANAIS = {
-  balcao: { minimo: PIN_MIN_DIGITOS },
-  desconto: { minimo: PIN_MIN_DIGITOS },
-  app: { minimo: PIN_MIN_DIGITOS_NOVO },
-  terminal: { minimo: PIN_MIN_DIGITOS_NOVO },
+  balcao: { minimo: PIN_MIN_DIGITOS, publico: false },
+  desconto: { minimo: PIN_MIN_DIGITOS, publico: false },
+  app: { minimo: PIN_MIN_DIGITOS_NOVO, publico: true },
+  terminal: { minimo: PIN_MIN_DIGITOS_NOVO, publico: true },
 };
 
 /** Mensagem UNICA para codigo que nao existe, vendedor sem senha e senha errada
@@ -71,11 +71,14 @@ const BLOQUEIO_MAXIMO_MINUTOS = 24 * 60;
  * publica, so' precisa do CNPJ e do codigo) acertava um PIN de 4 digitos em
  * poucos dias e um de 2 digitos em menos de 2 horas.
  *
- * Bloco B (25/11/2026): ACERTAR a senha zera so' os erros da rodada, NAO a
- * escada de bloqueios -- antes o acerto do vendedor de verdade devolvia o
- * bloqueio aos 5 minutos e o atacante recomecava do zero. A escada so' volta
- * ao comeco depois de 24 h sem nenhum erro naquele canal, ou quando o
- * responsavel cadastra uma senha nova.
+ * Bloco B (25/11/2026): nas entradas SEM login (app e computador do caixa),
+ * ACERTAR a senha zera so' os erros da rodada, NAO a escada de bloqueios --
+ * antes o acerto do vendedor de verdade devolvia o bloqueio aos 5 minutos e o
+ * atacante recomecava do zero. Ali a escada so' volta ao comeco depois de 24 h
+ * sem nenhum erro, ou quando o responsavel cadastra uma senha nova. No balcao e
+ * na liberacao de desconto (ja' ha' alguem logado), o acerto zera tudo, como
+ * antes (revisao de 25/11: quem erra um pouco todo dia nao fica com bloqueios
+ * cada vez maiores).
  */
 const duracaoDoBloqueioMinutos = (bloqueiosSeguidos) => Math.min(
   BLOQUEIO_MINUTOS * (2 ** Math.max(0, Math.floor(Number(bloqueiosSeguidos) || 0))),
@@ -374,9 +377,13 @@ async function validarPin({ tenantId, codigo, pin, canal = 'balcao' }) {
     throw new ErroPin(401, MENSAGEM_CODIGO_OU_SENHA);
   }
 
-  // Acertou: desfaz a tentativa reservada (a escada de bloqueios fica -- ver depoisDoAcerto).
+  // Acertou: desfaz a tentativa reservada. Na entrada sem login a escada de
+  // bloqueios fica (depoisDoAcerto); com alguem logado, zera tudo.
+  const depois = regras.publico
+    ? depoisDoAcerto(reserva.registro)
+    : { tentativasFalhas: 0, bloqueadoAteMs: null, bloqueiosSeguidos: 0, ultimaFalhaMs: null };
   await pinRef.update({
-    [`canais.${canal}`]: gravarCanal(depoisDoAcerto(reserva.registro)),
+    [`canais.${canal}`]: gravarCanal(depois),
     ultimaValidacaoEm: admin.firestore.FieldValue.serverTimestamp(),
   });
 

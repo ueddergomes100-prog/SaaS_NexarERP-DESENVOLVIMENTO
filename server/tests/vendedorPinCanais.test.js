@@ -128,3 +128,24 @@ test('encerrar sessoes: revoga o login e marca a ficha; conta sem login no Auth 
   assert.deepEqual(fake.db.__sessoesEncerradas, ['ana', 'rui']);
   assert.ok(fake.ler('usuarios/ana').sessaoValidaApos instanceof Date);
 });
+
+test('revisao de 25/11: no balcao o acerto zera a escada de bloqueios; no app a escada fica', async () => {
+  const { fake, pin } = await preparar();
+  const escada = { tentativasFalhas: 2, bloqueiosSeguidos: 3, bloqueadoAte: null, ultimaFalhaEm: new Date() };
+  await fake.db.collection('usuarios_pin').doc('ana').update({ 'canais.balcao': escada, 'canais.app': escada });
+  await validar(pin, '07', '4826', 'balcao');
+  await validar(pin, '07', '4826', 'app');
+  const canais = fake.ler('usuarios_pin/ana').canais;
+  assert.equal(canais.balcao.bloqueiosSeguidos, 0);
+  assert.equal(canais.balcao.tentativasFalhas, 0);
+  assert.equal(canais.app.bloqueiosSeguidos, 3);
+  assert.equal(canais.app.tentativasFalhas, 0);
+});
+
+test('revisao de 25/11: a marca de sessao encerrada usa o horario do Firebase (tokensValidAfterTime)', async () => {
+  const fake = criarBancoFalso(BASE, { consultas: true });
+  fake.db.__contasDoAuth = new Map([['ana', { tokensValidAfterTime: 'Wed, 25 Nov 2026 12:00:00 GMT' }]]);
+  const { sessoes } = carregar(fake.db);
+  await sessoes.encerrarSessoes(['ana'], 'teste');
+  assert.equal(fake.ler('usuarios/ana').sessaoValidaApos.getTime(), Date.parse('Wed, 25 Nov 2026 12:00:00 GMT'));
+});

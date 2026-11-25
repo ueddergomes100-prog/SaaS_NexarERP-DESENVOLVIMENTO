@@ -24,8 +24,15 @@ async function encerrarSessoes(uids, motivo = '') {
   const lista = lerUids(uids);
   let encerradas = 0;
   for (const uid of lista) {
+    // A marca usa o horario do PROPRIO Firebase (tokensValidAfterTime, o mesmo
+    // relogio do auth_time do login), nao o do servidor: relogio do servidor
+    // adiantado recusaria quem acabou de entrar de novo (revisao de 25/11).
+    let marcaMs = Date.now();
     try {
       await admin.auth().revokeRefreshTokens(uid);
+      const conta = await admin.auth().getUser(uid).catch(() => null);
+      const doFirebase = conta && conta.tokensValidAfterTime ? Date.parse(conta.tokensValidAfterTime) : NaN;
+      if (Number.isFinite(doFirebase)) marcaMs = doFirebase;
     } catch (erro) {
       // Cadastro sem conta no login (vendedor de balcao que nunca entrou): nada a encerrar no Auth.
       if (!erro || erro.code !== 'auth/user-not-found') {
@@ -34,7 +41,7 @@ async function encerrarSessoes(uids, motivo = '') {
       }
     }
     try {
-      await db.collection('usuarios').doc(uid).update({ sessaoValidaApos: admin.firestore.Timestamp.now() });
+      await db.collection('usuarios').doc(uid).update({ sessaoValidaApos: admin.firestore.Timestamp.fromMillis(marcaMs) });
       encerradas += 1;
     } catch (erro) {
       console.warn(`[Sessoes] nao foi possivel marcar o fim da sessao de ${uid} (${motivo}):`, erro && erro.message);

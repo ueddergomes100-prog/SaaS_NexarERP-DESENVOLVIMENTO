@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Ban, Printer } from 'lucide-react';
+import { Ban, Printer, RotateCcw } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,9 @@ import { isPedidoAberto } from '../../utils/preVendaDomain';
 import { cancelarPreVendaNoServidor } from '../../services/vendaServidorService';
 import VendedorHeader from './VendedorHeader';
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
+import { erroParaDevolverPeloApp } from '../../utils/devolucaoVendaDomain';
+import { useConfigDevolucaoApp } from '../../hooks/useConfigDevolucaoApp';
+import { comOrigem } from './navegacaoApp';
 
 /**
  * Pedido ja enviado pra base: so' leitura. Editar acontece no rascunho,
@@ -47,6 +50,8 @@ interface PedidoDetalhe {
   encargos: number;
   valorTotal: number;
   pagamentos: Array<{ formaPagamento: string; valor: number }>;
+  /** Devolucao pelo app (24/11/2026): o pedido pode ser devolvido por aqui? (a mesma regra do servidor) */
+  podeDevolverPeloApp: boolean;
 }
 
 const ROTULO_CONFERENCIA: Record<string, string> = {
@@ -77,6 +82,7 @@ const VendedorPedidoDetalhe: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { tenantId, currentUser, userPermissions } = useAuth();
+  const configDevolucaoApp = useConfigDevolucaoApp();
   const [pedido, setPedido] = useState<PedidoDetalhe | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [naoEncontrado, setNaoEncontrado] = useState(false);
@@ -113,6 +119,8 @@ const VendedorPedidoDetalhe: React.FC = () => {
         encargos: Number(data.encargos || 0),
         valorTotal: Number(data.valorTotal || 0),
         pagamentos: Array.isArray(data.pagamentos) ? data.pagamentos : [],
+        podeDevolverPeloApp: erroParaDevolverPeloApp(snap.id, data, currentUser.uid) === null
+          && (Array.isArray(data.itens) ? data.itens : []).some((i: { quantidade?: number; quantidadeJaDevolvida?: number }) => Number(i.quantidade || 0) - Number(i.quantidadeJaDevolvida || 0) > 0),
       });
       setCarregando(false);
     }).catch(() => {
@@ -254,6 +262,21 @@ const VendedorPedidoDetalhe: React.FC = () => {
                   </div>
                 ))}
               </div>
+            )}
+
+            {configDevolucaoApp.permitida && pedido.podeDevolverPeloApp && (
+              <button
+                type="button"
+                onClick={() => navigate(`/vendedor/devolucao/${pedido.id}`, comOrigem(`/vendedor/pedido/${pedido.id}`))}
+                style={{
+                  marginTop: '4px', height: '48px', borderRadius: '14px', border: '1px solid var(--border-color)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '15px', fontWeight: 700,
+                  color: 'var(--text-primary)', cursor: 'pointer', backgroundColor: 'var(--bg-tertiary)',
+                }}
+              >
+                <RotateCcw size={18} />
+                Devolver itens
+              </button>
             )}
 
             {podeCancelar && (

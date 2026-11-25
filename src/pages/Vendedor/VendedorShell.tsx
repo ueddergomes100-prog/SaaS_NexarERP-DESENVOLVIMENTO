@@ -30,6 +30,8 @@ import VendedorBalanco from './VendedorBalanco';
 import VendedorNovoCliente from './VendedorNovoCliente';
 import VendedorNovaTroca from './VendedorNovaTroca';
 import VendedorTrocas from './VendedorTrocas';
+import VendedorNovaDevolucao from './VendedorNovaDevolucao';
+import VendedorDevolucoes from './VendedorDevolucoes';
 import VendedorEntregas from './VendedorEntregas';
 import VendedorEntregaRota from './VendedorEntregaRota';
 import VendedorEntregaRegistrar from './VendedorEntregaRegistrar';
@@ -59,7 +61,7 @@ import CarregandoApp from './CarregandoApp';
 // rascunho reaberto) -- ja tem botao de acao fixo embaixo, sem espaco (nem
 // sentido) pra navegacao.
 // Conferencia (15/10/2026): a tela de conferir usa a barra de baixo para a quantidade e o "Fechar conferencia".
-const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/', '/vendedor/conferencia/', '/vendedor/balanco'];
+const SEM_NAVBAR_PREFIXOS = ['/vendedor/cliente/novo', '/vendedor/pedido/novo', '/vendedor/orcamento/novo', '/vendedor/pedido/rascunho/', '/vendedor/orcamento/rascunho/', '/vendedor/conferencia/', '/vendedor/balanco', '/vendedor/devolucao/'];
 
 const VendedorShell: React.FC = () => {
   const location = useLocation();
@@ -136,6 +138,9 @@ const VendedorShell: React.FC = () => {
           <Route path="troca/nova" element={<VendedorNovaTroca />} />
           <Route path="troca/rascunho/:localId" element={<VendedorNovaTroca />} />
           <Route path="trocas" element={<VendedorTrocas />} />
+          {/* Devolucao pelo app (24/11/2026): o servidor confere a chave da filial e o dono do pedido. */}
+          <Route path="devolucao/:pedidoId" element={so(PERMISSAO_APP.pedido, <VendedorNovaDevolucao />)} />
+          <Route path="devolucoes" element={so(PERMISSAO_APP.pedido, <VendedorDevolucoes />)} />
           <Route path="os" element={<VendedorOrdensServico />} />
           <Route path="os/nova" element={<VendedorOsNova />} />
           <Route path="os/:id/atender" element={<VendedorOsAtender />} />

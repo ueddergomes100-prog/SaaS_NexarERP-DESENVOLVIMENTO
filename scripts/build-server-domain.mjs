@@ -152,6 +152,8 @@ const MODULOS = [
   'src/utils/permissionCatalog.ts',
   // Mensalidades das empresas clientes (24/11/2026): datas, avisos e bloqueio iguais na tela e no servidor.
   'src/utils/mensalidadeDomain.ts',
+  // Devolucao de venda pelo app Vendas (24/11/2026): o mesmo efeito da tela, gravado pelo servidor.
+  'src/utils/devolucaoVendaDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

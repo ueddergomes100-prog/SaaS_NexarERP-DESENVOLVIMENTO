@@ -73,6 +73,7 @@ import BootSplash from './BootSplash';
 import { usePilulaDoMenu } from '../../hooks/usePilulaDoMenu';
 import { NexusSwal } from '../../utils/alerts';
 import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
+import { useDevolucoesAguardando } from '../../hooks/useDevolucoesAguardando';
 import './Layout.css';
 
 type NavItem = {
@@ -106,7 +107,6 @@ const Sidebar: React.FC = () => {
     selectedTenant,
     exigirIdentificacaoVendedor,
     controlaFiscal,
-    devolucaoBotaoSeparado,
     habilitarTelaPrecificacao,
     trabalhaComCondicional,
     trabalhaComEntregaFutura,
@@ -159,10 +159,10 @@ const Sidebar: React.FC = () => {
     // pra 'fiscal.*' orfanaria esse bloqueio existente). Por isso o gate
     // fiscal checa os dois casos em vez de so o prefixo.
     if (!controlaFiscal && (item.module?.startsWith('fiscal.') || item.module === 'utilitarios.sintegra')) return false;
-    // Devolucao de Venda separada so aparece no menu quando a empresa liga
-    // esse modo em Configuracoes -- por padrao a devolucao continua so como
-    // botao dentro do proprio pedido (ver PedidoVendaForm.tsx).
-    if (!devolucaoBotaoSeparado && item.module === 'comercial.devolucoes') return false;
+    // Devolucao de Venda (24/11/2026): o menu aparece para quem tem a permissao
+    // 'vendas.devolucao' -- as devolucoes pedidas pelo app caem nessa tela. A
+    // chave devolucaoBotaoSeparado continua valendo so' para o botao dentro do
+    // pedido (PedidoVendaForm.tsx).
     // Tela de Precificacao so aparece pra empresa que ligou a chave em
     // Configuracoes -- nasce desligada, como toda chave nova.
     if (!habilitarTelaPrecificacao && item.module === 'estoque.precificacao') return false;
@@ -185,7 +185,12 @@ const Sidebar: React.FC = () => {
     // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
     if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComCondicional, trabalhaComEntregaFutura, usaGradeDeProdutos, configCashback.ativo, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, habilitarTelaPrecificacao, trabalhaComCondicional, trabalhaComEntregaFutura, usaGradeDeProdutos, configCashback.ativo, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+
+  // Devolucoes do app aguardando confirmacao (24/11/2026): so' quem ve o menu
+  // escuta, e so' as que estao aguardando (igualdades: sem indice composto).
+  const veDevolucoes = !isBlocked('comercial.devolucoes') && (hasFullAccess || Boolean(userPermissions?.includes('vendas.devolucao')));
+  const devolucoesAguardando = useDevolucoesAguardando(veDevolucoes);
 
   const groups = useMemo<NavGroup[]>(() => [
     {
@@ -204,7 +209,8 @@ const Sidebar: React.FC = () => {
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
         { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
-        { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao' },
+        // Contador (24/11/2026): devolucoes pedidas pelo app aguardando confirmacao.
+        { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao', ...(devolucoesAguardando > 0 ? { badge: `${devolucoesAguardando} aguardando` } : {}) },
         { label: 'Promoções', to: '/vendas/promocoes', icon: Tag, module: 'comercial.promocoes', permission: 'vendas.promocoes' },
         // Cashback so' com o cashback ligado -- ver canAccess.
         { label: 'Cashback', to: '/vendas/cashback', icon: Coins, module: 'comercial.cashback', permission: 'vendas.cashback' },
@@ -403,7 +409,7 @@ const Sidebar: React.FC = () => {
         { label: 'Sincronizações', to: '/integracoes/sincronizacoes', icon: Link2, module: 'integracoes.sincronizacoes', permission: 'integracoes.sincronizacoes' }
       ]
     }
-  ], [exigirIdentificacaoVendedor, temVendedorCadastrado]);
+  ], [exigirIdentificacaoVendedor, temVendedorCadastrado, devolucoesAguardando]);
 
   const visibleGroups = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();

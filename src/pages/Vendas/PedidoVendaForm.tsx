@@ -85,6 +85,7 @@ import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
 import PaymentsEditor, { type PaymentFinanceConfig } from '../../components/finance/PaymentsEditor';
 import DevolucaoVendaModal from './DevolucaoVendaModal';
 import ComprovanteDevolucao from './ComprovanteDevolucao';
+import { ROTULO_SITUACAO_DEVOLUCAO, devolucaoTeveEfeito, situacaoDaDevolucao, type StatusDevolucao } from '../../utils/devolucaoVendaDomain';
 import { ehPedidoDoSistemaAnterior, mensagemPedidoDoSistemaAnterior } from '../../utils/importacaoPedidosAnterioresDomain';
 import {
   buildCardFeeSchedulesByBrand,
@@ -364,9 +365,9 @@ interface LinkedNfe {
 interface DevolucaoVenda {
   id: string;
   valorTotalDevolvido: number;
-  destinoValor: 'credito' | 'caixa';
+  destinoValor: 'credito' | 'caixa' | 'banco';
   motivo: string;
-  status: 'concluida' | 'estornada';
+  status: StatusDevolucao;
   createdAt?: { seconds?: number };
   itensDevolvidos: Array<{ id: string; nome: string; quantidadeDevolvida: number; fatorConversao?: number }>;
 }
@@ -1090,7 +1091,7 @@ const PedidoVendaForm: React.FC = () => {
         valorTotalDevolvido: docSnap.data().valorTotalDevolvido || 0,
         destinoValor: docSnap.data().destinoValor,
         motivo: docSnap.data().motivo || '',
-        status: docSnap.data().status || 'concluida',
+        status: situacaoDaDevolucao(docSnap.data()),
         createdAt: docSnap.data().createdAt,
         itensDevolvidos: docSnap.data().itensDevolvidos || [],
       }));
@@ -5360,6 +5361,11 @@ const PedidoVendaForm: React.FC = () => {
       showError('Esta devolução já foi estornada', 'Feche o pedido e abra de novo para ver a situação atual.');
       return;
     }
+    // Devolucao do app aguardando confirmacao ou recusada (24/11/2026): nada mexeu, nada a estornar.
+    if (!devolucaoTeveEfeito(devolucaoAtual)) {
+      showError('Esta devolução não foi confirmada', 'Ela não mexeu em estoque nem em dinheiro. Confirme ou recuse pela tela de Devoluções.');
+      return;
+    }
 
     // Quanto estornar de cada item (21/11/2026, pedido do dono). Devolucao com
     // lote so' estorna inteira (estornoDevolucaoDomain.ts).
@@ -5487,6 +5493,7 @@ const PedidoVendaForm: React.FC = () => {
         if (!devolucaoSnap.exists()) throw new Error('A devolução não existe mais.');
         const devolucaoData = devolucaoSnap.data();
         if (devolucaoData.status === 'estornada') throw new Error('Esta devolução já foi estornada.');
+        if (!devolucaoTeveEfeito(devolucaoData)) throw new Error('Esta devolução ainda não foi confirmada: não há nada a estornar.');
 
         // O plano e' refeito com a devolucao relida: se ela mudou desde a
         // escolha (outra pessoa estornou junto), nada e' gravado.
@@ -6218,20 +6225,21 @@ const PedidoVendaForm: React.FC = () => {
               <div key={devolucao.id} style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
                 padding: '12px 16px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px',
-                border: '1px solid var(--border-color)', opacity: devolucao.status === 'estornada' ? 0.6 : 1,
+                border: '1px solid var(--border-color)', opacity: devolucao.status === 'concluida' ? 1 : 0.6,
               }}>
                 <div>
                   <strong style={{ fontSize: '14px' }}>R$ {devolucao.valorTotalDevolvido.toFixed(2)}</strong>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '8px' }}>
-                    {devolucao.motivo} · {devolucao.destinoValor === 'credito' ? 'Crédito ao cliente' : 'Caixa'}
-                    {devolucao.status === 'estornada' && ' · ESTORNADA'}
+                    {devolucao.motivo} · {devolucao.destinoValor === 'credito' ? 'Crédito ao cliente' : devolucao.destinoValor === 'banco' ? 'Banco' : 'Caixa'}
+                    {devolucao.status !== 'concluida' && ` · ${ROTULO_SITUACAO_DEVOLUCAO[devolucao.status].toUpperCase()}`}
                   </span>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                     {devolucao.itensDevolvidos.map((item) => `${item.quantidadeDevolvida}x ${item.nome}`).join(', ')}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                  <button
+                  {/* Comprovante so' de devolucao que valeu (a do app aguardando ou recusada nao tem). */}
+                  {devolucaoTeveEfeito(devolucao) && (<button
                     type="button"
                     className="btn-secondary"
                     onClick={() => setComprovanteDevolucaoId(devolucao.id)}
@@ -6239,7 +6247,7 @@ const PedidoVendaForm: React.FC = () => {
                     style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
                   >
                     <Printer size={16} /> Imprimir
-                  </button>
+                  </button>)}
                   {canReturnVenda && devolucao.status === 'concluida' && (
                     <button
                       className="btn-secondary"

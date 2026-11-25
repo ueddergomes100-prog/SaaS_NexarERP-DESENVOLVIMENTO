@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, BarChart3, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, Package, PackageCheck, Receipt, Repeat, Send, ShieldCheck, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, BarChart3, Box, ChevronRight, ClipboardList, FileText, ListChecks, LogOut, RotateCcw, Package, PackageCheck, Receipt, Repeat, Send, ShieldCheck, SquarePlus, Tag, Truck, Users, Wrench, type LucideIcon } from 'lucide-react';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
@@ -16,6 +16,7 @@ import { PERMISSAO_TROCA_SOLICITAR } from '../../utils/trocaDomain';
 import { comOrigem } from './navegacaoApp';
 import { podeConferirNoApp } from '../../utils/conferenciaDomain';
 import VersaoDoSistema from '../../components/common/VersaoDoSistema';
+import { useConfigDevolucaoApp } from '../../hooks/useConfigDevolucaoApp';
 
 interface PedidoRecente {
   id: string;
@@ -62,6 +63,8 @@ const VendedorHome: React.FC = () => {
   const { currentUser, tenantId, logout, userNome, userPermissions, controlaFiscal, userRole, isOwner, filialAtual, conferenciaMercadoriaAtiva } = useAuth();
   const podeSolicitarTroca = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_TROCA_SOLICITAR);
   // Bloco "Aplicativo mobile" (26/10/2026): cada atalho com a sua chave.
+  // Devolucao pelo app (24/11/2026): so' com a chave da filial ligada.
+  const configDevolucaoApp = useConfigDevolucaoApp();
   const tela = (chave: string) => podeTelaDoApp(chave, userRole, isOwner, userPermissions);
   const [recentes, setRecentes] = useState<PedidoRecente[]>([]);
   const [resumoHoje, setResumoHoje] = useState<{ pedidos: number; orcamentos: number } | null>(null);
@@ -218,6 +221,9 @@ const VendedorHome: React.FC = () => {
           {tela(PERMISSAO_APP.pedido) && <Atalho Icone={BarChart3} rotulo="Meu Desempenho" detalhe="Vendas, meta e comissão" aoTocar={() => navigate('/vendedor/desempenho')} />}
           {tela(PERMISSAO_APP.preco) && <Atalho Icone={Tag} rotulo="Consultar Preço" aoTocar={() => navigate('/vendedor/preco')} />}
           {tela(PERMISSAO_APP.clientes) && <Atalho Icone={Users} rotulo="Consultar Cliente" aoTocar={() => navigate('/vendedor/cliente')} />}
+          {configDevolucaoApp.permitida && tela(PERMISSAO_APP.pedido) && (
+            <Atalho Icone={RotateCcw} rotulo="Minhas Devoluções" detalhe="Itens devolvidos de pedidos" aoTocar={() => navigate('/vendedor/devolucoes', comOrigem('/vendedor'))} />
+          )}
           {podeSolicitarTroca && (
             <>
               <Atalho Icone={Repeat} rotulo="Nova Troca" detalhe="Reposição sem cobrança" variante="ambar" aoTocar={() => navigate('/vendedor/troca/nova')} />

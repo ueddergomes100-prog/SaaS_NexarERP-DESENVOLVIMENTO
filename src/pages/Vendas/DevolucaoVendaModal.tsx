@@ -1,27 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Receipt, X } from 'lucide-react';
-import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { PARAMETROS_VENDA_PADRAO, checarPrazoDevolucao, parseParametrosVenda, type ParametrosVenda } from '../../utils/parametrosVendaDomain';
 import { db } from '../../services/firebase';
-import { estornarCashbackDaDevolucaoSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
 import { showError, NexusSwal } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import DevolucaoNfeModal from '../../components/common/DevolucaoNfeModal';
-import { applyStockAdjustments } from '../../utils/firestoreAtomic';
-import { devolverAosLotesNaTransacao } from '../../services/loteBaixaService';
-import { toBaseQuantity } from '../../utils/embalagemDomain';
-import type { LoteUsado } from '../../utils/loteDomain';
-import { toStockAdjustmentItems } from '../../utils/embalagemDomain';
-import { recalculateCommissionAfterReturn, toCents } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { campoDoClienteDoCredito } from '../../utils/creditoDomain';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
+import {
+  FORMAS_BANCARIAS_DEVOLUCAO,
+  MOTIVOS_DEVOLUCAO,
+  disponivelParaDevolver,
+  montarItensDevolvidos,
+  type FormaBancariaDevolucao,
+} from '../../utils/devolucaoVendaDomain';
+import { efetivarDevolucaoVenda, lerQuantidadesEmAguardo, registrarHistoricoDaDevolucao } from '../../services/devolucaoVendaService';
 
-/** Formas de devolucao que saem de conta bancaria (nao do caixa fisico). */
-const FORMAS_BANCARIAS = ['Pix', 'Transferência'] as const;
-type FormaBancaria = typeof FORMAS_BANCARIAS[number];
+type FormaBancaria = FormaBancariaDevolucao;
 
 interface BancoOption {
   id: string;
@@ -57,17 +54,19 @@ interface DevolucaoVendaModalProps {
 }
 
 /**
- * Devolucao de um pedido de venda ja carregado (aberta de dentro da tela
- * do proprio pedido, sem etapa de busca -- antes era uma tela separada,
- * DevolucoesVenda.tsx, que buscava o pedido pelo numero). Logica de
- * confirmar devolucao movida sem alteracao da tela antiga.
+ * Devolucao de um pedido de venda ja carregado (aberta de dentro da tela do
+ * proprio pedido ou da tela de Devolucoes). O que a devolucao grava mora em
+ * services/devolucaoVendaService.ts -- o MESMO codigo do "Confirmar" da
+ * devolucao pedida pelo app --, com a regra em utils/devolucaoVendaDomain.ts.
  */
 const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, numeroPedido, clienteNome, itens: itensOriginais, onClose, onSuccess, onComprovante, dataVenda }) => {
-  const { currentUser, tenantId, controlaFiscal, isOwner, userRole, userPermissions } = useAuth();
+  const { currentUser, tenantId, controlaFiscal, isOwner, userRole, userPermissions, userNome } = useAuth();
   const podeEmitirNota = Boolean(controlaFiscal) && (isOwner || isPlatformAdminRole(userRole) || Boolean(userPermissions?.includes('fiscal.emitir')));
   /** Devolucao recem-registrada cuja NF-e de devolucao esta sendo emitida (abre o pop-up fiscal). */
   const [devolucaoParaNota, setDevolucaoParaNota] = useState<string | null>(null);
   const [itens, setItens] = useState<DevolucaoItem[]>([]);
+  /** Quanto de cada linha ja' esta' numa devolucao do app aguardando confirmacao (por indice). */
+  const [emAguardo, setEmAguardo] = useState<Map<number, number>>(new Map());
   const [destinoValor, setDestinoValor] = useState<'credito' | 'caixa' | 'banco'>('credito');
   const [formaBancaria, setFormaBancaria] = useState<FormaBancaria>('Pix');
   const [bancoId, setBancoId] = useState('');
@@ -88,6 +87,13 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
   }, [itensOriginais]);
 
   useEffect(() => {
+    if (!tenantId || !pedidoId) return;
+    lerQuantidadesEmAguardo(tenantId, pedidoId)
+      .then(setEmAguardo)
+      .catch((error) => console.error('Erro ao ler as devoluções aguardando confirmação:', error));
+  }, [tenantId, pedidoId]);
+
+  useEffect(() => {
     if (!tenantId) return;
     // Parametros de venda da filial (fase A): prazo para devolucao.
     getDoc(doc(db, 'configuracoes', tenantId))
@@ -98,11 +104,13 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       .catch((error) => console.error('Erro ao carregar bancos:', error));
   }, [tenantId]);
 
+  const disponivelDa = (item: DevolucaoItem, index: number) => disponivelParaDevolver(item, emAguardo.get(index) || 0);
+
   const handleToggleItem = (index: number) => {
     setItens((current) => current.map((item, idx) => {
       if (idx !== index) return item;
-      const disponivel = item.quantidade - (item.quantidadeJaDevolvida || 0);
-      if (!item.selecionado && disponivel > 0) return { ...item, selecionado: true, quantidadeSelecionada: 1 };
+      const disponivel = disponivelDa(item, idx);
+      if (!item.selecionado && disponivel > 0) return { ...item, selecionado: true, quantidadeSelecionada: Math.min(1, disponivel) };
       return { ...item, selecionado: false, quantidadeSelecionada: 0 };
     }));
   };
@@ -110,8 +118,8 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
   const handleQtdChange = (index: number, novaQtd: number) => {
     setItens((current) => current.map((item, idx) => {
       if (idx !== index) return item;
-      const maxPermitido = item.quantidade - (item.quantidadeJaDevolvida || 0);
-      const qtd = Math.max(0, Math.min(novaQtd, maxPermitido));
+      const maxPermitido = disponivelDa(item, idx);
+      const qtd = Math.max(0, Math.min(Number.isFinite(novaQtd) ? novaQtd : 0, maxPermitido));
       return { ...item, quantidadeSelecionada: qtd, selecionado: qtd > 0 };
     }));
   };
@@ -155,6 +163,15 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
       showError('Atenção', 'Selecione de qual banco o dinheiro está saindo.');
       return;
     }
+    const montagem = montarItensDevolvidos(
+      itens,
+      itens.map((item, indice) => ({ indice, id: item.id, nome: item.nome, quantidade: item.selecionado ? item.quantidadeSelecionada : 0 })),
+      emAguardo,
+    );
+    if (!montagem.ok) {
+      showError('Atenção', montagem.erro);
+      return;
+    }
     // Prazo de devolucao da filial (parametros de venda, fase A).
     const prazo = checarPrazoDevolucao(parametrosVenda, dataVenda, getDateInputInTimeZone());
     if (prazo.foraDoPrazo) {
@@ -177,211 +194,23 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
     setIsProcessing(true);
 
     try {
-      const novaDevolucaoRef = doc(collection(db, 'devolucoes_venda'));
-      const saleRef = doc(db, 'pedidos_venda', pedidoId);
-      let vendedorDaVendaOriginal: { id?: string; nome?: string } = {};
-      let lotesDevolvidos: LoteUsado[] = [];
-      const itensFiltrados = itens.filter((item) => item.selecionado && item.quantidadeSelecionada > 0);
-      const itensDevolvidos = itensFiltrados.map((item) => ({
-        id: item.id,
-        nome: item.nome,
-        precoUnitario: item.precoUnitario,
-        quantidadeDevolvida: item.quantidadeSelecionada,
-        descontoProporcional: item.desconto * (item.quantidadeSelecionada / item.quantidade),
-        subtotal: (item.quantidadeSelecionada * item.precoUnitario) - (item.desconto * (item.quantidadeSelecionada / item.quantidade)),
-        // Preservado no documento da devolucao para o estorno saber reverter
-        // na mesma unidade -- sem isso, estornar devolveria a quantidade em
-        // embalagem como se fosse unidade base.
-        ...(item.fatorConversao ? { fatorConversao: item.fatorConversao } : {}),
-      }));
-
-      await runTransaction(db, async (transaction) => {
-        const saleSnap = await transaction.get(saleRef);
-        if (!saleSnap.exists()) throw new Error('A venda original não existe mais.');
-        const saleData = saleSnap.data();
-        if (saleData.status === 'Cancelada') throw new Error('Venda cancelada não pode receber nova devolução.');
-        vendedorDaVendaOriginal = { id: saleData.vendedorId, nome: saleData.vendedorNome };
-
-        // Leitura do banco ANTES de qualquer escrita: applyStockAdjustments
-        // ja grava, e transacao do Firestore recusa read depois de write.
-        const bancoRef = destinoValor === 'banco' ? doc(db, 'bancos', bancoId) : null;
-        let saldoBancoCentavos = 0;
-        if (bancoRef) {
-          const bancoSnap = await transaction.get(bancoRef);
-          if (!bancoSnap.exists()) throw new Error('O banco selecionado não existe mais.');
-          saldoBancoCentavos = Number(bancoSnap.data().saldoCentavos || 0);
-        }
-
-        const storedItems = Array.isArray(saleData.itens) ? saleData.itens : [];
-        // Lote e Validade: o que a venda tirou de lote volta ao MESMO lote (itens gravados na venda).
-        const retornosDeLote: Array<{ lotes?: LoteUsado[]; jaDevolvido: number; quantidade: number }> = [];
-        const updatedItems = storedItems.map((storedItem: DevolucaoItem & { lotes?: LoteUsado[] }) => {
-          const returnedItem = itensFiltrados.find((item) => item.id === storedItem.id && item.nome === storedItem.nome);
-          if (!returnedItem) return storedItem;
-          const alreadyReturned = Number(storedItem.quantidadeJaDevolvida || 0);
-          const available = Number(storedItem.quantidade || 0) - alreadyReturned;
-          if (returnedItem.quantidadeSelecionada > available) {
-            throw new Error(`A quantidade disponível para devolução de ${storedItem.nome} foi alterada.`);
-          }
-          if (Array.isArray(storedItem.lotes) && storedItem.lotes.length > 0) {
-            retornosDeLote.push({
-              lotes: storedItem.lotes,
-              jaDevolvido: toBaseQuantity(alreadyReturned, storedItem.fatorConversao),
-              quantidade: toBaseQuantity(returnedItem.quantidadeSelecionada, storedItem.fatorConversao),
-            });
-          }
-          return { ...storedItem, quantidadeJaDevolvida: alreadyReturned + returnedItem.quantidadeSelecionada };
-        });
-
-        await applyStockAdjustments(
-          transaction,
-          db,
-          toStockAdjustmentItems(itensFiltrados.map((item) => ({
-            id: item.id,
-            nome: item.nome,
-            quantidade: item.quantidadeSelecionada,
-            fatorConversao: item.fatorConversao,
-          }))),
-          'increment',
-          true,
-        );
-        lotesDevolvidos = devolverAosLotesNaTransacao(transaction, db, retornosDeLote);
-
-        transaction.set(novaDevolucaoRef, {
-          pedidoVendaId: pedidoId,
-          numeroPedidoOriginal: numeroPedido,
+      const quem = { tenantId, usuarioId: currentUser.uid, usuarioNome: userNome || currentUser.email || currentUser.uid };
+      const resultado = await efetivarDevolucaoVenda(quem, {
+        nova: {
+          pedidoId,
+          numeroPedido,
           clienteNome,
-          valorTotalDevolvido: valorTotalCalculado,
-          valorTotalDevolvidoCentavos: toCents(valorTotalCalculado),
-          destinoValor,
-          // Guardados pro estorno saber devolver o dinheiro pro mesmo
-          // banco, sem depender do que estiver selecionado na tela depois.
-          ...(destinoValor === 'banco' ? {
-            bancoId,
-            bancoNome: bancos.find((b) => b.id === bancoId)?.nome || '',
-            formaDevolucao: formaBancaria,
-          } : {}),
+          itensDevolvidos: montagem.itensDevolvidos,
+          valorTotal: montagem.valorTotal,
+          destino: destinoValor,
+          formaBancaria,
+          bancoId: destinoValor === 'banco' ? bancoId : '',
+          bancoNome: destinoValor === 'banco' ? (bancos.find((b) => b.id === bancoId)?.nome || '') : '',
           motivo,
           observacao,
-          tenantId,
-          usuarioResponsavelId: currentUser.uid,
-          status: 'concluida',
-          idempotencyKey: `devolucao:${novaDevolucaoRef.id}`,
-          createdAt: serverTimestamp(),
-          itensDevolvidos,
-          // Lotes repostos por esta devolucao: o estorno usa isto para retirar de novo dos mesmos lotes.
-          ...(lotesDevolvidos.length > 0 ? { lotesDevolvidos } : {}),
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-        });
-
-        const savedCommission = saleData.comissao?.regraVersion
-          ? recalculateCommissionAfterReturn(
-            saleData.comissao,
-            itensDevolvidos.map((item) => ({ id: item.id, nome: item.nome, baseCents: toCents(item.subtotal) })),
-          )
-          : null;
-        transaction.update(saleRef, {
-          itens: updatedItems,
-          ...(savedCommission ? { comissao: savedCommission } : {}),
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Devolução registrada'),
-        });
-
-        if (destinoValor === 'caixa') {
-          transaction.set(doc(db, 'transacoes', `devolucao_${novaDevolucaoRef.id}`), {
-            descricao: `Devolução Pedido #${numeroPedido} - Caixa`,
-            categoria: 'Devolução de Venda',
-            valor: valorTotalCalculado,
-            valorCentavos: toCents(valorTotalCalculado),
-            tipo: 'saida',
-            formaPagamento: 'Dinheiro',
-            naturezaFinanceira: 'caixa_fisico',
-            movimentaCaixaFisico: true,
-            status: 'Paga',
-            data: getDateInputInTimeZone(),
-            clienteNome,
-            pedidoOrigemId: pedidoId,
-            devolucaoId: novaDevolucaoRef.id,
-            idempotencyKey: `devolucao:${novaDevolucaoRef.id}:caixa`,
-            tenantId,
-            createdAt: serverTimestamp(),
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-        } else if (destinoValor === 'banco' && bancoRef) {
-          const bancoNome = bancos.find((b) => b.id === bancoId)?.nome || '';
-          transaction.set(doc(db, 'transacoes', `devolucao_${novaDevolucaoRef.id}`), {
-            descricao: `Devolução Pedido #${numeroPedido} - ${formaBancaria}${bancoNome ? ` (${bancoNome})` : ''}`,
-            categoria: 'Devolução de Venda',
-            valor: valorTotalCalculado,
-            valorCentavos: toCents(valorTotalCalculado),
-            tipo: 'saida',
-            formaPagamento: formaBancaria,
-            naturezaFinanceira: 'bancario_digital',
-            movimentaCaixaFisico: false,
-            bancoId,
-            bancoNome,
-            status: 'Paga',
-            data: getDateInputInTimeZone(),
-            clienteNome,
-            pedidoOrigemId: pedidoId,
-            devolucaoId: novaDevolucaoRef.id,
-            idempotencyKey: `devolucao:${novaDevolucaoRef.id}:banco`,
-            tenantId,
-            createdAt: serverTimestamp(),
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-          // Debita o banco na hora, simetrico ao credito que a venda por
-          // Pix/Transferencia aplica ao ser finalizada.
-          transaction.update(bancoRef, {
-            saldoCentavos: saldoBancoCentavos - toCents(valorTotalCalculado),
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Devolução do pedido #${numeroPedido}`),
-          });
-        } else {
-          transaction.set(doc(db, 'creditos_cliente', `devolucao_${novaDevolucaoRef.id}`), {
-            clienteNome,
-            // Codigo do cliente da venda: o credito nao some se o cadastro for renomeado.
-            ...campoDoClienteDoCredito(saleData.clienteId),
-            pedidoOrigemId: pedidoId,
-            devolucaoId: novaDevolucaoRef.id,
-            numeroPedidoOriginal: numeroPedido,
-            valorOriginal: valorTotalCalculado,
-            saldoDisponivel: valorTotalCalculado,
-            status: 'disponivel',
-            motivo,
-            tenantId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-        }
+        },
       });
-
-      try {
-        const { createAuditLog } = await import('../../services/logService');
-        createAuditLog({
-          tenantId,
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'vendas',
-          acao: 'devolucao',
-          descricao: `Devolução concluída para o pedido #${numeroPedido} no valor de R$ ${valorTotalCalculado.toFixed(2)}.`,
-          registroRelacionadoId: novaDevolucaoRef.id,
-          // Historico de alteracoes (09/11/2026): aparece tambem no pedido de origem.
-          documentosRelacionados: [pedidoId],
-          documentoTipo: 'devolucao',
-          documentoNumero: `Devolução do Pedido ${numeroPedido}`,
-          ...(motivo ? { motivo } : {}),
-          vendedorId: vendedorDaVendaOriginal.id,
-          vendedorNome: vendedorDaVendaOriginal.nome,
-          status: 'sucesso',
-          critical: true
-        });
-      } catch (logError) {
-        console.error('Erro ao registrar auditoria da devolução:', logError);
-      }
-      // Cashback (20/10/2026): a parte proporcional ao valor devolvido volta (pelo servidor).
-      void estornarCashbackDaDevolucaoSemFalhar(novaDevolucaoRef.id);
+      registrarHistoricoDaDevolucao({ ...quem, usuarioEmail: currentUser.email || currentUser.uid }, resultado, 'feita');
 
       onSuccess();
 
@@ -396,7 +225,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
           cancelButtonText: 'Depois',
         });
         if (escolha.isConfirmed) {
-          setDevolucaoParaNota(novaDevolucaoRef.id);
+          setDevolucaoParaNota(resultado.devolucaoId);
           return;
         }
       }
@@ -414,10 +243,10 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
         cancelButtonText: 'Fechar',
       });
       onClose();
-      if (fim.isConfirmed && onComprovante) onComprovante(novaDevolucaoRef.id);
+      if (fim.isConfirmed && onComprovante) onComprovante(resultado.devolucaoId);
     } catch (err) {
       console.error(err);
-      showError('Erro', err instanceof Error ? err.message : 'Ocorreu um problema ao processar a devolução.');
+      showError('Não foi possível registrar a devolução', err instanceof Error ? err.message : 'Ocorreu um problema ao processar a devolução. Tente de novo.');
     } finally {
       returnLockRef.current = false;
       setIsProcessing(false);
@@ -454,7 +283,8 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
             <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>Selecione os Itens para Devolução</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {itens.map((item, idx) => {
-                const disponivelParaDevolucao = item.quantidade - (item.quantidadeJaDevolvida || 0);
+                const disponivelParaDevolucao = disponivelDa(item, idx);
+                const aguardando = emAguardo.get(idx) || 0;
                 const esgotado = disponivelParaDevolucao <= 0;
 
                 return (
@@ -475,7 +305,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
                     <div style={{ flex: 1 }}>
                       <strong style={{ fontSize: '14px', display: 'block' }}>{item.nome}</strong>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Preço Un: R$ {item.precoUnitario.toFixed(2)} | Vendido: {item.quantidade} {item.unidadeMedidaSigla || 'un.'} {(item.quantidadeJaDevolvida || 0) > 0 && `(Já devolvido: ${item.quantidadeJaDevolvida})`}
+                        Preço Un: R$ {item.precoUnitario.toFixed(2)} | Vendido: {item.quantidade} {item.unidadeMedidaSigla || 'un.'} {(item.quantidadeJaDevolvida || 0) > 0 && `(Já devolvido: ${item.quantidadeJaDevolvida})`} {aguardando > 0 && `(Aguardando confirmação: ${aguardando})`}
                       </span>
                     </div>
                     {!esgotado && item.selecionado && (
@@ -554,7 +384,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
                         onChange={(e) => setFormaBancaria(e.target.value as FormaBancaria)}
                         style={{ width: '100%', padding: '10px 12px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
                       >
-                        {FORMAS_BANCARIAS.map((forma) => <option key={forma} value={forma}>{forma}</option>)}
+                        {FORMAS_BANCARIAS_DEVOLUCAO.map((forma) => <option key={forma} value={forma}>{forma}</option>)}
                       </select>
                     </div>
                     <div className="input-group">
@@ -584,12 +414,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
                     style={{ width: '100%', padding: '10px 12px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
                   >
                     <option value="">Selecione...</option>
-                    <option value="Cliente desistiu">Cliente desistiu</option>
-                    <option value="Produto com defeito">Produto com defeito</option>
-                    <option value="Produto errado">Produto errado</option>
-                    <option value="Troca">Troca</option>
-                    <option value="Erro de Venda">Erro de Venda</option>
-                    <option value="Outro">Outro</option>
+                    {MOTIVOS_DEVOLUCAO.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </div>
                 <div className="input-group">
@@ -606,7 +431,7 @@ const DevolucaoVendaModal: React.FC<DevolucaoVendaModalProps> = ({ pedidoId, num
             </div>
           )}
 
-          {itens.every((item) => (item.quantidade - (item.quantidadeJaDevolvida || 0)) <= 0) && (
+          {itens.length > 0 && itens.every((item, idx) => disponivelDa(item, idx) <= 0) && (
             <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <AlertTriangle size={24} />
               <div>

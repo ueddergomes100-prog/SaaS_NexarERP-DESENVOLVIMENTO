@@ -130,6 +130,7 @@ import { parseConfigBonificacao, parseTributacaoBonificacao, type TributacaoBoni
 import { CSOSN_OPTIONS as CSOSN_BONIFICACAO, ICMS_CST_OPTIONS as CST_ICMS_BONIFICACAO } from '../../utils/fiscalDomain';
 import { PIS_COFINS_CST_SAIDA_OPTIONS } from '../../utils/notaFiscalItemDomain';
 import { DEFAULT_VALORES_NA_MINUTA_DO_APP, OPCOES_VALORES_NA_MINUTA_DO_APP, parseValoresNaMinutaDoApp, type ValoresNaMinutaDoApp } from '../../utils/minutaDomain';
+import { parseConfigDevolucaoApp } from '../../utils/devolucaoVendaDomain';
 import { DEFAULT_LOTE_AVISAR_VENCIDO, DEFAULT_LOTE_MODO_SAIDA, parseLoteAvisarVencido, parseLoteModoSaida, type ModoSaidaLote } from '../../utils/loteDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
@@ -286,6 +287,8 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
     rotulo: 'Valores na minuta do App Vendas',
     formatar: (v) => OPCOES_VALORES_NA_MINUTA_DO_APP.find((o) => o.valor === v)?.rotulo || (v === undefined || v === null ? '' : String(v)),
   },
+  { campo: 'appDevolucaoPermitida', rotulo: 'Permitir devolução pelo aplicativo', formatar: simNaoHistorico },
+  { campo: 'appDevolucaoJaConfirmada', rotulo: 'Devolução do aplicativo já entra confirmada', formatar: simNaoHistorico },
   { campo: 'loteModoSaida', rotulo: 'Saída de produto com lote' },
   { campo: 'loteAvisarVencido', rotulo: 'Avisar lote vencido', formatar: simNaoHistorico },
   // Comissao, meta e descontos
@@ -547,6 +550,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     minutaMostrarMarca: DEFAULT_MINUTA_MOSTRAR_MARCA,
     minutaMostrarLocal: DEFAULT_MINUTA_MOSTRAR_LOCAL,
     appMinutaValores: DEFAULT_VALORES_NA_MINUTA_DO_APP as ValoresNaMinutaDoApp,
+    // Devolucao pelo app Vendas (24/11/2026): nascem desligadas, por filial.
+    appDevolucaoPermitida: false,
+    appDevolucaoJaConfirmada: false,
     // Bonificacao no pedido (30/10/2026): limite em texto enquanto edita; vira numero ao salvar.
     bonificacao: { ativa: false, limitePercentual: '' },
     tributacaoBonificacao: parseTributacaoBonificacao(undefined) as TributacaoBonificacao,
@@ -738,6 +744,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             minutaMostrarMarca: data.minutaMostrarMarca ?? DEFAULT_MINUTA_MOSTRAR_MARCA,
             minutaMostrarLocal: data.minutaMostrarLocal ?? DEFAULT_MINUTA_MOSTRAR_LOCAL,
             appMinutaValores: parseValoresNaMinutaDoApp(data.appMinutaValores),
+            appDevolucaoPermitida: parseConfigDevolucaoApp(data).permitida,
+            appDevolucaoJaConfirmada: parseConfigDevolucaoApp(data).jaConfirmada,
             tributacaoBonificacao: parseTributacaoBonificacao(data.tributacaoBonificacao),
             bonificacao: (() => {
               const lida = parseConfigBonificacao(data.bonificacao);
@@ -3886,6 +3894,31 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   </label>
                 ))}
                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Vale para a minuta que o vendedor manda ao cliente pelo WhatsApp, no app (Rascunhos). Com valores, sai o preço de cada item e o <strong>total do pedido</strong>, com o aviso de que os valores dependem da confirmação da loja. A minuta impressa na loja continua sem valores.</p>
+              </div>
+
+              <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '10px', gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Devolução pelo App Vendas</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.appDevolucaoPermitida === true}
+                    onChange={(e) => setFormData({ ...formData, appDevolucaoPermitida: e.target.checked, ...(e.target.checked ? {} : { appDevolucaoJaConfirmada: false }) })}
+                    disabled={!isEditingMode}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Permitir devolução pelo aplicativo
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: formData.appDevolucaoPermitida ? 'pointer' : 'not-allowed', color: 'var(--text-primary)', fontSize: '14px', opacity: formData.appDevolucaoPermitida ? 1 : 0.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.appDevolucaoPermitida === true && formData.appDevolucaoJaConfirmada === true}
+                    onChange={(e) => setFormData({ ...formData, appDevolucaoJaConfirmada: e.target.checked })}
+                    disabled={!isEditingMode || !formData.appDevolucaoPermitida}
+                    style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px' }}
+                  />
+                  Devolução do aplicativo já entra confirmada
+                </label>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>O vendedor devolve itens só dos pedidos que <strong>ele mesmo fez no aplicativo</strong> e que a loja já faturou. Sem a segunda opção, a devolução fica <strong>Aguardando confirmação</strong> em Vendas › Devolução de Venda: estoque e dinheiro só mexem quando o escritório confirmar. Com ela, a devolução vale na hora.</p>
               </div>
 
               {formData.conferenciaMercadoria && (

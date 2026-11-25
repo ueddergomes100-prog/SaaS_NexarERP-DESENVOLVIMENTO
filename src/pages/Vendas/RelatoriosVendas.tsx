@@ -47,6 +47,7 @@ import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../compo
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
+import { devolucaoTeveEfeito } from '../../utils/devolucaoVendaDomain';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const number = new Intl.NumberFormat('pt-BR');
@@ -126,6 +127,8 @@ const RelatoriosVendas: React.FC = () => {
       // A reserva (sem indice) traz todas: o mesmo corte aqui.
       const lista = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }) as DevolucaoDoRelatorio)
+        // Devolucao do app aguardando confirmacao (ou recusada) ainda nao valeu (24/11/2026).
+        .filter((d) => devolucaoTeveEfeito(d as { status?: unknown }))
         .filter((d) => {
           const data = dataDaDevolucao(d);
           return Boolean(data) && (!inicio || data! >= inicio) && (!fim || data! <= fim);

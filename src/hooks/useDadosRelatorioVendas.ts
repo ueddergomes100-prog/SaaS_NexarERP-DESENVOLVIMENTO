@@ -6,6 +6,7 @@ import { db } from '../services/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { filtrarVendasVisiveis } from '../utils/visibilidadeVendasDomain';
 import { filtrarVendasFaturadas, type DadosRelatorioVendas } from '../utils/relatorioVendasDomain';
+import { devolucaoTeveEfeito } from '../utils/devolucaoVendaDomain';
 
 const VAZIO: DadosRelatorioVendas = { sales: [], transactions: [], users: {}, products: {}, returns: [] };
 
@@ -91,7 +92,8 @@ export const useDadosRelatorioVendas = ({ de, ate }: { de: string; ate: string }
           transactions: transactionsDocs.map((document) => ({ id: document.id, ...document.data() })),
           users,
           products,
-          returns: returnsDocs.map((document) => ({ id: document.id, ...document.data() })),
+          // Devolucao do app aguardando confirmacao (ou recusada) nao abate nada (24/11/2026).
+          returns: returnsDocs.map((document) => ({ id: document.id, ...document.data() })).filter((d) => devolucaoTeveEfeito(d as { status?: unknown })),
         });
       } catch (loadError) {
         console.error('Erro ao carregar relatório de vendas:', loadError);

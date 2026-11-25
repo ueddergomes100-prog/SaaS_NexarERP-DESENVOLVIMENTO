@@ -29,6 +29,7 @@ const { admin, db } = require('../config/firebase');
 const cb = require('../domain/cashbackDomain');
 const fin = require('../domain/financeDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
+const { devolucaoTeveEfeito } = require('../domain/devolucaoVendaDomain');
 const { registrarLog } = require('./auditoria');
 
 class ErroCashback extends Error {
@@ -329,6 +330,8 @@ const estornarDevolucao = async ({ user, tenantId, devolucaoId }) => {
   const devSnap = await db.collection('devolucoes_venda').doc(id).get();
   if (!devSnap.exists || devSnap.data().tenantId !== tenantId) throw new ErroCashback(404, 'Devolução não encontrada. Atualize a tela.');
   const dev = devSnap.data();
+  // Devolucao do app aguardando confirmacao (ou recusada) ainda nao valeu: nada volta (24/11/2026).
+  if (!devolucaoTeveEfeito(dev)) return { estornado: false, motivo: 'a devolução ainda não foi confirmada' };
   const pedidoId = texto(dev.pedidoVendaId || dev.pedidoOrigemId);
   if (!pedidoId) return { estornado: false, motivo: 'devolução sem venda de origem' };
   const vendaSnap = await db.collection('pedidos_venda').doc(pedidoId).get();

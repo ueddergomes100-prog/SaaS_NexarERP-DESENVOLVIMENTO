@@ -237,19 +237,24 @@ export interface DevolucaoVendaParaMovimento {
   clienteNome?: unknown;
   status?: unknown;
   createdAtMillis?: number | null;
+  /** Devolucao pedida pelo app e confirmada depois (24/11/2026): a entrada no estoque e' da confirmacao. */
+  confirmadaEmMillis?: number | null;
   estornadaEmMillis?: number | null;
   itensDevolvidos?: Array<{ id?: unknown; nome?: unknown; quantidadeDevolvida?: unknown; fatorConversao?: unknown }>;
 }
 
 export const movimentosDaDevolucaoVenda = (d: DevolucaoVendaParaMovimento): MovimentoEstoque[] => {
+  // Pedida pelo app e ainda aguardando confirmacao, ou recusada: nada entrou no estoque.
+  if (d.status === 'aguardando_confirmacao' || d.status === 'recusada') return [];
   const doc = `Devolução do pedido #${txt(d.numeroPedidoOriginal)}`;
   const linhas: MovimentoEstoque[] = [];
+  const entradaMillis = typeof d.confirmadaEmMillis === 'number' ? d.confirmadaEmMillis : d.createdAtMillis;
   (d.itensDevolvidos || []).forEach((item, i) => {
     const id = txt(item.id);
     const quantidade = quantidadeBase(item.quantidadeDevolvida, item.fatorConversao);
     if (!id || id === 'avulso' || quantidade <= 0) return;
     const base = { colecao: 'estoque' as const, itemId: id, itemNome: txt(item.nome), documento: doc, rota: d.pedidoVendaId ? `/pedidos-venda/visualizar/${txt(d.pedidoVendaId)}` : undefined, pessoa: txt(d.clienteNome) || undefined, quantidade };
-    if (typeof d.createdAtMillis === 'number') linhas.push({ ...base, id: `dv:${d.id}:${i}:entrada`, dataMillis: d.createdAtMillis, tipo: 'entrada', origem: 'devolucao_venda' });
+    if (typeof entradaMillis === 'number') linhas.push({ ...base, id: `dv:${d.id}:${i}:entrada`, dataMillis: entradaMillis, tipo: 'entrada', origem: 'devolucao_venda' });
     if (d.status === 'estornada' && typeof d.estornadaEmMillis === 'number') {
       linhas.push({ ...base, id: `dv:${d.id}:${i}:estorno`, dataMillis: d.estornadaEmMillis, tipo: 'saida', origem: 'devolucao_venda_estornada' });
     }

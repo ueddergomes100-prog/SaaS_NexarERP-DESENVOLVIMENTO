@@ -80,6 +80,7 @@ import {
   adicionarProdutoNaNotaManual, comTotalAtualizado, descricaoDaNotaManual, lerNumeroDigitado,
   totalDaLinhaManual, totalDaNotaManual, validarItensDaNotaManual,
 } from '../../utils/notaManualItensDomain';
+import { devolucaoTeveEfeito } from '../../utils/devolucaoVendaDomain';
 
 interface FiscalConfig {
   spedyEnabled: boolean;
@@ -2025,7 +2026,8 @@ const NFE: React.FC = () => {
           .filter((n) => n.finalidade === 'devolucao' && !['rejected', 'denied', 'canceled'].includes(n.status))
           .map((n) => n.devolucaoId),
       );
-      const pendentes = snap.docs.filter((d) => !comNotaValendo.has(d.id));
+      // Devolucao do app aguardando confirmacao (ou recusada) ainda nao valeu: nao tem nota.
+      const pendentes = snap.docs.filter((d) => devolucaoTeveEfeito(d.data()) && !comNotaValendo.has(d.id));
 
       if (pendentes.length === 0) {
         await NexusSwal.fire({

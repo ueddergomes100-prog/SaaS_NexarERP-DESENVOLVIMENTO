@@ -60,7 +60,7 @@ const lerOrigens = async ({ tenantId, de, ateYmd, inicioTs, fimTs }) => {
   // na migracao. Entra so' depois de faturada aqui (a pre-venda importada perde a marca ao faturar).
   unicos(pedidosNoPeriodo, pedidosCancelados).filter((p) => !ehPedidoDoSistemaAnterior(p))
     .forEach((p) => linhas.push(...md.movimentosDoPedido({ ...p, canceladaEmMillis: ms(p.canceladaEm) })));
-  docs(devolucoesVenda).forEach((d) => linhas.push(...md.movimentosDaDevolucaoVenda({ ...d, createdAtMillis: ms(d.createdAt), estornadaEmMillis: ms(d.estornadaEm) })));
+  docs(devolucoesVenda).forEach((d) => linhas.push(...md.movimentosDaDevolucaoVenda({ ...d, createdAtMillis: ms(d.createdAt), confirmadaEmMillis: ms(d.confirmadaEm), estornadaEmMillis: ms(d.estornadaEm) })));
   docs(osNoPeriodo).forEach((o) => linhas.push(...md.movimentosDaOS({ ...o, finalizadaEmMillis: ms(o.finalizadaEm) })));
   docs(entregasFuturas).forEach((e) => linhas.push(...md.movimentosDaEntregaFutura({ ...e, createdAtMillis: ms(e.createdAt) ?? ms(e.criadoEmIso) })));
   unicos(notasEntrada, notasEntradaExcluidas).forEach((n) => linhas.push(...md.movimentosDaNotaEntrada({ ...n, createdAtMillis: ms(n.createdAt), alteradoEmMillis: ms(n.alteradoEm) ?? ms(n.updatedAt) })));

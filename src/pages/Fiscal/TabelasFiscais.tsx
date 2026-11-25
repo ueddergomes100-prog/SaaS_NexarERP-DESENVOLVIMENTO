@@ -294,7 +294,7 @@ const AbaNcmCest: React.FC<{ tipo: 'ncm' | 'cest'; podeAlimentar: boolean }> = (
       <div style={{ ...estilos.card, display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>
           Base única de {rotulo} do sistema. Todo {rotulo} usado num produto ou numa nota de entrada entra sozinho aqui (só o código).
-          {' '}Quem tem esta tela também cadastra com a descrição. Depois de descrito, só o suporte da Hennder altera.
+          {' '}Quem tem esta tela também descreve o código: essa descrição vale só para esta empresa. A descrição da base comum, que todas as empresas veem, é do suporte da Hennder.
         </p>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
           <CampoBusca id={`tf-busca-${tipo}`} valor={busca} onChange={setBusca} dica={`Buscar ${rotulo} pelo código ou pela descrição`} />

@@ -17,7 +17,7 @@ import { permissionLabelMap } from './permissionCatalog';
 import { PERMISSAO_FINANCEIRO } from './permissoesNovasDomain';
 
 /** Rotulos das permissoes de juros/multa e data anterior (item 15), como no cadastro do funcionario. */
-const ROTULO_JUROS_MULTA = permissionLabelMap[PERMISSAO_FINANCEIRO.baixaJurosMulta] || 'Financeiro: cobrar juros e multa na baixa';
+const ROTULO_JUROS_MULTA = permissionLabelMap[PERMISSAO_FINANCEIRO.baixaJurosMulta] || 'Financeiro: alterar juros e multa na baixa';
 const ROTULO_DATA_ANTERIOR = permissionLabelMap[PERMISSAO_FINANCEIRO.baixaDataAnterior] || 'Financeiro: dar baixa com data anterior a hoje';
 
 const escaparHtml = (texto: string) => texto
@@ -132,11 +132,14 @@ export const pedirDadosBaixa = async (args: {
   /** Sem a permissao propria o Desconto fica bloqueado, com o aviso. */
   podeDescontar: boolean;
   /**
-   * Item 15 (25/11/2026): sem "cobrar juros e multa na baixa", Juros e Multa
-   * ficam em branco e travados (o servidor recusa juros/multa sem ela).
-   * Ausente = pode.
+   * Item 15 (25/11/2026): sem "alterar juros e multa na baixa", Juros e Multa
+   * ficam travados: no Receber, no PADRAO DA FILIAL (a sugestao) -- decisao do
+   * dono: nenhum funcionario deixa de cobrar; o servidor confere. Sem sugestao
+   * (Contas a Pagar), em branco. Ausente = pode.
    */
   podeJurosMulta?: boolean;
+  /** Recalcula o padrao da filial quando a data da baixa muda (juros ate' a data paga). */
+  sugestaoNaData?: (data: string) => SugestaoDeAcrescimo | null;
   /** Item 15: sem "dar baixa com data anterior a hoje", a data fica em hoje. Ausente = pode. */
   podeDataAnterior?: boolean;
   /** Dica pequena (ex.: onde configurar as % de juros e multa). */
@@ -159,14 +162,15 @@ export const pedirDadosBaixa = async (args: {
     .join('');
   const podeJurosMulta = args.podeJurosMulta !== false;
   const podeDataAnterior = args.podeDataAnterior !== false;
-  // Sem a permissao de juros/multa, a sugestao da filial nao entra (a baixa sai sem juros e multa).
-  const sugestao = podeJurosMulta ? args.sugestao : null;
-  const sugestaoJuros = sugestao?.jurosCentavos || 0;
-  const sugestaoMulta = sugestao?.multaCentavos || 0;
+  // Sem a permissao de juros/multa, a sugestao da filial entra TRAVADA (padrao da filial).
+  const sugestao = args.sugestao || null;
+  let sugestaoJuros = sugestao?.jurosCentavos || 0;
+  let sugestaoMulta = sugestao?.multaCentavos || 0;
   const totalInicial = totalParaQuitar(saldo, { jurosCentavos: sugestaoJuros, multaCentavos: sugestaoMulta, descontoCentavos: 0 });
   const notas = [
     sugestao ? `Juros e multa pelas % da filial (${sugestao.detalhe}).` : '',
-    !podeJurosMulta ? `Juros e multa: só com a permissão "${ROTULO_JUROS_MULTA}"; sem ela, a baixa sai sem juros e multa. Para cobrar, peça ao responsável liberar no seu cadastro de funcionário.` : '',
+    !podeJurosMulta && sugestao ? `Juros e multa ficam no padrão da filial: só quem tem a permissão "${ROTULO_JUROS_MULTA}" pode alterar.` : '',
+    !podeJurosMulta && !sugestao ? `Juros e multa: só com a permissão "${ROTULO_JUROS_MULTA}". Para lançar, peça ao responsável liberar no seu cadastro de funcionário.` : '',
     !args.podeDescontar ? `Desconto: só com a permissão "${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}".` : '',
     podeJurosMulta ? args.dica || '' : '',
   ].filter(Boolean);
@@ -269,7 +273,8 @@ export const pedirDadosBaixa = async (args: {
       const aoMexerNoValor = () => {
         valorMexido = true;
         const recebido = lerCentavos('baixa-valor');
-        if (sugestao && !ajustesMexidos && recebido !== null) {
+        // Juros/multa travados no padrao (sem a permissao): o valor recebido nao os diminui.
+        if (sugestao && podeJurosMulta && !ajustesMexidos && recebido !== null) {
           const partes = separarValorRecebido(saldo, recebido, { jurosCentavos: sugestaoJuros, multaCentavos: sugestaoMulta }, lerCentavos('baixa-desconto') ?? 0);
           escrever('baixa-juros', partes.jurosCentavos);
           escrever('baixa-multa', partes.multaCentavos);
@@ -278,6 +283,22 @@ export const pedirDadosBaixa = async (args: {
       };
       ['baixa-juros', 'baixa-multa', 'baixa-desconto'].forEach((id) => document.getElementById(id)?.addEventListener('input', aoMexerNosAjustes));
       document.getElementById('baixa-valor')?.addEventListener('input', aoMexerNoValor);
+      // Sem a permissao de juros/multa: mudou a data da baixa, o padrao da filial e' recalculado (juros ate' a data paga).
+      if (!podeJurosMulta && args.sugestaoNaData) {
+        const recalcular = () => {
+          const data = (document.getElementById('baixa-data') as HTMLInputElement | null)?.value || '';
+          const nova = data ? args.sugestaoNaData?.(data) : null;
+          sugestaoJuros = nova?.jurosCentavos || 0;
+          sugestaoMulta = nova?.multaCentavos || 0;
+          escrever('baixa-juros', sugestaoJuros);
+          escrever('baixa-multa', sugestaoMulta);
+          if (!valorMexido) {
+            escrever('baixa-valor', totalParaQuitar(saldo, { jurosCentavos: sugestaoJuros, multaCentavos: sugestaoMulta, descontoCentavos: lerCentavos('baixa-desconto') ?? 0 }));
+          }
+          resumo();
+        };
+        document.getElementById('baixa-data')?.addEventListener('change', recalcular);
+      }
       resumo();
       // Banco aparece logo abaixo da forma, so' nas formas que pedem banco.
       const mostrarBanco = () => {
@@ -390,8 +411,8 @@ export const pedirDadosBaixa = async (args: {
       }
       const ajustes: AjustesDaBaixa = { jurosCentavos: valores[0], multaCentavos: valores[1], descontoCentavos: valores[2] };
       const recebido = valores[3];
-      if (!podeJurosMulta && ajustes.jurosCentavos + ajustes.multaCentavos > 0) {
-        NexusSwal.showValidationMessage(`Juros e multa precisam da permissão "${ROTULO_JUROS_MULTA}". Deixe os dois em branco ou peça ao responsável liberar no seu cadastro de funcionário.`);
+      if (!podeJurosMulta && (ajustes.jurosCentavos !== sugestaoJuros || ajustes.multaCentavos !== sugestaoMulta)) {
+        NexusSwal.showValidationMessage(`Juros e multa ficam no padrão da filial. Para alterar, peça ao responsável liberar "${ROTULO_JUROS_MULTA}" no seu cadastro de funcionário.`);
         return false;
       }
       if ((args.formasSemAjuste || []).includes(forma)) {

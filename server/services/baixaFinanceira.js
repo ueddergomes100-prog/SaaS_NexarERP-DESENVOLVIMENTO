@@ -31,7 +31,10 @@ const {
   reversePaymentReceipt,
   settledFinancialNatureForPayment,
   toCents,
+  transactionDueDateInput,
+  transactionNetCents,
 } = require('../domain/financeDomain');
+const { acrescimoPorAtraso, parseParametrosVenda } = require('../domain/parametrosVendaDomain');
 const {
   montarBaixaManual,
   planejarEstornoPagar,
@@ -167,6 +170,20 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     recusarSeRenegociada(dados);
 
     const origem = tipo === 'entrada' ? await lerOrigem(tx, tenantId, dados, 'recebido') : { ref: null, dados: null };
+    // Item 15 (decisao do dono, 25/11/2026): Contas a Receber sem a permissao
+    // "alterar juros e multa" -- juros e multa ficam no padrao da filial, nunca
+    // menos (nenhum funcionario deixa de cobrar). Mesma conta da tela
+    // (ContasReceber.tsx: acrescimoPorAtraso sobre o liquido e o vencimento).
+    if (pedido.jurosNoPadrao && tipo === 'entrada') {
+      const config = await tx.get(db.collection('configuracoes').doc(tenantId));
+      const parametros = parseParametrosVenda(config.exists ? (config.data() || {}).parametrosVenda : undefined);
+      const padrao = acrescimoPorAtraso(parametros, transactionNetCents(dados), transactionDueDateInput(dados), dataPagamento)
+        || { jurosCentavos: 0, multaCentavos: 0 };
+      if (ajustes.jurosCentavos !== padrao.jurosCentavos || ajustes.multaCentavos !== padrao.multaCentavos) {
+        const reaisPadrao = (c) => `R$ ${fromCents(c).toFixed(2).replace('.', ',')}`;
+        throw new ErroBaixa(403, `Juros e multa desta conta ficam no padrão da filial: ${reaisPadrao(padrao.jurosCentavos)} de juros e ${reaisPadrao(padrao.multaCentavos)} de multa. Para alterar, peça a um responsável liberar "Financeiro: alterar juros e multa na baixa" no seu cadastro de funcionário. Atualize a tela e dê a baixa de novo.`);
+      }
+    }
     const banco = bancoId ? await lerBanco(tx, tenantId, bancoId, 'O banco selecionado não foi encontrado. Atualize a tela e escolha de novo.') : null;
     // Parcela nova de renegociacao (15/10/2026): a ultima recebida quita as vendas/OS antigas.
     const renegociacao = tipo === 'entrada' ? await lerRenegociacaoDoTitulo(tx, tenantId, pedido.transacaoId, dados) : null;

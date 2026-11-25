@@ -32,19 +32,24 @@ const ontemDe = (hoje) => {
 // Regras puras
 // ---------------------------------------------------------------------------
 
-test('baixa: pede dar baixa do tipo; juros/multa e data anterior so quando o pedido traz', () => {
+test('baixa: pede dar baixa do tipo; data anterior quando traz; juros/multa so no Pagar (no Receber ficam no padrao)', () => {
   const hoje = '2026-11-25';
   assert.deepEqual(permissoesDaBaixa({ tipo: 'entrada', pedidos: [{ dataPagamento: hoje }], hoje }), ['financeiro.receber_baixar']);
   assert.deepEqual(permissoesDaBaixa({ tipo: 'saida', pedidos: [{ dataPagamento: hoje }], hoje }), ['financeiro.pagar_baixar']);
+  // Receber: juros/multa nao pedem a permissao aqui -- sem ela ficam no padrao da filial (jurosNoPadrao).
   assert.deepEqual(
     permissoesDaBaixa({ tipo: 'entrada', pedidos: [{ dataPagamento: '2026-11-24', jurosCentavos: 150 }], hoje }),
-    ['financeiro.receber_baixar', 'financeiro.baixa_juros_multa', 'financeiro.baixa_data_anterior'],
+    ['financeiro.receber_baixar', 'financeiro.baixa_data_anterior'],
   );
   assert.deepEqual(permissoesDaBaixa({ tipo: 'saida', pedidos: [{ dataPagamento: hoje, multaCentavos: 1 }], hoje }), ['financeiro.pagar_baixar', 'financeiro.baixa_juros_multa']);
-  // Lote: a do lote + o que qualquer conta trouxer (acrescimo antigo conta como juros).
+  // Lote: a do lote + o que qualquer conta trouxer.
   assert.deepEqual(
-    permissoesDaBaixa({ tipo: 'entrada', pedidos: [{ dataPagamento: hoje }, { dataPagamento: hoje, acrescimoCentavos: 10 }], hoje, lote: true }),
-    ['financeiro.receber_baixar', 'financeiro.baixa_lote', 'financeiro.baixa_juros_multa'],
+    permissoesDaBaixa({ tipo: 'saida', pedidos: [{ dataPagamento: hoje }, { dataPagamento: hoje, acrescimoCentavos: 10 }], hoje, lote: true }),
+    ['financeiro.pagar_baixar', 'financeiro.baixa_lote', 'financeiro.baixa_juros_multa'],
+  );
+  assert.deepEqual(
+    permissoesDaBaixa({ tipo: 'entrada', pedidos: [{ dataPagamento: hoje, acrescimoCentavos: 10 }], hoje, lote: true }),
+    ['financeiro.receber_baixar', 'financeiro.baixa_lote'],
   );
   // Desconto e' outra permissao (financeiro.desconto_baixa, conferida no servico): nao entra aqui.
   assert.deepEqual(permissoesDaBaixa({ tipo: 'entrada', pedidos: [{ dataPagamento: hoje, descontoCentavos: 500 }], hoje }), ['financeiro.receber_baixar']);
@@ -69,8 +74,8 @@ test('mensagem em portugues: cita o rotulo do cadastro e diz o que fazer', () =>
   assert.match(uma, /cadastro de funcionário/);
   assert.match(uma, /data de hoje/);
   const duas = mensagemSemPermissao(['financeiro.receber_baixar', 'financeiro.baixa_juros_multa']);
-  assert.match(duas, /dar baixa em contas a receber e cobrar juros e multa na baixa/);
-  assert.match(duas, /"Financeiro: Contas a Receber — dar baixa \(receber\)" e "Financeiro: cobrar juros e multa/);
+  assert.match(duas, /dar baixa em contas a receber e alterar juros e multa na baixa/);
+  assert.match(duas, /"Financeiro: Contas a Receber — dar baixa \(receber\)" e "Financeiro: alterar juros e multa/);
 });
 
 // ---------------------------------------------------------------------------
@@ -154,17 +159,18 @@ test('rota /baixa: so a permissao de tela (sem o pacote) passa; com o pacote e s
   });
 });
 
-test('rota /baixa: juros/multa e data anterior barrados sem a permissao propria', async () => {
+test('rota /baixa: data anterior barrada sem a permissao; juros/multa do Receber sem a permissao so no padrao da filial', async () => {
   const fake = criarBancoFalso(contaAReceber());
   const hoje = getDateInputInTimeZone();
   const soBaixar = { uid: 'f4', permissoes: ['financeiro.receber', 'financeiro.receber_baixar', MARCADOR] };
   await comRota(fake, async (chamar) => {
     const pedido = { tipo: 'entrada', transacaoId: 't1', formaPagamento: 'Pix', dataPagamento: hoje, bancoId: 'b1' };
 
+    // Conta sem vencimento (sem atraso): o padrao e' zero -- juros a mais nao passam.
     const comJuros = await chamar('/baixa', soBaixar, { ...pedido, jurosCentavos: 300 });
     assert.equal(comJuros.status, 403);
-    assert.match(comJuros.corpo.error, /cobrar juros e multa na baixa/);
-    assert.match(comJuros.corpo.error, /juros e multa em branco/);
+    assert.match(comJuros.corpo.error, /padrão da filial: R\$ 0,00 de juros e R\$ 0,00 de multa/);
+    assert.match(comJuros.corpo.error, /alterar juros e multa na baixa/);
 
     const comMulta = await chamar('/baixa', soBaixar, { ...pedido, multaCentavos: 200 });
     assert.equal(comMulta.status, 403);
@@ -194,14 +200,12 @@ test('rota /baixa-lote: pede a do lote; sem o pacote vem junto com Contas a Rece
     assert.match(semLote.corpo.error, /dar baixa em lote/);
     assert.match(semLote.corpo.error, /conta por conta/);
 
+    // Sem "alterar juros e multa": a conta com acrescimo fora do padrao da filial (zero, sem vencimento) e' recusada; a outra entra.
     const semJuros = await chamar('/baixa-lote', { uid: 'f7', permissoes: ['financeiro.receber_baixar', 'financeiro.baixa_lote', MARCADOR] }, lote);
-    assert.equal(semJuros.status, 403, 'acrescimo de uma das contas conta como juros/multa');
-    assert.match(semJuros.corpo.error, /juros e multa/);
-    assert.equal(fake.ler('transacoes/t1').status, 'Pendente', 'o lote inteiro e recusado antes de gravar');
-
-    const soTela = await chamar('/baixa-lote', { uid: 'f1', permissoes: ['financeiro.receber'] }, lote);
-    assert.equal(soTela.status, 200, JSON.stringify(soTela.corpo));
-    assert.deepEqual(soTela.corpo.resultados.map((r) => r.ok), [true, true]);
+    assert.equal(semJuros.status, 200, JSON.stringify(semJuros.corpo));
+    assert.deepEqual(semJuros.corpo.resultados.map((r) => r.ok), [true, false]);
+    assert.match(semJuros.corpo.resultados[1].erro, /padrão da filial/);
+    assert.equal(fake.ler('transacoes/t2').status, 'Pendente', 'a conta com juros fora do padrao nao foi baixada');
   });
 });
 
@@ -239,5 +243,45 @@ test('rotas de lancar/editar/cancelar, categoria e acerto: a permissao nova de c
     const desfazerSemAcerto = await chamar('/acerto-fornecedor/desfazer', { uid: 'f12', permissoes: ['financeiro.estornar', MARCADOR] }, {});
     assert.equal(desfazerSemAcerto.status, 403);
     assert.match(desfazerSemAcerto.corpo.error, /fazer acerto com fornecedor/);
+  });
+});
+
+test('Receber sem "alterar juros e multa": conta vencida leva juros e multa do padrao da filial, nem menos nem mais', async () => {
+  const hoje = getDateInputInTimeZone();
+  const d = new Date(`${hoje}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 30);
+  const vencimento = d.toISOString().slice(0, 10);
+  const base = contaAReceber();
+  base['transacoes/t1'] = { ...base['transacoes/t1'], dataVencimento: vencimento };
+  // Filial: 2% de multa e 3% ao mes -> R$ 100,00 com 30 dias = R$ 2,00 de multa e R$ 3,00 de juros.
+  base['configuracoes/emp1'] = { tenantId: 'emp1', parametrosVenda: { juros: { aoMesPercentual: 3, multaPercentual: 2 } } };
+  const fake = criarBancoFalso(base);
+  const soBaixar = { uid: 'f13', permissoes: ['financeiro.receber_baixar', MARCADOR] };
+  await comRota(fake, async (chamar) => {
+    const pedido = { tipo: 'entrada', transacaoId: 't1', formaPagamento: 'Pix', dataPagamento: hoje, bancoId: 'b1' };
+
+    const semJuros = await chamar('/baixa', soBaixar, pedido);
+    assert.equal(semJuros.status, 403, 'nao deixa de cobrar');
+    assert.match(semJuros.corpo.error, /R\$ 3,00 de juros e R\$ 2,00 de multa/);
+    const aMenos = await chamar('/baixa', soBaixar, { ...pedido, jurosCentavos: 100, multaCentavos: 200 });
+    assert.equal(aMenos.status, 403);
+    assert.equal(fake.ler('transacoes/t1').status, 'Pendente', 'nada gravado');
+
+    const noPadrao = await chamar('/baixa', soBaixar, { ...pedido, jurosCentavos: 300, multaCentavos: 200 });
+    assert.equal(noPadrao.status, 200, JSON.stringify(noPadrao.corpo));
+    assert.equal(fake.ler('transacoes/t1').status, 'Paga');
+  });
+});
+
+test('Receber com "alterar juros e multa": muda juros e multa a vontade', async () => {
+  const hoje = getDateInputInTimeZone();
+  const base = contaAReceber();
+  base['transacoes/t1'] = { ...base['transacoes/t1'], dataVencimento: '2026-01-01' };
+  base['configuracoes/emp1'] = { tenantId: 'emp1', parametrosVenda: { juros: { aoMesPercentual: 3, multaPercentual: 2 } } };
+  const fake = criarBancoFalso(base);
+  await comRota(fake, async (chamar) => {
+    const pedido = { tipo: 'entrada', transacaoId: 't1', formaPagamento: 'Pix', dataPagamento: hoje, bancoId: 'b1' };
+    const comPermissao = await chamar('/baixa', { uid: 'f14', permissoes: ['financeiro.receber_baixar', 'financeiro.baixa_juros_multa', MARCADOR] }, pedido);
+    assert.equal(comPermissao.status, 200, JSON.stringify(comPermissao.corpo));
   });
 });

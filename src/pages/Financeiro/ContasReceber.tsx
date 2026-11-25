@@ -513,7 +513,9 @@ const ContasReceber: React.FC = () => {
     }
     // Titulo vencido com juros/multa configurados na filial: ja' vem preenchido (editavel).
     // Mesmo vencimento que a lista usa para os dias em atraso (24/11/2026): o que a lista mostra e' o que a janela sugere.
-    const sugestao = acrescimoPorAtraso(parametrosVenda, transactionNetCents(t), dataReferenciaTransacao(t), getDateInputInTimeZone());
+    // Sem "alterar juros e multa" (item 15): sempre as % da filial (nunca as mudadas so' nesta tela), travadas.
+    const parametrosDaBaixa = podeJurosMulta ? parametrosVenda : parametrosVendaDaFilial;
+    const sugestao = acrescimoPorAtraso(parametrosDaBaixa, transactionNetCents(t), dataReferenciaTransacao(t), getDateInputInTimeZone());
     const semPercentuais = parametrosVenda.juros.aoMesPercentual <= 0 && parametrosVenda.juros.multaPercentual <= 0;
     const vencido = diasDeAtraso(dataReferenciaTransacao(t), getDateInputInTimeZone()) > 0;
     // Banco na mesma janela (23/11/2026): as formas que creditam um banco pedem
@@ -540,6 +542,10 @@ const ContasReceber: React.FC = () => {
       // Pagamento parcial (16/10/2026): menos que o total deixa o resto em aberto.
       bloqueioParcial: bloqueioDoParcial(t as TituloParaParcial),
       sugestao: sugestao ? { jurosCentavos: sugestao.jurosCentavos, multaCentavos: sugestao.multaCentavos, detalhe: descricaoDoAcrescimo(sugestao) } : null,
+      sugestaoNaData: (data: string) => {
+        const nova = acrescimoPorAtraso(parametrosDaBaixa, transactionNetCents(t), dataReferenciaTransacao(t), data);
+        return nova ? { jurosCentavos: nova.jurosCentavos, multaCentavos: nova.multaCentavos, detalhe: descricaoDoAcrescimo(nova) } : null;
+      },
       podeDescontar,
       podeJurosMulta,
       podeDataAnterior,
@@ -1579,13 +1585,14 @@ const ContasReceber: React.FC = () => {
                 : 'Para mostrar os atrasados com juros e multa, preencha as % em Configurações da filial › Parâmetros de venda › "Juros e multa do crediário em atraso", ou informe aqui só para esta consulta.'}
             </span>
           )}
-          <button
+          {/* Mudar as % muda os juros das baixas: so' com "alterar juros e multa" (item 15). */}
+          {podeJurosMulta && <button
             type="button"
             onClick={() => { void alterarPercentuaisNaTela(); }}
             style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent-purple)', fontWeight: 600, textDecoration: 'underline', font: 'inherit' }}
           >
             Alterar só nesta tela
-          </button>
+          </button>}
           {percentuaisDaTela && (
             <button
               type="button"
@@ -1946,6 +1953,11 @@ const ContasReceber: React.FC = () => {
           tenantId={tenantId}
           podeDescontar={podeDescontar}
           podeJurosMulta={podeJurosMulta}
+          acrescimoPadrao={(itemId, data) => {
+            // Sem "alterar juros e multa" (item 15): padrao da filial na data da baixa, igual ao servidor.
+            const t = elegiveis.get(itemId);
+            return t ? acrescimoPorAtraso(parametrosVendaDaFilial, transactionNetCents(t), dataReferenciaTransacao(t), data) : null;
+          }}
           podeDataAnterior={podeDataAnterior}
           formasPermitidas={formasDeRecebimento(FORMAS_DA_BAIXA_EM_LOTE.entrada, ordemFormasDaFilial, formasOcultasDaFilial)}
           onFechar={fecharBaixaEmLote}

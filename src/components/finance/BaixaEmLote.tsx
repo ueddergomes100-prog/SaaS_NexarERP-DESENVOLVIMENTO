@@ -197,7 +197,11 @@ export const BaixaEmLoteModal: React.FC<{
   tenantId: string;
   /** Desconto por conta so' com a permissao propria (15/10/2026). */
   podeDescontar: boolean;
-  /** Item 15 (25/11/2026): sem a permissao, juros e multa ficam em branco e travados. Ausente = pode. */
+  /**
+   * Item 15 (25/11/2026): sem a permissao, juros e multa ficam travados -- no
+   * padrao da filial quando ha' `acrescimoPadrao` (Receber; decisao do dono:
+   * ninguem deixa de cobrar), em branco no Pagar. Ausente = pode.
+   */
   podeJurosMulta?: boolean;
   /** Item 15: sem a permissao, a data fica em hoje. Ausente = pode. */
   podeDataAnterior?: boolean;
@@ -205,7 +209,9 @@ export const BaixaEmLoteModal: React.FC<{
   formasPermitidas?: string[];
   /** Fecha a janela; recebe os ids que foram baixados (vazio se cancelou). */
   onFechar: (idsBaixados: string[]) => void;
-}> = ({ tipo, itens, tenantId, podeDescontar, podeJurosMulta = true, podeDataAnterior = true, formasPermitidas, onFechar }) => {
+  /** Padrao da filial (juros e multa) de cada conta na data da baixa; usado quando falta a permissao. */
+  acrescimoPadrao?: (itemId: string, data: string) => { jurosCentavos: number; multaCentavos: number } | null;
+}> = ({ tipo, itens, tenantId, podeDescontar, podeJurosMulta = true, acrescimoPadrao, podeDataAnterior = true, formasPermitidas, onFechar }) => {
   const textos = TEXTOS[tipo];
   const hoje = getDateInputInTimeZone();
   const formas = formasPermitidas ? FORMAS_DA_BAIXA_EM_LOTE[tipo].filter((f) => formasPermitidas.includes(f)) : FORMAS_DA_BAIXA_EM_LOTE[tipo];
@@ -223,7 +229,21 @@ export const BaixaEmLoteModal: React.FC<{
   // Sem a permissao de juros/multa (item 15), nada calculado entra e a caixa nem aparece.
   const temSugestao = podeJurosMulta && itens.some((i) => (i.jurosSugeridoCentavos || 0) + (i.multaSugeridaCentavos || 0) > 0);
   const [cobrarAcrescimo, setCobrarAcrescimo] = useState(podeJurosMulta);
-  const [campos, setCampos] = useState<Record<string, CamposDaConta>>(() => Object.fromEntries(itens.map((i) => [i.id, camposSugeridos(i, podeJurosMulta)])));
+  // Sem a permissao, no Receber: juros e multa travados no padrao da filial, recalculado pela data da baixa.
+  const travadoNoPadrao = !podeJurosMulta && Boolean(acrescimoPadrao);
+  const camposDoPadrao = (i: ItemDoLote, dataDaBaixa: string): CamposDaConta => {
+    const padrao = acrescimoPadrao?.(i.id, dataDaBaixa);
+    return { juros: textoDoCampo(Math.max(0, padrao?.jurosCentavos || 0)), multa: textoDoCampo(Math.max(0, padrao?.multaCentavos || 0)), desconto: '' };
+  };
+  const [campos, setCampos] = useState<Record<string, CamposDaConta>>(() => Object.fromEntries(itens.map((i) => [i.id, travadoNoPadrao ? camposDoPadrao(i, hoje) : camposSugeridos(i, podeJurosMulta)])));
+  useEffect(() => {
+    if (!travadoNoPadrao) return;
+    setCampos((atual) => Object.fromEntries(itens.map((i) => {
+      const padrao = camposDoPadrao(i, data);
+      return [i.id, { ...(atual[i.id] || padrao), juros: padrao.juros, multa: padrao.multa }];
+    })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, travadoNoPadrao]);
   const mudarCampo = (id: string, campo: keyof CamposDaConta, valor: string) => {
     setCampos((atual) => ({ ...atual, [id]: { ...(atual[id] || { juros: '', multa: '', desconto: '' }), [campo]: valor } }));
   };
@@ -300,7 +320,7 @@ export const BaixaEmLoteModal: React.FC<{
       const ajustes = ajustesDosCampos(campos[item.id]);
       const erroDaConta = ajustes === null
         ? 'juros, multa ou desconto com valor digitado errado (use reais com vírgula, ex.: 12,50).'
-        : !podeJurosMulta && ajustes.jurosCentavos + ajustes.multaCentavos > 0
+        : !podeJurosMulta && !travadoNoPadrao && ajustes.jurosCentavos + ajustes.multaCentavos > 0
           ? `juros e multa precisam da permissão "${ROTULO_JUROS_MULTA}". Deixe em branco ou peça ao responsável liberar no seu cadastro de funcionário.`
           : erroDosAjustes(item.valorCentavos, ajustes, { podeDescontar });
       if (erroDaConta) {
@@ -427,7 +447,9 @@ export const BaixaEmLoteModal: React.FC<{
 
             <p className="lote-ajuda">
               Juros, multa e desconto são por conta, no borderô. A conta fica quitada pelo valor cheio; os ajustes entram como lançamentos próprios.
-              {!podeJurosMulta && ` Juros e multa: só com a permissão "${ROTULO_JUROS_MULTA}"; sem ela, a baixa sai sem juros e multa.`}
+              {!podeJurosMulta && (travadoNoPadrao
+                ? ` Juros e multa ficam no padrão da filial: só quem tem a permissão "${ROTULO_JUROS_MULTA}" pode alterar.`
+                : ` Juros e multa: só com a permissão "${ROTULO_JUROS_MULTA}".`)}
               {!podeDescontar && ` Desconto: só com a permissão "${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}".`}
             </p>
 

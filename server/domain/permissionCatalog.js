@@ -248,7 +248,7 @@ exports.PERMISSION_GROUPS = [
             // teve as permissoes salvas de novo (pacote 'financeiro-1', permissoesNovasDomain.ts).
             { id: 'financeiro.receber_baixar', label: 'Financeiro: Contas a Receber — dar baixa (receber)', color: '#10b981' },
             { id: 'financeiro.pagar_baixar', label: 'Financeiro: Contas a Pagar — dar baixa (pagar)', color: '#10b981' },
-            { id: 'financeiro.baixa_juros_multa', label: 'Financeiro: cobrar juros e multa na baixa (Contas a Receber e a Pagar)', color: '#10b981' },
+            { id: 'financeiro.baixa_juros_multa', label: 'Financeiro: alterar juros e multa na baixa (sem ela, ficam no padrão da filial)', color: '#10b981' },
             { id: 'financeiro.baixa_data_anterior', label: 'Financeiro: dar baixa com data anterior a hoje (Contas a Receber e a Pagar)', color: '#10b981' },
             { id: 'financeiro.baixa_lote', label: 'Financeiro: baixa em lote (Contas a Receber e a Pagar)', color: '#10b981' },
             { id: 'financeiro.receber_lancar', label: 'Financeiro: Contas a Receber — lançar conta à mão', color: '#10b981' },

@@ -34,7 +34,7 @@ const podeNoFinanceiro = (user, permissao) => temPermissao(
 const ACOES = {
   [PF.receberBaixar]: { acao: 'dar baixa em contas a receber' },
   [PF.pagarBaixar]: { acao: 'dar baixa em contas a pagar' },
-  [PF.baixaJurosMulta]: { acao: 'cobrar juros e multa na baixa', dica: 'Sem ela, dê a baixa com juros e multa em branco.' },
+  [PF.baixaJurosMulta]: { acao: 'alterar juros e multa na baixa', dica: 'Sem ela, juros e multa ficam no padrão da filial.' },
   [PF.baixaDataAnterior]: { acao: 'dar baixa com data anterior a hoje', dica: 'Sem ela, dê a baixa com a data de hoje.' },
   [PF.baixaLote]: { acao: 'dar baixa em lote', dica: 'Sem ela, dê baixa conta por conta.' },
   [PF.receberLancar]: { acao: 'lançar contas a receber' },
@@ -73,12 +73,22 @@ const permissoesDaBaixa = ({ tipo, pedidos, hoje, lote = false }) => {
   const ids = [PERMISSAO_DE_BAIXAR[tipo]];
   if (lote) ids.push(PF.baixaLote);
   const positivo = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
-  if (pedidos.some((p) => positivo(p.jurosCentavos) || positivo(p.multaCentavos) || positivo(p.acrescimoCentavos))) ids.push(PF.baixaJurosMulta);
+  // Contas a Receber (decisao do dono, 25/11/2026): sem a permissao, juros e
+  // multa nao ficam em branco -- ficam NO PADRAO DA FILIAL e nao mudam
+  // (jurosNoPadrao, conferido dentro da baixa). No Pagar, juros/multa so' com ela.
+  if (tipo !== 'entrada' && pedidos.some((p) => positivo(p.jurosCentavos) || positivo(p.multaCentavos) || positivo(p.acrescimoCentavos))) ids.push(PF.baixaJurosMulta);
   if (pedidos.some((p) => typeof p.dataPagamento === 'string' && p.dataPagamento < hoje)) ids.push(PF.baixaDataAnterior);
   return ids;
 };
 
+/**
+ * Contas a Receber sem "alterar juros e multa": a baixa tem de levar
+ * exatamente os juros e a multa do padrao da filial (conferido em registrarBaixa).
+ */
+const jurosNoPadrao = (user, tipo) => tipo === 'entrada' && !podeNoFinanceiro(user, PF.baixaJurosMulta);
+
 module.exports = {
+  jurosNoPadrao,
   PERMISSAO_DE_BAIXAR,
   podeNoFinanceiro,
   permissoesQueFaltam,

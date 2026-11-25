@@ -40,6 +40,7 @@ const { vincularBoletosAnteriores } = require('../services/boletoSistemaAnterior
 const {
   permissoesQueFaltam,
   permissoesDaBaixa,
+  jurosNoPadrao,
   mensagemSemPermissao,
 } = require('../services/permissoesFinanceiro');
 const { PERMISSAO_FINANCEIRO } = require('../domain/permissoesNovasDomain');
@@ -120,6 +121,8 @@ router.post('/baixa', async (req, res) => {
     if (barrarSemPermissoes(req, res, permissoesDaBaixa({ tipo: pedido.tipo, pedidos: [pedido], hoje }))) return undefined;
 
     const tenantId = empresaDaOperacao(req.user, req.body);
+    // Receber sem "alterar juros e multa": juros e multa no padrao da filial (item 15).
+    if (jurosNoPadrao(req.user, pedido.tipo)) pedido.jurosNoPadrao = true;
     const resumo = await registrarBaixa({ user: req.user, tenantId, pedido });
 
     registrarLogDaBaixa(req.user, tenantId, pedido, resumo, resumo.parcial ? ` (pagamento parcial; fica em aberto ${reais(resumo.parcial.restanteCentavos)})` : '');
@@ -151,9 +154,11 @@ router.post('/baixa-lote', async (req, res) => {
     if (barrarSemPermissoes(req, res, permissoesDaBaixa({ tipo, pedidos, hoje, lote: true }))) return undefined;
 
     const tenantId = empresaDaOperacao(req.user, req.body);
+    const noPadrao = jurosNoPadrao(req.user, tipo);
     const resultados = [];
     for (const pedido of pedidos) {
       try {
+        if (noPadrao) pedido.jurosNoPadrao = true;
         const resumo = await registrarBaixa({ user: req.user, tenantId, pedido });
         registrarLogDaBaixa(req.user, tenantId, pedido, resumo, ' (baixa em lote)');
         resultados.push({ transacaoId: pedido.transacaoId, ok: true });

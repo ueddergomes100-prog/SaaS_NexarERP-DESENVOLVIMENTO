@@ -17,6 +17,8 @@ const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domai
 const permApp = require('../domain/permissoesAppDomain');
 const permNovas = require('../domain/permissoesNovasDomain');
 const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
+const { permissionLabelMap } = require('../domain/permissionCatalog');
+const { nivelCabe } = require('./permissoesAdministracao');
 const { camposDaCobrancaParaNovoUsuario } = require('./mensalidades');
 
 class ErroLimite extends Error {
@@ -470,19 +472,30 @@ const salvarPermissoes = async ({ user, tenantId, corpo, gerente }) => {
   if (alvo.role !== 'Funcionario') throw new ErroLimite(400, 'Só funcionário tem permissões por módulo; administrador e dono já têm acesso a tudo.');
   if (!Array.isArray(c.permissoes)) throw new ErroLimite(400, 'Lista de permissões inválida. Atualize a tela e tente de novo.');
   const novas = c.permissoes.filter(permApp.permissaoValida);
+  // Empresa sem filiais: "Admin: Configuracoes" traz as Configuracoes Gerais (pacote 'administracao-1').
+  const configSnap = await db.collection('configuracoes').doc(tenantId).get();
+  const semFiliais = !(configSnap.exists && typeof configSnap.data().grupoId === 'string' && configSnap.data().grupoId);
+  const opcoes = { semFiliais };
   if (gerente) {
-    const semTer = permNovas.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes, nivelAntes: alvo.nivelAcesso, nivelDoGerente: user.nivelAcesso });
+    const semTer = permNovas.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes, nivelAntes: alvo.nivelAcesso, nivelDoGerente: user.nivelAcesso, opcoes });
     if (semTer.length > 0) {
-      throw new ErroLimite(403, `Você só pode liberar ou retirar as permissões que você mesmo tem. Fora do seu alcance: ${semTer.join(', ')}. Peça ao dono ou a um administrador.`);
+      const rotulos = semTer.map((id) => `"${permissionLabelMap[id] || id}"`);
+      throw new ErroLimite(403, `Você só pode liberar ou retirar as permissões que você mesmo tem. Fora do seu alcance: ${rotulos.join(', ')}. Peça ao dono ou a um administrador.`);
     }
   }
-  const nivel = !gerente && c.nivelAcesso !== undefined ? parseNivelAcesso(c.nivelAcesso) : null;
+  // Nivel de acesso (item 15, fase Administracao, 25/11/2026): sem ser o dono ou um
+  // administrador, so' com "Admin: Equipe -- mudar o nivel de acesso", e ate' o nivel dele.
+  const podeNivel = !gerente || permNovas.permissoesEfetivas(user.permissoes, user.nivelAcesso).includes(permNovas.PERMISSAO_ADMINISTRACAO.equipeNivel);
+  const nivel = podeNivel && c.nivelAcesso !== undefined ? parseNivelAcesso(c.nivelAcesso) : null;
+  if (nivel && gerente && nivel !== parseNivelAcesso(alvo.nivelAcesso) && !nivelCabe(nivel, parseNivelAcesso(user.nivelAcesso))) {
+    throw new ErroLimite(403, 'Você só dá um nível de acesso até o seu. Peça ao dono ou a um administrador.');
+  }
   await ref.update({
     permissoes: permNovas.permissoesParaGravarDoUsuario(novas),
     ...(nivel ? { nivelAcesso: nivel } : {}),
     ...buildDocumentUpdateMetadata(user.uid, agora(), 'Permissões atualizadas'),
   });
-  return { usuarioId: ref.id, nome: alvo.nome || '' };
+  return { usuarioId: ref.id, nome: alvo.nome || '', semFiliais };
 };
 
 // ===========================================================================

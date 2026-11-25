@@ -15,6 +15,8 @@ const filialDominio = require('../domain/filialDomain');
 const cashbackDominio = require('../domain/cashbackDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
+const { PERMISSAO_ADMINISTRACAO, permissaoDoCampoGeral } = require('../domain/permissoesNovasDomain');
+const { temNoCadastro, mensagemSemPermissao } = require('./permissoesAdministracao');
 
 class ErroConfiguracoesGerais extends Error {
   constructor(status, message) {
@@ -35,9 +37,10 @@ const lerGrupo = async (leitor, tenantId) => {
 };
 
 /**
- * Com filiais, a regra vale para todas: so' o dono ou um administrador do
- * grupo. Sem filiais, quem ja' altera as Configuracoes da empresa (mesma
- * regra de canEditTenantConfig() nas firestore.rules).
+ * Tabelas fiscais (tabelasFiscais.js) gravam em todas as filiais com a regra
+ * de antes: com filiais, so' o dono ou um administrador do grupo; sem
+ * filiais, quem altera as Configuracoes da empresa. As Configuracoes Gerais
+ * deixaram de usar esta (ver valoresPermitidos).
  */
 const exigirPermissao = (user, usuario, grupo) => {
   if (user.isPlatformAdmin) return;
@@ -49,6 +52,47 @@ const exigirPermissao = (user, usuario, grupo) => {
   }
   if (user.isTenantManager || (user.permissoes || []).includes('administrativo.config')) return;
   throw new ErroConfiguracoesGerais(403, 'Só o dono, um administrador ou quem tem a permissão "Admin: Configurações" altera as configurações gerais.');
+};
+
+/**
+ * Item 15 (fase Administracao, 25/11/2026): cada parte das Configuracoes
+ * Gerais pede a sua permissao (PERMISSAO_DO_CAMPO_GERAL): plano de contas,
+ * regras do cashback e o resto ("Admin: Configuracoes gerais"). Quem tinha
+ * "Admin: Configuracoes" ja' vem com as tres (pacote 'administracao-1').
+ * Dono/administrador (do grupo, com filiais) segue liberado. Com filiais, o
+ * funcionario precisa ser de uma filial do grupo.
+ */
+const podeNoCampo = (user, usuario, grupo, permissao) => {
+  if (user.isPlatformAdmin) return true;
+  // As permissoes vem do login (req.user), como nas outras rotas; o cadastro lido serve ao grupo.
+  if (grupo) {
+    return filialDominio.ehGestorDoGrupo(grupo, usuario)
+      || (filialDominio.pertenceAoGrupo(grupo, usuario) && temNoCadastro(user, permissao));
+  }
+  return Boolean(user.isTenantManager) || temNoCadastro(user, permissao, { semFiliais: true });
+};
+
+/**
+ * Sem a permissao do campo, ele NAO e' gravado (fica o que esta' no banco);
+ * se a tela mandou um valor diferente do gravado, recusa em portugues. Puro.
+ * Devolve `{ erro }` ou `{ valores }` (so' os campos que a pessoa pode gravar).
+ */
+const valoresPermitidos = ({ user, usuario, grupo, configAtual, valores }) => {
+  const permissoes = [...new Set(dominio.CAMPOS_GERAIS.map(permissaoDoCampoGeral))];
+  if (!permissoes.some((p) => podeNoCampo(user, usuario, grupo, p))) {
+    return { erro: mensagemSemPermissao([PERMISSAO_ADMINISTRACAO.configGerais]) };
+  }
+  const atual = configAtual || {};
+  const mudaram = new Set(dominio.camposDiferentes(atual, valores).filter((c) => atual[c] !== undefined));
+  const permitidos = {};
+  const faltam = [];
+  for (const campo of Object.keys(valores)) {
+    const permissao = permissaoDoCampoGeral(campo);
+    if (podeNoCampo(user, usuario, grupo, permissao)) permitidos[campo] = valores[campo];
+    else if (mudaram.has(campo)) faltam.push(permissao);
+  }
+  if (faltam.length) return { erro: mensagemSemPermissao(faltam) };
+  return { valores: permitidos };
 };
 
 /** Grava os campos gerais em todas as filiais do grupo (ou so' na empresa, sem filiais). */
@@ -64,14 +108,17 @@ const salvarConfiguracoesGerais = async ({ user, corpo }) => {
     const dadosUsuario = usuarioSnap.exists ? usuarioSnap.data() : {};
     const usuario = { ...dadosUsuario, uid: user.uid, tenantId: dadosUsuario.tenantId || user.uid, role: user.role };
     const grupo = await lerGrupo(tx, base);
-    exigirPermissao(user, usuario, grupo);
+    const baseSnap = await tx.get(db.collection('configuracoes').doc(base));
+    const permitidos = valoresPermitidos({ user, usuario, grupo, configAtual: baseSnap.exists ? baseSnap.data() : {}, valores: leitura.valores });
+    if (permitidos.erro) throw new ErroConfiguracoesGerais(403, permitidos.erro);
+    const valores = permitidos.valores;
 
     const alvos = grupo ? grupo.filiais.map((f) => f.tenantId) : [base];
 
     // Cashback (decisao do dono, 20/10/2026): trocar o modelo (R$ <-> pontos)
     // so' sem saldo em aberto no modelo antigo, em nenhuma filial.
-    if (leitura.valores.cashback) {
-      const novo = cashbackDominio.parseConfigCashback(leitura.valores.cashback);
+    if (valores.cashback) {
+      const novo = cashbackDominio.parseConfigCashback(valores.cashback);
       const configs = await tx.getAll(...alvos.map((t) => db.collection('configuracoes').doc(t)));
       const hoje = getDateInputInTimeZone();
       for (let i = 0; i < alvos.length; i += 1) {
@@ -98,13 +145,14 @@ const salvarConfiguracoesGerais = async ({ user, corpo }) => {
 
     for (const tenantId of alvos) {
       tx.set(db.collection('configuracoes').doc(tenantId), {
-        ...leitura.valores,
+        ...valores,
         tenantId,
         updatedAt: agora(),
         ...buildDocumentUpdateMetadata(user.uid, agora(), 'Configurações gerais'),
       }, { merge: true });
     }
-    return { filiais: alvos.length, grupo: grupo ? grupo.nome : null, valores: leitura.valores };
+    // Volta so' o que foi gravado (campo sem permissao fica como estava, na tela tambem).
+    return { filiais: alvos.length, grupo: grupo ? grupo.nome : null, valores };
   });
 };
 
@@ -209,4 +257,4 @@ const adicionarCategoria = async ({ user, tenantId, corpo }) => {
   });
 };
 
-module.exports = { ErroConfiguracoesGerais, salvarConfiguracoesGerais, unificarConfiguracoesGerais, adicionarCategoria, lerGrupo, exigirPermissao };
+module.exports = { ErroConfiguracoesGerais, salvarConfiguracoesGerais, unificarConfiguracoesGerais, adicionarCategoria, lerGrupo, exigirPermissao, valoresPermitidos };

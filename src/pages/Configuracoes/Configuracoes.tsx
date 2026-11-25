@@ -10,7 +10,7 @@ import { DOCUMENTOS_DE_COBRANCA, EMISSAO_DOCUMENTOS_PADRAO, MODOS_DE_EMISSAO, VI
 import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoService';
 import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
 import { isTenantManagerRole } from '../../utils/roles';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor, Building2, Scale, ClipboardList } from 'lucide-react';
 import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
@@ -23,10 +23,23 @@ import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import {
+  PERMISSAO_ADMINISTRACAO,
+  PERMISSAO_CONFIG_AREAS,
   mudancasDePermissoes,
   permissoesEfetivasDoUsuario as permissoesEfetivas,
   permissoesParaGravarDoUsuario as permissoesParaGravar,
 } from '../../utils/permissoesNovasDomain';
+// Item 15 (fase Administracao, 25/11/2026): uma permissao por bloco das Configuracoes.
+import {
+  CAMPOS_GERAIS_DA_PERMISSAO,
+  avisoDosBlocosTravados,
+  blocosTravadosDaFilial,
+  camposTravadosDaFilial,
+  manterCamposTravados,
+  podeAbrirConfigDaFilial,
+} from '../../utils/configuracoesPermissaoDomain';
+import { salvarPermissoesNoServidor } from '../../services/usuarioAcessoService';
+import { hasTenantFullAccess } from '../../utils/roles';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { documentoService } from '../../services/documentoService';
 import { isCnpjValido } from '../../utils/documentoValidacao';
@@ -361,7 +374,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
  * Nenhuma opcao aparece nas duas: e' o que impede conflito entre filiais.
  */
 const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral' }) => {
-  const { currentUser, tenantId, userRole, grupo, isOwner, ehGestorDasFiliais, filialAtual, blockedModules } = useAuth();
+  const { currentUser, tenantId, userRole, grupo, isOwner, ehGestorDasFiliais, filialAtual, blockedModules, userPermissions } = useAuth();
   // Bancos da filial, para o "banco padrao do boleto" (26/10/2026).
   const { items: bancosDaFilial } = useTenantCollection<TenantCollectionItem & { nome: string; ativo: boolean }>('bancos', tenantId, { sortField: 'ordem' });
   const { openTab } = useTabs();
@@ -386,6 +399,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const smtpOriginalRef = useRef<{ host: string; porta: string; seguro: boolean; usuario: string } | null>(null);
   const guardarConfigOriginal = <T extends Record<string, unknown>>(form: T): T => {
     configOriginalRef.current = form;
+    formGravadoRef.current = form;
     return form;
   };
   const [showModulosSistema, setShowModulosSistema] = useState(true);
@@ -407,7 +421,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const [showNumeracao, setShowNumeracao] = useState(false);
   const [numeracao, setNumeracao] = useState<SituacaoDaSequencia[] | null>(null);
   const [numeracaoErro, setNumeracaoErro] = useState('');
-  const podeVerNumeracao = isOwner || isTenantManagerRole(userRole);
+  const podeVerNumeracao = isOwner || isTenantManagerRole(userRole) || userPermissions.includes(PERMISSAO_ADMINISTRACAO.numeracao);
   const carregarNumeracao = async () => {
     setNumeracaoErro('');
     try {
@@ -460,11 +474,28 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const [recebeComissaoPecas, setRecebeComissaoPecas] = useState(false);
   const [comissaoPercentualPecas, setComissaoPercentualPecas] = useState('');
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
+  // Item 15: dono/administrador mexe em tudo; o resto, pela permissao de cada parte.
+  const gestorDaEquipe = isPlatformAdmin || hasTenantFullAccess(userRole, isOwner);
+  const podeVerPermissoesDeUsuarios = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipePermissoes);
+  const podeMudarNivel = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeNivel);
   const [moduleBlockedDraft, setModuleBlockedDraft] = useState<string[]>([]);
   const [isSavingTenantModules, setIsSavingTenantModules] = useState(false);
 
   const [enviandoLogo, setEnviandoLogo] = useState(false);
-  const [formData, setFormData] = useState({
+  // Item 15 (fase Administracao, 25/11/2026): quem nao e' o dono/administrador so'
+  // muda os blocos que tem permissao; os outros ficam no valor gravado
+  // (configuracoesPermissaoDomain.ts). Gerais: o dono/administrador (do grupo) muda tudo.
+  const gestorDasConfiguracoes = isPlatformAdmin || ehGestorDasFiliais;
+  const podeNoBloco = (permissao: string) => gestorDasConfiguracoes || userPermissions.includes(permissao);
+  const blocosTravados = mostrarFilial
+    ? blocosTravadosDaFilial({ gestor: gestorDasConfiguracoes, permissoes: userPermissions })
+    : Object.keys(CAMPOS_GERAIS_DA_PERMISSAO).filter((p) => !podeNoBloco(p));
+  const camposTravados = mostrarFilial
+    ? camposTravadosDaFilial(blocosTravados)
+    : new Set(blocosTravados.flatMap((p) => CAMPOS_GERAIS_DA_PERMISSAO[p] || []));
+  /** O formulario como veio do banco (o "gravado" dos blocos travados). */
+  const formGravadoRef = useRef<Record<string, unknown> | null>(null);
+  const [formData, setFormDataLivre] = useState({
     logo: '',
     nomeOficina: '',
     /** Razao social (Receita). E' o nome do EMITENTE na nota fiscal (DANFE). */
@@ -597,6 +628,11 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     nfseCodigoServicoFederal: '',
     nfseAliquotaIssPadrao: '0'
   });
+  const camposTravadosRef = useRef(camposTravados);
+  useEffect(() => { camposTravadosRef.current = camposTravados; });
+  const setFormData = useCallback<typeof setFormDataLivre>((valor) => setFormDataLivre((atual) => (
+    manterCamposTravados(formGravadoRef.current, typeof valor === 'function' ? valor(atual) : valor, camposTravadosRef.current)
+  )), []);
 
   const [cidadeSearchTerm, setCidadeSearchTerm] = useState('');
   const [cidadeSearchResults, setCidadeSearchResults] = useState<CidadeParaCadastro[]>([]);
@@ -876,7 +912,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       }
     };
     fetchConfig();
-  }, [currentUser, tenantId, isPlatformAdmin]);
+  }, [currentUser, tenantId, isPlatformAdmin, setFormData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: aplicarCaixaAltaCadastro(e.target, e.target.value) });
@@ -939,6 +975,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   };
 
   const handleSalvarNumeracao = async () => {
+    if (!podeNoBloco(PERMISSAO_CONFIG_AREAS.fiscalNumeracao)) {
+      showError('Sem permissão', 'Você não tem permissão para alterar série, numeração, ambiente e CSC das notas. Peça a um responsável liberar "Fiscal: Série, próximo número, ambiente e CSC das notas" no seu cadastro de funcionário.');
+      return;
+    }
     const blocks: SpedyNumberingUpdate = {};
     const nfeMexida = Boolean(numeracaoNfe.serie.trim() || numeracaoNfe.proximoNumero.trim());
     if (nfeMexida || ambienteNfe) {
@@ -1100,6 +1140,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
    */
   const enviarLogoParaStorage = async (file: File) => {
     if (!tenantId) return;
+    if (!podeNoBloco(PERMISSAO_ADMINISTRACAO.dadosEmpresa)) {
+      showError('Sem permissão', 'Você não tem permissão para trocar o logo da empresa. Peça a um responsável liberar "Admin: Dados da empresa (razão social, CNPJ, endereço e logo)" no seu cadastro de funcionário.');
+      return;
+    }
     if (file.size > 1024 * 1024 * 2) {
       showError('Imagem grande demais', 'O logo deve ter no máximo 2 MB. Reduza a imagem e tente de novo.');
       return;
@@ -1348,7 +1392,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       // estar vazio sem isso significar "remover a chave" -- so mexe na
       // integracao Spedy aqui se a leitura funcionou, ou se o usuario
       // digitou uma chave nova (nesse caso a intencao e' explicita).
-      const podeAtualizarSpedyApiKey = !spedyPrivateConfigLoadFailed || trimmedSpedyApiKey !== '';
+      // Item 15: chave da Spedy e e-mail das notas so' com "Fiscal: Configurar a nota fiscal".
+      const podeAtualizarSpedyApiKey = podeNoBloco(PERMISSAO_CONFIG_AREAS.fiscalConfigurar)
+        && (!spedyPrivateConfigLoadFailed || trimmedSpedyApiKey !== '');
 
       if (podeAtualizarSpedyApiKey) {
         await setDoc(privateDocRef, {
@@ -1551,7 +1597,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     } catch (error) {
       console.error("Erro ao salvar:", error);
       if (erroDeAcessoNegado(error)) {
-        showError('Sem permissão para alterar as Configurações', 'Os dados da empresa e as preferências do sistema só podem ser alterados pelo dono, por um Admin ou por quem tem a permissão "Admin: Configurações". Peça a um deles para fazer a alteração ou para liberar essa permissão para você.');
+        showError('Sem permissão para alterar as Configurações', 'Os dados da empresa e as preferências do sistema só podem ser alterados pelo dono, por um Admin ou por quem tem as permissões "Admin: Configurações" e "Admin: Configurações da filial". Peça a um deles para fazer a alteração ou para liberar essas permissões para você.');
       } else {
         showError('Erro ao salvar', 'Não foi possível salvar as configurações. Confira sua conexão e tente de novo.');
       }
@@ -1566,7 +1612,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     setCopiarPermissoesDeId('');
     if (uId) {
       const user = tenantUsers.find(u => u.id === uId);
-      setSelectedUserPermissions(permissoesEfetivas(user?.permissoes || [], user?.nivelAcesso));
+      setSelectedUserPermissions(permissoesEfetivas(user?.permissoes || [], user?.nivelAcesso, { semFiliais: !grupo }));
       setSelectedUserNivelAcesso(parseNivelAcesso(user?.nivelAcesso));
       setRecebeComissaoServicos(user?.recebeComissaoServicos || false);
       setComissaoPercentualServicos(user?.comissaoPercentualServicos != null ? String(user.comissaoPercentualServicos) : '');
@@ -1590,7 +1636,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     if (!copiarPermissoesDeId) return;
     const origem = tenantUsers.find(u => u.id === copiarPermissoesDeId);
     if (!origem) return;
-    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || [], origem.nivelAcesso));
+    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || [], origem.nivelAcesso, { semFiliais: !grupo }));
     setSelectedUserNivelAcesso(parseNivelAcesso(origem.nivelAcesso));
     showWarning('Permissões copiadas', `Permissões e nível de acesso de ${origem.nome} copiados para a tela. Revise e clique em "Salvar Acessos" para confirmar.`);
   };
@@ -1598,6 +1644,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const togglePermission = (perm: string) => {
     // Modulo bloqueado pelo SuperAdmin (19/10/2026): a permissao dele nao liga.
     if (permissaoForaDoPlano(perm, blockedModules)) return;
+    // Item 15: sem ser o dono/administrador, so' da' e tira o que tem (o servidor confere de novo).
+    if (!gestorDaEquipe && !userPermissions.includes(perm)) return;
     setSelectedUserPermissions(prev =>
       prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
     );
@@ -1647,6 +1695,25 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const handleSavePermissions = async () => {
     if (!selectedUserId || !currentUser) return;
     setIsSavingPermissions(true);
+    // Item 15 (fase Administracao, 25/11/2026): sem ser o dono/administrador, salva pelo
+    // servidor, que confere "Admin: Equipe — liberar e retirar permissões", o alvo (so'
+    // funcionario comum) e o que voce mesmo tem. Nivel so' com a permissao dele; comissao fica.
+    if (!gestorDaEquipe) {
+      try {
+        await salvarPermissoesNoServidor(selectedUserId, selectedUserPermissions, podeMudarNivel ? selectedUserNivelAcesso : undefined);
+        setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
+          ...u,
+          permissoes: permissoesParaGravar(selectedUserPermissions),
+          ...(podeMudarNivel ? { nivelAcesso: selectedUserNivelAcesso } : {}),
+        } : u));
+        showSuccess('Permissões salvas!');
+      } catch (erro) {
+        showError('Não foi possível salvar as permissões', erro instanceof Error && erro.message ? erro.message : 'Tente de novo em instantes.');
+      } finally {
+        setIsSavingPermissions(false);
+      }
+      return;
+    }
     try {
       // Percentual em branco (undefined) cai pra comissao padrao do sistema
       // na hora da venda -- por isso a chave e' OMITIDA, nunca gravada como
@@ -1677,7 +1744,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const usuarioAntes = tenantUsers.find((u) => u.id === selectedUserId) || {};
       // Sem os marcadores internos (app e pacotes) -- permissoesNovasDomain.ts.
       const rotuloPermissao = (id: string) => permissionLabelMap[id] || id;
-      const { entraram, sairam } = mudancasDePermissoes(usuarioAntes.permissoes || [], permissoesParaGravar(selectedUserPermissions), usuarioAntes.nivelAcesso);
+      const { entraram, sairam } = mudancasDePermissoes(usuarioAntes.permissoes || [], permissoesParaGravar(selectedUserPermissions), usuarioAntes.nivelAcesso, { semFiliais: !grupo });
       const alteracoesUsuario: MudancaDeCampo[] = [
         ...entraram.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
         ...sairam.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),
@@ -1805,15 +1872,17 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     return <div style={{ padding: '40px', color: 'var(--text-primary)', textAlign: 'center' }}>Carregando configurações...</div>;
   }
 
-  // Configuracoes da filial: so' o dono ou um administrador (decisao do dono, 15/10/2026).
-  const podeConfigurarFilial = isPlatformAdmin || ehGestorDasFiliais;
+  // Configuracoes da filial: o dono ou um administrador (decisao do dono, 15/10/2026) e,
+  // desde o item 15 (25/11/2026), quem tem "Admin: Configurações da filial" (cada bloco pede a sua).
+  const podeConfigurarFilial = isPlatformAdmin || podeAbrirConfigDaFilial({ gestor: ehGestorDasFiliais, permissoes: userPermissions });
   if (mostrarFilial && !podeConfigurarFilial) {
     return (
       <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <EstadoVazio titulo="Só o dono ou um administrador da empresa altera as configurações da filial." texto="As opções que valem para todas as filiais ficam em Configurações Gerais." />
+        <EstadoVazio titulo="Você não tem permissão para abrir as configurações da filial." texto={'Peça a um responsável liberar "Admin: Configurações da filial" no seu cadastro de funcionário. As opções que valem para todas as filiais ficam em Configurações Gerais.'} />
       </div>
     );
   }
+  const avisoTravados = avisoDosBlocosTravados(blocosTravados);
 
   const totalModuleCount = MODULE_GROUPS.reduce((acc, group) => acc + group.items.length, 0);
   const activeModuleCount = totalModuleCount - moduleBlockedDraft.length;
@@ -1861,6 +1930,13 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         }}>
           <CheckCircle size={48} />
           <h2 style={{ margin: 0, fontSize: '20px' }}>Configurações Salvas!</h2>
+        </div>
+      )}
+
+      {avisoTravados && (
+        <div className="card" style={{ padding: '14px 18px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'flex-start', gap: '12px', maxWidth: '1100px', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
+          <Shield size={18} style={{ color: '#f59e0b', flex: 'none', marginTop: '2px' }} />
+          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{avisoTravados}</p>
         </div>
       )}
 
@@ -4617,7 +4693,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                         title="Insira a chave obtida no painel Spedy"
                         value={formData.spedyApiKey || ''}
                         onChange={handleChange}
-                        disabled={!isEditingMode || semAcessoAChaveSpedy}
+                        disabled={!isEditingMode || semAcessoAChaveSpedy || !podeNoBloco(PERMISSAO_CONFIG_AREAS.fiscalConfigurar)}
                         style={{ flex: 1, backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '12px 44px 12px 16px', color: 'var(--text-primary)' }}
                       />
                       <button
@@ -4749,7 +4825,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       type="button"
                       className="btn-secondary"
                       onClick={handleSalvarNumeracao}
-                      disabled={!isEditingMode || salvandoNumeracao}
+                      disabled={!isEditingMode || salvandoNumeracao || !podeNoBloco(PERMISSAO_CONFIG_AREAS.fiscalNumeracao)}
                       style={{ alignSelf: 'flex-start', opacity: (!isEditingMode || salvandoNumeracao) ? 0.7 : 1 }}
                     >
                       {salvandoNumeracao ? 'Salvando na Spedy...' : 'Salvar ambiente e numeração na Spedy'}
@@ -4800,7 +4876,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
 
         </>)}
 
-        {mostrarGeral && (<>
+        {mostrarGeral && podeVerPermissoesDeUsuarios && (<>
         {/* Permissão de Usuários */}
         <div className="card" style={{ padding: '24px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div
@@ -4884,6 +4960,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       <>
                         <select
                           value={selectedUserNivelAcesso}
+                          disabled={!podeMudarNivel}
+                          title={podeMudarNivel ? undefined : 'Para mudar o nível, peça a um responsável liberar "Admin: Equipe — mudar o nível de acesso" no seu cadastro de funcionário.'}
                           onChange={(e) => setSelectedUserNivelAcesso(parseNivelAcesso(e.target.value))}
                           style={{ width: '100%', maxWidth: '320px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '14px' }}
                         >
@@ -4922,6 +5000,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                           <input
                             type="checkbox"
                             checked={recebeComissaoServicos}
+                            disabled={!gestorDaEquipe}
                             onChange={(e) => setRecebeComissaoServicos(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
                           />
@@ -4937,6 +5016,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                               max="100"
                               title="Usa o padrão do sistema"
                               value={comissaoPercentualServicos}
+                              disabled={!gestorDaEquipe}
                               onChange={(e) => setComissaoPercentualServicos(e.target.value)}
                               style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
@@ -4952,6 +5032,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                           <input
                             type="checkbox"
                             checked={recebeComissaoPecas}
+                            disabled={!gestorDaEquipe}
                             onChange={(e) => setRecebeComissaoPecas(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
                           />
@@ -4967,6 +5048,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                               max="100"
                               title="Usa o padrão do sistema"
                               value={comissaoPercentualPecas}
+                              disabled={!gestorDaEquipe}
                               onChange={(e) => setComissaoPercentualPecas(e.target.value)}
                               style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />

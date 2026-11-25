@@ -14,10 +14,18 @@ const {
 } = require('../controllers/backup.controller');
 const { authenticate, requireAdmin, authorizeTenant } = require('../middleware/auth');
 const { limitadorPorChave, MINUTO_MS } = require('../middleware/rateLimit');
+const { exigirPermissao } = require('../services/permissoesAdministracao');
+const { PERMISSAO_ADMINISTRACAO: PA } = require('../domain/permissoesNovasDomain');
 
-// Todas as rotas de backup exigem usuário autenticado e perfil administrativo (Admin ou SuperAdmin)
+// Todas as rotas de backup exigem usuario autenticado. Item 15 (fase
+// Administracao, 25/11/2026): gerar e baixar deixam de ser so' do
+// administrador -- cada uma pede a sua permissao (o dono/administrador segue
+// liberado). Restaurar, excluir e o que e' da plataforma continuam so' dela
+// (conferido tambem no controller).
 router.use(authenticate);
-router.use(requireAdmin);
+const podeGerar = exigirPermissao([PA.backupGerar]);
+const podeBaixar = exigirPermissao([PA.backupBaixar]);
+const podeVer = exigirPermissao([PA.backupGerar, PA.backupBaixar], { qualquer: true });
 
 // Gerar/restaurar carrega a empresa inteira na memoria do servidor: poucas
 // vezes por hora, por usuario -- um clique repetido nao pode enfileirar
@@ -35,9 +43,9 @@ const limiteRestaurar = limitadorPorChave('backup-restaurar', porUsuario, {
 });
 
 // Rota exclusiva para o SuperAdmin do SaaS para listar as empresas clientes
-router.get('/tenants', getTenants);
+router.get('/tenants', requireAdmin, getTenants);
 // Situacao dos backups de todas as empresas e filiais (12/11/2026). So' a plataforma.
-router.get('/resumo', getResumo);
+router.get('/resumo', requireAdmin, getResumo);
 // Restaurar a partir de um arquivo enviado (12/11/2026). So' a plataforma; o
 // corpo e' o arquivo cifrado inteiro, por isso o leitor proprio (o json global
 // do servidor ignora este tipo de conteudo).
@@ -49,17 +57,17 @@ const soPlataforma = (req, res, next) => (
     ? next()
     : res.status(403).json({ error: 'Só a equipe Hennder pode restaurar um backup. Fale com o suporte.' })
 );
-router.post('/restore-file', soPlataforma, limiteRestaurar, arquivoDeBackup, restoreFromFile);
+router.post('/restore-file', requireAdmin, soPlataforma, limiteRestaurar, arquivoDeBackup, restoreFromFile);
 
 // Rotas de backups por empresa (validam automaticamente o isolamento de tenantId)
-router.get('/history', authorizeTenant, getBackupsHistory);
-router.get('/download', authorizeTenant, downloadBackup);
-router.post('/generate', limiteGerar, authorizeTenant, generateBackup);
-router.post('/restore', limiteRestaurar, authorizeTenant, restoreBackup);
-router.post('/remove', authorizeTenant, removeBackup);
+router.get('/history', podeVer, authorizeTenant, getBackupsHistory);
+router.get('/download', podeBaixar, authorizeTenant, downloadBackup);
+router.post('/generate', podeGerar, limiteGerar, authorizeTenant, generateBackup);
+router.post('/restore', requireAdmin, limiteRestaurar, authorizeTenant, restoreBackup);
+router.post('/remove', requireAdmin, authorizeTenant, removeBackup);
 
 // Rotas de configurações de agendamento automático de backups
-router.get('/settings', authorizeTenant, getBackupSettings);
-router.post('/settings', authorizeTenant, saveBackupSettings);
+router.get('/settings', podeVer, authorizeTenant, getBackupSettings);
+router.post('/settings', podeGerar, authorizeTenant, saveBackupSettings);
 
 module.exports = router;

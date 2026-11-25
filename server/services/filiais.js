@@ -11,6 +11,22 @@
  */
 const { db, admin } = require('../config/firebase');
 const dominio = require('../domain/filialDomain');
+const { PERMISSAO_FILIAIS_GESTAO: PFG, PERMISSAO_ADMINISTRACAO: PA } = require('../domain/permissoesNovasDomain');
+const { temNoCadastro, mensagemSemPermissao } = require('./permissoesAdministracao');
+
+/**
+ * Item 15 (fase Administracao, 25/11/2026): alem do dono/administrador do
+ * grupo, o funcionario de uma filial do grupo com a permissao propria
+ * (cadastrar, alterar, ver todas, resumo, filial padrao). Nenhuma vem com
+ * nada: so' o administrador fazia. Sem grupo, o papel ou a permissao.
+ */
+const podeNoGrupo = (grupo, usuario, permissao) => {
+  if (grupo) {
+    return dominio.ehGestorDoGrupo(grupo, usuario)
+      || (dominio.pertenceAoGrupo(grupo, usuario) && temNoCadastro(usuario, permissao));
+  }
+  return ['Master', 'Admin'].includes(usuario.role) || temNoCadastro(usuario, permissao);
+};
 
 class ErroFilial extends Error {
   constructor(status, message) {
@@ -55,8 +71,8 @@ const resumoParaTela = (grupo, usuario, limiteFiliais) => ({
   filiais: dominio.filiaisDoUsuario(grupo, usuario),
   podeTrocar: dominio.podeUsarOutrasFiliais(grupo, usuario),
   gestor: dominio.ehGestorDoGrupo(grupo, usuario),
-  // Lista completa (com as inativas) so' para quem administra as filiais.
-  todasAsFiliais: dominio.ehGestorDoGrupo(grupo, usuario) ? grupo.filiais : [],
+  // Lista completa (com as inativas) so' para quem administra as filiais (ou tem "Filiais: Ver todas").
+  todasAsFiliais: grupo && podeNoGrupo(grupo, usuario, PFG.gerenciar) ? grupo.filiais : [],
   modulosBloqueados: grupo ? grupo.modulosBloqueados : [],
   // Sem grupo, a empresa atual vira a matriz (10) e a primeira filial e' a 20.
   proximoCodigo: grupo ? dominio.proximoCodigoDeFilial(grupo) : '20',
@@ -89,16 +105,8 @@ const ativarFilial = async ({ user, destino }) => db.runTransaction(async (tx) =
   return { filial: grupo.filiais.find((f) => f.tenantId === alvo) };
 });
 
-const exigirGestor = (grupo, usuario, acao) => {
-  if (grupo) {
-    if (!dominio.ehGestorDoGrupo(grupo, usuario)) {
-      throw new ErroFilial(403, `Só o dono ou um administrador da empresa pode ${acao}.`);
-    }
-    return;
-  }
-  if (!['Master', 'Admin'].includes(usuario.role)) {
-    throw new ErroFilial(403, `Só o dono ou um administrador da empresa pode ${acao}.`);
-  }
+const exigirGestor = (grupo, usuario, permissao) => {
+  if (!podeNoGrupo(grupo, usuario, permissao)) throw new ErroFilial(403, mensagemSemPermissao([permissao]));
 };
 
 /**
@@ -109,7 +117,7 @@ const exigirGestor = (grupo, usuario, acao) => {
 const criarFilial = async ({ user, corpo }) => db.runTransaction(async (tx) => {
   const usuario = await lerUsuario(tx, user.uid);
   const casa = await lerGrupoDaCasa(tx, usuario.tenantId);
-  exigirGestor(casa.grupo, usuario, 'cadastrar filiais');
+  exigirGestor(casa.grupo, usuario, PFG.cadastrar);
 
   const matrizTenantId = casa.grupo ? casa.grupo.matrizTenantId : usuario.tenantId;
   // Trava do plano (07/10): como o limite de usuarios, so' o admin da plataforma libera.
@@ -170,11 +178,11 @@ const criarFilial = async ({ user, corpo }) => db.runTransaction(async (tx) => {
   return { tenantId, grupoId: grupoRef.id, filial };
 });
 
-const filialDoGrupoDoGestor = async (tx, user, tenantId, acao) => {
+const filialDoGrupoDoGestor = async (tx, user, tenantId, permissao) => {
   const usuario = await lerUsuario(tx, user.uid);
   const { grupo } = await lerGrupoDaCasa(tx, usuario.tenantId);
   if (!grupo) throw new ErroFilial(404, 'Sua empresa não tem filiais cadastradas.');
-  exigirGestor(grupo, usuario, acao);
+  exigirGestor(grupo, usuario, permissao);
   const atual = grupo.filiais.find((f) => f.tenantId === tenantId);
   if (!atual) throw new ErroFilial(404, 'Essa filial não faz parte da sua empresa.');
   return { usuario, grupo, atual };
@@ -182,7 +190,7 @@ const filialDoGrupoDoGestor = async (tx, user, tenantId, acao) => {
 
 /** Cadastro completo de uma filial, para abrir a edicao (o dono pode estar em outra filial). */
 const lerCadastroDaFilial = async ({ user, tenantId }) => db.runTransaction(async (tx) => {
-  const { atual } = await filialDoGrupoDoGestor(tx, user, tenantId, 'ver o cadastro das filiais');
+  const { atual } = await filialDoGrupoDoGestor(tx, user, tenantId, PFG.alterar);
   const configSnap = await tx.get(db.collection('configuracoes').doc(tenantId));
   return { filial: atual, dados: dominio.dadosDaFilialNaConfiguracao(atual, configSnap.exists ? configSnap.data() : {}) };
 });
@@ -193,7 +201,7 @@ const lerCadastroDaFilial = async ({ user, tenantId }) => db.runTransaction(asyn
  * nao mudam aqui -- trocar CNPJ mexe na Spedy e no registro de CNPJs.
  */
 const editarFilial = async ({ user, tenantId, corpo }) => db.runTransaction(async (tx) => {
-  const { usuario, grupo, atual } = await filialDoGrupoDoGestor(tx, user, tenantId, 'alterar filiais');
+  const { usuario, grupo, atual } = await filialDoGrupoDoGestor(tx, user, tenantId, PFG.alterar);
   const configRef = db.collection('configuracoes').doc(tenantId);
   const configSnap = await tx.get(configRef);
   const config = configSnap.exists ? configSnap.data() : {};
@@ -317,7 +325,7 @@ const DATA = /^\d{4}-\d{2}-\d{2}$/;
 /** Vendas do periodo, a receber e estoque de cada filial ativa, lado a lado. */
 const resumoDoGrupo = async ({ user, inicio, fim }) => {
   const { usuario, grupo } = await grupoDoUsuario(user.uid);
-  if (!dominio.ehGestorDoGrupo(grupo, usuario)) throw new ErroFilial(403, 'Só o dono ou um administrador vê o resumo das filiais.');
+  if (!grupo || !podeNoGrupo(grupo, usuario, PFG.resumo)) throw new ErroFilial(403, mensagemSemPermissao([PFG.resumo]));
   if (!DATA.test(String(inicio)) || !DATA.test(String(fim)) || inicio > fim) throw new ErroFilial(400, 'Escolha um período válido.');
   // A data que conta e' a da venda (dataVenda), que pode ser retroativa a'
   // criacao: le com a mesma folga do Dashboard e filtra no dominio.
@@ -366,7 +374,7 @@ const definirFilialPadrao = async ({ user, usuarioId, destino }) => db.runTransa
   const gestor = await lerUsuario(tx, user.uid);
   const { grupo } = await lerGrupoDaCasa(tx, gestor.tenantId);
   if (!grupo) throw new ErroFilial(404, 'Sua empresa não tem filiais cadastradas.');
-  exigirGestor(grupo, gestor, 'definir a filial padrão dos usuários');
+  exigirGestor(grupo, gestor, PA.equipeFilialPadrao);
   const alvo = await lerUsuario(tx, alvoId);
   const erro = dominio.validarFilialPadrao(grupo, alvo, filialId);
   if (erro) throw new ErroFilial(400, erro);

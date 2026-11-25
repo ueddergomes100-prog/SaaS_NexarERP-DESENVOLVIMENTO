@@ -269,11 +269,11 @@ test('permissoes pelo servidor: grava com o marcador do app; gerente so mexe no 
   await s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido'], nivelAcesso: 'supervisor' }, gerente: false });
   const u = fake.ler('usuarios/carlos');
   // Com os marcadores do app e dos pacotes de permissoes novas (25/11/2026): dai' em diante vale o marcado.
-  assert.deepEqual([...u.permissoes].sort(), ['app.definido', 'app.pedido', 'pacote.estoque-1', 'pacote.financeiro-1', 'pacote.financeiro-2', 'pacote.vendas-1', 'vendas.pedidos']);
+  assert.deepEqual([...u.permissoes].sort(), ['app.definido', 'app.pedido', 'pacote.administracao-1', 'pacote.estoque-1', 'pacote.financeiro-1', 'pacote.financeiro-2', 'pacote.vendas-1', 'vendas.pedidos']);
   assert.equal(u.nivelAcesso, 'supervisor');
   // Gerente sem "financeiro.pagar" nao da' essa permissao; nem muda o nivel.
   const gerente = { uid: 'g1', tenantId: 'loja', role: 'Funcionario', nivelAcesso: 'gerente', permissoes: ['vendas.pedidos', 'administrativo.equipe'] };
-  await assert.rejects(() => s.salvarPermissoes({ user: gerente, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido', 'financeiro.pagar'] }, gerente: true }), (e) => e.status === 403 && /financeiro\.pagar/.test(e.message));
+  await assert.rejects(() => s.salvarPermissoes({ user: gerente, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido', 'financeiro.pagar'] }, gerente: true }), (e) => e.status === 403 && /"Financeiro: Contas a Pagar"/.test(e.message));
   // Gerente (que nunca teve o app gravado, entao "tem" as chaves do app) devolve o Consultar preco.
   await s.salvarPermissoes({ user: gerente, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido', 'app.preco'], nivelAcesso: 'gerente' }, gerente: true });
   const depois = fake.ler('usuarios/carlos');

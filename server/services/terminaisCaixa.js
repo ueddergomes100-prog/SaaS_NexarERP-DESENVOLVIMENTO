@@ -74,6 +74,17 @@ const MENSAGEM_TERMINAL_INVALIDO = 'Este computador não está mais ativado para
 /** Gerente: dono, administrador da empresa ou equipe da plataforma. */
 const ehGerente = (user) => Boolean(user && (user.dono || user.isTenantManager || user.isPlatformAdmin));
 
+/**
+ * Item 15 (fase Administracao, 25/11/2026): alem do dono/administrador, quem
+ * tem "Vendas: Computadores do caixa -- ativar e desativar" (nao vem com nada:
+ * so' o administrador fazia).
+ */
+const { podeNaAdministracao, mensagemSemPermissao } = require('./permissoesAdministracao');
+const { PERMISSAO_CONFIG_AREAS } = require('../domain/permissoesNovasDomain');
+const PERMISSAO_COMPUTADORES = PERMISSAO_CONFIG_AREAS.caixaComputadores;
+const podeNosComputadores = (user) => ehGerente(user) || Boolean(user && podeNaAdministracao(user, PERMISSAO_COMPUTADORES));
+const SEM_PERMISSAO_COMPUTADORES = `${mensagemSemPermissao([PERMISSAO_COMPUTADORES])} Ou peça ao dono ou a um administrador para fazer.`;
+
 const exigirBanco = () => {
   if (!db || !admin) throw new ErroTerminal(503, 'O servidor está sem acesso ao banco de dados. Tente de novo em instantes.');
 };
@@ -85,9 +96,7 @@ const limparNome = (nome) => String(nome || '').replace(/\s+/g, ' ').trim().slic
 
 async function ativarTerminal({ user, nome }) {
   exigirBanco();
-  if (!ehGerente(user)) {
-    throw new ErroTerminal(403, 'Só o dono ou um administrador da empresa ativa um computador como caixa. Peça a um deles para entrar aqui.');
-  }
+  if (!podeNosComputadores(user)) throw new ErroTerminal(403, SEM_PERMISSAO_COMPUTADORES);
   const nomeLimpo = limparNome(nome);
   if (!nomeLimpo) throw new ErroTerminal(400, 'Dê um nome para este computador (por exemplo, "Caixa 1") para saber depois qual é qual.');
 
@@ -202,7 +211,7 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
 
 async function listarTerminais({ user }) {
   exigirBanco();
-  if (!ehGerente(user)) throw new ErroTerminal(403, 'Só o dono ou um administrador da empresa vê os computadores do caixa.');
+  if (!podeNosComputadores(user)) throw new ErroTerminal(403, SEM_PERMISSAO_COMPUTADORES);
   const snap = await db.collection(COLECAO).where('tenantId', '==', String(user.tenantId || '')).get();
   const paraMs = (t) => (t && typeof t.toMillis === 'function' ? t.toMillis() : null);
   return snap.docs.map((d) => {
@@ -221,7 +230,7 @@ async function listarTerminais({ user }) {
 
 async function desativarTerminal({ user, terminalId }) {
   exigirBanco();
-  if (!ehGerente(user)) throw new ErroTerminal(403, 'Só o dono ou um administrador da empresa desativa um computador do caixa.');
+  if (!podeNosComputadores(user)) throw new ErroTerminal(403, SEM_PERMISSAO_COMPUTADORES);
   const ref = db.collection(COLECAO).doc(String(terminalId || ''));
   const snap = await ref.get();
   if (!snap.exists || snap.data().tenantId !== user.tenantId) throw new ErroTerminal(404, 'Computador não encontrado nesta empresa.');
@@ -252,4 +261,5 @@ module.exports = {
   // expostos pros testes
   hashDoSegredo,
   ehGerente,
+  podeNosComputadores,
 };

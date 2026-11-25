@@ -20,9 +20,13 @@ class ErroNumeracao extends Error {
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
 const refSequencia = (tenantId, chave) => db.collection('contadores').doc(tenantId).collection('sequencias').doc(chave);
 
+// Item 15 (fase Administracao, 25/11/2026): alem do dono/administrador, quem tem
+// "Admin: Numeracao dos documentos" (nao vem com nada: so' o administrador fazia).
+const { podeNaAdministracao, mensagemSemPermissao } = require('./permissoesAdministracao');
+const { PERMISSAO_ADMINISTRACAO } = require('../domain/permissoesNovasDomain');
 const exigirGestor = (user) => {
-  if (user.isPlatformAdmin || user.isTenantManager) return;
-  throw new ErroNumeracao(403, 'Só o dono ou um administrador da empresa altera a numeração dos documentos.');
+  if (podeNaAdministracao(user, PERMISSAO_ADMINISTRACAO.numeracao)) return;
+  throw new ErroNumeracao(403, mensagemSemPermissao([PERMISSAO_ADMINISTRACAO.numeracao]));
 };
 
 /** Maior numero gravado na colecao (0 quando a consulta nao tem indice ou falha). */

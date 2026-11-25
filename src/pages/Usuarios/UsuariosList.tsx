@@ -10,10 +10,9 @@ import {
   NIVEL_ACESSO_LABELS,
   type NivelAcesso,
   parseNivelAcesso,
-  podeCriarLoginDeEquipe,
-  podeGerenciarPermissoesDeEquipe,
   podeSerAlvoDePermissaoPorGerente,
 } from '../../utils/visibilidadeVendasDomain';
+import { PERMISSAO_ADMINISTRACAO } from '../../utils/permissoesNovasDomain';
 import PermissoesUsuarioModal from '../../components/common/PermissoesUsuarioModal';
 import { alterarSituacaoNoServidor } from '../../services/usuarioAcessoService';
 import {
@@ -54,7 +53,6 @@ const UsuariosList: React.FC = () => {
     tenantId,
     userRole,
     isOwner,
-    nivelAcesso,
     userPermissions,
     restringirVendasPorUsuario,
     exigirIdentificacaoVendedor,
@@ -67,14 +65,17 @@ const UsuariosList: React.FC = () => {
   // porque as duas telas exigem permissoes diferentes (administrativo.equipe
   // vs administrativo.config) -- ver comentario em PermissoesUsuarioModal.
   const [usuarioPermissoes, setUsuarioPermissoes] = useState<UsuarioData | null>(null);
-  // Inativar usuario e trocar senha continuam so' Admin/Master/Dono.
-  const canManageUsers = isTenantManagerRole(userRole);
-  // Criar login: tambem o Gerente com esta tela liberada (26/10/2026).
-  const podeCriarUsuario = podeCriarLoginDeEquipe({ role: userRole, isOwner, nivelAcesso, permissoes: userPermissions });
-  // Mexer na permissao (modulos liberados) de um Funcionario comum: alem de
-  // quem gerencia usuarios, agora tambem quem e' nivel Gerente (2026-09-23,
-  // pedido do dono) -- ver podeGerenciarPermissoesDeEquipe.
-  const podeGerenciarPermissoes = podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso });
+  // Dono/administrador gere todos (menos outro gestor).
+  const canManageUsers = isTenantManagerRole(userRole) || Boolean(isOwner);
+  // Item 15 (fase Administracao, 25/11/2026): o resto, cada acao pela sua permissao
+  // (o gerente com Equipe e Acessos ja' vem com elas marcadas); o servidor confere de novo.
+  const temPermissao = (id: string) => canManageUsers || userPermissions.includes(id);
+  const podeCriarUsuario = temPermissao(PERMISSAO_ADMINISTRACAO.equipeCriar);
+  const podeGerenciarPermissoes = temPermissao(PERMISSAO_ADMINISTRACAO.equipePermissoes);
+  const podeAlgumaAcao = canManageUsers || [
+    PERMISSAO_ADMINISTRACAO.equipePermissoes, PERMISSAO_ADMINISTRACAO.equipeEditar,
+    PERMISSAO_ADMINISTRACAO.equipeSenha, PERMISSAO_ADMINISTRACAO.equipeInativar,
+  ].some((id) => userPermissions.includes(id));
 
   useEffect(() => {
     if (!tenantId) return;
@@ -100,16 +101,22 @@ const UsuariosList: React.FC = () => {
 
   /**
    * Editar ficha, senha, PIN e inativar (26/10/2026): dono/administrador em quem
-   * nao e' gestor; o gerente da equipe so' em funcionario comum (o servidor confere de novo).
+   * nao e' gestor; sem ser, so' em funcionario comum e com a permissao da acao
+   * (item 15). O servidor confere de novo.
    */
-  const podeGerir = (user: UsuarioData) => (canManageUsers
+  const alvoComum = (user: UsuarioData) => podeSerAlvoDePermissaoPorGerente({
+    targetUserId: user.id,
+    targetRole: user.role,
+    targetNivelAcesso: parseNivelAcesso(user.nivelAcesso),
+    actorUserId: currentUser?.uid,
+  });
+  const podeNoUsuario = (user: UsuarioData, permissao: string) => (canManageUsers
     ? !isTenantManagerRole(user.role)
-    : podeCriarUsuario && podeSerAlvoDePermissaoPorGerente({
-      targetUserId: user.id,
-      targetRole: user.role,
-      targetNivelAcesso: parseNivelAcesso(user.nivelAcesso),
-      actorUserId: currentUser?.uid,
-    }));
+    : userPermissions.includes(permissao) && alvoComum(user));
+  /** Abre a ficha (nome, codigo, senha de acesso e de vendedor). */
+  const podeGerir = (user: UsuarioData) => podeNoUsuario(user, PERMISSAO_ADMINISTRACAO.equipeEditar)
+    || podeNoUsuario(user, PERMISSAO_ADMINISTRACAO.equipeSenha);
+  const podeInativar = (user: UsuarioData) => podeNoUsuario(user, PERMISSAO_ADMINISTRACAO.equipeInativar);
 
   /**
    * So' o LAPIS (ficha: codigo e senha de vendedor) em quem e' dono/administrador
@@ -130,13 +137,13 @@ const UsuariosList: React.FC = () => {
    * dono): so' o dono, nunca a si mesmo. Administrador inativado perde o acesso
    * de verdade (servidor e banco), e a sessao dele cai.
    */
-  const podeMudarSituacao = (user: UsuarioData) => podeGerir(user) || (
+  const podeMudarSituacao = (user: UsuarioData) => podeInativar(user) || (
     Boolean(isOwner) && isTenantManagerRole(user.role) && user.id !== currentUser?.uid && user.id !== tenantId
   );
 
   const handleToggleStatus = async (user: UsuarioData) => {
     if (!podeMudarSituacao(user)) {
-      showError('Sem permissão', 'Você não pode alterar o acesso deste usuário.');
+      showError('Sem permissão', 'Você não pode inativar nem reativar este usuário. Peça a um responsável liberar "Admin: Equipe — inativar e reativar usuário" no seu cadastro de funcionário.');
       return;
     }
     if (!currentUser) return;
@@ -292,7 +299,7 @@ const UsuariosList: React.FC = () => {
                 <th style={{ padding: '16px' }}>Perfil no Sistema</th>
                 <th style={{ padding: '16px' }}>Nível (Vendas)</th>
                 <th style={{ padding: '16px' }}>Status</th>
-                {(canManageUsers || podeGerenciarPermissoes) && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
+                {podeAlgumaAcao && <th style={{ padding: '16px', textAlign: 'right' }}>Ações</th>}
               </tr>
             </thead>
             <tbody>
@@ -326,7 +333,7 @@ const UsuariosList: React.FC = () => {
                         );
                       })()}
                     </td>
-                    {(canManageUsers || podeGerenciarPermissoes) && (
+                    {podeAlgumaAcao && (
                       <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'right' }}>
                         {isTenantManagerRole(user.role) && podeEditarFicha(user) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
@@ -337,12 +344,7 @@ const UsuariosList: React.FC = () => {
                         )}
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            {(canManageUsers || podeSerAlvoDePermissaoPorGerente({
-                              targetUserId: user.id,
-                              targetRole: user.role,
-                              targetNivelAcesso: parseNivelAcesso(user.nivelAcesso),
-                              actorUserId: currentUser?.uid,
-                            })) && (
+                            {podeGerenciarPermissoes && (canManageUsers || alvoComum(user)) && (
                               <button
                                 className="icon-btn"
                                 style={{ color: '#8b5cf6' }}
@@ -353,10 +355,12 @@ const UsuariosList: React.FC = () => {
                               </button>
                             )}
                             {podeGerir(user) && (
+                              <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
+                                <Edit2 size={18} />
+                              </button>
+                            )}
+                            {podeInativar(user) && (
                               <>
-                                <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar Usuário">
-                                  <Edit2 size={18} />
-                                </button>
                                 <button
                                   className="icon-btn"
                                   style={{ color: (user.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}
@@ -367,7 +371,7 @@ const UsuariosList: React.FC = () => {
                                 </button>
                               </>
                             )}
-                            {!podeGerir(user) && podeMudarSituacao(user) && (
+                            {!podeInativar(user) && podeMudarSituacao(user) && (
                               <button
                                 className="icon-btn"
                                 style={{ color: (user.status || 'Ativo') === 'Ativo' ? '#ef4444' : '#10b981' }}

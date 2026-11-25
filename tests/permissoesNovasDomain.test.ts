@@ -12,6 +12,10 @@ import {
   PERMISSAO_FILIAIS,
   PERMISSAO_OS,
   PERMISSAO_PRODUCAO,
+  PERMISSAO_ADMINISTRACAO,
+  PERMISSAO_CONFIG_AREAS,
+  PERMISSAO_FILIAIS_GESTAO,
+  permissaoDoCampoGeral,
   ehMarcadorInterno,
   marcadorDoPacote,
   mexidasSemTer,
@@ -24,6 +28,16 @@ import {
 } from '../src/utils/permissoesNovasDomain';
 import { PERMISSION_CATALOG } from '../src/utils/permissionCatalog';
 import { MARCADOR_APP_DEFINIDO } from '../src/utils/permissoesAppDomain';
+import {
+  CAMPOS_DO_BLOCO_DA_FILIAL,
+  CAMPOS_GERAIS_DA_PERMISSAO,
+  avisoDosBlocosTravados,
+  blocosTravadosDaFilial,
+  camposTravadosDaFilial,
+  manterCamposTravados,
+  podeAbrirConfigDaFilial,
+} from '../src/utils/configuracoesPermissaoDomain';
+import { CAMPOS_GERAIS } from '../src/utils/configuracoesGeraisDomain';
 
 const ordenar = (l: string[]) => [...l].sort();
 const F = PERMISSAO_FINANCEIRO;
@@ -32,7 +46,8 @@ const MARCADOR_FIN2 = marcadorDoPacote('financeiro-2');
 /** Todos os marcadores conhecidos: efetivas e o que gravar sempre levam todos. */
 const MARCADOR_VENDAS = marcadorDoPacote('vendas-1');
 const MARCADOR_ESTOQUE = marcadorDoPacote('estoque-1');
-const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE];
+const MARCADOR_ADMINISTRACAO = marcadorDoPacote('administracao-1');
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -72,7 +87,7 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
   assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1']);
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');
@@ -219,4 +234,111 @@ test('nivel gerente: traz Modo Avancado e sem nota enquanto o pacote nao foi sal
   const telaAbre = permissoesEfetivasDoUsuario(alvo, 'gerente');
   assert.deepEqual(mexidasSemTer({ antes: alvo, depois: telaAbre, doGerente: ['cadastros.estoque_alterar', 'administrativo.equipe'], nivelAntes: 'gerente', nivelDoGerente: 'gerente' }), []);
   assert.deepEqual(mudancasDePermissoes(alvo, permissoesParaGravarDoUsuario(telaAbre), 'gerente'), { entraram: [], sairam: [] });
+});
+
+
+// ---------------------------------------------------------------------------
+// Fase Administracao (25/11/2026): pacote 'administracao-1'
+// ---------------------------------------------------------------------------
+
+const A = PERMISSAO_ADMINISTRACAO;
+const CA = PERMISSAO_CONFIG_AREAS;
+
+test('administracao-1: toda permissao nova no catalogo, sem as que ja existem em outros ramos', () => {
+  const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
+  [A, CA, PERMISSAO_FILIAIS_GESTAO].forEach((grupo) => Object.values(grupo).forEach((p: string) => assert.ok(ids.has(p), `${p} no catalogo`)));
+  for (const proibida of ['vendas.trocar_forma_do_vendedor', 'app.devolucao_destino', 'estoque.nota_avulsa_cheque_cliente']) {
+    assert.ok(!ids.has(proibida), `${proibida} nao entra por este ramo`);
+  }
+  assert.ok(![...ids].some((id) => id.startsWith('vendas.devolucao_') && id !== 'vendas.devolucao_estornar'), 'vendas.devolucao_* nao entra por este ramo');
+  assert.equal(PERMISSION_CATALOG.length, ids.size, 'nenhum id repetido no catalogo');
+  const pacote = PACOTES_DE_PERMISSOES.find((p) => p.id === 'administracao-1');
+  assert.ok(pacote, 'pacote existe');
+  Object.values(pacote?.implicacoesSemFiliais || {}).flat().forEach((p) => assert.ok(ids.has(p), p));
+  Object.values(pacote?.implicacoesDoNivel || {}).flat().forEach((p) => assert.ok(ids.has(p), p));
+});
+
+test('administracao-1: Configuracoes traz a meta; as Gerais so em empresa sem filiais', () => {
+  const comFiliais = permissoesEfetivas(['administrativo.config']);
+  assert.ok(comFiliais.includes(CA.metas));
+  for (const p of [A.configGerais, CA.planoContas, CA.cashbackConfigurar]) {
+    assert.ok(!comFiliais.includes(p), `${p} nao vem com filiais (so o dono/administrador do grupo salvava)`);
+    assert.ok(permissoesEfetivas(['administrativo.config'], undefined, { semFiliais: true }).includes(p), `${p} vem sem filiais`);
+  }
+  // Nada da filial vem com "Admin: Configuracoes": a tela era so do dono/administrador.
+  for (const p of [A.configFilial, A.dadosEmpresa, A.numeracao, CA.pixPedido, CA.limitesDesconto, CA.fiscalConfigurar, CA.fiscalNumeracao]) {
+    assert.ok(!permissoesEfetivas(['administrativo.config'], 'gerente', { semFiliais: true }).includes(p), `${p} nao vem com nada`);
+  }
+  assert.ok(permissoesEfetivas(['administrativo.logs']).includes(A.logsExportar));
+  assert.ok(permissoesEfetivas(['administrativo.relatorios']).includes(A.relatoriosFinanceiros));
+  assert.ok(permissoesEfetivas(['administrativo.relatorios']).includes(A.relatoriosVendas));
+  // Salvo de novo: vale o marcado, com ou sem filiais.
+  const salvo = permissoesParaGravar(['administrativo.config']);
+  assert.ok(!permissoesEfetivas(salvo, undefined, { semFiliais: true }).includes(A.configGerais));
+});
+
+test('administracao-1: o nivel gerente vira permissao marcada (Equipe, permissoes, trava); com a Equipe, criar/ficha/senha/inativar', () => {
+  const gerente = permissoesEfetivas([], 'gerente');
+  for (const p of [A.equipe, A.equipePermissoes, A.liberarTrava]) assert.ok(gerente.includes(p), p);
+  for (const p of [A.equipeCriar, A.equipeEditar, A.equipeSenha, A.equipeInativar]) {
+    assert.ok(!gerente.includes(p), `${p}: o nivel sozinho nao traz (precisava da Equipe gravada)`);
+    assert.ok(permissoesEfetivas([A.equipe], 'gerente').includes(p), `${p}: gerente com a Equipe ja fazia`);
+    assert.ok(!permissoesEfetivas([A.equipe], 'supervisor').includes(p), `${p}: so a tela, sem ser gerente, nao`);
+  }
+  for (const p of [A.equipeNivel, A.equipeApp, A.equipeFilialPadrao, A.backupGerar, A.backupBaixar, CA.caixaComputadores, PERMISSAO_FILIAIS_GESTAO.cadastrar]) {
+    assert.ok(!permissoesEfetivas([A.equipe], 'gerente', { semFiliais: true }).includes(p), `${p}: so o administrador fazia, nao vem`);
+  }
+  assert.ok(permissoesEfetivas([], 'administracao').includes(A.liberarTrava), 'nome antigo do gerente');
+  // Salvo sem a trava: o nivel nao libera mais.
+  const salvoSem = permissoesParaGravar(gerente.filter((p) => p !== A.liberarTrava));
+  assert.ok(!permissoesEfetivas(salvoSem, 'gerente').includes(A.liberarTrava));
+  assert.ok(permissoesEfetivas(salvoSem, 'gerente').includes(A.equipe));
+  // Gerente editando funcionario comum, sem mexer em nada: nao "mexe" no que nao tem (com e sem filiais).
+  for (const semFiliais of [false, true]) {
+    const alvo = ['administrativo.config', 'vendas.pedidos'];
+    const telaAbre = permissoesEfetivasDoUsuario(alvo, 'funcionario', { semFiliais });
+    assert.deepEqual(mexidasSemTer({ antes: alvo, depois: telaAbre, doGerente: [A.equipe], nivelAntes: 'funcionario', nivelDoGerente: 'gerente', opcoes: { semFiliais } }), []);
+    assert.deepEqual(mudancasDePermissoes(alvo, permissoesParaGravarDoUsuario(telaAbre), 'funcionario', { semFiliais }), { entraram: [], sairam: [] });
+  }
+});
+
+test('configuracoes gerais: cada campo pede a sua permissao; a tela e o servidor usam o mesmo mapa', () => {
+  assert.equal(permissaoDoCampoGeral('planoContasReceitas'), CA.planoContas);
+  assert.equal(permissaoDoCampoGeral('cashback'), CA.cashbackConfigurar);
+  assert.equal(permissaoDoCampoGeral('trabalhaComLimiteCredito'), A.configGerais);
+  const daTela = Object.values(CAMPOS_GERAIS_DA_PERMISSAO).flat().sort();
+  assert.deepEqual(daTela, [...CAMPOS_GERAIS].sort(), 'todo campo geral tem bloco na tela');
+  for (const [permissao, campos] of Object.entries(CAMPOS_GERAIS_DA_PERMISSAO)) {
+    campos.forEach((c) => assert.equal(permissaoDoCampoGeral(c), permissao, c));
+  }
+});
+
+test('configuracoes da filial: abre com a permissao; bloco sem a sua fica no valor gravado', () => {
+  assert.equal(podeAbrirConfigDaFilial({ gestor: true, permissoes: [] }), true);
+  assert.equal(podeAbrirConfigDaFilial({ gestor: false, permissoes: ['administrativo.config'] }), false, 'so "Admin: Configuracoes" nao abre a da filial');
+  assert.equal(podeAbrirConfigDaFilial({ gestor: false, permissoes: [A.configFilial] }), true);
+  assert.deepEqual(blocosTravadosDaFilial({ gestor: true, permissoes: [] }), []);
+  const travados = blocosTravadosDaFilial({ gestor: false, permissoes: [A.configFilial, CA.limitesDesconto] });
+  assert.ok(!travados.includes(CA.limitesDesconto));
+  assert.ok(travados.includes(CA.pixPedido) && travados.includes(A.dadosEmpresa));
+  const campos = camposTravadosDaFilial(travados);
+  assert.ok(campos.has('pixNoPedidoChave') && campos.has('cnpj'));
+  assert.ok(!campos.has('limiteDescontoPdv'));
+  assert.ok(!campos.has('bancoPadraoBoletoId'), 'banco padrao do boleto fica com o resto da tela');
+  // Um campo so em um bloco.
+  const todos = Object.values(CAMPOS_DO_BLOCO_DA_FILIAL).flat();
+  assert.equal(new Set(todos).size, todos.length, 'campo em dois blocos');
+  // Nenhum campo geral (so muda nas Gerais) aparece na filial.
+  CAMPOS_GERAIS.forEach((c) => assert.ok(!todos.includes(c), `${c} e das Gerais`));
+  // Guarda: o travado volta ao gravado; o liberado muda; sem gravado, passa.
+  const gravado = { pixNoPedidoChave: 'CHAVE', limiteDescontoPdv: { tipo: 'percentual', valor: '5' } };
+  const novo = { pixNoPedidoChave: 'OUTRA', limiteDescontoPdv: { tipo: 'percentual', valor: '50' } };
+  const r = manterCamposTravados(gravado, novo, campos);
+  assert.equal(r.pixNoPedidoChave, 'CHAVE');
+  assert.deepEqual(r.limiteDescontoPdv, { tipo: 'percentual', valor: '50' });
+  assert.equal(manterCamposTravados(null, novo, campos), novo);
+  const igual = { ...novo, pixNoPedidoChave: 'CHAVE' };
+  assert.equal(manterCamposTravados(gravado, igual, campos), igual, 'nada mudou: mesmo objeto');
+  assert.match(avisoDosBlocosTravados([CA.pixPedido]), /"Financeiro: Chave Pix impressa no pedido"/);
+  assert.equal(avisoDosBlocosTravados([]), '');
 });

@@ -3,8 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar, ShoppingCart, Users, Percent } from 'lucide-react';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import '../OS/OS.css'; // Reusing OS styles for consistency
+import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess } from '../../utils/roles';
+import { PERMISSAO_ADMINISTRACAO } from '../../utils/permissoesNovasDomain';
+
+/**
+ * Item 15 (fase Administracao, 25/11/2026): os relatorios financeiros e os de
+ * vendas pedem a sua permissao (vem marcadas com "Admin: Relatórios Diversos").
+ * So' a tela confere: os dados sao lidos do banco, que conferira na fase das rules.
+ */
+const PERMISSAO_DO_RELATORIO: Record<string, string> = {
+  'vendas-geral': PERMISSAO_ADMINISTRACAO.relatoriosVendas,
+  'vendas-vendedor': PERMISSAO_ADMINISTRACAO.relatoriosVendas,
+  descontos: PERMISSAO_ADMINISTRACAO.relatoriosVendas,
+  'contas-receber': PERMISSAO_ADMINISTRACAO.relatoriosFinanceiros,
+  'contas-pagar': PERMISSAO_ADMINISTRACAO.relatoriosFinanceiros,
+  'taxas-cartao': PERMISSAO_ADMINISTRACAO.relatoriosFinanceiros,
+};
 
 const RelatoriosDiversos: React.FC = () => {
+  const { userRole, isOwner, userPermissions } = useAuth();
+  const podeRelatorio = (id: string) => hasTenantFullAccess(userRole, Boolean(isOwner))
+    || !PERMISSAO_DO_RELATORIO[id] || userPermissions.includes(PERMISSAO_DO_RELATORIO[id]);
   const navigate = useNavigate();
 
   const getDefaultFimDate = () => {
@@ -260,7 +280,7 @@ const RelatoriosDiversos: React.FC = () => {
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {reports.map(report => (
+              {reports.filter((report) => podeRelatorio(report.id)).map(report => (
                 <div 
                   key={report.id}
                   onClick={() => report.id !== 'placeholder' && setActiveReport(activeReport === report.id ? null : report.id)}

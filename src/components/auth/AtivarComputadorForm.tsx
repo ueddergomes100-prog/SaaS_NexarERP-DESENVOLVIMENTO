@@ -68,8 +68,8 @@ const AtivarComputadorForm: React.FC<Props> = ({ cnpjInicial, persistenciaLocal,
   return (
     <form className="auth-form" onSubmit={ativar}>
       <div className="auth-info-panel">
-        <strong>Login do dono ou de um administrador</strong>
-        <span>Isso é feito uma vez. O dono entra com o e-mail do cadastro; o administrador, com o usuário dele. Depois, cada funcionário entra neste computador só com o código e a senha dele (cadastrados em Usuários).</span>
+        <strong>Login do dono, de um administrador ou de quem tem a permissão</strong>
+        <span>Isso é feito uma vez. O dono entra com o e-mail do cadastro; o administrador ou o funcionário com "Vendas: Computadores do caixa — ativar e desativar", com o usuário dele. Depois, cada funcionário entra neste computador só com o código e a senha dele (cadastrados em Usuários).</span>
       </div>
       <div className="auth-input-group">
         <label htmlFor="ativar-cnpj">CNPJ da empresa</label>

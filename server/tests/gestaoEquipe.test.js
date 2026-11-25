@@ -25,7 +25,7 @@ const chamar = async (m, user, usuarioId) => {
   let status = 200;
   let passou = false;
   const res = { status(s) { status = s; return this; }, json() { return this; } };
-  await m.podeGerirFuncionario({ user, body: { usuarioId } }, res, () => { passou = true; });
+  await m.podeGerirFuncionario('administrativo.equipe_editar')({ user, body: { usuarioId } }, res, () => { passou = true; });
   return passou ? 'passou' : status;
 };
 

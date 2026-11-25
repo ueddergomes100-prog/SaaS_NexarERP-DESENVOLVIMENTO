@@ -92,7 +92,7 @@ test('limite de filiais do plano: sem liberacao nao cadastra; cheio nao cadastra
 
 test('so\' dono ou administrador cadastra filial', async () => {
   const fake = criarBancoFalso(semGrupo());
-  await assert.rejects(() => carregar(fake.db).criarFilial({ user: { uid: 'f1' }, corpo: novaFilial() }), /Só o dono ou um administrador/);
+  await assert.rejects(() => carregar(fake.db).criarFilial({ user: { uid: 'f1' }, corpo: novaFilial() }), /"Filiais: Cadastrar filial"/);
 });
 
 test('trocar de filial: grava a filial ativa, volta para casa apagando, e funcionario precisa da permissao', async () => {
@@ -145,7 +145,7 @@ test('editar: nome e codigo, sem inativar a matriz nem a filial em que o proprio
   const cadastro = await s.lerCadastroDaFilial({ user: DONO, tenantId });
   assert.equal(cadastro.dados.rua, 'AV. CENTRAL');
   assert.equal(cadastro.dados.cidade, 'SERRA');
-  await assert.rejects(() => s.lerCadastroDaFilial({ user: { uid: 'f1' }, tenantId }), /Só o dono ou um administrador/);
+  await assert.rejects(() => s.lerCadastroDaFilial({ user: { uid: 'f1' }, tenantId }), /"Filiais: Alterar e inativar filial"/);
 
   await assert.rejects(() => s.editarFilial({ user: DONO, tenantId: 'dono', corpo: { ativa: false } }), /matriz não pode ser inativada/);
   await s.ativarFilial({ user: DONO, destino: tenantId });
@@ -174,6 +174,6 @@ test('resumo do grupo: vendas do periodo, a receber e estoque por filial; funcio
   const r = await s.resumoDoGrupo({ user: DONO, inicio: '2026-10-01', fim: '2026-10-31' });
   assert.deepEqual(r.filiais.map((f) => [f.codigo, f.vendasCentavos, f.pedidos, f.aReceberCentavos, f.estoqueCentavos]), [['10', 3000, 1, 0, 1000], ['20', 1000, 1, 2500, 0]]);
   assert.deepEqual([r.total.vendasCentavos, r.total.pedidos, r.total.ticketMedioCentavos], [4000, 2, 2000]);
-  await assert.rejects(() => s.resumoDoGrupo({ user: { uid: 'f1', tenantId: 'dono' }, inicio: '2026-10-01', fim: '2026-10-31' }), /Só o dono ou um administrador/);
+  await assert.rejects(() => s.resumoDoGrupo({ user: { uid: 'f1', tenantId: 'dono' }, inicio: '2026-10-01', fim: '2026-10-31' }), /"Filiais: Resumo do grupo/);
   await assert.rejects(() => s.resumoDoGrupo({ user: DONO, inicio: '2026-10-31', fim: '2026-10-01' }), /período válido/);
 });

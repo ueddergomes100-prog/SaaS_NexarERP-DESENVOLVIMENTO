@@ -134,10 +134,10 @@ const soltarTrava = async ({ uid, tenantId, corpo }) => {
   return { soltou: await gravarSeNaoMudou(ref, snap, 'apagar') };
 };
 
-/** Dono ou gerente libera na hora o documento que ficou preso com outra pessoa. */
+/** Dono/administrador ou quem tem a permissao (item 15) libera na hora o documento preso com outra pessoa. */
 const liberarTrava = async ({ user, corpo, podeLiberar, agoraMs = Date.now() }) => {
   const { tipo, registroId } = lerPedido(corpo, { exigeSessao: false });
-  if (!podeLiberar) throw new ErroTrava(403, 'Só o dono, um administrador ou um gerente libera um documento que está com outra pessoa.');
+  if (!podeLiberar) throw new ErroTrava(403, 'Você não tem permissão para liberar documento aberto por outra pessoa. Peça a um responsável liberar "Admin: Liberar documento aberto por outra pessoa" no seu cadastro de funcionário, ou peça para quem está com o documento fechá-lo.');
   const ref = refDaTrava(user.tenantId, tipo, registroId);
   const snap = await ref.get();
   if (!snap.exists) return { liberou: false };

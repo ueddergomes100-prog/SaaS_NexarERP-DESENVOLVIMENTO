@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mudancasDePermissoes = exports.mexidasSemTer = exports.permissoesParaGravarDoUsuario = exports.permissoesEfetivasDoUsuario = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.pacotesGravados = exports.ehMarcadorInterno = exports.ehMarcadorDePacote = exports.MARCADORES_DOS_PACOTES = exports.marcadorDoPacote = exports.PREFIXO_MARCADOR_PACOTE = exports.PACOTES_DE_PERMISSOES = exports.PERMISSAO_OS = exports.PERMISSAO_CADASTROS = exports.PERMISSAO_PRODUCAO = exports.PERMISSAO_FILIAIS = exports.PERMISSAO_ESTOQUE = exports.PERMISSAO_CRM = exports.PERMISSAO_OPERACOES = exports.PERMISSAO_VENDAS = exports.PERMISSAO_COMPRAS = exports.PERMISSAO_FISCAL_ENTRADA = exports.PERMISSAO_FISCAL = exports.PERMISSAO_FINANCEIRO = void 0;
+exports.mudancasDePermissoes = exports.mexidasSemTer = exports.permissoesParaGravarDoUsuario = exports.permissoesEfetivasDoUsuario = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.pacotesGravados = exports.ehMarcadorInterno = exports.ehMarcadorDePacote = exports.MARCADORES_DOS_PACOTES = exports.marcadorDoPacote = exports.PREFIXO_MARCADOR_PACOTE = exports.PACOTES_DE_PERMISSOES = exports.permissaoDoCampoGeral = exports.PERMISSAO_DO_CAMPO_GERAL = exports.PERMISSAO_FILIAIS_GESTAO = exports.PERMISSAO_CONFIG_AREAS = exports.PERMISSAO_ADMINISTRACAO = exports.PERMISSAO_OS = exports.PERMISSAO_CADASTROS = exports.PERMISSAO_PRODUCAO = exports.PERMISSAO_FILIAIS = exports.PERMISSAO_ESTOQUE = exports.PERMISSAO_CRM = exports.PERMISSAO_OPERACOES = exports.PERMISSAO_VENDAS = exports.PERMISSAO_COMPRAS = exports.PERMISSAO_FISCAL_ENTRADA = exports.PERMISSAO_FISCAL = exports.PERMISSAO_FINANCEIRO = void 0;
 const permissoesAppDomain_1 = require("./permissoesAppDomain");
 /**
  * PERMISSAO NOVA "JA' VEM MARCADA" (item 15 da Embala Minas, 25/11/2026).
@@ -203,6 +203,74 @@ exports.PERMISSAO_OS = {
     responsavel: 'mecanica.os_responsavel',
     fotos: 'mecanica.os_fotos',
 };
+/**
+ * Administracao (item 15, fase Administracao, 25/11/2026): Configuracoes
+ * Gerais e da filial (uma permissao por bloco sensivel), Equipe e Acessos,
+ * historico, relatorios diversos, backup, trava de edicao. Hoje muita coisa
+ * aqui e' "so' o dono/administrador" (papel) ou do NIVEL gerente: o que o
+ * gerente ja' fazia vem marcado pelo nivel; o que so' o papel fazia nao vem
+ * com nada (o dono marca para quem quiser).
+ */
+exports.PERMISSAO_ADMINISTRACAO = {
+    configGerais: 'administrativo.config_gerais',
+    configFilial: 'administrativo.config_filial',
+    dadosEmpresa: 'administrativo.dados_empresa',
+    textosDocumentos: 'administrativo.textos_documentos',
+    documentosImpressao: 'administrativo.documentos_impressao',
+    numeracao: 'administrativo.numeracao',
+    /** Ja' existia (tela Equipe e Acessos); o nivel gerente passa a trazer pelo pacote, nao mais abrir direto. */
+    equipe: 'administrativo.equipe',
+    equipeCriar: 'administrativo.equipe_criar',
+    equipeEditar: 'administrativo.equipe_editar',
+    equipeSenha: 'administrativo.equipe_senha',
+    equipeInativar: 'administrativo.equipe_inativar',
+    equipePermissoes: 'administrativo.equipe_permissoes',
+    equipeNivel: 'administrativo.equipe_nivel',
+    equipeApp: 'administrativo.equipe_app',
+    equipeFilialPadrao: 'administrativo.equipe_filial_padrao',
+    logsExportar: 'administrativo.logs_exportar',
+    relatoriosFinanceiros: 'administrativo.relatorios_financeiros',
+    relatoriosVendas: 'administrativo.relatorios_vendas',
+    backupGerar: 'administrativo.backup_gerar',
+    backupBaixar: 'administrativo.backup_baixar',
+    liberarTrava: 'administrativo.liberar_trava',
+};
+/** Blocos das Configuracoes que sao de outra area (fase Administracao, 25/11/2026). */
+exports.PERMISSAO_CONFIG_AREAS = {
+    limitesDesconto: 'vendas.limites_desconto',
+    parametrosVenda: 'vendas.parametros',
+    recursosVenda: 'vendas.recursos',
+    bonificacaoConfigurar: 'vendas.bonificacao_configurar',
+    cashbackConfigurar: 'vendas.cashback_configurar',
+    metas: 'vendas.metas',
+    caixaComputadores: 'vendas.caixa_computadores',
+    planoContas: 'financeiro.plano_contas',
+    pixPedido: 'financeiro.pix_pedido',
+    comissaoPadrao: 'financeiro.comissao_padrao',
+    formasPagamento: 'financeiro.formas_pagamento',
+    fiscalConfigurar: 'fiscal.configurar',
+    fiscalNumeracao: 'fiscal.numeracao',
+    crmConfigurar: 'crm.configurar',
+};
+/** Filiais do grupo (fase Administracao, 25/11/2026): hoje so' o dono/administrador do grupo. */
+exports.PERMISSAO_FILIAIS_GESTAO = {
+    gerenciar: 'filiais.gerenciar',
+    cadastrar: 'filiais.cadastrar',
+    alterar: 'filiais.alterar',
+    resumo: 'filiais.resumo',
+};
+/**
+ * Configuracoes Gerais (gravadas pelo servidor em todas as filiais): a
+ * permissao que cada campo pede. O que nao esta' aqui pede
+ * "Admin: Configuracoes gerais".
+ */
+exports.PERMISSAO_DO_CAMPO_GERAL = {
+    planoContasReceitas: exports.PERMISSAO_CONFIG_AREAS.planoContas,
+    planoContasDespesas: exports.PERMISSAO_CONFIG_AREAS.planoContas,
+    cashback: exports.PERMISSAO_CONFIG_AREAS.cashbackConfigurar,
+};
+const permissaoDoCampoGeral = (campo) => (exports.PERMISSAO_DO_CAMPO_GERAL[campo] || exports.PERMISSAO_ADMINISTRACAO.configGerais);
+exports.permissaoDoCampoGeral = permissaoDoCampoGeral;
 const F = exports.PERMISSAO_FINANCEIRO;
 const FI = exports.PERMISSAO_FISCAL;
 const V = exports.PERMISSAO_VENDAS;
@@ -212,6 +280,8 @@ const FL = exports.PERMISSAO_FILIAIS;
 const P = exports.PERMISSAO_PRODUCAO;
 const C = exports.PERMISSAO_CADASTROS;
 const OS = exports.PERMISSAO_OS;
+const A = exports.PERMISSAO_ADMINISTRACAO;
+const CA = exports.PERMISSAO_CONFIG_AREAS;
 /**
  * Pacotes conhecidos, na ordem em que sairam. Pacote novo entra NO FIM, com
  * id novo; nunca mexa nas implicacoes de um pacote ja' publicado (quem ja' foi
@@ -322,6 +392,35 @@ exports.PACOTES_DE_PERMISSOES = [
             gerente: [E.produtoAvancado, E.composicao, E.comissaoDesconto, FL.transferirSemNota],
         },
     },
+    {
+        // Fase Administracao (25/11/2026). "Admin: Configuracoes" traz o que ela
+        // ja' deixava fazer pela tela: a meta dos vendedores e, so' em empresa SEM
+        // filiais, as Configuracoes Gerais (plano de contas e cashback juntos) --
+        // com filiais, so' o dono/administrador do grupo salvava. As
+        // Configuracoes da FILIAL nao vem com nada: a tela era so' do dono e do
+        // administrador (as rules aceitavam a permissao, a tela nao). O nivel
+        // gerente vira permissao marcada: abrir Equipe e Acessos, liberar e retirar
+        // permissoes (ele fazia pelas Configuracoes, direto no banco) e liberar
+        // documento aberto por outra pessoa; com a Equipe marcada, tambem criar
+        // login, alterar a ficha, trocar a senha e inativar. Ficam FORA (so' o
+        // administrador hoje): nivel de acesso, aplicativo, filial padrao, backup,
+        // computadores do caixa, numeracao, filiais e cada bloco da filial.
+        id: 'administracao-1',
+        implicacoes: {
+            'administrativo.config': [CA.metas],
+            'administrativo.logs': [A.logsExportar],
+            'administrativo.relatorios': [A.relatoriosFinanceiros, A.relatoriosVendas],
+        },
+        implicacoesDoNivel: {
+            gerente: [A.equipe, A.equipePermissoes, A.liberarTrava],
+        },
+        implicacoesDoNivelComTela: {
+            gerente: { [A.equipe]: [A.equipeCriar, A.equipeEditar, A.equipeSenha, A.equipeInativar] },
+        },
+        implicacoesSemFiliais: {
+            'administrativo.config': [A.configGerais, CA.planoContas, CA.cashbackConfigurar],
+        },
+    },
 ];
 exports.PREFIXO_MARCADOR_PACOTE = 'pacote.';
 /** O que fica gravado em `permissoes` quando o pacote ja' foi salvo para a pessoa. */
@@ -352,7 +451,7 @@ const nivelDoPacote = (nivelAcesso) => (nivelAcesso === 'administracao' ? 'geren
  * todos os pacotes, para aplicar de novo nao mudar nada (o AuthContext ja'
  * entrega as efetivas e as telas podem aplicar outra vez -- mesma licao do app).
  */
-const permissoesEfetivas = (permissoes, nivelAcesso) => {
+const permissoesEfetivas = (permissoes, nivelAcesso, opcoes = {}) => {
     const gravadas = lista(permissoes);
     const temGravada = new Set(gravadas);
     const resultado = new Set(gravadas);
@@ -367,6 +466,20 @@ const permissoesEfetivas = (permissoes, nivelAcesso) => {
         const doNivel = nivel && pacote.implicacoesDoNivel ? pacote.implicacoesDoNivel[nivel] : undefined;
         if (doNivel)
             doNivel.forEach((p) => resultado.add(p));
+        // Nivel + tela: a tela conta so' se estiver GRAVADA (a que o nivel traz nao vale aqui).
+        const doNivelComTela = nivel && pacote.implicacoesDoNivelComTela ? pacote.implicacoesDoNivelComTela[nivel] : undefined;
+        if (doNivelComTela) {
+            for (const [daTela, novas] of Object.entries(doNivelComTela)) {
+                if (temGravada.has(daTela))
+                    novas.forEach((p) => resultado.add(p));
+            }
+        }
+        if (opcoes.semFiliais && pacote.implicacoesSemFiliais) {
+            for (const [daTela, novas] of Object.entries(pacote.implicacoesSemFiliais)) {
+                if (temGravada.has(daTela))
+                    novas.forEach((p) => resultado.add(p));
+            }
+        }
     }
     exports.MARCADORES_DOS_PACOTES.forEach((m) => resultado.add(m));
     return [...resultado];
@@ -382,7 +495,7 @@ exports.permissoesParaGravar = permissoesParaGravar;
  * Efetivas do usuario: chaves do app (permissoesAppDomain) + pacotes. Idempotente.
  * `nivelAcesso` (do cadastro): o que o nivel traz enquanto o pacote nao foi salvo.
  */
-const permissoesEfetivasDoUsuario = (permissoes, nivelAcesso) => ((0, exports.permissoesEfetivas)((0, permissoesAppDomain_1.permissoesEfetivas)(permissoes), nivelAcesso));
+const permissoesEfetivasDoUsuario = (permissoes, nivelAcesso, opcoes = {}) => ((0, exports.permissoesEfetivas)((0, permissoesAppDomain_1.permissoesEfetivas)(permissoes), nivelAcesso, opcoes));
 exports.permissoesEfetivasDoUsuario = permissoesEfetivasDoUsuario;
 /** O que gravar no cadastro: marcadas + marcador do app + marcadores dos pacotes. */
 const permissoesParaGravarDoUsuario = (marcadas) => ((0, exports.permissoesParaGravar)((0, permissoesAppDomain_1.permissoesParaGravar)(marcadas)));
@@ -394,16 +507,16 @@ exports.permissoesParaGravarDoUsuario = permissoesParaGravarDoUsuario;
  * uma permissao nova aparece como "tirou". Devolve as que ele mexeu sem ter.
  */
 const mexidasSemTer = (args) => {
-    const antes = new Set((0, exports.permissoesEfetivasDoUsuario)(args.antes, args.nivelAntes));
+    const antes = new Set((0, exports.permissoesEfetivasDoUsuario)(args.antes, args.nivelAntes, args.opcoes));
     const depois = new Set((0, exports.permissoesEfetivasDoUsuario)((0, exports.permissoesParaGravarDoUsuario)(args.depois)));
-    const dele = new Set((0, exports.permissoesEfetivasDoUsuario)(args.doGerente, args.nivelDoGerente));
+    const dele = new Set((0, exports.permissoesEfetivasDoUsuario)(args.doGerente, args.nivelDoGerente, args.opcoes));
     const mexidas = [...depois].filter((p) => !antes.has(p)).concat([...antes].filter((p) => !depois.has(p)));
     return mexidas.filter((p) => !dele.has(p) && !(0, exports.ehMarcadorInterno)(p));
 };
 exports.mexidasSemTer = mexidasSemTer;
 /** Permissoes que entraram e sairam (efetivas, sem marcadores), para o historico de alteracoes. */
-const mudancasDePermissoes = (antes, depois, nivelAntes) => {
-    const semMarcador = (l, nivel) => new Set((0, exports.permissoesEfetivasDoUsuario)(l, nivel).filter((p) => !(0, exports.ehMarcadorInterno)(p)));
+const mudancasDePermissoes = (antes, depois, nivelAntes, opcoes = {}) => {
+    const semMarcador = (l, nivel) => new Set((0, exports.permissoesEfetivasDoUsuario)(l, nivel, opcoes).filter((p) => !(0, exports.ehMarcadorInterno)(p)));
     const a = semMarcador(antes, nivelAntes);
     const d = semMarcador(depois);
     return {

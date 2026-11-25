@@ -23,7 +23,7 @@ import {
 import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
 import { MENSAGEM_FORA_DO_PLANO, permissaoForaDoPlano } from '../../utils/permissaoModuloDomain';
 import { alterarAcessoAppNoServidor, salvarPermissoesNoServidor } from '../../services/usuarioAcessoService';
-import { permissoesEfetivasDoUsuario } from '../../utils/permissoesNovasDomain';
+import { PERMISSAO_ADMINISTRACAO, permissoesEfetivasDoUsuario } from '../../utils/permissoesNovasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { podeUsarOutrasFiliais, rotuloFilial } from '../../utils/filialDomain';
 import { definirFilialPadrao } from '../../services/filialService';
@@ -52,6 +52,13 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
   // continuam so' Admin/Master/Dono (a regra do Firestore recusa a troca
   // desses dois campos vinda de quem nao e' isso; ver firestore.rules).
   const podeAlterarNivelEMobile = hasTenantFullAccess(userRole, isOwner);
+  /** Empresa sem filiais: "Admin: Configurações" traz as Configurações Gerais (pacote 'administracao-1'). */
+  const semFiliais = !grupo;
+  // Item 15 (fase Administracao, 25/11/2026): nivel, aplicativo e filial padrao, cada um
+  // pela sua permissao (o servidor confere de novo). Dono/administrador seguem com tudo.
+  const podeNivel = podeAlterarNivelEMobile || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeNivel);
+  const podeApp = podeAlterarNivelEMobile || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeApp);
+  const podeFilialPadrao = podeAlterarNivelEMobile || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeFilialPadrao);
   // Gerente so' da' e tira o que ELE MESMO tem (decisao do dono, 19/10/2026;
   // o banco recusa o resto -- ver permissoesMexidasSoAsDoGerente nas rules).
   // Modulo bloqueado pelo SuperAdmin (19/10/2026): a permissao dele fica apagada e ninguem liga.
@@ -83,7 +90,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         // Efetivas (26/10/2026): quem nunca teve o app gravado ja' aparece com as chaves do app marcadas.
         // Idem as permissoes novas por acao (25/11/2026, permissoesNovasDomain.ts): aparecem marcadas
         // para quem tem a permissao da tela; ao salvar, o servidor grava o marcado de verdade.
-        setPermissoes(permissoesEfetivasDoUsuario(snap.exists() ? snap.data().permissoes : [], snap.exists() ? snap.data().nivelAcesso : undefined));
+        setPermissoes(permissoesEfetivasDoUsuario(snap.exists() ? snap.data().permissoes : [], snap.exists() ? snap.data().nivelAcesso : undefined, { semFiliais }));
         setNivelAcesso(parseNivelAcesso(snap.exists() ? snap.data().nivelAcesso : undefined));
         const acessoMobileAtual = snap.exists() && snap.data().acessoAppMobile === true;
         setAcessoAppMobile(acessoMobileAtual);
@@ -103,7 +110,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
       }
     };
     carregar();
-  }, [usuarioId]);
+  }, [usuarioId, semFiliais]);
 
   const toggle = (id: string) => {
     if (!podeMexer(id)) return;
@@ -142,7 +149,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
   const handleSalvar = async () => {
     if (!currentUser) return;
 
-    const ligandoAcessoMobileAgora = podeAlterarNivelEMobile && acessoAppMobile && !acessoAppMobileOriginal;
+    const ligandoAcessoMobileAgora = podeApp && acessoAppMobile && !acessoAppMobileOriginal;
     if (ligandoAcessoMobileAgora && tenantId) {
       const checagem = await checarLimiteAcessoMobile(tenantId, grupo?.matrizTenantId || tenantId);
       if (!checagem.ok) {
@@ -155,9 +162,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
     try {
       // Pelo servidor (26/10/2026): ele grava o marcador do app e confere o gerente
       // (so' o que ele mesmo tem, contando as chaves do app). Gerente nao manda o nivel.
-      await salvarPermissoesNoServidor(usuarioId, permissoes, podeAlterarNivelEMobile ? nivelAcesso : undefined);
+      await salvarPermissoesNoServidor(usuarioId, permissoes, podeNivel ? nivelAcesso : undefined);
       // App Vendas (19/10/2026): ligar/desligar passa pelo servidor, que confere a vaga contratada.
-      if (podeAlterarNivelEMobile && acessoAppMobile !== acessoAppMobileOriginal) {
+      if (podeApp && acessoAppMobile !== acessoAppMobileOriginal) {
         try {
           await alterarAcessoAppNoServidor(usuarioId, acessoAppMobile);
         } catch (erroApp) {
@@ -167,7 +174,7 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         }
       }
       // Filial padrao vai pelo servidor (so' ele grava, conferindo o grupo e a permissao).
-      if (grupo && podeAlterarNivelEMobile && casaDoUsuario && filialPadraoEfetiva !== filialPadraoOriginal) {
+      if (grupo && podeFilialPadrao && casaDoUsuario && filialPadraoEfetiva !== filialPadraoOriginal) {
         try {
           await definirFilialPadrao(usuarioId, filialPadraoEfetiva);
         } catch (erroFilial) {
@@ -225,8 +232,8 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
               id="nivel-acesso-usuario"
               value={nivelAcesso}
               onChange={(e) => setNivelAcesso(parseNivelAcesso(e.target.value))}
-              disabled={isLoading || !podeAlterarNivelEMobile}
-              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px', opacity: podeAlterarNivelEMobile ? 1 : 0.6 }}
+              disabled={isLoading || !podeNivel}
+              style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px', opacity: podeNivel ? 1 : 0.6 }}
             >
               {NIVEIS_ACESSO.map((nivel) => (
                 <option key={nivel} value={nivel}>{NIVEL_ACESSO_LABELS[nivel]}</option>
@@ -234,8 +241,8 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
             </select>
           </div>
           <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-            {!podeAlterarNivelEMobile
-              ? 'Só um Administrador, Master ou o Dono pode mudar o nível de acesso.'
+            {!podeNivel
+              ? 'Para mudar o nível de acesso, peça a um responsável liberar "Admin: Equipe — mudar o nível de acesso" no seu cadastro de funcionário.'
               : restringirVendasPorUsuario
               ? (nivelAcesso === 'funcionario'
                 ? 'Sua empresa está com "Não visualizar vendas de outro usuário" ligado: este usuário verá somente as vendas em que ele é o vendedor.'
@@ -245,20 +252,20 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         </div>
 
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: (isLoading || !podeAlterarNivelEMobile) ? 'default' : 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', opacity: podeAlterarNivelEMobile ? 1 : 0.6 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: (isLoading || !podeApp) ? 'default' : 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', opacity: podeApp ? 1 : 0.6 }}>
             <input
               type="checkbox"
               checked={acessoAppMobile}
-              disabled={isLoading || !podeAlterarNivelEMobile}
+              disabled={isLoading || !podeApp}
               onChange={(e) => setAcessoAppMobile(e.target.checked)}
               style={{ width: '18px', height: '18px', accentColor: 'var(--accent-purple)', cursor: 'pointer' }}
             />
             Acesso ao aplicativo mobile
           </label>
           <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-            {podeAlterarNivelEMobile
+            {podeApp
               ? 'Libera este usuário pra entrar no aplicativo do vendedor externo, com o mesmo login (CNPJ, usuário e senha) que ele já usa aqui. Consome uma vaga do limite de acesso mobile contratado pela empresa.'
-              : 'Só um Administrador, Master ou o Dono pode liberar o acesso ao aplicativo mobile.'}
+              : 'Para liberar o aplicativo mobile, peça a um responsável liberar "Admin: Equipe — liberar o aplicativo mobile" no seu cadastro de funcionário.'}
           </p>
         </div>
 
@@ -272,8 +279,8 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
                 id="filial-padrao-usuario"
                 value={filialPadraoEfetiva}
                 onChange={(e) => setFilialPadrao(e.target.value)}
-                disabled={isLoading || !podeAlterarNivelEMobile || !usaOutrasFiliais}
-                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px', opacity: podeAlterarNivelEMobile && usaOutrasFiliais ? 1 : 0.6 }}
+                disabled={isLoading || !podeFilialPadrao || !usaOutrasFiliais}
+                style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px', opacity: podeFilialPadrao && usaOutrasFiliais ? 1 : 0.6 }}
               >
                 {filiaisParaPadrao.map((f) => (
                   <option key={f.tenantId} value={f.tenantId}>{rotuloFilial(f)}</option>
@@ -281,8 +288,8 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
               </select>
             </div>
             <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
-              {!podeAlterarNivelEMobile
-                ? 'Só um Administrador, Master ou o Dono muda a filial padrão.'
+              {!podeFilialPadrao
+                ? 'Para mudar a filial padrão, peça a um responsável liberar "Admin: Equipe — filial padrão de cada usuário" no seu cadastro de funcionário.'
                 : !usaOutrasFiliais
                 ? `Sem a permissão "Utiliza outras filiais", ele entra sempre na filial em que foi cadastrado${filialDeCadastro ? ` (${rotuloFilial(filialDeCadastro)})` : ''}.`
                 : 'Toda vez que ele entrar no sistema, começa nesta filial. Depois pode trocar pelo seletor Filial do topo.'}

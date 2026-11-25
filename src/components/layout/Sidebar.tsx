@@ -64,7 +64,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
-import { podeGerenciarPermissoesDeEquipe } from '../../utils/visibilidadeVendasDomain';
 import { menuVendedoresVisivel } from '../../utils/vendedorCadastroDomain';
 import hennderIcon from '../../assets/hennder-icon.webp';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
@@ -115,7 +114,6 @@ const Sidebar: React.FC = () => {
     usaGradeDeProdutos,
     configCashback,
     temVendedorCadastrado,
-    nivelAcesso,
     grupo
   } = useAuth();
   const { openTab } = useTabs();
@@ -181,13 +179,10 @@ const Sidebar: React.FC = () => {
     // Filiais aparece sempre (15/10/2026): toda empresa nasce com a Matriz, e e' no
     // lapis dela que ficam as Configuracoes da filial. "Nova filial" segue o plano.
     if (item.managerOnly && !hasFullAccess) return false;
-    // Funcionario nivel Gerente enxerga o menu Usuarios mesmo sem a permissao
-    // 'administrativo.equipe' marcada -- e' o mesmo bypass que ja libera o
-    // botao de permissoes dentro da tela (podeGerenciarPermissoesDeEquipe);
-    // sem isto aqui o menu nunca aparecia pra ele abrir a tela em primeiro lugar.
-    if (item.permission === 'administrativo.equipe' && podeGerenciarPermissoesDeEquipe({ role: userRole, isOwner, nivelAcesso })) return true;
+    // Item 15 (25/11/2026): o nivel Gerente ve Usuarios pela permissao (ja' vem marcada
+    // para ele no pacote 'administracao-1'), sem o atalho de antes.
     return hasFullAccess || !item.permission || userPermissions?.includes(item.permission);
-  }, [controlaFiscal, habilitarTelaPrecificacao, trabalhaComCondicional, trabalhaComEntregaFutura, usaGradeDeProdutos, configCashback.ativo, grupo, hasFullAccess, isBlocked, isOwner, nivelAcesso, userPermissions, userRole]);
+  }, [controlaFiscal, habilitarTelaPrecificacao, trabalhaComCondicional, trabalhaComEntregaFutura, usaGradeDeProdutos, configCashback.ativo, grupo, hasFullAccess, isBlocked, userPermissions]);
 
   // Devolucoes do app aguardando confirmacao (24/11/2026): so' quem ve o menu
   // escuta, e so' as que estao aguardando (igualdades: sem indice composto).
@@ -385,7 +380,8 @@ const Sidebar: React.FC = () => {
       items: [
         { label: 'Configurações Gerais', to: '/configuracoes', icon: Settings, module: 'admin.config', permission: 'administrativo.config' },
         // Configuracoes da filial (15/10/2026): o que e' de cada loja; o lapis em Filiais leva ao mesmo lugar.
-        { label: 'Configurações da Filial', to: '/configuracoes/filial', icon: Sliders, module: 'admin.config', permission: 'administrativo.config', managerOnly: true },
+        // Item 15 (25/11/2026): tambem para quem tem "Admin: Configurações da filial" (a rota ainda pede "Admin: Configurações").
+        { label: 'Configurações da Filial', to: '/configuracoes/filial', icon: Sliders, module: 'admin.config', permission: 'administrativo.config_filial' },
         // Filiais (2026-10-06): a tela confere de novo que e' dono/administrador.
         { label: 'Filiais', to: '/configuracoes/filiais', icon: Building2, module: 'admin.config', permission: 'administrativo.config' }
       ]

@@ -1,5 +1,5 @@
 const express = require('express');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 const { definirPin, removerPin, validarPin } = require('../services/vendedorPin');
 const { emitirComprovante } = require('../services/comprovantes');
 const { TIPO_IDENTIFICACAO } = require('../domain/conferenciaDescontoDomain');
@@ -101,7 +101,8 @@ router.post('/validar', async (req, res) => {
 // 21/10/2026: alem do dono/administrador, quem tem "Cadastros: Vendedores — incluir e
 // alterar" define a senha -- so' de vendedor de balcao COMUM (ver definirPin, `restrito`).
 const { podeEmVendas, mensagemSemPermissao } = require('../services/permissoesVendas');
-const { PERMISSAO_VENDAS } = require('../domain/permissoesNovasDomain');
+const { PERMISSAO_VENDAS, PERMISSAO_ADMINISTRACAO } = require('../domain/permissoesNovasDomain');
+const { mensagemSemPermissao: semPermissaoNaEquipe } = require('../services/permissoesAdministracao');
 const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.isTenantManager));
 const podeDefinirPin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Usuario nao autenticado.' });
@@ -117,8 +118,10 @@ const podeDefinirPin = async (req, res, next) => {
     return next();
   }
   // 26/10/2026: o gerente (Equipe e Acessos) define o PIN de funcionario comum, sem a restricao de "so' balcao".
+  // Item 15 (fase Administracao, 25/11/2026): pela permissao "Admin: Equipe -- trocar a senha"
+  // (o gerente com Equipe e Acessos ja' vem com ela).
   try {
-    if (await gerentePodeGerir(req.user, req.body?.usuarioId)) {
+    if (await gerentePodeGerir(req.user, req.body?.usuarioId, PERMISSAO_ADMINISTRACAO.equipeSenha)) {
       req.gerenteDaEquipe = true;
       return next();
     }
@@ -149,8 +152,23 @@ router.post('/definir', podeDefinirPin, async (req, res) => {
   }
 });
 
-/** Remove o PIN (funcionario deixa de poder ser identificado na venda). */
-router.post('/remover', requireAdmin, async (req, res) => {
+/**
+ * Remove o PIN (funcionario deixa de poder ser identificado na venda). Item 15
+ * (fase Administracao, 25/11/2026): alem do dono/administrador, quem tem
+ * "Admin: Equipe -- trocar a senha", so' de funcionario comum.
+ */
+const podeRemoverPin = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Usuario nao autenticado.' });
+  if (ehGestor(req.user)) return next();
+  try {
+    if (await gerentePodeGerir(req.user, req.body?.usuarioId, PERMISSAO_ADMINISTRACAO.equipeSenha)) return next();
+  } catch (erro) {
+    console.error('[PIN] conferir quem remove:', erro);
+  }
+  return res.status(403).json({ error: semPermissaoNaEquipe([PERMISSAO_ADMINISTRACAO.equipeSenha]) });
+};
+
+router.post('/remover', podeRemoverPin, async (req, res) => {
   try {
     const motivo = await motivoGestorNaoPodeNoAlvo(req.user, req.body?.usuarioId);
     if (motivo) return res.status(403).json({ error: motivo });

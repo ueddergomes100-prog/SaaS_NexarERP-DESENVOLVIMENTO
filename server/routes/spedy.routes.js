@@ -4,7 +4,8 @@ const { authenticate } = require('../middleware/auth');
 const { admin, db } = require('../config/firebase');
 const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido } = require('../services/spedyAcesso');
 const { permissoesQueFaltam, mensagemSemPermissao } = require('../services/permissoesFinanceiro');
-const { PERMISSAO_FISCAL } = require('../domain/permissoesNovasDomain');
+const { PERMISSAO_FISCAL, PERMISSAO_ADMINISTRACAO, PERMISSAO_CONFIG_AREAS } = require('../domain/permissoesNovasDomain');
+const permissoesAdministracao = require('../services/permissoesAdministracao');
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
@@ -308,13 +309,13 @@ router.get('/:type/cities', async (req, res) => {
 // esta pedindo.
 router.put('/numbering', async (req, res) => {
   try {
-    // Bloco B de seguranca (25/11/2026): serie, ambiente (homologacao/producao) e
-    // CSC sao configuracao da empresa, nao emissao de nota. Antes bastava a
-    // permissao de emitir nota. Mesma regra de quem grava Configuracoes.
-    const podeEditarConfiguracoes = req.user.isPlatformAdmin || req.user.isTenantManager
-      || (Array.isArray(req.user.permissoes) && req.user.permissoes.includes('administrativo.config'));
-    if (!podeEditarConfiguracoes) {
-      return res.status(403).json({ error: 'Só o dono, um administrador ou quem tem a permissão "Admin: Configurações" altera a série, o ambiente e o CSC das notas. Peça a um deles.' });
+    // Bloco B de seguranca (25/11/2026): serie, ambiente e CSC sao configuracao da
+    // empresa, nao emissao de nota.
+    // Item 15 (fase Administracao, 25/11/2026): serie, numero, ambiente e CSC
+    // pedem "Fiscal: Serie, proximo numero, ambiente e CSC das notas" (antes
+    // bastava emitir nota; a tela so' mostrava ao dono/administrador).
+    if (!permissoesAdministracao.podeNaAdministracao(req.user, PERMISSAO_CONFIG_AREAS.fiscalNumeracao)) {
+      return res.status(403).json({ error: permissoesAdministracao.mensagemSemPermissao([PERMISSAO_CONFIG_AREAS.fiscalNumeracao]) });
     }
 
     const tenantId = resolveTenantId(req);
@@ -445,12 +446,11 @@ router.put('/numbering', async (req, res) => {
  */
 router.post('/empresa/sincronizar', async (req, res) => {
   try {
-    // Mesma permissao que grava Configuracoes (firestore.rules, canEditTenantConfig):
-    // quem pode trocar o nome da empresa ali tem de conseguir levar a troca pra nota.
-    const podeEditarConfiguracoes = req.user.isPlatformAdmin || req.user.isTenantManager
-      || (Array.isArray(req.user.permissoes) && req.user.permissoes.includes('administrativo.config'));
-    if (!podeEditarConfiguracoes) {
-      return res.status(403).json({ error: 'Só o dono, um Admin ou quem tem a permissão "Admin: Configurações" pode atualizar os dados da empresa na Spedy.' });
+    // Item 15 (fase Administracao, 25/11/2026): a mesma permissao que muda os
+    // dados da empresa na tela da filial ("Admin: Dados da empresa"); antes era
+    // "Admin: Configuracoes", que a tela da filial nem deixava usar.
+    if (!permissoesAdministracao.podeNaAdministracao(req.user, PERMISSAO_ADMINISTRACAO.dadosEmpresa)) {
+      return res.status(403).json({ error: permissoesAdministracao.mensagemSemPermissao([PERMISSAO_ADMINISTRACAO.dadosEmpresa]) });
     }
     const tenantId = resolveTenantId(req);
     const configSnap = await db.collection('configuracoes').doc(tenantId).get();

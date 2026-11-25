@@ -173,6 +173,16 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.troca_cancelar', label: 'Vendas: Trocas — cancelar', color: '#ef4444' },
       { id: 'vendas.promocoes_encerrar', label: 'Vendas: Promoções — encerrar e reativar', color: '#f59e0b' },
       { id: 'vendas.cashback_relatorio', label: 'Vendas: Cashback — relatório de saldos', color: '#f59e0b' },
+      // Item 15 (fase Administracao, 25/11/2026): blocos de venda das Configuracoes. So' o
+      // dono/administrador mexia; nao vem com nada (pacote 'administracao-1'), menos a meta (vem
+      // com "Admin: Configurações") e o cashback (vem com ela so' em empresa sem filiais).
+      { id: 'vendas.limites_desconto', label: 'Vendas: Configurar limites de desconto e o modo de liberação', color: '#ef4444' },
+      { id: 'vendas.parametros', label: 'Vendas: Parâmetros de venda (prazo de devolução e bloqueio do cliente por atraso)', color: '#ef4444' },
+      { id: 'vendas.recursos', label: 'Vendas: Ligar e desligar recursos de venda (pré-venda, condicional, identificação do vendedor, venda sem estoque)', color: '#ef4444' },
+      { id: 'vendas.bonificacao_configurar', label: 'Vendas: Configurar a bonificação (limite e tributação)', color: '#ef4444' },
+      { id: 'vendas.cashback_configurar', label: 'Vendas: Cashback — configurar as regras', color: '#ef4444' },
+      { id: 'vendas.metas', label: 'Vendas: Metas mensais dos vendedores', color: '#f59e0b' },
+      { id: 'vendas.caixa_computadores', label: 'Vendas: Computadores do caixa — ativar e desativar', color: '#ef4444' },
     ],
   },
   {
@@ -373,6 +383,12 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'financeiro.cobrar_whatsapp', label: 'Financeiro: Contas a Receber — cobrar cliente pelo WhatsApp', color: '#10b981' },
       { id: 'financeiro.relatorios', label: 'Financeiro: relatórios (PDF e Excel) das telas do Financeiro', color: '#10b981' },
       { id: 'financeiro.importar_titulos', label: 'Financeiro: importar títulos de planilha (Contas a Receber e a Pagar)', color: '#10b981' },
+      // Item 15 (fase Administracao, 25/11/2026): blocos financeiros das Configuracoes. O plano
+      // de contas vem com "Admin: Configurações" em empresa sem filiais; os da filial nao vem com nada.
+      { id: 'financeiro.plano_contas', label: 'Financeiro: Plano de contas (categorias de receita e despesa)', color: '#10b981' },
+      { id: 'financeiro.pix_pedido', label: 'Financeiro: Chave Pix impressa no pedido', color: '#ef4444' },
+      { id: 'financeiro.comissao_padrao', label: 'Financeiro: Comissão padrão do sistema e meta de faturamento', color: '#ef4444' },
+      { id: 'financeiro.formas_pagamento', label: 'Financeiro: Formas de pagamento aceitas (ordem, ocultas e consumidor final)', color: '#ef4444' },
     ],
   },
   {
@@ -395,6 +411,10 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'fiscal.emitir_lote', label: 'Fiscal: emitir notas em lote', color: '#f59e0b' },
       // Item 15 (fase Estoque e cadastros, 25/11/2026): ja' vem marcada para quem da' entrada (pacote 'estoque-1').
       { id: 'fiscal.entrada_excluir', label: 'Fiscal: Excluir nota de entrada (reverte estoque e títulos)', color: '#ef4444' },
+      // Item 15 (fase Administracao, 25/11/2026): Nota Fiscal das Configuracoes da filial. So' o
+      // dono/administrador mexia; nao vem com nada.
+      { id: 'fiscal.configurar', label: 'Fiscal: Configurar a nota fiscal (chave da Spedy e e-mail das notas)', color: '#ef4444' },
+      { id: 'fiscal.numeracao', label: 'Fiscal: Série, próximo número, ambiente e CSC das notas', color: '#ef4444' },
       { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
     ],
   },
@@ -405,6 +425,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'crm.alertas', label: 'CRM: Alertas de Retorno', color: '#ec4899' },
       { id: 'crm.agenda_cancelar', label: 'CRM: Cancelar agendamento', color: '#ec4899' },
       { id: 'crm.alertas_cancelar', label: 'CRM: Cancelar lembrete', color: '#ec4899' },
+      // Item 15 (fase Administracao, 25/11/2026): bloco das Configuracoes da filial; nao vem com nada.
+      { id: 'crm.configurar', label: 'CRM: Configurar as notificações', color: '#ec4899' },
     ],
   },
   {
@@ -414,6 +436,29 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'administrativo.equipe', label: 'Admin: Equipe e Acessos', color: '#6b7280' },
       { id: 'administrativo.logs', label: 'Admin: Histórico de alterações', color: '#6b7280' },
       { id: 'administrativo.relatorios', label: 'Admin: Relatórios Diversos', color: '#6b7280' },
+      // Item 15 (fase Administracao, 25/11/2026): uma permissao por acao (pacote
+      // 'administracao-1', permissoesNovasDomain.ts). O que o nivel gerente ja' fazia vem
+      // marcado para ele; o que so' o dono/administrador fazia nao vem com nada.
+      { id: 'administrativo.config_gerais', label: 'Admin: Configurações gerais (valem para todas as filiais)', color: '#6b7280' },
+      { id: 'administrativo.config_filial', label: 'Admin: Configurações da filial — abrir a tela (cada bloco pede a sua)', color: '#6b7280' },
+      { id: 'administrativo.dados_empresa', label: 'Admin: Dados da empresa (razão social, CNPJ, endereço e logo)', color: '#ef4444' },
+      { id: 'administrativo.textos_documentos', label: 'Admin: Textos e mensagens padrão dos documentos', color: '#6b7280' },
+      { id: 'administrativo.documentos_impressao', label: 'Admin: Documentos e impressões (modelo do orçamento, vias e o que sai ao vender)', color: '#6b7280' },
+      { id: 'administrativo.numeracao', label: 'Admin: Numeração dos documentos (adiantar o próximo número)', color: '#ef4444' },
+      { id: 'administrativo.equipe_criar', label: 'Admin: Equipe — criar login de funcionário', color: '#ef4444' },
+      { id: 'administrativo.equipe_editar', label: 'Admin: Equipe — alterar a ficha do funcionário', color: '#6b7280' },
+      { id: 'administrativo.equipe_senha', label: 'Admin: Equipe — trocar a senha de acesso e a senha de vendedor', color: '#ef4444' },
+      { id: 'administrativo.equipe_inativar', label: 'Admin: Equipe — inativar e reativar usuário', color: '#ef4444' },
+      { id: 'administrativo.equipe_permissoes', label: 'Admin: Equipe — liberar e retirar permissões (só as que você tem)', color: '#ef4444' },
+      { id: 'administrativo.equipe_nivel', label: 'Admin: Equipe — mudar o nível de acesso (o que cada um vê de vendas)', color: '#ef4444' },
+      { id: 'administrativo.equipe_app', label: 'Admin: Equipe — liberar o aplicativo mobile (ocupa vaga do plano)', color: '#ef4444' },
+      { id: 'administrativo.equipe_filial_padrao', label: 'Admin: Equipe — filial padrão de cada usuário', color: '#6b7280' },
+      { id: 'administrativo.logs_exportar', label: 'Admin: Histórico de alterações — exportar PDF/Excel', color: '#6b7280' },
+      { id: 'administrativo.relatorios_financeiros', label: 'Admin: Relatórios Diversos — financeiros (recebimentos, pagamentos e taxas de cartão)', color: '#6b7280' },
+      { id: 'administrativo.relatorios_vendas', label: 'Admin: Relatórios Diversos — vendas, por vendedor e descontos', color: '#6b7280' },
+      { id: 'administrativo.backup_gerar', label: 'Admin: Backup — gerar e ver o agendamento', color: '#ef4444' },
+      { id: 'administrativo.backup_baixar', label: 'Admin: Backup — baixar a cópia da empresa inteira', color: '#ef4444' },
+      { id: 'administrativo.liberar_trava', label: 'Admin: Liberar documento aberto por outra pessoa', color: '#6b7280' },
     ],
   },
   {
@@ -428,6 +473,11 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'filiais.transferir_sem_nota', label: 'Filiais: Transferir estoque sem nota fiscal', color: '#ef4444' },
       { id: 'filiais.transferencia_receber', label: 'Filiais: Receber transferência', color: '#8b5cf6' },
       { id: 'filiais.transferencia_cancelar', label: 'Filiais: Recusar e cancelar transferência (tudo volta)', color: '#ef4444' },
+      // Item 15 (fase Administracao, 25/11/2026): so' o dono/administrador do grupo fazia; nao vem com nada.
+      { id: 'filiais.gerenciar', label: 'Filiais: Ver todas as filiais do grupo (inclusive as inativas)', color: '#8b5cf6' },
+      { id: 'filiais.cadastrar', label: 'Filiais: Cadastrar filial', color: '#ef4444' },
+      { id: 'filiais.alterar', label: 'Filiais: Alterar e inativar filial', color: '#ef4444' },
+      { id: 'filiais.resumo', label: 'Filiais: Resumo do grupo (vendas, a receber e estoque por filial)', color: '#8b5cf6' },
     ],
   },
   {

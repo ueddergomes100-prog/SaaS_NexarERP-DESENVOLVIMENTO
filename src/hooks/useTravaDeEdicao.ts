@@ -4,6 +4,7 @@ import { db } from '../services/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { TabActiveContext } from '../contexts/TabsContext';
 import { liberarTrava, pegarTrava, renovarTrava, soltarTrava, TravaError } from '../services/travaEdicaoService';
+import { PERMISSAO_ADMINISTRACAO } from '../utils/permissoesNovasDomain';
 import { NexusSwal } from '../utils/alerts';
 import {
   INTERVALO_DO_SINAL_MS,
@@ -40,9 +41,11 @@ export const aparelhoAtual = (): Aparelho => {
 };
 
 /** Dono, administrador ou gerente liberam um documento preso com outra pessoa. */
+// Item 15 (fase Administracao, 25/11/2026): "Admin: Liberar documento aberto por outra pessoa"
+// (o nivel gerente, que liberava sozinho, ja' vem com ela marcada). O servidor confere de novo.
 export const usePodeLiberarTrava = () => {
-  const { userRole, isOwner, nivelAcesso } = useAuth();
-  return hasTenantFullAccess(userRole, isOwner) || nivelAcesso === 'gerente';
+  const { userRole, isOwner, userPermissions } = useAuth();
+  return hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_ADMINISTRACAO.liberarTrava);
 };
 
 export const useTravaDeEdicao = ({ tipo, registroId, ativa }: { tipo: TipoDeTrava; registroId: string | null | undefined; ativa: boolean }) => {

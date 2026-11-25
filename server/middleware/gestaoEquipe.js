@@ -1,29 +1,37 @@
 /*
  * QUEM GERE UM FUNCIONARIO DA EQUIPE (26/10/2026, pedido do dono).
  *
- * Dono/administrador: como sempre. Gerente (nivel 'gerente' com "Admin: Equipe
- * e Acessos"): edita a ficha, troca a senha de acesso, define o PIN, inativa e
- * reativa -- so' de funcionario COMUM: nunca outro gerente, administrador, o
- * dono ou a si mesmo (podeSerAlvoDePermissaoPorGerente, a mesma regra das
- * permissoes). O alvo vem de req.body.usuarioId e e' lido aqui, no banco.
+ * Dono/administrador: como sempre. Item 15 (fase Administracao, 25/11/2026):
+ * o resto, cada acao com a SUA permissao (Admin: Equipe -- criar login,
+ * alterar a ficha, trocar a senha, inativar, liberar permissoes, nivel,
+ * aplicativo), conferida pelas efetivas (permissoesNovasDomain.ts, pacote
+ * 'administracao-1'): o gerente com "Admin: Equipe e Acessos", que ja' fazia
+ * tudo isso, vem com elas marcadas. Sem ser dono/administrador, so' sobre
+ * funcionario COMUM: nunca um gerente, administrador, o dono ou a si mesmo
+ * (podeSerAlvoDePermissaoPorGerente, a mesma regra das permissoes). O alvo
+ * vem de req.body.usuarioId e e' lido aqui, no banco.
  */
 const { db } = require('../config/firebase');
 const {
   parseNivelAcesso,
-  podeCriarLoginDeEquipe,
   podeSerAlvoDePermissaoPorGerente,
 } = require('../domain/visibilidadeVendasDomain');
+const { permissoesEfetivas, PERMISSAO_ADMINISTRACAO: PA } = require('../domain/permissoesNovasDomain');
+const { mensagemSemPermissao } = require('../services/permissoesAdministracao');
 
 const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.isTenantManager));
 
-const ehGerenteDaEquipe = (user) => Boolean(user) && podeCriarLoginDeEquipe({
-  role: user.role, isOwner: false, nivelAcesso: user.nivelAcesso, permissoes: user.permissoes,
-});
+/** Funcionario com a permissao da acao (contando o nivel e os pacotes). */
+const temAPermissao = (user, permissao) => Boolean(user)
+  && permissoesEfetivas(user.permissoes, user.nivelAcesso).includes(permissao);
 
-/** O gerente pode mexer neste funcionario? (le o alvo no banco) */
-const gerentePodeGerir = async (user, usuarioId) => {
+/** Compatibilidade: "gerente da equipe" = quem pode alterar a ficha de funcionario comum. */
+const ehGerenteDaEquipe = (user) => temAPermissao(user, PA.equipeEditar);
+
+/** Quem nao e' dono/administrador pode mexer neste funcionario com esta permissao? (le o alvo no banco) */
+const gerentePodeGerir = async (user, usuarioId, permissao = PA.equipeEditar) => {
   const id = String(usuarioId ?? '');
-  if (!ehGerenteDaEquipe(user) || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return false;
+  if (!temAPermissao(user, permissao) || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return false;
   const snap = await db.collection('usuarios').doc(id).get();
   const alvo = snap.exists ? snap.data() : null;
   return Boolean(alvo) && alvo.tenantId === user.tenantId && podeSerAlvoDePermissaoPorGerente({
@@ -34,7 +42,7 @@ const gerentePodeGerir = async (user, usuarioId) => {
   });
 };
 
-const MENSAGEM_GERENTE = 'O gerente só altera funcionário comum: nunca outro gerente, um administrador, o dono ou a si mesmo.';
+const MENSAGEM_GERENTE = 'Sem ser o dono ou um administrador, você só altera funcionário comum: nunca um gerente, um administrador, o dono ou a si mesmo.';
 
 /*
  * DONO E ADMINISTRADOR COMO ALVO (seguranca, bloco B, 25/11/2026, decisao do dono).
@@ -65,8 +73,12 @@ const motivoGestorNaoPodeNoAlvo = async (user, usuarioId) => {
   return '';
 };
 
-/** Middleware: dono/administrador, ou gerente sobre funcionario comum (marca req.gerenteDaEquipe). */
-const podeGerirFuncionario = async (req, res, next) => {
+/**
+ * Middleware (fabrica): dono/administrador (com a trava do bloco B sobre o alvo
+ * dono/administrador), ou quem tem a permissao da acao sobre funcionario comum
+ * (marca req.gerenteDaEquipe).
+ */
+const podeGerirFuncionario = (permissao) => async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Usuário não autenticado.' });
     if (ehGestor(req.user)) {
@@ -74,14 +86,12 @@ const podeGerirFuncionario = async (req, res, next) => {
       if (motivo) return res.status(403).json({ error: motivo });
       return next();
     }
-    if (await gerentePodeGerir(req.user, req.body?.usuarioId)) {
+    if (await gerentePodeGerir(req.user, req.body?.usuarioId, permissao)) {
       req.gerenteDaEquipe = true;
       return next();
     }
     return res.status(403).json({
-      error: ehGerenteDaEquipe(req.user)
-        ? MENSAGEM_GERENTE
-        : 'Só o dono, um administrador ou um gerente com "Admin: Equipe e Acessos" liberado altera funcionários.',
+      error: temAPermissao(req.user, permissao) ? MENSAGEM_GERENTE : mensagemSemPermissao([permissao]),
     });
   } catch (erro) {
     console.error('[Equipe] conferir quem gere:', erro);
@@ -89,4 +99,4 @@ const podeGerirFuncionario = async (req, res, next) => {
   }
 };
 
-module.exports = { podeGerirFuncionario, gerentePodeGerir, ehGestor, ehGerenteDaEquipe, motivoGestorNaoPodeNoAlvo };
+module.exports = { podeGerirFuncionario, gerentePodeGerir, ehGestor, ehGerenteDaEquipe, temAPermissao, MENSAGEM_GERENTE, motivoGestorNaoPodeNoAlvo };

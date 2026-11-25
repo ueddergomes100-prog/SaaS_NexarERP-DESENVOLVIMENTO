@@ -8,6 +8,7 @@ import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/aler
 import EstadoVazio from '../../components/common/EstadoVazio';
 import FilialFormModal from './FilialFormModal';
 import ResumoDoGrupo from './ResumoDoGrupo';
+import { PERMISSAO_ADMINISTRACAO, PERMISSAO_FILIAIS_GESTAO } from '../../utils/permissoesNovasDomain';
 
 const formatarCnpj = (cnpj: string) => (
   cnpj.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : cnpj
@@ -20,7 +21,18 @@ const formatarCnpj = (cnpj: string) => (
  * e os administradores mexem; o servidor confere de novo.
  */
 const FiliaisList: React.FC = () => {
-  const { ehGestorDasFiliais, filialAtual, trocarFilial } = useAuth();
+  const { ehGestorDasFiliais, filialAtual, trocarFilial, userPermissions } = useAuth();
+  // Item 15 (fase Administracao, 25/11/2026): alem do dono/administrador, cada acao pela
+  // sua permissao (cadastrar, alterar/inativar, resumo, ver todas); o servidor confere de novo.
+  const pode = (id: string) => ehGestorDasFiliais || userPermissions.includes(id);
+  const podeCadastrar = pode(PERMISSAO_FILIAIS_GESTAO.cadastrar);
+  const podeAlterar = pode(PERMISSAO_FILIAIS_GESTAO.alterar);
+  const podeVerResumo = pode(PERMISSAO_FILIAIS_GESTAO.resumo);
+  const podeConfigFilial = pode(PERMISSAO_ADMINISTRACAO.configFilial);
+  const podeAbrirTela = ehGestorDasFiliais || [
+    PERMISSAO_FILIAIS_GESTAO.gerenciar, PERMISSAO_FILIAIS_GESTAO.cadastrar, PERMISSAO_FILIAIS_GESTAO.alterar,
+    PERMISSAO_FILIAIS_GESTAO.resumo, PERMISSAO_ADMINISTRACAO.configFilial,
+  ].some((id) => userPermissions.includes(id));
   const { openTab } = useTabs();
   const [resumo, setResumo] = useState<ResumoDasFiliais | null>(null);
   const [carregando, setCarregando] = useState(true);
@@ -137,10 +149,10 @@ const FiliaisList: React.FC = () => {
     }
   };
 
-  if (!carregando && !ehGestorDasFiliais) {
+  if (!carregando && !podeAbrirTela) {
     return (
       <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)' }}>
-        <EstadoVazio titulo="Só o dono ou um administrador da empresa cadastra filiais." texto="Para trocar de filial, use o seletor no topo da tela." />
+        <EstadoVazio titulo="Você não tem permissão para gerenciar as filiais." texto={'Para trocar de filial, use o seletor no topo da tela. Para cadastrar ou alterar filiais, peça a um responsável liberar "Filiais: Cadastrar filial" ou "Filiais: Alterar e inativar filial" no seu cadastro de funcionário.'} />
       </div>
     );
   }
@@ -157,7 +169,7 @@ const FiliaisList: React.FC = () => {
             As configurações de cada uma ficam no lápis dela; as que valem para todas, em Configurações Gerais.
           </p>
         </div>
-        {!carregando && (
+        {!carregando && podeCadastrar && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
             <button className="btn-primary" onClick={abrirNova} disabled={semVaga} title={semVaga ? (limite === 0 ? 'Filiais não fazem parte do plano da empresa' : 'Todas as filiais do plano estão em uso') : undefined} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Plus size={20} /> Nova filial
@@ -230,10 +242,12 @@ const FiliaisList: React.FC = () => {
                                 <LogIn size={14} /> Entrar
                               </button>
                             )}
+                            {(semGrupo ? podeConfigFilial : podeAlterar) && (
                             <button type="button" className="btn-secondary" onClick={() => abrirEdicao(f)} title={semGrupo ? 'Configurações da filial' : 'Editar cadastro e configurações'} aria-label={`Editar filial ${rotuloFilial(f)}`} style={{ padding: '6px 10px', display: 'inline-flex' }}>
                               <Pencil size={14} />
                             </button>
-                            {!f.matriz && (
+                            )}
+                            {!f.matriz && podeAlterar && (
                               <button type="button" className="btn-secondary" onClick={() => { void alternarSituacao(f); }} title={f.ativa ? 'Inativar filial' : 'Reativar filial'} aria-label={f.ativa ? `Inativar filial ${rotuloFilial(f)}` : `Reativar filial ${rotuloFilial(f)}`} style={{ padding: '6px 10px', display: 'inline-flex', color: f.ativa ? '#ef4444' : '#10b981' }}>
                                 <Power size={14} />
                               </button>
@@ -250,7 +264,7 @@ const FiliaisList: React.FC = () => {
         )}
       </div>
 
-      {!carregando && !semGrupo && <ResumoDoGrupo filialAtualId={filialAtual?.tenantId} />}
+      {!carregando && !semGrupo && podeVerResumo && <ResumoDoGrupo filialAtualId={filialAtual?.tenantId} />}
 
       <FilialFormModal
         aberto={formAberto}

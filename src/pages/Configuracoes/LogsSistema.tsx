@@ -1,3 +1,4 @@
+import { PERMISSAO_ADMINISTRACAO } from '../../utils/permissoesNovasDomain';
 import React, { useEffect, useMemo, useState } from 'react';
 import { FileText, History, Loader2, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -64,6 +65,9 @@ const LogsSistema: React.FC = () => {
   const permitido = userRole === null
     ? null
     : Boolean(isOwner || isPlatformAdminRole(userRole) || userRole === 'Master' || userRole === 'Admin' || userPermissions?.includes('administrativo.logs'));
+  // Item 15 (fase Administracao, 25/11/2026): exportar pede a sua (vem com "Admin: Histórico de alterações").
+  const podeExportar = Boolean(isOwner || isPlatformAdminRole(userRole) || userRole === 'Master' || userRole === 'Admin'
+    || userPermissions?.includes(PERMISSAO_ADMINISTRACAO.logsExportar));
 
   const [inicio, setInicio] = useState(addDaysToDateInput(hoje, -6));
   const [fim, setFim] = useState(hoje);
@@ -172,7 +176,7 @@ const LogsSistema: React.FC = () => {
           </p>
         </div>
         <MenuMaisOpcoes itens={[
-          { texto: 'Relatório em PDF', Icone: FileText, titulo: 'Os registros filtrados, em PDF, para imprimir ou salvar (Excel em botão separado)', onClick: () => setRelatorio(true), desabilitado: carregando || filtrados.length === 0 },
+          ...(podeExportar ? [{ texto: 'Relatório em PDF', Icone: FileText, titulo: 'Os registros filtrados, em PDF, para imprimir ou salvar (Excel em botão separado)', onClick: () => setRelatorio(true), desabilitado: carregando || filtrados.length === 0 }] : []),
           { texto: 'Atualizar', Icone: RefreshCw, titulo: 'Lê o período de novo', onClick: () => setRecarregar((n) => n + 1) },
         ]} />
       </div>

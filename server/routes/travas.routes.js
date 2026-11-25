@@ -1,16 +1,18 @@
 const express = require('express');
-const { admin, db } = require('../config/firebase');
+const { admin } = require('../config/firebase');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const { ErroTrava, pegarTrava, renovarTrava, soltarTrava, liberarTrava } = require('../services/travasEdicao');
 const { ROTULO_DO_TIPO } = require('../domain/travaEdicaoDomain');
+const { podeNaAdministracao } = require('../services/permissoesAdministracao');
+const { PERMISSAO_ADMINISTRACAO } = require('../domain/permissoesNovasDomain');
 
 /**
  * TRAVA DE EDICAO (15/10/2026) -- ver services/travasEdicao.js.
  *   POST /api/travas/pegar     abrir o documento (409 se outra pessoa esta com ele)
  *   POST /api/travas/renovar   "continuo aqui", a cada 30 s
  *   POST /api/travas/soltar    fechou a tela (aceita beacon: token no corpo)
- *   POST /api/travas/liberar   dono/administrador/gerente libera na hora
+ *   POST /api/travas/liberar   dono/administrador ou quem tem "Admin: Liberar documento" libera na hora
  */
 const router = express.Router();
 
@@ -62,13 +64,10 @@ router.post('/renovar', async (req, res) => {
 
 router.post('/liberar', async (req, res) => {
   try {
-    // Gerente (nivel de acesso) tambem libera, como ja' administra a equipe.
-    let gerente = false;
-    if (!req.user.isTenantManager && !req.user.isPlatformAdmin) {
-      const perfil = await db.collection('usuarios').doc(req.user.uid).get();
-      gerente = perfil.exists && perfil.data().nivelAcesso === 'gerente';
-    }
-    const podeLiberar = req.user.isTenantManager || req.user.isPlatformAdmin || gerente;
+    // Item 15 (fase Administracao, 25/11/2026): "Admin: Liberar documento aberto
+    // por outra pessoa". O nivel gerente, que liberava sozinho, ja' vem com ela
+    // marcada (pacote 'administracao-1'); salvo de novo, vale o marcado.
+    const podeLiberar = podeNaAdministracao(req.user, PERMISSAO_ADMINISTRACAO.liberarTrava);
     const r = await liberarTrava({ user: req.user, corpo: req.body || {}, podeLiberar });
     if (r.liberou) {
       registrarLog(req.user, {

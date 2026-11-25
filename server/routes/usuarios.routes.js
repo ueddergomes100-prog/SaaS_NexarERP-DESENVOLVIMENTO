@@ -2,10 +2,12 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
 const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes, criarVendedorBalcao } = require('../services/limitesDoPlano');
-const { podeGerirFuncionario } = require('../middleware/gestaoEquipe');
+const { podeGerirFuncionario, temAPermissao } = require('../middleware/gestaoEquipe');
 const { encerrarSessoes } = require('../services/sessoes');
+const { PERMISSAO_ADMINISTRACAO: PA } = require('../domain/permissoesNovasDomain');
+const { mensagemSemPermissao } = require('../services/permissoesAdministracao');
 const { registrarLog } = require('../services/auditoria');
-const { podeCriarLoginDeEquipe, NIVEL_ACESSO_LABELS, parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
+const { NIVEL_ACESSO_LABELS, parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 const { mudancasDePermissoes: mudancasEfetivas } = require('../domain/permissoesNovasDomain');
 const { db } = require('../config/firebase');
 
@@ -48,7 +50,7 @@ const rotuloDaPermissao = (id) => {
 };
 
 /** Permissoes que entraram e sairam (efetivas, sem os marcadores internos do app e dos pacotes). */
-const mudancasDePermissoes = (antes, depois) => mudancasEfetivas(Array.isArray(antes) ? antes : [], Array.isArray(depois) ? depois : []);
+const mudancasDePermissoes = (antes, depois, nivelAntes, opcoes) => mudancasEfetivas(Array.isArray(antes) ? antes : [], Array.isArray(depois) ? depois : [], nivelAntes, opcoes);
 
 /** Le' o cadastro para o historico; falha aqui nunca derruba a operacao. */
 const lerUsuarioParaHistorico = async (usuarioId) => {
@@ -68,8 +70,8 @@ const router = express.Router();
 // o tenantId sai sempre do token de quem chamou, nunca do corpo.
 router.use(authenticate);
 
-/** Redefine a senha de ACESSO (login) de um funcionario. Dono/administrador, ou gerente sobre funcionario comum (26/10/2026). */
-router.post('/redefinir-senha', podeGerirFuncionario, async (req, res) => {
+/** Redefine a senha de ACESSO (login) de um funcionario. Dono/administrador, ou "Admin: Equipe -- trocar a senha" sobre funcionario comum. */
+router.post('/redefinir-senha', podeGerirFuncionario(PA.equipeSenha), async (req, res) => {
   try {
     const resultado = await redefinirSenhaAcesso({
       tenantId: req.user.tenantId,
@@ -104,17 +106,13 @@ router.post('/redefinir-senha', podeGerirFuncionario, async (req, res) => {
 
 // Limites do plano (19/10/2026): criar login e ligar o app Vendas so' pelo
 // servidor, que confere o limite contratado. Ver services/limitesDoPlano.js.
-const soAdministrador = (req, res, next) => {
-  if (req.user && (req.user.isPlatformAdmin || req.user.isTenantManager)) return next();
-  return res.status(403).json({ error: 'Só o dono ou um administrador da empresa pode criar logins e liberar o aplicativo mobile.' });
-};
-
-// Criar login (26/10/2026): tambem o Gerente com Equipe e Acessos liberada. O
-// login nasce Funcionario comum, sem permissao (services/limitesDoPlano.js).
+// Criar login (item 15, fase Administracao, 25/11/2026): "Admin: Equipe --
+// criar login" (o gerente com Equipe e Acessos ja' vem com ela). O login nasce
+// Funcionario comum, sem permissao (services/limitesDoPlano.js).
 const podeCriarLogin = (req, res, next) => {
   const u = req.user;
-  if (u && (u.isPlatformAdmin || podeCriarLoginDeEquipe({ role: u.role, isOwner: false, nivelAcesso: u.nivelAcesso, permissoes: u.permissoes }))) return next();
-  return res.status(403).json({ error: 'Só o dono, um administrador ou um gerente com "Admin: Equipe e Acessos" liberado pode criar logins.' });
+  if (u && (u.isPlatformAdmin || u.isTenantManager || temAPermissao(u, PA.equipeCriar))) return next();
+  return res.status(403).json({ error: mensagemSemPermissao([PA.equipeCriar]) });
 };
 
 const responderErroLimite =(res, erro, oQue) => {
@@ -142,7 +140,7 @@ router.post('/criar', podeCriarLogin, async (req, res) => {
 });
 
 /** POST /api/usuarios/vincular-motorista -- { usuarioId, motoristaId } (26/10/2026). */
-router.post('/vincular-motorista', podeGerirFuncionario, async (req, res) => {
+router.post('/vincular-motorista', podeGerirFuncionario(PA.equipeEditar), async (req, res) => {
   try {
     const r = await vincularMotorista({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
     registrarLog(req.user, {
@@ -160,7 +158,7 @@ router.post('/vincular-motorista', podeGerirFuncionario, async (req, res) => {
 });
 
 /** POST /api/usuarios/ficha -- { usuarioId, nome, codigoVendedor?, motorista? } (26/10/2026). */
-router.post('/ficha', podeGerirFuncionario, async (req, res) => {
+router.post('/ficha', podeGerirFuncionario(PA.equipeEditar), async (req, res) => {
   try {
     const r = await editarFicha({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
     registrarLog(req.user, {
@@ -178,7 +176,7 @@ router.post('/ficha', podeGerirFuncionario, async (req, res) => {
 });
 
 /** POST /api/usuarios/permissoes -- { usuarioId, permissoes, nivelAcesso? } (26/10/2026). */
-router.post('/permissoes', podeGerirFuncionario, async (req, res) => {
+router.post('/permissoes', podeGerirFuncionario(PA.equipePermissoes), async (req, res) => {
   try {
     // "Antes" do historico: lido aqui, antes de gravar (so' serve ao historico).
     const antes = await lerUsuarioParaHistorico(req.body?.usuarioId);
@@ -187,7 +185,7 @@ router.post('/permissoes', podeGerirFuncionario, async (req, res) => {
     void (async () => {
       const depois = await lerUsuarioParaHistorico(r.usuarioId);
       // Sem o "antes" (leitura falhou), nao da' para dizer o que entrou: registra so' que mudou.
-      const { entraram, sairam } = antes && depois ? mudancasDePermissoes(antes.permissoes, depois.permissoes) : { entraram: [], sairam: [] };
+      const { entraram, sairam } = antes && depois ? mudancasDePermissoes(antes.permissoes, depois.permissoes, antes.nivelAcesso, { semFiliais: r.semFiliais }) : { entraram: [], sairam: [] };
       const alteracoes = [
         ...entraram.map((p) => ({ campo: `Permissão: ${rotuloDaPermissao(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
         ...sairam.map((p) => ({ campo: `Permissão: ${rotuloDaPermissao(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),
@@ -241,7 +239,7 @@ router.post('/vendedor', async (req, res) => {
 });
 
 /** POST /api/usuarios/situacao -- { usuarioId, ativo } (26/10/2026). */
-router.post('/situacao', podeGerirFuncionario, async (req, res) => {
+router.post('/situacao', podeGerirFuncionario(PA.equipeInativar), async (req, res) => {
   try {
     const r = await alterarSituacao({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
     // Bloco B (25/11/2026): inativado sai na hora do servidor e em ate' 1 hora do banco (as rules ja' recusam o perfil inativo).
@@ -261,8 +259,8 @@ router.post('/situacao', podeGerirFuncionario, async (req, res) => {
   }
 });
 
-/** POST /api/usuarios/acesso-app -- { usuarioId, ligar }. */
-router.post('/acesso-app', soAdministrador, async (req, res) => {
+/** POST /api/usuarios/acesso-app -- { usuarioId, ligar }. "Admin: Equipe -- liberar o aplicativo" (item 15). */
+router.post('/acesso-app', podeGerirFuncionario(PA.equipeApp), async (req, res) => {
   try {
     const r = await alterarAcessoApp({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
     registrarLog(req.user, {

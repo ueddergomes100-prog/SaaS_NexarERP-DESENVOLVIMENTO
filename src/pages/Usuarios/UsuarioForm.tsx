@@ -29,12 +29,19 @@ import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPin
 import { criarLoginNoServidor, redefinirSenhaAcesso, salvarFichaNoServidor, UsuarioAcessoError, vincularMotoristaNoServidor } from '../../services/usuarioAcessoService';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
+import { PERMISSAO_ADMINISTRACAO } from '../../utils/permissoesNovasDomain';
+import { hasTenantFullAccess } from '../../utils/roles';
 
 const UsuarioForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
-  const { tenantId, currentUser, grupo } = useAuth();
+  const { tenantId, currentUser, grupo, userRole, isOwner, userPermissions } = useAuth();
+  // Item 15 (fase Administracao, 25/11/2026): sem ser o dono/administrador, a ficha pede
+  // "Admin: Equipe — alterar a ficha" e as senhas pedem "Admin: Equipe — trocar a senha".
+  const gestorDaEquipe = hasTenantFullAccess(userRole, Boolean(isOwner));
+  const podeFicha = !isEditing || gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeEditar);
+  const podeSenha = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeSenha);
   
   const [formData, setFormData] = useState({
     nome: '',
@@ -448,7 +455,7 @@ const UsuarioForm: React.FC = () => {
           </>
         )}
 
-        {isEditing && (
+        {isEditing && podeSenha && (
           <div className="input-group" style={{ gridColumn: 'span 6' }}>
             <label>Senha de Acesso (login no sistema)</label>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -497,7 +504,7 @@ const UsuarioForm: React.FC = () => {
           </span>
         </div>
 
-        {isEditing && (
+        {isEditing && podeSenha && (
           <div className="input-group" style={{ gridColumn: 'span 6' }}>
             <label>Senha do Vendedor ({AJUDA_TAMANHO_PIN.toLowerCase()})</label>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -616,7 +623,13 @@ const UsuarioForm: React.FC = () => {
 
         <div style={{ gridColumn: 'span 12', display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border-color)' }}>
           <button type="button" className="btn-secondary" onClick={() => navigate('/usuarios')}>Cancelar</button>
-          <button type="submit" className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }} disabled={isLoading}>
+          <button
+            type="submit"
+            className="btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            disabled={isLoading || !podeFicha}
+            title={podeFicha ? undefined : 'Para alterar a ficha, peça a um responsável liberar "Admin: Equipe — alterar a ficha do funcionário" no seu cadastro de funcionário.'}
+          >
             <Save size={20} />
             {isLoading ? 'Salvando...' : 'Salvar Funcionário'}
           </button>

@@ -247,6 +247,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
+  // Item 15 (fase Administracao, 25/11/2026): as mesmas efetivas, contando o que vale so' em
+  // empresa SEM filiais ("Admin: Configuracoes" traz as Configuracoes Gerais). Usadas sem grupo.
+  const [permissoesSemFiliais, setPermissoesSemFiliais] = useState<string[]>([]);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [homeTenantId, setHomeTenantId] = useState<string | null>(null);
   const [grupoId, setGrupoId] = useState<string | null>(null);
@@ -552,6 +555,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             setUserRole(finalRole);
             setUserPermissions(manterSeIgual(finalPermissions));
+            setPermissoesSemFiliais(manterSeIgual(permissoesEfetivasDoUsuario(toStringArray(data.permissoes), data.nivelAcesso, { semFiliais: true })));
             setNivelAcesso(parseNivelAcesso(data.nivelAcesso));
             setTenantOptions(manterSeIgual<TenantOption>([]));
             setSelectedTenant(null);
@@ -858,6 +862,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Modulo filho de pai bloqueado (28/10/2026) conta como bloqueado -- MODULO_PAI.
   const modulosDoPlano = grupo && tenantId && tenantId !== grupo.matrizTenantId ? grupo.modulosBloqueados : blockedModules;
   const blockedModulesEfetivos = useMemo(() => modulosBloqueadosEfetivos(modulosDoPlano), [modulosDoPlano]);
+  // Sem grupo de filiais, as efetivas da empresa sem filiais (lista vazia = sem login de funcionario).
+  const permissoesDaEmpresa = !grupoId && userPermissions.length > 0 ? permissoesSemFiliais : userPermissions;
   const trocarFilial = useCallback(async (destino: string) => {
     await entrarNaFilial(destino);
   }, []);
@@ -894,7 +900,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser, userNome, userRole, nivelAcesso, isOwner, homeTenantId, tenantId, filialAtual, selectedTenant]);
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, venderPorEmbalagem, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome, cobrancaEmpresa }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions: permissoesDaEmpresa, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, venderPorEmbalagem, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome, cobrancaEmpresa }}>
       {children}
     </AuthContext.Provider>
   );

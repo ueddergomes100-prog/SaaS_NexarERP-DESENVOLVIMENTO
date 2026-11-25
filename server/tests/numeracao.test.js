@@ -21,7 +21,7 @@ test('listar: ultimo = maior entre sequencia e legado; sequencia sem documento =
   assert.deepEqual([porChave.ordens_de_servico.ultimo, porChave.ordens_de_servico.proximo], [9, 10], 'so\' o legado');
   assert.deepEqual([porChave.trocas.ultimo, porChave.trocas.proximo], [0, 1]);
   assert.equal(r.sequencias.some((x) => /boleto/.test(x.chave)), false);
-  await assert.rejects(() => s.listarNumeracao({ user: FUNCIONARIO }), /Só o dono ou um administrador/);
+  await assert.rejects(() => s.listarNumeracao({ user: FUNCIONARIO }), /"Admin: Numeração dos documentos/);
 });
 
 test('ajustar: adianta e registra quem foi; voltar ou repetir e\' recusado em portugues', async () => {
@@ -36,7 +36,7 @@ test('ajustar: adianta e registra quem foi; voltar ou repetir e\' recusado em po
   await assert.rejects(() => s.ajustarNumeracao({ user: GESTOR, chave: 'pedidos_venda', proximo: '100', nomeUsuario: 'DONO' }), /nunca volta/);
   await assert.rejects(() => s.ajustarNumeracao({ user: GESTOR, chave: 'ordens_de_servico', proximo: '9', nomeUsuario: 'DONO' }), /precisa ser 10 ou maior/);
   await assert.rejects(() => s.ajustarNumeracao({ user: GESTOR, chave: 'boleto_remessa_x', proximo: '1', nomeUsuario: 'DONO' }), /Documento desconhecido/);
-  await assert.rejects(() => s.ajustarNumeracao({ user: FUNCIONARIO, chave: 'pedidos_venda', proximo: '90000', nomeUsuario: 'F' }), /Só o dono ou um administrador/);
+  await assert.rejects(() => s.ajustarNumeracao({ user: FUNCIONARIO, chave: 'pedidos_venda', proximo: '90000', nomeUsuario: 'F' }), /"Admin: Numeração dos documentos/);
   // Sequencia que ainda nao tinha documento: nasce com o ajuste.
   const t = await s.ajustarNumeracao({ user: GESTOR, chave: 'trocas', proximo: '500', nomeUsuario: 'DONO' });
   assert.equal(t.proximo, 500);

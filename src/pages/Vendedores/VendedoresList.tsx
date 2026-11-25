@@ -22,7 +22,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
 import { isTenantManagerRole } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO, permissionLabelMap } from '../../utils/permissionCatalog';
-import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
+import { PERMISSAO_CONFIG_AREAS, PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { ehMarcadorInterno } from '../../utils/permissoesNovasDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
@@ -206,8 +206,10 @@ const VendedoresList: React.FC = () => {
   const [cnpjEmpresa, setCnpjEmpresa] = useState('');
   /** Metas do mes por vendedor (30/10/2026), nas configuracoes da filial -- o app mostra em "Meu desempenho". */
   const [metasVendedores, setMetasVendedores] = useState<Record<string, number>>({});
-  // Quem grava nas configuracoes da empresa (mesma trava das rules: canEditTenantConfig).
-  const podeDefinirMeta = ehGestor || userPermissions.includes('administrativo.config');
+  // Item 15 (fase Administracao, 25/11/2026): "Vendas: Metas mensais dos vendedores" (vem com
+  // "Admin: Configurações", que era a que liberava). O banco ainda pede "Admin: Configurações"
+  // (rules: canEditTenantConfig) ate' a fase das rules.
+  const podeDefinirMeta = ehGestor || userPermissions.includes(PERMISSAO_CONFIG_AREAS.metas);
 
   useEffect(() => {
     if (!tenantId) return;

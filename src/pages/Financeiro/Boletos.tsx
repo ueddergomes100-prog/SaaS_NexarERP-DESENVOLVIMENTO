@@ -212,7 +212,9 @@ const Boletos: React.FC = () => {
     );
 
     return {
-      aguardando: visiveis.filter((t) => !t.boleto),
+      // So' titulo EM ABERTO aguarda emissao (25/11/2026): juros/multa ou desconto
+      // lancados pela baixa (pagos, forma Boleto, sem boleto proprio) nao sao boleto a emitir.
+      aguardando: visiveis.filter((t) => !t.boleto && t.status === 'Pendente'),
       emitidos: visiveis.filter((t) => efetivo(t) === 'emitido'),
       remessa: visiveis.filter((t) => efetivo(t) === 'em_remessa'),
       pagos: visiveis.filter((t) => efetivo(t) === 'pago'),

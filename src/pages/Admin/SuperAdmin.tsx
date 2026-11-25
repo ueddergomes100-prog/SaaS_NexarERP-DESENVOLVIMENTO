@@ -5,7 +5,9 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts';
-import Swal from 'sweetalert2';
+// NexusSwal, nunca o Swal cru (auditoria de 24/11/2026): no cru o `title` e' HTML, e aqui
+// entram nomes digitados por terceiros (o nome da empresa vem do cadastro publico).
+import { NexusSwal as Swal } from '../../utils/alerts';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { moduleLabelMap } from '../../utils/moduleCatalog';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';

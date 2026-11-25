@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import { getIdTokenResult, setPersistence, signInWithCustomToken, signInWithEmailAndPassword, signOut, type User as UsuarioDoLogin } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import Swal from 'sweetalert2';
+// NexusSwal, nunca o Swal cru (auditoria de 24/11/2026): no cru o `title` e' HTML, e aqui
+// entram nomes digitados por terceiros (o nome da empresa vem do cadastro publico).
+import { NexusSwal as Swal } from '../../utils/alerts';
 import { auth, authPersistenceReady, db, persistenciaGuardada } from '../../services/firebase';
 import { clearStoredSessionId, createSessionId, marcarSessaoDeEstacao, setStoredSessionId } from '../../utils/session';
 import {

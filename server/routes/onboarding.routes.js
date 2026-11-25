@@ -28,6 +28,9 @@ const requireFirebaseAdmin = () => {
   }
 };
 
+/** Nome de pessoa ou de empresa vindo do cadastro publico: sem < >, espacos unicos, ate' 120 caracteres. */
+const textoDeNome = (valor) => String(valor || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+
 const normalizeEmail = (email = '') => String(email).trim().toLowerCase();
 
 // ---------------------------------------------------------------------------
@@ -340,8 +343,10 @@ router.post('/start', limiteStartPorIp, limitePorEmail, tetoConsultaCnpj, async 
 
     const email = normalizeEmail(req.body?.email);
     const telefone = normalizePhone(req.body?.telefone);
-    const nomeResponsavel = String(req.body?.nomeResponsavel || '').trim();
-    const nomeOficinaInput = String(req.body?.nomeOficina || '').trim();
+    // Texto simples e curto (auditoria de 24/11/2026): estes nomes aparecem em janelas do
+    // painel da plataforma e em e-mails; sinais de marcacao nao entram e o tamanho e' limitado.
+    const nomeResponsavel = textoDeNome(req.body?.nomeResponsavel);
+    const nomeOficinaInput = textoDeNome(req.body?.nomeOficina);
 
     if (!nomeResponsavel || nomeResponsavel.length < 3) {
       return res.status(400).json({ error: 'Informe o nome do responsável.' });

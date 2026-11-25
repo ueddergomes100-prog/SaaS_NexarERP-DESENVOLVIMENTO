@@ -6,6 +6,7 @@ const { vagaNoApp } = require('../services/limitesDoPlano');
 const { empresaBloqueada } = require('../services/mensalidades');
 const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
 const { limitadorPublico, limitadorPorChave } = require('../middleware/rateLimit');
+const { conferirContaDoCadastro } = require('../services/contaDoCadastro');
 
 const router = express.Router();
 
@@ -128,6 +129,9 @@ router.post('/mobile-login', limitePorIp, limitePorVendedor, async (req, res) =>
       erro.status = 402;
       throw erro;
     }
+
+    // O login sai para a CONTA com o id do cadastro: ela tem de ser mesmo dele (ver contaDoCadastro.js).
+    await conferirContaDoCadastro({ id: identificado.vendedorId, usuario: usuarioSnap.data() });
 
     const token = await admin.auth().createCustomToken(identificado.vendedorId, { isVendedorBalcao: true });
     return res.json({ token, vendedorNome: identificado.vendedorNome });

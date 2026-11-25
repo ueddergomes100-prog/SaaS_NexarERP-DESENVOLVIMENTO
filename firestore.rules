@@ -783,8 +783,11 @@ service cloud.firestore {
     // recusado aqui. A chave da Spedy e a senha do e-mail continuam so' em
     // configuracoes_privadas (dono/Admin), e os campos da plataforma seguem
     // travados por platformManagedFields.
+    // perfilAtivo() (auditoria de 24/11/2026): a LEITURA ja' exigia perfil ativo, a escrita
+    // nao. Funcionario inativado que tinha a permissao ainda trocava, as cegas, a chave Pix
+    // impressa no pedido. perfilAtivo() ja' inclui o bloqueio de cobranca.
     function canEditTenantConfig() {
-      return (isTenantAdmin() || hasPermission('administrativo.config')) && semBloqueioDeCobranca(currentProfile());
+      return (isTenantAdmin() || hasPermission('administrativo.config')) && perfilAtivo();
     }
 
     // Segredo nao entra no documento que todos leem (19/10/2026): a chave da

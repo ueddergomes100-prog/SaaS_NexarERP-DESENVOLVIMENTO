@@ -1,4 +1,5 @@
 const { auth, db } = require('../config/firebase');
+const { conferirContaDoCadastro, ErroContaDoCadastro } = require('./contaDoCadastro');
 
 /**
  * Senha de ACESSO (login no sistema) de um funcionario -- diferente da senha
@@ -43,8 +44,22 @@ async function redefinirSenhaAcesso({ tenantId, usuarioId, novaSenha }) {
     throw new ErroSenhaAcesso(403, 'Este usuário não pertence à sua empresa.');
   }
 
+  // Vendedor de balcao nao tem login no sistema, mesmo que o cadastro traga um e-mail
+  // (auditoria de 24/11/2026: o cadastro de vendedor nasce pela tela, com o id e os campos que quem cria quiser).
+  if (usuario.tipoRegistro === 'vendedor') {
+    throw new ErroSenhaAcesso(400, 'Este cadastro é de vendedor de balcão e não tem login no sistema. A senha dele é a de vendedor (código e senha), definida em Cadastros Auxiliares › Vendedores.');
+  }
+
   if (!usuario.email) {
     throw new ErroSenhaAcesso(400, 'Este cadastro não tem login no sistema (é um vendedor sem acesso, cadastrado em Cadastros Auxiliares → Vendedores). Não há senha de acesso para redefinir.');
+  }
+
+  // A conta do Firebase com este id tem de ser mesmo deste cadastro (ver contaDoCadastro.js).
+  try {
+    await conferirContaDoCadastro({ id: usuarioRef.id, usuario });
+  } catch (erro) {
+    if (erro instanceof ErroContaDoCadastro) throw new ErroSenhaAcesso(erro.status, erro.message);
+    throw erro;
   }
 
   try {

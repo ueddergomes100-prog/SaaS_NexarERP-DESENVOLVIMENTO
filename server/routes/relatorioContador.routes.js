@@ -12,8 +12,10 @@ const { ErroEnvioContador, enviarAoContador } = require('../services/envioContad
  * global (2 MB): os anexos chegam em base64 e passam disso.
  */
 const router = express.Router();
-router.use(express.json({ limit: '26mb' }));
+// Login ANTES de ler o corpo (auditoria de 24/11/2026): o leitor de 26 MB rodava para
+// qualquer visitante, e dezenas de envios grandes ao mesmo tempo esgotavam a memoria.
 router.use(authenticate);
+const corpoComAnexos = express.json({ limit: '26mb' });
 
 const porUsuario = (req) => (req.user && req.user.uid) || req.ip;
 const limite = limitadorPorChave('envio-contador', porUsuario, {
@@ -22,7 +24,7 @@ const limite = limitadorPorChave('envio-contador', porUsuario, {
   mensagem: 'Muitos envios ao contador em pouco tempo. Aguarde alguns minutos.',
 });
 
-router.post('/enviar', limite, async (req, res) => {
+router.post('/enviar', limite, corpoComAnexos, async (req, res) => {
   try {
     const r = await enviarAoContador({
       user: req.user,

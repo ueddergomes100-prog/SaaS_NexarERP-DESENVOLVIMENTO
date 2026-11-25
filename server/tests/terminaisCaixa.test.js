@@ -143,3 +143,26 @@ test('dono/administrador com senha curta nao entra por codigo; gestor da platafo
   await assert.rejects(entrar('09', '73', 'sistema'), (e) => e.status === 403 && /4 dígitos ou mais/.test(e.message));
   await assert.rejects(entrar('11', '482613', 'sistema'), (e) => e.status === 403 && /não entra com código/.test(e.message));
 });
+
+test('entrar: cadastro com o id de uma filial ou de uma conta da plataforma nao recebe login (auditoria de 24/11/2026)', async () => {
+  const fake = criarBancoFalso({
+    ...BASE,
+    // A filial e' um id de `configuracoes` sem ficha em `usuarios`: o cadastro abaixo foi criado pela tela com esse id.
+    'configuracoes/filial-alheia': { cnpj: '98.765.432/0001-10', nomeFantasia: 'Filial de outra empresa' },
+    'usuarios/filial-alheia': { tenantId: 'loja', role: 'Funcionario', status: 'Ativo', tipoRegistro: 'vendedor', codigoVendedor: '20', permissoes: ['vendas.pdv'], nome: 'PLANTADO' },
+    'usuarios/uid-da-plataforma': { tenantId: 'loja', role: 'Funcionario', status: 'Ativo', tipoRegistro: 'vendedor', codigoVendedor: '21', permissoes: ['vendas.pdv'], nome: 'PLANTADO 2' },
+  }, { consultas: true });
+  fake.db.__contasDoAuth = new Map([['uid-da-plataforma', { customClaims: { role: 'SuperAdmin' }, email: 'equipe@hennder.test' }]]);
+  const { terminais, pin } = carregar(fake.db);
+  for (const id of ['filial-alheia', 'uid-da-plataforma', 'ana']) {
+    await pin.definirPin({ tenantId: 'loja', usuarioId: id, pin: '4826', autorId: 'dono' });
+  }
+  const terminal = await terminais.ativarTerminal({ user: GERENTE, nome: 'Caixa 1' });
+  const com = (codigo) => terminais.entrarComCodigo({ terminalId: terminal.terminalId, segredo: terminal.segredo, codigo, pin: '4826' });
+
+  await assert.rejects(com('20'), (e) => e.status === 403 && /identificador dele pertence a outra conta/.test(e.message));
+  await assert.rejects(com('21'), (e) => e.status === 403 && /identificador dele pertence a outra conta/.test(e.message));
+  // O funcionario de verdade continua entrando.
+  const r = await com('07');
+  assert.match(r.token, /^custom:ana:/);
+});

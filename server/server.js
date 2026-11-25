@@ -13,7 +13,7 @@ const { initQueueService } = require('./services/queue');
 const { iniciarRotinasDiarias } = require('./services/rotinasDiarias');
 const { diagnosticoConfiguracao, pendenciasDeProducao, trustProxyHops, emProducao } = require('./services/configuracaoAmbiente');
 const { estadoDoFirestore } = require('./services/saude');
-const { limitadorGlobalApi } = require('./middleware/rateLimit');
+const { limitadorGlobalApi, limitadorDoWebhook } = require('./middleware/rateLimit');
 const { verificadorAppCheck } = require('./middleware/appCheck');
 const { ipDoCliente } = require('./utils/requestIp');
 const backupRoutes = require('./routes/backup.routes');
@@ -145,12 +145,17 @@ app.use((req, res, next) => {
 // too large", em ingles, na tela.
 // Envio ao contador (20/10/2026): PDF + .zip dos XMLs em base64 passam de 2 MB. Essa
 // rota tem o proprio leitor (26 MB, relatorioContador.routes.js); o json global pula ela.
-const jsonPadrao = express.json({ limit: '2mb' });
-app.use((req, res, next) => (req.path.startsWith('/api/relatorio-contador/') ? next() : jsonPadrao(req, res, next)));
-
 // Freio global por IP em todo /api (ver middleware/rateLimit.js). As rotas
 // publicas (onboarding, login do app) tem limites proprios, mais apertados.
+// Fica ANTES do leitor de corpo (auditoria de 24/11/2026): quem ja' estourou o
+// limite leva o 429 sem o servidor ler nem interpretar os ate' 2 MB do envio.
 app.use('/api', limitadorGlobalApi);
+// O webhook da Spedy fica fora do freio global; aqui so' contam as chamadas RECUSADAS
+// (segredo errado), para ninguem martelar a rota adivinhando o segredo.
+app.use('/api/spedy-webhook', limitadorDoWebhook);
+
+const jsonPadrao = express.json({ limit: '2mb' });
+app.use((req, res, next) => (req.path.startsWith('/api/relatorio-contador/') ? next() : jsonPadrao(req, res, next)));
 
 // App Check (2026-10-14): confere se a chamada veio do nosso sistema. Em modo
 // de OBSERVACAO ate' APP_CHECK_EXIGIR=true -- so' marca no log. Ver middleware/appCheck.js.

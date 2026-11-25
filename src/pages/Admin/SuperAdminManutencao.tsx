@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Building2, CalendarCheck, KeyRound, Loader2, PackageX, RotateCcw, Ruler, Search, Wallet, Wrench } from 'lucide-react';
-import { NexusSwal, showError, showSuccess } from '../../utils/alerts';
+import { NexusSwal, escaparHtml, showError, showSuccess } from '../../utils/alerts';
 import {
   rodarDatasFaltantes,
   rodarProtecaoDeSegredos,
@@ -290,7 +290,7 @@ const CartaoZerarEstoqueMigracao: React.FC = () => {
     if (modo === 'aplicar' && resultado) {
       const confirmacao = await NexusSwal.fire({
         title: `Ajustar os produtos de ${resultado.empresa}?`,
-        html: `Ambiente: <strong>${rotuloDoProjeto(resultado.projeto)}</strong>${resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}.<br/>`
+        html: `Ambiente: <strong>${escaparHtml(rotuloDoProjeto(resultado.projeto))}</strong>${resultado.cnpj ? ` · CNPJ ${escaparHtml(resultado.cnpj)}` : ''}.<br/>`
           + `${fmt(resultado.alterados)} produto(s) vão mudar:<br/>`
           + (opcoes.zerar ? `· saldo a zero (soma hoje ${fmt(resultado.somaSaldo)}); preço à vista, custo, custo médio e custo comercial vazios; preço de venda continua<br/>` : '')
           + (opcoes.renumerar ? `· códigos 1, 2, 3... pela ordem alfabética (${fmt(resultado.codigosTrocados)} mudam)<br/>` : '')
@@ -417,7 +417,7 @@ const CartaoVendaFracionada: React.FC = () => {
     if (modo === 'aplicar' && resultado) {
       const confirmacao = await NexusSwal.fire({
         title: `Acertar a venda fracionada de ${resultado.empresa}?`,
-        html: `Ambiente: <strong>${rotuloDoProjeto(resultado.projeto)}</strong>${resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}.<br/>`
+        html: `Ambiente: <strong>${escaparHtml(rotuloDoProjeto(resultado.projeto))}</strong>${resultado.cnpj ? ` · CNPJ ${escaparHtml(resultado.cnpj)}` : ''}.<br/>`
           + `${fmt(resultado.alterados)} produto(s) ativo(s) nas unidades ${resultado.unidadesFracionadas.join(', ')} passam a vender fracionado`
           + ` (${fmt(resultado.travados)} hoje recusam quantidade quebrada).<br/>Fica um registro no histórico da empresa.`,
         icon: 'warning',
@@ -569,7 +569,7 @@ const CartaoCreditosDoCliente: React.FC = () => {
     if (modo === 'aplicar' && resultado) {
       const confirmacao = await NexusSwal.fire({
         title: `Ligar os créditos de ${resultado.empresa} aos clientes?`,
-        html: `Ambiente: <strong>${rotuloDoProjeto(resultado.projeto)}</strong>${resultado.cnpj ? ` · CNPJ ${resultado.cnpj}` : ''}.<br/>`
+        html: `Ambiente: <strong>${escaparHtml(rotuloDoProjeto(resultado.projeto))}</strong>${resultado.cnpj ? ` · CNPJ ${escaparHtml(resultado.cnpj)}` : ''}.<br/>`
           + `${fmt(resultado.ligados)} crédito(s) recebem o código do cliente da venda de origem;`
           + ` ${fmt(resultado.escondidos)} deles (${reais(resultado.escondidosCentavos)}) voltam a aparecer para o cliente.<br/>`
           + 'Saldo e situação dos créditos não mudam. Fica um registro no histórico da empresa.',

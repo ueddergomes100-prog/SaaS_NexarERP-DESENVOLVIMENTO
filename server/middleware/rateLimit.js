@@ -40,13 +40,15 @@ const responder429 = (mensagem) => (req, res) => {
  * Monta um limitador. `chave` opcional: funcao (req) => string; sem ela, o
  * limite e' por IP (o express-rate-limit ja' normaliza IPv6 pra /56).
  */
-const criarLimitador = ({ janelaMs, limite, chave, mensagem, pular }) => rateLimit({
+const criarLimitador = ({ janelaMs, limite, chave, mensagem, pular, soFalhas }) => rateLimit({
   windowMs: janelaMs,
   limit: limite,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   ...(chave ? { keyGenerator: (req) => String(chave(req) || 'sem-chave') } : {}),
   ...(pular ? { skip: pular } : {}),
+  // So' as respostas de erro (400 ou mais) contam: quem acerta nunca e' freado.
+  ...(soFalhas ? { skipSuccessfulRequests: true } : {}),
   handler: responder429(mensagem),
 });
 
@@ -57,6 +59,13 @@ const limitadorGlobalApi = criarLimitador({
   limite: numeroDoAmbiente('RATE_LIMIT_MAX', 3000),
   pular: (req) => req.path.startsWith('/spedy-webhook'),
   mensagem: 'Este endereço fez requisições demais em pouco tempo. Aguarde alguns minutos e tente de novo.',
+});
+
+/** Webhook da Spedy: por IP, contando so' as chamadas recusadas (segredo errado devolve 404). */
+const limitadorDoWebhook = criarLimitador({
+  janelaMs: 15 * MINUTO_MS,
+  limite: 30,
+  soFalhas: true,
 });
 
 const limitadorPublico = (nome, { limite, janelaMs = 15 * MINUTO_MS, mensagem } = {}) => criarLimitador({
@@ -83,6 +92,7 @@ const limitadorTotal = (nome, { limite, janelaMs = 60 * MINUTO_MS, mensagem } = 
 
 module.exports = {
   limitadorGlobalApi,
+  limitadorDoWebhook,
   limitadorPublico,
   limitadorPorChave,
   limitadorTotal,

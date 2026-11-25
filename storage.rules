@@ -15,7 +15,7 @@ service firebase.storage {
         && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/.*')
         && (
-          request.auth.uid == tenantId
+          (request.auth.uid == tenantId && firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId == tenantId)
           || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('filialAtiva', firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId) == tenantId
         );
       allow delete: if false;
@@ -78,7 +78,9 @@ service firebase.storage {
     }
 
     function usuarioDaEmpresa(tenantId) {
-      return request.auth.uid == tenantId
+      // uid igual ao id da empresa so' vale com a ficha confirmando (auditoria de 24/11/2026):
+      // um login emitido para o id de uma filial alheia nao abre os arquivos dela.
+      return (request.auth.uid == tenantId && firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId == tenantId)
         || firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.get('filialAtiva', firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.tenantId) == tenantId;
     }
 

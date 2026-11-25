@@ -293,6 +293,26 @@ const estornarVenda = async ({ user, tenantId, pedidoId, motivo = 'Cashback esto
   return { ...gerado, uso };
 };
 
+/**
+ * Estorno pedido pela TELA (rota /api/cashback/estornar-venda): so' de venda que ja' esta'
+ * cancelada no banco (auditoria de 24/11/2026). Antes a rota estornava qualquer venda da
+ * empresa: o cashback usado numa venda valida voltava ao saldo do cliente e podia ser gasto
+ * de novo, quantas vezes alguem chamasse. Quem cancela pelo servidor (vendas.routes.js)
+ * chama estornarVenda direto, depois de cancelar.
+ */
+const estornarVendaCancelada = async ({ user, tenantId, pedidoId }) => {
+  const id = texto(pedidoId);
+  if (!id) throw new ErroCashback(400, 'Venda não informada.');
+  const vendaSnap = await db.collection('pedidos_venda').doc(id).get();
+  if (!vendaSnap.exists || vendaSnap.data().tenantId !== tenantId) {
+    throw new ErroCashback(404, 'Venda não encontrada. Atualize a tela e tente de novo.');
+  }
+  if (vendaSnap.data().status !== 'Cancelada') {
+    throw new ErroCashback(409, 'O cashback só volta quando a venda está cancelada. Cancele a venda primeiro; o estorno do cashback acontece junto.');
+  }
+  return estornarVenda({ user, tenantId, pedidoId: id });
+};
+
 /** Baixa estornada: se a venda deixou de estar paga, o lote inteiro volta. */
 const revisarAposEstorno = async ({ user, tenantId, pedidoId }) => {
   const id = texto(pedidoId);
@@ -509,6 +529,7 @@ module.exports = {
   atualizarResumosVencidos,
   gerarSeDevido,
   estornarVenda,
+  estornarVendaCancelada,
   revisarAposEstorno,
   estornarDevolucao,
   prepararUso,

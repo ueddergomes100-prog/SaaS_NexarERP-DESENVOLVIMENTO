@@ -17,7 +17,9 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../../utils/fetchComTimeout';
-import Swal from 'sweetalert2';
+// NexusSwal, nunca o Swal cru (auditoria de 24/11/2026): no cru o `title` e' HTML, e aqui
+// entram nomes digitados por terceiros (o nome da empresa vem do cadastro publico).
+import { NexusSwal as Swal } from '../../utils/alerts';
 import SituacaoDosBackups from './SituacaoDosBackups';
 
 interface BackupRecord {

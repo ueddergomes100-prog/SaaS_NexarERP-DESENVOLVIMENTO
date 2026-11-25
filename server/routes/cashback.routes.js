@@ -1,6 +1,6 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
-const { ErroCashback, gerarSeDevido, estornarVenda, estornarDevolucao } = require('../services/cashback');
+const { ErroCashback, gerarSeDevido, estornarVendaCancelada, estornarDevolucao } = require('../services/cashback');
 
 const router = express.Router();
 
@@ -29,7 +29,7 @@ router.post('/gerar', async (req, res) => {
 /** Venda cancelada pela tela: estorna o que ela gerou. */
 router.post('/estornar-venda', async (req, res) => {
   try {
-    const r = await estornarVenda({ user: req.user, tenantId: req.user.tenantId, pedidoId: req.body?.pedidoId });
+    const r = await estornarVendaCancelada({ user: req.user, tenantId: req.user.tenantId, pedidoId: req.body?.pedidoId });
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'estornar venda');

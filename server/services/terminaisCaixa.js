@@ -6,6 +6,7 @@ const { podeUsarFrenteDeCaixa } = require('../domain/frenteDeCaixaDomain');
 const { isTenantManagerRole } = require('../domain/roles');
 const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
 const { empresaBloqueada } = require('./mensalidades');
+const { conferirContaDoCadastro, ErroContaDoCadastro } = require('./contaDoCadastro');
 
 /**
  * COMPUTADOR DO CAIXA + ENTRADA COM CODIGO E SENHA (22/11/2026, pedido do dono:
@@ -144,6 +145,14 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   // administrador entram e veem a tela de bloqueio com o boleto.
   if (!gestor && await empresaBloqueada(terminal.tenantDosUsuarios)) {
     throw new ErroTerminal(402, MENSAGEM_SERVIDOR_BLOQUEADO);
+  }
+
+  // O login sai para a CONTA com o id do cadastro: ela tem de ser mesmo dele (ver contaDoCadastro.js).
+  try {
+    await conferirContaDoCadastro({ id: identificado.vendedorId, usuario });
+  } catch (erro) {
+    if (erro instanceof ErroContaDoCadastro) throw new ErroTerminal(erro.status, erro.message);
+    throw erro;
   }
 
   // Vendedor de balcao (sem login de e-mail) so' entra com a marca isVendedorBalcao (middleware/auth.js).

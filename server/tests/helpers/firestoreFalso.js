@@ -177,6 +177,17 @@ const carregarComBancoFalso = (db, ...servicos) => {
       contas.set(email, uid);
       return { uid, email };
     },
+    // Conta por uid (24/11/2026, contaDoCadastro.js): o teste registra em `db.__contasDoAuth`
+    // (Map uid -> { customClaims, email }); sem registro, a conta nao existe, como no Firebase.
+    getUser: async (uid) => {
+      const conta = db.__contasDoAuth && db.__contasDoAuth.get(uid);
+      if (!conta) {
+        const erro = new Error('conta nao existe');
+        erro.code = 'auth/user-not-found';
+        throw erro;
+      }
+      return { uid, ...conta };
+    },
     // Token de entrada (caixa com codigo e senha, 22/11/2026): "custom:<uid>:<marcas em JSON>".
     createCustomToken: async (uid, marcas) => `custom:${uid}:${JSON.stringify(marcas || {})}`,
     // Token falso "falso:<uid>:<auth_time em segundos>" (liberacao de desconto, 19/10/2026).
@@ -199,7 +210,7 @@ const carregarComBancoFalso = (db, ...servicos) => {
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));
   // Servicos usados por dentro de outros (guardam o `db` ao carregar): sempre com o banco novo.
-  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades']
+  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/contaDoCadastro', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades']
     .map((s) => require.resolve(path.join(base, s)));
   [...sempreNovos, ...caminhos].forEach((c) => { delete require.cache[c]; });
   return caminhos.map((c) => require(c));

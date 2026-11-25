@@ -175,3 +175,27 @@ test('rotina diaria: lote vencido sem venda nova sai do saldo; quem nao venceu f
   assert.equal(fake.ler('clientes/c3').cashback, undefined);
   assert.deepEqual(await servico.atualizarResumosVencidos({ hoje: '2026-10-20' }), { encontrados: 0, atualizados: 0 }, 'rodar de novo nao faz nada');
 });
+
+test('estorno pedido pela tela: so de venda cancelada e da propria empresa (auditoria de 24/11/2026)', async () => {
+  const { fake, servico } = carregar(base({ 'pedidos_venda/v2': venda('v2', { tenantId: 'outra' }) }));
+  await servico.gerarSeDevido({ user: USER, tenantId: T, pedidoId: 'v1' });
+  assert.equal(fake.ler('clientes/c1').cashback.saldoCentavos, 500);
+
+  // Venda valida: nada e' estornado.
+  await assert.rejects(
+    servico.estornarVendaCancelada({ user: USER, tenantId: T, pedidoId: 'v1' }),
+    (e) => e.status === 409 && /só volta quando a venda está cancelada/.test(e.message),
+  );
+  assert.equal(fake.ler('clientes/c1').cashback.saldoCentavos, 500, 'o cashback da venda valida continua la');
+  // Venda de outra empresa ou que nao existe: mesma resposta.
+  for (const pedidoId of ['v2', 'nao-existe']) {
+    await assert.rejects(servico.estornarVendaCancelada({ user: USER, tenantId: T, pedidoId }), (e) => e.status === 404);
+  }
+  await assert.rejects(servico.estornarVendaCancelada({ user: USER, tenantId: T, pedidoId: '' }), (e) => e.status === 400);
+
+  // Depois de cancelada, estorna (uma vez so').
+  fake.db.collection('pedidos_venda').doc('v1').update({ status: 'Cancelada' });
+  const r = await servico.estornarVendaCancelada({ user: USER, tenantId: T, pedidoId: 'v1' });
+  assert.equal(r.estornado, true);
+  assert.equal(fake.ler('clientes/c1').cashback.saldoCentavos, 0);
+});

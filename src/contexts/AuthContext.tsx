@@ -2,7 +2,9 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import type { User } from 'firebase/auth';
 import { getIdTokenResult, onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, doc, getDoc, limit, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
-import Swal from 'sweetalert2';
+// NexusSwal, nunca o Swal cru (auditoria de 24/11/2026): no cru o `title` e' HTML, e aqui
+// entram nomes digitados por terceiros (o nome da empresa vem do cadastro publico).
+import { NexusSwal as Swal } from '../utils/alerts';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, ehSessaoDeEstacao, getStoredSessionId, setStoredSessionId } from '../utils/session';
 import { permissoesEfetivas } from '../utils/permissoesAppDomain';

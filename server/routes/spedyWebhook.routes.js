@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const { admin, db } = require('../config/firebase');
@@ -15,6 +16,15 @@ const TYPE_PATHS = {
   'NFS-e': 'service-invoices',
   'NF-e': 'product-invoices',
   'NFC-e': 'consumer-invoices'
+};
+
+/** Segredo da URL comparado em tempo constante (o tempo da resposta nao revela quantos caracteres batem). */
+const segredoConfere = (recebido) => {
+  const esperado = process.env.SPEDY_WEBHOOK_SECRET;
+  if (!esperado) return false;
+  const a = crypto.createHash('sha256').update(String(recebido || '')).digest();
+  const b = crypto.createHash('sha256').update(esperado).digest();
+  return crypto.timingSafeEqual(a, b);
 };
 
 /**
@@ -36,7 +46,7 @@ const TYPE_PATHS = {
  * confiando no campo `company` do payload do webhook.
  */
 router.post('/:secret', async (req, res) => {
-  if (!process.env.SPEDY_WEBHOOK_SECRET || req.params.secret !== process.env.SPEDY_WEBHOOK_SECRET) {
+  if (!segredoConfere(req.params.secret)) {
     // 404 em vez de 401/403 -- nao revela que a rota existe pra quem nao tem o token certo.
     return res.status(404).end();
   }

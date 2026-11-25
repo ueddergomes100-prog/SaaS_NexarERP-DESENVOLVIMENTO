@@ -50,7 +50,15 @@ async function authenticate(req, res, next) {
 
     const decodedToken = await auth.verifyIdToken(token);
     const { uid, email } = decodedToken;
-    const claimRole = getClaimRole(decodedToken);
+    // Login por codigo e senha (token emitido pelo servidor: caixa, sistema no computador
+    // ativado, app Vendas) nunca vale como equipe da plataforma, mesmo que a conta tenha o
+    // papel gravado nela. A plataforma entra so' com usuario e senha (auditoria de 24/11/2026).
+    const entrouPorCodigo = Boolean(decodedToken.firebase && decodedToken.firebase.sign_in_provider === 'custom');
+    const papelDoToken = getClaimRole(decodedToken);
+    const claimRole = entrouPorCodigo && isPlatformAdminRole(papelDoToken) ? null : papelDoToken;
+    // Equipe da plataforma pelo token: a ficha em `usuarios` (que uma empresa pode ter criado
+    // com o id dela) nao a barra nem a rebaixa.
+    const plataformaPeloToken = isPlatformAdminRole(claimRole);
     const userDoc = await db.collection('usuarios').doc(uid).get();
 
     let role = claimRole;
@@ -78,12 +86,12 @@ async function authenticate(req, res, next) {
 
       // Funcionario inativado perde o acesso ao servidor tambem, nao so' a
       // tela (mesma regra de perfilAtivo() nas firestore.rules, 2026-09-29).
-      if (userData.status === 'Inativo' && !isPlatformAdminRole(role) && !isTenantManagerRole(role)) {
+      if (userData.status === 'Inativo' && !plataformaPeloToken && !isPlatformAdminRole(role) && !isTenantManagerRole(role)) {
         return res.status(403).json({ error: 'Seu usuário foi inativado pelo administrador da empresa. Fale com ele para reativar o acesso.' });
       }
       // Vendedor de balcao (sem login) so' pelo app, com o token do codigo+PIN
       // (19/10/2026; mesma regra das firestore.rules).
-      if (userData.tipoRegistro === 'vendedor' && decodedToken.isVendedorBalcao !== true) {
+      if (userData.tipoRegistro === 'vendedor' && decodedToken.isVendedorBalcao !== true && !plataformaPeloToken) {
         return res.status(403).json({ error: 'Este cadastro é de vendedor de balcão: ele entra só pelo aplicativo, com o código e a senha de vendedor.' });
       }
     }

@@ -42,7 +42,14 @@ router.get('/resumo', getResumo);
 // corpo e' o arquivo cifrado inteiro, por isso o leitor proprio (o json global
 // do servidor ignora este tipo de conteudo).
 const arquivoDeBackup = express.raw({ type: 'application/octet-stream', limit: '300mb' });
-router.post('/restore-file', limiteRestaurar, arquivoDeBackup, restoreFromFile);
+// Confere a plataforma ANTES de receber o arquivo (auditoria de 24/11/2026): o dono de
+// qualquer empresa conseguia mandar 300 MB para a memoria do servidor e so' entao levava o 403.
+const soPlataforma = (req, res, next) => (
+  req.user && req.user.isPlatformAdmin
+    ? next()
+    : res.status(403).json({ error: 'Só a equipe Hennder pode restaurar um backup. Fale com o suporte.' })
+);
+router.post('/restore-file', soPlataforma, limiteRestaurar, arquivoDeBackup, restoreFromFile);
 
 // Rotas de backups por empresa (validam automaticamente o isolamento de tenantId)
 router.get('/history', authorizeTenant, getBackupsHistory);

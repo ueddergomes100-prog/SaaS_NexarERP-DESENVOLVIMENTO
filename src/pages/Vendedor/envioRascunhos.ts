@@ -81,6 +81,7 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
     const { id, numeroPedido } = await criarPreVendaExterna({
       ...comum,
       itens: cobrados,
+      ...(rascunho.formaPagamento ? { formaPagamento: rascunho.formaPagamento } : {}),
       idDocumento: rascunho.localId,
       ...(idBonificacao ? { pedidoBonificacaoId: idBonificacao } : {}),
     });

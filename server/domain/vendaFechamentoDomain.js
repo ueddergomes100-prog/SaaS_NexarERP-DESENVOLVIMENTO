@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
+exports.erroDaFormaDoVendedor = exports.formaDoVendedor = exports.CAMPO_FORMA_DO_VENDEDOR = exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
 /*
  * FECHAMENTO DA VENDA NO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026).
  *
@@ -253,3 +253,32 @@ const erroDoAPrazoNoCaixa = (formas, opcoes) => {
     return null;
 };
 exports.erroDoAPrazoNoCaixa = erroDoAPrazoNoCaixa;
+/**
+ * FORMA DE PAGAMENTO ESCOLHIDA PELO VENDEDOR NO APP (25/11/2026, pedido do dono
+ * pela Embala Minas). O vendedor escolhe a forma no pedido do app; a pre-venda
+ * ja' nasce com ela (`formaPagamentoVendedor`). Decisao do dono: so' quem tem a
+ * permissao "trocar a forma escolhida pelo vendedor" fatura com outra forma.
+ * Credito de devolucao e cashback sao abatimento do cliente, nao troca de forma.
+ */
+exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = 'vendas.trocar_forma_do_vendedor';
+exports.CAMPO_FORMA_DO_VENDEDOR = 'formaPagamentoVendedor';
+const FORMAS_QUE_SO_ABATEM = ['Crédito de Devolução', 'Cashback'];
+/** Forma escolhida pelo vendedor gravada no pedido ('' quando nao ha'). */
+const formaDoVendedor = (pedido) => (typeof pedido?.[exports.CAMPO_FORMA_DO_VENDEDOR] === 'string' ? String(pedido[exports.CAMPO_FORMA_DO_VENDEDOR]).trim() : '');
+exports.formaDoVendedor = formaDoVendedor;
+/** Por que a venda nao pode sair com estas formas, ou null. */
+const erroDaFormaDoVendedor = (args) => {
+    const escolhida = String(args.formaDoVendedor || '').trim();
+    if (!escolhida || args.podeTrocar)
+        return null;
+    const trocadas = args.formasDaVenda
+        .map((f) => String(f ?? '').trim())
+        .filter((f) => f && f !== escolhida && !FORMAS_QUE_SO_ABATEM.includes(f));
+    if (trocadas.length === 0)
+        return null;
+    const numero = args.numeroPedido ? ` #${args.numeroPedido}` : '';
+    return `O vendedor escolheu "${escolhida}" na pré-venda${numero}. Para receber em outra forma é preciso a permissão `
+        + '"Vendas: Pré-venda — Trocar a forma de pagamento escolhida pelo vendedor" (Usuários). '
+        + `Receba em ${escolhida} ou peça a um responsável.`;
+};
+exports.erroDaFormaDoVendedor = erroDaFormaDoVendedor;

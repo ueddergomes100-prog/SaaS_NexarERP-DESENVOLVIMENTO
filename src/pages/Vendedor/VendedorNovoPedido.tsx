@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -26,6 +29,9 @@ import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } fro
 import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { textoDaRotaEscolhida, type RotaEscolhida } from '../../utils/rotaPreVendaDomain';
+
+/** Abatimentos do cliente e formas da loja que nao se combinam no pedido do vendedor. */
+const FORMAS_FORA_DO_APP: string[] = ['Crédito de Devolução', 'Cashback'];
 
 interface ClienteVendedor extends SearchableClient, ClienteConfirmavel {
   id: string;
@@ -74,6 +80,24 @@ const VendedorNovoPedido: React.FC = () => {
   const [observacao, setObservacao] = useState(() => rascunhoAberto?.observacao || '');
   // O rascunho e' fonte de verdade ao reabrir; empresa sem nota fiscal nem pergunta.
   const [notaFiscal, setNotaFiscal] = useState<EscolhaNotaFiscal | null>(() => rascunhoAberto?.notaFiscal || null);
+
+  // Forma de pagamento (25/11/2026, pedido do dono): o vendedor escolhe com o cliente;
+  // a pre-venda ja' nasce com ela e trocar no faturamento pede permissao. Opcional.
+  const [formaPagamento, setFormaPagamento] = useState(() => rascunhoAberto?.formaPagamento || '');
+  const [formasDaFilial, setFormasDaFilial] = useState<string[]>(() => formasDaEmpresa([], []).filter((f) => !FORMAS_FORA_DO_APP.includes(f)));
+  useEffect(() => {
+    if (!tenantId) return undefined;
+    let vivo = true;
+    getDoc(doc(db, 'configuracoes', tenantId))
+      .then((snap) => {
+        if (!vivo || !snap.exists()) return;
+        const config = snap.data();
+        setFormasDaFilial(formasDaEmpresa(parseOrdemFormasPagamento(config.ordemFormasPagamento), parseFormasOcultas(config.formasPagamentoOcultas))
+          .filter((f) => !FORMAS_FORA_DO_APP.includes(f)));
+      })
+      .catch(() => { /* sem sinal: fica a lista padrao */ });
+    return () => { vivo = false; };
+  }, [tenantId]);
 
   const produtosAtivos = produtos.filter((p) => p.ativo !== false);
 
@@ -135,6 +159,7 @@ const VendedorNovoPedido: React.FC = () => {
         itens,
         ...(normalizarObservacaoPedido(observacao) ? { observacao: normalizarObservacaoPedido(observacao) } : {}),
         ...(controlaFiscal && notaFiscal ? { notaFiscal } : {}),
+        ...(formaPagamento ? { formaPagamento } : {}),
         criadoEm: rascunhoAberto?.criadoEm || agora,
         atualizadoEm: agora,
         ...camposDePronto(pronto, agora),
@@ -205,6 +230,27 @@ const VendedorNovoPedido: React.FC = () => {
               }}
             />
             <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'right' }}>{observacao.length}/{OBSERVACAO_PEDIDO_MAX}</div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label htmlFor="pedido-forma" style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Forma de pagamento
+            </label>
+            <select
+              id="pedido-forma"
+              value={formaPagamento}
+              onChange={(evento) => setFormaPagamento(evento.target.value)}
+              style={{
+                width: '100%', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', fontSize: '16px',
+                backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontFamily: 'inherit',
+              }}
+            >
+              <option value="">A loja escolhe ao faturar</option>
+              {[...new Set([...formasDaFilial, ...(formaPagamento ? [formaPagamento] : [])])].map((forma) => (
+                <option key={forma} value={forma}>{forma}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>A pré-venda já chega com esta forma. Trocar na loja só com permissão.</div>
           </div>
 
           {controlaFiscal && (

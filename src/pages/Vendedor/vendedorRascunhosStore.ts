@@ -38,6 +38,8 @@ export interface RascunhoVenda {
   observacao?: string;
   /** So' pedido, e so' na empresa que controla nota fiscal: o que o vendedor marcou. */
   notaFiscal?: EscolhaNotaFiscal;
+  /** So' pedido (25/11/2026): forma de pagamento combinada com o cliente; a pre-venda ja' nasce com ela. */
+  formaPagamento?: string;
   criadoEm: string;
   atualizadoEm: string;
   /** Motivo da ultima tentativa de envio que falhou. */

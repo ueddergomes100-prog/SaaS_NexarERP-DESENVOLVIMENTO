@@ -88,6 +88,8 @@ export interface CriarPreVendaExternaParams {
   observacao?: string;
   /** O pedido sai COM (true) ou SEM (false) nota fiscal, como o vendedor marcou. Ausente = nao informado. */
   comNotaFiscal?: boolean;
+  /** Forma de pagamento escolhida pelo vendedor (25/11/2026). Ausente = a loja escolhe ao faturar. */
+  formaPagamento?: string;
   /** Id fixo do documento (o id do rascunho). Com ele, reenviar o mesmo
    *  rascunho depois de uma queda de conexao NAO cria um segundo pedido: se
    *  o primeiro envio chegou a gravar, a transacao so' devolve o que ja
@@ -183,6 +185,11 @@ export const criarPreVendaExterna = async (
       // Marca do vendedor: a loja ve na pre-venda se o pedido leva nota fiscal. So' grava quando
       // foi informado (nunca undefined no Firestore) -- venda de balcao nao tem o campo.
       ...(typeof comNotaFiscal === 'boolean' ? { comNotaFiscal } : {}),
+      // Forma escolhida pelo vendedor (25/11/2026): o faturamento ja' abre nela e trocar pede
+      // permissao (vendaFechamentoDomain.erroDaFormaDoVendedor). So' grava quando veio.
+      ...(params.formaPagamento && params.formaPagamento.trim()
+        ? { formaPagamento: params.formaPagamento.trim(), formaPagamentoVendedor: params.formaPagamento.trim() }
+        : {}),
       ...vinculo,
       tenantId,
       usuarioResponsavelId: usuarioId,

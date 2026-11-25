@@ -108,6 +108,9 @@ exports.PERMISSION_GROUPS = [
             { id: 'vendas.pre_venda_finalizar', label: 'Vendas: Pré-venda — Transformar em venda (finalizar)', color: '#ef4444' },
             { id: 'vendas.pre_venda_cancelar', label: 'Vendas: Pré-venda — Cancelar', color: '#ef4444' },
             { id: 'vendas.pre_venda_relatorio', label: 'Vendas: Relatório de Pré-vendas em Aberto', color: '#f59e0b' },
+            // Forma de pagamento escolhida pelo vendedor no app (25/11/2026, decisao do dono):
+            // a pre-venda ja' vem com ela; trocar no faturamento so' com esta permissao.
+            { id: 'vendas.trocar_forma_do_vendedor', label: 'Vendas: Pré-venda — Trocar a forma de pagamento escolhida pelo vendedor', color: '#ef4444' },
             // Idem: so vale com "Permitir alterar a forma de pagamento de venda
             // já finalizada" ligado nas Configurações.
             { id: 'vendas.alterar_pagamento_finalizada', label: 'Vendas: Alterar Pagamento de Venda Finalizada', color: '#ef4444' },

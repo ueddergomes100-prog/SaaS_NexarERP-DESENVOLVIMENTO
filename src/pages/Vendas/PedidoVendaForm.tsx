@@ -20,7 +20,7 @@ import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ResultadoDaRota, type RotaAberta } from '../../utils/rotaPreVendaDomain';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
-import { brutoDaLinhaCentavos, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
+import { brutoDaLinhaCentavos, erroDaFormaDoVendedor, formaDoVendedor, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
@@ -492,6 +492,8 @@ const PedidoVendaForm: React.FC = () => {
   const [clienteIdSelecionado, setClienteIdSelecionado] = useState<string | null>(null);
   /** Observacao do pedido: sai na Minuta de Entrega ("Obs.:"). */
   const [observacaoPedido, setObservacaoPedido] = useState('');
+  // Forma escolhida pelo vendedor no app (25/11/2026): faturar com outra forma pede permissao.
+  const [formaDoVendedorDaPreVenda, setFormaDoVendedorDaPreVenda] = useState('');
   // Montar o pedido a partir de uma NF-e de entrada (07/11/2026, pedido do dono):
   // botao pequeno no cabecalho do pedido novo; quantidades da nota, preco do cadastro.
   const [notaEntradaAberta, setNotaEntradaAberta] = useState(false);
@@ -1266,6 +1268,7 @@ const PedidoVendaForm: React.FC = () => {
             setClienteNome(p.clienteNome || '');
             setClienteIdSelecionado(p.clienteId || null);
             setObservacaoPedido(String(p.observacao || ''));
+            setFormaDoVendedorDaPreVenda(isPedidoAberto(p.status) ? formaDoVendedor(p) : '');
             setComNotaFiscalPedido(typeof p.comNotaFiscal === 'boolean' ? p.comNotaFiscal : null);
             setEntregaFutura(p.entregaFutura === true);
             setPrevisaoEntrega(parsePrevisaoEntrega(p.previsaoEntrega));
@@ -3696,6 +3699,17 @@ const PedidoVendaForm: React.FC = () => {
     const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda');
     if (travaDoBalanco) {
       showError('Balanço em andamento', travaDoBalanco);
+      return false;
+    }
+    // Forma escolhida pelo vendedor no app (25/11/2026): trocar so' com permissao (o servidor confere de novo).
+    const erroDaForma = erroDaFormaDoVendedor({
+      formaDoVendedor: formaDoVendedorDaPreVenda,
+      formasDaVenda: paymentDrafts.map((d) => d.forma),
+      podeTrocar: temPermissao(PERMISSAO_TROCAR_FORMA_DO_VENDEDOR),
+      numeroPedido,
+    });
+    if (erroDaForma) {
+      showError('Forma de pagamento do vendedor', erroDaForma);
       return false;
     }
 

@@ -138,3 +138,18 @@ test('a prazo na Frente de Caixa: so com a caixa da filial e com cliente identif
   assert.match(erroDoAPrazoNoCaixa([FORMA_A_PRAZO], { ativo: true, clienteId: 'cf', clienteEhPadrao: true }) || '', /F2/);
   assert.equal(erroDoAPrazoNoCaixa(['Dinheiro', FORMA_A_PRAZO], { ativo: true, clienteId: 'c1' }), null);
 });
+
+test('forma escolhida pelo vendedor no app: trocar so com permissao; credito e cashback so abatem (25/11/2026)', async () => {
+  const { erroDaFormaDoVendedor, formaDoVendedor, CAMPO_FORMA_DO_VENDEDOR } = await import('../src/utils/vendaFechamentoDomain');
+  assert.equal(formaDoVendedor({ [CAMPO_FORMA_DO_VENDEDOR]: ' Boleto ' }), 'Boleto');
+  assert.equal(formaDoVendedor({}), '');
+  assert.equal(formaDoVendedor(null), '');
+  const base = { formaDoVendedor: 'Boleto', numeroPedido: '0122' };
+  assert.equal(erroDaFormaDoVendedor({ ...base, formasDaVenda: ['Boleto', 'Boleto'], podeTrocar: false }), null);
+  assert.equal(erroDaFormaDoVendedor({ ...base, formasDaVenda: ['Boleto', 'Crédito de Devolução', 'Cashback'], podeTrocar: false }), null);
+  const erro = erroDaFormaDoVendedor({ ...base, formasDaVenda: ['Pix'], podeTrocar: false });
+  assert.match(String(erro), /escolheu "Boleto" na pré-venda #0122/);
+  assert.match(String(erro), /Trocar a forma de pagamento escolhida pelo vendedor/);
+  assert.equal(erroDaFormaDoVendedor({ ...base, formasDaVenda: ['Pix'], podeTrocar: true }), null, 'com permissao troca');
+  assert.equal(erroDaFormaDoVendedor({ formaDoVendedor: '', formasDaVenda: ['Pix'], podeTrocar: false }), null, 'pedido sem forma do vendedor: como antes');
+});

@@ -44,6 +44,8 @@ interface PaymentModalProps {
    * cartao, o banco ja' vem. Da' para trocar na hora. Sem config = como antes.
    */
   configBancoPadrao?: ConfigBancoPadrao;
+  /** Pre-venda com a forma escolhida pelo vendedor no app (25/11/2026): o pagamento ja' abre nela. */
+  formaInicial?: string;
   onClose: () => void;
   /** Os pagamentos chegam SEM o troco (somam o total); o troco vem a parte, so' para avisar. */
   onFinalize: (drafts: PaymentDraft[], observation: string, trocoCentavos: number) => void;
@@ -74,6 +76,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   rotuloFinalizar = 'Finalizar venda',
   aPrazoAtivo = false,
   configBancoPadrao,
+  formaInicial = '',
   onClose,
   onFinalize,
 }) => {
@@ -86,10 +89,37 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
 
   useEffect(() => {
     if (open) {
-      setDrafts([makePaymentDraft('pdv-payment-1', totalCents, financeConfig.defaultTermDays)]);
+      const inicial = makePaymentDraft('pdv-payment-1', totalCents, financeConfig.defaultTermDays);
+      const forma = formaInicial && (paymentMethods as string[]).concat(aPrazoAtivo ? [FORMA_A_PRAZO] : []).includes(formaInicial)
+        ? formaInicial as PaymentMethod
+        : inicial.forma;
+      setDrafts([{ ...inicial, forma }]);
       setObservation(observacaoInicial);
     }
-  }, [financeConfig.defaultTermDays, open, totalCents, observacaoInicial]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [financeConfig.defaultTermDays, open, totalCents, observacaoInicial, formaInicial]);
+
+  // Banco padrao da forma (25/11/2026) tambem no pagamento que ja' abre numa forma
+  // com banco (a escolhida pelo vendedor) e quando os bancos terminam de carregar.
+  const idsDosBancosAtivos = bancosAtivos.map((b) => b.id).join(',');
+  const formasSemBanco = drafts.filter((d) => !d.bancoId).map((d) => `${d.id}:${d.forma}`).join('|');
+  useEffect(() => {
+    if (!configBancoPadrao || !idsDosBancosAtivos || !formasSemBanco) return;
+    const ativos = idsDosBancosAtivos.split(',');
+    setDrafts((atual) => {
+      let mudou = false;
+      const proximos = atual.map((d) => {
+        if (d.bancoId || !pedeBancoDeDestino(d.forma, financeConfig.pagamentoCartaoSimplificadoAtivo)) return d;
+        const id = bancoSugerido({ forma: d.forma, config: { ...configBancoPadrao, lembrarDoDia: false }, doDia: null, hoje: getDateInputInTimeZone(), bancosAtivosIds: ativos });
+        const banco = id ? bancosAtivos.find((b) => b.id === id) : undefined;
+        if (!banco) return d;
+        mudou = true;
+        return { ...d, bancoId: banco.id, bancoNome: banco.nome };
+      });
+      return mudou ? proximos : atual;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configBancoPadrao, idsDosBancosAtivos, formasSemBanco, financeConfig.pagamentoCartaoSimplificadoAtivo]);
 
   const paidCents = useMemo(() => drafts.reduce((sum, draft) => sum + toCents(draft.valor), 0), [drafts]);
   // Troco (25/11/2026): so' o dinheiro pode passar do total; o que passa volta ao cliente.

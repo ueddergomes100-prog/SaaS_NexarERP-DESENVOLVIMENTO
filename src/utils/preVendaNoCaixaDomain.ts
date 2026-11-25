@@ -198,6 +198,8 @@ export interface PreVendaCarregada {
   statusConferencia: string;
   /** Forma de pagamento que o vendedor anotou na pre-venda ('' = nenhuma). So' informativo. */
   pagamentoCombinado: string;
+  /** Forma escolhida pelo vendedor no app (25/11/2026): o pagamento ja' abre nela; trocar pede permissao. '' = nenhuma. */
+  formaDoVendedor: string;
   /** Pedido de bonificacao ligado a esta venda (fatura a parte, no sistema). */
   pedidoBonificacaoId: string | null;
 }
@@ -262,6 +264,7 @@ export const carregarPreVendaNoCaixa = (
       statusConferencia: texto(pedido.statusConferencia),
       pagamentoCombinado: formas.length > 0 ? formas.join(' + ') : (pagamentos.length === 0 ? texto(pedido.formaPagamento) : ''),
       pedidoBonificacaoId: texto(pedido.pedidoBonificacaoId) || null,
+      formaDoVendedor: texto(pedido.formaPagamentoVendedor),
     },
   };
 };

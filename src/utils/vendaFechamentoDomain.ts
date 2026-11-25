@@ -340,3 +340,38 @@ export const erroDoAPrazoNoCaixa = (
   }
   return null;
 };
+
+/**
+ * FORMA DE PAGAMENTO ESCOLHIDA PELO VENDEDOR NO APP (25/11/2026, pedido do dono
+ * pela Embala Minas). O vendedor escolhe a forma no pedido do app; a pre-venda
+ * ja' nasce com ela (`formaPagamentoVendedor`). Decisao do dono: so' quem tem a
+ * permissao "trocar a forma escolhida pelo vendedor" fatura com outra forma.
+ * Credito de devolucao e cashback sao abatimento do cliente, nao troca de forma.
+ */
+export const PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = 'vendas.trocar_forma_do_vendedor';
+export const CAMPO_FORMA_DO_VENDEDOR = 'formaPagamentoVendedor';
+const FORMAS_QUE_SO_ABATEM = ['Crédito de Devolução', 'Cashback'];
+
+/** Forma escolhida pelo vendedor gravada no pedido ('' quando nao ha'). */
+export const formaDoVendedor = (pedido: { [CAMPO_FORMA_DO_VENDEDOR]?: unknown } | null | undefined): string => (
+  typeof pedido?.[CAMPO_FORMA_DO_VENDEDOR] === 'string' ? String(pedido[CAMPO_FORMA_DO_VENDEDOR]).trim() : ''
+);
+
+/** Por que a venda nao pode sair com estas formas, ou null. */
+export const erroDaFormaDoVendedor = (args: {
+  formaDoVendedor: string;
+  formasDaVenda: unknown[];
+  podeTrocar: boolean;
+  numeroPedido?: string;
+}): string | null => {
+  const escolhida = String(args.formaDoVendedor || '').trim();
+  if (!escolhida || args.podeTrocar) return null;
+  const trocadas = args.formasDaVenda
+    .map((f) => String(f ?? '').trim())
+    .filter((f) => f && f !== escolhida && !FORMAS_QUE_SO_ABATEM.includes(f));
+  if (trocadas.length === 0) return null;
+  const numero = args.numeroPedido ? ` #${args.numeroPedido}` : '';
+  return `O vendedor escolheu "${escolhida}" na pré-venda${numero}. Para receber em outra forma é preciso a permissão `
+    + '"Vendas: Pré-venda — Trocar a forma de pagamento escolhida pelo vendedor" (Usuários). '
+    + `Receba em ${escolhida} ou peça a um responsável.`;
+};

@@ -433,6 +433,14 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
           ? 'Você não tem permissão para finalizar pré-venda. Peça a um responsável liberar "Finalizar pré-venda" no seu usuário.'
           : 'Você não tem permissão para finalizar pedidos. Peça a um responsável liberar "Vendas: Pedidos" no seu usuário.');
       }
+      // Forma escolhida pelo vendedor no app (25/11/2026): trocar so' com permissao.
+      const erroDaForma = venda.erroDaFormaDoVendedor({
+        formaDoVendedor: venda.formaDoVendedor(aberto),
+        formasDaVenda: (Array.isArray(pedido.pagamentos) ? pedido.pagamentos : []).map((p) => (p && (p.forma || p.formaPagamento)) || ''),
+        podeTrocar: temPermissao(user, venda.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR),
+        numeroPedido: String(aberto.numeroPedido || ''),
+      });
+      if (erroDaForma) throw new ErroVenda(403, erroDaForma);
     } else if (pedidoSnap.exists) {
       // Mesmo envio repetido (a conexao caiu depois de gravar): nao duplica.
       const ja = pedidoSnap.data();

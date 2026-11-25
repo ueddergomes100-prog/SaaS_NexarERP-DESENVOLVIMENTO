@@ -64,7 +64,8 @@ import { aberturaConfereComAGaveta, avisoDaAbertura, lerConfigGaveta } from '../
 import { finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
-import { erroDoAPrazoNoCaixa, parseAPrazoNaFrenteDeCaixa, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
+import { erroDaFormaDoVendedor, erroDoAPrazoNoCaixa, parseAPrazoNaFrenteDeCaixa, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR } from '../../utils/vendaFechamentoDomain';
+import { hasTenantFullAccess } from '../../utils/roles';
 import { parseConfigBancoPadrao, type ConfigBancoPadrao } from '../../utils/formasPagamentoDomain';
 import {
   CAMPO_CREDITO_VERSAO,
@@ -1413,6 +1414,17 @@ const PDV: React.FC = () => {
       showError('Pagamento a prazo', erroDoAPrazo);
       return;
     }
+    // Forma escolhida pelo vendedor no app (25/11/2026): trocar so' com permissao (o servidor confere de novo).
+    const erroDaForma = erroDaFormaDoVendedor({
+      formaDoVendedor: carregada.formaDoVendedor,
+      formasDaVenda: drafts.map((d) => d.forma),
+      podeTrocar: hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_TROCAR_FORMA_DO_VENDEDOR),
+      numeroPedido: carregada.numeroPedido,
+    });
+    if (erroDaForma) {
+      showError('Forma de pagamento do vendedor', erroDaForma);
+      return;
+    }
     const travaDoBalanco = await mensagemDaTravaDoBalanco(tenantId, 'finalizar a venda no PDV');
     if (travaDoBalanco) {
       showError('Balanço em andamento', travaDoBalanco);
@@ -2354,6 +2366,7 @@ const PDV: React.FC = () => {
         cashbackDisponivel={cashbackDoCliente}
         aPrazoAtivo={aPrazoNoCaixa}
         configBancoPadrao={configBancoPadrao}
+        formaInicial={preVenda?.formaDoVendedor || ''}
         observacaoInicial={preVenda?.observacao || ''}
         rotuloFinalizar={preVenda ? 'Receber e faturar' : undefined}
         onClose={() => setPaymentModalOpen(false)}

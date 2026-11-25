@@ -77,7 +77,7 @@ import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBus
 import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 import { avisoUnidadeMedidaAusente } from '../../utils/unidadeMedidaDomain';
 import {
-  adicionarProdutoNaNotaManual, comTotalAtualizado, descricaoDaNotaManual, lerNumeroDigitado,
+  adicionarProdutoNaNotaManual, comTotalAtualizado, descricaoDaNotaManual, erroDoLancamentoManual, lerNumeroDigitado,
   totalDaLinhaManual, totalDaNotaManual, validarItensDaNotaManual,
 } from '../../utils/notaManualItensDomain';
 import { devolucaoTeveEfeito } from '../../utils/devolucaoVendaDomain';
@@ -811,7 +811,60 @@ const NFE: React.FC = () => {
     setFormData((prev) => (prev.valor === valor && prev.descricao === descricao ? prev : { ...prev, valor, descricao }));
   }, [isModalOpen, notaManualComItens, importedPedidoItens, retransmittingInvoiceId]);
 
-  const adicionarProdutoNaNota = async (produto: ProdutoDaNotaManual) => {
+  /*
+   * QUANTIDADE E PRECO JA' NA BUSCA (25/11/2026, Embala Minas): escolher o
+   * produto nao lanca na hora; ao lado da busca ficam a quantidade e o preco
+   * (o de venda do cadastro ja' preenchido). Enter na busca vai para a
+   * quantidade, Enter na quantidade vai para o preco, Enter no preco lanca.
+   */
+  const [produtoNaBusca, setProdutoNaBusca] = useState<ProdutoDaNotaManual | null>(null);
+  const [quantidadeNaBusca, setQuantidadeNaBusca] = useState('1');
+  const [precoNaBusca, setPrecoNaBusca] = useState('');
+  const buscaProdutoNotaRef = useRef<HTMLInputElement | null>(null);
+  const quantidadeNaBuscaRef = useRef<HTMLInputElement | null>(null);
+  const precoNaBuscaRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (isModalOpen) return;
+    setProdutoNaBusca(null);
+    setQuantidadeNaBusca('1');
+    setPrecoNaBusca('');
+  }, [isModalOpen]);
+
+  const escolherProdutoNaBusca = (produto: ProdutoDaNotaManual) => {
+    setProdutoNaBusca(produto);
+    setBuscaProdutoNota(produto.nome);
+    setQuantidadeNaBusca('1');
+    setPrecoNaBusca((Number(produto.precoVenda) || 0).toFixed(2).replace('.', ','));
+    window.setTimeout(() => { quantidadeNaBuscaRef.current?.focus(); quantidadeNaBuscaRef.current?.select(); }, 0);
+  };
+
+  const mudarBuscaProdutoNota = (texto: string) => {
+    setBuscaProdutoNota(texto);
+    if (!texto.trim()) setProdutoNaBusca(null);
+  };
+
+  const lancarProdutoDaBusca = async () => {
+    if (!produtoNaBusca) {
+      buscaProdutoNotaRef.current?.focus();
+      return;
+    }
+    const quantidade = lerNumeroDigitado(quantidadeNaBusca);
+    const preco = lerNumeroDigitado(precoNaBusca);
+    const erro = erroDoLancamentoManual(produtoNaBusca, quantidade, preco);
+    if (erro) {
+      showWarning('Confira o item', erro);
+      (quantidade > 0 ? precoNaBuscaRef : quantidadeNaBuscaRef).current?.focus();
+      return;
+    }
+    await adicionarProdutoNaNota(produtoNaBusca, { quantidade, precoUnitario: preco });
+    setProdutoNaBusca(null);
+    setQuantidadeNaBusca('1');
+    setPrecoNaBusca('');
+    window.setTimeout(() => buscaProdutoNotaRef.current?.focus(), 0);
+  };
+
+  const adicionarProdutoNaNota = async (produto: ProdutoDaNotaManual, lancamento: { quantidade?: number; precoUnitario?: number } = {}) => {
     if (adicionandoProduto) return;
     setAdicionandoProduto(true);
     try {
@@ -819,6 +872,7 @@ const NFE: React.FC = () => {
         importedPedidoItens,
         produto,
         (base) => ({ ...base, codigoProduto: produto.codigo || produto.id }),
+        lancamento,
       );
       if (somouNaLinha) {
         setImportedPedidoItens(itens);
@@ -4530,19 +4584,55 @@ const NFE: React.FC = () => {
                   {notaManualComItens && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent-purple)' }}>Adicionar produto do estoque</label>
-                      <ProductAutocomplete<ProdutoDaNotaManual>
-                        value={buscaProdutoNota}
-                        onChange={setBuscaProdutoNota}
-                        products={produtosDaNota}
-                        onSelect={(produto) => { void adicionarProdutoNaNota(produto); }}
-                        renderItem={renderProdutoOpcaoBusca}
-                        placeholder="Buscar…"
-                        ariaLabel="Buscar produto para a nota"
-                        travarAoSelecionar={false}
-                        disabled={adicionandoProduto}
-                      />
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                        <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                          <ProductAutocomplete<ProdutoDaNotaManual>
+                            value={buscaProdutoNota}
+                            onChange={mudarBuscaProdutoNota}
+                            products={produtosDaNota}
+                            onSelect={escolherProdutoNaBusca}
+                            onEnterComProdutoSelecionado={() => { quantidadeNaBuscaRef.current?.focus(); quantidadeNaBuscaRef.current?.select(); }}
+                            renderItem={renderProdutoOpcaoBusca}
+                            placeholder="Buscar…"
+                            ariaLabel="Buscar produto para a nota"
+                            inputRef={buscaProdutoNotaRef}
+                            disabled={adicionandoProduto}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '90px' }}>
+                          <label htmlFor="nota-manual-qtd" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Qtd{produtoNaBusca?.unidadeMedidaSigla ? ` (${String(produtoNaBusca.unidadeMedidaSigla)})` : ''}</label>
+                          <input
+                            id="nota-manual-qtd"
+                            ref={quantidadeNaBuscaRef}
+                            type="text"
+                            inputMode="decimal"
+                            value={quantidadeNaBusca}
+                            onChange={(e) => setQuantidadeNaBusca(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); precoNaBuscaRef.current?.focus(); precoNaBuscaRef.current?.select(); } }}
+                            disabled={!produtoNaBusca || adicionandoProduto}
+                            style={{ padding: '9px 8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', textAlign: 'center' }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '120px' }}>
+                          <label htmlFor="nota-manual-preco" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Preço unitário</label>
+                          <input
+                            id="nota-manual-preco"
+                            ref={precoNaBuscaRef}
+                            type="text"
+                            inputMode="decimal"
+                            value={precoNaBusca}
+                            onChange={(e) => setPrecoNaBusca(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void lancarProdutoDaBusca(); } }}
+                            disabled={!produtoNaBusca || adicionandoProduto}
+                            style={{ padding: '9px 8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', textAlign: 'right' }}
+                          />
+                        </div>
+                        <button type="button" className="btn-primary" onClick={() => void lancarProdutoDaBusca()} disabled={!produtoNaBusca || adicionandoProduto} style={{ padding: '9px 14px' }}>
+                          {adicionandoProduto ? 'Adicionando…' : 'Adicionar'}
+                        </button>
+                      </div>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        Entra o preço de venda do cadastro (dá para mudar na linha) e o NCM, CFOP e CST/CSOSN do produto. Escolher o mesmo produto de novo soma 1 na quantidade. Esta nota não baixa estoque nem gera conta a receber.
+                        Escolha o produto, digite a quantidade e o preço (já vem o preço de venda do cadastro) e tecle Enter. Entram também o NCM, CFOP e CST/CSOSN do produto. O mesmo produto com o mesmo preço soma na linha. Esta nota não baixa estoque nem gera conta a receber.
                       </span>
                     </div>
                   )}

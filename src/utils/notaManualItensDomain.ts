@@ -71,10 +71,21 @@ export const adicionarProdutoNaNotaManual = <T extends ItemDaNotaManual>(
   itens: T[],
   produto: ProdutoParaNotaManual,
   montarItem: (base: ItemDaNotaManual) => T,
+  /**
+   * Quantidade e preco digitados JA' NA BUSCA (25/11/2026, Embala Minas: "sem
+   * ter de descer ate' a ultima linha para alterar"). Sem eles: 1 e o preco
+   * de venda do cadastro, como antes.
+   */
+  lancamento: { quantidade?: number; precoUnitario?: number } = {},
 ): { itens: T[]; semUnidade: boolean; somouNaLinha: boolean } => {
-  const existente = itens.findIndex((it) => it.id === produto.id);
+  const quantidade = lancamento.quantidade !== undefined ? milesimos(lancamento.quantidade) : 1;
+  const preco = centavos(Math.max(0, lancamento.precoUnitario !== undefined ? lancamento.precoUnitario : (Number(produto.precoVenda) || 0)));
+  // Mesmo produto e mesmo preco: soma na linha. Preco diferente abre outra
+  // linha -- trocar o preco da linha que ja' estava seria mudar o que a
+  // pessoa nao mexeu.
+  const existente = itens.findIndex((it) => it.id === produto.id && centavos(it.precoUnitario) === preco);
   if (existente >= 0) {
-    const atualizados = itens.map((it, i) => (i === existente ? comTotalAtualizado({ ...it, quantidade: milesimos(it.quantidade + 1) }) : it));
+    const atualizados = itens.map((it, i) => (i === existente ? comTotalAtualizado({ ...it, quantidade: milesimos(it.quantidade + quantidade) }) : it));
     return { itens: atualizados, semUnidade: false, somouNaLinha: true };
   }
   const unidade = resolveUnidadeMedidaProduto({
@@ -82,11 +93,10 @@ export const adicionarProdutoNaNotaManual = <T extends ItemDaNotaManual>(
     unidadeMedidaFracionado: produto.unidadeMedidaFracionado as boolean | undefined,
     unidadeMedidaCasasDecimais: produto.unidadeMedidaCasasDecimais as number | undefined,
   });
-  const preco = centavos(Math.max(0, Number(produto.precoVenda) || 0));
   const base = comTotalAtualizado<ItemDaNotaManual>({
     id: produto.id,
     nome: String(produto.nome || '').trim() || 'Produto sem nome',
-    quantidade: 1,
+    quantidade,
     precoUnitario: preco,
     desconto: 0,
     valorTotal: preco,
@@ -99,6 +109,30 @@ export const adicionarProdutoNaNotaManual = <T extends ItemDaNotaManual>(
     semUnidade: !temUnidadeMedidaCadastrada({ unidadeMedidaSigla: produto.unidadeMedidaSigla as string | undefined }),
     somouNaLinha: false,
   };
+};
+
+/**
+ * Confere a quantidade e o preco digitados na busca antes de lancar a linha.
+ * Mensagem em portugues dizendo o que fazer, ou null.
+ */
+export const erroDoLancamentoManual = (
+  produto: ProdutoParaNotaManual,
+  quantidade: number,
+  precoUnitario: number,
+): string | null => {
+  const nome = String(produto.nome || '').trim() || 'o produto';
+  const unidade = resolveUnidadeMedidaProduto({
+    unidadeMedidaSigla: produto.unidadeMedidaSigla as string | undefined,
+    unidadeMedidaFracionado: produto.unidadeMedidaFracionado as boolean | undefined,
+    unidadeMedidaCasasDecimais: produto.unidadeMedidaCasasDecimais as number | undefined,
+  });
+  if (!isValidSaleQuantity(Number(quantidade), unidade.unidadeMedidaFracionado, unidade.unidadeMedidaCasasDecimais)) {
+    return unidade.unidadeMedidaFracionado
+      ? `Digite a quantidade de "${nome}": um número maior que zero com no máximo ${unidade.unidadeMedidaCasasDecimais ?? 0} casa(s) decimal(is).`
+      : `Digite a quantidade de "${nome}" inteira e maior que zero (a unidade ${unidade.unidadeMedidaSigla} não aceita fração).`;
+  }
+  if (!(Number(precoUnitario) > 0)) return `Digite o preço de "${nome}" (maior que zero).`;
+  return null;
 };
 
 /** Confere os itens antes de montar a nota. Mensagem em portugues dizendo o que fazer, ou null. */

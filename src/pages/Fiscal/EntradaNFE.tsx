@@ -5,7 +5,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import { collection, query, where, getDocs, doc, getDoc, addDoc, increment, runTransaction, serverTimestamp, type DocumentData, type DocumentReference, type DocumentSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
+import { escaparHtml, showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { notaRecebidaService, NotaRecebidaError } from '../../services/notaRecebidaService';
@@ -111,7 +111,6 @@ import {
 import { compactarXml } from '../../utils/xmlCompactoDomain';
 import { lerNfseXml } from '../../utils/nfseEntradaDomain';
 import { fromCents, toCents } from '../../utils/financeDomain';
-import Swal from 'sweetalert2';
 import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 /** Item da nota: tudo que o XML trouxe + o total do produto com o nome que a tela ja usava. */
@@ -916,8 +915,8 @@ const EntradaNFE: React.FC = () => {
           icon: 'question',
           title: 'Registrar a ciência desta nota?',
           html: [
-            nota ? `<strong>${nota.emitenteNome}</strong>` : '',
-            nota ? `Nota ${nota.numero} — ${currencyFormat.format(nota.valorTotal)}` : '',
+            nota ? `<strong>${escaparHtml(nota.emitenteNome)}</strong>` : '',
+            nota ? `Nota ${escaparHtml(nota.numero)} — ${currencyFormat.format(nota.valorTotal)}` : '',
             '',
             'A SEFAZ só entrega o XML completo depois que a empresa registra a <strong>Ciência da Operação</strong>.',
             'Isso é um registro fiscal em nome da empresa e fica no histórico da SEFAZ.',
@@ -1184,13 +1183,13 @@ const EntradaNFE: React.FC = () => {
       title: 'Importando NF-e...',
       text: 'Conferindo se a nota já foi lançada, somando estoque e lançando contas a pagar...',
       allowOutsideClick: false,
-      didOpen: () => Swal.showLoading()
+      didOpen: () => NexusSwal.showLoading()
     });
 
     try {
       const { ativa: jaLancada, lancamentosDaChave } = await verificarNotaDuplicada(nota, fornecedorMatch.id, parsedData.numeroNF);
       if (jaLancada) {
-        Swal.close();
+        NexusSwal.close();
         setNotaJaLancada(jaLancada);
         showError('Nota já lançada', mensagemDeNotaDuplicada(jaLancada));
         return;
@@ -1728,7 +1727,7 @@ const EntradaNFE: React.FC = () => {
         mudancas: Array.from(mudancasDeCusto.values()),
       }, { mostrarAviso: false });
 
-      Swal.close();
+      NexusSwal.close();
       setVersaoDosCadastros((versao) => versao + 1);
       // Base unica de NCM/CEST (Tabelas Fiscais): so' os codigos, sem esperar.
       registrarUsoFiscal(parsedData.items.map((i) => ({ ncm: i.ncm, cest: i.cest })));
@@ -1771,7 +1770,7 @@ const EntradaNFE: React.FC = () => {
 
     } catch (err) {
       console.error(err);
-      Swal.close();
+      NexusSwal.close();
       const mensagem = (err as Error).message;
       showError(mensagem === MENSAGEM_NOTA_LANCADA_AO_MESMO_TEMPO ? 'Nota já lançada' : 'Erro na Importação', mensagem || 'Falha ao salvar itens no banco de dados. Nada foi gravado: você pode tentar de novo.');
     } finally {

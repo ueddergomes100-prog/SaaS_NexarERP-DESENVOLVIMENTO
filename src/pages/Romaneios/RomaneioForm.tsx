@@ -18,7 +18,7 @@ import { textoQuemEQuando } from '../../utils/historicoAlteracoesDomain';
 import { montarDocumentoListaSeparacao, type DocumentoListaSeparacao } from '../../utils/listaSeparacaoDomain';
 import { lerItensDosPedidos } from '../../services/listaSeparacaoService';
 import { FiltroColuna, OpcoesFiltro, OpcoesFiltroMultiplo, opcoesDaColuna } from '../../components/common/FiltroColuna';
-import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -345,7 +345,7 @@ const RomaneioForm: React.FC = () => {
     const confirma = await NexusSwal.fire({
       icon: 'question',
       title: 'Liberar a rota para entrega?',
-      html: `${resumo.totalEntregas} pedido(s), ${moeda(resumo.valorTotalCentavos)}, motorista <strong>${romaneio.motoristaNome}</strong>.<br/><br/>Depois de liberada, a lista de pedidos não muda mais: só se registram as entregas.`,
+      html: `${resumo.totalEntregas} pedido(s), ${moeda(resumo.valorTotalCentavos)}, motorista <strong>${escaparHtml(romaneio.motoristaNome)}</strong>.<br/><br/>Depois de liberada, a lista de pedidos não muda mais: só se registram as entregas.`,
       showCancelButton: true,
       confirmButtonText: 'Liberar',
       cancelButtonText: 'Voltar',

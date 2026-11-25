@@ -19,7 +19,7 @@ import { isPlatformAdminRole } from '../../utils/roles';
 import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../../utils/fetchComTimeout';
 // NexusSwal, nunca o Swal cru (auditoria de 24/11/2026): no cru o `title` e' HTML, e aqui
 // entram nomes digitados por terceiros (o nome da empresa vem do cadastro publico).
-import { NexusSwal as Swal } from '../../utils/alerts';
+import { escaparHtml, NexusSwal as Swal } from '../../utils/alerts';
 import SituacaoDosBackups from './SituacaoDosBackups';
 
 interface BackupRecord {
@@ -223,7 +223,7 @@ const SuperAdminBackup: React.FC = () => {
           title: 'Restauração Concluída!',
           html: `<div style="text-align: left; font-size: 14px;">
                   <p>Os dados foram restaurados a partir do arquivo enviado.</p>
-                  <p>🟢 Um backup de segurança com o estado anterior foi salvo automaticamente como: <strong>${resData.safetyBackup}</strong>.</p>
+                  <p>🟢 Um backup de segurança com o estado anterior foi salvo automaticamente como: <strong>${escaparHtml(resData.safetyBackup)}</strong>.</p>
                  </div>`,
           icon: 'success',
           confirmButtonColor: '#8b5cf6'
@@ -365,7 +365,7 @@ const SuperAdminBackup: React.FC = () => {
     const result = await Swal.fire({
       title: 'ATENÇÃO CRÍTICA!',
       html: `<div style="text-align: left;">
-              <p>Você está prestes a restaurar a base de dados a partir do arquivo <strong>${backup.filename}</strong>.</p>
+              <p>Você está prestes a restaurar a base de dados a partir do arquivo <strong>${escaparHtml(backup.filename)}</strong>.</p>
               <p style="color: #ef4444; font-weight: bold;">⚠️ Isso irá SUBSTITUIR COMPLETAMENTE os dados atuais desta empresa no sistema!</p>
               <p>Por segurança, o sistema fará um <strong>backup automático de emergência (salvaguarda)</strong> do estado atual antes da restauração.</p>
              </div>`,
@@ -408,7 +408,7 @@ const SuperAdminBackup: React.FC = () => {
             title: 'Restauração Concluída!',
             html: `<div style="text-align: left; font-size: 14px;">
                     <p>Os dados foram restaurados com absoluto sucesso!</p>
-                    <p>🟢 Um backup de segurança com o estado anterior foi salvo automaticamente como: <strong>${resData.safetyBackup}</strong>.</p>
+                    <p>🟢 Um backup de segurança com o estado anterior foi salvo automaticamente como: <strong>${escaparHtml(resData.safetyBackup)}</strong>.</p>
                    </div>`,
             icon: 'success',
             confirmButtonColor: '#8b5cf6'

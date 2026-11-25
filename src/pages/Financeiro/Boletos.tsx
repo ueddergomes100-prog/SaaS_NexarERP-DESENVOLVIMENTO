@@ -739,7 +739,7 @@ const Boletos: React.FC = () => {
       }
 
       const conferir = resumo.paraConferir.slice(0, 8)
-        .map((l) => `${l.nossoNumero}${l.valorPagoCentavos ? ` (${currency.format(fromCents(l.valorPagoCentavos))})` : ''}`)
+        .map((l) => `${escaparHtml(l.nossoNumero)}${l.valorPagoCentavos ? ` (${currency.format(fromCents(l.valorPagoCentavos))})` : ''}`)
         .join(', ');
       const html = `<div style="text-align:left;font-size:14px">`
         + `<b>${resumo.liquidados.length}</b> título(s) pagos (liquidação), prontos para baixa.<br/>`
@@ -817,7 +817,7 @@ const Boletos: React.FC = () => {
         let avulsosLancados = 0;
         if (canceladosPagos.length > 0) {
           const lista = canceladosPagos
-            .map((c) => `<li><b>${c.descricao}</b>${c.clienteNome ? ` — ${c.clienteNome}` : ''} — ${currency.format(fromCents(c.valorPagoCentavos))}${c.dataPagamento ? ` (pago em ${c.dataPagamento.split('-').reverse().join('/')})` : ''}</li>`)
+            .map((c) => `<li><b>${escaparHtml(c.descricao)}</b>${c.clienteNome ? ` — ${escaparHtml(c.clienteNome)}` : ''} — ${currency.format(fromCents(c.valorPagoCentavos))}${c.dataPagamento ? ` (pago em ${c.dataPagamento.split('-').reverse().join('/')})` : ''}</li>`)
             .join('');
           const pergunta = await NexusSwal.fire({
             icon: 'question',
@@ -857,7 +857,7 @@ const Boletos: React.FC = () => {
             title: `${baixados} boleto(s) baixados; ${recusados.length} ficou(aram) de fora`,
             html: `<div style="text-align:left;font-size:14px">`
               + `O banco recebeu o pagamento, mas o sistema não pôde dar baixa em:<ul style="margin:8px 0 0 18px;padding:0">`
-              + recusados.map((m) => `<li>${m}</li>`).join('')
+              + recusados.map((m) => `<li>${escaparHtml(m)}</li>`).join('')
               + `</ul>Confira esses títulos em Boletos e no Financeiro.${avulsosTexto}${naoEncontradosTexto}</div>`,
           });
         } else {

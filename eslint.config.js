@@ -27,7 +27,21 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
       'react-hooks/immutability': 'off',
       'react-hooks/set-state-in-effect': 'off',
+      // Bloco B de seguranca (25/11/2026): pop-up so' pelo NexusSwal de
+      // src/utils/alerts.ts (titulo e opcoes de selecao como texto, mensagem de
+      // validacao escapada). O SweetAlert2 cru monta tudo como HTML.
+      'no-restricted-imports': ['error', {
+        paths: [{
+          name: 'sweetalert2',
+          message: 'Use NexusSwal (e escaparHtml nos dados de cadastro dentro de html:) de src/utils/alerts.ts.',
+          allowTypeImports: true,
+        }],
+      }],
     },
+  },
+  {
+    files: ['src/utils/alerts.ts'],
+    rules: { 'no-restricted-imports': 'off' },
   },
   // Backend (CommonJS). So' no-undef: nome usado sem existir derruba a rota
   // em produção sem resposta nenhuma -- foi o que aconteceu com

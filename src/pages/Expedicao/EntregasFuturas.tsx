@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, CheckCircle2, FileText, Loader2, PackageCheck, RefreshCw, Route, Search, Truck } from 'lucide-react';
 import { useTabs } from '../../contexts/TabsContext';
-import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { ROTULO_SITUACAO_ENTREGA } from '../../utils/entregaFuturaDomain';
 import {
   colocarEntregaNaRota,
@@ -106,7 +106,7 @@ const EntregasFuturas: React.FC = () => {
     if (itens.length === 0) { showWarning('Informe a quantidade de pelo menos um item para entregar.'); return; }
     const resumo = itens.map((l) => {
       const item = aberto.pedido.itens.find((i) => i.indice === l.indice)!;
-      return `<li>${qtd(l.quantidade)} ${item.unidade || ''} × ${item.nome}</li>`;
+      return `<li>${qtd(l.quantidade)} ${escaparHtml(item.unidade || '')} × ${escaparHtml(item.nome)}</li>`;
     }).join('');
     const notaTexto = aberto.notaFaturamento.situacao === 'autorizada'
       ? 'Sai a <strong>nota de remessa</strong> (5.116/5.117) referenciando a NF-e de faturamento.'

@@ -29,6 +29,25 @@
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
 
+  # POLITICA DE CONTEUDO (CSP), bloco B de seguranca (25/11/2026): por enquanto
+  # SO' RELATORIO (Content-Security-Policy-Report-Only) -- o navegador nao
+  # bloqueia nada, so' avisa no console o que ficaria de fora. Depois de alguns
+  # dias sem aviso no console (sistema, /caixa e /vendedor), troca-se o nome do
+  # cabecalho para Content-Security-Policy (decisao do dono). Ai' um script
+  # injetado num cadastro deixa de rodar.
+  # De onde vem cada fonte (levantamento de 25/11):
+  #  script-src: o build (/assets); os 3 scripts de tema embutidos em index.html,
+  #    caixa.html e vendedor.html (hash do texto, com fim de linha LF e CRLF --
+  #    MUDOU O SCRIPT, MUDA O HASH: o teste tests/cspHtaccess.test.ts acusa);
+  #    o onload da fonte ('unsafe-hashes'); apis.google.com (login no celular).
+  #  style-src: 'unsafe-inline' (SweetAlert2, cupom, html2canvas) + Google Fonts.
+  #  img-src https: (foto de produto e URL livre; Storage). connect-src: a API,
+  #    Firebase (Firestore, login, Storage, avisos), ViaCEP e IBGE.
+  #  frame-src blob: (PDF) e o firebaseapp (login). worker-src: pdf.js e sw.js.
+  # App Check com reCAPTCHA (se um dia ligar) pede www.google.com/recaptcha e
+  # www.gstatic.com/recaptcha em script-src, frame-src e connect-src.
+  Header always set Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'sha256-iGqi+eGaDI9qWQcEhaJqVSR4rRbYzOR3fjnjNM9pFU4=' 'sha256-eFclVzFov6rifE81zo/QhKwmR1l0Pl4ezTS99wTjWsg=' 'sha256-n+GVWcZ0mIAmsEWBnkhH9WqFUUxGVbSE0eSxKS8LiQw=' 'sha256-F0EvWCB3G44/8svuMqLIlwtMNh9ZxILOUnE2Er0v1jU=' 'sha256-1LWVrbNMh0jF+9rX1iuvl4zi0vlO/Iihh3uq5iT3wHA=' 'sha256-NLIQ8rAdKbMRbxjd+2WZ5Bof3WKAhLB7gxpMFptZXzY=' 'unsafe-hashes' 'sha256-MhtPZXr7+LpJUY5qtMutB+qWfQtMaPccfe7QXtCcEYc=' https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: data: https://api.nexarcompany.com.br https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com https://viacep.com.br https://servicodados.ibge.gov.br; frame-src 'self' blob: https://nexus-erp-2026.firebaseapp.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+
   # A pagina de entrada nunca fica em cache: depois de um deploy, um
   # index.html velho apontaria para chunks JS que nao existem mais.
   <FilesMatch "^(index|vendedor|caixa)\.html$">

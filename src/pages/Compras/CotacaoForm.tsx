@@ -9,7 +9,7 @@ import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useT
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
-import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import {
   ROTULO_STATUS_COTACAO,
@@ -178,7 +178,7 @@ const CotacaoForm: React.FC = () => {
       if (linha && preco) porFornecedor.set(fornecedorId, (porFornecedor.get(fornecedorId) || 0) + Math.round(preco * linha.quantidade));
     });
     if (porFornecedor.size === 0) { showError('Atenção', 'Escolha o fornecedor de pelo menos um item.'); return; }
-    const resumo = [...porFornecedor.entries()].map(([fId, total]) => `${cotacao.fornecedores.find((f) => f.fornecedorId === fId)?.nome || fId}: ${formatarReais(total)}`).join('<br/>');
+    const resumo = [...porFornecedor.entries()].map(([fId, total]) => `${escaparHtml(cotacao.fornecedores.find((f) => f.fornecedorId === fId)?.nome || fId)}: ${formatarReais(total)}`).join('<br/>');
     const confirma = await NexusSwal.fire({
       icon: 'question',
       title: `Gerar ${porFornecedor.size === 1 ? '1 pedido de compra' : `${porFornecedor.size} pedidos de compra`}?`,

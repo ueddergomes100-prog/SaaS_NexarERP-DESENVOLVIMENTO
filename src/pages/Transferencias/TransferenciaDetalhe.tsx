@@ -5,7 +5,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
 import { ROTULO_STATUS_TRANSFERENCIA } from '../../utils/transferenciaDomain';
 import { STATUS_NOTA_SEM_VALOR, rotuloStatusNota, statusEfetivoDaNota } from '../../utils/notaTransferenciaDomain';
 import {
@@ -116,7 +116,7 @@ const TransferenciaDetalhe: React.FC = () => {
     const r = await NexusSwal.fire({
       title: 'Confirmar o recebimento?',
       html: faltas.length > 0
-        ? `Faltou mercadoria em <strong>${faltas.length}</strong> item(ns). O que faltou <strong>volta para o estoque da filial ${t.origemCodigo}</strong> e a transferência fica marcada "com falta".`
+        ? `Faltou mercadoria em <strong>${faltas.length}</strong> item(ns). O que faltou <strong>volta para o estoque da filial ${escaparHtml(t.origemCodigo)}</strong> e a transferência fica marcada "com falta".`
         : 'Todos os itens chegaram como enviados. O estoque desta filial recebe a mercadoria agora.',
       icon: faltas.length > 0 ? 'warning' : 'question',
       showCancelButton: true,

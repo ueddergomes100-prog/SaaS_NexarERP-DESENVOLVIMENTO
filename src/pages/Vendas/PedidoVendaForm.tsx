@@ -244,7 +244,6 @@ import { conferirPrecos } from '../../utils/conferenciaPrecoDomain';
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import DescontoInput, { type DescontoInputValue } from '../../components/finance/DescontoInput';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
-import Swal from 'sweetalert2';
 import { renderProdutoOpcaoBusca } from '../../components/common/ProdutoOpcaoBusca';
 import HistoricoAlteracoesModal from '../../components/common/HistoricoAlteracoesModal';
 import { createAuditLog as registrarHistorico } from '../../services/logService';
@@ -4496,7 +4495,7 @@ const PedidoVendaForm: React.FC = () => {
       // escolheu, e repetir a pergunta viraria clique a toa em toda venda.
       const fechouSemEscolher = !result.isConfirmed
         && !result.isDenied
-        && result.dismiss !== Swal.DismissReason.cancel;
+        && result.dismiss !== NexusSwal.DismissReason.cancel;
 
       if (fechouSemEscolher) {
         const semImpressao = await NexusSwal.fire({
@@ -4527,7 +4526,7 @@ const PedidoVendaForm: React.FC = () => {
           title: 'Emitindo Cupom Fiscal...',
           text: 'Enviando dados para a Spedy API / SEFAZ...',
           allowOutsideClick: false,
-          didOpen: () => Swal.showLoading()
+          didOpen: () => NexusSwal.showLoading()
         });
 
         try {
@@ -4570,7 +4569,7 @@ const PedidoVendaForm: React.FC = () => {
             title: 'Autorizando Cupom na SEFAZ...',
             text: 'Aguardando aprovação da nota fiscal eletrônica...',
             allowOutsideClick: false,
-            didOpen: () => Swal.showLoading()
+            didOpen: () => NexusSwal.showLoading()
           });
 
           let currentStatus = spedyNote.status;
@@ -4633,7 +4632,7 @@ const PedidoVendaForm: React.FC = () => {
             });
           }
 
-          Swal.close();
+          NexusSwal.close();
 
           if (finalNote.status === 'authorized') {
             const printResult = await NexusSwal.fire({
@@ -4668,7 +4667,7 @@ const PedidoVendaForm: React.FC = () => {
           await askMinutaAndNavigate('/pedidos-venda');
 
         } catch (err) {
-          Swal.close();
+          NexusSwal.close();
           showError('Falha ao emitir NFC-e', (err as Error).message || 'Não foi possível transmitir o cupom fiscal.');
 
           const fallbackResult = await NexusSwal.fire({
@@ -4836,7 +4835,7 @@ const PedidoVendaForm: React.FC = () => {
         title: 'Autorizando Cupom na SEFAZ...',
         text: 'Aguardando aprovação da nota fiscal eletrônica...',
         allowOutsideClick: false,
-        didOpen: () => Swal.showLoading()
+        didOpen: () => NexusSwal.showLoading()
       });
 
       let currentStatus = spedyNote.status;
@@ -4908,7 +4907,7 @@ const PedidoVendaForm: React.FC = () => {
         accessKey: finalNote.accessKey
       });
 
-      Swal.close();
+      NexusSwal.close();
 
       if (finalNote.status === 'authorized') {
         const printResult = await NexusSwal.fire({

@@ -2,11 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle, FileText, History, Loader2, PenLine, Save, Trash2, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where, type DocumentSnapshot } from 'firebase/firestore';
-import Swal from 'sweetalert2';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { NexusSwal, showError } from '../../utils/alerts';
+import { escaparHtml, NexusSwal, showError } from '../../utils/alerts';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { compactarXml } from '../../utils/xmlCompactoDomain';
@@ -265,11 +264,11 @@ const EntradaNFSe: React.FC = () => {
     }
 
     setSalvando(true);
-    NexusSwal.fire({ title: 'Lançando a NFS-e...', text: 'Conferindo se a nota já foi lançada e lançando a conta a pagar...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    NexusSwal.fire({ title: 'Lançando a NFS-e...', text: 'Conferindo se a nota já foi lançada e lançando a conta a pagar...', allowOutsideClick: false, didOpen: () => NexusSwal.showLoading() });
     try {
       const jaLancada = await notaJaLancada();
       if (jaLancada) {
-        Swal.close();
+        NexusSwal.close();
         showError('NFS-e já lançada', `A NFS-e ${jaLancada} de ${nota.prestadorNome} já está no Histórico de Entradas. Lançar de novo duplicaria a conta a pagar. Se o lançamento anterior estava errado, exclua-o no Histórico e lance esta nota outra vez.`);
         return;
       }
@@ -407,7 +406,7 @@ const EntradaNFSe: React.FC = () => {
         // Auditoria nao impede a entrada.
       }
 
-      Swal.close();
+      NexusSwal.close();
       recomecar();
       const escolha = await NexusSwal.fire({
         icon: 'success',
@@ -415,7 +414,7 @@ const EntradaNFSe: React.FC = () => {
         html: [
           `• ${titulosRefs.length} título(s) em Contas a Pagar: ${moeda(totalDevido)}${modoPagamentoEfetivo === 'avista' ? ' (paga à vista)' : ''}`,
           ...(retidoIss + retidoFederal > 0 ? [`• Retenções a recolher pela empresa: ${moeda(retidoIss + retidoFederal)}`] : []),
-          ...(!fornecedor ? [`• Fornecedor cadastrado: ${nomePrestador}`] : []),
+          ...(!fornecedor ? [`• Fornecedor cadastrado: ${escaparHtml(nomePrestador)}`] : []),
         ].join('<br/>'),
         showDenyButton: true,
         confirmButtonText: 'Lançar outra NFS-e',
@@ -425,7 +424,7 @@ const EntradaNFSe: React.FC = () => {
       if (escolha.isDenied) openTab('/fiscal/entrada-nfe/historico');
     } catch (err) {
       console.error(err);
-      Swal.close();
+      NexusSwal.close();
       showError('Não foi possível lançar a NFS-e', (err as Error).message || 'Nada foi gravado. Tente de novo.');
     } finally {
       setSalvando(false);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ClipboardList, Loader2, Plus } from 'lucide-react';
 import LeitorCameraCodigo, { cameraLeCodigo } from '../common/LeitorCameraCodigo';
-import { NexusSwal, showSuccess, showWarning } from '../../utils/alerts';
+import { escaparHtml, NexusSwal, showSuccess, showWarning } from '../../utils/alerts';
 import { erroDaQuantidade } from '../../utils/balancoDomain';
 import {
   balancosParaContar,
@@ -317,7 +317,7 @@ const FolhaDeContagem: React.FC<{
       const r = await NexusSwal.fire({
         icon: 'question',
         title: `Somar ao total de ${deOutro.nome}?`,
-        html: `<p style="text-align:left;margin:0">${deOutro.nome} já contou <strong>${formatar(deOutro.contado, item.unidade.sigla)}</strong> de ${item.nome}. Se você achou mais em outro lugar, a sua quantidade é somada ao total dele. Se é a mesma prateleira, não some: combine com ${deOutro.nome}.</p>`,
+        html: `<p style="text-align:left;margin:0">${escaparHtml(deOutro.nome)} já contou <strong>${escaparHtml(formatar(deOutro.contado, item.unidade.sigla))}</strong> de ${escaparHtml(item.nome)}. Se você achou mais em outro lugar, a sua quantidade é somada ao total dele. Se é a mesma prateleira, não some: combine com ${escaparHtml(deOutro.nome)}.</p>`,
         showCancelButton: true,
         confirmButtonText: 'Somar',
         cancelButtonText: 'Voltar',

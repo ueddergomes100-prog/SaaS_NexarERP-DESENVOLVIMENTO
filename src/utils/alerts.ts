@@ -75,6 +75,20 @@ const SwalBase = Swal.mixin({
  * -- se um dia precisar, use `html:` com escaparHtml nos dados.
  */
 const fireOriginal = SwalBase.fire.bind(SwalBase) as (opcoes: SweetAlertOptions) => ReturnType<typeof Swal.fire>;
+
+/**
+ * OPCOES DE SELECAO COMO TEXTO (bloco B de seguranca, 25/11/2026). O SweetAlert2
+ * monta cada opcao de `inputOptions` como HTML: nome de banco, de rota, de
+ * usuario ou de conta vindo do cadastro rodava codigo (`<img onerror>`). Aqui
+ * cada rotulo vira texto. Map e Promise ficam como estao (nao usados no sistema).
+ */
+const comOpcoesEmTexto = (opcoes: SweetAlertOptions): SweetAlertOptions => {
+  const lista = opcoes.inputOptions;
+  if (!lista || typeof lista !== 'object' || lista instanceof Map || typeof (lista as Promise<unknown>).then === 'function') return opcoes;
+  const escapadas: Record<string, string> = {};
+  Object.entries(lista as Record<string, unknown>).forEach(([valor, rotulo]) => { escapadas[valor] = escaparHtml(rotulo); });
+  return { ...opcoes, inputOptions: escapadas };
+};
 SwalBase.fire = ((...args: unknown[]) => {
   const [opcoes, texto, icone] = args;
   // Forma posicional fire(titulo, html, icone): o 2o argumento tambem e' HTML.
@@ -87,11 +101,11 @@ SwalBase.fire = ((...args: unknown[]) => {
     }));
   }
   if (opcoes && typeof opcoes === 'object' && typeof (opcoes as SweetAlertOptions).title === 'string') {
-    const { title, ...resto } = opcoes as SweetAlertOptions;
+    const { title, ...resto } = comOpcoesEmTexto(opcoes as SweetAlertOptions);
     return fireOriginal(comIconeAnimado({ ...resto, titleText: resto.titleText ?? (title as string) }));
   }
   if (opcoes && typeof opcoes === 'object') {
-    return fireOriginal(comIconeAnimado(opcoes as SweetAlertOptions));
+    return fireOriginal(comIconeAnimado(comOpcoesEmTexto(opcoes as SweetAlertOptions)));
   }
   return (fireOriginal as (...a: unknown[]) => ReturnType<typeof Swal.fire>)(...args);
 }) as typeof Swal.fire;

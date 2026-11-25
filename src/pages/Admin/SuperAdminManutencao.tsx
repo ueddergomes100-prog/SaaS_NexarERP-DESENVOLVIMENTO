@@ -564,7 +564,7 @@ const CartaoVendaFracionada: React.FC = () => {
       const confirmacao = await NexusSwal.fire({
         title: `Acertar a venda fracionada de ${resultado.empresa}?`,
         html: `Ambiente: <strong>${escaparHtml(rotuloDoProjeto(resultado.projeto))}</strong>${resultado.cnpj ? ` · CNPJ ${escaparHtml(resultado.cnpj)}` : ''}.<br/>`
-          + `${fmt(resultado.alterados)} produto(s) ativo(s) nas unidades ${resultado.unidadesFracionadas.join(', ')} passam a vender fracionado`
+          + `${fmt(resultado.alterados)} produto(s) ativo(s) nas unidades ${escaparHtml(resultado.unidadesFracionadas.join(', '))} passam a vender fracionado`
           + ` (${fmt(resultado.travados)} hoje recusam quantidade quebrada).<br/>Fica um registro no histórico da empresa.`,
         icon: 'warning',
         showCancelButton: true,

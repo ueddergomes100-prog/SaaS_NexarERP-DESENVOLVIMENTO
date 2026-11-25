@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CloudDownload, Download, Loader2, RefreshCw } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../../services/firebase';
-import { notaRecebidaService, NotaRecebidaError, type NotaRecebidaDaLista, type TipoNotaRecebida } from '../../../services/notaRecebidaService';
+import { notaRecebidaService, NotaRecebidaError, type NotaRecebidaDaLista, type SituacaoDaBuscaDeNotas, type TipoNotaRecebida } from '../../../services/notaRecebidaService';
 import { showError, showSuccess, showWarning } from '../../../utils/alerts';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../../utils/dateTime';
 import { campoInputStyle, campoLabelStyle, cartaoStyle, dataBr, moeda, tituloDoCartaoStyle } from './estilos';
@@ -80,13 +80,45 @@ const NotasRecebidasCard: React.FC<Props> = ({ tipo, tenantId, onXml }) => {
 
   useEffect(() => { void carregar(); }, [carregar]);
 
+  // Situacao da busca automatica (25/11/2026, Embala Minas: "Buscar novas notas
+  // nao funciona"): mostra quando foi a ultima busca e, se ela parou
+  // (certificado vencido, SEFAZ bloqueando), o porque em portugues.
+  const [situacaoBusca, setSituacaoBusca] = useState<SituacaoDaBuscaDeNotas | null>(null);
+  const lerSituacao = useCallback(async () => {
+    if (!tenantId) return;
+    try {
+      setSituacaoBusca((await notaRecebidaService.situacaoDaBusca(tipo)).situacao);
+    } catch {
+      // So' informativo: a lista continua funcionando sem a situacao.
+    }
+  }, [tenantId, tipo]);
+  useEffect(() => { void lerSituacao(); }, [lerSituacao]);
+
+  // A busca pedida e' assincrona na Spedy: a lista se atualiza sozinha depois.
+  const recargasRef = useRef<number[]>([]);
+  // O periodo pode mudar ate' a recarga: ela usa sempre a versao atual da lista.
+  const atualizarRef = useRef(() => { void carregar(); void lerSituacao(); });
+  useEffect(() => { atualizarRef.current = () => { void carregar(); void lerSituacao(); }; }, [carregar, lerSituacao]);
+  useEffect(() => () => { recargasRef.current.forEach((t) => window.clearTimeout(t)); }, []);
+  const recarregarDepois = () => {
+    recargasRef.current.forEach((t) => window.clearTimeout(t));
+    recargasRef.current = [20_000, 60_000].map((ms) => window.setTimeout(() => atualizarRef.current(), ms));
+  };
+
   const sincronizar = async () => {
     setSincronizando(true);
     try {
       const r = await notaRecebidaService.sincronizarRecebidas(tipo);
-      showSuccess(r.aviso);
+      if (r.situacao) setSituacaoBusca(r.situacao);
+      // A nota de hoje so' aparece com o "ate'" em hoje: volta o fim do periodo para hoje.
+      if (ate < hoje) setAte(hoje);
+      if (r.situacao?.problema) showWarning('Busca pedida, mas com problema', r.situacao.texto);
+      else showSuccess(r.aviso);
+      recarregarDepois();
     } catch (e) {
       showWarning('Buscar notas novas', e instanceof NotaRecebidaError ? e.message : 'Não foi possível pedir a busca agora.');
+      void carregar();
+      void lerSituacao();
     } finally {
       setSincronizando(false);
     }
@@ -125,6 +157,11 @@ const NotasRecebidasCard: React.FC<Props> = ({ tipo, tenantId, onXml }) => {
       <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
         O sistema busca sozinho as notas emitidas contra a empresa {tipo === 'nfe' ? 'na SEFAZ (últimos 90 dias)' : 'no Ambiente Nacional da NFS-e'}. Clique em <strong>Importar</strong>: o XML é baixado e abre a conferência.
       </p>
+      {situacaoBusca?.texto && (
+        <p style={{ fontSize: '12.5px', margin: '-6px 0 14px', lineHeight: 1.5, fontWeight: situacaoBusca.problema ? 600 : 400, color: situacaoBusca.problema ? '#f59e0b' : 'var(--text-muted)' }}>
+          {situacaoBusca.texto}
+        </p>
+      )}
 
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '12px' }}>
         <div className="input-group" style={{ minWidth: '150px' }}>

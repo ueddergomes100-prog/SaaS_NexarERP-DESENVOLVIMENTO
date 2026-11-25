@@ -6,6 +6,7 @@ const {
   consultaDaLista,
   itemDaListaRecebida,
   mensagemDaSincronizacao,
+  situacaoDaSincronizacao,
   tipoRecebida,
   mensagemDeFalha,
   erroDeModeloDaChave,
@@ -222,6 +223,31 @@ router.get('/recebidas', async (req, res) => {
   }
 });
 
+/** Situacao da busca automatica na Spedy; falha aqui nao derruba a tela (volta null). */
+const lerSituacaoDaBusca = async (config, tipo) => {
+  try {
+    const resposta = await chamarSpedy(config, `/${TIPOS_RECEBIDA[tipo]}/sync-status`);
+    if (!resposta.ok) return null;
+    return situacaoDaSincronizacao(await resposta.json());
+  } catch {
+    return null;
+  }
+};
+
+/** GET /api/entrada-nfe/recebidas/situacao?tipo=nfe|nfse -- quando foi a ultima busca e se ela esta' com problema. */
+router.get('/recebidas/situacao', async (req, res) => {
+  try {
+    if (!podeDarEntrada(req.user)) return res.status(403).json({ error: 'Você não tem permissão para dar entrada de notas.' });
+    const tipo = tipoRecebida(req.query.tipo);
+    if (!tipo) return res.status(400).json({ error: 'Tipo de nota inválido.' });
+    const config = await loadSpedyConfig(resolveTenantId(req));
+    return res.json({ situacao: await lerSituacaoDaBusca(config, tipo) });
+  } catch (erro) {
+    console.error('[Nota recebida] situacao:', erro);
+    return res.status(erro.status || 500).json({ error: erro.message || 'Não foi possível ver a situação da busca de notas agora.' });
+  }
+});
+
 /** POST /api/entrada-nfe/recebidas/sincronizar { tipo } -- antecipa a busca automatica da Spedy. */
 router.post('/recebidas/sincronizar', async (req, res) => {
   try {
@@ -230,9 +256,9 @@ router.post('/recebidas/sincronizar', async (req, res) => {
     if (!tipo) return res.status(400).json({ error: 'Tipo de nota inválido.' });
     const config = await loadSpedyConfig(resolveTenantId(req));
     const resposta = await chamarSpedy(config, `/${TIPOS_RECEBIDA[tipo]}/sync`, { method: 'POST', body: '{}' });
-    if (resposta.status === 429) return res.status(429).json({ error: mensagemDaSincronizacao(await lerCorpo(resposta)) });
+    if (resposta.status === 429) return res.status(429).json({ error: mensagemDaSincronizacao(await lerCorpo(resposta)), situacao: await lerSituacaoDaBusca(config, tipo) });
     if (!resposta.ok) return res.status(502).json({ error: mensagemDeFalha(resposta.status, await lerCorpo(resposta)) });
-    return res.json({ ok: true, aviso: 'Busca pedida. As notas novas costumam aparecer em alguns minutos.' });
+    return res.json({ ok: true, aviso: 'Busca pedida na SEFAZ. A lista se atualiza sozinha em alguns instantes.', situacao: await lerSituacaoDaBusca(config, tipo) });
   } catch (erro) {
     console.error('[Nota recebida] sincronizar:', erro);
     return res.status(erro.status || 500).json({ error: erro.message || 'Não foi possível pedir a busca agora. Tente novamente em instantes.' });

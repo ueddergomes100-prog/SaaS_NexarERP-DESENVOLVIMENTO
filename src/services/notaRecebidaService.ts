@@ -93,6 +93,15 @@ export interface NotaRecebidaDaLista {
   manifestacao: string;
 }
 
+/** Situação da busca automática (server/services/notaRecebida.js, situacaoDaSincronizacao). */
+export interface SituacaoDaBuscaDeNotas {
+  texto: string;
+  problema: boolean;
+  ultimaBusca: string;
+  ultimaTentativa: string;
+  proximaPermitida: string;
+}
+
 export const notaRecebidaService = {
   /** Procura a nota na SEFAZ pela chave. Pode voltar pedindo a manifestação. */
   buscar: (chave: string) => chamar<RespostaBuscaNota>(`buscar?chave=${encodeURIComponent(chave)}`),
@@ -103,7 +112,9 @@ export const notaRecebidaService = {
     `recebidas?${new URLSearchParams({ tipo, de, ate, ...(cursor ? { cursor } : {}) }).toString()}`,
   ),
   /** Pede a busca de notas novas agora (há um intervalo mínimo entre pedidos). */
-  sincronizarRecebidas: (tipo: TipoNotaRecebida) => chamar<{ ok: boolean; aviso: string }>('recebidas/sincronizar', { method: 'POST', body: JSON.stringify({ tipo }) }),
+  sincronizarRecebidas: (tipo: TipoNotaRecebida) => chamar<{ ok: boolean; aviso: string; situacao: SituacaoDaBuscaDeNotas | null }>('recebidas/sincronizar', { method: 'POST', body: JSON.stringify({ tipo }) }),
+  /** Quando foi a última busca automática e se ela está com problema (certificado, SEFAZ). */
+  situacaoDaBusca: (tipo: TipoNotaRecebida) => chamar<{ situacao: SituacaoDaBuscaDeNotas | null }>(`recebidas/situacao?tipo=${tipo}`),
   /** Baixa o XML (NF-e sem XML completo: registra a Ciência da Operação antes). */
   importarRecebida: (tipo: TipoNotaRecebida, id: string) => chamar<RespostaBuscaNota>('recebidas/importar', { method: 'POST', body: JSON.stringify({ tipo, id }) }),
 };

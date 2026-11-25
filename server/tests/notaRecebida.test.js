@@ -167,7 +167,8 @@ test('lista: tipo, periodo e cursor viram a consulta da Spedy (ou erro em portug
   assert.equal(recebidas.tipoRecebida('constructor'), null);
   const ok = recebidas.consultaDaLista({ de: '2026-10-01', ate: '2026-10-27', cursor: 'abc123==' });
   assert.equal(ok.ok, true);
-  assert.equal(ok.query, 'limit=50&initialDate=2026-10-01&endDate=2026-10-27&cursor=abc123%3D%3D');
+  // Data E hora (a Spedy le como date-time): o "ate'" vai ate' o fim do dia, senao a nota de hoje nao aparece.
+  assert.equal(ok.query, 'limit=50&initialDate=2026-10-01T00%3A00%3A00-03%3A00&endDate=2026-10-27T23%3A59%3A59-03%3A00&cursor=abc123%3D%3D');
   assert.match(recebidas.consultaDaLista({ de: '27/10/2026' }).erro, /inicial/);
   assert.match(recebidas.consultaDaLista({ de: '2026-10-27', ate: '2026-10-01' }).erro, /depois/);
   assert.match(recebidas.consultaDaLista({ cursor: 'a b&c' }).erro, /Página/);
@@ -195,4 +196,18 @@ test('sincronizar cedo demais: diz quando da para pedir de novo', () => {
   assert.match(recebidas.mensagemDaSincronizacao({ retryAfterSeconds: 290 }), /5 minutos/);
   assert.match(recebidas.mensagemDaSincronizacao({ nextAllowedSyncAt: '2026-10-27T15:01:00Z' }, new Date('2026-10-27T15:00:30Z')), /1 minuto\b/);
   assert.match(recebidas.mensagemDaSincronizacao({}), /alguns minutos/);
+});
+
+test('situacao da busca automatica: diz quando foi e, se parou, o porque em portugues', () => {
+  const ok = recebidas.situacaoDaSincronizacao({ lastAttemptOutcome: 'upToDate', lastSyncAt: '2026-11-25T14:05:00-03:00' });
+  assert.equal(ok.problema, false);
+  assert.equal(ok.texto, 'Última busca na SEFAZ: 25/11/2026 às 14:05.');
+  const cert = recebidas.situacaoDaSincronizacao({ lastAttemptOutcome: 'certificateMissingOrExpired' });
+  assert.equal(cert.problema, true);
+  assert.match(cert.texto, /certificado/);
+  const sefaz = recebidas.situacaoDaSincronizacao({ lastAttemptOutcome: 'throttledByAuthority', nextAllowedSyncAt: '2026-11-25T15:00:00' });
+  assert.equal(sefaz.problema, true);
+  assert.match(sefaz.texto, /25\/11\/2026 às 15:00/);
+  assert.equal(recebidas.situacaoDaSincronizacao(null).problema, false);
+  assert.equal(recebidas.situacaoDaSincronizacao('lixo').texto, '');
 });

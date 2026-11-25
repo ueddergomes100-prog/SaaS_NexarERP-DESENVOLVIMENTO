@@ -209,8 +209,12 @@ const consultaDaLista = ({ de, ate, cursor } = {}) => {
   const cursorLimpo = String(cursor || '').trim();
   if (cursorLimpo && !/^[\w\-=+/.]{1,512}$/.test(cursorLimpo)) return { ok: false, erro: 'Página inválida. Recarregue a lista.' };
   const params = new URLSearchParams({ limit: String(LIMITE_DA_LISTA) });
-  if (de) params.set('initialDate', de);
-  if (ate) params.set('endDate', ate);
+  // A Spedy le `initialDate`/`endDate` como DATA E HORA (docs.spedy.com.br/openapi/v1.json).
+  // So' a data fazia o "ate'" acabar a 00:00 do dia: nota emitida HOJE nunca
+  // aparecia, nem depois de "Buscar novas agora" (Embala Minas, 25/11/2026).
+  // O periodo da tela e' o dia inteiro no horario de Brasilia.
+  if (de) params.set('initialDate', `${de}T00:00:00-03:00`);
+  if (ate) params.set('endDate', `${ate}T23:59:59-03:00`);
   if (cursorLimpo) params.set('cursor', cursorLimpo);
   return { ok: true, query: params.toString() };
 };
@@ -256,7 +260,47 @@ const mensagemDaSincronizacao = (corpo, agora = new Date()) => {
     + 'A lista já mostra o que chegou até agora.';
 };
 
+/** 'AAAA-MM-DDTHH:mm...' -> 'DD/MM/AAAA às HH:mm' (a Spedy ja' manda no fuso da empresa). */
+const dataHoraBr = (valor) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(valor || ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]} às ${m[4]}:${m[5]}` : '';
+};
+
+/**
+ * Situacao da busca automatica (GET /{tipo}/sync-status da Spedy) -> o que a
+ * tela mostra. `problema` = a busca nao esta' trazendo notas e a pessoa (ou o
+ * suporte) precisa agir; sem problema, so' informa quando foi a ultima.
+ */
+const situacaoDaSincronizacao = (corpo) => {
+  const c = corpo && typeof corpo === 'object' ? corpo : {};
+  const ultima = dataHoraBr(c.lastSyncAt);
+  const tentativa = dataHoraBr(c.lastAttemptAt);
+  const proxima = dataHoraBr(c.nextAllowedSyncAt);
+  const detalhe = String(c.lastAttemptMessage || '').trim().slice(0, 200);
+  const base = { ultimaBusca: ultima, ultimaTentativa: tentativa, proximaPermitida: proxima };
+  switch (String(c.lastAttemptOutcome || '')) {
+    case 'neverAttempted':
+      return { ...base, problema: false, texto: 'A busca automática ainda não rodou para esta empresa. As notas aparecem depois da primeira busca.' };
+    case 'synchronized':
+    case 'upToDate':
+      return { ...base, problema: false, texto: ultima ? `Última busca na SEFAZ: ${ultima}.` : 'A busca automática está funcionando.' };
+    case 'throttledByAuthority':
+      return { ...base, problema: true, texto: `A SEFAZ bloqueou as consultas por algum tempo (excesso de consultas). A busca volta sozinha${proxima ? ` a partir de ${proxima}` : ''}.` };
+    case 'certificateMissingOrExpired':
+      return { ...base, problema: true, texto: 'A busca de notas está parada: o certificado digital da empresa está vencido ou não foi enviado. Mande o certificado A1 novo (arquivo e senha) ao suporte para ser cadastrado; a busca volta sozinha.' };
+    case 'communicationFailure':
+    case 'unexpectedResponse':
+    case 'unexpectedError':
+      return { ...base, problema: true, texto: `A última busca${tentativa ? ` (${tentativa})` : ''} não conseguiu falar com a SEFAZ${detalhe ? `: ${detalhe}` : ''}. Ela é refeita sozinha; se continuar, fale com o suporte.` };
+    case 'documentApplyFailure':
+      return { ...base, problema: true, texto: `A última busca${tentativa ? ` (${tentativa})` : ''} trouxe uma nota que não pôde ser lida${detalhe ? ` (${detalhe})` : ''}. A busca continua do mesmo ponto na próxima vez; se continuar, fale com o suporte.` };
+    default:
+      return { ...base, problema: false, texto: ultima ? `Última busca na SEFAZ: ${ultima}.` : '' };
+  }
+};
+
 module.exports = {
+  situacaoDaSincronizacao,
   LIMITE_DA_LISTA,
   TIPOS_RECEBIDA,
   consultaDaLista,

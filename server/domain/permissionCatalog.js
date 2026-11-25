@@ -188,6 +188,9 @@ exports.PERMISSION_GROUPS = [
             // Movimentacao de produtos (26/10/2026): extrato de entradas e saidas de produtos, materias-primas e insumos.
             { id: 'estoque.movimentacao', label: 'Estoque: Movimentação de Produtos', color: '#0ea5e9' },
             { id: 'estoque.nota_avulsa', label: 'Estoque: Nota Avulsa (Compra Manual)', color: '#0ea5e9' },
+            // 25/11/2026 (Embala Minas): o cheque do cliente sai da carteira e paga o fornecedor.
+            // Conferida no servidor (server/services/repasseCheques.js).
+            { id: 'estoque.nota_avulsa_cheque_cliente', label: 'Estoque: Nota Avulsa — pagar com cheque de cliente (repasse)', color: '#ef4444' },
             { id: 'estoque.precificacao', label: 'Estoque: Precificação (preços em lote)', color: '#0ea5e9' },
             { id: 'estoque.etiquetas', label: 'Estoque: Etiquetas (gerar e imprimir)', color: '#0ea5e9' },
         ],

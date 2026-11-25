@@ -31,6 +31,7 @@ const cadastrosRoutes = require('./routes/cadastros.routes');
 const devolucaoNfeRoutes = require('./routes/devolucaoNfe.routes');
 const trocasRoutes = require('./routes/trocas.routes');
 const devolucoesVendaRoutes = require('./routes/devolucoesVenda.routes');
+const notaAvulsaChequesRoutes = require('./routes/notaAvulsaCheques.routes');
 const notaRecebidaRoutes = require('./routes/notaRecebida.routes');
 const notaEmailRoutes = require('./routes/notaEmail.routes');
 const financeiroRoutes = require('./routes/financeiro.routes');
@@ -231,6 +232,7 @@ app.use('/api/devolucao-nfe', devolucaoNfeRoutes);
 app.use('/api/trocas', trocasRoutes);
 // Devolucao de venda pelo app Vendas (24/11/2026): o app pede, o servidor confere e grava.
 app.use('/api/devolucoes-venda', devolucoesVendaRoutes);
+app.use('/api/nota-avulsa', notaAvulsaChequesRoutes);
 app.use('/api/entrada-nfe', notaRecebidaRoutes);
 // E-mail da nota fiscal ao cliente (PDF + XML) pelo SMTP da propria empresa -- ver notaEmail.routes.js.
 app.use('/api/nota-email', notaEmailRoutes);

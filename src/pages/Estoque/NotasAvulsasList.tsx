@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Barcode, Eye, FileText, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
+import { Barcode, Eye, FileCheck2, FileText, PackagePlus, Plus, RotateCcw, Search } from 'lucide-react';
+import { notaAvulsaChequesService } from '../../services/notaAvulsaChequesService';
 import { collection, doc, getDocs, query, runTransaction, serverTimestamp, Timestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
@@ -33,6 +34,8 @@ interface NotaAvulsaData extends NotaAvulsaParaVer {
   bancoNome?: string;
   transacaoId: string;
   status: string;
+  /** Cheques de clientes usados no pagamento (25/11/2026): o servidor repassa. */
+  pagamentoComCheques?: { chequeIds: string[]; totalCentavos: number; situacao: 'a_repassar' | 'repassado' | 'desfeito' };
   createdAt?: { seconds?: number };
 }
 
@@ -101,6 +104,26 @@ const NotasAvulsasList: React.FC = () => {
   ));
   // Velocidade (24/11/2026): a tabela desenha em blocos; totais, selecao e relatorio seguem na lista inteira.
   const blocos = useLinhasEmBlocos(notasFiltradas);
+
+  const [repassandoId, setRepassandoId] = useState<string | null>(null);
+  /** Repasse que nao chegou ao servidor: nota ativa -> repassar; nota cancelada -> desfazer. */
+  const tentarRepasseDeNovo = async (nota: NotaAvulsaData) => {
+    if (repassandoId) return;
+    setRepassandoId(nota.id);
+    try {
+      if (nota.status === STATUS_NOTA_AVULSA_ATIVA) {
+        await notaAvulsaChequesService.repassar(nota.id);
+        showSuccess('Cheques de clientes repassados ao fornecedor.');
+      } else {
+        await notaAvulsaChequesService.desfazer(nota.id);
+        showSuccess('Os cheques de clientes voltaram para a carteira.');
+      }
+    } catch (erro) {
+      showError('Não foi possível concluir', erro instanceof Error ? erro.message : 'Tente de novo.');
+    } finally {
+      setRepassandoId(null);
+    }
+  };
 
   const handleCancelar = async (nota: NotaAvulsaData) => {
     if (!currentUser || !tenantId) return;
@@ -253,6 +276,19 @@ const NotasAvulsasList: React.FC = () => {
         console.error('Erro ao registrar auditoria do cancelamento:', logError);
       }
 
+      if (nota.pagamentoComCheques?.situacao === 'repassado') {
+        try {
+          await notaAvulsaChequesService.desfazer(nota.id);
+        } catch (erroDesfazer) {
+          showError(
+            'Nota cancelada, mas os cheques não voltaram para a carteira',
+            `${erroDesfazer instanceof Error ? erroDesfazer.message : 'Falha ao falar com o servidor.'} Use o botão de cheque na linha da nota para tentar de novo.`,
+          );
+          return;
+        }
+        showSuccess('Nota avulsa cancelada! Os cheques de clientes voltaram para a carteira.');
+        return;
+      }
       showSuccess('Nota avulsa cancelada!');
     } catch (error) {
       console.error('Erro ao cancelar nota avulsa:', error);
@@ -393,6 +429,18 @@ const NotasAvulsasList: React.FC = () => {
                         >
                           <Barcode size={18} />
                         </button>
+                        {((n.status === STATUS_NOTA_AVULSA_ATIVA && n.pagamentoComCheques?.situacao === 'a_repassar')
+                          || (n.status !== STATUS_NOTA_AVULSA_ATIVA && n.pagamentoComCheques?.situacao === 'repassado')) && (
+                          <button
+                            onClick={() => void tentarRepasseDeNovo(n)}
+                            className="icon-btn"
+                            title={n.status === STATUS_NOTA_AVULSA_ATIVA ? 'Repassar os cheques de clientes ao fornecedor (não foi concluído no lançamento)' : 'Devolver os cheques de clientes para a carteira (não foi concluído no cancelamento)'}
+                            disabled={repassandoId === n.id}
+                            style={{ color: '#f59e0b' }}
+                          >
+                            <FileCheck2 size={18} />
+                          </button>
+                        )}
                         {n.status === STATUS_NOTA_AVULSA_ATIVA && (
                           <button
                             onClick={() => void handleCancelar(n)}

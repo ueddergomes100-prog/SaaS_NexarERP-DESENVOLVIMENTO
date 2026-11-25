@@ -50,6 +50,13 @@ const ROTULO_SITUACAO_CHEQUE: Record<SituacaoTitulo, string> = {
  * ou baixa em Contas a Receber) -- so aqui, quando compensa de verdade.
  */
 
+/** Cheque pago: compensado no banco, ou repassado ao fornecedor numa Nota Avulsa (25/11/2026). */
+const textoDoChequePago = (t: { cheque?: unknown }): string => {
+  const c = (t.cheque && typeof t.cheque === 'object' ? t.cheque : {}) as { situacao?: string; repassadoA?: { fornecedorNome?: string; numeroNota?: string } };
+  if (c.situacao !== 'repassado') return 'Compensado';
+  return `Repassado a ${c.repassadoA?.fornecedorNome || 'fornecedor'}${c.repassadoA?.numeroNota ? ` (Nota Avulsa #${c.repassadoA.numeroNota})` : ''}`;
+};
+
 interface TransacaoData {
   id: string;
   data: string;
@@ -428,7 +435,8 @@ const Cheques: React.FC = () => {
                       <td style={{ padding: '16px', textAlign: 'center' }}>
                         {t.status === 'Paga' ? (
                           <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600 }}>
-                            Compensado{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
+                            {/* Repassado ao fornecedor numa Nota Avulsa (25/11/2026): pago sem passar pelo banco. */}
+                            {textoDoChequePago(t)}{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}
                           </span>
                         ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>

@@ -629,6 +629,8 @@ const transferirEntreBancos = async ({ user, tenantId, corpo }) => {
 };
 
 module.exports = {
+  // Tambem usado pelo repasse de cheque na nota avulsa (services/repasseCheques.js).
+  registrarRecebimentoNaOrigem,
   conciliarCartao,
   compensarChequeRecebido,
   compensarChequeEmitido,

@@ -28,6 +28,9 @@ import { camposDoTituloDaParcela, debitosDasParcelasPagas, erroDasParcelasPorFor
 import { buildOpcoesUnidadeVenda, findOpcaoUnidadeVenda, toBaseQuantity, DEFAULT_VENDER_POR_EMBALAGEM } from '../../utils/embalagemDomain';
 import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { acompanharCatalogo, acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { hasTenantFullAccess } from '../../utils/roles';
+import ChequesDeClienteNaNota from './ChequesDeClienteNaNota';
+import { notaAvulsaChequesService, type ChequeDaCarteira } from '../../services/notaAvulsaChequesService';
 
 interface FornecedorBasico {
   id: string;
@@ -67,7 +70,10 @@ const labelStyle: React.CSSProperties = { fontSize: '13px', color: 'var(--text-s
 
 const NotaAvulsaForm: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, isOwner, userRole, userPermissions } = useAuth();
+  // Cheque de cliente pagando a nota (25/11/2026): permissao propria, conferida no servidor.
+  const podePagarComCheque = hasTenantFullAccess(userRole, isOwner) || Boolean(userPermissions?.includes('estoque.nota_avulsa_cheque_cliente'));
+  const [chequesEscolhidos, setChequesEscolhidos] = useState<ChequeDaCarteira[]>([]);
 
   const [fornecedores, setFornecedores] = useState<FornecedorBasico[]>([]);
   const [fornecedorNome, setFornecedorNome] = useState('');
@@ -167,6 +173,10 @@ const NotaAvulsaForm: React.FC = () => {
   const freteValor = Number(frete.replace(',', '.')) || 0;
   const descontoValor = Number(desconto.replace(',', '.')) || 0;
   const valorTotal = Math.max(0, valorItens + freteValor - descontoValor);
+  const chequesCentavos = chequesEscolhidos.reduce((soma, c) => soma + c.centavos, 0);
+  /** O que sobra depois dos cheques de clientes: e' isto que vira parcela ou pagamento a vista. */
+  const valorRestante = Math.max(0, Math.round((valorTotal - chequesCentavos / 100) * 100) / 100);
+  const temRestante = valorRestante > 0;
 
   /** Itens com a parte do frete/desconto ja distribuida em cada um. Fica
    * aqui (e nao so dentro do save) porque a tabela mostra o CMV ao vivo --
@@ -197,11 +207,11 @@ const NotaAvulsaForm: React.FC = () => {
   const [parcelasMexidas, setParcelasMexidas] = useState(false);
   useEffect(() => {
     if (parcelasMexidas) return;
-    setParcelas((atual) => redistribuirValores(atual, valorTotal));
-  }, [valorTotal, parcelasMexidas]);
+    setParcelas((atual) => redistribuirValores(atual, valorRestante));
+  }, [valorRestante, parcelasMexidas]);
 
   const somaParcelasCentavos = parcelas.reduce((soma, parcela) => soma + toCents(parcela.valor), 0);
-  const parcelasDivergem = formaPagamento === 'pendente' && somaParcelasCentavos !== toCents(valorTotal);
+  const parcelasDivergem = temRestante && formaPagamento === 'pendente' && somaParcelasCentavos !== toCents(valorRestante);
 
   /** Mudanca vinda do editor: mexer em valor (ou na quantidade de parcelas) para de acompanhar o total. */
   const alterarParcelas = (novas: ParcelaComCheque[]) => {
@@ -211,7 +221,7 @@ const NotaAvulsaForm: React.FC = () => {
   };
   const redistribuirIgualmente = () => {
     setParcelasMexidas(false);
-    setParcelas((atual) => redistribuirValores(atual, valorTotal));
+    setParcelas((atual) => redistribuirValores(atual, valorRestante));
   };
   const trocarFormaDasParcelas = (nova: string) => {
     setParcelas((atual) => trocarFormaPadrao(atual, formaPadraoParcelas, nova));
@@ -314,8 +324,12 @@ const NotaAvulsaForm: React.FC = () => {
       showError('Nenhum item válido', 'Adicione ao menos um item com produto, quantidade e custo preenchidos.');
       return;
     }
-    if (formaPagamento === 'pendente') {
-      const erroDasParcelas = conferirParcelas(parcelas, valorTotal).erro
+    if (chequesCentavos > toCents(valorTotal)) {
+      showError('Cheques passam do valor da nota', 'Os cheques de clientes escolhidos passam do valor da nota. Desmarque algum cheque: o que faltar se paga com outra forma.');
+      return;
+    }
+    if (temRestante && formaPagamento === 'pendente') {
+      const erroDasParcelas = conferirParcelas(parcelas, valorRestante).erro
         || erroDasParcelasPorForma(parcelas, { formaPadrao: formaPadraoParcelas, bancos, hoje: getDateInputInTimeZone() });
       if (erroDasParcelas) {
         showError('Confira as parcelas', erroDasParcelas);
@@ -325,11 +339,11 @@ const NotaAvulsaForm: React.FC = () => {
     if (parcelasDivergem) {
       showError(
         'Parcelas não fecham o total da nota',
-        `As parcelas somam ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(somaParcelasCentavos / 100)}, mas a nota é de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotal)}. Ajuste os valores das parcelas até fechar o total.`,
+        `As parcelas somam ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(somaParcelasCentavos / 100)}, mas falta pagar ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorRestante)}${chequesCentavos > 0 ? ' (o total da nota menos os cheques de clientes)' : ''}. Ajuste os valores das parcelas até fechar.`,
       );
       return;
     }
-    if (formaPagamento === 'a_vista' && destinoPagamento === 'banco' && !bancoId) {
+    if (temRestante && formaPagamento === 'a_vista' && destinoPagamento === 'banco' && !bancoId) {
       showError('Banco obrigatório', 'Selecione de qual banco o pagamento vai sair.');
       return;
     }
@@ -349,9 +363,12 @@ const NotaAvulsaForm: React.FC = () => {
       const totalNota = Math.max(0, valorItensValidos + freteValor - descontoValor);
       const bancoNomeEscolhido = bancos.find((b) => b.id === bancoId)?.nome || '';
       // O que sai do banco AGORA: a nota a vista pelo banco, ou as parcelas ja' pagas pelo banco.
-      const debitosDeBanco = formaPagamento === 'a_vista'
-        ? (destinoPagamento === 'banco' ? [{ bancoId, centavos: toCents(totalNota) }] : [])
-        : debitosDasParcelasPagas(parcelas, formaPadraoParcelas);
+      // O que os cheques de clientes pagam nao sai do caixa nem do banco (o servidor repassa depois).
+      const restanteDaNota = Math.max(0, Math.round((totalNota - chequesCentavos / 100) * 100) / 100);
+      const debitosDeBanco = !(restanteDaNota > 0) ? []
+        : formaPagamento === 'a_vista'
+          ? (destinoPagamento === 'banco' ? [{ bancoId, centavos: toCents(restanteDaNota) }] : [])
+          : debitosDasParcelasPagas(parcelas, formaPadraoParcelas);
       const numParcelasFinal = formaPagamento === 'pendente' ? parcelas.length : 1;
 
       // Custo que mudou em cada produto: alimenta o recalculo do custo dos
@@ -451,7 +468,7 @@ const NotaAvulsaForm: React.FC = () => {
         // com os valores/datas/formas que a pessoa viu e pode ter ajustado na
         // tela (ja' validados acima pra fechar exatamente o total) -- nao
         // recalcula um split novo aqui, senao o ajuste manual seria perdido.
-        const transacoesParaCriar = formaPagamento === 'pendente'
+        const transacoesParaCriar = !(restanteDaNota > 0) ? [] : formaPagamento === 'pendente'
           ? parcelas.map((parcela) => ({
               ref: doc(collection(db, 'transacoes')),
               valorCentavos: toCents(parcela.valor),
@@ -460,7 +477,7 @@ const NotaAvulsaForm: React.FC = () => {
             }))
           : [{
               ref: doc(collection(db, 'transacoes')),
-              valorCentavos: toCents(totalNota),
+              valorCentavos: toCents(restanteDaNota),
               data: getDateInputInTimeZone(),
               parcela: null,
             }];
@@ -468,7 +485,7 @@ const NotaAvulsaForm: React.FC = () => {
         notaAvulsaIdGravada = notaRef.id;
         titulosDaNotaIds = transacoesParaCriar.map(({ ref }) => ref.id);
 
-        if (formaPagamento === 'a_vista') {
+        if (formaPagamento === 'a_vista' && transacoesParaCriar.length > 0) {
           const [{ ref: transacaoRef, valorCentavos, data }] = transacoesParaCriar;
           transaction.set(transacaoRef, {
             descricao: `Nota Avulsa #${numeroFinal} - ${fornecedorSelecionado.nome}`,
@@ -530,10 +547,12 @@ const NotaAvulsaForm: React.FC = () => {
           valorTotal: totalNota,
           valorTotalCentavos: toCents(totalNota),
           formaPagamento,
-          ...(formaPagamento === 'a_vista'
+          // Cheques de clientes (25/11/2026): o servidor repassa logo depois (services/repasseCheques.js).
+          ...(chequesEscolhidos.length > 0 ? { pagamentoComCheques: { chequeIds: chequesEscolhidos.map((c) => c.id), totalCentavos: chequesCentavos, situacao: 'a_repassar' } } : {}),
+          ...(!(restanteDaNota > 0) ? {} : formaPagamento === 'a_vista'
             ? { destinoPagamento, ...(destinoPagamento === 'banco' ? { bancoId, bancoNome: bancoNomeEscolhido } : {}) }
             : { dataVencimento: parcelas[0]?.vencimento || '', parcelas: parcelas.map((parcela) => parcelaParaRegistro(parcela, formaPadraoParcelas)) }),
-          transacaoId: transacoesParaCriar[0].ref.id,
+          transacaoId: transacoesParaCriar[0]?.ref.id || `repasse_cheques_${notaRef.id}`,
           observacao: observacao.trim() || null,
           status: 'ativa',
           tenantId,
@@ -570,7 +589,19 @@ const NotaAvulsaForm: React.FC = () => {
         mudancas: mudancasDeCusto,
       });
 
-      showSuccess('Nota avulsa lançada com sucesso!');
+      if (chequesEscolhidos.length > 0 && notaAvulsaIdGravada) {
+        try {
+          await notaAvulsaChequesService.repassar(notaAvulsaIdGravada);
+        } catch (erroRepasse) {
+          showError(
+            'Nota lançada, mas os cheques não foram repassados',
+            `${erroRepasse instanceof Error ? erroRepasse.message : 'Falha ao falar com o servidor.'} A nota #${numeroFinal} ficou gravada. Em Notas Avulsas, abra o menu da nota e use "Repassar os cheques" para tentar de novo.`,
+          );
+          navigate('/estoque/notas-avulsas');
+          return;
+        }
+      }
+      showSuccess(chequesEscolhidos.length > 0 ? 'Nota avulsa lançada e cheques repassados ao fornecedor!' : 'Nota avulsa lançada com sucesso!');
       navigate('/estoque/notas-avulsas');
     } catch (error) {
       console.error('Erro ao lançar nota avulsa:', error);
@@ -774,6 +805,12 @@ const NotaAvulsaForm: React.FC = () => {
         <div className="section-header">
           <h3>Pagamento ao Fornecedor</h3>
         </div>
+        {podePagarComCheque && (
+          <ChequesDeClienteNaNota escolhidos={chequesEscolhidos} onEscolhidos={setChequesEscolhidos} valorDaNota={valorTotal} />
+        )}
+        {chequesEscolhidos.length > 0 && !temRestante ? (
+          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>Os cheques de clientes pagam a nota inteira: não há parcela nem pagamento à vista.</p>
+        ) : (<>
         <div style={{ display: 'flex', gap: '24px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-primary)' }}>
             <input type="radio" checked={formaPagamento === 'pendente'} onChange={() => setFormaPagamento('pendente')} />
@@ -796,7 +833,7 @@ const NotaAvulsaForm: React.FC = () => {
             <ParcelasEditor
               parcelas={parcelas}
               onParcelas={alterarParcelas}
-              total={valorTotal}
+              total={valorRestante}
               dataBase={getDateInputInTimeZone()}
               forma={formaPadraoParcelas}
               bancos={bancos}
@@ -838,6 +875,7 @@ const NotaAvulsaForm: React.FC = () => {
             )}
           </div>
         )}
+        </>)}
 
         <div className="input-group">
           <label style={labelStyle}>Observação</label>

@@ -31,11 +31,13 @@ import {
   enriquecerVendas,
   resumoPorVendedor,
   totaisVendas,
+  totalPorFormaPagamento,
   vendaNoPeriodo,
 } from '../../utils/relatorioVendasDomain';
 import {
   indicadoresVendas,
   secaoDetalheVendas,
+  secaoPorFormaPagamento,
   secaoResumoVendedor,
   secaoVendasPorVendedorDetalhe,
 } from '../../utils/relatorioVendasPdf';
@@ -255,6 +257,8 @@ const RelatoriosVendas: React.FC = () => {
       filtros: filtrosDescritos,
       indicadores: indicadoresVendas(totals),
       secoes: [
+        // Total por forma (25/11/2026, Jomarly): o fechamento do dia sem somar a caneta.
+        secaoPorFormaPagamento(totalPorFormaPagamento(filteredSales), { opcional: true, padrao: true }),
         secaoDetalheVendas(filteredSales),
         secaoResumoVendedor(sellerSummary, { opcional: true, padrao: false }),
       ],

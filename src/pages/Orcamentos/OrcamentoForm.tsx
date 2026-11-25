@@ -18,7 +18,8 @@ import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/aler
 import { enviarOrcamentoPorWhatsApp, prepararEnvioDeOrcamento } from './enviarOrcamentoPdf';
 import { parseParametrosVenda, validadeOrcamentoPadrao } from '../../utils/parametrosVendaDomain';
 import { formatSequenceValue, getCurrentMaxSequence, reserveTenantSequence } from '../../utils/firestoreAtomic';
-import { isValidSaleQuantity } from '../../utils/saleQuantity';
+import { isValidSaleQuantity, lerQuantidadeDigitada } from '../../utils/saleQuantity';
+import CampoQuantidade from '../../components/common/CampoQuantidade';
 import { mensagemQuantidadeInteira } from '../../utils/vendaFracionadaDomain';
 import {
   avisoUnidadeMedidaAusente,
@@ -94,6 +95,11 @@ import {
 import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+
+// Valores da tela em reais do jeito brasileiro (25/11/2026, Jomarly): antes
+// saia "R$ 2677.50".
+const moedaBr = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const reais = (valor: number): string => moedaBr.format(Number.isFinite(valor) ? valor : 0);
 
 interface ClienteBasico { id: string; nome: string; telefone: string; codigo?: string; descontoPadraoPercentual?: number | null; }
 interface ServicoData { id: string; nome: string; preco: number; }
@@ -230,6 +236,8 @@ const OrcamentoForm: React.FC = () => {
   const [pecasEstoque, setPecasEstoque] = useState<PecaOrcamento[]>([]);
   const [pecaNomeInput, setPecaNomeInput] = useState('');
   const [pecaPrecoInput, setPecaPrecoInput] = useState('');
+  /** Quantidade antes do "+" (25/11/2026, Jomarly): o produto entra ja' com ela. */
+  const [pecaQtdInput, setPecaQtdInput] = useState('1');
   const [pecaSelecionada, setPecaSelecionada] = useState<PecaOrcamento | null>(null);
   // Unidade da proxima peca (21/11/2026): '' = unidade do cadastro; senao a embalagem.
   const [pecaEmbalagemId, setPecaEmbalagemId] = useState('');
@@ -539,14 +547,27 @@ const OrcamentoForm: React.FC = () => {
       // Embalagem fracionaria (meio metro, lata) entra na unidade do estoque:
       // 1 meio metro a R$ 110 = 0,5 M3 a R$ 220 (embalagemDomain, 21/11/2026).
       opcaoDaPeca = opcaoNaUnidadeDoEstoque(opcaoEscolhida, opcoesDeUnidadeDaTela(peca, false)[0]);
+      // Quantidade digitada antes do "+" (25/11/2026), na unidade escolhida.
+      const qtdDigitada = lerQuantidadeDigitada(pecaQtdInput);
+      if (qtdDigitada === null) {
+        showError('Informe a quantidade', `Digite quantas unidades de ${peca.nome} vão no orçamento (maior que zero) e clique em + de novo.`);
+        return;
+      }
+      if (!isValidSaleQuantity(qtdDigitada, opcaoEscolhida.permiteFracionado, opcaoEscolhida.casasDecimais)) {
+        showError('Operação Bloqueada', opcaoEscolhida.permiteFracionado
+          ? `A quantidade de ${peca.nome} aceita no máximo ${opcaoEscolhida.casasDecimais ?? 0} casa(s) decimal(is), conforme a unidade ${opcaoEscolhida.sigla || 'UN'}.`
+          : mensagemQuantidadeInteira(peca.nome, opcaoEscolhida.sigla));
+        return;
+      }
+      quantidadeInicial = qtdDigitada;
       if (opcaoDaPeca !== opcaoEscolhida) {
-        quantidadeInicial = opcaoEscolhida.fatorConversao;
+        quantidadeInicial = Number((qtdDigitada * opcaoEscolhida.fatorConversao).toFixed(6));
         if (precoNum > 0) precoNum = Number((precoNum / opcaoEscolhida.fatorConversao).toFixed(6));
       }
       // Preco digitado igual ao da tabela = automatico (com promocao, se houver); diferente = manual.
       precificacao = camposDePrecoDoItem(tabelaDe(peca, unidadeDePrecoDaOpcao(opcaoDaPeca)), CONDICAO_ORCAMENTO, precoNum, quantidadeInicial);
 
-      if (!permitirVendaSemEstoque && peca && toBaseQuantity(1, opcaoDaPeca.fatorConversao) > (peca.quantidade || 0)) {
+      if (!permitirVendaSemEstoque && peca && toBaseQuantity(quantidadeInicial, opcaoDaPeca.fatorConversao) > (peca.quantidade || 0)) {
         showError('Estoque Insuficiente', `Você tem apenas ${peca.quantidade || 0} un. no estoque. Venda sem estoque desativada.`);
         return;
       }
@@ -592,6 +613,7 @@ const OrcamentoForm: React.FC = () => {
     } else {
       setPecaNomeInput('');
       setPecaPrecoInput('');
+      setPecaQtdInput('1');
       setPecaSelecionada(null);
       setPecaEmbalagemId('');
       pecaNomeInputRef.current?.focus();
@@ -776,7 +798,7 @@ const OrcamentoForm: React.FC = () => {
         createAuditLog({
           tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas', acao: 'edicao',
-          descricao: `Orçamento #${formData.numeroOrcamento} atualizado (cliente: ${nomeClienteFormatado}, total: R$ ${totalGeral.toFixed(2)}).`,
+          descricao: `Orçamento #${formData.numeroOrcamento} atualizado (cliente: ${nomeClienteFormatado}, total: ${reais(totalGeral)}).`,
           registroRelacionadoId: id, status: 'sucesso',
         });
       } else {
@@ -801,7 +823,7 @@ const OrcamentoForm: React.FC = () => {
         createAuditLog({
           tenantId, usuarioId: currentUser.uid, usuarioEmail: currentUser.email || currentUser.uid,
           modulo: 'vendas', acao: 'criacao',
-          descricao: `Orçamento #${finalNumeroOrcamento} criado (cliente: ${nomeClienteFormatado}, total: R$ ${totalGeral.toFixed(2)}).`,
+          descricao: `Orçamento #${finalNumeroOrcamento} criado (cliente: ${nomeClienteFormatado}, total: ${reais(totalGeral)}).`,
           registroRelacionadoId: novoOrcamentoId, status: 'sucesso',
         });
       }
@@ -1251,7 +1273,7 @@ const OrcamentoForm: React.FC = () => {
                           setIsServicoDropdownOpen(false);
                         }}>
                           <span>{s.nome}</span>
-                          <span style={{ color: '#10b981' }}>R$ {s.preco.toFixed(2)}</span>
+                          <span style={{ color: '#10b981' }}>{reais(s.preco)}</span>
                         </div>
                       ))}
                     </div>
@@ -1270,7 +1292,7 @@ const OrcamentoForm: React.FC = () => {
                 </>
               )}
 
-              <div className={`item-add-row${mostraSeletorDeUnidade(opcoesDaPecaEscolhida) ? ' item-add-row--com-unidade' : ''}`}>
+              <div className={`item-add-row item-add-row--com-qtd${mostraSeletorDeUnidade(opcoesDaPecaEscolhida) ? ' item-add-row--com-unidade' : ''}`}>
                 <div style={{ position: 'relative' }}>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Produto</label>
                   <ProductAutocomplete
@@ -1341,6 +1363,19 @@ const OrcamentoForm: React.FC = () => {
                   </div>
                 )}
                 <div>
+                  <label htmlFor="orcamento-qtd-peca" style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Qtd</label>
+                  <input
+                    id="orcamento-qtd-peca"
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={pecaQtdInput}
+                    onChange={(e) => setPecaQtdInput(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }}
+                  />
+                </div>
+                <div>
                   <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Preço</label>
                   <input type="text" value={pecaPrecoInput} onChange={(e) => setPecaPrecoInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddItem('peca'); } }} />
                 </div>
@@ -1364,18 +1399,16 @@ const OrcamentoForm: React.FC = () => {
                     </div>
                   </div>
                   <div className="item-actions">
-                    <input
-                      type="number"
+                    <CampoQuantidade
                       className="item-qty-input"
-                      min={item.tipo === 'peca' && item.unidadeMedidaFracionado ? '0.001' : '1'}
-                      step={item.tipo === 'peca' && item.unidadeMedidaFracionado ? 'any' : '1'}
-                      value={item.quantidade}
-                      onChange={(e) => updateItemQtd(index, Number(e.target.value))}
+                      valor={item.quantidade}
+                      onQuantidade={(qtd) => updateItemQtd(index, qtd)}
                       title={item.tipo === 'servico' ? 'Horas de serviço' : 'Quantidade'}
+                      aria-label={item.tipo === 'servico' ? `Horas de ${item.nome}` : `Quantidade de ${item.nome}`}
                     />
                     {item.tipo === 'servico' && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>h</span>}
                     <div className="item-total-price">
-                      R$ {(item.preco * item.quantidade).toFixed(2)}
+                      {reais(item.preco * item.quantidade)}
                     </div>
                     <button className="delete-item-btn" onClick={() => removeItem(index)}>
                       <Trash2 size={18} />
@@ -1396,17 +1429,17 @@ const OrcamentoForm: React.FC = () => {
             {(configOrcamento.usaServicos || temServicoNoOrcamento) && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '14px' }}>
                 <span>Mão de Obra:</span>
-                <span style={{ fontWeight: 600 }}>R$ {totalServicos.toFixed(2)}</span>
+                <span style={{ fontWeight: 600 }}>{reais(totalServicos)}</span>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '14px' }}>
               <span>Produtos:</span>
-              <span style={{ fontWeight: 600 }}>R$ {totalPecas.toFixed(2)}</span>
+              <span style={{ fontWeight: 600 }}>{reais(totalPecas)}</span>
             </div>
             {desconto > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#ef4444', fontSize: '14px' }}>
                 <span>Desconto:</span>
-                <span style={{ fontWeight: 600 }}>- R$ {desconto.toFixed(2)}</span>
+                <span style={{ fontWeight: 600 }}>- {reais(desconto)}</span>
               </div>
             )}
 
@@ -1441,7 +1474,7 @@ const OrcamentoForm: React.FC = () => {
 
             <div className="grand-total-row">
               <span className="grand-total-label">TOTAL GERAL</span>
-              <span className="grand-total-value">R$ {totalGeral.toFixed(2)}</span>
+              <span className="grand-total-value">{reais(totalGeral)}</span>
             </div>
           </div>
 

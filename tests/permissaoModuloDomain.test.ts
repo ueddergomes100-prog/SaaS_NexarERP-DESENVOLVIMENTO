@@ -89,3 +89,9 @@ test('permissao da tela separada some quando o modulo dela (ou o pai) esta bloqu
   assert.equal(permissaoForaDoPlano('operacoes.romaneios', ['operacoes.romaneios']), true);
   assert.equal(permissaoForaDoPlano('fiscal.relatorio_contador', ['fiscal.relatorio_contador']), true);
 });
+
+test('minuta pela venda usa a permissao de Pedidos de Venda; a da Expedicao continua na Conferencia (25/11/2026)', () => {
+  assert.deepEqual(resolveRouteAccess('/pedidos-venda/minuta/abc'), { routeModule: 'comercial.pedidos', routePermission: 'vendas.pedidos' });
+  assert.deepEqual(resolveRouteAccess('/pedidos-venda/minuta-lote'), { routeModule: 'comercial.pedidos', routePermission: 'vendas.pedidos' });
+  assert.deepEqual(resolveRouteAccess('/operacoes/expedicao/minuta/abc'), { routeModule: 'operacoes.expedicao', routePermission: 'operacoes.expedicao' });
+});

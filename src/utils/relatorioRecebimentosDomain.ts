@@ -32,11 +32,28 @@ export interface LinhaDeRecebimento {
   origem: OrigemDoRecebimento;
   formaPagamento: string;
   destino: string;
+  /** O que entrou de fato: valor da conta menos o desconto dado na baixa. */
   valorCentavos: number;
+  /** Valor cheio da conta (a baixa quita o titulo pelo valor cheio). */
+  valorContaCentavos: number;
+  /** Desconto dado na baixa (25/11/2026, Jomarly: os R$ 0,60 nao apareciam). */
+  descontoCentavos: number;
   estornado: boolean;
 }
 
 const texto = (v: unknown): string => String(v ?? '').trim();
+
+/**
+ * Desconto dado na baixa (Contas a Receber > Dar baixa > Desconto). A baixa
+ * quita a conta pelo valor cheio e grava o desconto num lancamento a parte;
+ * o titulo guarda quanto foi em `baixaManual.descontoCentavos`. Nunca maior
+ * que o valor da conta.
+ */
+export const descontoDaBaixa = (t: TransacaoRelatorioFinanceiro, valorCentavos: number): number => {
+  const baixa = t.baixaManual && typeof t.baixaManual === 'object' ? (t.baixaManual as { descontoCentavos?: unknown }) : null;
+  const desconto = Math.max(0, Math.round(Number(baixa?.descontoCentavos) || 0));
+  return Math.min(desconto, Math.max(0, valorCentavos));
+};
 
 const moeda = (centavos: number): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
 
@@ -103,6 +120,8 @@ export interface ResultadoDeRecebimentos {
   /** Baixado sem entrar dinheiro: acerto com fornecedor e credito do cliente. */
   semDinheiroCentavos: number;
   estornadoCentavos: number;
+  /** Descontos dados nas baixas (fora do total recebido). */
+  descontoCentavos: number;
 }
 
 export const calcularRecebimentos = (
@@ -115,6 +134,7 @@ export const calcularRecebimentos = (
   const linhas: LinhaDeRecebimento[] = base.linhas
     .map((l) => {
       const t = porId.get(l.id) || ({ id: l.id } as TransacaoRelatorioFinanceiro);
+      const descontoCentavos = descontoDaBaixa(t, l.valorCentavos);
       return {
         id: l.id,
         data: l.data,
@@ -123,7 +143,9 @@ export const calcularRecebimentos = (
         origem: origemDoRecebimento(t),
         formaPagamento: l.formaPagamento || 'Sem forma',
         destino: destinoDoRecebimento(t),
-        valorCentavos: l.valorCentavos,
+        valorCentavos: l.valorCentavos - descontoCentavos,
+        valorContaCentavos: l.valorCentavos,
+        descontoCentavos,
         estornado: l.estornado,
       };
     })
@@ -143,6 +165,7 @@ export const calcularRecebimentos = (
     bancosCentavos: totalCentavos - soma(semDinheiro) - soma(caixa),
     semDinheiroCentavos: soma(semDinheiro),
     estornadoCentavos: soma(linhas.filter((l) => l.estornado)),
+    descontoCentavos: validas.reduce((total, l) => total + l.descontoCentavos, 0),
   };
 };
 
@@ -170,8 +193,17 @@ export const montarDocumentoDeRecebimentos = (
     { id: 'forma', titulo: 'Forma', tipo: 'texto', largura: 30, valor: (l) => l.formaPagamento },
     { id: 'destino', titulo: 'Onde caiu', tipo: 'texto', largura: 36, valor: (l) => l.destino },
     { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 20, padrao: r.estornadoCentavos > 0, valor: (l) => (l.estornado ? 'ESTORNADO' : '') },
+    // Com desconto na baixa, o papel mostra a conta, o desconto e o que entrou.
     {
-      id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (l) => l.valorCentavos,
+      id: 'valorConta', titulo: 'Valor da conta', tipo: 'moeda', padrao: r.descontoCentavos > 0, valor: (l) => l.valorContaCentavos,
+      totalCalculado: (linhas) => linhas.reduce((soma, l) => soma + (l.estornado ? 0 : l.valorContaCentavos), 0),
+    },
+    {
+      id: 'desconto', titulo: 'Desconto', tipo: 'moeda', padrao: r.descontoCentavos > 0, valor: (l) => l.descontoCentavos,
+      totalCalculado: (linhas) => linhas.reduce((soma, l) => soma + (l.estornado ? 0 : l.descontoCentavos), 0),
+    },
+    {
+      id: 'valor', titulo: r.descontoCentavos > 0 ? 'Recebido' : 'Valor', tipo: 'moeda', valor: (l) => l.valorCentavos,
       // Linha estornada continua visivel, fora do total.
       totalCalculado: (linhas) => linhas.reduce((soma, l) => soma + (l.estornado ? 0 : l.valorCentavos), 0),
     },
@@ -191,6 +223,7 @@ export const montarDocumentoDeRecebimentos = (
   if (r.semDinheiroCentavos > 0) {
     indicadores.push({ rotulo: 'Baixado sem entrar dinheiro (acerto/crédito)', valor: moeda(r.semDinheiroCentavos) });
   }
+  if (r.descontoCentavos > 0) indicadores.push({ rotulo: 'Descontos dados na baixa', valor: moeda(r.descontoCentavos) });
   if (r.estornadoCentavos > 0) indicadores.push({ rotulo: 'Estornado (fora do total)', valor: moeda(r.estornadoCentavos) });
 
   return {

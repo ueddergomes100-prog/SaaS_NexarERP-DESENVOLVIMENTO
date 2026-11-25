@@ -88,3 +88,21 @@ test('itens vendidos por vendedor: soma as quantidades (KG fracionado sem erro d
   assert.equal(resumo.find((r) => r.id === 'v1')?.items, 5.3);
   assert.equal(resumo.find((r) => r.id === 'v2')?.items, 0);
 });
+
+test('total por forma de pagamento: cada forma com a sua parte, cancelada fora (25/11/2026, Jomarly)', async () => {
+  const { totalPorFormaPagamento } = await import('../src/utils/relatorioVendasDomain');
+  const vendas = enriquecerVendas(dados({
+    sales: [
+      { id: 'a', status: 'Finalizada', valorTotalCentavos: 34980, pagamentos: [{ formaPagamento: 'Pix', valorCentavos: 34980 }] },
+      { id: 'b', status: 'Finalizada', valorTotalCentavos: 78000, pagamentos: [{ formaPagamento: 'Dinheiro', valorCentavos: 50000 }, { formaPagamento: 'Pagamento a Prazo', valorCentavos: 28000 }] },
+      { id: 'c', status: 'Finalizada', valorTotalCentavos: 1000, formaPagamento: 'Dinheiro' },
+      { id: 'd', status: 'Cancelada', valorTotalCentavos: 9999, pagamentos: [{ formaPagamento: 'Pix', valorCentavos: 9999 }] },
+    ],
+  }));
+  const totais = totalPorFormaPagamento(vendas);
+  assert.deepEqual(totais, [
+    { forma: 'Dinheiro', vendas: 2, valorCentavos: 51000 },
+    { forma: 'Pix', vendas: 1, valorCentavos: 34980 },
+    { forma: 'Pagamento a Prazo', vendas: 1, valorCentavos: 28000 },
+  ]);
+});

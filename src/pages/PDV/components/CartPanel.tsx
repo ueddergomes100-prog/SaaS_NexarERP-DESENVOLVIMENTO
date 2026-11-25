@@ -4,6 +4,7 @@ import type { PdvCartItem } from '../types';
 import { embalagemFracionaria, toBaseQuantity, type OpcaoUnidadeVenda } from '../../../utils/embalagemDomain';
 import { cartLineGrossCents, cartLineNetCents, currency, fromCurrencyInput, toCurrencyInput } from '../pdvHelpers';
 import { fromCents } from '../../../utils/financeDomain';
+import CampoQuantidade from '../../../components/common/CampoQuantidade';
 
 interface CartPanelProps {
   items: PdvCartItem[];
@@ -117,11 +118,11 @@ const CartPanel: React.FC<CartPanelProps> = ({
                 <button type="button" onClick={(event) => { event.stopPropagation(); onQuantityChange(item.id, item.quantidade - 1); }}>
                   <Minus size={14} />
                 </button>
-                <input
-                  value={String(item.quantidade)}
-                  inputMode="decimal"
+                <CampoQuantidade
+                  valor={item.quantidade}
+                  aria-label={`Quantidade de ${item.nome}`}
                   onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => onQuantityChange(item.id, Number(event.target.value.replace(',', '.')) || 0)}
+                  onQuantidade={(quantidade) => onQuantityChange(item.id, quantidade)}
                 />
                 <button type="button" onClick={(event) => { event.stopPropagation(); onQuantityChange(item.id, item.quantidade + 1); }}>
                   <Plus size={14} />

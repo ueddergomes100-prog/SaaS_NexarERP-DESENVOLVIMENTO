@@ -105,3 +105,33 @@ test('documento: abre no dia, com as tres secoes e o indicador do acerto', () =>
   assert.equal(periodo.periodo, 'Período: 23/11/2026 a 24/11/2026');
   assert.equal(periodo.secoes[2].linhas.length, 3, 'o pix de ontem nao era conta baixada');
 });
+
+test('desconto dado na baixa sai do recebido e aparece em coluna propria (25/11/2026, Jomarly)', () => {
+  const entradas = [
+    t({ id: 'com-desconto', formaPagamento: 'Pix', bancoNome: 'CRESOL', baixaManual: { origem: 'contas_receber', descontoCentavos: 60 }, valorCentavos: 17060, valor: 170.6 }),
+    t({ id: 'sem-desconto', formaPagamento: 'Dinheiro', movimentaCaixaFisico: true, baixaManual: { origem: 'contas_receber' }, valorCentavos: 2650, valor: 26.5 }),
+  ];
+  const r = calcularRecebimentos(entradas, { inicio: DIA, fim: DIA, somenteContas: true });
+  const linha = r.linhas.find((l) => l.id === 'com-desconto')!;
+  assert.equal(linha.valorContaCentavos, 17060);
+  assert.equal(linha.descontoCentavos, 60);
+  assert.equal(linha.valorCentavos, 17000);
+  assert.equal(r.totalCentavos, 17000 + 2650);
+  assert.equal(r.descontoCentavos, 60);
+  assert.equal(r.porForma.find((g) => g.rotulo === 'Pix')!.valorCentavos, 17000);
+
+  const doc = montarDocumentoDeRecebimentos(entradas, { inicio: DIA, fim: DIA, somenteContas: true });
+  const colunas = (doc.secoes.find((s) => s.id === 'recebimentos')!.colunas as Array<{ id: string; titulo: string; padrao?: boolean }>);
+  assert.equal(colunas.find((c) => c.id === 'desconto')!.padrao, true);
+  assert.equal(colunas.find((c) => c.id === 'valor')!.titulo, 'Recebido');
+  assert.ok(doc.indicadores.some((i) => i.rotulo === 'Descontos dados na baixa' && i.valor.includes('0,60')));
+});
+
+test('desconto nunca passa do valor da conta e conta sem desconto fica igual', () => {
+  const entradas = [t({ id: 'x', formaPagamento: 'Pix', baixaManual: { descontoCentavos: 999999 }, valorCentavos: 500, valor: 5 })];
+  const r = calcularRecebimentos(entradas, { inicio: DIA, fim: DIA, somenteContas: false });
+  assert.equal(r.linhas[0].valorCentavos, 0);
+  const sem = calcularRecebimentos([t({ id: 'y', formaPagamento: 'Pix', valorCentavos: 500, valor: 5 })], { inicio: DIA, fim: DIA, somenteContas: false });
+  assert.equal(sem.linhas[0].valorCentavos, 500);
+  assert.equal(sem.descontoCentavos, 0);
+});

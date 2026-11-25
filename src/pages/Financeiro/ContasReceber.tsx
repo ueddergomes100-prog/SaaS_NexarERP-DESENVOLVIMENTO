@@ -1459,7 +1459,14 @@ const ContasReceber: React.FC = () => {
             <Plus size={18} /> Lançar conta
           </button>
           <BotaoOlhoValores />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+          {/* Clicavel (25/11/2026, Jomarly): "tenho o valor, mas nao vejo as contas
+              que foram pagas no dia" -- abre o relatorio Contas Recebidas de hoje. */}
+          <button
+            type="button"
+            onClick={() => setRelatorioRecebimentos({ inicio: hojeStr, fim: hojeStr, somenteContas: true })}
+            title="Ver as contas recebidas hoje, uma a uma, com forma, banco ou caixa e desconto (abre em PDF)"
+            style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16, 185, 129, 0.2)', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}
+          >
             <Clock size={24} color="#10b981" />
             <div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Recebido Hoje</div>
@@ -1467,7 +1474,7 @@ const ContasReceber: React.FC = () => {
                 {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalRecebidoHoje))}
               </div>
             </div>
-          </div>
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
             <Clock size={24} color="#f59e0b" />
             <div>

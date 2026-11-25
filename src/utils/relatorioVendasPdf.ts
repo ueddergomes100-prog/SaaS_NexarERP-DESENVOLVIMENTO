@@ -11,6 +11,7 @@ import { fromCents } from './financeDomain';
 import {
   rotuloCondicaoPagamento,
   type ResumoVendedor,
+  type TotalPorForma,
   type TotaisVendas,
   type VendaRelatorio,
 } from './relatorioVendasDomain';
@@ -135,3 +136,22 @@ export const secaoVendasPorVendedorDetalhe = (vendas: VendaRelatorio[]): SecaoRe
     agruparPor: { chave: (v) => v.sellerId || v.sellerName, rotulo: (v) => v.sellerName },
   });
 };
+
+/** Total por forma de pagamento (25/11/2026, Jomarly): sai pronto no papel. */
+export const secaoPorFormaPagamento = (
+  totais: TotalPorForma[],
+  extra: Partial<SecaoRelatorio<TotalPorForma>> = {},
+): SecaoRelatorio<TotalPorForma> => ({
+  id: 'por-forma-pagamento',
+  titulo: 'Total por forma de pagamento',
+  colunas: [
+    { id: 'forma', titulo: 'Forma de pagamento', tipo: 'texto', largura: 60, valor: (t) => t.forma },
+    { id: 'vendas', titulo: 'Vendas', tipo: 'inteiro', valor: (t) => t.vendas },
+    { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (t) => t.valorCentavos },
+  ],
+  linhas: totais,
+  rotuloTotal: 'Total geral',
+  unidade: ['forma', 'formas'],
+  mensagemVazia: 'Nenhuma venda no período.',
+  ...extra,
+});

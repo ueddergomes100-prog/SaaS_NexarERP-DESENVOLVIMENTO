@@ -3126,7 +3126,7 @@ const PedidoVendaForm: React.FC = () => {
           denyButtonColor: '#3b82f6',
         });
         if (escolha.isConfirmed) {
-          navigate(`/operacoes/expedicao/minuta/${preVendaId}`);
+          navigate(`/pedidos-venda/minuta/${preVendaId}`);
           return gravouComSucesso;
         }
         if (escolha.isDenied) {
@@ -4435,7 +4435,7 @@ const PedidoVendaForm: React.FC = () => {
             confirmButtonText: 'Sim, imprimir minuta',
             cancelButtonText: 'Não'
           });
-          if (minutaResult.isConfirmed) destino = `/operacoes/expedicao/minuta/${newPedidoId}`;
+          if (minutaResult.isConfirmed) destino = `/pedidos-venda/minuta/${newPedidoId}`;
         }
         // Promissoria/carne/duplicata primeiro, com o cliente ainda no balcao;
         // a tela de documentos segue para `destino` no "Continuar", entao o
@@ -6047,7 +6047,7 @@ const PedidoVendaForm: React.FC = () => {
                     {/* Minuta tambem depois de finalizada (pedido do usuario,
                         2026-09-21): a venda fecha no balcao e a mercadoria sai depois. */}
                     <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de entrega, com os itens e sem valores"
-                      onClick={() => { setMaisAcoesAberto(false); navigate(`/operacoes/expedicao/minuta/${id}`); }} />
+                      onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/minuta/${id}`); }} />
                     <ItemMaisAcoes Icone={FileText} texto="Documentos de cobrança" titulo="Promissória, carnê de parcelas e duplicata desta venda, em PDF"
                       onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/documentos/${id}`); }} />
                     {podeCriarCopia && (
@@ -6118,7 +6118,7 @@ const PedidoVendaForm: React.FC = () => {
                     onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/print/${id}`); }} />
                   {conferenciaMercadoriaAtiva && (
                     <ItemMaisAcoes Icone={Truck} texto="Imprimir Minuta" titulo="Imprime a minuta de separação, com os itens e sem valores"
-                      onClick={() => { setMaisAcoesAberto(false); navigate(`/operacoes/expedicao/minuta/${id}`); }} />
+                      onClick={() => { setMaisAcoesAberto(false); navigate(`/pedidos-venda/minuta/${id}`); }} />
                   )}
                   {podeCriarCopia && (
                     <ItemMaisAcoes Icone={Copy} texto="Criar cópia (nova venda)" titulo="Abre uma venda nova com o mesmo cliente e os mesmos itens, para conferir e gravar"

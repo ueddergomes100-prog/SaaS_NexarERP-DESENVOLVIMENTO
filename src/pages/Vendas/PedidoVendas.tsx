@@ -589,7 +589,7 @@ const PedidoVendas: React.FC = () => {
       // Aba propria (17/11/2026): imprimir nao pode fechar a aba da lista.
       void openTab(`/pedidos-venda/print-lote?ids=${ids}`, 'Imprimir pedidos');
     } else if (escolha.isDenied) {
-      void openTab(`/operacoes/expedicao/minuta-lote?ids=${ids}`, 'Imprimir minutas');
+      void openTab(`/pedidos-venda/minuta-lote?ids=${ids}`, 'Imprimir minutas');
     }
   };
 
@@ -1102,7 +1102,7 @@ const PedidoVendas: React.FC = () => {
                           </button>
                         )}
                         {(p.status === 'Finalizada' || p.status === 'Pré-venda') && (
-                          <button onClick={() => navigate(`/operacoes/expedicao/minuta/${p.id}`)} className="icon-btn" title="Imprimir Minuta de Entrega" style={{ color: '#3b82f6' }}>
+                          <button onClick={() => navigate(`/pedidos-venda/minuta/${p.id}`)} className="icon-btn" title="Imprimir Minuta de Entrega" style={{ color: '#3b82f6' }}>
                             <Truck size={18} />
                           </button>
                         )}

@@ -278,3 +278,36 @@ export const resumoPorVendedor = (vendas: VendaRelatorio[]): ResumoVendedor[] =>
 export const rotuloCondicaoPagamento = (condicao: string): string => (
   condicao === 'aprazo' ? 'A prazo' : 'À vista'
 );
+
+export interface TotalPorForma {
+  forma: string;
+  /** Em quantas vendas a forma apareceu. */
+  vendas: number;
+  valorCentavos: number;
+}
+
+/**
+ * Total por forma de pagamento (25/11/2026, Jomarly): a loja imprimia o
+ * relatorio e somava Pix, a prazo, dinheiro e cartao a caneta para bater com
+ * o caixa. Soma o valor de cada forma como foi lancado na venda (venda com
+ * duas formas entra nas duas, cada uma com a sua parte). Venda cancelada fica
+ * de fora.
+ */
+export const totalPorFormaPagamento = (vendas: VendaRelatorio[]): TotalPorForma[] => {
+  const mapa = new Map<string, TotalPorForma>();
+  vendas.filter((venda) => !venda.cancelled).forEach((venda) => {
+    const formasDaVenda = new Set<string>();
+    venda.payments.forEach((pagamento: any) => {
+      const forma = String(pagamento?.formaPagamento || '').trim() || 'Não informado';
+      const valor = Number(pagamento?.valorCentavos ?? toCents(pagamento?.valor)) || 0;
+      const atual = mapa.get(forma) || { forma, vendas: 0, valorCentavos: 0 };
+      atual.valorCentavos += valor;
+      if (!formasDaVenda.has(forma)) {
+        atual.vendas += 1;
+        formasDaVenda.add(forma);
+      }
+      mapa.set(forma, atual);
+    });
+  });
+  return [...mapa.values()].sort((a, b) => b.valorCentavos - a.valorCentavos || a.forma.localeCompare(b.forma, 'pt-BR'));
+};

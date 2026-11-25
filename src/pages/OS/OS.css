@@ -220,6 +220,15 @@
   grid-template-columns: 2fr 130px 1fr auto;
 }
 
+/* Orcamento: quantidade antes do "+" (25/11/2026, Jomarly). */
+.item-add-row--com-qtd {
+  grid-template-columns: 2fr 90px 1fr auto;
+}
+
+.item-add-row--com-qtd.item-add-row--com-unidade {
+  grid-template-columns: 2fr 130px 90px 1fr auto;
+}
+
 .item-add-row select {
   width: 100%;
   background-color: var(--bg-tertiary);

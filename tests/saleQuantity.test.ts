@@ -43,3 +43,15 @@ test('casasDecimais nao afeta quantidade nao fracionada (continua exigindo intei
   assert.equal(isValidSaleQuantity(1.5, false, 3), false);
   assert.equal(isValidSaleQuantity(3, false, 3), true);
 });
+
+test('quantidade digitada: so sai numero com a digitacao completa e acima de zero (videos Jomarly, 25/11/2026)', async () => {
+  const { lerQuantidadeDigitada } = await import('../src/utils/saleQuantity');
+  // no meio da digitacao: nada muda no item
+  for (const texto of ['', ' ', '0', '00', '0,', '0,0', '1,', '1.', ',5', 'abc', '-1', '1,2,3']) {
+    assert.equal(lerQuantidadeDigitada(texto), null, `"${texto}"`);
+  }
+  assert.equal(lerQuantidadeDigitada('20'), 20);
+  assert.equal(lerQuantidadeDigitada('0,3'), 0.3);
+  assert.equal(lerQuantidadeDigitada('1.5'), 1.5);
+  assert.equal(lerQuantidadeDigitada(' 50 '), 50);
+});

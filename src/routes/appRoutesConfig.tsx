@@ -154,6 +154,11 @@ export const appRoutesConfig: RouteObject[] = [
   { path: 'pedidos-venda/:numero', element: <RegistroPorNumero colecao="pedidos_venda" campo="numeroPedido" lista="/pedidos-venda" rotulo="Pedido"><PedidoVendaForm /></RegistroPorNumero> },
   { path: 'pedidos-venda/print/:id', element: <PedidoPrint /> },
   { path: 'pedidos-venda/print-lote', element: <PedidoPrintLote /> },
+  // Minuta pela venda (25/11/2026, Jomarly): mesma tela da Expedicao, mas com
+  // a permissao de Pedidos de Venda -- o caixa sem "Conferencia de Mercadoria"
+  // abria o botao do caminhao e caia em "Acesso nao permitido".
+  { path: 'pedidos-venda/minuta/:pedidoId', element: <MinutaPrint /> },
+  { path: 'pedidos-venda/minuta-lote', element: <MinutaPrintLote /> },
   { path: 'pedidos-venda/documentos/:id', element: <DocumentosCobranca /> },
   { path: 'vendas/devolucoes', element: <DevolucoesVenda /> },
   { path: 'vendas/promocoes', element: <PromocoesList /> },

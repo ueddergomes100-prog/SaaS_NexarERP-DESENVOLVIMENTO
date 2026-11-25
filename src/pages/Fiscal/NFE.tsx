@@ -19,7 +19,8 @@ import { spedyService } from '../../services/spedyService';
 import type { SpedyInvoice } from '../../services/spedyService';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { notaEmailService } from '../../services/notaEmailService';
-import { isPlatformAdminRole } from '../../utils/roles';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_FISCAL } from '../../utils/permissoesNovasDomain';
 import { isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
@@ -401,6 +402,15 @@ const NFE: React.FC = () => {
 
   const canEmitirNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.emitir'));
   const canCancelarNota = isOwner || isPlatformAdminRole(userRole) || (userPermissions && userPermissions.includes('fiscal.excluir'));
+  // Item 15, fase 2 (25/11/2026): carta de correcao, inutilizar, NF-e de devolucao e emitir em
+  // lote com permissao propria (ja' vem marcada para quem emite nota; o servidor confere a mesma).
+  const temAcaoFiscal = (permissao: string) => Boolean(canEmitirNota && (
+    isOwner || isPlatformAdminRole(userRole) || hasTenantFullAccess(userRole, isOwner) || userPermissions?.includes(permissao)
+  ));
+  const podeCartaCorrecao = temAcaoFiscal(PERMISSAO_FISCAL.cartaCorrecao);
+  const podeInutilizar = temAcaoFiscal(PERMISSAO_FISCAL.inutilizar);
+  const podeDevolucaoFiscal = temAcaoFiscal(PERMISSAO_FISCAL.devolucao);
+  const podeEmitirLote = temAcaoFiscal(PERMISSAO_FISCAL.emitirLote);
 
   // Configurações
   const [config, setConfig] = useState<FiscalConfig | null>(null);
@@ -3667,12 +3677,12 @@ const NFE: React.FC = () => {
             rotulo={syncing ? 'Sincronizando...' : 'Mais opções'}
             itens={[
               {
-                texto: 'Emitir em lote', Icone: Receipt, oculto: !canEmitirNota,
+                texto: 'Emitir em lote', Icone: Receipt, oculto: !podeEmitirLote,
                 titulo: 'Marcar vários pedidos finalizados e emitir as NF-e de uma vez',
                 onClick: () => setLoteAberto(true),
               },
               {
-                texto: 'Inutilizar numeração', Icone: Ban, oculto: !canEmitirNota,
+                texto: 'Inutilizar numeração', Icone: Ban, oculto: !podeInutilizar,
                 titulo: 'Avisar a SEFAZ que números de NF-e/NFC-e que pularam não serão usados',
                 onClick: () => setInutilizacaoAberta(true),
               },
@@ -3680,7 +3690,7 @@ const NFE: React.FC = () => {
                 texto: 'Sincronizar notas', Icone: RefreshCw, desabilitado: syncing,
                 titulo: 'Busca na Spedy a situação atual das notas em processamento',
                 onClick: () => { void handleManualSyncAll(); },
-                separadorAntes: canEmitirNota,
+                separadorAntes: podeEmitirLote || podeInutilizar,
               },
             ]}
           />
@@ -4032,7 +4042,7 @@ const NFE: React.FC = () => {
                         )}
 
                         {/* Devolucao fiscal da venda (NF-e/NFC-e autorizada ligada a um pedido) */}
-                        {canEmitirNota && note.status === 'authorized' && note.pedidoId && note.finalidade !== 'devolucao' && (note.tipo === 'NF-e' || note.tipo === 'NFC-e') && (
+                        {podeDevolucaoFiscal && note.status === 'authorized' && note.pedidoId && note.finalidade !== 'devolucao' && (note.tipo === 'NF-e' || note.tipo === 'NFC-e') && (
                           <button
                             type="button"
                             onClick={() => abrirDevolucaoFiscal(note)}
@@ -4045,7 +4055,7 @@ const NFE: React.FC = () => {
                         )}
 
                         {/* Carta de correcao (so NF-e autorizada) */}
-                        {canEmitirNota && notaAceitaCartaCorrecao(note) && (
+                        {podeCartaCorrecao && notaAceitaCartaCorrecao(note) && (
                           <button
                             type="button"
                             onClick={() => setNotaDaCartaId(note.id)}

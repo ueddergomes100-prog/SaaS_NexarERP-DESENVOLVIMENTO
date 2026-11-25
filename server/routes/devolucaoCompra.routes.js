@@ -2,6 +2,8 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { db } = require('../config/firebase');
 const { canUseFiscal, resolveTenantId } = require('../services/spedyAcesso');
+const { permissoesQueFaltam, mensagemSemPermissao } = require('../services/permissoesFinanceiro');
+const { PERMISSAO_FISCAL } = require('../domain/permissoesNovasDomain');
 const { registrarLog } = require('../services/auditoria');
 const { ErroDevolucaoCompra, registrar, emitir, listar } = require('../services/devolucaoCompra');
 
@@ -131,6 +133,9 @@ router.post('/emitir', async (req, res) => {
     if (!canUseFiscal(req.user, 'emit')) {
       return res.status(403).json({ error: 'Você não tem permissão para emitir nota fiscal. Peça a um responsável liberar "Fiscal: Emitir Nota Fiscal" no seu usuário.' });
     }
+    // Item 15, fase 2 (25/11/2026): permissao propria (ja' vem marcada para quem emite nota).
+    const faltam = permissoesQueFaltam(req.user, [PERMISSAO_FISCAL.devolucao]);
+    if (faltam.length > 0) return res.status(403).json({ error: mensagemSemPermissao(faltam) });
     tenantId = resolveTenantId(req);
     const r = await emitir({ user: req.user, tenantId, corpo: req.body || {} });
     void registrarEnvioDaDevolucao(req, tenantId, { nota: r });

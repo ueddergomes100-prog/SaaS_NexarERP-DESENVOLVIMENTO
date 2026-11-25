@@ -1,6 +1,8 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { canUseFiscal, resolveTenantId } = require('../services/spedyAcesso');
+const { permissoesQueFaltam, mensagemSemPermissao } = require('../services/permissoesFinanceiro');
+const { PERMISSAO_FISCAL } = require('../domain/permissoesNovasDomain');
 const { registrarLog } = require('../services/auditoria');
 const { ErroInutilizacao, solicitar, consultar, listar } = require('../services/inutilizacao');
 const { ROTULO_DO_MODELO, textoDaFaixa, ROTULO_STATUS_INUTILIZACAO } = require('../domain/inutilizacaoDomain');
@@ -38,6 +40,9 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     if (!canUseFiscal(req.user)) return res.status(403).json({ error: SEM_PERMISSAO });
+    // Item 15, fase 2 (25/11/2026): permissao propria (ja' vem marcada para quem emite nota).
+    const faltam = permissoesQueFaltam(req.user, [PERMISSAO_FISCAL.inutilizar]);
+    if (faltam.length > 0) return res.status(403).json({ error: mensagemSemPermissao(faltam) });
     const tenantId = resolveTenantId(req);
     const r = await solicitar({ user: req.user, tenantId, corpo: req.body || {} });
     registrarLog({ ...req.user, tenantId }, {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, query, where, doc, getDoc, getDocs, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,21 +7,17 @@ import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { Barcode, CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit, Plus, Building2, Pencil, XCircle, ArrowLeftRight } from 'lucide-react';
 import {
-  applyPaymentReceipt,
   fromCents,
   isSimplifiedChequePayment,
-  legacyPaymentForTransaction,
   parsePagamentoCartaoSimplificadoAtivo,
   paymentRequiresBankAccount,
-  summarizePayments,
-  tagPaymentAsChequeAwaitingClearance,
   toCents,
   transactionDueDateInput,
   transactionNetAmount,
   lancamentoDesfeito,
   type ChequeDetails,
   type PaymentMethod,
-  type PaymentRecord, transactionNetCents } from '../../utils/financeDomain';
+  transactionNetCents } from '../../utils/financeDomain';
 import { differenceInCalendarDays, getDateInputInTimeZone } from '../../utils/dateTime';
 import { gerarPdfBoletos } from '../../utils/boletoPdf';
 import { nomeArquivoDocumento } from '../../utils/nomeArquivoDomain';
@@ -54,13 +50,12 @@ import { emitenteDaConfiguracao, montarRecibo, parseEmissaoDocumentos, parteDoCl
 import { gerarPdfRecibo } from '../../utils/documentosCobrancaPdf';
 import { mensagemDoDocumento, parseMensagensPadrao } from '../../utils/mensagensPadraoDomain';
 import PdfVisualizador from '../../components/common/PdfVisualizador';
-import { alterarValorDaParcela, cancelarContaAReceber, desfazerRenegociacaoDaParcela, estornarBaixaComConfirmacao, prepararCobrancaEmBoleto, registrarBaixa } from '../../services/baixaFinanceiraService';
+import { abaterComCreditoDoCliente, alterarValorDaParcela, cancelarContaAReceber, desfazerRenegociacaoDaParcela, estornarBaixaComConfirmacao, prepararCobrancaEmBoleto, registrarBaixa, registrarChequeAReceber } from '../../services/baixaFinanceiraService';
 import LancarContaReceberModal, { type ContaParaEditar } from '../../components/finance/LancarContaReceberModal';
 import { CATEGORIAS_RECEITA_PADRAO, MOTIVO_MINIMO_CANCELAR, bloqueioParaMexerNaConta, ehContaAvulsa, nomeDoDevedor } from '../../utils/lancamentoReceberDomain';
 import RenegociacaoModal, { type ParcelaParaRenegociar, type ResultadoDaRenegociacao } from '../../components/finance/RenegociacaoModal';
 import {
   PERMISSAO_RENEGOCIAR,
-  STATUS_RENEGOCIADA,
   ehParcelaDeRenegociacao,
   validarMotivoRenegociacao,
   validarTitulosParaRenegociar,
@@ -81,17 +76,14 @@ import {
   PERMISSAO_ALTERAR_VALOR,
   bloqueioParaAlterarValor,
   centavosAtuaisDoTitulo,
-  centavosParaAOrigem,
   resumoDaAlteracaoValor,
   valorAlteradoAtivo,
   type AlteracaoValorRegistro,
 } from '../../utils/alteracaoValorTituloDomain';
 import { pedirNovoValorDaParcela } from '../../utils/alteracaoValorTituloUi';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { creditoEhDoCliente, juntarCreditosSemRepetir } from '../../utils/creditoDomain';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
-import { createAuditLog } from '../../services/logService';
 import { filtrarLancamentosVisiveis } from '../../utils/visibilidadeVendasDomain';
 import ChequeCaptureModal from '../../components/finance/ChequeCaptureModal';
 import {
@@ -174,12 +166,6 @@ interface GrupoCliente {
 /** Regra compartilhada com o Dashboard -- ver transactionDueDateInput. */
 const dataReferenciaTransacao = (t: TransacaoData) => transactionDueDateInput(t) || undefined;
 
-/** Historico de alteracoes (09/11/2026): valor como o usuario le. */
-const reaisDoHistorico = (centavos: number): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(centavos) || 0) / 100);
-
-/** Como o usuario conhece o titulo no Historico de alteracoes. */
-const numeroDaContaAReceber = (descricao: unknown): string => `Conta a receber ${String(descricao || '').trim() || 'sem descrição'}`;
-
 // Formas que o "Dar Baixa" aceita; a filial escolhe quais usa (formasDeRecebimento).
 const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
 
@@ -206,6 +192,12 @@ const ContasReceber: React.FC = () => {
   const podeCancelarConta = temAcao(PERMISSAO_FINANCEIRO.receberCancelar);
   // O acerto da' baixa nos dois lados: alem da permissao dele, dar baixa em Receber e em Pagar.
   const podeAcerto = temAcao(PERMISSAO_FINANCEIRO.acertoFornecedor) && podeReceberBaixar && temAcao(PERMISSAO_FINANCEIRO.pagarBaixar);
+  // Fase 2 (25/11/2026): credito do cliente (pelo servidor), recibo, WhatsApp, relatorios e importar.
+  const podeCreditoCliente = temAcao(PERMISSAO_FINANCEIRO.baixaCreditoCliente);
+  const podeRecibo = temAcao(PERMISSAO_FINANCEIRO.recibo);
+  const podeCobrarWhatsapp = temAcao(PERMISSAO_FINANCEIRO.cobrarWhatsapp);
+  const podeRelatorios = temAcao(PERMISSAO_FINANCEIRO.relatorios);
+  const podeImportar = temAcao(PERMISSAO_FINANCEIRO.importarTitulos);
   const semPermissao = (permissao: string, acao: string) => `Você não tem permissão para ${acao}. Peça a um responsável liberar "${permissionLabelMap[permissao] || permissao}" no seu cadastro de funcionário.`;
   const [renegociando, setRenegociando] = useState<{ clienteNome: string; titulos: ParcelaParaRenegociar[] } | null>(null);
   
@@ -300,6 +292,10 @@ const ContasReceber: React.FC = () => {
    * baixa, sai conforme a filial configurou (perguntar / sempre / nunca).
    */
   const emitirRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number; reciboId?: string }) => {
+    if (!podeRecibo) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.recibo, 'emitir recibo de pagamento'));
+      return;
+    }
     try {
       let cadastroCliente: unknown = null;
       if (t.clienteId) {
@@ -335,7 +331,8 @@ const ContasReceber: React.FC = () => {
 
   const oferecerRecibo = async (t: TransacaoData, dados: { formaPagamento?: string; dataPagamento?: string; acrescimoCentavos?: number; descontoCentavos?: number; principalCentavos?: number; reciboId?: string }) => {
     const modo = emissaoDocumentos.recibo.modo;
-    if (modo === 'nunca') return;
+    // Sem a permissao de recibo (item 15, fase 2), a baixa segue sem oferecer o recibo.
+    if (modo === 'nunca' || !podeRecibo) return;
     if (modo === 'perguntar') {
       const resposta = await NexusSwal.fire({
         title: 'Emitir recibo de pagamento?',
@@ -396,100 +393,17 @@ const ContasReceber: React.FC = () => {
     dadosCheque: ChequeDetails | null,
     dataCompensacao: string,
     bancoId?: string,
-    bancoNome?: string,
   ) => {
     if (!tenantId || !currentUser) return;
-    const transactionRef = doc(db, 'transacoes', t.id);
-
-    const registrado = await runTransaction(db, async (transaction) => {
-      const transactionSnap = await transaction.get(transactionRef);
-      if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
-      const transactionData = transactionSnap.data();
-      if (transactionData.status === 'Paga') return null;
-      if (transactionData.status === 'Cancelada') {
-        throw new Error('Uma conta cancelada não pode ser recebida.');
-      }
-      if (transactionData.status === STATUS_RENEGOCIADA) {
-        throw new Error('Esta parcela foi renegociada. Receba pelas parcelas da renegociação (ou desfaça a renegociação).');
-      }
-
-      let sourceRef = null;
-      let sourceSnap = null;
-      const saleId = transactionData.pedidoId || t.pedidoId;
-      const serviceOrderId = transactionData.osId || t.osId;
-      if (saleId) {
-        sourceRef = doc(db, 'pedidos_venda', saleId);
-        sourceSnap = await transaction.get(sourceRef);
-      } else if (serviceOrderId) {
-        sourceRef = doc(db, 'ordens_de_servico', serviceOrderId);
-        sourceSnap = await transaction.get(sourceRef);
-      }
-      if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
-        throw new Error(saleId ? 'A venda vinculada está cancelada.' : 'A OS vinculada está cancelada.');
-      }
-
-      transaction.update(transactionRef, {
-        formaPagamentoOriginal: transactionData.formaPagamentoOriginal || transactionData.formaPagamento || null,
-        formaPagamento: 'Cheque',
-        ...(dadosCheque ? { cheque: dadosCheque } : {}),
-        dataPrevistaRecebimento: dataCompensacao,
-        ...(bancoId ? { bancoId, bancoNome: bancoNome || null } : {}),
-        updatedAt: serverTimestamp(),
-        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa registrada em cheque, aguardando compensação'),
-      });
-
-      if (sourceRef && sourceSnap?.exists()) {
-        const sourceData = sourceSnap.data();
-        const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
-          ? sourceData.pagamentos
-          : [legacyPaymentForTransaction(t.id, transactionData)];
-        const updatedPayments = tagPaymentAsChequeAwaitingClearance(payments, {
-          transactionId: t.id,
-          paymentIndex: transactionData.paymentIndex,
-          cheque: dadosCheque,
-          dataCompensacao,
-          bancoId,
-          bancoNome,
-        });
-
-        transaction.update(sourceRef, {
-          pagamentos: updatedPayments,
-          updatedAt: serverTimestamp(),
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa registrada em cheque, aguardando compensação'),
-        });
-      }
-      return {
-        descricao: String(transactionData.descricao || t.descricao || ''),
-        valorCentavos: Number(transactionData.valorCentavos ?? toCents(Number(transactionData.valor ?? t.valor ?? 0))),
-        saleId: saleId ? String(saleId) : '',
-        serviceOrderId: serviceOrderId ? String(serviceOrderId) : '',
-        vendedorId: String(transactionData.vendedorId || ''),
-      };
+    // Pelo servidor (item 15, fase 2, 25/11/2026): mesma regra de antes -- a conta
+    // continua em aberto, pelo valor inteiro, ate' o cheque compensar.
+    await registrarChequeAReceber({
+      transacaoId: t.id,
+      dataCompensacao,
+      ...(bancoId ? { bancoId } : {}),
+      cheque: dadosCheque,
+      tenantId,
     });
-
-    // Historico de alteracoes (09/11/2026): depois da transacao dar certo.
-    if (registrado) {
-      const numeroCheque = dadosCheque?.numeroCheque ? ` nº ${dadosCheque.numeroCheque}` : '';
-      createAuditLog({
-        tenantId,
-        usuarioId: currentUser.uid,
-        usuarioEmail: currentUser.email || currentUser.uid,
-        modulo: 'financeiro',
-        acao: 'baixa',
-        descricao: `Recebimento "${registrado.descricao}" de ${reaisDoHistorico(registrado.valorCentavos)} registrado em cheque${numeroCheque}, aguardando compensação em ${dataBrasileira(dataCompensacao) || dataCompensacao}`
-          + `${bancoNome ? ` (banco ${bancoNome})` : ''}${dadosCheque ? '' : ' (sem os dados do cheque)'}. A conta continua em aberto até o cheque compensar.`,
-        registroRelacionadoId: t.id,
-        documentosRelacionados: [registrado.saleId, registrado.serviceOrderId],
-        documentoTipo: 'conta_receber',
-        documentoNumero: numeroDaContaAReceber(registrado.descricao),
-        alteracoes: [
-          { campo: 'Forma de pagamento', valorAnterior: t.formaPagamento || null, valorNovo: 'Cheque' },
-          { campo: 'Compensação prevista', valorAnterior: null, valorNovo: dataBrasileira(dataCompensacao) || dataCompensacao },
-        ],
-        ...(registrado.vendedorId ? { vendedorId: registrado.vendedorId } : {}),
-        status: 'sucesso',
-      });
-    }
   };
 
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
@@ -597,7 +511,7 @@ const ContasReceber: React.FC = () => {
       if (pagamentoSimplificado) {
         // Simplificado: sem os dados do cheque; "bom para" = a data informada acima.
         try {
-          await registrarChequeParaCompensar(t, null, dataRecebimento, bancoId, bancoNome);
+          await registrarChequeParaCompensar(t, null, dataRecebimento, bancoId);
           showSuccess('Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado (o banco é escolhido ao compensar).');
         } catch (error) {
           console.error('Erro ao registrar cheque para baixa:', error);
@@ -641,6 +555,11 @@ const ContasReceber: React.FC = () => {
     // Parcela de renegociacao: o abatimento com credito grava pelo navegador e nao
     // quitaria as vendas de origem quando a renegociacao fecha -- recebe pelo servidor.
     if (ehParcelaDeRenegociacao(t)) {
+      await solicitarFormaRecebimento(t);
+      return;
+    }
+    // Sem "abater com credito do cliente" (item 15, fase 2): recebe sem oferecer o credito.
+    if (!podeCreditoCliente) {
       await solicitarFormaRecebimento(t);
       return;
     }
@@ -715,192 +634,26 @@ const ContasReceber: React.FC = () => {
 
     setIsProcessing(true);
     try {
-      const transactionRef = doc(db, 'transacoes', t.id);
-      const creditPaymentRef = doc(collection(db, 'transacoes'));
-      const creditRefs = modalConciliacao.creditos.map((credit) => doc(db, 'creditos_cliente', credit.id));
-      const paymentDate = dataBaixaCredito;
-
-      let remainingCents = 0;
-      // Para o Historico de alteracoes: a venda/OS ligada e o que o titulo era.
-      let origemDoTitulo = { saleId: '', serviceOrderId: '', descricao: t.descricao || '', vendedorId: '' };
-      await runTransaction(db, async (transaction) => {
-        const transactionSnap = await transaction.get(transactionRef);
-        if (!transactionSnap.exists()) throw new Error('Conta a receber não encontrada.');
-        const transactionData = transactionSnap.data();
-        if (transactionData.status !== 'Pendente') {
-          throw new Error('Esta conta já foi processada ou cancelada.');
-        }
-        const currentTransactionCents = Number(transactionData.valorCentavos ?? toCents(transactionData.valor));
-        if (currentTransactionCents !== expectedTransactionCents) {
-          throw new Error('O saldo da conta foi alterado. Reabra a conciliação.');
-        }
-
-        const creditSnapshots = await Promise.all(creditRefs.map((creditRef) => transaction.get(creditRef)));
-        const saleId = transactionData.pedidoId || t.pedidoId;
-        const serviceOrderId = transactionData.osId || t.osId;
-        const sourceRef = saleId
-          ? doc(db, 'pedidos_venda', saleId)
-          : serviceOrderId
-            ? doc(db, 'ordens_de_servico', serviceOrderId)
-            : null;
-        const sourceSnap = sourceRef ? await transaction.get(sourceRef) : null;
-        if (sourceSnap?.exists() && sourceSnap.data().status === 'Cancelada') {
-          throw new Error(saleId ? 'A venda vinculada está cancelada.' : 'A OS vinculada está cancelada.');
-        }
-
-        let remainingCreditCents = creditCents;
-        const creditUpdates: Array<{ ref: ReturnType<typeof doc>; balanceCents: number }> = [];
-        creditSnapshots.forEach((creditSnap, index) => {
-          if (remainingCreditCents <= 0 || !creditSnap.exists()) return;
-          const creditData = creditSnap.data();
-          if (creditData.tenantId !== tenantId || !['disponivel', 'usado_parcial'].includes(creditData.status)) return;
-          const availableCents = Number(creditData.saldoDisponivelCentavos ?? toCents(creditData.saldoDisponivel));
-          const usedCents = Math.min(availableCents, remainingCreditCents);
-          if (usedCents <= 0) return;
-          creditUpdates.push({ ref: creditRefs[index], balanceCents: availableCents - usedCents });
-          remainingCreditCents -= usedCents;
-        });
-        if (remainingCreditCents > 0) {
-          throw new Error('O saldo de crédito disponível foi alterado. Reabra a conciliação.');
-        }
-
-        remainingCents = currentTransactionCents - creditCents;
-        origemDoTitulo = {
-          saleId: saleId ? String(saleId) : '',
-          serviceOrderId: serviceOrderId ? String(serviceOrderId) : '',
-          descricao: String(transactionData.descricao || t.descricao || ''),
-          vendedorId: String(transactionData.vendedorId || ''),
-        };
-        creditUpdates.forEach(({ ref, balanceCents }) => {
-          transaction.update(ref, {
-            saldoDisponivelCentavos: balanceCents,
-            saldoDisponivel: fromCents(balanceCents),
-            status: balanceCents <= 0 ? 'esgotado' : 'usado_parcial',
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Crédito usado na baixa'),
-          });
-        });
-
-        const receiptTransactionId = remainingCents === 0 ? t.id : creditPaymentRef.id;
-        if (remainingCents === 0) {
-          transaction.update(transactionRef, {
-            status: 'Paga',
-            formaPagamentoOriginal: transactionData.formaPagamentoOriginal || transactionData.formaPagamento || null,
-            formaPagamento: 'Crédito de Devolução',
-            naturezaFinanceira: 'credito_cliente',
-            movimentaCaixaFisico: false,
-            dataPagamento: paymentDate,
-            recebidoEm: serverTimestamp(),
-            observacao: `Pagamento realizado utilizando ${fromCents(creditCents).toFixed(2)} em crédito do cliente.`,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Quitada com crédito de devolução'),
-          });
-        } else {
-          transaction.update(transactionRef, {
-            valorCentavos: remainingCents,
-            valor: fromCents(remainingCents),
-            observacao: `Abatimento de R$ ${fromCents(creditCents).toFixed(2)} em crédito; saldo pendente de R$ ${fromCents(remainingCents).toFixed(2)}.`,
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Abatida parcialmente com crédito de devolução'),
-          });
-          transaction.set(creditPaymentRef, {
-            descricao: `${transactionData.descricao || t.descricao} - Crédito de devolução`,
-            categoria: transactionData.categoria || t.categoria,
-            valorCentavos: creditCents,
-            valor: fromCents(creditCents),
-            tipo: 'entrada',
-            status: 'Paga',
-            formaPagamento: 'Crédito de Devolução',
-            naturezaFinanceira: 'credito_cliente',
-            movimentaCaixaFisico: false,
-            data: paymentDate,
-            dataPagamento: paymentDate,
-            recebidoEm: serverTimestamp(),
-            clienteNome: transactionData.clienteNome || t.clienteNome || null,
-            pedidoId: saleId || null,
-            osId: serviceOrderId || null,
-            sourcePaymentTransactionId: t.id,
-            idempotencyKey: `credito:${creditPaymentRef.id}`,
-            tenantId,
-            createdAt: serverTimestamp(),
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-        }
-
-        if (sourceRef && sourceSnap?.exists()) {
-          const sourceData = sourceSnap.data();
-          const payments: PaymentRecord[] = Array.isArray(sourceData.pagamentos) && sourceData.pagamentos.length > 0
-            ? sourceData.pagamentos
-            : [legacyPaymentForTransaction(t.id, transactionData)];
-          const updatedPayments = applyPaymentReceipt(payments, {
-            transactionId: t.id,
-            paymentIndex: transactionData.paymentIndex,
-            // Parcela com valor alterado: a venda so' fecha junto com a parcela, e por inteiro.
-            amountCents: centavosParaAOrigem(payments, {
-              transactionId: t.id,
-              paymentIndex: transactionData.paymentIndex,
-              titulo: transactionData,
-              recebidoCentavos: creditCents,
-              tituloQuitado: remainingCents === 0,
-            }),
-            method: 'Crédito de Devolução',
-            receiptId: receiptTransactionId,
-            receivedAt: paymentDate,
-          });
-          const summary = summarizePayments(updatedPayments);
-          transaction.update(sourceRef, {
-            pagamentos: updatedPayments,
-            totalRecebidoCentavos: summary.receivedCents,
-            totalRecebido: summary.received,
-            totalPendenteCentavos: summary.pendingCents,
-            totalPendente: summary.pending,
-            totalTaxasPagamentoCentavos: summary.cardFeeCents,
-            totalTaxasPagamento: summary.cardFee,
-            totalLiquidoFinanceiroCentavos: summary.financialNetCents,
-            totalLiquidoFinanceiro: summary.financialNet,
-            statusPagamento: summary.pendingCents === 0
-              ? 'Paga'
-              : summary.receivedCents > 0
-                ? 'Parcial'
-                : 'Pendente',
-            updatedAt: serverTimestamp(),
-            ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), 'Baixa com crédito de devolução'),
-          });
-        }
-      });
-
-      // Historico de alteracoes (09/11/2026): depois da transacao dar certo.
-      const quitou = remainingCents === 0;
-      createAuditLog({
+      // Pelo servidor (item 15, fase 2, 25/11/2026): le os creditos do cliente, abate
+      // ou quita, acerta a venda/OS e grava o Historico de alteracoes.
+      const r = await abaterComCreditoDoCliente({
+        transacaoId: t.id,
+        valorCentavos: creditCents,
+        dataPagamento: dataBaixaCredito,
+        valorEsperadoCentavos: expectedTransactionCents,
         tenantId,
-        usuarioId: currentUser.uid,
-        usuarioEmail: currentUser.email || currentUser.uid,
-        modulo: 'financeiro',
-        acao: 'baixa',
-        descricao: quitou
-          ? `Recebimento "${origemDoTitulo.descricao}" quitado com ${reaisDoHistorico(creditCents)} de crédito de devolução do cliente${t.clienteNome ? ` ${t.clienteNome}` : ''}, em ${dataBrasileira(paymentDate) || paymentDate}.`
-          : `Recebimento "${origemDoTitulo.descricao}" abatido em ${reaisDoHistorico(creditCents)} com crédito de devolução do cliente${t.clienteNome ? ` ${t.clienteNome}` : ''}, em ${dataBrasileira(paymentDate) || paymentDate}. Fica em aberto ${reaisDoHistorico(remainingCents)}.`,
-        registroRelacionadoId: t.id,
-        documentosRelacionados: [origemDoTitulo.saleId, origemDoTitulo.serviceOrderId, quitou ? '' : creditPaymentRef.id],
-        documentoTipo: 'conta_receber',
-        documentoNumero: numeroDaContaAReceber(origemDoTitulo.descricao),
-        alteracoes: quitou
-          ? [{ campo: 'Situação', valorAnterior: 'Pendente', valorNovo: 'Paga' }, { campo: 'Forma de pagamento', valorAnterior: t.formaPagamento || null, valorNovo: 'Crédito de Devolução' }]
-          : [{ campo: 'Valor em aberto', valorAnterior: reaisDoHistorico(expectedTransactionCents), valorNovo: reaisDoHistorico(remainingCents) }],
-        ...(origemDoTitulo.vendedorId ? { vendedorId: origemDoTitulo.vendedorId } : {}),
-        status: 'sucesso',
       });
 
       // Cashback (20/10/2026): titulo quitado pode ter deixado a venda toda paga -- o servidor confere e gera.
-      if (remainingCents === 0 && t.pedidoId) void gerarCashbackSemFalhar(String(t.pedidoId));
+      if (r.quitou && t.pedidoId) void gerarCashbackSemFalhar(String(t.pedidoId));
 
-      showSuccess(remainingCents === 0
+      showSuccess(r.quitou
         ? 'Conta quitada com o crédito do cliente!'
-        : `Crédito aplicado. Restam R$ ${fromCents(remainingCents).toFixed(2)} pendentes.`);
+        : `Crédito aplicado. Restam R$ ${fromCents(r.restanteCentavos).toFixed(2)} pendentes.`);
       fecharModalConciliacao();
     } catch (error) {
       console.error(error);
-      showError('Erro', error instanceof Error ? error.message : 'Ocorreu um erro ao processar o abatimento.');
+      showError('Não foi possível usar o crédito', error instanceof Error ? error.message : 'Ocorreu um erro ao processar o abatimento.');
     } finally {
       setIsProcessing(false);
     }
@@ -1478,17 +1231,17 @@ const ContasReceber: React.FC = () => {
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
           <MenuMaisOpcoes
             itens={[
-              {
+              ...(podeRelatorios ? [{
                 texto: 'Recebimentos', Icone: FileText,
                 titulo: 'Relatório do que foi recebido no dia (ou num período): forma, banco ou caixa e totais. Abre em PDF, dá para imprimir e salvar em Excel',
                 onClick: () => { void pedirPeriodoDosRecebimentos().then((filtro) => { if (filtro) setRelatorioRecebimentos(filtro); }); },
-              },
+              }] : []),
               ...(podeAcerto ? [{
                 texto: 'Acerto com fornecedor', Icone: ArrowLeftRight,
                 titulo: 'O cliente pagou direto um fornecedor: dá baixa na conta dele e na conta do fornecedor de uma vez, sem mexer em caixa nem em banco',
                 onClick: () => setAcertoAberto(true),
               }] : []),
-              { texto: 'Importar títulos', Icone: Upload, separadorAntes: true, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') },
+              ...(podeImportar ? [{ texto: 'Importar títulos', Icone: Upload, separadorAntes: true, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') }] : []),
             ]}
           />
           {podeLancarConta && (
@@ -1695,7 +1448,7 @@ const ContasReceber: React.FC = () => {
                           })()}
                         </td>
                         <td style={{ padding: '16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-{grupo.transacoes.some((t) => t.status === 'Pendente') && (
+{podeCobrarWhatsapp && grupo.transacoes.some((t) => t.status === 'Pendente') && (
                           /* So' o icone, igual ao da parcela (pedido do dono, 15/10/2026). */
                           <button
                             onClick={() => handleCobrarClienteWhatsApp(grupo)}
@@ -1802,7 +1555,7 @@ const ContasReceber: React.FC = () => {
                                               <Undo2 size={13} /> Estornar
                                             </button>
                                           )}
-                                          {!t.acrescimoDaTransacaoId && (
+                                          {podeRecibo && !t.acrescimoDaTransacaoId && (
                                             <button
                                               onClick={() => void emitirRecibo(t, ajustesDoRecibo(t))}
                                               disabled={isProcessing}
@@ -1826,6 +1579,7 @@ const ContasReceber: React.FC = () => {
                                       ) : (
                                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
                                         {/* Cobrar pelo WhatsApp: so' o icone (pedido do dono, 15/10/2026 -- linha menos poluida). */}
+                                        {podeCobrarWhatsapp && (
                                         <button
                                           onClick={() => handleCobrarWhatsApp(t)}
                                           style={{ backgroundColor: 'transparent', border: '1px solid #25D366', color: '#25D366', cursor: 'pointer', borderRadius: '6px', width: '30px', height: '30px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
@@ -1834,6 +1588,7 @@ const ContasReceber: React.FC = () => {
                                         >
                                           <MessageCircle size={15} />
                                         </button>
+                                        )}
                                         {contaParaEmitirBoleto(t) ? (
                                           <>
                                             <button
@@ -2084,7 +1839,7 @@ const ContasReceber: React.FC = () => {
         onConfirmar={async (dados) => {
           if (!chequeBaixaState) return;
           try {
-            await registrarChequeParaCompensar(chequeBaixaState.transacao, dados, dados.dataCompensacao, chequeBaixaState.bancoId, chequeBaixaState.bancoNome);
+            await registrarChequeParaCompensar(chequeBaixaState.transacao, dados, dados.dataCompensacao, chequeBaixaState.bancoId);
             showSuccess('Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado.');
           } catch (error) {
             console.error('Erro ao registrar cheque para baixa:', error);

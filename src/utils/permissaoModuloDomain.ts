@@ -81,6 +81,15 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'financeiro.receber_cancelar': ['financeiro.receber'],
   'financeiro.categorias': ['financeiro.receber', 'financeiro.pagar'],
   'financeiro.acerto_fornecedor': ['financeiro.receber'],
+  // Item 15, fase 2 (25/11/2026).
+  'financeiro.pagar_lancar': ['financeiro.pagar'],
+  'financeiro.pagar_editar': ['financeiro.pagar'],
+  'financeiro.pagar_cancelar': ['financeiro.pagar'],
+  'financeiro.baixa_credito_cliente': ['financeiro.receber'],
+  'financeiro.recibo': ['financeiro.receber'],
+  'financeiro.cobrar_whatsapp': ['financeiro.receber'],
+  'financeiro.relatorios': ['financeiro.receber', 'financeiro.pagar', 'financeiro.caixa_registros', 'financeiro.banco', 'financeiro.cheques', 'financeiro.faturamento', 'financeiro.comissoes'],
+  'financeiro.importar_titulos': ['financeiro.receber', 'financeiro.pagar'],
   // Caixas e transferencias (21/10/2026): parte do modulo do Fluxo de Caixa.
   'financeiro.caixas': ['financeiro.caixa'],
 
@@ -88,6 +97,11 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'fiscal.excluir': ['fiscal.nfe'],
   'fiscal.relatorio_contador': ['fiscal.relatorio_contador'],
   'fiscal.tabelas': ['fiscal.nfe'],
+  'fiscal.cce': ['fiscal.nfe'],
+  'fiscal.inutilizar': ['fiscal.nfe'],
+  'fiscal.devolucao': ['fiscal.nfe'],
+  'fiscal.emitir_lote': ['fiscal.nfe'],
+  'compras.gerar_pedido': ['compras.cotacoes'],
   'estoque.balanco_gerenciar': ['estoque.balanco'],
   'estoque.balanco_contar': ['estoque.balanco'],
   'fiscal.entrada': ['fiscal.entrada_nfe'],

@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import {
   MARCADORES_DOS_PACOTES,
   PACOTES_DE_PERMISSOES,
+  PERMISSAO_COMPRAS,
   PERMISSAO_FINANCEIRO,
+  PERMISSAO_FISCAL,
   ehMarcadorInterno,
   marcadorDoPacote,
   mexidasSemTer,
@@ -20,6 +22,9 @@ import { MARCADOR_APP_DEFINIDO } from '../src/utils/permissoesAppDomain';
 const ordenar = (l: string[]) => [...l].sort();
 const F = PERMISSAO_FINANCEIRO;
 const MARCADOR_FIN = marcadorDoPacote('financeiro-1');
+const MARCADOR_FIN2 = marcadorDoPacote('financeiro-2');
+/** Todos os marcadores conhecidos: efetivas e o que gravar sempre levam todos. */
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -45,16 +50,21 @@ test('quem tem Contas a Receber e nunca foi salvo ganha as novas do Receber (nin
 
 test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nada', () => {
   const pagar = permissoesEfetivas(['financeiro.pagar']);
-  assert.deepEqual(ordenar(pagar), ordenar(['financeiro.pagar', F.pagarBaixar, F.baixaJurosMulta, F.baixaDataAnterior, F.baixaLote, F.categorias, MARCADOR_FIN]));
-  assert.deepEqual(permissoesEfetivas(['vendas.pedidos']), ['vendas.pedidos', MARCADOR_FIN]);
-  assert.deepEqual(permissoesEfetivas(undefined), [MARCADOR_FIN]);
-  assert.deepEqual(permissoesEfetivas(['vendas.pedidos', 7, null]), ['vendas.pedidos', MARCADOR_FIN], 'ignora lixo');
+  assert.deepEqual(ordenar(pagar), ordenar([
+    'financeiro.pagar', F.pagarBaixar, F.baixaJurosMulta, F.baixaDataAnterior, F.baixaLote, F.categorias,
+    // Pacote 2 (fase 2): lancar/alterar/cancelar despesa, relatorios e importar.
+    F.pagarLancar, F.pagarEditar, F.pagarCancelar, F.relatorios, F.importarTitulos,
+    ...MARCADORES,
+  ]));
+  assert.deepEqual(permissoesEfetivas(['vendas.pedidos']), ['vendas.pedidos', ...MARCADORES]);
+  assert.deepEqual(permissoesEfetivas(undefined), MARCADORES);
+  assert.deepEqual(permissoesEfetivas(['vendas.pedidos', 7, null]), ['vendas.pedidos', ...MARCADORES], 'ignora lixo');
 });
 
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
-  assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, MARCADOR_FIN]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1']);
+  assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');
@@ -63,7 +73,7 @@ test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda
   const antigas = permissoesEfetivas(['financeiro.receber', 'financeiro.pagar']);
   assert.deepEqual(ordenar(permissoesEfetivas(antigas)), ordenar(antigas));
   // Marcador repetido ou vindo da tela nao duplica.
-  assert.deepEqual(ordenar(permissoesParaGravar([MARCADOR_FIN, 'a.b', 'a.b', MARCADOR_FIN])), ordenar(['a.b', MARCADOR_FIN]));
+  assert.deepEqual(ordenar(permissoesParaGravar([MARCADOR_FIN, 'a.b', 'a.b', MARCADOR_FIN])), ordenar(['a.b', ...MARCADORES]));
 });
 
 test('app + pacotes juntos: efetivas e o que gravar levam os dois marcadores', () => {
@@ -73,7 +83,7 @@ test('app + pacotes juntos: efetivas e o que gravar levam os dois marcadores', (
   assert.ok(efetivas.includes(F.receberBaixar));
   assert.ok(efetivas.includes('app.pedido'), 'chave nova do app continua implicita');
   const gravar = permissoesParaGravarDoUsuario(['financeiro.receber']);
-  assert.deepEqual(ordenar(gravar), ordenar(['financeiro.receber', MARCADOR_APP_DEFINIDO, MARCADOR_FIN]));
+  assert.deepEqual(ordenar(gravar), ordenar(['financeiro.receber', MARCADOR_APP_DEFINIDO, ...MARCADORES]));
   assert.deepEqual(ordenar(permissoesEfetivasDoUsuario(gravar)), ordenar(gravar));
   assert.ok(ehMarcadorInterno(MARCADOR_APP_DEFINIDO) && ehMarcadorInterno(MARCADOR_FIN) && !ehMarcadorInterno(F.receberBaixar));
 });
@@ -90,7 +100,7 @@ test('gerente: as novas implicitas contam como dele; desmarcar conta como tirar'
   assert.deepEqual(mexidasSemTer({ antes: alvoAntes, depois: semLote, doGerente: gerenteComReceber }), []);
   assert.deepEqual(mexidasSemTer({ antes: alvoAntes, depois: semLote, doGerente: gerenteSemReceber }), [F.baixaLote]);
   // Sem o marcador na lista (o servidor filtra ids com traco), o desmarcado continua contando.
-  const semMarcador = semLote.filter((p) => p !== MARCADOR_FIN);
+  const semMarcador = semLote.filter((p) => !MARCADORES.includes(p));
   assert.deepEqual(mexidasSemTer({ antes: alvoAntes, depois: semMarcador, doGerente: gerenteSemReceber }), [F.baixaLote]);
 });
 
@@ -101,4 +111,27 @@ test('historico: so o que mudou de verdade, sem marcadores', () => {
   assert.deepEqual(mudancasDePermissoes(antes, depois), { entraram: [], sairam: [] });
   const semBaixa = permissoesParaGravarDoUsuario(permissoesEfetivasDoUsuario(antes).filter((p) => p !== F.receberBaixar));
   assert.deepEqual(mudancasDePermissoes(antes, semBaixa), { entraram: [], sairam: [F.receberBaixar] });
+});
+
+test('pacote 2 (fase 2): salvo antes (so com o pacote 1) ganha as novas pelas permissoes de tela', () => {
+  const salvoNaFase1 = ['financeiro.receber', 'financeiro.pagar', 'fiscal.emitir', 'compras.cotacoes', F.receberBaixar, MARCADOR_FIN];
+  const efetivas = permissoesEfetivas(salvoNaFase1);
+  for (const p of [F.baixaCreditoCliente, F.recibo, F.cobrarWhatsapp, F.relatorios, F.importarTitulos, F.pagarLancar, F.pagarEditar, F.pagarCancelar]) {
+    assert.ok(efetivas.includes(p), p);
+  }
+  for (const p of Object.values(PERMISSAO_FISCAL)) assert.ok(efetivas.includes(p), p);
+  assert.ok(efetivas.includes(PERMISSAO_COMPRAS.gerarPedido));
+  // Do pacote 1 vale so' o que foi gravado (baixa em lote foi desmarcada naquela vez).
+  assert.ok(!efetivas.includes(F.baixaLote));
+  // Relatorios tambem vem com as outras telas do Financeiro; o fiscal nao vem com o Financeiro.
+  assert.ok(permissoesEfetivas(['financeiro.cheques']).includes(F.relatorios));
+  assert.ok(!permissoesEfetivas(['financeiro.receber']).includes(PERMISSAO_FISCAL.inutilizar));
+  // Salvo de novo depois da fase 2: vale o marcado.
+  const salvoNaFase2 = permissoesParaGravar(['fiscal.emitir', PERMISSAO_FISCAL.cartaCorrecao]);
+  const efetivas2 = permissoesEfetivas(salvoNaFase2);
+  assert.ok(efetivas2.includes(PERMISSAO_FISCAL.cartaCorrecao));
+  assert.ok(!efetivas2.includes(PERMISSAO_FISCAL.inutilizar), 'desmarcou inutilizar: fica sem');
+  [...Object.values(PERMISSAO_FISCAL), ...Object.values(PERMISSAO_COMPRAS)].forEach((p: string) => {
+    assert.ok(PERMISSION_CATALOG.some((i) => i.id === p), `${p} no catalogo`);
+  });
 });

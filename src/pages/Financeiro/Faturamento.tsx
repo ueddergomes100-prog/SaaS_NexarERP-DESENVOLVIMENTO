@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { TrendingUp, FileText, PieChart, Calendar, Loader2 } from 'lucide-react';
 import { useTitulosFinanceiros } from '../../hooks/useTitulosFinanceiros';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
 import { fromCents } from '../../utils/financeDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import {
@@ -27,7 +29,11 @@ const Faturamento: React.FC = () => {
   const { mostrar: mostrarValor } = useValoresOcultos();
   const [anoFiltro, setAnoFiltro] = useState<number>(new Date().getFullYear());
   const [previewAberto, setPreviewAberto] = useState(false);
-  const { tenantId } = useAuth();
+  const { tenantId, userRole, userPermissions, isOwner } = useAuth();
+  // Item 15, fase 2 (25/11/2026): relatorios do Financeiro com permissao propria (ja' vem
+  // marcada para quem tem a tela).
+  const podeRelatorios = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole)
+    || Boolean(userPermissions?.includes(PERMISSAO_FINANCEIRO.relatorios));
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14): o faturamento so'
   // conta lancamentos PAGOS do ano escolhido, entao o banco devolve so' esses
@@ -100,9 +106,11 @@ const Faturamento: React.FC = () => {
               return <option key={ano} value={ano}>{ano}</option>;
             })}
           </select>
+          {podeRelatorios && (
           <button className="btn-primary" onClick={() => setPreviewAberto(true)} title="Abre o DRE e o balancete do ano em PDF (dá para salvar em Excel)" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={18} /> Gerar relatório
           </button>
+          )}
         </div>
       </div>
 

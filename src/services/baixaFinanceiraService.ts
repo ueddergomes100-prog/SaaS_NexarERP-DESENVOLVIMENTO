@@ -20,7 +20,7 @@ import { camposDosAjustes, type AjustesDaBaixa } from '../utils/ajustesDaBaixaDo
 import { showError, showSuccess } from '../utils/alerts';
 import type { BoletoAnteriorPedido } from '../utils/boletoSistemaAnteriorDomain';
 import { fetchComTimeout, mensagemDeFalhaDeRede, TEMPO_LIMITE } from '../utils/fetchComTimeout';
-import { fromCents, transactionNetAmount } from '../utils/financeDomain';
+import { fromCents, transactionNetAmount, type ChequeDetails } from '../utils/financeDomain';
 import {
   dataBrasileira,
   planejarEstornoPagar,
@@ -63,6 +63,11 @@ type RotaFinanceiro =
   | '/receber/lancar'
   | '/receber/editar'
   | '/receber/cancelar'
+  | '/receber/cheque'
+  | '/receber/credito'
+  | '/pagar/lancar'
+  | '/pagar/editar'
+  | '/pagar/cancelar'
   | '/categorias';
 
 const chamarFinanceiro = async <T>(caminho: RotaFinanceiro, corpo: Record<string, unknown>, timeoutMs: number = TEMPO_LIMITE.padrao): Promise<T> => {
@@ -258,6 +263,51 @@ export const criarCategoriaDoPlano = (args: { tipo: 'receita' | 'despesa'; nome:
 /** Cancela uma conta avulsa em aberto, com motivo (registrado nos logs). */
 export const cancelarContaAReceber = (args: { transacaoId: string; motivo: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean }>('/receber/cancelar', { ...args })
+);
+
+/**
+ * Contas a Receber, baixa em CHEQUE (item 15, fase 2, 25/11/2026): a conta
+ * continua em aberto, aguardando a compensacao. `cheque` ausente = pagamento
+ * simplificado da filial (o servidor confere a configuracao).
+ */
+export const registrarChequeAReceber = (args: {
+  transacaoId: string;
+  dataCompensacao: string;
+  bancoId?: string;
+  cheque?: Partial<ChequeDetails> | null;
+  tenantId: string;
+}) => chamarFinanceiro<{ ok: boolean; jaPaga: boolean }>('/receber/cheque', {
+  transacaoId: args.transacaoId,
+  dataCompensacao: args.dataCompensacao,
+  tenantId: args.tenantId,
+  ...(args.bancoId ? { bancoId: args.bancoId } : {}),
+  ...(args.cheque ? { cheque: args.cheque } : {}),
+});
+
+/** Contas a Receber: quita ou abate a conta com o credito de devolucao do cliente (lido no servidor). */
+export const abaterComCreditoDoCliente = (args: {
+  transacaoId: string;
+  valorCentavos: number;
+  dataPagamento: string;
+  valorEsperadoCentavos: number;
+  tenantId: string;
+}) => chamarFinanceiro<{ ok: boolean; quitou: boolean; restanteCentavos: number }>('/receber/credito', { ...args });
+
+/**
+ * Contas a Pagar pelo servidor (item 15, fase 2, 25/11/2026): lancar (uma,
+ * parcelada ou em cheques), alterar e cancelar despesa. Repetir o envio do
+ * lancamento (mesmo idLancamento) nao lanca duas vezes.
+ */
+export const lancarContaAPagar = (corpo: Record<string, unknown>) => (
+  chamarFinanceiro<{ ok: boolean; ids: string[]; jaLancado: boolean; totalCentavos: number; quantidade: number }>('/pagar/lancar', corpo)
+);
+
+export const editarContaAPagar = (corpo: Record<string, unknown>) => (
+  chamarFinanceiro<{ ok: boolean; alterou: boolean }>('/pagar/editar', corpo)
+);
+
+export const cancelarContaAPagar = (args: { transacaoId: string; motivo: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean }>('/pagar/cancelar', { ...args })
 );
 
 /** "Dar Baixa" com forma Boleto (15/10/2026): a parcela passa a ser cobrada em boleto, com o vencimento

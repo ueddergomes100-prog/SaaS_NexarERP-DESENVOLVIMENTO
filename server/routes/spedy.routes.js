@@ -3,6 +3,8 @@ const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { admin, db } = require('../config/firebase');
 const { BASE_URLS, canUseFiscal, resolveTenantId, loadSpedyConfig, idSpedyValido } = require('../services/spedyAcesso');
+const { permissoesQueFaltam, mensagemSemPermissao } = require('../services/permissoesFinanceiro');
+const { PERMISSAO_FISCAL } = require('../domain/permissoesNovasDomain');
 const { avaliarRequisitos, validarAmbienteEnviado, mesclarConfiguracaoAtual } = require('../services/requisitosFiscais');
 const { validarCarta, motivoQueImpedeCarta } = require('../services/cartaCorrecao');
 const { buildCompanyPayload } = require('../services/spedyEmpresa');
@@ -576,6 +578,9 @@ router.post('/:type/:id/corrections', async (req, res) => {
     if (!canUseFiscal(req.user, 'emit')) {
       return res.status(403).json({ error: 'Acesso negado ao modulo fiscal.' });
     }
+    // Item 15, fase 2 (25/11/2026): permissao propria (ja' vem marcada para quem emite nota).
+    const faltamCce = permissoesQueFaltam(req.user, [PERMISSAO_FISCAL.cartaCorrecao]);
+    if (faltamCce.length > 0) return res.status(403).json({ error: mensagemSemPermissao(faltamCce) });
     if (req.params.type !== 'product') {
       return res.status(400).json({ error: 'Carta de correção existe só para NF-e.' });
     }

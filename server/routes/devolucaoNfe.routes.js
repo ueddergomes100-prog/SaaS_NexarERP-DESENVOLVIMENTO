@@ -2,6 +2,8 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { admin, db } = require('../config/firebase');
 const { canUseFiscal, resolveTenantId, loadSpedyConfig } = require('../services/spedyAcesso');
+const { permissoesQueFaltam, mensagemSemPermissao } = require('../services/permissoesFinanceiro');
+const { PERMISSAO_FISCAL } = require('../domain/permissoesNovasDomain');
 const {
   CFOPS_DEVOLUCAO_PERMITIDOS,
   montarPayloadDevolucao,
@@ -66,6 +68,9 @@ const carregarCliente = async (tenantId, pedido) => {
 /** Le tudo o que a devolucao precisa e devolve o resultado de prepararDevolucao. */
 const carregarEPreparar = async (req) => {
   if (!canUseFiscal(req.user, 'emit')) throw new ErroDevolucao(403, 'Acesso negado ao módulo fiscal.');
+  // Item 15, fase 2 (25/11/2026): permissao propria (ja' vem marcada para quem emite nota).
+  const faltam = permissoesQueFaltam(req.user, [PERMISSAO_FISCAL.devolucao]);
+  if (faltam.length > 0) throw new ErroDevolucao(403, mensagemSemPermissao(faltam));
 
   const devolucaoId = String(req.body?.devolucaoId || '').trim();
   if (!devolucaoId) throw new ErroDevolucao(400, 'Informe qual devolução deve gerar a nota.');

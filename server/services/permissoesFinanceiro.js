@@ -18,7 +18,12 @@
  * no fim do projeto).
  */
 const { temPermissao } = require('./baixaFinanceiraRegras');
-const { PERMISSAO_FINANCEIRO: PF, permissoesEfetivas } = require('../domain/permissoesNovasDomain');
+const {
+  PERMISSAO_FINANCEIRO: PF,
+  PERMISSAO_FISCAL: PFI,
+  PERMISSAO_COMPRAS: PCO,
+  permissoesEfetivas,
+} = require('../domain/permissoesNovasDomain');
 const { permissionLabelMap } = require('../domain/permissionCatalog');
 
 /** Dar baixa, pelo tipo do titulo. */
@@ -42,6 +47,20 @@ const ACOES = {
   [PF.receberCancelar]: { acao: 'cancelar contas a receber' },
   [PF.categorias]: { acao: 'criar categorias no plano de contas', dica: 'Escolha uma categoria que já existe.' },
   [PF.acertoFornecedor]: { acao: 'fazer acerto com fornecedor' },
+  // Fase 2 (25/11/2026).
+  [PF.pagarLancar]: { acao: 'lançar despesas no Contas a Pagar' },
+  [PF.pagarEditar]: { acao: 'alterar despesas do Contas a Pagar (valor, vencimento e dados)' },
+  [PF.pagarCancelar]: { acao: 'cancelar despesas do Contas a Pagar' },
+  [PF.baixaCreditoCliente]: { acao: 'abater contas com crédito do cliente', dica: 'Sem ela, receba sem usar o crédito.' },
+  [PF.recibo]: { acao: 'emitir recibo de pagamento' },
+  [PF.cobrarWhatsapp]: { acao: 'cobrar clientes pelo WhatsApp' },
+  [PF.relatorios]: { acao: 'tirar relatórios do Financeiro' },
+  [PF.importarTitulos]: { acao: 'importar títulos de planilha' },
+  [PFI.cartaCorrecao]: { acao: 'enviar carta de correção' },
+  [PFI.inutilizar]: { acao: 'inutilizar numeração de notas' },
+  [PFI.devolucao]: { acao: 'emitir NF-e de devolução' },
+  [PFI.emitirLote]: { acao: 'emitir notas em lote', dica: 'Sem ela, emita nota por nota.' },
+  [PCO.gerarPedido]: { acao: 'gerar pedido de compra da cotação' },
 };
 
 const rotulo = (id) => permissionLabelMap[id] || id;

@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import { compensarChequeRecebido } from '../../services/baixaFinanceiraService';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
 import { FileCheck2, CheckCircle, AlertTriangle, Search, FileText } from 'lucide-react';
 import {
@@ -100,7 +102,11 @@ const Cheques: React.FC = () => {
   const [processingId, setProcessingId] = useState<string | null>(null);
   // Relatorio (16/10/2026): os cheques recebidos, com a situacao, o periodo e a busca da tela.
   const [previewAberto, setPreviewAberto] = useState(false);
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  // Item 15, fase 2 (25/11/2026): relatorios do Financeiro com permissao propria (ja' vem
+  // marcada para quem tem a tela).
+  const podeRelatorios = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole)
+    || Boolean(userPermissions?.includes(PERMISSAO_FINANCEIRO.relatorios));
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
 
@@ -323,6 +329,7 @@ const Cheques: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {podeRelatorios && (
         <MenuMaisOpcoes
           itens={[{
             texto: 'Relatório', Icone: FileText,
@@ -331,6 +338,7 @@ const Cheques: React.FC = () => {
             onClick: () => setPreviewAberto(true),
           }]}
         />
+        )}
         <BotaoOlhoValores />
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(139, 92, 246, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
           <FileCheck2 size={24} color="#8b5cf6" />

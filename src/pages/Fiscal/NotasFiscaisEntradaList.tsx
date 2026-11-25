@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Barcode, FileDown, FileText, History, Loader2, Package, Printer, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import DevolucaoCompraModal from '../../components/fiscal/entrada/DevolucaoCompraModal';
+import { PERMISSAO_FISCAL } from '../../utils/permissoesNovasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { useNavigate } from 'react-router-dom';
 import { collection, doc, documentId, query, where, getDocs, runTransaction, serverTimestamp, Timestamp, type DocumentData, type Query } from 'firebase/firestore';
@@ -107,7 +108,8 @@ const NotasFiscaisEntradaList: React.FC = () => {
   // Devolucao de compra ao fornecedor (21/10/2026): quem lanca entrada devolve; quem emite nota emite a NF-e.
   const acessoTotal = hasTenantFullAccess(userRole, isOwner);
   const podeDevolver = acessoTotal || userPermissions.includes('fiscal.entrada');
-  const podeEmitirNota = acessoTotal || userPermissions.includes('fiscal.emitir');
+  // Item 15, fase 2 (25/11/2026): a NF-e de devolucao tem permissao propria (ja' vem marcada para quem emite nota).
+  const podeEmitirNota = acessoTotal || (userPermissions.includes('fiscal.emitir') && userPermissions.includes(PERMISSAO_FISCAL.devolucao));
   const [devolucaoNotaId, setDevolucaoNotaId] = useState<string | null>(null);
   const { openTab } = useTabs();
   const [notas, setNotas] = useState<NotaFiscalEntradaDoc[]>([]);

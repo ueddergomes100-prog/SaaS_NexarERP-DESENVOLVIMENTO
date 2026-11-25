@@ -2,6 +2,8 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const compras = require('../services/compras');
+const { permissoesQueFaltam, mensagemSemPermissao } = require('../services/permissoesFinanceiro');
+const { PERMISSAO_COMPRAS } = require('../domain/permissoesNovasDomain');
 
 /**
  * COMPRAS (22/10/2026) -- ver services/compras.js. Tudo com login:
@@ -71,6 +73,9 @@ router.post('/cotacoes/:id/fechar', cotacoes, async (req, res) => {
 
 router.post('/cotacoes/:id/gerar-pedidos', cotacoes, async (req, res) => {
   try {
+    // Item 15, fase 2 (25/11/2026): gerar pedido tem permissao propria (ja' vem marcada para quem faz cotacao).
+    const faltam = permissoesQueFaltam(req.user, [PERMISSAO_COMPRAS.gerarPedido]);
+    if (faltam.length > 0) return res.status(403).json({ error: mensagemSemPermissao(faltam) });
     const r = await compras.gerarPedidosDaCotacao({ user: req.user, tenantId: req.user.tenantId, id: req.params.id, corpo: req.body || {} });
     log(req, 'criacao', `Cotação nº ${r.numeroCotacao}: ${r.pedidos.map((p) => `pedido de compra nº ${p.numero} para ${p.fornecedorNome} (${reais(p.totalCentavos)})`).join('; ')}.`, r.id);
     return res.json({ ok: true, ...r });

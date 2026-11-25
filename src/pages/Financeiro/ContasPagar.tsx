@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, query, where, doc, updateDoc, addDoc, serverTimestamp, getDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
@@ -18,16 +18,14 @@ import {
   type TituloParaEstorno,
 } from '../../utils/baixaFinanceiraDomain';
 import { pedirDadosBaixa } from '../../utils/baixaFinanceiraUi';
-import { estornarBaixaComConfirmacao, registrarBaixa } from '../../services/baixaFinanceiraService';
+import { cancelarContaAPagar, editarContaAPagar, estornarBaixaComConfirmacao, lancarContaAPagar, registrarBaixa } from '../../services/baixaFinanceiraService';
+import { MOTIVO_MINIMO_CANCELAR_DESPESA } from '../../utils/lancamentoPagarDomain';
 import ParcelasEditor from '../../components/financeiro/ParcelasEditor';
 import NovaCategoriaInline from '../../components/finance/NovaCategoriaInline';
 import { FORMAS_DE_PAGAMENTO, dividirEmParcelas } from '../../utils/pagamentoEntradaDomain';
 import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
-import { avisoDeSoma, erroDaDespesa, montarTitulosDaDespesa } from '../../utils/despesaParceladaDomain';
+import { avisoDeSoma, erroDaDespesa } from '../../utils/despesaParceladaDomain';
 import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
-import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
-import { createAuditLog } from '../../services/logService';
-import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
 import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2, FileText } from 'lucide-react';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -97,24 +95,6 @@ interface TransacaoData extends TituloParaEstorno {
   motoristaNome?: string;
 }
 
-/** Historico de alteracoes (09/11/2026): valores como o usuario le. */
-const reaisDoHistorico = (valor: unknown): string => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
-
-/** Campos da conta a pagar comparados na edicao, com o nome que o usuario entende. */
-const CAMPOS_DA_CONTA_A_PAGAR: CampoComparado[] = [
-  { campo: 'descricao', rotulo: 'Descrição' },
-  { campo: 'valor', rotulo: 'Valor', formatar: (v) => (v === undefined || v === null || v === '' ? '' : reaisDoHistorico(v)) },
-  { campo: 'data', rotulo: 'Vencimento', formatar: (v) => dataBrasileira(typeof v === 'string' ? v : '') || (v ?? '') },
-  { campo: 'categoria', rotulo: 'Categoria' },
-  { campo: 'fornecedorNome', rotulo: 'Fornecedor' },
-  { campo: 'formaPagamentoPrevista', rotulo: 'Forma de pagamento' },
-  { campo: 'veiculoNome', rotulo: 'Veículo' },
-  { campo: 'motoristaNome', rotulo: 'Motorista' },
-];
-
-/** Como o usuario conhece a conta no Historico de alteracoes. */
-const numeroDaContaAPagar = (descricao: unknown): string => `Conta a pagar ${String(descricao || '').trim() || 'sem descrição'}`;
-
 // Espelha GrupoCliente de ContasReceber.tsx. Diferenca deliberada: uma
 // despesa nem sempre tem fornecedor -- compras importadas de XML gravam
 // fornecedorId/fornecedorNome (ver EntradaNFE.tsx), mas despesa lancada a
@@ -169,13 +149,18 @@ const ContasPagar: React.FC = () => {
   // Uma permissao por acao (item 15, 25/11/2026): o servidor confere a mesma. Dono,
   // administrador e plataforma sempre; o funcionario, pelas efetivas do AuthContext
   // (ja' vem marcadas para quem tem Contas a Pagar e ainda nao foi salvo de novo).
-  // Lancar, editar e cancelar despesa ainda gravam pelo navegador: ficam para a fase 2.
+  // Lancar, alterar e cancelar despesa gravam pelo servidor desde a fase 2 (25/11/2026).
   const acessoTotal = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole);
   const temAcao = (permissao: string) => acessoTotal || Boolean(userPermissions?.includes(permissao));
   const podePagarBaixar = temAcao(PERMISSAO_FINANCEIRO.pagarBaixar);
   const podeJurosMulta = temAcao(PERMISSAO_FINANCEIRO.baixaJurosMulta);
   const podeDataAnterior = temAcao(PERMISSAO_FINANCEIRO.baixaDataAnterior);
   const podeBaixaLote = temAcao(PERMISSAO_FINANCEIRO.baixaLote);
+  const podePagarLancar = temAcao(PERMISSAO_FINANCEIRO.pagarLancar);
+  const podePagarEditar = temAcao(PERMISSAO_FINANCEIRO.pagarEditar);
+  const podePagarCancelar = temAcao(PERMISSAO_FINANCEIRO.pagarCancelar);
+  const podeRelatorios = temAcao(PERMISSAO_FINANCEIRO.relatorios);
+  const podeImportar = temAcao(PERMISSAO_FINANCEIRO.importarTitulos);
   const semPermissao = (permissao: string, acao: string) => `Você não tem permissão para ${acao}. Peça a um responsável liberar "${permissionLabelMap[permissao] || permissao}" no seu cadastro de funcionário.`;
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14 -- useTitulosFinanceiros):
@@ -243,6 +228,7 @@ const ContasPagar: React.FC = () => {
   const [parcelarDespesa, setParcelarDespesa] = useState(false);
   const [parcelasDespesa, setParcelasDespesa] = useState<ParcelaComCheque[]>([]);
   const [parcelasAceitas, setParcelasAceitas] = useState(false);
+  const [idLancamento, setIdLancamento] = useState('');
 
   // Categorias de despesa do plano de contas
   const [categoriasDespesa, setCategoriasDespesa] = useState<string[]>(['Aluguel', 'Água/Luz/Internet', 'Salários', 'Fornecedores de Peças', 'Outros']);
@@ -380,6 +366,12 @@ const ContasPagar: React.FC = () => {
   });
 
   const handleOpenModal = () => {
+    if (!podePagarLancar) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.pagarLancar, 'lançar despesas no Contas a Pagar'));
+      return;
+    }
+    // Id do lancamento, gerado ao abrir: repetir o envio (internet caiu) nao lanca duas vezes.
+    setIdLancamento(doc(collection(db, 'transacoes')).id);
     setFormData({
       descricao: '',
       data: getDateInputInTimeZone(),
@@ -413,6 +405,10 @@ const ContasPagar: React.FC = () => {
   };
 
   const handleEdit = (t: TransacaoData) => {
+    if (!podePagarEditar) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.pagarEditar, 'alterar despesas do Contas a Pagar'));
+      return;
+    }
     setFormData({
       descricao: t.descricao,
       data: t.data,
@@ -431,13 +427,17 @@ const ContasPagar: React.FC = () => {
   };
 
   const handleCancelar = async (t: TransacaoData) => {
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
+    if (!podePagarCancelar) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.pagarCancelar, 'cancelar despesas do Contas a Pagar'));
+      return;
+    }
     const result = await NexusSwal.fire({
       title: 'Cancelar Lançamento?',
-      text: `Para cancelar a despesa "${t.descricao}", digite o motivo (mínimo 12 caracteres). O lançamento continua registrado, só sai da lista de pendentes/pagas.`,
+      text: `Para cancelar a despesa "${t.descricao}", digite o motivo (mínimo ${MOTIVO_MINIMO_CANCELAR_DESPESA} caracteres). O lançamento continua registrado, só sai da lista de pendentes/pagas.`,
       input: 'text',
       inputAttributes: {
-        minlength: '12',
+        minlength: String(MOTIVO_MINIMO_CANCELAR_DESPESA),
         required: 'true',
       },
       showCancelButton: true,
@@ -445,8 +445,8 @@ const ContasPagar: React.FC = () => {
       cancelButtonText: 'Voltar',
       confirmButtonColor: '#ef4444',
       preConfirm: (motivo) => {
-        if (!motivo || motivo.trim().length < 12) {
-          NexusSwal.showValidationMessage('O motivo deve ter pelo menos 12 caracteres.');
+        if (!motivo || motivo.trim().length < MOTIVO_MINIMO_CANCELAR_DESPESA) {
+          NexusSwal.showValidationMessage(`O motivo deve ter pelo menos ${MOTIVO_MINIMO_CANCELAR_DESPESA} caracteres.`);
           return false;
         }
         return motivo;
@@ -455,187 +455,124 @@ const ContasPagar: React.FC = () => {
 
     if (result.isConfirmed) {
       try {
-        await updateDoc(doc(db, 'transacoes', t.id), {
-          status: 'Cancelada',
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Lançamento cancelado: ${result.value}`),
-        });
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'financeiro',
-          acao: 'cancelamento',
-          descricao: `Despesa "${t.descricao}" cancelada. Motivo: ${result.value}`,
-          registroRelacionadoId: t.id,
-          documentoTipo: 'conta_pagar',
-          documentoNumero: numeroDaContaAPagar(t.descricao),
-          motivo: String(result.value || '').trim(),
-          status: 'sucesso',
-          critical: true,
-        });
+        // Pelo servidor (item 15, fase 2): confere a permissao e grava o Historico de alteracoes.
+        await cancelarContaAPagar({ transacaoId: t.id, motivo: String(result.value || '').trim(), tenantId });
         showSuccess('Despesa cancelada com sucesso!');
       } catch (err) {
-        showError('Erro', 'Não foi possível cancelar o lançamento.');
+        console.error('Erro ao cancelar a conta a pagar:', err);
+        showError('Não foi possível cancelar', err instanceof Error ? err.message : 'Tente de novo em instantes.');
       }
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || !tenantId) return;
     if (!formData.descricao || !formData.valor || !formData.categoria) {
       showError('Atenção', 'Preencha todos os campos obrigatórios.');
       return;
     }
+    const valorNum = parseFloat(formData.valor.toString().replace(',', '.'));
+    if (!(toCents(valorNum) > 0)) {
+      showError('Confira a despesa', 'Informe o valor da despesa (maior que zero).');
+      return;
+    }
+    // Fornecedor, veiculo e motorista vao so' pelo id: o servidor le o nome no cadastro.
+    const fornecedorId = formData.fornecedorId && formData.fornecedorNome ? formData.fornecedorId : '';
+    const veiculoId = veiculosAtivos.some((v) => v.id === veiculoDaDespesa) ? veiculoDaDespesa : '';
+    const motoristaId = motoristasAtivos.some((m) => m.id === motoristaDaDespesa) ? motoristaDaDespesa : '';
+
+    // Alterar (item 15, fase 2): valor, vencimento e dados, pelo servidor, com o Historico de alteracoes.
+    if (editingId) {
+      if (!podePagarEditar) {
+        showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.pagarEditar, 'alterar despesas do Contas a Pagar'));
+        return;
+      }
+      // Na edicao, o veiculo/motorista que ja' estava gravado continua valendo mesmo se nao estiver mais ativo.
+      const veiculoGravado = contaEmEdicao?.veiculoId && veiculoDaDespesa === contaEmEdicao.veiculoId ? contaEmEdicao.veiculoId : veiculoId;
+      const motoristaGravado = contaEmEdicao?.motoristaId && motoristaDaDespesa === contaEmEdicao.motoristaId ? contaEmEdicao.motoristaId : motoristaId;
+      setIsSaving(true);
+      try {
+        const r = await editarContaAPagar({
+          transacaoId: editingId,
+          descricao: formData.descricao,
+          categoria: formData.categoria,
+          valorCentavos: toCents(valorNum),
+          vencimento: formData.data,
+          fornecedorId,
+          veiculoId: veiculoGravado,
+          motoristaId: motoristaGravado,
+          tenantId,
+        });
+        showSuccess(r.alterou ? 'Conta atualizada com sucesso!' : 'Nada mudou nesta conta.');
+        setIsModalOpen(false);
+      } catch (error) {
+        console.error('Erro ao alterar a conta a pagar:', error);
+        showError('Não foi possível salvar', error instanceof Error ? error.message : 'Tente de novo em instantes.');
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
+    if (!podePagarLancar) {
+      showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.pagarLancar, 'lançar despesas no Contas a Pagar'));
+      return;
+    }
+    // Despesa nova em varias parcelas e/ou em cheque: um titulo por parcela. A tela
+    // confere antes (mesma regra do servidor) para a pessoa corrigir sem esperar.
+    const emParcelas = parcelarDespesa || formaDespesa === 'Cheque';
+    if (emParcelas) {
+      const problema = erroDaDespesa(
+        { descricao: formData.descricao, categoria: formData.categoria, forma: formaDespesa },
+        parcelasDespesa,
+        valorNum,
+        bancosParaCheque,
+      );
+      if (problema) {
+        showError('Confira a despesa', problema);
+        return;
+      }
+      const avisoSoma = avisoDeSoma(parcelasDespesa, valorNum);
+      if (avisoSoma && !parcelasAceitas) {
+        showError('As parcelas não fecham com o valor', `${avisoSoma} Ajuste os valores ou marque "Conferi as parcelas e quero lançar assim".`);
+        return;
+      }
+    }
 
     setIsSaving(true);
     try {
-      const valorNum = parseFloat(formData.valor.toString().replace(',', '.'));
-      // Fornecedor em branco nao vira chave com undefined (regra 3 do
-      // CLAUDE.md); na EDICAO, quem tirou o fornecedor precisa limpar de
-      // verdade o que estava gravado, entao ai vai string vazia.
-      const fornecedorEscolhido = formData.fornecedorId && formData.fornecedorNome
-        ? { fornecedorId: formData.fornecedorId, fornecedorNome: formData.fornecedorNome }
-        : null;
-
-      // Veiculo/motorista da frota: so' gravam quando escolhidos; na EDICAO, quem tirou
-      // precisa limpar de verdade o que estava gravado (string vazia).
-      const veiculoEscolhido = veiculosAtivos.find((v) => v.id === veiculoDaDespesa);
-      const motoristaEscolhido = motoristasAtivos.find((m) => m.id === motoristaDaDespesa);
-      const dadosDoVeiculo = {
-        ...(veiculoEscolhido ? { veiculoId: veiculoEscolhido.id, veiculoNome: rotuloDoVeiculo(veiculoEscolhido), veiculoPlaca: veiculoEscolhido.placa } : {}),
-        ...(motoristaEscolhido ? { motoristaId: motoristaEscolhido.id, motoristaNome: String(motoristaEscolhido.nome || '') } : {}),
-      };
-
-      // Despesa nova em varias parcelas e/ou em cheque: um titulo por parcela.
-      if (!editingId && (parcelarDespesa || formaDespesa === 'Cheque')) {
-        const dadosDaDespesa = {
-          descricao: formData.descricao,
-          categoria: formData.categoria,
-          forma: formaDespesa,
-          ...(fornecedorEscolhido || {}),
-          ...dadosDoVeiculo,
-        };
-        const problema = erroDaDespesa(dadosDaDespesa, parcelasDespesa, valorNum, bancosParaCheque);
-        if (problema) {
-          showError('Confira a despesa', problema);
-          return;
-        }
-        const avisoSoma = avisoDeSoma(parcelasDespesa, valorNum);
-        if (avisoSoma && !parcelasAceitas) {
-          showError('As parcelas não fecham com o valor', `${avisoSoma} Ajuste os valores ou marque "Conferi as parcelas e quero lançar assim".`);
-          return;
-        }
-        const grupoParcelasId = doc(collection(db, 'transacoes')).id;
-        const titulos = montarTitulosDaDespesa(dadosDaDespesa, parcelasDespesa, bancosParaCheque, grupoParcelasId);
-        const lote = writeBatch(db);
-        const idsDosTitulos: string[] = [];
-        titulos.forEach((titulo) => {
-          const ref = doc(collection(db, 'transacoes'));
-          idsDosTitulos.push(ref.id);
-          lote.set(ref, {
-            ...titulo,
-            tenantId,
-            createdAt: serverTimestamp(),
-            ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-          });
-        });
-        await lote.commit();
-        // Historico de alteracoes (09/11/2026): um registro pela gravacao inteira.
-        const totalLancado = titulos.reduce((soma, titulo) => soma + (Number(titulo.valorCentavos) || 0), 0) / 100;
-        const descricaoBase = formData.descricao.toUpperCase().trim();
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'financeiro',
-          acao: 'criacao',
-          descricao: `Conta a pagar "${descricaoBase}" lançada em ${titulos.length} ${formaDespesa === 'Cheque' ? 'cheque(s)' : 'parcela(s)'}, total de ${reaisDoHistorico(totalLancado)}`
-            + `${fornecedorEscolhido ? `, fornecedor ${fornecedorEscolhido.fornecedorNome}` : ', sem fornecedor'}. Forma: ${formaDespesa}.`,
-          registroRelacionadoId: idsDosTitulos[0],
-          documentosRelacionados: idsDosTitulos.slice(1),
-          documentoTipo: 'conta_pagar',
-          documentoNumero: numeroDaContaAPagar(descricaoBase),
-          status: 'sucesso',
-        });
-        showSuccess(formaDespesa === 'Cheque'
-          ? `${titulos.length} cheque(s) lançado(s)! Quando cada cheque compensar, dê baixa nele aqui em Contas a Pagar.`
-          : `${titulos.length} parcela(s) lançada(s) em Contas a Pagar!`);
-        setIsModalOpen(false);
-        return;
-      }
-
-      if (editingId) {
-        const camposEditados = {
-          descricao: formData.descricao.toUpperCase().trim(),
-          data: formData.data,
-          valor: valorNum,
-          categoria: formData.categoria.toUpperCase().trim(),
-          status: formData.status,
-          ...(fornecedorEscolhido || { fornecedorId: '', fornecedorNome: '' }),
-          ...(veiculoEscolhido ? dadosDoVeiculo : { veiculoId: '', veiculoNome: '', veiculoPlaca: '' }),
-          ...(motoristaEscolhido ? {} : { motoristaId: '', motoristaNome: '' }),
-        };
-        await updateDoc(doc(db, 'transacoes', editingId), {
-          ...camposEditados,
-          ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp()),
-        });
-        // Historico de alteracoes (09/11/2026): so' quando algo mudou.
-        const antes = contaEmEdicao && contaEmEdicao.id === editingId
-          ? (contaEmEdicao as unknown as Record<string, unknown>)
-          : null;
-        const alteracoes = antes ? diferencasEntre(antes, { ...antes, ...camposEditados }, CAMPOS_DA_CONTA_A_PAGAR) : [];
-        if (alteracoes.length > 0) {
-          createAuditLog({
-            tenantId: tenantId || '',
-            usuarioId: currentUser.uid,
-            usuarioEmail: currentUser.email || currentUser.uid,
-            modulo: 'financeiro',
-            acao: 'edicao',
-            descricao: `Conta a pagar "${camposEditados.descricao}" alterada (${alteracoes.map((a) => a.campo).join(', ')}).`,
-            registroRelacionadoId: editingId,
-            documentoTipo: 'conta_pagar',
-            documentoNumero: numeroDaContaAPagar(camposEditados.descricao),
-            alteracoes,
-            status: 'sucesso',
-          });
-        }
-        showSuccess('Conta atualizada com sucesso!');
-      } else {
-        const descricaoNova = formData.descricao.toUpperCase().trim();
-        const novaConta = await addDoc(collection(db, 'transacoes'), {
-          descricao: descricaoNova,
-          data: formData.data,
-          valor: valorNum,
-          categoria: formData.categoria.toUpperCase().trim(),
-          status: formData.status,
-          formaPagamentoPrevista: formaDespesa,
-          ...(fornecedorEscolhido || {}),
-          ...dadosDoVeiculo,
-          tipo: 'saida',
-          tenantId,
-          createdAt: serverTimestamp(),
-          ...buildDocumentMetadata(currentUser.uid, serverTimestamp()),
-        });
-        createAuditLog({
-          tenantId: tenantId || '',
-          usuarioId: currentUser.uid,
-          usuarioEmail: currentUser.email || currentUser.uid,
-          modulo: 'financeiro',
-          acao: 'criacao',
-          descricao: `Conta a pagar "${descricaoNova}" lançada: ${reaisDoHistorico(valorNum)}, vencimento ${dataBrasileira(formData.data) || formData.data}`
-            + `${fornecedorEscolhido ? `, fornecedor ${fornecedorEscolhido.fornecedorNome}` : ', sem fornecedor'}, 1 parcela. Forma: ${formaDespesa}.`,
-          registroRelacionadoId: novaConta.id,
-          documentoTipo: 'conta_pagar',
-          documentoNumero: numeroDaContaAPagar(descricaoNova),
-          status: 'sucesso',
-        });
-        showSuccess('Conta a pagar lançada com sucesso!');
-      }
+      const r = await lancarContaAPagar({
+        idLancamento,
+        descricao: formData.descricao,
+        categoria: formData.categoria,
+        forma: formaDespesa,
+        totalCentavos: toCents(valorNum),
+        fornecedorId,
+        veiculoId,
+        motoristaId,
+        tenantId,
+        ...(emParcelas
+          ? {
+            parcelas: parcelasDespesa.map((p) => ({
+              numero: p.numero,
+              vencimento: p.vencimento,
+              valorCentavos: toCents(p.valor),
+              ...(p.bancoId ? { bancoId: p.bancoId } : {}),
+              ...(p.numeroCheque ? { numeroCheque: p.numeroCheque } : {}),
+            })),
+            aceitarSomaDiferente: parcelasAceitas,
+          }
+          : { vencimento: formData.data }),
+      });
+      if (r.jaLancado) showSuccess('Esta despesa já estava lançada (o envio anterior chegou ao servidor).');
+      else if (formaDespesa === 'Cheque') showSuccess(`${r.quantidade} cheque(s) lançado(s)! Quando cada cheque compensar, dê baixa nele aqui em Contas a Pagar.`);
+      else if (r.quantidade > 1) showSuccess(`${r.quantidade} parcela(s) lançada(s) em Contas a Pagar!`);
+      else showSuccess('Conta a pagar lançada com sucesso!');
       setIsModalOpen(false);
     } catch (error) {
-      console.error("Erro ao salvar conta a pagar:", error);
-      showError('Erro', 'Ocorreu um erro ao salvar o lançamento.');
+      console.error('Erro ao salvar conta a pagar:', error);
+      showError('Não foi possível lançar', error instanceof Error ? error.message : 'Tente de novo em instantes.');
     } finally {
       setIsSaving(false);
     }
@@ -667,6 +604,7 @@ const ContasPagar: React.FC = () => {
     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
       {(!t.osId && !t.vendaId) && (
         <>
+          {podePagarEditar && (
           <button
             onClick={() => handleEdit(t)}
             style={{ backgroundColor: '#f59e0b', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
@@ -676,6 +614,8 @@ const ContasPagar: React.FC = () => {
           >
             <Edit size={14} />
           </button>
+          )}
+          {podePagarCancelar && (
           <button
             onClick={() => handleCancelar(t)}
             style={{ backgroundColor: '#ef4444', border: 'none', color: 'white', cursor: 'pointer', borderRadius: '4px', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', transition: 'filter 0.2s' }}
@@ -685,6 +625,7 @@ const ContasPagar: React.FC = () => {
           >
             <XCircle size={14} />
           </button>
+          )}
         </>
       )}
       {/* Cheque emitido (24/11/2026): o mesmo Dar Baixa, ja' em Cheque e no banco do cheque. */}
@@ -930,19 +871,21 @@ const ContasPagar: React.FC = () => {
           </div>
           <MenuMaisOpcoes
             itens={[
-              { texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-pagar/importar', 'Importar Contas a Pagar') },
-              {
+              ...(podeImportar ? [{ texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-pagar/importar', 'Importar Contas a Pagar') }] : []),
+              ...(podeRelatorios ? [{
                 texto: 'Relatório', Icone: FileText,
                 titulo: 'Abre em PDF as contas da lista, com os filtros da tela (situação, vencimento, forma e busca). Dali dá para imprimir, salvar o PDF ou salvar em Excel',
                 desabilitado: loading,
                 onClick: () => setPreviewAberto(true),
-              },
+              }] : []),
             ]}
           />
+          {podePagarLancar && (
           <button className="btn-primary" onClick={handleOpenModal} style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)' }}>
             <Plus size={18} style={{ marginRight: 8 }} />
             Lançar Despesa
           </button>
+          )}
         </div>
       </div>
 

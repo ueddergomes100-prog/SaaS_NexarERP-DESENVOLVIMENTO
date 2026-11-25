@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mudancasDePermissoes = exports.mexidasSemTer = exports.permissoesParaGravarDoUsuario = exports.permissoesEfetivasDoUsuario = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.pacotesGravados = exports.ehMarcadorInterno = exports.ehMarcadorDePacote = exports.MARCADORES_DOS_PACOTES = exports.marcadorDoPacote = exports.PREFIXO_MARCADOR_PACOTE = exports.PACOTES_DE_PERMISSOES = exports.PERMISSAO_FINANCEIRO = void 0;
+exports.mudancasDePermissoes = exports.mexidasSemTer = exports.permissoesParaGravarDoUsuario = exports.permissoesEfetivasDoUsuario = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.pacotesGravados = exports.ehMarcadorInterno = exports.ehMarcadorDePacote = exports.MARCADORES_DOS_PACOTES = exports.marcadorDoPacote = exports.PREFIXO_MARCADOR_PACOTE = exports.PACOTES_DE_PERMISSOES = exports.PERMISSAO_COMPRAS = exports.PERMISSAO_FISCAL = exports.PERMISSAO_FINANCEIRO = void 0;
 const permissoesAppDomain_1 = require("./permissoesAppDomain");
 /**
  * PERMISSAO NOVA "JA' VEM MARCADA" (item 15 da Embala Minas, 25/11/2026).
@@ -47,8 +47,30 @@ exports.PERMISSAO_FINANCEIRO = {
     receberCancelar: 'financeiro.receber_cancelar',
     categorias: 'financeiro.categorias',
     acertoFornecedor: 'financeiro.acerto_fornecedor',
+    // Fase 2 (25/11/2026): Contas a Pagar pelo servidor, credito do cliente e
+    // acoes que nao gravam (recibo, WhatsApp, relatorios, importar).
+    pagarLancar: 'financeiro.pagar_lancar',
+    pagarEditar: 'financeiro.pagar_editar',
+    pagarCancelar: 'financeiro.pagar_cancelar',
+    baixaCreditoCliente: 'financeiro.baixa_credito_cliente',
+    recibo: 'financeiro.recibo',
+    cobrarWhatsapp: 'financeiro.cobrar_whatsapp',
+    relatorios: 'financeiro.relatorios',
+    importarTitulos: 'financeiro.importar_titulos',
+};
+/** Fase 2 (25/11/2026): acoes das Notas Fiscais que ganham permissao propria. */
+exports.PERMISSAO_FISCAL = {
+    cartaCorrecao: 'fiscal.cce',
+    inutilizar: 'fiscal.inutilizar',
+    devolucao: 'fiscal.devolucao',
+    emitirLote: 'fiscal.emitir_lote',
+};
+/** Fase 2 (25/11/2026): gerar pedido de compra da cotacao (antes bastava a da cotacao). */
+exports.PERMISSAO_COMPRAS = {
+    gerarPedido: 'compras.gerar_pedido',
 };
 const F = exports.PERMISSAO_FINANCEIRO;
+const FI = exports.PERMISSAO_FISCAL;
 /**
  * Pacotes conhecidos, na ordem em que sairam. Pacote novo entra NO FIM, com
  * id novo; nunca mexa nas implicacoes de um pacote ja' publicado (quem ja' foi
@@ -76,6 +98,23 @@ exports.PACOTES_DE_PERMISSOES = [
                 F.baixaLote,
                 F.categorias,
             ],
+        },
+    },
+    {
+        // Fase 2 (25/11/2026). Relatorios: todas as telas do Financeiro que tem
+        // relatorio entram ja' agora (mesmo as que ainda nao conferem), para nao
+        // precisar de pacote novo quando passarem a conferir.
+        id: 'financeiro-2',
+        implicacoes: {
+            'financeiro.receber': [F.baixaCreditoCliente, F.recibo, F.cobrarWhatsapp, F.relatorios, F.importarTitulos],
+            'financeiro.pagar': [F.pagarLancar, F.pagarEditar, F.pagarCancelar, F.relatorios, F.importarTitulos],
+            'financeiro.caixa_registros': [F.relatorios],
+            'financeiro.banco': [F.relatorios],
+            'financeiro.cheques': [F.relatorios],
+            'financeiro.faturamento': [F.relatorios],
+            'financeiro.comissoes': [F.relatorios],
+            'fiscal.emitir': [FI.cartaCorrecao, FI.inutilizar, FI.devolucao, FI.emitirLote],
+            'compras.cotacoes': [exports.PERMISSAO_COMPRAS.gerarPedido],
         },
     },
 ];

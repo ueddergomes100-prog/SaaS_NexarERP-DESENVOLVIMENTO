@@ -4,6 +4,8 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { ArrowLeft, Check, ClipboardList, Copy, FileText, MessageCircle, Pencil, Printer, Send, X } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_COMPRAS } from '../../utils/permissoesNovasDomain';
 import { useTabs } from '../../contexts/TabsContext';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
@@ -69,7 +71,11 @@ const CotacaoForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const { tenantId } = useAuth();
+  const { tenantId, userRole, userPermissions, isOwner } = useAuth();
+  // Item 15, fase 2 (25/11/2026): gerar pedido tem permissao propria (ja' vem marcada para quem
+  // faz cotacao); o servidor confere a mesma.
+  const podeGerarPedido = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole)
+    || Boolean(userPermissions?.includes(PERMISSAO_COMPRAS.gerarPedido));
   const produtos = useProdutosParaCompra(tenantId);
   const { items: fornecedoresCadastro } = useTenantCollection<FornecedorCadastro>('fornecedores', tenantId);
   const hoje = getDateInputInTimeZone();
@@ -269,7 +275,7 @@ const CotacaoForm: React.FC = () => {
                 { texto: 'Cancelar cotação', Icone: X, onClick: () => void mudarStatus('cancelar') },
               ]} />
             )}
-            {cotacao.status === 'aberta' && temResposta && (
+            {cotacao.status === 'aberta' && temResposta && podeGerarPedido && (
               <button type="button" className="btn-primary" onClick={() => void gerarPedidos()} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><ClipboardList size={18} /> Gerar pedidos de compra</button>
             )}
           </div>

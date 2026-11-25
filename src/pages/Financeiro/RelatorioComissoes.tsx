@@ -5,6 +5,8 @@ import { collection, getDocs, query, where, Timestamp, type DocumentData, type Q
 import { lerComReserva } from '../../services/consultaComReserva';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
 import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
 import { fromCents } from '../../utils/financeDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -36,7 +38,11 @@ const RelatorioComissoes: React.FC = () => {
   const navigate = useNavigate();
   // Olhinho (21/11/2026): esconde os totais do topo junto com as outras telas.
   const { mostrar: mostrarValor } = useValoresOcultos();
-  const { tenantId, currentUser, vendasVisiveisDeUsuarioId } = useAuth();
+  const { tenantId, currentUser, vendasVisiveisDeUsuarioId, userRole, userPermissions, isOwner } = useAuth();
+  // Item 15, fase 2 (25/11/2026): relatorios do Financeiro com permissao propria (ja' vem
+  // marcada para quem tem a tela).
+  const podeRelatorios = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole)
+    || Boolean(userPermissions?.includes(PERMISSAO_FINANCEIRO.relatorios));
   const [entries, setEntries] = useState<EntradaComissao[]>([]);
   const [users, setUsers] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -157,7 +163,7 @@ const RelatorioComissoes: React.FC = () => {
         <div><h1 style={{ fontSize: '25px', display: 'flex', alignItems: 'center', gap: '9px' }}><DollarSign color="#10b981" /> Relatório de Comissões</h1><p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>Snapshots históricos por venda e OS; registros legados aparecem separados como estimativa.</p></div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
         <BotaoOlhoValores />
-        <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={filtered.length === 0} title={filtered.length === 0 ? 'Nenhuma comissão no filtro. Ajuste o período, o vendedor ou o status para gerar o relatório.' : 'Abre o relatório em PDF com o que está filtrado na tela (dá para salvar em Excel)'} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><FileText size={18} /> Gerar relatório</button>
+        {podeRelatorios && <button className="btn-primary" onClick={() => setPreviewAberto(true)} disabled={filtered.length === 0} title={filtered.length === 0 ? 'Nenhuma comissão no filtro. Ajuste o período, o vendedor ou o status para gerar o relatório.' : 'Abre o relatório em PDF com o que está filtrado na tela (dá para salvar em Excel)'} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}><FileText size={18} /> Gerar relatório</button>}
         </div>
       </div>
 

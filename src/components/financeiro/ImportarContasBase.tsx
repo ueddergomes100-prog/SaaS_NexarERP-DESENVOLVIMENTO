@@ -8,6 +8,9 @@ import { ArrowLeft, ArrowRight, CheckCircle2, FileUp, Loader2, Upload } from 'lu
 import { db } from '../../services/firebase';
 import { createAuditLog } from '../../services/logService';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasTenantFullAccess, isPlatformAdminRole } from '../../utils/roles';
+import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
+import { permissionLabelMap } from '../../utils/permissionCatalog';
 import { showError, showSuccess } from '../../utils/alerts';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import {
@@ -87,7 +90,11 @@ const ImportarContasBase: React.FC<ImportarContasBaseProps> = ({
   tipo, titulo, subtitulo, rotaVoltar, colecaoParte, rotuloParte, Icone,
 }) => {
   const navigate = useNavigate();
-  const { currentUser, tenantId } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isOwner } = useAuth();
+  // Item 15, fase 2 (25/11/2026): importar tem permissao propria (ja' vem marcada para quem
+  // tem Contas a Receber/Pagar). A gravacao ainda e' pelo navegador -- pendencia anotada.
+  const podeImportar = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole)
+    || Boolean(userPermissions?.includes(PERMISSAO_FINANCEIRO.importarTitulos));
   const rotuloParteMin = rotuloParte.toLowerCase();
   const nomeTelaDestino = tipo === 'entrada' ? 'Contas a Receber' : 'Contas a Pagar';
 
@@ -432,6 +439,19 @@ const ImportarContasBase: React.FC<ImportarContasBaseProps> = ({
     if (conta.vinculo === 'sem_cadastro') return <span style={{ color: '#ef4444', fontWeight: 600 }}>Sem cadastro</span>;
     return <span style={{ color: 'var(--text-muted)' }}>{conta.parteNomeBruto ? 'Só texto' : '-'}</span>;
   };
+
+  if (!podeImportar) {
+    return (
+      <div className="card" style={{ padding: '32px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'flex-start' }}>
+        <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>{titulo}</h1>
+        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+          Você não tem permissão para importar títulos de planilha. Peça a um responsável liberar
+          {' "'}{permissionLabelMap[PERMISSAO_FINANCEIRO.importarTitulos]}{'" '}no seu cadastro de funcionário.
+        </p>
+        <button type="button" className="btn-secondary" onClick={() => navigate(rotaVoltar)}>Voltar para {nomeTelaDestino}</button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>

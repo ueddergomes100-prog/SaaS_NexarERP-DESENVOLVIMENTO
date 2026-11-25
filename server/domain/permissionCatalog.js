@@ -256,6 +256,17 @@ exports.PERMISSION_GROUPS = [
             { id: 'financeiro.receber_cancelar', label: 'Financeiro: Contas a Receber — cancelar conta', color: '#10b981' },
             { id: 'financeiro.categorias', label: 'Financeiro: criar categoria no plano de contas', color: '#10b981' },
             { id: 'financeiro.acerto_fornecedor', label: 'Financeiro: Acerto com fornecedor (baixa no Receber e no Pagar sem caixa)', color: '#10b981' },
+            // Item 15, fase 2 (25/11/2026): ja' vem marcadas para quem usa a tela (pacote
+            // 'financeiro-2'). Lancar/alterar/cancelar despesa e abater com credito gravam
+            // pelo servidor; recibo, WhatsApp, relatorios e importar sao conferidos na tela.
+            { id: 'financeiro.pagar_lancar', label: 'Financeiro: Contas a Pagar — lançar despesa', color: '#10b981' },
+            { id: 'financeiro.pagar_editar', label: 'Financeiro: Contas a Pagar — alterar despesa (valor, vencimento e dados)', color: '#10b981' },
+            { id: 'financeiro.pagar_cancelar', label: 'Financeiro: Contas a Pagar — cancelar despesa', color: '#10b981' },
+            { id: 'financeiro.baixa_credito_cliente', label: 'Financeiro: Contas a Receber — abater conta com crédito do cliente', color: '#10b981' },
+            { id: 'financeiro.recibo', label: 'Financeiro: Contas a Receber — emitir recibo de pagamento', color: '#10b981' },
+            { id: 'financeiro.cobrar_whatsapp', label: 'Financeiro: Contas a Receber — cobrar cliente pelo WhatsApp', color: '#10b981' },
+            { id: 'financeiro.relatorios', label: 'Financeiro: relatórios (PDF e Excel) das telas do Financeiro', color: '#10b981' },
+            { id: 'financeiro.importar_titulos', label: 'Financeiro: importar títulos de planilha (Contas a Receber e a Pagar)', color: '#10b981' },
         ],
     },
     {
@@ -271,6 +282,11 @@ exports.PERMISSION_GROUPS = [
             { id: 'fiscal.relatorio_contador', label: 'Fiscal: Relatório do Contador', color: '#f59e0b' },
             // Tabelas fiscais (20/10/2026): CFOP com a funcao de cada um, base de NCM e CEST.
             { id: 'fiscal.tabelas', label: 'Fiscal: Tabelas Fiscais (CFOP, NCM, CEST)', color: '#f59e0b' },
+            // Item 15, fase 2 (25/11/2026): ja' vem marcadas para quem emite nota (pacote 'financeiro-2').
+            { id: 'fiscal.cce', label: 'Fiscal: Carta de Correção (CC-e)', color: '#f59e0b' },
+            { id: 'fiscal.inutilizar', label: 'Fiscal: Inutilizar numeração', color: '#f59e0b' },
+            { id: 'fiscal.devolucao', label: 'Fiscal: emitir NF-e de devolução (de venda e ao fornecedor)', color: '#f59e0b' },
+            { id: 'fiscal.emitir_lote', label: 'Fiscal: emitir notas em lote', color: '#f59e0b' },
             { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
         ],
     },
@@ -310,6 +326,8 @@ exports.PERMISSION_GROUPS = [
         itens: [
             { id: 'compras.cotacoes', label: 'Compras: Cotações de Compra (link para o fornecedor e comparativo)', color: '#0ea5e9' },
             { id: 'compras.pedidos', label: 'Compras: Pedidos de Compra', color: '#0ea5e9' },
+            // Item 15, fase 2 (25/11/2026): ja' vem marcada para quem faz cotacao (pacote 'financeiro-2').
+            { id: 'compras.gerar_pedido', label: 'Compras: gerar pedido de compra da cotação', color: '#0ea5e9' },
         ],
     },
     {

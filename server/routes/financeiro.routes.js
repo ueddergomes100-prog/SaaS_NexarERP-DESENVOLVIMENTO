@@ -23,6 +23,8 @@ const {
 } = require('../services/renegociacao');
 const { PERMISSAO_RENEGOCIAR } = require('../domain/renegociacaoDomain');
 const { lancarContaAReceber, editarContaAReceber, cancelarContaAReceber } = require('../services/lancamentoReceber');
+const { lancarContaAPagar, editarContaAPagar, cancelarContaAPagar } = require('../services/lancamentoPagar');
+const { registrarChequeNaBaixa, abaterComCredito } = require('../services/recebimentoChequeCredito');
 const { adicionarCategoria, ErroConfiguracoesGerais } = require('../services/configuracoesGerais');
 const { descricaoDosAjustes } = require('../domain/ajustesDaBaixaDomain');
 const {
@@ -360,6 +362,154 @@ router.post('/receber/cancelar', async (req, res) => {
     return res.json({ ok: true });
   } catch (erro) {
     return responderErro(res, erro, 'cancelar a conta a receber');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CONTAS A RECEBER: CHEQUE E CREDITO DO CLIENTE (item 15, fase 2, 25/11/2026)
+// -- services/recebimentoChequeCredito.js. Antes gravavam pelo navegador.
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/financeiro/receber/cheque -- { transacaoId, dataCompensacao, bancoId?, cheque? }
+ * Baixa em cheque: a conta continua em aberto, aguardando a compensacao
+ * (pelo valor inteiro, sem juros nem multa -- regra de sempre).
+ */
+router.post('/receber/cheque', async (req, res) => {
+  try {
+    const hoje = hojeNoBrasil();
+    const dataCompensacao = String(req.body?.dataCompensacao || '');
+    const pedidas = [PERMISSAO_FINANCEIRO.receberBaixar];
+    // Bom para anterior a hoje (pagamento simplificado com data passada) pede a de data anterior, como a baixa.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dataCompensacao) && dataCompensacao < hoje) pedidas.push(PERMISSAO_FINANCEIRO.baixaDataAnterior);
+    if (barrarSemPermissoes(req, res, pedidas)) return undefined;
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await registrarChequeNaBaixa({ user: req.user, tenantId, corpo: req.body || {} });
+    if (!r.jaPaga) {
+      const numero = r.numeroCheque ? ` nº ${r.numeroCheque}` : '';
+      const dataBr = r.dataCompensacao.split('-').reverse().join('/');
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'financeiro',
+        acao: 'baixa',
+        descricao: `Recebimento "${r.descricao}" de ${reais(r.valorCentavos)} registrado em cheque${numero}, aguardando compensação em ${dataBr}`
+          + `${r.bancoNome ? ` (banco ${r.bancoNome})` : ''}${r.numeroCheque ? '' : ' (sem os dados do cheque)'}. A conta continua em aberto até o cheque compensar.`,
+        registroId: String(req.body.transacaoId),
+        documentosRelacionados: [r.pedidoId, r.osId].filter(Boolean),
+        documentoTipo: 'conta_receber',
+        documentoNumero: numeroDoTitulo('entrada', r.descricao, req.body.transacaoId),
+        alteracoes: [
+          { campo: 'Forma de pagamento', valorAnterior: r.formaAnterior || null, valorNovo: 'Cheque' },
+          { campo: 'Compensação prevista', valorAnterior: null, valorNovo: dataBr },
+        ],
+        ...(r.vendedorId ? { vendedorId: r.vendedorId } : {}),
+      });
+    }
+    return res.json({ ok: true, jaPaga: r.jaPaga });
+  } catch (erro) {
+    return responderErro(res, erro, 'registrar o cheque');
+  }
+});
+
+/**
+ * POST /api/financeiro/receber/credito -- { transacaoId, valorCentavos, dataPagamento, valorEsperadoCentavos? }
+ * Quita ou abate a conta com o credito de devolucao do cliente (lido aqui).
+ */
+router.post('/receber/credito', async (req, res) => {
+  try {
+    const hoje = hojeNoBrasil();
+    const dataPagamento = String(req.body?.dataPagamento || '');
+    const pedidas = [PERMISSAO_FINANCEIRO.receberBaixar, PERMISSAO_FINANCEIRO.baixaCreditoCliente];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dataPagamento) && dataPagamento < hoje) pedidas.push(PERMISSAO_FINANCEIRO.baixaDataAnterior);
+    if (barrarSemPermissoes(req, res, pedidas)) return undefined;
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await abaterComCredito({ user: req.user, tenantId, corpo: req.body || {}, hoje });
+    const dataBr = r.dataPagamento.split('-').reverse().join('/');
+    const doCliente = r.clienteNome ? ` ${r.clienteNome}` : '';
+    registrarLog({ ...req.user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'baixa',
+      descricao: r.quitou
+        ? `Recebimento "${r.descricao}" quitado com ${reais(r.valorCentavos)} de crédito de devolução do cliente${doCliente}, em ${dataBr}.`
+        : `Recebimento "${r.descricao}" abatido em ${reais(r.valorCentavos)} com crédito de devolução do cliente${doCliente}, em ${dataBr}. Fica em aberto ${reais(r.restanteCentavos)}.`,
+      registroId: String(req.body.transacaoId),
+      documentosRelacionados: [r.pedidoId, r.osId, r.pagamentoId].filter(Boolean),
+      documentoTipo: 'conta_receber',
+      documentoNumero: numeroDoTitulo('entrada', r.descricao, req.body.transacaoId),
+      alteracoes: r.quitou
+        ? [{ campo: 'Situação', valorAnterior: 'Pendente', valorNovo: 'Paga' }, { campo: 'Forma de pagamento', valorAnterior: r.formaAnterior || null, valorNovo: 'Crédito de Devolução' }]
+        : [{ campo: 'Valor em aberto', valorAnterior: reais(r.anteriorCentavos), valorNovo: reais(r.restanteCentavos) }],
+      ...(r.vendedorId ? { vendedorId: r.vendedorId } : {}),
+    });
+    return res.json({ ok: true, quitou: r.quitou, restanteCentavos: r.restanteCentavos });
+  } catch (erro) {
+    return responderErro(res, erro, 'abater com o crédito do cliente');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CONTAS A PAGAR PELO SERVIDOR (item 15, fase 2, 25/11/2026) -- services/lancamentoPagar.js
+// ---------------------------------------------------------------------------
+
+const quemFornece = (nome) => (nome ? `, fornecedor ${nome}` : ', sem fornecedor');
+
+/** POST /api/financeiro/pagar/lancar -- { idLancamento, descricao, categoria, forma, totalCentavos, vencimento?, parcelas?, fornecedorId?, veiculoId?, motoristaId?, aceitarSomaDiferente? } */
+router.post('/pagar/lancar', async (req, res) => {
+  try {
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.pagarLancar])) return undefined;
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await lancarContaAPagar({ user: req.user, tenantId, corpo: req.body || {} });
+    if (!r.jaLancado) {
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'financeiro',
+        acao: 'criacao',
+        descricao: `Conta a pagar "${r.descricao}" lançada por ${r.usuarioNome} em ${r.quantidade} ${r.forma === 'Cheque' ? 'cheque(s)' : 'parcela(s)'}, total de ${reais(r.totalCentavos)}${quemFornece(r.fornecedorNome)}. Forma: ${r.forma}.`,
+        registroId: r.ids[0],
+        documentosRelacionados: r.ids.slice(1),
+        documentoTipo: 'conta_pagar',
+        documentoNumero: numeroDoTitulo('saida', r.descricao, r.ids[0]),
+      });
+    }
+    return res.json({ ok: true, ids: r.ids, jaLancado: r.jaLancado, totalCentavos: r.totalCentavos, quantidade: r.quantidade });
+  } catch (erro) {
+    return responderErro(res, erro, 'lançar a conta a pagar');
+  }
+});
+
+/** POST /api/financeiro/pagar/editar -- { transacaoId, descricao, categoria, valorCentavos, vencimento, fornecedorId, veiculoId, motoristaId } */
+router.post('/pagar/editar', async (req, res) => {
+  try {
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.pagarEditar])) return undefined;
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await editarContaAPagar({ user: req.user, tenantId, corpo: req.body || {} });
+    if (r.alteracoes.length > 0) {
+      const mudouValor = r.alteracoes.some((a) => a.campo === 'Valor' || a.campo === 'Vencimento');
+      registrarLog({ ...req.user, tenantId }, {
+        modulo: 'financeiro',
+        acao: 'edicao',
+        descricao: `Conta a pagar "${r.descricao}" alterada (${r.alteracoes.map((a) => a.campo).join(', ')}).`,
+        registroId: String(req.body.transacaoId),
+        documentoTipo: 'conta_pagar',
+        documentoNumero: numeroDoTitulo('saida', r.descricao, req.body.transacaoId),
+        alteracoes: r.alteracoes,
+        ...(mudouValor ? { critico: true } : {}),
+      });
+    }
+    return res.json({ ok: true, alterou: r.alteracoes.length > 0 });
+  } catch (erro) {
+    return responderErro(res, erro, 'alterar a conta a pagar');
+  }
+});
+
+/** POST /api/financeiro/pagar/cancelar -- { transacaoId, motivo } */
+router.post('/pagar/cancelar', async (req, res) => {
+  try {
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.pagarCancelar])) return undefined;
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    // O Historico de alteracoes do cancelamento e' gravado DENTRO da transacao (services/lancamentoPagar.js).
+    await cancelarContaAPagar({ user: req.user, tenantId, corpo: req.body || {} });
+    return res.json({ ok: true });
+  } catch (erro) {
+    return responderErro(res, erro, 'cancelar a conta a pagar');
   }
 });
 

@@ -156,6 +156,12 @@ const MODULOS = [
   'src/utils/mensalidadeDomain.ts',
   // Devolucao de venda pelo app Vendas (24/11/2026): o mesmo efeito da tela, gravado pelo servidor.
   'src/utils/devolucaoVendaDomain.ts',
+  // Contas a Pagar pelo servidor (item 15, fase 2, 25/11/2026): mesma regra de despesa/cheque da tela.
+  'src/utils/pagamentoEntradaDomain.ts',
+  'src/utils/chequeEmitidoDomain.ts',
+  'src/utils/despesaParceladaDomain.ts',
+  'src/utils/frotaDomain.ts',
+  'src/utils/lancamentoPagarDomain.ts',
 ];
 
 const DESTINO = resolve('server/domain');

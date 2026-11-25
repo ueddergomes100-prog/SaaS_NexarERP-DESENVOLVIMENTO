@@ -504,6 +504,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     permitirDividirPagamento: DEFAULT_PERMITIR_DIVIDIR_PAGAMENTO,
     // Banco que o pagamento ja' traz (26/10/2026): '' / false = desligado.
     bancoPadraoBoletoId: '',
+    // Banco padrao do Pix, debito e credito (25/11/2026): '' = escolher na venda.
+    bancoPadraoPixId: '',
+    bancoPadraoDebitoId: '',
+    bancoPadraoCreditoId: '',
     lembrarBancoDoDia: false,
     ordemFormasPagamento: [] as string[],
     formasPagamentoOcultas: [] as string[],
@@ -702,6 +706,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             permitirDescontoPorItem: parsePermitirDescontoPorItem(data.permitirDescontoPorItem),
             permitirDividirPagamento: parsePermitirDividirPagamento(data.permitirDividirPagamento),
             bancoPadraoBoletoId: parseConfigBancoPadrao(data).bancoBoletoId,
+            bancoPadraoPixId: parseConfigBancoPadrao(data).bancoPixId,
+            bancoPadraoDebitoId: parseConfigBancoPadrao(data).bancoDebitoId,
+            bancoPadraoCreditoId: parseConfigBancoPadrao(data).bancoCreditoId,
             lembrarBancoDoDia: parseConfigBancoPadrao(data).lembrarDoDia,
             ordemFormasPagamento: parseOrdemFormasPagamento(data.ordemFormasPagamento),
             formasPagamentoOcultas: parseFormasOcultas(data.formasPagamentoOcultas),
@@ -1412,7 +1419,13 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         const alteracoesConfig: MudancaDeCampo[] = diferencasEntre(
           configOriginalRef.current ? configParaHistorico(configOriginalRef.current) : null,
           configParaHistorico(formDepois),
-          [...CAMPOS_CONFIG_HISTORICO, { campo: 'bancoPadraoBoletoId', rotulo: 'Banco padrão do boleto', formatar: nomeDoBanco }],
+          [
+            ...CAMPOS_CONFIG_HISTORICO,
+            { campo: 'bancoPadraoBoletoId', rotulo: 'Banco padrão do boleto', formatar: nomeDoBanco },
+            { campo: 'bancoPadraoPixId', rotulo: 'Banco padrão do Pix', formatar: nomeDoBanco },
+            { campo: 'bancoPadraoDebitoId', rotulo: 'Banco padrão do cartão de débito', formatar: nomeDoBanco },
+            { campo: 'bancoPadraoCreditoId', rotulo: 'Banco padrão do cartão de crédito', formatar: nomeDoBanco },
+          ],
         );
         if (podeAtualizarSpedyApiKey) {
           const chaveAntes = String(configOriginalRef.current?.spedyApiKey ?? '').trim();
@@ -4280,6 +4293,31 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       <option key={b.id} value={b.id}>{b.nome}{b.ativo ? '' : ' (inativo)'}</option>
                     ))}
                   </select>
+                </div>
+                {/* Banco padrao do Pix e dos cartoes (25/11/2026, pedido do dono: um banco por forma). */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', maxWidth: '760px' }}>
+                  {([
+                    { campo: 'bancoPadraoPixId', id: 'config-banco-padrao-pix', rotulo: 'Banco padrão do Pix', ajuda: 'Escolheu Pix na venda, no caixa ou na OS: o dinheiro cai neste banco. Dá para trocar na hora.' },
+                    { campo: 'bancoPadraoDebitoId', id: 'config-banco-padrao-debito', rotulo: 'Banco padrão do cartão de débito', ajuda: 'O banco da maquininha do débito. Dá para trocar na hora.' },
+                    { campo: 'bancoPadraoCreditoId', id: 'config-banco-padrao-credito', rotulo: 'Banco padrão do cartão de crédito', ajuda: 'O banco da maquininha do crédito. Dá para trocar na hora.' },
+                  ] as const).map((item) => (
+                    <div key={item.campo} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label htmlFor={item.id} style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>{item.rotulo}</label>
+                      <select
+                        id={item.id}
+                        value={formData[item.campo]}
+                        onChange={(e) => setFormData({ ...formData, [item.campo]: e.target.value })}
+                        disabled={!isEditingMode}
+                        title={item.ajuda}
+                        style={{ padding: '10px 12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}
+                      >
+                        <option value="">Nenhum (escolher na venda)</option>
+                        {bancosDaFilial.filter((b) => b.ativo || b.id === formData[item.campo]).map((b) => (
+                          <option key={b.id} value={b.id}>{b.nome}{b.ativo ? '' : ' (inativo)'}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
                 </div>
                 <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: isEditingMode ? 'pointer' : 'default' }}>
                   <input

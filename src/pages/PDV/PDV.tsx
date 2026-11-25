@@ -65,6 +65,7 @@ import { finalizarVendaNoServidor, VendaServidorError } from '../../services/ven
 import { mensagemDaTravaDoBalanco } from '../../services/travaBalancoService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { erroDoAPrazoNoCaixa, parseAPrazoNaFrenteDeCaixa, parseVendaPeloServidor } from '../../utils/vendaFechamentoDomain';
+import { parseConfigBancoPadrao, type ConfigBancoPadrao } from '../../utils/formasPagamentoDomain';
 import {
   CAMPO_CREDITO_VERSAO,
   MENSAGEM_CREDITO_CONCORRENTE,
@@ -224,6 +225,8 @@ const PDV: React.FC = () => {
   const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
   // "Nota" na Frente de Caixa (25/11/2026): caixa de marcar da filial.
   const [aPrazoNoCaixa, setAPrazoNoCaixa] = useState(false);
+  // Banco padrao por forma (25/11/2026): Pix e cartao ja' vem com o banco da filial.
+  const [configBancoPadrao, setConfigBancoPadrao] = useState<ConfigBancoPadrao>(() => parseConfigBancoPadrao(null));
   const [regrasDoAPrazo, setRegrasDoAPrazo] = useState<{ trabalhaComLimite: boolean; parametros: ParametrosVenda; noGrupo: boolean }>({
     trabalhaComLimite: false, parametros: PARAMETROS_VENDA_PADRAO, noGrupo: false,
   });
@@ -492,6 +495,7 @@ const PDV: React.FC = () => {
         setAllowNegativeStock(configData?.venderSemEstoque === true);
         setVendaPeloServidor(parseVendaPeloServidor(configData?.vendaPeloServidor));
         setAPrazoNoCaixa(parseAPrazoNaFrenteDeCaixa(configData?.aPrazoNaFrenteDeCaixa));
+        setConfigBancoPadrao(parseConfigBancoPadrao(configData));
         setRegrasDoAPrazo({
           trabalhaComLimite: parseTrabalhaComLimiteCredito(configData?.trabalhaComLimiteCredito),
           parametros: parseParametrosVenda(configData?.parametrosVenda),
@@ -2349,6 +2353,7 @@ const PDV: React.FC = () => {
         saving={saving}
         cashbackDisponivel={cashbackDoCliente}
         aPrazoAtivo={aPrazoNoCaixa}
+        configBancoPadrao={configBancoPadrao}
         observacaoInicial={preVenda?.observacao || ''}
         rotuloFinalizar={preVenda ? 'Receber e faturar' : undefined}
         onClose={() => setPaymentModalOpen(false)}

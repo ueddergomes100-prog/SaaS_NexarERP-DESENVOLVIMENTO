@@ -422,7 +422,7 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
     });
     // onUpdatePayment muda a cada render da tela-mae; o que importa e' a forma/banco de cada pagamento.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disabled, bancoPadrao?.config.bancoBoletoId, bancoPadrao?.config.lembrarDoDia, idsBancosAtivos, drafts.map((p) => `${p.id}:${p.forma}:${p.bancoId || ''}`).join('|')]);
+  }, [disabled, bancoPadrao?.config.bancoBoletoId, bancoPadrao?.config.bancoPixId, bancoPadrao?.config.bancoDebitoId, bancoPadrao?.config.bancoCreditoId, bancoPadrao?.config.lembrarDoDia, idsBancosAtivos, drafts.map((p) => `${p.id}:${p.forma}:${p.bancoId || ''}`).join('|')]);
 
   // Prazo padrao do boleto = o configurado no banco que emite boleto (30 sem config).
   const prazoPadraoBoleto = bancosAtivos.find((b) => b.boleto?.ativo)?.boleto?.prazoPadraoDias || 30;

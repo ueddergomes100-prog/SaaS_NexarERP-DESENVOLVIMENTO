@@ -173,13 +173,43 @@ export const formaDoDocumentoSemPagamentos = (
 export interface ConfigBancoPadrao {
   /** Banco que o Boleto ja' traz ('' = nenhum). */
   bancoBoletoId: string;
+  /**
+   * Banco padrao do Pix, do cartao de debito e do de credito (25/11/2026,
+   * pedido do dono pela Embala Minas: "um por forma" -- maquininha de um banco,
+   * Pix de outro). '' = nenhum (a pessoa escolhe, como antes).
+   */
+  bancoPixId: string;
+  bancoDebitoId: string;
+  bancoCreditoId: string;
   lembrarDoDia: boolean;
 }
 
-export const parseConfigBancoPadrao = (config: { bancoPadraoBoletoId?: unknown; lembrarBancoDoDia?: unknown } | null | undefined): ConfigBancoPadrao => ({
-  bancoBoletoId: typeof config?.bancoPadraoBoletoId === 'string' ? config.bancoPadraoBoletoId.trim() : '',
+/** Campo das Configuracoes da filial que guarda o banco padrao de cada forma. */
+export const CAMPOS_BANCO_PADRAO_POR_FORMA = {
+  Boleto: 'bancoPadraoBoletoId',
+  Pix: 'bancoPadraoPixId',
+  'Cartão de Débito': 'bancoPadraoDebitoId',
+  'Cartão de Crédito': 'bancoPadraoCreditoId',
+} as const;
+
+const idDoCampo = (valor: unknown): string => (typeof valor === 'string' ? valor.trim() : '');
+
+export const parseConfigBancoPadrao = (config: Record<string, unknown> | null | undefined): ConfigBancoPadrao => ({
+  bancoBoletoId: idDoCampo(config?.bancoPadraoBoletoId),
+  bancoPixId: idDoCampo(config?.bancoPadraoPixId),
+  bancoDebitoId: idDoCampo(config?.bancoPadraoDebitoId),
+  bancoCreditoId: idDoCampo(config?.bancoPadraoCreditoId),
   lembrarDoDia: config?.lembrarBancoDoDia === true,
 });
+
+/** Banco padrao configurado para a forma ('' quando a forma nao tem ou nao foi configurada). */
+export const bancoPadraoDaForma = (forma: string, config: ConfigBancoPadrao): string => {
+  if (forma === 'Boleto') return config.bancoBoletoId;
+  if (forma === 'Pix') return config.bancoPixId;
+  if (forma === 'Cartão de Débito') return config.bancoDebitoId;
+  if (forma === 'Cartão de Crédito') return config.bancoCreditoId;
+  return '';
+};
 
 /** O que fica guardado no navegador: o banco escolhido e em que dia. */
 export interface BancoDoDia {
@@ -212,8 +242,8 @@ export const bancoSugerido = (args: {
 }): string => {
   const { forma, config, doDia, hoje, bancosAtivosIds } = args;
   if (config.lembrarDoDia && doDia && doDia.data === hoje && bancosAtivosIds.includes(doDia.bancoId)) return doDia.bancoId;
-  if (forma === 'Boleto' && config.bancoBoletoId && bancosAtivosIds.includes(config.bancoBoletoId)) return config.bancoBoletoId;
-  return '';
+  const padrao = bancoPadraoDaForma(forma, config);
+  return padrao && bancosAtivosIds.includes(padrao) ? padrao : '';
 };
 
 // ---------------------------------------------------------------------------

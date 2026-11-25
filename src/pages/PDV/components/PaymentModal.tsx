@@ -17,6 +17,7 @@ import { FORMA_A_PRAZO } from '../../../utils/vendaFechamentoDomain';
 import type { PdvFinanceConfig } from '../pdvHelpers';
 import { currency } from '../pdvHelpers';
 import { faixasDisponiveis, valorSugeridoDoCashback, type CashbackDisponivel } from '../../../utils/cashbackDomain';
+import { bancoSugerido, type ConfigBancoPadrao } from '../../../utils/formasPagamentoDomain';
 
 interface Banco extends TenantCollectionItem {
   nome: string;
@@ -38,6 +39,11 @@ interface PaymentModalProps {
   rotuloFinalizar?: string;
   /** "Nota" na Frente de Caixa (25/11/2026): caixa de marcar da filial. */
   aPrazoAtivo?: boolean;
+  /**
+   * Banco padrao por forma (25/11/2026, Configuracoes da filial): escolheu Pix ou
+   * cartao, o banco ja' vem. Da' para trocar na hora. Sem config = como antes.
+   */
+  configBancoPadrao?: ConfigBancoPadrao;
   onClose: () => void;
   /** Os pagamentos chegam SEM o troco (somam o total); o troco vem a parte, so' para avisar. */
   onFinalize: (drafts: PaymentDraft[], observation: string, trocoCentavos: number) => void;
@@ -67,6 +73,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   observacaoInicial = '',
   rotuloFinalizar = 'Finalizar venda',
   aPrazoAtivo = false,
+  configBancoPadrao,
   onClose,
   onFinalize,
 }) => {
@@ -118,6 +125,19 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
       }
       // A prazo: o vencimento sai do prazo em dias (o padrao da filial).
       if (changes.forma && changes.forma !== draft.forma) next.dataVencimento = '';
+      // Banco padrao da forma (25/11/2026): trocou a forma, vem o banco dela (se houver e estiver ativo).
+      if (changes.forma && changes.forma !== draft.forma && configBancoPadrao && changes.bancoId === undefined) {
+        const padraoId = bancoSugerido({
+          forma: changes.forma,
+          config: { ...configBancoPadrao, lembrarDoDia: false },
+          doDia: null,
+          hoje: hojeDoCaixa,
+          bancosAtivosIds: bancosAtivos.map((b) => b.id),
+        });
+        const banco = padraoId ? bancosAtivos.find((b) => b.id === padraoId) : undefined;
+        next.bancoId = banco ? banco.id : '';
+        next.bancoNome = banco ? banco.nome : '';
+      }
       // Cashback ja' entra com o saldo (ate' o que falta pagar) ou a maior faixa.
       if (changes.forma === 'Cashback' && draft.forma !== 'Cashback' && cashbackDisponivel) {
         const faltaPagar = Math.max(0, totalCents - (paidCents - toCents(draft.valor)));

@@ -204,22 +204,43 @@ test('recebimento acompanha as formas "Usa" da filial, na ordem dela (16/10/2026
 // --- banco padrao (26/10/2026) ---------------------------------------------
 
 test('banco padrao: desligado por padrao; le a configuracao da filial', () => {
-  assert.deepEqual(parseConfigBancoPadrao(undefined), { bancoBoletoId: '', lembrarDoDia: false });
-  assert.deepEqual(parseConfigBancoPadrao({ bancoPadraoBoletoId: ' sicoob ', lembrarBancoDoDia: true }), { bancoBoletoId: 'sicoob', lembrarDoDia: true });
+  const vazio = { bancoBoletoId: '', bancoPixId: '', bancoDebitoId: '', bancoCreditoId: '', lembrarDoDia: false };
+  assert.deepEqual(parseConfigBancoPadrao(undefined), vazio);
+  assert.deepEqual(parseConfigBancoPadrao({ bancoPadraoBoletoId: ' sicoob ', lembrarBancoDoDia: true }), { ...vazio, bancoBoletoId: 'sicoob', lembrarDoDia: true });
+  assert.deepEqual(
+    parseConfigBancoPadrao({ bancoPadraoPixId: 'santo', bancoPadraoDebitoId: 'infinite', bancoPadraoCreditoId: 'saude', bancoPadraoBoletoId: 7 }),
+    { ...vazio, bancoPixId: 'santo', bancoDebitoId: 'infinite', bancoCreditoId: 'saude' },
+  );
   assert.equal(parseConfigBancoPadrao({ lembrarBancoDoDia: 'sim' }).lembrarDoDia, false);
 });
 
 test('banco sugerido: o do dia vence o padrao; so de hoje e so banco ativo', () => {
-  const config = { bancoBoletoId: 'sicoob', lembrarDoDia: true };
+  const config = { bancoBoletoId: 'sicoob', bancoPixId: '', bancoDebitoId: '', bancoCreditoId: '', lembrarDoDia: true };
   const ativos = ['sicoob', 'bb', 'caixa'];
   const hoje = '2026-10-26';
   assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: null, hoje, bancosAtivosIds: ativos }), 'sicoob', 'sem banco do dia: o padrao do boleto');
   assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: { data: hoje, bancoId: 'bb' }, hoje, bancosAtivosIds: ativos }), 'bb', 'o do dia vence');
   assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: { data: '2026-10-25', bancoId: 'bb' }, hoje, bancosAtivosIds: ativos }), 'sicoob', 'o de ontem nao vale');
-  assert.equal(bancoSugerido({ forma: 'Pix', config, doDia: null, hoje, bancosAtivosIds: ativos }), '', 'padrao fixo e so do boleto');
+  assert.equal(bancoSugerido({ forma: 'Pix', config, doDia: null, hoje, bancosAtivosIds: ativos }), '', 'Pix sem banco padrao configurado: a pessoa escolhe');
   assert.equal(bancoSugerido({ forma: 'Pix', config, doDia: { data: hoje, bancoId: 'caixa' }, hoje, bancosAtivosIds: ativos }), 'caixa', 'o do dia vale para qualquer forma');
   assert.equal(bancoSugerido({ forma: 'Boleto', config: { ...config, lembrarDoDia: false }, doDia: { data: hoje, bancoId: 'bb' }, hoje, bancosAtivosIds: ativos }), 'sicoob', 'sem lembrar, so o padrao');
   assert.equal(bancoSugerido({ forma: 'Boleto', config, doDia: { data: hoje, bancoId: 'inativo' }, hoje, bancosAtivosIds: ['bb'] }), '', 'banco inativo nunca e sugerido');
+});
+
+test('banco padrao por forma (25/11/2026): Pix, debito e credito cada um no seu banco; o do dia ainda vence', () => {
+  const config = { bancoBoletoId: 'sicoob', bancoPixId: 'santo', bancoDebitoId: 'infinite', bancoCreditoId: 'saude', lembrarDoDia: false };
+  const ativos = ['sicoob', 'santo', 'infinite', 'saude'];
+  const hoje = '2026-11-25';
+  const sugerido = (forma: string, extra: Partial<typeof config> = {}, doDia: { data: string; bancoId: string } | null = null, bancos = ativos) => (
+    bancoSugerido({ forma, config: { ...config, ...extra }, doDia, hoje, bancosAtivosIds: bancos })
+  );
+  assert.equal(sugerido('Pix'), 'santo');
+  assert.equal(sugerido('Cartão de Débito'), 'infinite');
+  assert.equal(sugerido('Cartão de Crédito'), 'saude');
+  assert.equal(sugerido('Boleto'), 'sicoob');
+  assert.equal(sugerido('Transferência'), '', 'forma sem banco padrao');
+  assert.equal(sugerido('Pix', { lembrarDoDia: true }, { data: hoje, bancoId: 'sicoob' }), 'sicoob', 'o do dia vence o padrao');
+  assert.equal(sugerido('Cartão de Crédito', {}, null, ['santo']), '', 'banco padrao inativo nao e sugerido');
 });
 
 test('banco do dia guardado: chave por empresa/usuario/forma e leitura tolerante', () => {

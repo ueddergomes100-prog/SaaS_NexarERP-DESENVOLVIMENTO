@@ -2,22 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Bell, User, Calendar, X, Loader2, Settings, LogOut, ChevronDown, Menu, Sun, Moon, SunMoon, Receipt, LifeBuoy, ShieldCheck, Cake, UserRoundCog, PanelLeft, PanelTop } from 'lucide-react';
 import { usePreferenciaTema } from '../../hooks/usePreferenciaTema';
 import { usePosicaoDoMenu } from '../../hooks/usePosicaoDoMenu';
+import { useBuscaGlobal } from '../../hooks/useBuscaGlobal';
 import { LARGURA_MINIMA_MENU_NO_TOPO } from '../../utils/menuNoTopoDomain';
 import { proximaPreferenciaTema, tituloDoBotaoDeTema } from '../../utils/temaDomain';
 import FilialSeletor from './FilialSeletor';
 import { useNavigate } from 'react-router-dom';
 import { useTabs } from '../../contexts/TabsContext';
-import { collection, query, where, onSnapshot, doc, getDocs, limit, orderBy, Timestamp, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { isTenantManagerRole } from '../../utils/roles';
-import { type SearchableProduct } from '../../utils/productSearch';
-import { consultasDaBusca, fimDoPrefixo, LIMITE_POR_CONSULTA } from '../../utils/buscaGlobalDomain';
 import PerfilModal from './PerfilModal';
 import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
 import './Layout.css';
 import { addDaysToDateInput, dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '../../utils/dateTime';
-import { assinarComReserva, lerComReserva } from '../../services/consultaComReserva';
+import { assinarComReserva } from '../../services/consultaComReserva';
 import { diasAteAData } from '../../utils/avisosSinoDomain';
 import {
   aniversariantesDoDia,
@@ -57,8 +56,8 @@ const TopBar: React.FC = () => {
   
   // Global search state
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState<{ type: string, id: string, title: string, subtitle: string, link: string }[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  // Busca de cadastros (OS, clientes, fornecedores, produtos) so' do que a pessoa pode abrir -- useBuscaGlobal.ts.
+  const { resultados: searchResults, buscando: isSearching } = useBuscaGlobal(searchTerm);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
@@ -354,120 +353,8 @@ const TopBar: React.FC = () => {
   };
 
   useEffect(() => {
-    if (searchTerm.length < 2) {
-      setSearchResults([]);
-      setShowSearchDropdown(false);
-      return;
-    }
-
-    setShowSearchDropdown(true);
-    setIsSearching(true);
-
-    // Consultas pequenas no cadastro INTEIRO (buscaGlobalDomain.ts): nome que
-    // comeca com o termo e codigos exatos, ate' 5 por consulta. Antes eram os
-    // 80 primeiros documentos de cada colecao (240 leituras por busca) e o
-    // "contem" so' enxergava esses 80. Sem o indice de nome publicado, a
-    // consulta de nome cai na antiga (lerComReserva) e o filtro abaixo segura.
-    const debounceTimer = setTimeout(async () => {
-      const termLower = searchTerm.toLowerCase();
-      try {
-        if (!currentUser || !tenantId) return;
-        const c = consultasDaBusca(searchTerm);
-        type Docs = QueryDocumentSnapshot<DocumentData>[];
-        const semResultado: Promise<Docs> = Promise.resolve([]);
-        const falhou = (erro: unknown): Docs => {
-          console.error('Busca global:', erro);
-          return [];
-        };
-        const porNome = (colecao: string, campo: string): Promise<Docs> => {
-          if (!c.prefixoNome) return semResultado;
-          const enxuta = query(
-            collection(db, colecao),
-            where('tenantId', '==', tenantId),
-            where(campo, '>=', c.prefixoNome),
-            where(campo, '<=', fimDoPrefixo(c.prefixoNome)),
-            orderBy(campo),
-            limit(LIMITE_POR_CONSULTA),
-          );
-          const reserva = query(collection(db, colecao), where('tenantId', '==', tenantId), limit(80));
-          return lerComReserva(enxuta, reserva, `Busca global (${colecao})`)
-            .then((snap) => snap.docs.filter((d) => String(d.data()[campo] || '').toLowerCase().includes(termLower)))
-            .catch(falhou);
-        };
-        const porValor = (colecao: string, campo: string, valores: Array<string | number>): Promise<Docs> => (
-          valores.length === 0 ? semResultado : getDocs(query(
-            collection(db, colecao),
-            where('tenantId', '==', tenantId),
-            where(campo, 'in', valores),
-            limit(LIMITE_POR_CONSULTA),
-          )).then((snap) => snap.docs).catch(falhou)
-        );
-
-        const [osPorNumero, osPorPlaca, osPorCliente, clientesPorNome, clientesPorDocumento, produtosPorCodigo, produtosPorBarras, produtosPorNome] = await Promise.all([
-          porValor('ordens_de_servico', 'numeroOS', c.numerosOS),
-          porValor('ordens_de_servico', 'placa', c.placas),
-          porNome('ordens_de_servico', 'clienteNome'),
-          porNome('clientes', 'nome'),
-          porValor('clientes', 'documento', c.documentos),
-          porValor('estoque', 'codigo', c.codigosProduto),
-          c.codigoBarras ? porValor('estoque', 'codigoBarras', [c.codigoBarras]) : semResultado,
-          porNome('estoque', 'nome'),
-        ]);
-        const unicos = (...listas: Docs[]) => {
-          const vistos = new Set<string>();
-          return listas.flat().filter((d) => {
-            if (vistos.has(d.id)) return false;
-            vistos.add(d.id);
-            return true;
-          });
-        };
-
-        const results: any[] = [];
-        unicos(osPorNumero, osPorPlaca, osPorCliente).forEach(doc => {
-          const data = doc.data();
-          results.push({
-            type: 'OS',
-            id: doc.id,
-            title: `OS #${data.numeroOS || doc.id.substring(0,8).toUpperCase()} - Placa: ${data.placa?.toUpperCase()}`,
-            subtitle: data.clienteNome,
-            link: `/os/editar/${doc.id}`
-          });
-        });
-
-        unicos(clientesPorDocumento, clientesPorNome).forEach(doc => {
-          const data = doc.data();
-          results.push({
-            type: 'Cliente',
-            id: doc.id,
-            title: data.nome,
-            subtitle: data.telefone || data.documento || 'Sem detalhes',
-            link: `/clientes/editar/${doc.id}`
-          });
-        });
-
-        unicos(produtosPorCodigo, produtosPorBarras, produtosPorNome).forEach(doc => {
-          const data = doc.data() as SearchableProduct;
-          // Produto inativado nunca aparece na busca (mesma regra de productMatchesSearch).
-          if (data.ativo === false) return;
-          results.push({
-            type: 'Produto',
-            id: doc.id,
-            title: data.nome || 'Produto sem nome',
-            subtitle: `Código: ${data.codigo || data.codigoBarras || data.skuSistema || '-'}`,
-            link: `/estoque/editar/${doc.id}`
-          });
-        });
-
-        setSearchResults(results.slice(0, 10)); // Top 10 results max
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 500);
-
-    return () => clearTimeout(debounceTimer);
-  }, [searchTerm, currentUser, tenantId]);
+    setShowSearchDropdown(searchTerm.length >= 2);
+  }, [searchTerm]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -506,7 +393,8 @@ const TopBar: React.FC = () => {
         >
           <Menu size={24} />
         </button>
-        <div className="topbar-search" ref={searchRef}>
+        {/* Menu no topo: a barra de pesquisa da' lugar a' lupa do menu (MenuTopo + BuscaGlobalModal, 26/11/2026). */}
+        {!menuNoTopo && <div className="topbar-search" ref={searchRef}>
           <Search className="search-icon" size={18} />
         <input 
           type="text" 
@@ -551,7 +439,7 @@ const TopBar: React.FC = () => {
                   >
                     <div style={{ 
                       width: '36px', height: '36px', borderRadius: 'var(--radius-md)', 
-                      backgroundColor: result.type === 'OS' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
+                      backgroundColor: result.type === 'OS' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)', textAlign: 'center', lineHeight: 1.1, 
                       display: 'flex', alignItems: 'center', justifyContent: 'center', 
                       color: result.type === 'OS' ? 'var(--accent-purple)' : '#10b981', 
                       flexShrink: 0, fontSize: '11px', fontWeight: 700 
@@ -568,7 +456,7 @@ const TopBar: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+      </div>}
       </div>
       
       <div className="topbar-actions">

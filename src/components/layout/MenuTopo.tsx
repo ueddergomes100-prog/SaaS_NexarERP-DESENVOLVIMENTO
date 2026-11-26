@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, MoreHorizontal } from 'lucide-react';
+import { ChevronDown, MoreHorizontal, Search } from 'lucide-react';
 import { gruposQueCabem } from '../../utils/menuNoTopoDomain';
 import hennderIcon from '../../assets/hennder-icon.webp';
+import BuscaGlobalModal from './BuscaGlobalModal';
 import './menuTopo.css';
 
 /*
@@ -69,6 +70,20 @@ const MenuTopo: React.FC<Props> = ({ grupos, caminhoAtual, abrir, irParaInicio }
   const [aberto, setAberto] = useState<string | null>(null);
   const [posicaoDoCartao, setPosicaoDoCartao] = useState(0);
   const fechamento = useRef<number | null>(null);
+  // Lupa (26/11/2026): no menu do topo a barra de pesquisa vira lupa + janela larga (BuscaGlobalModal).
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const fecharBusca = useCallback(() => setBuscaAberta(false), []);
+  useEffect(() => {
+    const aoTeclar = (evento: KeyboardEvent) => {
+      if ((evento.ctrlKey || evento.metaKey) && evento.key.toLowerCase() === 'k') {
+        evento.preventDefault();
+        setAberto(null);
+        setBuscaAberta(true);
+      }
+    };
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, []);
 
   // Quantos grupos cabem: mede os botoes numa linha escondida e o espaco da barra.
   const medir = useCallback(() => {
@@ -213,6 +228,19 @@ const MenuTopo: React.FC<Props> = ({ grupos, caminhoAtual, abrir, irParaInicio }
           </button>
         )}
       </nav>
+
+      <button
+        type="button"
+        className="menu-topo__lupa"
+        onClick={() => { setAberto(null); setBuscaAberta(true); }}
+        title="Buscar tela, cliente, fornecedor, OS ou produto (Ctrl+K)"
+        aria-label="Buscar no sistema"
+      >
+        <Search size={16} aria-hidden="true" />
+        <span>Buscar</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+      <BuscaGlobalModal aberta={buscaAberta} fechar={fecharBusca} grupos={grupos} abrirTela={abrir} />
 
       {/* Linha escondida so' para medir a largura de cada botao. */}
       <div className="menu-topo__medidor" ref={medidorRef} aria-hidden="true">

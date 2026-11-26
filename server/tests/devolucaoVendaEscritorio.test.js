@@ -12,7 +12,7 @@ const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreF
 const HOJE = '2026-11-25';
 const T = 'emp1';
 const ESCRITORIO = { uid: 'u1', email: 'ana@loja', nome: 'ANA', tenantId: T, permissoes: ['vendas.devolucao'] };
-const DONO = { uid: 'dono', email: 'dono@loja', nome: 'DONO', tenantId: T, permissoes: [], isTenantManager: true };
+const DONO = { uid: 'dono', email: 'dono@loja', nome: 'DONO', tenantId: T, permissoes: [], dono: true };
 const comPermissoes = (...p) => ({ ...ESCRITORIO, permissoes: ['vendas.devolucao', ...p] });
 
 const servico = (db) => carregarComBancoFalso(db, 'services/renegociacaoOrigem', 'services/auditoria', 'services/devolucaoVenda', 'services/devolucaoVendaEscritorio')[6];

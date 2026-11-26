@@ -244,13 +244,13 @@ test('nivel gerente: traz Modo Avancado e sem nota enquanto o pacote nao foi sal
 const A = PERMISSAO_ADMINISTRACAO;
 const CA = PERMISSAO_CONFIG_AREAS;
 
-test('administracao-1: toda permissao nova no catalogo, sem as que ja existem em outros ramos', () => {
+test('administracao-1: toda permissao nova no catalogo, sem id repetido (com as dos outros ramos da lista juntas)', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
   [A, CA, PERMISSAO_FILIAIS_GESTAO].forEach((grupo) => Object.values(grupo).forEach((p: string) => assert.ok(ids.has(p), `${p} no catalogo`)));
-  for (const proibida of ['vendas.trocar_forma_do_vendedor', 'app.devolucao_destino', 'estoque.nota_avulsa_cheque_cliente']) {
-    assert.ok(!ids.has(proibida), `${proibida} nao entra por este ramo`);
+  // Juntadas na publicacao da lista (25/11/2026): aparecem uma vez so'.
+  for (const deOutroRamo of ['vendas.trocar_forma_do_vendedor', 'app.devolucao_destino', 'estoque.nota_avulsa_cheque_cliente', 'financeiro.caixa_fechar', 'operacoes.romaneios_configurar']) {
+    assert.equal(PERMISSION_CATALOG.filter((i) => i.id === deOutroRamo).length, 1, `${deOutroRamo} uma vez no catalogo`);
   }
-  assert.ok(![...ids].some((id) => id.startsWith('vendas.devolucao_') && id !== 'vendas.devolucao_estornar'), 'vendas.devolucao_* nao entra por este ramo');
   assert.equal(PERMISSION_CATALOG.length, ids.size, 'nenhum id repetido no catalogo');
   const pacote = PACOTES_DE_PERMISSOES.find((p) => p.id === 'administracao-1');
   assert.ok(pacote, 'pacote existe');

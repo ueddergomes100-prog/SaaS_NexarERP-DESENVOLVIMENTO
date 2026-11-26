@@ -744,10 +744,14 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
               <div className="payments-editor__card-fields">
                 <div className="payments-editor__card-grid">
                   <div className="input-group">
-                    <label htmlFor={`${idPrefix}-brand-${payment.id}`}>Bandeira</label>
+                    {/* Obrigatoria desde 26/11/2026: sem ela a venda nao fecha (financeDomain.normalizePayments). */}
+                    <label htmlFor={`${idPrefix}-brand-${payment.id}`}>Bandeira *</label>
                     <select
                       disabled={disabled}
                       id={`${idPrefix}-brand-${payment.id}`}
+                      required
+                      aria-required="true"
+                      aria-invalid={!payment.bandeira?.trim()}
                       onChange={(event) => onUpdatePayment(payment.id, { bandeira: event.target.value })}
                       value={payment.bandeira}
                     >

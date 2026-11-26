@@ -48,10 +48,12 @@ import {
 } from '../src/utils/financeDomain';
 import { addBusinessDaysToDateInput, getDashboardPeriodRange } from '../src/utils/dateTime';
 
+// Cartao sempre com bandeira (obrigatoria desde 26/11/2026); quem quer testar sem, passa bandeira: ''.
 const payment = (updates: Partial<PaymentDraft> = {}): PaymentDraft => ({
   ...createEmptyPaymentDraft('pagamento-1', 10_000),
   bancoId: 'banco-teste',
   bancoNome: 'Banco Teste',
+  bandeira: 'Elo',
   ...updates,
 });
 
@@ -186,15 +188,25 @@ test('bandeira sem schedule proprio (ou nao selecionada) cai no fallback global'
     creditFeePercent: 3.2,
     cardFeeSchedulesByBrand: { Visa: { creditFeePercent: 1.5 } },
   });
-  const [semBandeira] = normalizePayments(60_000, [
-    payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas: '1', bandeira: '' }),
-  ], {
-    creditFeePercent: 3.2,
-    cardFeeSchedulesByBrand: { Visa: { creditFeePercent: 1.5 } },
-  });
-
   assert.equal(semSchedule.cartao?.taxaPercentual, 3.2);
-  assert.equal(semBandeira.cartao?.taxaPercentual, 3.2);
+});
+
+test('cartao sem bandeira nao fecha (26/11/2026): a mensagem diz o que fazer', () => {
+  for (const forma of ['Cartão de Crédito', 'Cartão de Débito'] as const) {
+    assert.throws(
+      () => normalizePayments(60_000, [payment({ forma, valor: '600.00', parcelas: '1', bandeira: '  ' })], { creditFeePercent: 3.2 }),
+      /Escolha a bandeira do cart.o de (cr.dito|d.bito) antes de finalizar.*Cadastros Auxiliares › Bandeiras de Cart.o/,
+    );
+  }
+  // Dois pagamentos: diz qual.
+  assert.throws(
+    () => normalizePayments(60_000, [payment({ forma: 'Dinheiro', valor: '300.00' }), payment({ id: 'p2', forma: 'Cartão de Débito', valor: '300.00', bandeira: '' })]),
+    /no pagamento 2/,
+  );
+  // Cartao simplificado continua sem bandeira (nao ha taxa).
+  assert.doesNotThrow(() => normalizePayments(60_000, [payment({ forma: 'Cartão de Crédito', valor: '600.00', bandeira: '' })], {
+    pagamentoCartaoSimplificadoAtivo: true, bancoPadraoSimplificado: { id: 'b', nome: 'BANCO' },
+  }));
 });
 
 test('buildCardFeeSchedulesByBrand indexa por nome e ignora bandeiras sem taxa configurada', () => {

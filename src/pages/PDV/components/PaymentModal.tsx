@@ -25,6 +25,11 @@ interface Banco extends TenantCollectionItem {
   ordem: number;
 }
 
+interface BandeiraDoCartao extends TenantCollectionItem {
+  nome: string;
+  ativo: boolean;
+}
+
 interface PaymentModalProps {
   open: boolean;
   totalCents: number;
@@ -85,6 +90,11 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   const [chequeModalDraftId, setChequeModalDraftId] = useState<string | null>(null);
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
+  // Bandeira do cartao (26/11/2026): obrigatoria -- e' por ela que sai a taxa e o dia em que cai.
+  const { items: bandeiras } = useTenantCollection<BandeiraDoCartao>('bandeiras_cartao', tenantId);
+  const bandeirasAtivas = bandeiras.filter((b) => b.ativo !== false).map((b) => b.nome).filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const pedeBandeira = (forma: string) => isCardPayment(forma) && !financeConfig.pagamentoCartaoSimplificadoAtivo;
+  const cartaoSemBandeira = drafts.some((d) => pedeBandeira(d.forma) && !d.bandeira?.trim());
   const draftDoModalCheque = drafts.find((d) => d.id === chequeModalDraftId) || null;
 
   useEffect(() => {
@@ -125,7 +135,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   // Troco (25/11/2026): so' o dinheiro pode passar do total; o que passa volta ao cliente.
   const conta = useMemo(() => contaDoTroco(totalCents, drafts.map((d) => ({ forma: d.forma, valorCentavos: toCents(d.valor) }))), [drafts, totalCents]);
   const remainingCents = totalCents - paidCents;
-  const canFinalize = totalCents > 0 && conta.faltaCentavos === 0 && conta.excessoSemTrocoCentavos === 0 && !saving;
+  const canFinalize = totalCents > 0 && conta.faltaCentavos === 0 && conta.excessoSemTrocoCentavos === 0 && !cartaoSemBandeira && !saving;
   const hojeDoCaixa = getDateInputInTimeZone();
   const finalizar = () => {
     const semTroco = pagamentosSemOTroco(
@@ -205,12 +215,16 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
         <div className="pdv-payment-total">
           <span>Total da venda</span>
           <strong>{currency.format(fromCents(totalCents))}</strong>
-          <small className={conta.faltaCentavos > 0 ? 'warn' : conta.excessoSemTrocoCentavos > 0 ? 'danger' : 'ok'}>
+          <small className={conta.faltaCentavos > 0 || cartaoSemBandeira ? 'warn' : conta.excessoSemTrocoCentavos > 0 ? 'danger' : 'ok'}>
             {conta.faltaCentavos > 0
               ? `Faltam ${currency.format(fromCents(conta.faltaCentavos))}`
               : conta.excessoSemTrocoCentavos > 0
                 ? `Excedeu ${currency.format(fromCents(conta.excessoSemTrocoCentavos))} — só o dinheiro pode passar do total (vira troco)`
-                : 'Pagamento completo'
+                : cartaoSemBandeira
+                  ? (bandeirasAtivas.length === 0
+                    ? 'Cadastre as bandeiras em Cadastros Auxiliares › Bandeiras de Cartão para receber no cartão'
+                    : 'Escolha a bandeira do cartão para finalizar')
+                  : 'Pagamento completo'
             }
           </small>
           {conta.trocoCentavos > 0 && conta.excessoSemTrocoCentavos === 0 && (
@@ -259,6 +273,24 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                     <option value="">Selecione...</option>
                     {bancosAtivos.map((banco) => (
                       <option key={banco.id} value={banco.id}>{banco.nome}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {pedeBandeira(draft.forma) && (
+                <label>
+                  <span>Bandeira *</span>
+                  <select
+                    value={draft.bandeira || ''}
+                    required
+                    aria-required="true"
+                    aria-invalid={!draft.bandeira?.trim()}
+                    onChange={(event) => updateDraft(draft.id, { bandeira: event.target.value })}
+                  >
+                    <option value="">Selecione...</option>
+                    {bandeirasAtivas.map((nome) => (
+                      <option key={nome} value={nome}>{nome}</option>
                     ))}
                   </select>
                 </label>

@@ -812,6 +812,19 @@ export const normalizePayments = (
         record.parcelasExibicao = parcelasInformadas;
       }
     } else if (isCardPayment(draft.forma)) {
+      // Bandeira obrigatoria (26/11/2026, Embala Minas: "nao seja possivel de jeito
+      // algum fechar venda no cartao sem a bandeira"). Sem ela a taxa e o dia em que
+      // o dinheiro cai saiam do padrao da filial (muitas vezes zero) e o cartao
+      // aparecia sem bandeira no Banco. Vale no PDV, no Pedido de Venda, na OS e ao
+      // alterar o pagamento -- aqui e no servidor (mesma regra). O cartao
+      // simplificado (Configuracoes) continua sem bandeira: la' nao ha' taxa.
+      if (!draft.bandeira?.trim()) {
+        throw new Error(
+          `${drafts.length > 1 ? `Escolha a bandeira do ${draft.forma.toLowerCase()} no pagamento ${index + 1}` : `Escolha a bandeira do ${draft.forma.toLowerCase()}`}`
+          + ' antes de finalizar: é por ela que o sistema calcula a taxa e o dia em que o dinheiro cai no banco.'
+          + ' Se a bandeira não aparece na lista, cadastre em Cadastros Auxiliares › Bandeiras de Cartão.',
+        );
+      }
       const installments = Number.parseInt(draft.parcelas, 10);
       if (
         draft.forma === 'Cartão de Crédito' &&

@@ -95,8 +95,10 @@ test('bloco B (25/11/2026): dados do dono so o proprio dono; de administrador, s
     'usuarios/f1': { tenantId: 'loja', role: 'Funcionario' },
   }).db;
   const m = carregar(db);
-  const DONO = { uid: 'loja', tenantId: 'loja', role: 'Master', isTenantManager: true, dono: true };
-  const ADM = { uid: 'adm', tenantId: 'loja', role: 'Admin', isTenantManager: true, dono: false };
+  // Formato do req.user depois da troca do administrador (auth.js): dono pelo campo
+  // `dono`; administrador com `isAdministrador` e as permissoes (sem pacote = todas).
+  const DONO = { uid: 'loja', tenantId: 'loja', role: 'Master', dono: true };
+  const ADM = { uid: 'adm', tenantId: 'loja', role: 'Admin', isAdministrador: true, dono: false, permissoes: [] };
   const PLATAFORMA = { uid: 'p1', tenantId: 'p1', role: 'SuperAdmin', isPlatformAdmin: true };
   assert.equal(await chamar(m, ADM, 'loja'), 403, 'administrador nao mexe no dono');
   assert.equal(await chamar(m, ADM, 'adm2'), 403, 'administrador nao mexe em outro administrador');

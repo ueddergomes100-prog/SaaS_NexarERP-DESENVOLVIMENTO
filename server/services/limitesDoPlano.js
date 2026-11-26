@@ -554,6 +554,8 @@ const salvarPermissoes = async ({ user, tenantId, corpo, gerente, administrador 
  * e no nivel padrao) -- a mesma regra que as rules tinham.
  */
 const PERMISSAO_INCLUIR_VENDEDOR = 'cadastros.vendedores_incluir';
+/** Quem da' ao vendedor novo as permissoes de liberar desconto e de aplicativo. */
+const PERMISSAO_LIBERADORES = 'cadastros.vendedores_liberadores';
 
 const lerPercentual = (valor) => {
   if (valor === undefined || valor === null || valor === '') return null;
@@ -563,8 +565,12 @@ const lerPercentual = (valor) => {
 
 const criarVendedorBalcao = async ({ user, tenantId, corpo }) => {
   const c = corpo || {};
-  const gestor = Boolean(user && (user.isTenantManager || user.isPlatformAdmin));
-  if (!gestor && !((user && user.permissoes) || []).includes(PERMISSAO_INCLUIR_VENDEDOR)) {
+  // Troca do administrador (25/11/2026): so' o dono e a plataforma passam pelo papel;
+  // o administrador vem com as permissoes efetivas em user.permissoes (auth.js).
+  const permissoesDoUsuario = (user && user.permissoes) || [];
+  const liberado = Boolean(user && (user.dono || user.isPlatformAdmin));
+  const gestor = liberado || permissoesDoUsuario.includes(PERMISSAO_LIBERADORES);
+  if (!liberado && !permissoesDoUsuario.includes(PERMISSAO_INCLUIR_VENDEDOR)) {
     throw new ErroLimite(403, 'Só o dono, um administrador ou quem tem a permissão "Cadastros: Vendedores — incluir e alterar" cadastra vendedor.');
   }
   const nome = String(c.nome ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -589,7 +595,7 @@ const criarVendedorBalcao = async ({ user, tenantId, corpo }) => {
   if (Number.isNaN(percentualServicos) || Number.isNaN(percentualPecas)) {
     throw new ErroLimite(400, 'O percentual de comissão tem de ser um número de 0 a 100.');
   }
-  // Sem ser dono/administrador: vendedor comum, sem permissao nenhuma.
+  // Sem ser o dono nem ter "Cadastros: Vendedores -- liberar desconto e aplicativo": vendedor comum, sem permissao nenhuma.
   const permissoes = gestor && Array.isArray(c.permissoes)
     ? [...new Set(c.permissoes.filter(permApp.permissaoValida))].slice(0, 60)
     : [];

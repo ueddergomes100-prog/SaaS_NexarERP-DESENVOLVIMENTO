@@ -34,7 +34,7 @@
  * vale e' sempre a do backend.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listaGeralDeVendasEscondidaParaFuncionario = exports.parseExigirIdentificacaoVendedor = exports.DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR = exports.AJUDA_TAMANHO_PIN = exports.MENSAGEM_PIN_CURTO = exports.MENSAGEM_PIN_FRACO = exports.MENSAGEM_PIN_INVALIDO = exports.MENSAGEM_CODIGO_INVALIDO = exports.isPinVendedorFraco = exports.isPinDigitadoValido = exports.isPinVendedorValido = exports.isCodigoVendedorValido = exports.normalizarCodigoVendedor = exports.MAX_VENDEDORES_COM_CODIGO = exports.PIN_GESTOR_MIN_DIGITOS = exports.PIN_DIGITADO_MIN_DIGITOS = exports.PIN_VENDEDOR_MAX_DIGITOS = exports.PIN_VENDEDOR_MIN_DIGITOS = exports.CODIGO_VENDEDOR_DIGITOS = void 0;
+exports.listaGeralDeVendasEscondidaParaFuncionario = exports.minhasVendasNoMenu = exports.parseIdentificacaoEscondeVendas = exports.CHAVE_IDENTIFICACAO_ESCONDE_VENDAS = exports.parseExigirIdentificacaoVendedor = exports.DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR = exports.AJUDA_TAMANHO_PIN = exports.MENSAGEM_PIN_CURTO = exports.MENSAGEM_PIN_FRACO = exports.MENSAGEM_PIN_INVALIDO = exports.MENSAGEM_CODIGO_INVALIDO = exports.isPinVendedorFraco = exports.isPinDigitadoValido = exports.isPinVendedorValido = exports.isCodigoVendedorValido = exports.normalizarCodigoVendedor = exports.MAX_VENDEDORES_COM_CODIGO = exports.PIN_GESTOR_MIN_DIGITOS = exports.PIN_DIGITADO_MIN_DIGITOS = exports.PIN_VENDEDOR_MAX_DIGITOS = exports.PIN_VENDEDOR_MIN_DIGITOS = exports.CODIGO_VENDEDOR_DIGITOS = void 0;
 const visibilidadeVendasDomain_1 = require("./visibilidadeVendasDomain");
 exports.CODIGO_VENDEDOR_DIGITOS = 2;
 /**
@@ -112,6 +112,22 @@ exports.DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR = false;
 const parseExigirIdentificacaoVendedor = (valor) => valor === true;
 exports.parseExigirIdentificacaoVendedor = parseExigirIdentificacaoVendedor;
 /**
+ * "Com a identificacao ligada, cada funcionario ve so' as proprias vendas" (26/11/2026,
+ * pedido do dono): a contra-opcao de quem quer exigir o codigo e a senha do vendedor mas
+ * deixar todo mundo ver as vendas na tela de Pedidos de Venda. Padrao = esconde (como
+ * sempre foi): so' `false` gravado libera.
+ */
+exports.CHAVE_IDENTIFICACAO_ESCONDE_VENDAS = 'identificacaoEscondeVendas';
+const parseIdentificacaoEscondeVendas = (valor) => valor !== false;
+exports.parseIdentificacaoEscondeVendas = parseIdentificacaoEscondeVendas;
+/**
+ * "Minhas Vendas" no menu acompanha: some so' quando a empresa exige a identificacao
+ * e deixa todos verem as vendas (ai' a lista geral ja' mostra tudo). Sem identificacao,
+ * como sempre (pela permissao).
+ */
+const minhasVendasNoMenu = (args) => (!(args.exigirIdentificacaoVendedor && !args.escondeVendas));
+exports.minhasVendasNoMenu = minhasVendasNoMenu;
+/**
  * A lista geral de "Pedidos de Venda" fica escondida da TELA (nao do
  * Firestore) pra quem nao tem acesso total, quando a empresa liga "Exigir
  * identificacao do vendedor a cada venda"?
@@ -133,6 +149,8 @@ exports.parseExigirIdentificacaoVendedor = parseExigirIdentificacaoVendedor;
  */
 const listaGeralDeVendasEscondidaParaFuncionario = (args) => {
     if (!args.exigirIdentificacaoVendedor)
+        return false;
+    if (args.escondeVendas === false)
         return false;
     // Antes esta regra olhava SO o papel (Master/Admin) enquanto a outra trava
     // de visibilidade olhava o nivel de acesso. Dava o pior dos dois mundos:

@@ -31,6 +31,7 @@ import {
 import {
   listaGeralDeVendasEscondidaParaFuncionario,
   parseExigirIdentificacaoVendedor,
+  parseIdentificacaoEscondeVendas,
 } from '../../utils/vendedorPinDomain';
 import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { tomDoStatusPedido, type TomChip } from '../../utils/chipStatusDomain';
@@ -199,6 +200,7 @@ const PedidoVendas: React.FC = () => {
   const [showItemPreview, setShowItemPreview] = useState(false);
   const [conferenciaMercadoriaAtiva, setConferenciaMercadoriaAtiva] = useState(false);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(false);
+  const [identificacaoEscondeVendas, setIdentificacaoEscondeVendas] = useState(true);
 
   // Filtros por coluna (estilo planilha, pedido pela usuaria no video da F27
   // de bugfix da data da venda). Ficam SO' na memoria do componente --
@@ -241,6 +243,7 @@ const PedidoVendas: React.FC = () => {
   // vendedorPinDomain.ts. Quem tem acesso total continua vendo tudo.
   const listaEscondida = listaGeralDeVendasEscondidaParaFuncionario({
     exigirIdentificacaoVendedor,
+    escondeVendas: identificacaoEscondeVendas,
     role: userRole,
     isOwner,
     nivelAcesso,
@@ -300,6 +303,7 @@ const PedidoVendas: React.FC = () => {
         const data = snap.exists() ? snap.data() : {};
         setConferenciaMercadoriaAtiva(data.conferenciaMercadoria === true);
         setExigirIdentificacaoVendedor(parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor));
+        setIdentificacaoEscondeVendas(parseIdentificacaoEscondeVendas(data.identificacaoEscondeVendas));
       })
       .catch((err) => console.error('Erro ao verificar configuração de conferência de mercadoria:', err));
   }, [currentUser, tenantId]);

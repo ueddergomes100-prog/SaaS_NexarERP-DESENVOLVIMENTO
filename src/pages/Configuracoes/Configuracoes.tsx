@@ -115,6 +115,7 @@ import { DEFAULT_TRABALHA_COM_CONDICIONAL, parseTrabalhaComCondicional } from '.
 import {
   DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
   parseExigirIdentificacaoVendedor,
+  parseIdentificacaoEscondeVendas,
 } from '../../utils/vendedorPinDomain';
 import { DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR, parseLiberacaoEscolherVendedor } from '../../utils/liberacaoRemotaDomain';
 import {
@@ -279,6 +280,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   { campo: 'devolucaoBotaoSeparado', rotulo: 'Devolução de venda em botão separado', formatar: simNaoHistorico },
   { campo: 'habilitarTelaPrecificacao', rotulo: 'Tela de Precificação', formatar: simNaoHistorico },
   { campo: 'exigirIdentificacaoVendedor', rotulo: 'Exigir identificação do vendedor', formatar: simNaoHistorico },
+  { campo: 'identificacaoEscondeVendas', rotulo: 'Identificação: cada funcionário vê só as próprias vendas', formatar: simNaoHistorico },
   { campo: 'liberacaoEscolherVendedor', rotulo: 'Liberação de desconto: escolher o vendedor', formatar: simNaoHistorico },
   { campo: 'alterarPagamentoVendaFinalizada', rotulo: 'Alterar pagamento de venda finalizada', formatar: simNaoHistorico },
   { campo: 'restringirVendasPorUsuario', rotulo: 'Cada usuário vê só as próprias vendas', formatar: simNaoHistorico },
@@ -571,6 +573,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     agenteDigitalAtivo: DEFAULT_AGENTE_DIGITAL_ATIVO,
     alterarPagamentoVendaFinalizada: DEFAULT_ALTERAR_PAGAMENTO_VENDA_FINALIZADA,
     exigirIdentificacaoVendedor: DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
+    identificacaoEscondeVendas: true,
     liberacaoEscolherVendedor: DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR,
     devolucaoBotaoSeparado: false,
     habilitarTelaPrecificacao: false,
@@ -774,6 +777,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             agenteDigitalAtivo: parseAgenteDigitalAtivo(data.agenteDigitalAtivo),
             alterarPagamentoVendaFinalizada: parseAlterarPagamentoVendaFinalizada(data.alterarPagamentoVendaFinalizada),
             exigirIdentificacaoVendedor: parseExigirIdentificacaoVendedor(data.exigirIdentificacaoVendedor),
+            identificacaoEscondeVendas: parseIdentificacaoEscondeVendas(data.identificacaoEscondeVendas),
             liberacaoEscolherVendedor: parseLiberacaoEscolherVendedor(data.liberacaoEscolherVendedor),
             devolucaoBotaoSeparado: data.devolucaoBotaoSeparado === true,
             habilitarTelaPrecificacao: data.habilitarTelaPrecificacao === true,
@@ -1107,7 +1111,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
           <p style="margin:0 0 10px;">A partir de agora:</p>
           <ul style="margin:0 0 12px; padding-left:20px;">
             <li>Toda <strong>venda finalizada</strong> ou <strong>pré-venda</strong> gravada vai pedir o <strong>código (2 dígitos)</strong> e a <strong>senha (de 2 a 10 dígitos)</strong> do vendedor antes de concluir.</li>
-            <li>A lista geral de <strong>Pedidos de Venda</strong> deixa de aparecer para quem não é dono, Master ou Admin da empresa. Esses usuários passam a usar a nova tela <strong>Minhas Vendas</strong>, que mostra só as vendas do próprio vendedor.</li>
+            <li>Se a opção <strong>"cada funcionário vê só as próprias vendas"</strong> ficar marcada (padrão), a lista geral de <strong>Pedidos de Venda</strong> deixa de aparecer para quem não é dono ou administrador, que passa a usar <strong>Minhas Vendas</strong>. Desmarcada, todos continuam vendo as vendas normalmente.</li>
           </ul>
           <p style="margin:0;"><strong>Antes de confirmar:</strong> cadastre código e senha de pelo menos um vendedor em Usuários. Sem isso, ninguém consegue finalizar uma venda.</p>
         </div>
@@ -3793,9 +3797,25 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   com o código do vendedor cadastrado na ficha dele. Se alguém esquecer a senha, o administrador cadastra
                   outra na hora e isso já destrava quem estiver bloqueado por tentativas.
                 </p>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                  Com esta opção ligada, a lista geral de <strong>Pedidos de Venda</strong> fica visível só para dono, Master ou Admin — o funcionário comum passa a usar a tela <strong>Minhas Vendas</strong>, que mostra e reimprime só as vendas dele.
-                </p>
+                {/* Contra-opcao (26/11/2026): exigir a identificacao e deixar todos verem as vendas. */}
+                {formData.exigirIdentificacaoVendedor === true && (
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px', marginTop: '4px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.identificacaoEscondeVendas !== false}
+                      onChange={(e) => setFormData({ ...formData, identificacaoEscondeVendas: e.target.checked })}
+                      disabled={!isEditingMode}
+                      style={{ accentColor: 'var(--accent-purple)', width: '16px', height: '16px', marginTop: '2px' }}
+                    />
+                    <span>
+                      Cada funcionário vê só as próprias vendas
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Marcado: a lista geral de <strong>Pedidos de Venda</strong> fica só para dono e administrador, e o funcionário usa <strong>Minhas Vendas</strong>.
+                        Desmarcado: continua pedindo o código e a senha do vendedor, mas todos veem as vendas na tela de Pedidos de Venda (e <strong>Minhas Vendas</strong> sai do menu).
+                      </span>
+                    </span>
+                  </label>
+                )}
                 {/* Liberacao pelo celular em estacao compartilhada (22/10/2026). */}
                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', color: 'var(--text-primary)', fontSize: '14px', marginTop: '4px' }}>
                   <input

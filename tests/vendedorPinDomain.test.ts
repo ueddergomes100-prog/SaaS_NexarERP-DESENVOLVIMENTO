@@ -223,3 +223,20 @@ test('funcionario comum fica sem a lista quando a config esta ligada', () => {
     exigirIdentificacaoVendedor: true, role: undefined, isOwner: false, nivelAcesso: 'funcionario',
   }), true);
 });
+
+test('contra-opcao (26/11/2026): exigir a identificacao e deixar todos verem as vendas', async () => {
+  const { listaGeralDeVendasEscondidaParaFuncionario: escondida, parseIdentificacaoEscondeVendas, minhasVendasNoMenu } = await import('../src/utils/vendedorPinDomain');
+  const funcionario = { role: 'Funcionario', isOwner: false, nivelAcesso: 'funcionario' as const };
+  // Padrao (campo ausente ou true): como sempre, a lista some para o funcionario.
+  assert.equal(parseIdentificacaoEscondeVendas(undefined), true);
+  assert.equal(parseIdentificacaoEscondeVendas(true), true);
+  assert.equal(parseIdentificacaoEscondeVendas(false), false);
+  assert.equal(escondida({ ...funcionario, exigirIdentificacaoVendedor: true }), true);
+  assert.equal(escondida({ ...funcionario, exigirIdentificacaoVendedor: true, escondeVendas: true }), true);
+  // Desmarcado: exige a identificacao, mas todos veem a lista.
+  assert.equal(escondida({ ...funcionario, exigirIdentificacaoVendedor: true, escondeVendas: false }), false);
+  // Minhas Vendas no menu acompanha.
+  assert.equal(minhasVendasNoMenu({ exigirIdentificacaoVendedor: true, escondeVendas: true }), true);
+  assert.equal(minhasVendasNoMenu({ exigirIdentificacaoVendedor: true, escondeVendas: false }), false);
+  assert.equal(minhasVendasNoMenu({ exigirIdentificacaoVendedor: false, escondeVendas: false }), true, 'sem identificacao, como sempre');
+});

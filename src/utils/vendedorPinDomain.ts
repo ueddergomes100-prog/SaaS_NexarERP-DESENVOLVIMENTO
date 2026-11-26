@@ -124,6 +124,24 @@ export const DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR = false;
 
 export const parseExigirIdentificacaoVendedor = (valor: unknown): boolean => valor === true;
 
+/**
+ * "Com a identificacao ligada, cada funcionario ve so' as proprias vendas" (26/11/2026,
+ * pedido do dono): a contra-opcao de quem quer exigir o codigo e a senha do vendedor mas
+ * deixar todo mundo ver as vendas na tela de Pedidos de Venda. Padrao = esconde (como
+ * sempre foi): so' `false` gravado libera.
+ */
+export const CHAVE_IDENTIFICACAO_ESCONDE_VENDAS = 'identificacaoEscondeVendas';
+export const parseIdentificacaoEscondeVendas = (valor: unknown): boolean => valor !== false;
+
+/**
+ * "Minhas Vendas" no menu acompanha: some so' quando a empresa exige a identificacao
+ * e deixa todos verem as vendas (ai' a lista geral ja' mostra tudo). Sem identificacao,
+ * como sempre (pela permissao).
+ */
+export const minhasVendasNoMenu = (args: { exigirIdentificacaoVendedor: boolean; escondeVendas: boolean }): boolean => (
+  !(args.exigirIdentificacaoVendedor && !args.escondeVendas)
+);
+
 export interface VendedorIdentificado {
   vendedorId: string;
   vendedorNome: string;
@@ -154,12 +172,15 @@ export interface VendedorIdentificado {
  */
 export const listaGeralDeVendasEscondidaParaFuncionario = (args: {
   exigirIdentificacaoVendedor: boolean;
+  /** Contra-opcao (26/11/2026): false = exige a identificacao mas todos veem as vendas. Ausente = esconde. */
+  escondeVendas?: boolean;
   role: unknown;
   isOwner: boolean;
   /** Cargo da pessoa em Vendas. Supervisor e gerente veem a lista inteira. */
   nivelAcesso: NivelAcesso;
 }): boolean => {
   if (!args.exigirIdentificacaoVendedor) return false;
+  if (args.escondeVendas === false) return false;
   // Antes esta regra olhava SO o papel (Master/Admin) enquanto a outra trava
   // de visibilidade olhava o nivel de acesso. Dava o pior dos dois mundos:
   // marcar o gerente no nivel de cima nao devolvia a lista pra ele, e nao

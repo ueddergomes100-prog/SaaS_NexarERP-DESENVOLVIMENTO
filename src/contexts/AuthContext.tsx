@@ -30,6 +30,7 @@ import {
 import {
   DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR,
   parseExigirIdentificacaoVendedor,
+  parseIdentificacaoEscondeVendas,
 } from '../utils/vendedorPinDomain';
 import { DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR, parseLiberacaoEscolherVendedor } from '../utils/liberacaoRemotaDomain';
 import { DEFAULT_TRABALHA_COM_ENTREGA_FUTURA, parseTrabalhaComEntregaFutura } from '../utils/entregaFuturaDomain';
@@ -96,6 +97,8 @@ interface AuthContextType {
    *  a marca de que a empresa trabalha em balcao compartilhado -- ver
    *  src/utils/vendedorCadastroDomain.ts. */
   exigirIdentificacaoVendedor: boolean;
+  /** Com a identificacao ligada, o funcionario ve so' as proprias vendas (padrao) ou todas (26/11/2026). */
+  identificacaoEscondeVendas: boolean;
   /** Config da empresa (22/10/2026): na liberacao de desconto pelo celular,
    *  a estacao compartilhada escolhe na lista o vendedor que esta' pedindo. */
   liberacaoEscolherVendedor: boolean;
@@ -262,6 +265,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [nivelAcesso, setNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
   const [restringirVendasPorUsuario, setRestringirVendasPorUsuario] = useState(DEFAULT_RESTRINGIR_VENDAS_POR_USUARIO);
   const [exigirIdentificacaoVendedor, setExigirIdentificacaoVendedor] = useState(DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR);
+  const [identificacaoEscondeVendas, setIdentificacaoEscondeVendas] = useState(true);
   const [liberacaoEscolherVendedor, setLiberacaoEscolherVendedor] = useState(DEFAULT_LIBERACAO_ESCOLHER_VENDEDOR);
   const [controlaFiscal, setControlaFiscal] = useState(DEFAULT_CONTROLA_FISCAL);
   const [devolucaoBotaoSeparado, setDevolucaoBotaoSeparado] = useState(false);
@@ -644,6 +648,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setExigirIdentificacaoVendedor(
         parseExigirIdentificacaoVendedor(snap.exists() ? snap.data().exigirIdentificacaoVendedor : undefined),
       );
+      setIdentificacaoEscondeVendas(parseIdentificacaoEscondeVendas(snap.exists() ? snap.data().identificacaoEscondeVendas : undefined));
       setLiberacaoEscolherVendedor(
         parseLiberacaoEscolherVendedor(snap.exists() ? snap.data().liberacaoEscolherVendedor : undefined),
       );
@@ -905,7 +910,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser, userNome, userRole, nivelAcesso, isOwner, homeTenantId, tenantId, filialAtual, selectedTenant]);
 
   return (
-    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions: permissoesDaEmpresa, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, venderPorEmbalagem, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome, cobrancaEmpresa }}>
+    <AuthContext.Provider value={{ currentUser, loading, logout, userRole, userPermissions: permissoesDaEmpresa, tenantId, blockedModules: blockedModulesEfetivos, isOwner, homeTenantId, grupo, limiteFiliais, filiaisDoUsuario: filiaisDoUsuarioAtual, filialAtual, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, needsTenantSelection, nivelAcesso, restringirVendasPorUsuario, exigirIdentificacaoVendedor, identificacaoEscondeVendas, liberacaoEscolherVendedor, controlaFiscal, devolucaoBotaoSeparado, habilitarTelaPrecificacao, trabalhaComPreVenda, trabalhaComEntregaFutura, modoRotaPreVenda, valoresNaMinutaDoApp, configBonificacao, trabalhaComCondicional, permiteVendaSemEstoque, venderPorEmbalagem, usaGradeDeProdutos, configCashback, conferenciaMercadoriaAtiva, loteModoSaida, loteAvisarVencido, agenteDigitalAtivo, temVendedorCadastrado, somenteVendasProprias: restrictedToOwnSales, vendasVisiveisDeUsuarioId, acessoAppMobile, userNome, atualizarNomeDoUsuario: setUserNome, cobrancaEmpresa }}>
       {children}
     </AuthContext.Provider>
   );

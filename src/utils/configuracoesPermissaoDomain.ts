@@ -38,7 +38,7 @@ export const CAMPOS_DO_BLOCO_DA_FILIAL: Readonly<Record<string, readonly string[
   [CA.parametrosVenda]: ['parametrosVenda', 'gavetaDinheiro', 'aPrazoNaFrenteDeCaixa'],
   [CA.recursosVenda]: [
     'venderSemEstoque', 'trabalhaComPreVenda', 'rotaNaPreVenda', 'trabalhaComEntregaFutura', 'entregaFuturaExigeEstoque',
-    'trabalhaComCondicional', 'exigirIdentificacaoVendedor', 'liberacaoEscolherVendedor', 'restringirVendasPorUsuario',
+    'trabalhaComCondicional', 'exigirIdentificacaoVendedor', 'identificacaoEscondeVendas', 'liberacaoEscolherVendedor', 'restringirVendasPorUsuario',
     'alterarPagamentoVendaFinalizada', 'devolucaoBotaoSeparado',
   ],
   [CA.comissaoPadrao]: ['comissaoPadraoPecas', 'comissaoPadraoServicos', 'metaFaturamentoMensal'],

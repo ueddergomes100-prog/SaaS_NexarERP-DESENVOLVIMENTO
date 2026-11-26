@@ -65,6 +65,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { menuVendedoresVisivel } from '../../utils/vendedorCadastroDomain';
+import { minhasVendasNoMenu } from '../../utils/vendedorPinDomain';
 import hennderIcon from '../../assets/hennder-icon.webp';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
 import wordmarkLight from '../../assets/hennder-wordmark-light.webp';
@@ -107,6 +108,7 @@ const Sidebar: React.FC = () => {
     currentUser,
     selectedTenant,
     exigirIdentificacaoVendedor,
+    identificacaoEscondeVendas,
     controlaFiscal,
     habilitarTelaPrecificacao,
     trabalhaComCondicional,
@@ -206,7 +208,10 @@ const Sidebar: React.FC = () => {
       icon: ShoppingCart,
       items: [
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
-        { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
+        // Acompanha a identificacao (26/11/2026): some quando a empresa exige o vendedor mas todos veem as vendas.
+        ...(minhasVendasNoMenu({ exigirIdentificacaoVendedor, escondeVendas: identificacaoEscondeVendas })
+          ? [{ label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' }]
+          : []),
         { label: 'Orçamentos', to: '/orcamentos', icon: FileText, module: 'comercial.orcamentos', permission: 'vendas.orcamentos' },
         // Contador (24/11/2026): devolucoes pedidas pelo app aguardando confirmacao.
         { label: 'Devolução de Venda', to: '/vendas/devolucoes', icon: RotateCcw, module: 'comercial.devolucoes', permission: 'vendas.devolucao', ...(devolucoesAguardando > 0 ? { badge: `${devolucoesAguardando} aguardando` } : {}) },
@@ -409,7 +414,7 @@ const Sidebar: React.FC = () => {
         { label: 'Sincronizações', to: '/integracoes/sincronizacoes', icon: Link2, module: 'integracoes.sincronizacoes', permission: 'integracoes.sincronizacoes' }
       ]
     }
-  ], [exigirIdentificacaoVendedor, temVendedorCadastrado, devolucoesAguardando]);
+  ], [exigirIdentificacaoVendedor, identificacaoEscondeVendas, temVendedorCadastrado, devolucoesAguardando]);
 
   const visibleGroups = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -436,7 +441,9 @@ const Sidebar: React.FC = () => {
   const railShortcuts: NavItem[] = [
     { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, module: 'dashboard.empresa', permission: 'dashboard.acesso' },
     { label: 'Pedido de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
-    { label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' },
+    ...(minhasVendasNoMenu({ exigirIdentificacaoVendedor, escondeVendas: identificacaoEscondeVendas })
+      ? [{ label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' }]
+      : []),
     { label: 'Ordem de Serviço', to: '/os', icon: ClipboardList, module: 'mecanica.os', permission: 'mecanica.os' },
     { label: 'Estoque', to: '/estoque', icon: Package, module: 'cadastros.estoque', permission: 'cadastros.estoque' },
     { label: 'Contas a Receber', to: '/financeiro/contas-receber', icon: Clock, module: 'financeiro.receber', permission: 'financeiro.receber' },

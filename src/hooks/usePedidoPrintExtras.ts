@@ -9,6 +9,9 @@ export interface ItemPrintExtra {
   /** Unidade do estoque do produto e as embalagens dele: "1 CX = 30 PCT de 10 UN = 300 UN" (embalagemNoPapelDomain.ts). */
   siglaBase?: string;
   embalagens?: unknown;
+  /** Conteudo de 1 unidade do estoque ("cada PCT contem 10 UN"), do cadastro do produto. */
+  conteudoQuantidade?: number;
+  conteudoSigla?: string;
 }
 
 export interface PedidoPrintExtras {
@@ -56,6 +59,8 @@ export const usePedidoPrintExtras = (pedidoData: any): PedidoPrintExtras => {
               marca: String(produto.marca || ''),
               siglaBase: String(produto.unidadeMedidaSigla || ''),
               embalagens: Array.isArray(produto.embalagens) ? produto.embalagens : [],
+              conteudoQuantidade: Number(produto.conteudoDaUnidadeQuantidade) || 0,
+              conteudoSigla: String(produto.conteudoDaUnidadeSigla || ''),
             };
           }
         } catch (erro) {

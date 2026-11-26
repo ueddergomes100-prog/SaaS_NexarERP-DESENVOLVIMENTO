@@ -62,6 +62,7 @@ import {
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import './Estoque.css';
+import { conteudoParaGravar } from '../../utils/embalagemNoPapelDomain';
 import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
 
 // ---------------------------------------------------------------------------
@@ -148,6 +149,7 @@ const produtoParaHistorico = (p: Record<string, any> | null | undefined): Record
     controlarLote: Boolean(d.controlarLote ?? d.avancado?.controlarLote ?? false),
     bloquearVendaSemEstoque: Boolean(d.bloquearVendaSemEstoque ?? d.avancado?.bloquearVendaSemEstoque ?? false),
     venderSoNaEmbalagem: d.venderSoNaEmbalagem === true,
+    conteudoDaUnidade: Number(d.conteudoDaUnidadeQuantidade) > 0 ? `${Number(d.conteudoDaUnidadeQuantidade).toLocaleString('pt-BR')} ${d.conteudoDaUnidadeSigla || 'UN'}` : '',
     produtoRevenda: Boolean(d.produtoRevenda ?? d.avancado?.produtoRevenda ?? true),
     produzidoInternamente: Boolean(d.produzidoInternamente ?? d.avancado?.produzidoInternamente ?? false),
     permitirCashback: Boolean(d.permitirCashback ?? d.avancado?.permitirCashback ?? false),
@@ -205,6 +207,7 @@ const CAMPOS_DO_PRODUTO_NO_HISTORICO: CampoComparado[] = [
   { campo: 'controlarLote', rotulo: 'Controlar lote', formatar: simOuNao },
   { campo: 'bloquearVendaSemEstoque', rotulo: 'Bloquear venda sem estoque', formatar: simOuNao },
   { campo: 'venderSoNaEmbalagem', rotulo: 'Vender só na embalagem', formatar: simOuNao },
+  { campo: 'conteudoDaUnidade', rotulo: 'Conteúdo de cada unidade (impressão do pedido)' },
   { campo: 'produtoRevenda', rotulo: 'Produto de revenda', formatar: simOuNao },
   { campo: 'produzidoInternamente', rotulo: 'Produzido internamente', formatar: simOuNao },
   { campo: 'permitirCashback', rotulo: 'Gera cashback', formatar: simOuNao },
@@ -464,6 +467,12 @@ interface ProdutoFormData {
   bloquearVendaSemEstoque: boolean;
   /** A venda nao oferece a unidade solta: so' as embalagens (embalagemDomain.vendeSoNaEmbalagem). */
   venderSoNaEmbalagem: boolean;
+  /**
+   * Conteudo de 1 unidade do estoque (26/11/2026): "cada PCT contem 10 UN". So'
+   * para o papel do pedido (embalagemNoPapelDomain.ts); vazio = nao informado.
+   */
+  conteudoDaUnidadeQuantidade: string;
+  conteudoDaUnidadeSigla: string;
   /** So' produto marcado baixa lote na saida (loteDomain.ts). Os lotes vivem em estoque_lotes. */
   controlarLote: boolean;
   permitirCashback: boolean;
@@ -615,6 +624,8 @@ const emptyFormData: ProdutoFormData = {
   produtoRevenda: true,
   bloquearVendaSemEstoque: false,
   venderSoNaEmbalagem: false,
+  conteudoDaUnidadeQuantidade: '',
+  conteudoDaUnidadeSigla: '',
   controlarLote: false,
   permitirCashback: false,
   cashbackTipo: '',
@@ -843,6 +854,12 @@ const EstoqueForm: React.FC = () => {
   /** Sigla da unidade base do produto -- e nela que o estoque e' controlado,
    * e e' contra ela que o fator de conversao de cada embalagem e' expresso. */
   const baseUnidadeSigla = activeUnidades.find(u => u.id === formData.unidadeMedidaId)?.sigla || 'UN';
+  // Conteudo de cada unidade (26/11/2026): unidades da lista menos a do estoque; a escolhida fica, mesmo inativa.
+  const opcoesDoConteudo = Array.from(new Set([formData.conteudoDaUnidadeSigla, 'UN', ...activeUnidades.map(u => u.sigla)]))
+    .filter((siglaDaLista): siglaDaLista is string => Boolean(siglaDaLista) && siglaDaLista !== baseUnidadeSigla);
+  const siglaDoConteudo = formData.conteudoDaUnidadeSigla && formData.conteudoDaUnidadeSigla !== baseUnidadeSigla
+    ? formData.conteudoDaUnidadeSigla
+    : opcoesDoConteudo[0] || '';
 
   // Produto "produzido internamente" com composicao cadastrada: o custo
   // nao e mais digitado a mao, e a soma de (quantidade x custo unitario)
@@ -1157,6 +1174,8 @@ const EstoqueForm: React.FC = () => {
               produtoRevenda: Boolean(data.produtoRevenda ?? data.avancado?.produtoRevenda ?? true),
               bloquearVendaSemEstoque: Boolean(data.bloquearVendaSemEstoque ?? data.avancado?.bloquearVendaSemEstoque ?? false),
               venderSoNaEmbalagem: data.venderSoNaEmbalagem === true,
+              conteudoDaUnidadeQuantidade: Number(data.conteudoDaUnidadeQuantidade) > 0 ? String(data.conteudoDaUnidadeQuantidade).replace('.', ',') : '',
+              conteudoDaUnidadeSigla: Number(data.conteudoDaUnidadeQuantidade) > 0 ? String(data.conteudoDaUnidadeSigla || '') : '',
               controlarLote: Boolean(data.controlarLote ?? data.avancado?.controlarLote ?? false),
               permitirCashback: Boolean(data.permitirCashback ?? data.avancado?.permitirCashback ?? false),
               cashbackTipo: data.cashbackTipo === 'percentual' || data.cashbackTipo === 'valor' ? data.cashbackTipo : '',
@@ -1901,8 +1920,12 @@ const EstoqueForm: React.FC = () => {
       const custoComercialDigitado = parseComissaoPercentualInput(formData.custoComercial);
       const custoComercialValor = custoComercialDigitado !== undefined && custoComercialDigitado > 0 ? custoComercialDigitado : undefined;
 
+      const conteudoDaUnidade = conteudoParaGravar(formData.conteudoDaUnidadeQuantidade, siglaDoConteudo);
       const produtoData = {
         ...formData,
+        // Numero e sigla (nunca o texto da tela nem undefined).
+        conteudoDaUnidadeQuantidade: conteudoDaUnidade.quantidade,
+        conteudoDaUnidadeSigla: conteudoDaUnidade.sigla,
         nome: nomeProduto,
         codigo: formData.codigo.trim(),
         codigoAutomatico: formData.codigoAutomatico,
@@ -3251,6 +3274,52 @@ const EstoqueForm: React.FC = () => {
                   {formData.venderSoNaEmbalagem && embalagens.length === 0
                     ? `Cadastre pelo menos uma embalagem abaixo. Enquanto não houver, o produto continua sendo vendido em ${baseUnidadeSigla}.`
                     : `Para produto que não é vendido avulso (só o pacote, só a caixa). A venda mostra apenas as embalagens; o estoque e as compras continuam em ${baseUnidadeSigla}.`}
+                </span>
+              </div>
+
+              {/* Conteudo de cada unidade do estoque (26/11/2026, Embala Minas): so' informa o papel do pedido. */}
+              <div style={{ marginBottom: '16px' }}>
+                <div className="form-grid-3" style={{ alignItems: 'flex-end' }}>
+                  <div className="input-group">
+                    <label htmlFor="conteudo-da-unidade">Cada {baseUnidadeSigla} contém</label>
+                    <input
+                      id="conteudo-da-unidade"
+                      inputMode="decimal"
+                      value={formData.conteudoDaUnidadeQuantidade}
+                      onChange={(e) => {
+                        const valor = e.target.value.replace(/[^\d.,]/g, '');
+                        setFormData(prev => ({ ...prev, conteudoDaUnidadeQuantidade: valor }));
+                      }}
+                      title={`Quantas unidades vêm dentro de 1 ${baseUnidadeSigla}. Deixe em branco se não se aplica.`}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="conteudo-da-unidade-sigla">Unidade do conteúdo</label>
+                    <select
+                      id="conteudo-da-unidade-sigla"
+                      value={siglaDoConteudo}
+                      onChange={(e) => setFormData(prev => ({ ...prev, conteudoDaUnidadeSigla: e.target.value }))}
+                    >
+                      {opcoesDoConteudo.map(siglaDaLista => (
+                          <option key={siglaDaLista} value={siglaDaLista}>
+                            {activeUnidades.find(u => u.sigla === siglaDaLista)?.nome ? `${siglaDaLista} — ${activeUnidades.find(u => u.sigla === siglaDaLista)?.nome}` : siglaDaLista}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                <span className="field-hint">
+                  {(() => {
+                    const conteudo = conteudoParaGravar(formData.conteudoDaUnidadeQuantidade, siglaDoConteudo);
+                    const caixa = [...embalagens].filter(e => toNumber(e.fatorConversao) > 1).sort((x, y) => toNumber(y.fatorConversao) - toNumber(x.fatorConversao))[0];
+                    const siglaCaixa = caixa ? activeUnidades.find(u => u.id === caixa.unidadeMedidaId)?.sigla || '' : '';
+                    if (conteudo.quantidade > 0 && caixa && siglaCaixa) {
+                      const fator = toNumber(caixa.fatorConversao);
+                      return `Na impressão do pedido e da pré-venda sai: 1 ${siglaCaixa} = ${fator.toLocaleString('pt-BR')} ${baseUnidadeSigla} de ${conteudo.quantidade.toLocaleString('pt-BR')} ${conteudo.sigla} = ${(fator * conteudo.quantidade).toLocaleString('pt-BR')} ${conteudo.sigla}. Não muda estoque, preço nem nota.`;
+                    }
+                    const exemplo = siglaDoConteudo || 'UN';
+                    return `Só para a impressão do pedido e da pré-venda: com uma caixa de 30 ${baseUnidadeSigla} e 10 aqui, o papel mostra "1 CX = 30 ${baseUnidadeSigla} de 10 ${exemplo} = 300 ${exemplo}". Não muda estoque, preço nem nota.`;
+                  })()}
                 </span>
               </div>
 

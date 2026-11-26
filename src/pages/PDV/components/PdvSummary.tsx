@@ -25,6 +25,8 @@ interface PdvSummaryProps {
   preVenda?: { numeroPedido: string; clienteNome: string; vendedorNome: string } | null;
   /** Mostra o atalho F8 (so' para quem pode faturar pre-venda no caixa). */
   atalhoPreVendas?: boolean;
+  /** Mostra o atalho F10 (so' para quem pode tirar o relatorio parcial do caixa). */
+  atalhoRelatorio?: boolean;
   onOpenClient: () => void;
   onOpenDiscount: () => void;
   onOpenPayment: () => void;
@@ -40,6 +42,7 @@ const PdvSummary: React.FC<PdvSummaryProps> = ({
   cashbackTexto,
   preVenda = null,
   atalhoPreVendas = false,
+  atalhoRelatorio = false,
   onOpenClient,
   onOpenDiscount,
   onOpenPayment,
@@ -130,6 +133,7 @@ const PdvSummary: React.FC<PdvSummaryProps> = ({
       <span><kbd>F7</kbd> Finalizar</span>
       {atalhoPreVendas && <span><kbd>F8</kbd> Pré-vendas</span>}
       <span><kbd>F9</kbd> Vendas</span>
+      {atalhoRelatorio && <span><kbd>F10</kbd> Relatório</span>}
       <span><kbd>Esc</kbd> Fechar janela</span>
       <span><kbd>Enter</kbd> Confirmar</span>
     </div>

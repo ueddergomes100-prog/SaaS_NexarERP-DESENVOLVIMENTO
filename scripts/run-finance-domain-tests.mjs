@@ -236,6 +236,7 @@ const testFiles = [
   join(temporaryDirectory, 'tests', 'pastasDoBoletoDomain.test.js'),
   join(temporaryDirectory, 'tests', 'cabecalhoDaTelaDomain.test.js'),
   join(temporaryDirectory, 'tests', 'embalagemNaEntradaDomain.test.js'),
+  join(temporaryDirectory, 'tests', 'relatorioDoCaixaBobinaDomain.test.js'),
   join(temporaryDirectory, 'tests', 'custoExtraEntradaDomain.test.js'),
   join(temporaryDirectory, 'tests', 'notaAvulsaXmlDomain.test.js'),
 ];
@@ -474,6 +475,7 @@ try {
     'tests/pastasDoBoletoDomain.test.ts',
     'tests/cabecalhoDaTelaDomain.test.ts',
     'tests/embalagemNaEntradaDomain.test.ts',
+    'tests/relatorioDoCaixaBobinaDomain.test.ts',
     'tests/custoExtraEntradaDomain.test.ts',
     'tests/notaAvulsaXmlDomain.test.ts',
     'src/utils/financeDomain.ts',
@@ -679,6 +681,7 @@ try {
     'src/utils/pastasDoBoletoDomain.ts',
     'src/utils/cabecalhoDaTelaDomain.ts',
     'src/utils/embalagemNaEntradaDomain.ts',
+    'src/utils/relatorioDoCaixaBobinaDomain.ts',
     'src/utils/custoExtraEntradaDomain.ts',
     'src/utils/notaAvulsaXmlDomain.ts',
     '--ignoreConfig',

@@ -300,14 +300,14 @@ export const gravarFechamentoDoCaixa = async (args: {
  * COFRE (servidor). Devolve a frase para o aviso; `ok: false` quando nao deu
  * (o caixa ja' esta' fechado -- o dinheiro fica no CAIXA ate' alguem transferir).
  */
-export const mandarAoCofreDepoisDeFechar = async (sessaoId: string, trocoCentavos: number): Promise<{ ok: boolean; texto: string }> => {
+export const mandarAoCofreDepoisDeFechar = async (sessaoId: string, trocoCentavos: number): Promise<{ ok: boolean; texto: string; paraCofreCentavos: number | null; trocoCentavos: number | null }> => {
   try {
     const r = await mandarAoCofreNoFechamento({ sessaoId, trocoCentavos });
-    if (r.valorCentavos <= 0) return { ok: true, texto: `Todo o dinheiro ficou de troco na gaveta (${reais(r.trocoCentavos)}).` };
-    return { ok: true, texto: `${reais(r.valorCentavos)} foram para o ${r.cofreNome || 'COFRE'}; ficaram ${reais(r.trocoCentavos)} de troco na gaveta.` };
+    if (r.valorCentavos <= 0) return { ok: true, texto: `Todo o dinheiro ficou de troco na gaveta (${reais(r.trocoCentavos)}).`, paraCofreCentavos: 0, trocoCentavos: r.trocoCentavos };
+    return { ok: true, texto: `${reais(r.valorCentavos)} foram para o ${r.cofreNome || 'COFRE'}; ficaram ${reais(r.trocoCentavos)} de troco na gaveta.`, paraCofreCentavos: r.valorCentavos, trocoCentavos: r.trocoCentavos };
   } catch (erro) {
     const motivo = erro instanceof ErroDoServidor && erro.message ? erro.message : 'Confira a internet.';
-    return { ok: false, texto: `O caixa foi fechado, mas o dinheiro não foi para o COFRE: ${motivo} Faça a transferência do CAIXA para o COFRE em Financeiro › Caixas e Transferências.` };
+    return { ok: false, texto: `O caixa foi fechado, mas o dinheiro não foi para o COFRE: ${motivo} Faça a transferência do CAIXA para o COFRE em Financeiro › Caixas e Transferências.`, paraCofreCentavos: null, trocoCentavos: null };
   }
 };
 

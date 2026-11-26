@@ -4,7 +4,7 @@ import { db } from '../../services/firebase';
 import { usePendentesEPeriodo } from '../../hooks/usePendentesEPeriodo';
 import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { useAuth } from '../../contexts/AuthContext';
-import { Wallet, Clock, History, Calendar, CalendarCheck, ChevronDown, ChevronUp, Banknote, FileText, Lock, MonitorCheck, User } from 'lucide-react';
+import { Wallet, Clock, History, Calendar, CalendarCheck, ChevronDown, ChevronUp, Banknote, FileText, Loader2, Lock, MonitorCheck, Printer, User } from 'lucide-react';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
@@ -34,7 +34,8 @@ import ComposicaoDoEsperado from './ComposicaoDoEsperado';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { nomeDoOperador } from '../../utils/frenteDeCaixaDomain';
 import { usePodePermissao } from '../../hooks/usePodePermissao';
-import { PERMISSAO_CONFIG_AREAS } from '../../utils/permissoesNovasDomain';
+import { PERMISSAO_CONFIG_AREAS, PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
+import { empresaDoRelatorio, imprimirRelatorioDoCaixa, lerLancamentosDoCaixa, sangriasDoCaixa } from '../PDV/relatorioDoCaixa';
 import ComputadoresDoCaixaModal from './ComputadoresDoCaixaModal';
 import './Financeiro.css';
 
@@ -61,6 +62,8 @@ interface CaixaSessaoData {
   totalSangriasCentavos: number;
   createdAt?: any;
   fechadoEm?: any;
+  /** Fechado conferindo contra o saldo da gaveta (fechamentoCaixaPdvService). */
+  fechamentoPelaGaveta?: boolean;
   /** Computador onde o caixa foi aberto (entrada com codigo e senha, 22/11/2026). */
   terminalNome?: string;
 }
@@ -105,6 +108,9 @@ const CaixaRegistros: React.FC = () => {
   const podePermissao = usePodePermissao();
   const podeFecharEAcertar = podePermissao('financeiro.caixa_fechar');
   const podeComputadores = podePermissao(PERMISSAO_CONFIG_AREAS.caixaComputadores);
+  const podeRelatorios = podePermissao(PERMISSAO_FINANCEIRO.relatorios);
+  // Relatorio do caixa na bobina (26/11/2026): o mesmo papel da Frente de Caixa, para reimprimir.
+  const [imprimindoId, setImprimindoId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [vendasPorSessao, setVendasPorSessao] = useState<Record<string, VendaVinculada[]>>({});
   const [loadingVendas, setLoadingVendas] = useState<string | null>(null);
@@ -501,6 +507,64 @@ const CaixaRegistros: React.FC = () => {
     );
   }
 
+  /** Caixa aberto: o parcial de agora. Fechado: o papel do fechamento (sem troco/COFRE, que a sessao nao guarda). */
+  const imprimirRelatorioDaSessao = async (sessao: CaixaSessaoData) => {
+    if (!tenantId || imprimindoId) return;
+    setImprimindoId(sessao.id);
+    try {
+      const [lancamentos, configSnap] = await Promise.all([
+        lerLancamentosDoCaixa(tenantId, sessao.id),
+        getDoc(doc(db, 'configuracoes', tenantId)),
+      ]);
+      const fechada = sessao.status === 'fechado';
+      const sangrias = sangriasDoCaixa(sessao.sangrias);
+      let esperado: { saldoEsperadoCentavos: number; modo: ModoDoFechamento; explicacao: string } | null = null;
+      if (fechada) {
+        const pelaGaveta = sessao.fechamentoPelaGaveta === true;
+        esperado = {
+          saldoEsperadoCentavos: Number(sessao.saldoEsperadoCentavos || 0),
+          modo: pelaGaveta ? 'gaveta' : 'sessao',
+          explicacao: pelaGaveta ? 'Conferido contra o saldo da gaveta no fechamento.' : 'Saldo inicial + vendas em dinheiro deste caixa − sangrias.',
+        };
+      } else {
+        try {
+          const conta = await calcularEsperadoDoFechamento(tenantId, sessao);
+          esperado = { saldoEsperadoCentavos: conta.saldoEsperadoCentavos, modo: conta.modo, explicacao: conta.explicacao };
+        } catch (erro) {
+          console.error('Caixa (Sessões PDV): não foi possível calcular o esperado para o relatório.', erro);
+        }
+      }
+      const quemImprime = (currentUser && nomesDosOperadores[currentUser.uid]) || currentUser?.displayName || currentUser?.email?.split('@')[0] || '';
+      await imprimirRelatorioDoCaixa({
+        tenantId,
+        sessaoId: sessao.id,
+        lancamentos,
+        tipo: fechada ? 'fechamento' : 'parcial',
+        empresa: empresaDoRelatorio(configSnap.exists() ? configSnap.data() : null),
+        operadorNome: nomeDaSessao(sessao),
+        impressoPorNome: quemImprime,
+        abertoEm: toDate(sessao.createdAt),
+        emitidoEm: new Date(),
+        saldoInicialCentavos: Number(sessao.saldoInicialCentavos || 0),
+        sangrias,
+        esperado,
+        fechamento: fechada ? {
+          fechadoEm: toDate(sessao.fechadoEm) || new Date(),
+          contadoCentavos: Number(sessao.saldoFinalInformadoCentavos || 0),
+          diferencaCentavos: Number(sessao.diferencaCentavos || 0),
+          trocoCentavos: null,
+          paraCofreCentavos: null,
+        } : null,
+        listarVendas: true,
+      });
+    } catch (erro) {
+      console.error('Caixa (Sessões PDV): erro ao imprimir o relatório do caixa.', erro);
+      showError('Relatório não impresso', 'Não foi possível montar o relatório deste caixa. Confira a internet e a impressora e tente de novo.');
+    } finally {
+      setImprimindoId(null);
+    }
+  };
+
   const toggleExpand = async (sessao: CaixaSessaoData) => {
     if (expandedId === sessao.id) {
       setExpandedId(null);
@@ -542,6 +606,23 @@ const CaixaRegistros: React.FC = () => {
     return (
       <tr key={`${sessao.id}-detalhe`}>
         <td colSpan={colSpan} style={{ padding: '16px', backgroundColor: 'var(--bg-tertiary)' }}>
+          {podeRelatorios && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '12px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                onClick={(event) => { event.stopPropagation(); void imprimirRelatorioDaSessao(sessao); }}
+                disabled={Boolean(imprimindoId)}
+                title={sessao.status === 'fechado'
+                  ? 'Imprime de novo, na impressora do cupom, o relatório do fechamento deste caixa (vendas, dinheiro, sangrias e a conferência)'
+                  : 'Imprime, na impressora do cupom, o que já passou por este caixa, sem fechar'}
+              >
+                {imprimindoId === sessao.id ? <Loader2 className="spin-animation" size={16} /> : <Printer size={16} aria-hidden="true" />}
+                {sessao.status === 'fechado' ? 'Imprimir relatório do fechamento' : 'Imprimir relatório parcial'}
+              </button>
+            </div>
+          )}
           {sessao.status === 'aberto' && (() => {
             const c = composicaoDoCaixa(sessao);
             if (!c) return <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '0 0 16px' }}>Montando o que compõe o esperado...</p>;

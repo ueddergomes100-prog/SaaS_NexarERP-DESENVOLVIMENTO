@@ -22,6 +22,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.minhas_vendas': ['comercial.pedidos'],
   'vendas.pdv': ['comercial.pedidos'],
   'vendas.so_caixa': ['comercial.pedidos'],
+  'vendas.pdv_relatorio_caixa': ['comercial.pedidos'],
   'vendas.alterar': ['comercial.pedidos'],
   'vendas.excluir': ['comercial.pedidos'],
   // Modulos proprios desde 28/10/2026 (MODULO_PAI em moduleCatalog.ts).

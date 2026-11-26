@@ -48,7 +48,8 @@ const MARCADOR_VENDAS = marcadorDoPacote('vendas-1');
 const MARCADOR_ESTOQUE = marcadorDoPacote('estoque-1');
 const MARCADOR_ADMINISTRACAO = marcadorDoPacote('administracao-1');
 const MARCADOR_FIN3 = marcadorDoPacote('financeiro-3');
-const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3];
+const MARCADOR_PDV = marcadorDoPacote('pdv-1');
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3, MARCADOR_PDV];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -90,7 +91,7 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
   assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1', 'financeiro-3']);
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1', 'financeiro-3', 'pdv-1']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');
@@ -413,4 +414,15 @@ test('financeiro-3: quem usa o Contas a Receber ou a Pagar ja ve os creditos; sa
   assert.ok(permissoesEfetivas(['financeiro.receber', MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO]).includes(F.creditosVer));
   // Salvo com este pacote e sem a permissao marcada: fica sem.
   assert.ok(!permissoesEfetivas(permissoesParaGravar(['financeiro.receber'])).includes(F.creditosVer));
+});
+
+test('pdv-1: quem opera a Frente de Caixa ja tira o relatorio parcial; salvo sem ela, nao tira', () => {
+  const RELATORIO = 'vendas.pdv_relatorio_caixa';
+  assert.ok(permissoesEfetivas(['vendas.pdv']).includes(RELATORIO));
+  assert.ok(permissoesEfetivas(['vendas.so_caixa']).includes(RELATORIO));
+  assert.ok(!permissoesEfetivas(['vendas.pedidos']).includes(RELATORIO));
+  // Salvo antes deste pacote: ganha pela tela.
+  assert.ok(permissoesEfetivas(['vendas.pdv', MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3]).includes(RELATORIO));
+  // Salvo com este pacote e sem a permissao marcada: fica sem.
+  assert.ok(!permissoesEfetivas(permissoesParaGravar(['vendas.pdv'])).includes(RELATORIO));
 });

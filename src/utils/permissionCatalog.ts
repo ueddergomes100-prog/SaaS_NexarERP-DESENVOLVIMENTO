@@ -164,6 +164,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.imprimir', label: 'Vendas: Imprimir pedido, recibo e minuta', color: '#f59e0b' },
       { id: 'vendas.documentos_cobranca', label: 'Vendas: Emitir promissória, carnê e duplicata', color: '#f59e0b' },
       { id: 'vendas.pre_venda_relatorio_valores', label: 'Vendas: Pré-vendas em aberto — ver totais em valor', color: '#f59e0b' },
+      // 26/11/2026 (pedido do dono): relatorio do caixa aberto, sem fechar. Vem marcada para quem usa o PDV (pacote 'pdv-1').
+      { id: 'vendas.pdv_relatorio_caixa', label: 'Vendas: Frente de Caixa — relatório parcial do caixa (vendas, dinheiro e sangrias)', color: '#f59e0b' },
       { id: 'vendas.importar', label: 'Vendas: Importar pedidos do sistema anterior', color: '#ef4444' },
       { id: 'vendas.orcamentos_recusar', label: 'Vendas: Recusar orçamento', color: '#ef4444' },
       { id: 'vendas.orcamentos_converter', label: 'Vendas: Converter orçamento em OS ou venda', color: '#f59e0b' },

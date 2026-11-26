@@ -121,6 +121,8 @@ exports.PERMISSAO_VENDAS = {
     imprimir: 'vendas.imprimir',
     documentosCobranca: 'vendas.documentos_cobranca',
     preVendaRelatorioValores: 'vendas.pre_venda_relatorio_valores',
+    /** Relatorio parcial do caixa aberto na Frente de Caixa (26/11/2026); vem com o PDV (pacote 'pdv-1'). */
+    pdvRelatorioCaixa: 'vendas.pdv_relatorio_caixa',
     importar: 'vendas.importar',
     orcamentosRecusar: 'vendas.orcamentos_recusar',
     orcamentosConverter: 'vendas.orcamentos_converter',
@@ -470,6 +472,15 @@ exports.PACOTES_DE_PERMISSOES = [
         implicacoes: {
             'financeiro.receber': [F.creditosVer],
             'financeiro.pagar': [F.creditosVer],
+        },
+    },
+    {
+        // 26/11/2026 (pedido do dono): relatorio parcial do caixa aberto. Quem ja'
+        // opera a Frente de Caixa continua podendo tirar.
+        id: 'pdv-1',
+        implicacoes: {
+            'vendas.pdv': [V.pdvRelatorioCaixa],
+            'vendas.so_caixa': [V.pdvRelatorioCaixa],
         },
     },
 ];

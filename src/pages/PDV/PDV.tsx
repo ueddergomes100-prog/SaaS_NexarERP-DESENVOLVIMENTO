@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Banknote, ClipboardList, History, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
+import { Banknote, ClipboardList, FileText, History, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -99,6 +99,11 @@ import { formatDateInputPtBr } from '../../utils/dateTime';
 import { MENSAGEM_SEM_PERMISSAO_NFCE, acaoDeReimpressao, documentoDoCupomDoCaixa, podeEmitirCupomFiscal, type VendaDoCaixa } from '../../utils/cupomDoCaixaDomain';
 import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal, reabrirCupomFiscal } from './cupomDoCaixa';
 import VendasDoCaixaModal from './components/VendasDoCaixaModal';
+import RelatorioDoCaixaModal from './components/RelatorioDoCaixaModal';
+import { empresaDoRelatorio, imprimirRelatorioDoCaixa, lerLancamentosDoCaixa, sangriasDoCaixa } from './relatorioDoCaixa';
+import type { DadosDoRelatorioDoCaixa } from '../../utils/relatorioDoCaixaBobinaDomain';
+import { avisarSemPermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import {
   ONDE_FATURAR_NO_SISTEMA,
   carregarPreVendaNoCaixa,
@@ -748,6 +753,117 @@ const PDV: React.FC = () => {
     }
   }, [currentUser, operatorName, sessionStorageKey, tenantId, terminalDoCaixa]);
 
+  // ------------------------------------------------------------------ Relatorio do caixa (26/11/2026)
+  // Parcial (botao "Relatório" e F10, sem fechar o caixa) e o do fechamento, que
+  // sai sozinho ao fechar. Na bobina do cupom. Regra em relatorioDoCaixaBobinaDomain.ts.
+  // Dono sempre pode; o resto pelas permissoes efetivas (as do pacote 'pdv-1' vem com o PDV).
+  const podeRelatorioDoCaixa = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_VENDAS.pdvRelatorioCaixa);
+  const [relatorioModalOpen, setRelatorioModalOpen] = useState(false);
+
+  /** O que passou pelo caixa agora: vendas e sangrias lidas do banco e, se pedido, o esperado do fechamento. */
+  const dadosDoCaixa = useCallback(async (sessao: PdvSession, calcularEsperado = true): Promise<DadosDoRelatorioDoCaixa> => {
+    if (!tenantId) throw new Error('Entre de novo no sistema para tirar o relatório do caixa.');
+    const [lancamentos, caixaSnap] = await Promise.all([
+      lerLancamentosDoCaixa(tenantId, sessao.id),
+      getDoc(doc(db, 'caixas_pdv', sessao.id)).catch((erro) => {
+        console.error('Relatório do caixa: não foi possível reler o caixa; vale o que está na tela.', erro);
+        return null;
+      }),
+    ]);
+    const gravado = caixaSnap?.exists() ? caixaSnap.data() : null;
+    const sangriasBrutas: CaixaSangria[] = Array.isArray(gravado?.sangrias) ? gravado.sangrias : sessao.sangrias;
+    const saldoInicialCentavos = Number(gravado?.saldoInicialCentavos ?? sessao.saldoInicialCentavos) || 0;
+    const sangrias = sangriasDoCaixa(sangriasBrutas);
+    let esperado: DadosDoRelatorioDoCaixa['esperado'] = null;
+    if (calcularEsperado) {
+      try {
+        const conta = await calcularEsperadoDoFechamento(tenantId, {
+          id: sessao.id,
+          saldoInicialCentavos,
+          totalSangriasCentavos: sangrias.reduce((soma, g) => soma + g.valorCentavos, 0),
+          sangrias: sangriasBrutas,
+        });
+        esperado = { saldoEsperadoCentavos: conta.saldoEsperadoCentavos, modo: conta.modo, explicacao: conta.explicacao };
+      } catch (erro) {
+        // Sem o esperado, o papel sai com a conta do caixa (saldo inicial + dinheiro - sangrias).
+        console.error('Relatório do caixa: não foi possível calcular o esperado.', erro);
+      }
+    }
+    return {
+      tipo: 'parcial',
+      empresa: empresaDoRelatorio(configDaEmpresa),
+      // Como no topo: o caixa e' deste usuario -> o nome do cadastro dele.
+      operadorNome: sessao.operadorId === currentUser?.uid ? operatorName : (sessao.operadorNome || operatorName),
+      impressoPorNome: operatorName,
+      abertoEm: sessao.abertoEm ? new Date(sessao.abertoEm) : null,
+      emitidoEm: new Date(),
+      saldoInicialCentavos,
+      lancamentos,
+      sangrias,
+      esperado,
+      fechamento: null,
+      listarVendas: false,
+    };
+  }, [configDaEmpresa, currentUser?.uid, operatorName, tenantId]);
+
+  const carregarRelatorioParcial = useCallback(() => {
+    if (!session) return Promise.reject(new Error('Abra o caixa para tirar o relatório.'));
+    return dadosDoCaixa(session);
+  }, [dadosDoCaixa, session]);
+
+  const imprimirRelatorioParcial = useCallback(async (dados: DadosDoRelatorioDoCaixa) => {
+    if (!session || !tenantId) return;
+    try {
+      await imprimirRelatorioDoCaixa({ ...dados, tenantId, sessaoId: session.id, lancamentos: [...dados.lancamentos] });
+    } catch (erro) {
+      console.error('Erro ao imprimir o relatório do caixa:', erro);
+      showError('Relatório não impresso', `${erro instanceof Error && erro.message ? erro.message : 'Não foi possível imprimir.'} Confira a impressora e tente de novo.`);
+    }
+  }, [session, tenantId]);
+
+  const abrirRelatorioDoCaixa = useCallback(() => {
+    if (!session) return;
+    if (!podeRelatorioDoCaixa) {
+      avisarSemPermissao(PERMISSAO_VENDAS.pdvRelatorioCaixa, 'tirar o relatório parcial do caixa');
+      return;
+    }
+    setRelatorioModalOpen(true);
+  }, [podeRelatorioDoCaixa, session, setRelatorioModalOpen]);
+
+  /** Papel do fechamento: sai sempre que o caixa fecha. Falhar aqui nao desfaz o fechamento. */
+  const imprimirRelatorioDoFechamento = async (args: {
+    sessao: PdvSession;
+    esperado: EsperadoDoFechamento;
+    contadoCentavos: number;
+    diferencaCentavos: number;
+    cofre: { ok: boolean; paraCofreCentavos: number | null; trocoCentavos: number | null } | null;
+  }) => {
+    if (!tenantId) return;
+    try {
+      const dados = await dadosDoCaixa(args.sessao, false);
+      const dia = args.esperado.dataDoFechamento;
+      await imprimirRelatorioDoCaixa({
+        ...dados,
+        tenantId,
+        sessaoId: args.sessao.id,
+        lancamentos: [...dados.lancamentos],
+        tipo: 'fechamento',
+        esperado: { saldoEsperadoCentavos: args.esperado.saldoEsperadoCentavos, modo: args.esperado.modo, explicacao: args.esperado.explicacao },
+        fechamento: {
+          fechadoEm: dia ? new Date(`${dia}T23:59:00`) : new Date(),
+          contadoCentavos: args.contadoCentavos,
+          diferencaCentavos: args.diferencaCentavos,
+          trocoCentavos: args.cofre?.ok ? args.cofre.trocoCentavos : null,
+          paraCofreCentavos: args.cofre?.ok ? args.cofre.paraCofreCentavos : null,
+        },
+        listarVendas: true,
+      });
+    } catch (erro) {
+      console.error('Erro ao imprimir o relatório do fechamento:', erro);
+      showWarning('O caixa foi fechado, mas o relatório do fechamento não saiu na impressora. Imprima de novo em Financeiro › Caixa (Sessões PDV), no botão de impressora da sessão fechada.');
+    }
+  };
+
   /** Devolve true quando o caixa foi fechado (o X do topo so' sai depois disso). */
   const closeSession = async (): Promise<boolean> => {
     if (!session || !currentUser || !tenantId) return false;
@@ -815,6 +931,8 @@ const PDV: React.FC = () => {
       }
       if (cofre && !cofre.ok) showWarning(`${mensagemDoFechamento(diferencaCentavos, esperado.modo)} ${cofre.texto}`);
       else showSuccess(mensagemDoFechamento(diferencaCentavos, esperado.modo, cofre?.texto || ''));
+      // Relatorio do fechamento para entregar ao administrador (26/11/2026).
+      await imprimirRelatorioDoFechamento({ sessao: session, esperado, contadoCentavos: saldoFinalInformadoCentavos, diferencaCentavos, cofre });
       return true;
     } catch (error) {
       if (error instanceof ErroDoFechamento) {
@@ -2104,12 +2222,13 @@ const PDV: React.FC = () => {
   useEffect(() => {
     const handleShortcuts = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (paymentModalOpen || discountModalOpen || clientModalOpen || preVendasModalOpen || vendasModalOpen) {
+        if (paymentModalOpen || discountModalOpen || clientModalOpen || preVendasModalOpen || vendasModalOpen || relatorioModalOpen) {
           setPaymentModalOpen(false);
           setDiscountModalOpen(false);
           setClientModalOpen(false);
           if (!puxandoPreVenda) setPreVendasModalOpen(false);
           if (!ocupadoNoHistorico) setVendasModalOpen(false);
+          setRelatorioModalOpen(false);
         }
         return;
       }
@@ -2123,6 +2242,8 @@ const PDV: React.FC = () => {
       if (event.key === 'F8' && podePreVendaNoCaixa) { event.preventDefault(); abrirPreVendas(); }
       // Vendas deste caixa (23/11/2026): reimprimir o cupom.
       if (event.key === 'F9' && session) { event.preventDefault(); setVendasModalOpen(true); }
+      // Relatorio parcial do caixa (26/11/2026): sem fechar o caixa.
+      if (event.key === 'F10' && session) { event.preventDefault(); abrirRelatorioDoCaixa(); }
       if (event.key === 'F6' || event.key === 'F7') {
         event.preventDefault();
         if (cartItems.length > 0 && session) setPaymentModalOpen(true);
@@ -2131,7 +2252,7 @@ const PDV: React.FC = () => {
 
     window.addEventListener('keydown', handleShortcuts);
     return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [abrirPreVendas, askSelectedItemQuantity, cartItems.length, clientModalOpen, discountModalOpen, hasPdvAccess, ocupadoNoHistorico, paymentModalOpen, podePreVendaNoCaixa, preVenda, preVendasModalOpen, puxandoPreVenda, session, vendasModalOpen]);
+  }, [abrirPreVendas, abrirRelatorioDoCaixa, askSelectedItemQuantity, cartItems.length, clientModalOpen, discountModalOpen, hasPdvAccess, ocupadoNoHistorico, paymentModalOpen, podePreVendaNoCaixa, preVenda, preVendasModalOpen, puxandoPreVenda, relatorioModalOpen, session, vendasModalOpen]);
 
   const preVendaNoResumo = useMemo(
     () => (preVenda ? { numeroPedido: preVenda.numeroPedido, clienteNome: preVenda.clienteNome, vendedorNome: preVenda.vendedorNome } : null),
@@ -2201,6 +2322,11 @@ const PDV: React.FC = () => {
               <button type="button" className="pdv-topbar-button" onClick={() => setVendasModalOpen(true)} title="Ver as vendas deste caixa e reimprimir o cupom (F9)">
                 <History size={16} aria-hidden="true" /> Vendas
               </button>
+              {podeRelatorioDoCaixa && (
+                <button type="button" className="pdv-topbar-button" onClick={abrirRelatorioDoCaixa} title="Ver e imprimir o que já passou pelo caixa (vendas, dinheiro e sangrias), sem fechar (F10)">
+                  <FileText size={16} aria-hidden="true" /> Relatório
+                </button>
+              )}
               <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
                 <Banknote size={16} aria-hidden="true" /> Sangria
               </button>
@@ -2307,6 +2433,7 @@ const PDV: React.FC = () => {
             cashbackTexto={cashbackDoCliente ? formatarCashback(cashbackDoCliente.modelo, cashbackDoCliente.saldoCentavos, cashbackDoCliente.saldoPontos) : null}
             preVenda={preVendaNoResumo}
             atalhoPreVendas={podePreVendaNoCaixa}
+            atalhoRelatorio={podeRelatorioDoCaixa && Boolean(session)}
             onOpenClient={() => setClientModalOpen(true)}
             onOpenDiscount={() => setDiscountModalOpen(true)}
             onOpenPayment={() => setPaymentModalOpen(true)}
@@ -2321,6 +2448,13 @@ const PDV: React.FC = () => {
         selectedClient={selectedClient}
         onClose={() => setClientModalOpen(false)}
         onSelect={setSelectedClient}
+      />
+
+      <RelatorioDoCaixaModal
+        open={relatorioModalOpen}
+        carregar={carregarRelatorioParcial}
+        onClose={() => setRelatorioModalOpen(false)}
+        onImprimir={imprimirRelatorioParcial}
       />
 
       <SangriaModal

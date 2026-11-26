@@ -1414,3 +1414,99 @@
     justify-content: stretch;
   }
 }
+
+/* Relatorio parcial do caixa (F10, 26/11/2026) */
+.pdv-relatorio-caixa {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pdv-relatorio-caixa-aviso,
+.pdv-relatorio-caixa-nota {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.pdv-relatorio-caixa-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.pdv-relatorio-caixa-bloco h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.pdv-relatorio-caixa-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.pdv-relatorio-caixa-total span {
+  color: var(--text-secondary);
+}
+
+.pdv-relatorio-caixa-total strong {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdv-relatorio-caixa-linha {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.pdv-relatorio-caixa-linha > span:last-child {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdv-relatorio-caixa-linha small {
+  color: var(--text-muted);
+}
+
+.pdv-relatorio-caixa-fraca {
+  color: var(--text-muted);
+}
+
+.pdv-relatorio-caixa-soma {
+  font-weight: 700;
+  border-top: 1px solid var(--border-color);
+  padding-top: 6px;
+}
+
+.pdv-relatorio-caixa-opcao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.pdv-relatorio-caixa-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pdv-relatorio-caixa-acoes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+}

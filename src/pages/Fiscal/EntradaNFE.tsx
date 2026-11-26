@@ -80,6 +80,8 @@ import PagamentoCard, { type BancoParaEntrada } from '../../components/fiscal/en
 import NotasRecebidasCard from '../../components/fiscal/entrada/NotasRecebidasCard';
 import { campoInputStyle } from '../../components/fiscal/entrada/estilos';
 import ItemDaNotaCard, { type CadastroVinculado } from '../../components/fiscal/entrada/ItemDaNotaCard';
+import EmbalagensNaEntrada from '../../components/fiscal/entrada/EmbalagensNaEntrada';
+import { embalagensParaGravarSemLancar } from '../../utils/embalagemNaEntradaDomain';
 import CustoExtraParaTodos from '../../components/fiscal/entrada/CustoExtraParaTodos';
 import {
   CUSTO_EXTRA_VAZIO,
@@ -164,6 +166,8 @@ interface EstoqueItem extends EstoqueItemForMatch {
   /** fornecedorId -> quantas unidades de estoque em 1 unidade da nota (aprendido). */
   fatoresFornecedor?: Record<string, number>;
   precoVenda?: number;
+  /** Embalagens do produto (26/11/2026): a entrada mostra e deixa corrigir/cadastrar. */
+  embalagens?: unknown;
   csosn?: string;
   aliquotaIcms?: number;
   reducaoBaseIcms?: number;
@@ -191,10 +195,13 @@ const LIMITE_VER_MAIS_VINCULO = 30;
 const EntradaNFE: React.FC = () => {
   const navigate = useNavigate();
   const { openTab } = useTabs();
-  const { tenantId, currentUser } = useAuth();
+  // venderPorEmbalagem: a filial trabalha com embalagens (a mesma chave que mostra a aba no cadastro).
+  const { tenantId, currentUser, venderPorEmbalagem } = useAuth();
   // Item 15 (25/11/2026): mudar o preco de venda na entrada pede "Estoque: Alterar o preco de venda";
   // sem ela, vale o preco do cadastro (ou o padrao do item novo).
   const podeAlterarPreco = usePodePermissao()(PERMISSAO_ESTOQUE.alterarPreco);
+  // Embalagens na entrada (26/11/2026): custo da embalagem pede a permissao de custo.
+  const podeAlterarCusto = usePodePermissao()(PERMISSAO_ESTOQUE.alterarCusto);
   const avisarSemPreco = () => avisarSemPermissao(PERMISSAO_ESTOQUE.alterarPreco, 'alterar o preço de venda do produto', 'Sem ela, fica o preço do cadastro.');
   const [dragActive, setDragActive] = useState(false);
   /**
@@ -1108,10 +1115,32 @@ const EntradaNFE: React.FC = () => {
   }, [parsedData, fornecedorStatus, fornecedorMatch?.id]);
 
   // Salva dados no Firestore
+  /** Id de embalagem cadastrada na entrada (o mesmo formato livre do cadastro do produto). */
+  const idDeEmbalagemNova = () => `emb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
   const handleConfirmarEntrada = async () => {
     if (!parsedData || !tenantId || !currentUser || !fornecedorMatch) return;
     if (itemConfigs.length !== parsedData.items.length) return;
     const nota = parsedData.nota;
+
+    // Embalagens mexidas na entrada (26/11/2026): confere antes de gravar qualquer coisa.
+    for (let idx = 0; idx < parsedData.items.length; idx++) {
+      const config = itemConfigs[idx];
+      if (!config.embalagens || (config.classificacao !== 'estoque' && config.classificacao !== 'novo')) continue;
+      const produto = config.classificacao === 'estoque' ? estoqueAtual.find((p) => p.id === config.matchId) : undefined;
+      const conferida = embalagensParaGravarSemLancar({
+        atuais: produto?.embalagens ?? [],
+        edicao: config.embalagens,
+        siglaBase: produto?.unidadeMedidaSigla || unidadeDoItemNovo(config, parsedData.items[idx].unidade, unidadesDaEmpresa).sigla,
+        podePreco: podeAlterarPreco,
+        podeCusto: podeAlterarCusto,
+        novoId: idDeEmbalagemNova,
+      });
+      if (conferida.erro) {
+        showError('Confira as embalagens', `${produto?.nome || parsedData.items[idx].descricao}: ${conferida.erro}`);
+        return;
+      }
+    }
 
     // ------------------------------------------------------------ validacoes
     // CFOP de entrada de cada item (Tabelas Fiscais, fase 2, 20/10/2026): da
@@ -1528,9 +1557,16 @@ const EntradaNFE: React.FC = () => {
                 : (dados.atacado?.ativo ? { 'atacado.ativo': false, ativarAtacado: false } : {}))
               : {};
 
+            // Embalagens corrigidas/cadastradas nesta entrada (26/11/2026), sobre o que o cadastro tem agora.
+            const embalagensDaEntrada = config.embalagens
+              ? embalagensParaGravarSemLancar({ atuais: dados.embalagens, edicao: config.embalagens, siglaBase: String(dados.unidadeMedidaSigla || ''), podePreco: podeAlterarPreco, podeCusto: podeAlterarCusto, novoId: idDeEmbalagemNova })
+              : null;
+            if (embalagensDaEntrada?.erro) throw new Error(`${String(dados.nome || item.descricao)}: ${embalagensDaEntrada.erro}`);
+
             transaction.update(ref, semUndefined({
               ...completar,
               ...completarCest,
+              ...(embalagensDaEntrada?.embalagens ? { embalagens: embalagensDaEntrada.embalagens } : {}),
               quantidade: increment(quantidadeEstoque),
               precoCusto: custoUn,
               ultimoCusto: custoUn,
@@ -1555,7 +1591,12 @@ const EntradaNFE: React.FC = () => {
           } else {
             // Produto novo: NCM, CEST, EAN, origem e CFOP vem da nota; preco e
             // tributacao, do que a pessoa preencheu na tela.
+            const embalagensDoNovo = config.embalagens
+              ? embalagensParaGravarSemLancar({ atuais: [], edicao: config.embalagens, siglaBase: plano.unidadeNova.sigla, podePreco: podeAlterarPreco, podeCusto: podeAlterarCusto, novoId: idDeEmbalagemNova })
+              : null;
+            if (embalagensDoNovo?.erro) throw new Error(`${nomeDoCadastroNovo(config, item.descricao)}: ${embalagensDoNovo.erro}`);
             transaction.set(ref, semUndefined({
+              ...(embalagensDoNovo?.embalagens ? { embalagens: embalagensDoNovo.embalagens } : {}),
               codigo: item.codigo,
               nome: nomeDoCadastroNovo(config, item.descricao),
               quantidade: quantidadeEstoque,
@@ -2280,6 +2321,21 @@ const EntradaNFE: React.FC = () => {
                       onDesvincular={() => handleDesvincularItem(idx)}
                       painelDeVinculo={vinculoAberto === idx ? renderPainelDeVinculo(idx, item) : null}
                       blocoCfop={renderCfopEntrada(idx, item)}
+                      blocoEmbalagens={venderPorEmbalagem && (config.classificacao === 'estoque' || config.classificacao === 'novo') ? (
+                        <EmbalagensNaEntrada
+                          idBase={`entrada-${idx}`}
+                          nomeDoProduto={correspondenteEstoque?.nome || config.nomeCadastro || item.descricao}
+                          embalagensDoCadastro={correspondenteEstoque?.embalagens ?? []}
+                          siglaBase={correspondenteEstoque?.unidadeMedidaSigla || unidadeDoItemNovo(config, item.unidade, unidadesDaEmpresa).sigla}
+                          custoBase={custoUnitarioDoItem(idx)}
+                          precoBase={numeroDaTela(config.precoVenda)}
+                          unidades={unidadesDaEmpresa}
+                          podePreco={podeAlterarPreco}
+                          podeCusto={podeAlterarCusto}
+                          valor={config.embalagens}
+                          onChange={(embalagens) => handleAlterarConfigItem(idx, { embalagens })}
+                        />
+                      ) : undefined}
                       soRegistro={acoesDosItens[idx] ? !acoesDosItens[idx]?.movimentaEstoque : false}
                     />
                   );

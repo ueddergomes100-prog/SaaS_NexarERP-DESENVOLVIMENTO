@@ -32,6 +32,9 @@ import { isValidSaleQuantity } from '../../utils/saleQuantity';
 import { acompanharCatalogo, acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
 import ChequesDeClienteNaNota from './ChequesDeClienteNaNota';
 import ImportarXmlNaNotaAvulsa, { type OrigemXmlDaNota } from './ImportarXmlNaNotaAvulsa';
+import EmbalagensNaEntrada, { type UnidadeParaEmbalagem } from '../../components/fiscal/entrada/EmbalagensNaEntrada';
+import { embalagensParaGravarSemLancar, type EdicaoDasEmbalagens } from '../../utils/embalagemNaEntradaDomain';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { notaAvulsaChequesService, type ChequeDaCarteira } from '../../services/notaAvulsaChequesService';
 
 interface FornecedorBasico {
@@ -84,6 +87,12 @@ const NotaAvulsaForm: React.FC = () => {
   const podeLancarPagamento = podePermissao(PERMISSAO_ESTOQUE.notaAvulsaPagamento);
   // Cheque de cliente pagando a nota (25/11/2026): permissao propria, conferida no servidor.
   const podePagarComCheque = podePermissao('estoque.nota_avulsa_cheque_cliente');
+  // Embalagens na entrada (26/11/2026): preco com a permissao de preco, custo com a de custo.
+  const podePrecoDoProduto = podePermissao(PERMISSAO_ESTOQUE.alterarPreco);
+  const podeCustoDoProduto = podePermissao(PERMISSAO_ESTOQUE.alterarCusto);
+  const [embalagensPorProduto, setEmbalagensPorProduto] = useState<Record<string, EdicaoDasEmbalagens>>({});
+  const { items: unidadesDaEmpresa } = useTenantCollection<UnidadeParaEmbalagem & { ativo?: boolean }>('unidades_medida', tenantId);
+  const idDeEmbalagemNova = () => `emb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const [chequesEscolhidos, setChequesEscolhidos] = useState<ChequeDaCarteira[]>([]);
 
   const [fornecedores, setFornecedores] = useState<FornecedorBasico[]>([]);
@@ -370,6 +379,16 @@ const NotaAvulsaForm: React.FC = () => {
       showError('Nenhum item válido', 'Adicione ao menos um item com produto, quantidade e custo preenchidos.');
       return;
     }
+    // Embalagens mexidas nesta nota (26/11/2026): confere antes de gravar qualquer coisa.
+    for (const [produtoId, edicao] of Object.entries(embalagensPorProduto)) {
+      if (!itensValidos.some((i) => i.produtoId === produtoId)) continue;
+      const produto = produtos.find((p) => p.id === produtoId);
+      const conferida = embalagensParaGravarSemLancar({ atuais: produto?.embalagens ?? [], edicao, siglaBase: produto?.unidadeMedidaSigla || '', podePreco: podePrecoDoProduto, podeCusto: podeCustoDoProduto, novoId: idDeEmbalagemNova });
+      if (conferida.erro) {
+        showError('Confira as embalagens', `${produto?.nome || 'Produto'}: ${conferida.erro}`);
+        return;
+      }
+    }
     if (chequesCentavos > toCents(valorTotal)) {
       showError('Cheques passam do valor da nota', 'Os cheques de clientes escolhidos passam do valor da nota. Desmarque algum cheque: o que faltar se paga com outra forma.');
       return;
@@ -502,7 +521,14 @@ const NotaAvulsaForm: React.FC = () => {
             custoAnterior: Number(snap.data()?.precoCusto ?? snap.data()?.precos?.custo ?? 0),
             custoNovo: precoCusto,
           });
+          // Embalagens corrigidas/cadastradas nesta nota (26/11/2026), sobre o que o cadastro tem agora.
+          const edicaoDasEmbalagens = venderPorEmbalagem ? embalagensPorProduto[ref.id] : undefined;
+          const embalagensDaNota = edicaoDasEmbalagens
+            ? embalagensParaGravarSemLancar({ atuais: snap.data()?.embalagens, edicao: edicaoDasEmbalagens, siglaBase: String(snap.data()?.unidadeMedidaSigla || ''), podePreco: podePrecoDoProduto, podeCusto: podeCustoDoProduto, novoId: idDeEmbalagemNova })
+            : null;
+          if (embalagensDaNota?.erro) throw new Error(`${String(snap.data()?.nome || 'Produto')}: ${embalagensDaNota.erro}`);
           transaction.update(ref, {
+            ...(embalagensDaNota?.embalagens ? { embalagens: embalagensDaNota.embalagens } : {}),
             quantidade: quantidadeAtualEstoque + quantidadeBase,
             precoCusto,
             // Item vindo do XML: guarda o vinculo (o mesmo da Entrada de XML) para a proxima nota deste fornecedor.
@@ -838,6 +864,35 @@ const NotaAvulsaForm: React.FC = () => {
               ))}
             </tbody>
           </table>
+        )}
+
+        {/* Embalagens dos produtos desta nota (26/11/2026): corrigir custo/preco e cadastrar a que falta. */}
+        {venderPorEmbalagem && itensComRateio.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {[...new Map(itensComRateio.map((item) => [item.produtoId, item])).values()].map((item) => {
+              const produto = produtos.find((p) => p.id === item.produtoId);
+              if (!produto) return null;
+              const custoBase = item.fatorConversao ? custoUnitarioComRateio(item) / item.fatorConversao : custoUnitarioComRateio(item);
+              return (
+                <div key={`emb-${item.produtoId}`}>
+                  <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)', marginTop: '8px' }}>{produto.nome}</div>
+                  <EmbalagensNaEntrada
+                    idBase={`avulsa-${item.produtoId}`}
+                    nomeDoProduto={produto.nome}
+                    embalagensDoCadastro={produto.embalagens ?? []}
+                    siglaBase={produto.unidadeMedidaSigla || 'UN'}
+                    custoBase={custoBase}
+                    precoBase={Number(produto.precoVenda) || 0}
+                    unidades={unidadesDaEmpresa.filter((u) => u.ativo !== false)}
+                    podePreco={podePrecoDoProduto}
+                    podeCusto={podeCustoDoProduto}
+                    valor={embalagensPorProduto[item.produtoId]}
+                    onChange={(valor) => setEmbalagensPorProduto((atual) => ({ ...atual, [item.produtoId]: valor }))}
+                  />
+                </div>
+              );
+            })}
+          </div>
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>

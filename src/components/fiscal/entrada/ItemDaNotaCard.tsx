@@ -68,6 +68,8 @@ interface ItemDaNotaCardProps {
   painelDeVinculo: React.ReactNode;
   /** CFOP de entrada do item e o que ele faz (Tabelas Fiscais, fase 2, 20/10/2026). */
   blocoCfop?: React.ReactNode;
+  /** Embalagens do produto (26/11/2026): corrigir custo/preco e cadastrar a que falta. */
+  blocoEmbalagens?: React.ReactNode;
   /** O CFOP de entrada nao movimenta estoque: o item fica so' na nota (sem vinculo, custo nem preco). */
   soRegistro?: boolean;
 }
@@ -83,7 +85,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
   indice, total, item, config, custo, custoExtra, onCustoExtra, custoUnitarioEstoque, cadastro, unidadesDaEmpresa, unidadeNova, onUnidadeNova, exigeLote = false, usaCsosn,
   markupVarejoDigitado, markupAtacadoDigitado,
   onAlterarTipo, onAlterarConfig, onAlterarCampo, onPrecoVarejo, onMarkupVarejo, onPrecoAtacado, onMarkupAtacado,
-  onAbrirVinculo, onDesvincular, painelDeVinculo, blocoCfop, soRegistro = false,
+  onAbrirVinculo, onDesvincular, painelDeVinculo, blocoCfop, blocoEmbalagens, soRegistro = false,
 }) => {
   const fator = fatorValido(config.fator);
   const quantidadeEntrando = quantidadeNoEstoque(item.quantidade, config.fator);
@@ -269,6 +271,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
             {' '}=<strong>{moeda(custo.custoTotal)}</strong>.
           </div>
         )}
+        {blocoEmbalagens}
       </div>
 
       {/* Impostos que vieram na nota */}

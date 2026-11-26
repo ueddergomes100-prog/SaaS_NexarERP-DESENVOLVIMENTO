@@ -198,6 +198,11 @@ export interface ItemEntradaConfig {
    * Diferente da nota (1 SC = 25 KG), o `fator` converte quantidade e custo.
    */
   unidadeEstoqueId?: string;
+  /**
+   * Embalagens do produto mexidas nesta entrada (26/11/2026, embalagemNaEntradaDomain).
+   * Ausente = a pessoa nao mexeu: o cadastro fica como esta'. So' da tela; nao vai ao banco.
+   */
+  embalagens?: import('./embalagemNaEntradaDomain').EdicaoDasEmbalagens;
 }
 
 /** Unidade cadastrada da empresa, como a entrada precisa dela. */

@@ -296,11 +296,15 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
 
 /* ============================== cabecalho de pagina ============================== */
 /* O topo de toda pagina (.page-header, o topo do Dashboard e o primeiro bloco da
-   pagina que tem o <h1>) fica SOLTO em cima da faixa violeta, com texto branco. */
+   pagina que tem o <h1>) fica SOLTO em cima da faixa violeta, com texto branco.
+   Sem `:has()` (26/11/2026, Safari): o TabPane marca o primeiro bloco com
+   data-cab-bloco (tem `> div > h1:first-child`) ou data-cab-titulo (tem
+   `> h1:first-child`) -- utils/cabecalhoDaTelaDomain.ts. Os `:not(h1)`/`:not(p)`
+   so' repoem a especificidade que o `:has(...)` tinha (sempre verdadeiros numa div). */
 .app-layout-wrapper .page-content .page-header,
 .app-layout-wrapper .page-content .dashboard-topline,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p),
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) {
   /* z-index: o "Mais opcoes" e o "Nova acao" abrem menu de dentro do cabecalho,
      e ele tem de passar por cima dos cartoes que sobem na faixa. */
   position: relative;
@@ -316,7 +320,7 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
   row-gap: 16px !important;
 }
 .app-layout-wrapper .page-content .page-header > :first-child:not(button, a),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > :first-child:not(button, a) {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p) > :first-child:not(button, a) {
   flex: 1 1 320px;
   min-width: 260px;
 }
@@ -340,8 +344,8 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
 /* textos do cabecalho */
 .app-layout-wrapper .page-content .page-header :is(h1, h2, .page-title),
 .app-layout-wrapper .page-content .dashboard-topline :is(h1, h2, .page-title),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) :is(h1, h2),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) :is(h1, h2) {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p) :is(h1, h2),
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) :is(h1, h2) {
   color: #fff !important;
   font-size: 32px !important;
   font-weight: 800 !important;
@@ -349,22 +353,22 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
   line-height: 1.15 !important;
 }
 .app-layout-wrapper .page-content .page-header :is(h1, h2) svg,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) h1 svg,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) h1 svg {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p) h1 svg,
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) h1 svg {
   color: #fff !important;
   stroke: #fff !important;
 }
 /* var(--text-secondary): claro no violeta, escuro de volta dentro das caixas brancas (abaixo) */
 .app-layout-wrapper .page-content .page-header :is(p, .page-subtitle),
 .app-layout-wrapper .page-content .dashboard-topline :is(p, .page-subtitle, .dashboard-eyebrow),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > div > p,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) > p {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p) > div > p,
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) > p {
   color: var(--text-secondary) !important;
 }
 /* subtitulo logo abaixo do titulo: respiro e tamanho das previas (muitas telas gravam margin 0 inline) */
 .app-layout-wrapper .page-content :is(.page-header, .dashboard-topline) :is(h1, h2, .page-title) + :is(p, .page-subtitle),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) > div > h1 + p,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) > h1 + p {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p) > div > h1 + p,
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) > h1 + p {
   margin-top: 6px !important;
   font-size: 15px !important;
   font-weight: 500;
@@ -391,7 +395,7 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
   --orig-accent-purple: var(--accent-purple);
   --orig-brand-ink: var(--brand-ink);
 }
-.app-layout-wrapper :is(.page-content .page-header, .page-content .dashboard-topline, .page-transition > div > div:first-child:has(> div > h1:first-child), .page-transition > div > div:first-child:has(> h1:first-child)) {
+.app-layout-wrapper :is(.page-content .page-header, .page-content .dashboard-topline, .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p), .page-transition > div > div:first-child[data-cab-titulo]:not(h1)) {
   --text-primary: #ffffff;
   --text-secondary: rgba(255, 255, 255, 0.84);
   --text-muted: rgba(255, 255, 255, 0.72);
@@ -402,7 +406,7 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
   --accent-purple: #e9d5ff;
   --brand-ink: #ffffff;
 }
-.app-layout-wrapper :is(.page-content .page-header, .page-content .dashboard-topline, .page-transition > div > div:first-child:has(> div > h1:first-child), .page-transition > div > div:first-child:has(> h1:first-child))
+.app-layout-wrapper :is(.page-content .page-header, .page-content .dashboard-topline, .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p), .page-transition > div > div:first-child[data-cab-titulo]:not(h1))
   :is([style*="background-color: var(--bg-"], [style*="background: var(--bg-"], [role='menu'], .card, .dashboard-action-menu, input, select, textarea, .search-box, .client-autocomplete, .product-autocomplete) {
   --text-primary: var(--orig-text-primary);
   --text-secondary: var(--orig-text-secondary);
@@ -415,22 +419,22 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
   --brand-ink: var(--orig-brand-ink);
 }
 /* cor fixa escrita na tela (texto e icone), fora das caixas brancas e dos botoes (botao do cabecalho e' sempre branco/vidro) */
-.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p))
   :is([style*=' color: rgb(16, 185, 129)'], [style^='color: rgb(16, 185, 129)'], svg[stroke='#10b981']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #6ee7b7 !important;
   stroke: #6ee7b7;
 }
-.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p))
   :is([style*=' color: rgb(239, 68, 68)'], [style^='color: rgb(239, 68, 68)'], svg[stroke='#ef4444']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #fca5a5 !important;
   stroke: #fca5a5;
 }
-.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p))
   :is([style*=' color: rgb(245, 158, 11)'], [style^='color: rgb(245, 158, 11)'], svg[stroke='#f59e0b']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #fcd34d !important;
   stroke: #fcd34d;
 }
-.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child:has(> div > h1:first-child))
+.app-layout-wrapper :is(.page-content .page-header, .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p))
   :is([style*=' color: rgb(139, 92, 246)'], [style^='color: rgb(139, 92, 246)'], [style*=' color: rgb(124, 58, 237)'], [style^='color: rgb(124, 58, 237)'], [style*=' color: rgb(59, 130, 246)'], [style^='color: rgb(59, 130, 246)'], svg[stroke='#8b5cf6'], svg[stroke='#7c3aed'], svg[stroke='#3b82f6']):not([style*='background-color: var(--bg-'] *, [style*='background: var(--bg-'] *, :is(.btn-primary, .btn-secondary), :is(.btn-primary, .btn-secondary) *) {
   color: #ffffff !important;
   stroke: #ffffff;
@@ -438,16 +442,16 @@ body.light-theme .app-layout-wrapper .tab-bar-item.active {
 
 /* botoes do cabecalho: o principal em branco; os demais em "vidro" */
 .app-layout-wrapper .page-content :is(.page-header, .dashboard-topline) .btn-primary,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) .btn-primary,
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) .btn-primary {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p) .btn-primary,
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) .btn-primary {
   background: #fff !important;
   color: #5b21b6 !important;
   font-weight: 800;
   box-shadow: 0 14px 30px -14px rgba(20, 6, 45, 0.6) !important;
 }
 .app-layout-wrapper .page-content :is(.page-header, .dashboard-topline) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn),
-.app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn) {
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn),
+.app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) :is(.btn-secondary, .icon-btn, .back-btn, .filter-btn) {
   background: rgba(255, 255, 255, 0.14) !important;
   border: 1px solid rgba(255, 255, 255, 0.26) !important;
   color: #fff !important;
@@ -790,8 +794,8 @@ body.light-theme .app-layout-wrapper .hd-avatar.cor-5 { background: #e0f2fe; col
   .app-layout-wrapper .page-content { background: none !important; }
   .app-layout-wrapper .page-content .page-header,
   .app-layout-wrapper .page-content .dashboard-topline,
-  .app-layout-wrapper .page-transition > div > div:first-child:has(> div > h1:first-child),
-  .app-layout-wrapper .page-transition > div > div:first-child:has(> h1:first-child) {
+  .app-layout-wrapper .page-transition > div > div:first-child[data-cab-bloco]:not(h1):not(p),
+  .app-layout-wrapper .page-transition > div > div:first-child[data-cab-titulo]:not(h1) {
     background: none !important;
     box-shadow: none !important;
     color: #000 !important;

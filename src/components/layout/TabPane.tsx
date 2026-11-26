@@ -9,6 +9,7 @@ import { TabActiveContext, TabIdContext, singleSessionPrefixFor, useTabs, useTab
 import { ErrorBoundary } from '../ErrorBoundary';
 import PageLoader from './PageLoader';
 import BarraDeAcaoRapida from './BarraDeAcaoRapida';
+import { useCabecalhoDaTela } from '../../hooks/useCabecalhoDaTela';
 
 /**
  * Conteudo de uma aba. react-router proibe <Router> aninhado (nao da pra
@@ -117,6 +118,9 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
     const timer = setTimeout(() => setHasSettled(true), 400);
     return () => clearTimeout(timer);
   }, []);
+  // Cabecalho da tela marcado para o visual novo sem `:has()` (Safari, 26/11/2026).
+  const pageTransitionRef = useRef<HTMLDivElement | null>(null);
+  useCabecalhoDaTela(pageTransitionRef);
 
   return (
     <TabIdContext.Provider value={tab.id}>
@@ -124,7 +128,7 @@ const TabPaneContent: React.FC<{ tab: Tab; isActive: boolean }> = ({ tab, isActi
         <main className="page-content">
           {/* Atalho de cadastrar que acompanha a rolagem; altura zero, nao empurra a tela. */}
           <BarraDeAcaoRapida />
-          <div className={hasSettled ? 'page-transition page-transition--settled' : 'page-transition'}>
+          <div ref={pageTransitionRef} className={hasSettled ? 'page-transition page-transition--settled' : 'page-transition'}>
             {isModuleBlocked || !isRouteAllowed ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: '16px', color: 'var(--text-primary)', textAlign: 'center', padding: '24px' }}>
                 <div style={{ padding: '16px', backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: '50%', color: '#ef4444' }}>

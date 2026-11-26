@@ -181,21 +181,24 @@ button {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Page Transitions */
+/* Page Transitions
+   So' opacidade (26/11/2026, queixa do dono: Safari do Mac travando nas
+   transicoes). O "sobe e cresce" (translateY + scale) obrigava o navegador a
+   redesenhar o texto da tela inteira a cada quadro: medido no WebKit 18.2
+   (motor do Safari), abrir uma tela perdia ~10 quadros com ele, ~4,5 so' com a
+   opacidade -- quase o mesmo que sem animacao (~4). */
 @keyframes pageFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.995);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .page-transition {
-  animation: pageFadeIn 0.35s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  animation: pageFadeIn 0.25s ease-out forwards;
   height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition { animation: none; }
 }
 
 /* Sistema de Abas (F19): abas escondidas usam display:none, e o

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
+import { MAX_PARCELAS_DO_BOLETO_NO_APP, parcelasDoBoleto } from '../../utils/vendaFechamentoDomain';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -84,6 +85,8 @@ const VendedorNovoPedido: React.FC = () => {
   // Forma de pagamento (25/11/2026, pedido do dono): o vendedor escolhe com o cliente;
   // a pre-venda ja' nasce com ela e trocar no faturamento pede permissao. Opcional.
   const [formaPagamento, setFormaPagamento] = useState(() => rascunhoAberto?.formaPagamento || '');
+  // Boleto (26/11/2026): em quantas parcelas, como no Pedido de Venda; a pre-venda ja' nasce com elas.
+  const [parcelasBoleto, setParcelasBoleto] = useState<number>(() => parcelasDoBoleto(rascunhoAberto?.parcelasBoleto) || 1);
   const [formasDaFilial, setFormasDaFilial] = useState<string[]>(() => formasDaEmpresa([], []).filter((f) => !FORMAS_FORA_DO_APP.includes(f)));
   useEffect(() => {
     if (!tenantId) return undefined;
@@ -160,6 +163,7 @@ const VendedorNovoPedido: React.FC = () => {
         ...(normalizarObservacaoPedido(observacao) ? { observacao: normalizarObservacaoPedido(observacao) } : {}),
         ...(controlaFiscal && notaFiscal ? { notaFiscal } : {}),
         ...(formaPagamento ? { formaPagamento } : {}),
+        ...(formaPagamento === 'Boleto' ? { parcelasBoleto } : {}),
         criadoEm: rascunhoAberto?.criadoEm || agora,
         atualizadoEm: agora,
         ...camposDePronto(pronto, agora),
@@ -252,6 +256,28 @@ const VendedorNovoPedido: React.FC = () => {
             </select>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>A pré-venda já chega com esta forma. Trocar na loja só com permissão.</div>
           </div>
+
+          {formaPagamento === 'Boleto' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label htmlFor="pedido-parcelas-boleto" style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Parcelas do boleto
+              </label>
+              <select
+                id="pedido-parcelas-boleto"
+                value={parcelasBoleto}
+                onChange={(evento) => setParcelasBoleto(parcelasDoBoleto(evento.target.value) || 1)}
+                style={{
+                  width: '100%', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', fontSize: '16px',
+                  backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontFamily: 'inherit',
+                }}
+              >
+                {Array.from({ length: MAX_PARCELAS_DO_BOLETO_NO_APP }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{n === 1 ? '1 boleto (à vista no vencimento)' : `${n} boletos`}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>A pré-venda já chega com as parcelas; os vencimentos seguem o prazo do boleto da loja.</div>
+            </div>
+          )}
 
           {controlaFiscal && (
             <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>

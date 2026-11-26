@@ -20,7 +20,7 @@ import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ResultadoDaRota, type RotaAberta } from '../../utils/rotaPreVendaDomain';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
-import { brutoDaLinhaCentavos, erroDaFormaDoVendedor, formaDoVendedor, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR } from '../../utils/vendaFechamentoDomain';
+import { brutoDaLinhaCentavos, CAMPO_PARCELAS_DO_BOLETO, erroDaFormaDoVendedor, formaDoVendedor, parcelasDoBoleto, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
@@ -1363,9 +1363,14 @@ const PedidoVendaForm: React.FC = () => {
             } else {
               // Pre-venda e' gravada sem forma de pagamento (a forma e' decidida
               // ao faturar): abre como um pagamento novo, conforme Configuracoes.
+              const formaDaPreVenda = formaDoDocumentoSemPagamentos(p.formaPagamento, formaInicialDaEmpresa);
+              // Boleto com as parcelas escolhidas no app (26/11/2026): ja' abre parcelado; o prazo
+              // de cada um e' o padrao do boleto da loja (PaymentsEditor completa).
+              const parcelasDoApp = formaDaPreVenda === 'Boleto' ? parcelasDoBoleto(p[CAMPO_PARCELAS_DO_BOLETO]) : 0;
               setPaymentDrafts([{
                 ...createEmptyPaymentDraft('pagamento-1', toCents(p.valorTotal || 0)),
-                forma: formaDoDocumentoSemPagamentos(p.formaPagamento, formaInicialDaEmpresa),
+                forma: formaDaPreVenda,
+                ...(parcelasDoApp ? { parcelasAPrazo: String(parcelasDoApp) } : {}),
               }]);
             }
 

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.erroDaFormaDoVendedor = exports.formaDoVendedor = exports.CAMPO_FORMA_DO_VENDEDOR = exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
+exports.erroDaFormaDoVendedor = exports.parcelasDoBoleto = exports.MAX_PARCELAS_DO_BOLETO_NO_APP = exports.CAMPO_PARCELAS_DO_BOLETO = exports.formaDoVendedor = exports.CAMPO_FORMA_DO_VENDEDOR = exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
 /*
  * FECHAMENTO DA VENDA NO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026).
  *
@@ -266,6 +266,19 @@ const FORMAS_QUE_SO_ABATEM = ['Crédito de Devolução', 'Cashback'];
 /** Forma escolhida pelo vendedor gravada no pedido ('' quando nao ha'). */
 const formaDoVendedor = (pedido) => (typeof pedido?.[exports.CAMPO_FORMA_DO_VENDEDOR] === 'string' ? String(pedido[exports.CAMPO_FORMA_DO_VENDEDOR]).trim() : '');
 exports.formaDoVendedor = formaDoVendedor;
+/**
+ * Parcelas do boleto escolhidas pelo vendedor no app (26/11/2026, pedido do dono:
+ * "igual na tela de pedidos, pra ja' cair pre-definido na pre-venda"). So' com a
+ * forma Boleto. A pre-venda abre com elas; o intervalo e' o prazo do boleto da loja.
+ */
+exports.CAMPO_PARCELAS_DO_BOLETO = 'parcelasBoleto';
+exports.MAX_PARCELAS_DO_BOLETO_NO_APP = 12;
+/** 1..12 quando valido; 0 = nao informado (a loja decide ao faturar). */
+const parcelasDoBoleto = (valor) => {
+    const n = typeof valor === 'number' ? valor : Number.parseInt(String(valor ?? ''), 10);
+    return Number.isInteger(n) && n >= 1 && n <= exports.MAX_PARCELAS_DO_BOLETO_NO_APP ? n : 0;
+};
+exports.parcelasDoBoleto = parcelasDoBoleto;
 /** Por que a venda nao pode sair com estas formas, ou null. */
 const erroDaFormaDoVendedor = (args) => {
     const escolhida = String(args.formaDoVendedor || '').trim();

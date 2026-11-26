@@ -429,6 +429,18 @@ const PaymentsEditor: React.FC<PaymentsEditorProps> = ({
 
   // Prazo padrao do boleto = o configurado no banco que emite boleto (30 sem config).
   const prazoPadraoBoleto = bancosAtivos.find((b) => b.boleto?.ativo)?.boleto?.prazoPadraoDias || 30;
+  // Boleto que ja' chega escolhido (pre-venda do app com a forma e as parcelas, 26/11/2026):
+  // sem prazo, ganha o prazo padrao -- o mesmo de quando a pessoa escolhe Boleto aqui.
+  const boletosSemPrazo = drafts.filter((p) => p.forma === 'Boleto' && !String(p.prazoDias || '').trim()).map((p) => p.id).join(',');
+  useEffect(() => {
+    if (disabled || !boletosSemPrazo) return;
+    boletosSemPrazo.split(',').forEach((id) => onUpdatePayment(id, {
+      prazoDias: String(prazoPadraoBoleto),
+      dataPrevistaRecebimento: addDaysToDateInput(transactionDate, prazoPadraoBoleto),
+    }));
+    // onUpdatePayment muda a cada render da tela-mae; o que importa e' quais boletos estao sem prazo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, boletosSemPrazo, prazoPadraoBoleto]);
   const [chequeModalPaymentId, setChequeModalPaymentId] = useState<string | null>(null);
   const paymentDoModalCheque = drafts.find((d) => d.id === chequeModalPaymentId) || null;
   const cardFeeSchedulesByBrand = buildCardFeeSchedulesByBrand(bandeiras);

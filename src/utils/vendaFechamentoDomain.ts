@@ -357,6 +357,19 @@ export const formaDoVendedor = (pedido: { [CAMPO_FORMA_DO_VENDEDOR]?: unknown } 
   typeof pedido?.[CAMPO_FORMA_DO_VENDEDOR] === 'string' ? String(pedido[CAMPO_FORMA_DO_VENDEDOR]).trim() : ''
 );
 
+/**
+ * Parcelas do boleto escolhidas pelo vendedor no app (26/11/2026, pedido do dono:
+ * "igual na tela de pedidos, pra ja' cair pre-definido na pre-venda"). So' com a
+ * forma Boleto. A pre-venda abre com elas; o intervalo e' o prazo do boleto da loja.
+ */
+export const CAMPO_PARCELAS_DO_BOLETO = 'parcelasBoleto';
+export const MAX_PARCELAS_DO_BOLETO_NO_APP = 12;
+/** 1..12 quando valido; 0 = nao informado (a loja decide ao faturar). */
+export const parcelasDoBoleto = (valor: unknown): number => {
+  const n = typeof valor === 'number' ? valor : Number.parseInt(String(valor ?? ''), 10);
+  return Number.isInteger(n) && n >= 1 && n <= MAX_PARCELAS_DO_BOLETO_NO_APP ? n : 0;
+};
+
 /** Por que a venda nao pode sair com estas formas, ou null. */
 export const erroDaFormaDoVendedor = (args: {
   formaDoVendedor: string;

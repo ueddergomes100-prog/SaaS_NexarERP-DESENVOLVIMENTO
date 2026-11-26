@@ -4,6 +4,7 @@ import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ModoRotaPreVenda } from '../../utils/rotaPreVendaDomain';
 import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService';
 import { listarRascunhos, marcarErroRascunho, removerRascunho, type RascunhoVenda } from './vendedorRascunhosStore';
+import { parcelasDoBoleto } from '../../utils/vendaFechamentoDomain';
 import { idDoPedidoDeBonificacao, separarItensDaBonificacao, TIPO_PEDIDO_BONIFICACAO } from '../../utils/bonificacaoDomain';
 
 /*
@@ -82,6 +83,7 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
       ...comum,
       itens: cobrados,
       ...(rascunho.formaPagamento ? { formaPagamento: rascunho.formaPagamento } : {}),
+      ...(rascunho.formaPagamento === 'Boleto' && parcelasDoBoleto(rascunho.parcelasBoleto) ? { parcelasBoleto: parcelasDoBoleto(rascunho.parcelasBoleto) } : {}),
       idDocumento: rascunho.localId,
       ...(idBonificacao ? { pedidoBonificacaoId: idBonificacao } : {}),
     });

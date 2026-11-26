@@ -12,6 +12,7 @@ import { computeReservationDelta } from '../utils/estoqueReservaDomain';
 import { toStockAdjustmentItems, type EmbalagemDeOrigem } from '../utils/embalagemDomain';
 import { buildDocumentMetadata } from '../utils/documentMetadata';
 import { toCents } from '../utils/financeDomain';
+import { CAMPO_PARCELAS_DO_BOLETO, parcelasDoBoleto } from '../utils/vendaFechamentoDomain';
 import { STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 import { idsDasPromocoes } from '../utils/precoAppVendasDomain';
@@ -90,6 +91,8 @@ export interface CriarPreVendaExternaParams {
   comNotaFiscal?: boolean;
   /** Forma de pagamento escolhida pelo vendedor (25/11/2026). Ausente = a loja escolhe ao faturar. */
   formaPagamento?: string;
+  /** Parcelas do boleto escolhidas no app (26/11/2026); so' vale com a forma Boleto. */
+  parcelasBoleto?: number;
   /** Id fixo do documento (o id do rascunho). Com ele, reenviar o mesmo
    *  rascunho depois de uma queda de conexao NAO cria um segundo pedido: se
    *  o primeiro envio chegou a gravar, a transacao so' devolve o que ja
@@ -189,6 +192,10 @@ export const criarPreVendaExterna = async (
       // permissao (vendaFechamentoDomain.erroDaFormaDoVendedor). So' grava quando veio.
       ...(params.formaPagamento && params.formaPagamento.trim()
         ? { formaPagamento: params.formaPagamento.trim(), formaPagamentoVendedor: params.formaPagamento.trim() }
+        : {}),
+      // Parcelas do boleto (26/11/2026): so' com Boleto e numero valido; a pre-venda abre com elas.
+      ...(params.formaPagamento?.trim() === 'Boleto' && parcelasDoBoleto(params.parcelasBoleto)
+        ? { [CAMPO_PARCELAS_DO_BOLETO]: parcelasDoBoleto(params.parcelasBoleto) }
         : {}),
       ...vinculo,
       tenantId,

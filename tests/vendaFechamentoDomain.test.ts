@@ -153,3 +153,12 @@ test('forma escolhida pelo vendedor no app: trocar so com permissao; credito e c
   assert.equal(erroDaFormaDoVendedor({ ...base, formasDaVenda: ['Pix'], podeTrocar: true }), null, 'com permissao troca');
   assert.equal(erroDaFormaDoVendedor({ formaDoVendedor: '', formasDaVenda: ['Pix'], podeTrocar: false }), null, 'pedido sem forma do vendedor: como antes');
 });
+
+test('parcelas do boleto escolhidas no app (26/11/2026): 1 a 12; o resto e nao informado', async () => {
+  const { parcelasDoBoleto, MAX_PARCELAS_DO_BOLETO_NO_APP, CAMPO_PARCELAS_DO_BOLETO } = await import('../src/utils/vendaFechamentoDomain');
+  assert.equal(CAMPO_PARCELAS_DO_BOLETO, 'parcelasBoleto');
+  assert.equal(parcelasDoBoleto(3), 3);
+  assert.equal(parcelasDoBoleto('4'), 4);
+  assert.equal(parcelasDoBoleto(MAX_PARCELAS_DO_BOLETO_NO_APP), 12);
+  for (const invalido of [0, -1, 13, 2.5, 'x', '', null, undefined]) assert.equal(parcelasDoBoleto(invalido), 0, String(invalido));
+});

@@ -6,6 +6,9 @@ import { useAuth } from '../contexts/AuthContext';
 export interface ItemPrintExtra {
   codigo: string;
   marca: string;
+  /** Unidade do estoque do produto e as embalagens dele: "1 CX = 30 PCT de 10 UN = 300 UN" (embalagemNoPapelDomain.ts). */
+  siglaBase?: string;
+  embalagens?: unknown;
 }
 
 export interface PedidoPrintExtras {
@@ -48,7 +51,12 @@ export const usePedidoPrintExtras = (pedidoData: any): PedidoPrintExtras => {
           const snap = await getDoc(doc(db, 'estoque', id));
           if (snap.exists() && snap.data().tenantId === tenantId) {
             const produto = snap.data();
-            resultado.itens[id] = { codigo: String(produto.codigo || ''), marca: String(produto.marca || '') };
+            resultado.itens[id] = {
+              codigo: String(produto.codigo || ''),
+              marca: String(produto.marca || ''),
+              siglaBase: String(produto.unidadeMedidaSigla || ''),
+              embalagens: Array.isArray(produto.embalagens) ? produto.embalagens : [],
+            };
           }
         } catch (erro) {
           console.error('Erro ao buscar o produto para a impressao do pedido:', erro);

@@ -15,6 +15,7 @@ import {
   vendedorMinuta,
 } from '../../utils/minutaDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
+import { composicaoDaEmbalagemNoPapel } from '../../utils/embalagemNoPapelDomain';
 import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos, valorLiquidoDoPapel, type PagamentoImpresso } from '../../utils/pagamentoImpressoDomain';
 import './PedidoPrintPreVenda.css';
 
@@ -231,7 +232,14 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
               return (
                 <tr key={`${item.id}-${inicio + i}`}>
                   <td>{item.codigo || extra.codigo}</td>
-                  <td>{item.nome}</td>
+                  <td>
+                    {item.nome}
+                    {(() => {
+                      // Embalagem (26/11/2026): "1 CX = 30 PCT de 10 UN = 300 UN".
+                      const composicao = composicaoDaEmbalagemNoPapel(item, extras.itens[String(item.id)]);
+                      return composicao ? <span className="pv-item-embalagem">{composicao}</span> : null;
+                    })()}
+                  </td>
                   {!simplificado && <td>{item.marca || extra.marca}</td>}
                   <td>{item.unidadeMedidaSigla || 'UN'}</td>
                   <td className="pv-num">{numero(item.quantidade, item.unidadeMedidaCasasDecimais ?? 0)}</td>

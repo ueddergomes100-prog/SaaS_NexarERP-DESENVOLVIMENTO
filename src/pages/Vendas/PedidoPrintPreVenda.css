@@ -278,3 +278,10 @@
     page-break-before: always;
   }
 }
+
+/* Embalagem do item (26/11/2026): "1 CX = 30 PCT de 10 UN = 300 UN" embaixo da descricao. */
+.pv-item-embalagem {
+  display: block;
+  font-size: 0.9em;
+  font-weight: 700;
+}

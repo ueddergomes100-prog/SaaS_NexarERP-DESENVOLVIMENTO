@@ -3,6 +3,8 @@ import { mensagemDoDocumento } from '../../utils/mensagensPadraoDomain';
 import { getCompanyAddressRows } from '../../utils/companyAddress';
 import { ehPreVenda } from '../../utils/preVendaDomain';
 import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos } from '../../utils/pagamentoImpressoDomain';
+import { usePedidoPrintExtras } from '../../hooks/usePedidoPrintExtras';
+import { composicaoDaEmbalagemNoPapel } from '../../utils/embalagemNoPapelDomain';
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
 
@@ -21,6 +23,9 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
   const dataCriacao = pedidoData.createdAt?.toDate ? pedidoData.createdAt.toDate().toLocaleDateString('pt-BR') : 'N/A';
   const companyAddressRows = getCompanyAddressRows(configData);
   const itens = pedidoData.itens || [];
+  // Embalagem do item e observacao do pedido no papel (26/11/2026).
+  const extras = usePedidoPrintExtras(pedidoData);
+  const observacaoDoPedido = String(pedidoData.observacao || '').trim();
   const valorTotal = pedidoData.valorTotal || 0;
   const pagamento = pagamentoImpresso(pedidoData.pagamentos);
 
@@ -96,7 +101,13 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
             {itens.length > 0 ? (
               itens.map((item: any, i: number) => (
                 <tr key={i}>
-                  <td>{item.nome}</td>
+                  <td>
+                    {item.nome}
+                    {(() => {
+                      const composicao = composicaoDaEmbalagemNoPapel(item, extras.itens[String(item.id)]);
+                      return composicao ? <span style={{ display: 'block', fontSize: '0.85em', fontWeight: 700 }}>{composicao}</span> : null;
+                    })()}
+                  </td>
                   <td style={{ textAlign: 'center' }}>
                     {Number(item.quantidade).toFixed(item.unidadeMedidaCasasDecimais ?? 0)} {item.unidadeMedidaSigla || 'UN'}
                   </td>
@@ -169,6 +180,13 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
           </tfoot>
         </table>
       </div>
+
+      {observacaoDoPedido && (
+        <div style={{ margin: '12px 0', fontSize: '13px' }}>
+          <strong>Observação:</strong>
+          <p style={{ whiteSpace: 'pre-line', margin: '4px 0 0' }}>{observacaoDoPedido}</p>
+        </div>
+      )}
 
       <div className="a4-signatures">
         <div className="signature-box">

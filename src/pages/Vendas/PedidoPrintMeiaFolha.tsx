@@ -6,6 +6,8 @@ import { ehPreVenda, STATUS_PRE_VENDA, STATUS_EM_ANALISE, STATUS_FINALIZADA, STA
 import { qrPixDoPedido } from '../../utils/pixPedidoDomain';
 import { pagamentoImpresso, rotuloDaForma } from '../../utils/pagamentoImpressoDomain';
 import QrCodePix from '../../components/common/QrCodePix';
+import { usePedidoPrintExtras } from '../../hooks/usePedidoPrintExtras';
+import { composicaoDaEmbalagemNoPapel, quantidadeComUnidade } from '../../utils/embalagemNoPapelDomain';
 import './PedidoPrintMeiaFolha.css';
 
 interface Parcela {
@@ -55,6 +57,9 @@ const SITUACAO_LABELS: Record<string, string> = {
 
 const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData, clientData, configData, parcelas }) => {
   const itens = pedidoData.itens || [];
+  // Unidade do estoque e embalagens de cada produto: "1 CX = 30 PCT de 10 UN = 300 UN" (26/11/2026).
+  const extras = usePedidoPrintExtras(pedidoData);
+  const observacaoDoPedido = String(pedidoData.observacao || '').trim();
   const valorProdutos = pedidoData.valorTotalItens || 0;
   const frete = pedidoData.frete || 0;
   // Desconto geral e' so um snapshot pro relatorio de descontos (ver
@@ -167,7 +172,7 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
           <tr>
             <th style={{ width: '8%' }}>Cod.</th>
             <th>Descrição do Item</th>
-            <th style={{ width: '10%', textAlign: 'right' }}>Qtd.</th>
+            <th style={{ width: '11%', textAlign: 'right' }}>Qtd.</th>
             <th style={{ width: '10%', textAlign: 'right' }}>Unit.</th>
             <th style={{ width: '12%', textAlign: 'right' }}>Tot. Prod.</th>
             <th style={{ width: '10%', textAlign: 'right' }}>Desc.</th>
@@ -179,8 +184,14 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
             itens.map((item: any, i: number) => (
               <tr key={i}>
                 <td>{item.codigo || '-'}</td>
-                <td>{item.nome}</td>
-                <td style={{ textAlign: 'right' }}>{formatNumber(item.quantidade, item.unidadeMedidaCasasDecimais ?? 0)}</td>
+                <td>
+                  {item.nome}
+                  {(() => {
+                    const composicao = composicaoDaEmbalagemNoPapel(item, extras.itens[String(item.id)]);
+                    return composicao ? <span className="mf-item-embalagem">{composicao}</span> : null;
+                  })()}
+                </td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{quantidadeComUnidade(item, item.unidadeMedidaCasasDecimais ?? 0)}</td>
                 <td style={{ textAlign: 'right' }}>{formatNumber(item.precoUnitario)}</td>
                 <td style={{ textAlign: 'right' }}>{formatNumber(item.quantidade * item.precoUnitario)}</td>
                 <td style={{ textAlign: 'right' }}>{formatNumber(item.desconto)}</td>
@@ -275,6 +286,13 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
         <div className="mf-rodape-texto">
           <p className="mf-situacao"><strong>Situação Atual:</strong> {situacao}</p>
 
+          {/* Observacao do pedido (26/11/2026, pedido do dono): saia so' a padrao das Configuracoes. */}
+          {observacaoDoPedido && (
+            <div className="mf-observacoes">
+              <strong>Observação:</strong>
+              <p style={{ whiteSpace: 'pre-line' }}>{observacaoDoPedido}</p>
+            </div>
+          )}
           {configData?.observacoesPadraoPedido && (
             <div className="mf-observacoes">
               <strong>Observações:</strong>

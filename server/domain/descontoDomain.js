@@ -16,7 +16,7 @@
 // o comportamento de hoje (nenhum limite existe) em todo tenant que nao
 // configurar nada.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.descontoAoEditarItem = exports.descontoDoClienteEmCents = exports.checarLimiteComCliente = exports.erroDoDescontoPadraoCliente = exports.parseDescontoPadraoCliente = exports.descontoPadraoDoCliente = exports.descontoInicial = exports.parseTipoDescontoPadrao = exports.DEFAULT_TIPO_DESCONTO_PADRAO = exports.parsePermitirDescontoPorItem = exports.DEFAULT_PERMITIR_DESCONTO_POR_ITEM = exports.parseModoLimiteDesconto = exports.parseLimiteDescontoConfig = exports.checarLimiteTotal = exports.excedeLimiteItem = exports.resolveLimiteItem = exports.totalDoItemEmDigitacaoCents = exports.calcularDescontoCents = exports.DEFAULT_MODO_LIMITE_DESCONTO = void 0;
+exports.descontoDoPrecoCombinado = exports.descontoAoEditarItem = exports.descontoDoClienteEmCents = exports.checarLimiteComCliente = exports.erroDoDescontoPadraoCliente = exports.parseDescontoPadraoCliente = exports.descontoPadraoDoCliente = exports.descontoInicial = exports.parseTipoDescontoPadrao = exports.DEFAULT_TIPO_DESCONTO_PADRAO = exports.parsePermitirDescontoPorItem = exports.DEFAULT_PERMITIR_DESCONTO_POR_ITEM = exports.parseModoLimiteDesconto = exports.parseLimiteDescontoConfig = exports.checarLimiteTotal = exports.excedeLimiteItem = exports.resolveLimiteItem = exports.totalDoItemEmDigitacaoCents = exports.calcularDescontoCents = exports.DEFAULT_MODO_LIMITE_DESCONTO = void 0;
 exports.DEFAULT_MODO_LIMITE_DESCONTO = 'avisar';
 const toFiniteNumber = (value, fallback = 0) => {
     const parsed = Number(value);
@@ -275,3 +275,28 @@ const descontoAoEditarItem = (args) => {
     return args.descontoAtual;
 };
 exports.descontoAoEditarItem = descontoAoEditarItem;
+/**
+ * DESCONTO DO PRECO DIGITADO QUANDO A QUANTIDADE MUDA (26/11/2026, Embala Minas,
+ * pedido #113698 -- "o sistema deu desconto em cima do desconto").
+ *
+ * O preco digitado abaixo da tabela vira "preco de tabela + desconto" (a
+ * diferenca x quantidade, em reais). Esse desconto ficava FIXO: mudando a
+ * quantidade, o preco de tabela podia cair sozinho (faixa de atacado) e o
+ * desconto antigo continuava -- o cliente ganhava o atacado E o desconto.
+ * Ex.: R$ 26,99 o kg (varejo), R$ 19,99 a partir de 11 kg. Digitado 19,99 com
+ * 5 kg = R$ 26,99 + desconto R$ 35,00; quantidade para 13,2 kg = R$ 19,99
+ * (atacado) e o desconto de R$ 35,00 ficava: R$ 17,34 o kg.
+ *
+ * Regra: o item lembra o preco combinado (`precoCombinado`). Com a quantidade
+ * nova, tira-se do desconto a parte que vinha do preco (diferenca antiga) e
+ * poe-se a diferenca para o preco de tabela NOVO; o resto do desconto (o que
+ * foi digitado como desconto) fica. Preco combinado igual ou acima da tabela
+ * nova = nada vem do preco.
+ */
+const descontoDoPrecoCombinado = (args) => {
+    const centavos = (reais) => Math.round((Number(reais) || 0) * 100);
+    const doPreco = (tabela, quantidade) => (args.precoCombinado < tabela - 0.0001 ? Math.max(0, centavos((tabela - args.precoCombinado) * quantidade)) : 0);
+    const resto = Math.max(0, centavos(args.descontoAtual) - doPreco(args.precoTabelaAntes, args.quantidadeAntes));
+    return Number(((resto + doPreco(args.precoTabelaDepois, args.quantidadeDepois)) / 100).toFixed(2));
+};
+exports.descontoDoPrecoCombinado = descontoDoPrecoCombinado;

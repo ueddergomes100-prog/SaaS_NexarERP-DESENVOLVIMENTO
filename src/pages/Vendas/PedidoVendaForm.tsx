@@ -179,6 +179,7 @@ import {
   parseTipoDescontoPadrao,
   type DescontoTipo,
   descontoAoEditarItem,
+  descontoDoPrecoCombinado,
   excedeLimiteItem,
   parsePermitirDescontoPorItem,
   checarLimiteComCliente,
@@ -347,6 +348,10 @@ interface ItemVenda {
   tabelaPreco?: TabelaDePrecoDoItem;
   /** De onde veio o preco; 'manual' = digitado, nunca troca sozinho. */
   origemPreco?: OrigemPreco;
+  /** Preco digitado abaixo da tabela, que virou "tabela + desconto" (26/11/2026):
+   * com a quantidade nova o desconto e' refeito sobre a tabela nova
+   * (descontoDoPrecoCombinado). Ausente = o desconto do item nao veio de preco. */
+  precoCombinado?: number;
   /** Promocao que esta no preco do item (some quando a promocao sai). */
   promocaoId?: string;
   promocaoNome?: string;
@@ -1924,6 +1929,7 @@ const PedidoVendaForm: React.FC = () => {
     // preco de tabela e a diferenca vira DESCONTO do item -- passa pelas mesmas
     // travas e aparece no relatorio de descontos. Subir o preco continua livre.
     let descontoPorPrecoCents = 0;
+    let precoCombinadoDoItem: number | null = null;
     if (produtoEncontrado) {
       const conferida = conferirQuotaDaPromocao(produtoEncontrado, tabelaDoItemDoCatalogo(produtoEncontrado, opcaoDoItem), quantidadeBase);
       avisoPromocao = conferida.aviso;
@@ -1945,7 +1951,10 @@ const PedidoVendaForm: React.FC = () => {
         );
         return;
       }
-      if (abaixoDaTabela) descontoPorPrecoCents = toCents((precoTabela - (digitado as number)) * qtdDoItem);
+      if (abaixoDaTabela) {
+        descontoPorPrecoCents = toCents((precoTabela - (digitado as number)) * qtdDoItem);
+        precoCombinadoDoItem = digitado as number;
+      }
       const resultado = camposDePreco(conferida.tabela, abaixoDaTabela ? undefined : digitado, qtdDoItem);
       precoFinal = resultado.preco;
       camposPreco = resultado.campos;
@@ -2027,6 +2036,8 @@ const PedidoVendaForm: React.FC = () => {
         : {}),
       ...(opcaoDoItem?.origem ? { embalagemDeOrigem: { ...opcaoDoItem.origem } } : {}),
       ...(camposPreco || {}),
+      // Preco digitado abaixo da tabela: lembrado para a quantidade nova refazer o desconto.
+      ...(precoCombinadoDoItem !== null ? { precoCombinado: precoCombinadoDoItem } : {}),
     };
 
     setItens([...itens, novoItem]);
@@ -2380,17 +2391,32 @@ const PedidoVendaForm: React.FC = () => {
     if (!Number.isFinite(descontoBase) || descontoBase < 0) return 'O desconto não pode ser negativo.';
     // Preco digitado define quanto o cliente paga: o desconto e' recalculado, nao
     // somado ao que o item ja' tinha (24/11/2026, descontoAoEditarItem).
-    const descontoNovo = descontoAoEditarItem({
-      precoMexido,
-      // Preco livre: nada abaixo da tabela vira desconto (a diferenca fica zero).
-      precoTabela: podePrecoSemDesconto ? novoPreco : precoTabela,
-      novoPreco,
-      quantidade: novaQtd,
-      descontoAtual: item.desconto,
-      descontoDigitado: campos.desconto,
-    });
+    // So' a quantidade mudou num item de preco combinado (26/11/2026): o desconto que
+    // vinha do preco e' refeito sobre o preco de tabela da quantidade nova (a faixa de
+    // atacado pode ter mudado) -- ANTES dos limites, para eles verem o desconto certo.
+    const soQuantidadeComPrecoCombinado = !precoMexido && campos.desconto === undefined && item.precoCombinado !== undefined;
+    // Preco que o item vai ter: item com tabela troca pela faixa; sem tabela, fica como esta'.
+    const precoDepois = item.tabelaPreco && !item.bonificado ? precoTabela : precoEfetivo;
+    const descontoNovo = soQuantidadeComPrecoCombinado
+      ? Math.min(fromCents(toCents(precoDepois * novaQtd)), descontoDoPrecoCombinado({
+        descontoAtual: item.desconto,
+        precoCombinado: item.precoCombinado as number,
+        precoTabelaAntes: item.precoUnitario,
+        quantidadeAntes: item.quantidade,
+        precoTabelaDepois: precoDepois,
+        quantidadeDepois: novaQtd,
+      }))
+      : descontoAoEditarItem({
+        precoMexido,
+        // Preco livre: nada abaixo da tabela vira desconto (a diferenca fica zero).
+        precoTabela: podePrecoSemDesconto ? novoPreco : precoTabela,
+        novoPreco,
+        quantidade: novaQtd,
+        descontoAtual: item.desconto,
+        descontoDigitado: campos.desconto,
+      });
 
-    const precoCheioCents = toCents(precoEfetivo * novaQtd);
+    const precoCheioCents = toCents((soQuantidadeComPrecoCombinado ? precoDepois : precoEfetivo) * novaQtd);
     const descontoCents = toCents(descontoNovo);
     if (descontoCents > precoCheioCents) return 'O desconto ficou maior que o valor do item. Confira o preço digitado.';
     if (descontoCents > 0) {
@@ -2406,12 +2432,20 @@ const PedidoVendaForm: React.FC = () => {
       }
     }
 
+    // Preco combinado (26/11/2026): preco digitado abaixo da tabela fica lembrado; desconto
+    // digitado na celula substitui o que vinha do preco; mexer so' na quantidade mantem.
+    const precoCombinadoNovo = precoMexido
+      ? (abaixoDaTabela ? novoPreco : null)
+      : (campos.desconto !== undefined ? null : (item.precoCombinado ?? null));
+    const { precoCombinado: _combinadoAnterior, ...itemSemCombinado } = item;
+    void _combinadoAnterior;
     let atualizado: ItemVenda = {
-      ...item,
+      ...itemSemCombinado,
       quantidade: novaQtd,
       precoUnitario: precoEfetivo,
       desconto: descontoNovo,
       ...(item.embalagemId ? { quantidadeBase: novaQtdBase } : {}),
+      ...(precoCombinadoNovo !== null ? { precoCombinado: precoCombinadoNovo } : {}),
     };
     let avisoQuota: string | undefined;
     // Item com tabela de precos: preco mexido aqui vira 'manual' (nunca troca

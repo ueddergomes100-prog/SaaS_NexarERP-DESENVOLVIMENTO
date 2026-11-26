@@ -351,3 +351,37 @@ export const descontoAoEditarItem = (args: {
   if (args.precoMexido) return reais(diferencaCents);
   return args.descontoAtual;
 };
+
+/**
+ * DESCONTO DO PRECO DIGITADO QUANDO A QUANTIDADE MUDA (26/11/2026, Embala Minas,
+ * pedido #113698 -- "o sistema deu desconto em cima do desconto").
+ *
+ * O preco digitado abaixo da tabela vira "preco de tabela + desconto" (a
+ * diferenca x quantidade, em reais). Esse desconto ficava FIXO: mudando a
+ * quantidade, o preco de tabela podia cair sozinho (faixa de atacado) e o
+ * desconto antigo continuava -- o cliente ganhava o atacado E o desconto.
+ * Ex.: R$ 26,99 o kg (varejo), R$ 19,99 a partir de 11 kg. Digitado 19,99 com
+ * 5 kg = R$ 26,99 + desconto R$ 35,00; quantidade para 13,2 kg = R$ 19,99
+ * (atacado) e o desconto de R$ 35,00 ficava: R$ 17,34 o kg.
+ *
+ * Regra: o item lembra o preco combinado (`precoCombinado`). Com a quantidade
+ * nova, tira-se do desconto a parte que vinha do preco (diferenca antiga) e
+ * poe-se a diferenca para o preco de tabela NOVO; o resto do desconto (o que
+ * foi digitado como desconto) fica. Preco combinado igual ou acima da tabela
+ * nova = nada vem do preco.
+ */
+export const descontoDoPrecoCombinado = (args: {
+  descontoAtual: number;
+  precoCombinado: number;
+  precoTabelaAntes: number;
+  quantidadeAntes: number;
+  precoTabelaDepois: number;
+  quantidadeDepois: number;
+}): number => {
+  const centavos = (reais: number): number => Math.round((Number(reais) || 0) * 100);
+  const doPreco = (tabela: number, quantidade: number): number => (
+    args.precoCombinado < tabela - 0.0001 ? Math.max(0, centavos((tabela - args.precoCombinado) * quantidade)) : 0
+  );
+  const resto = Math.max(0, centavos(args.descontoAtual) - doPreco(args.precoTabelaAntes, args.quantidadeAntes));
+  return Number(((resto + doPreco(args.precoTabelaDepois, args.quantidadeDepois)) / 100).toFixed(2));
+};

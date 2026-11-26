@@ -19,7 +19,7 @@ import {
   parseModoLimiteDesconto,
   resolveLimiteItem,
 } from '../src/utils/descontoDomain';
-import { descontoAoEditarItem, totalDoItemEmDigitacaoCents } from '../src/utils/descontoDomain';
+import { descontoAoEditarItem, descontoDoPrecoCombinado, totalDoItemEmDigitacaoCents } from '../src/utils/descontoDomain';
 
 test('calcularDescontoCents em percentual', () => {
   assert.equal(calcularDescontoCents('percentual', 10, 10000), 1000);
@@ -278,4 +278,18 @@ test('editar o desconto ou a quantidade: vale o digitado; quantidade nao mexe no
   assert.equal(descontoAoEditarItem({ ...base, precoMexido: false, descontoAtual: 1.5 }), 1.5);
   // Preco e desconto na mesma edicao: os dois valem.
   assert.equal(descontoAoEditarItem({ precoTabela: 10, novoPreco: 9, quantidade: 2, precoMexido: true, descontoAtual: 7, descontoDigitado: 1 }), 3);
+});
+
+// Pedido #113698 da Embala Minas (26/11/2026): R$ 26,99 o kg, atacado R$ 19,99 a partir de 11 kg.
+test('preco combinado: quantidade nova refaz o desconto sobre a tabela nova (sem desconto em cima do atacado)', () => {
+  // Digitado 19,99 com 5 kg = 26,99 + desconto 35,00. Quantidade para 13,2 kg: tabela cai para 19,99 (atacado).
+  assert.equal(descontoDoPrecoCombinado({ descontoAtual: 35, precoCombinado: 19.99, precoTabelaAntes: 26.99, quantidadeAntes: 5, precoTabelaDepois: 19.99, quantidadeDepois: 13.2 }), 0);
+  // Mesma tabela, quantidade dobra: a diferenca dobra junto (antes ficava fixa).
+  assert.equal(descontoDoPrecoCombinado({ descontoAtual: 35, precoCombinado: 19.99, precoTabelaAntes: 26.99, quantidadeAntes: 5, precoTabelaDepois: 26.99, quantidadeDepois: 10 }), 70);
+  // Volta para o varejo: o desconto do preco volta.
+  assert.equal(descontoDoPrecoCombinado({ descontoAtual: 0, precoCombinado: 19.99, precoTabelaAntes: 19.99, quantidadeAntes: 13.2, precoTabelaDepois: 26.99, quantidadeDepois: 5 }), 35);
+  // Desconto digitado a mais (R$ 5) continua; so' a parte do preco e' refeita.
+  assert.equal(descontoDoPrecoCombinado({ descontoAtual: 40, precoCombinado: 19.99, precoTabelaAntes: 26.99, quantidadeAntes: 5, precoTabelaDepois: 19.99, quantidadeDepois: 13.2 }), 5);
+  // Combinado abaixo ate' do atacado: so' a diferenca para o atacado.
+  assert.equal(descontoDoPrecoCombinado({ descontoAtual: 45, precoCombinado: 17.99, precoTabelaAntes: 26.99, quantidadeAntes: 5, precoTabelaDepois: 19.99, quantidadeDepois: 13.2 }), 26.4);
 });

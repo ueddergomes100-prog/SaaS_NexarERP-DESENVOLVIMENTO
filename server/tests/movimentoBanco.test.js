@@ -237,3 +237,49 @@ test('banco: transferencia move os dois saldos e grava o par; outra empresa e me
   assert.equal(fake.ler('bancos/z').saldoCentavos, 0);
   assert.equal(fake.ler('bancos/o').saldoCentavos, 30000);
 });
+
+// Taxa do cartao a conciliar (26/11/2026): corrige a taxa e o liquido da parcela pendente; conciliada nao muda.
+test('cartao: corrige a taxa da parcela pendente, o liquido que entra no banco e o total de taxas da venda', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/c1': {
+      tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Venda Direta #113764 - Cartão de Crédito',
+      formaPagamento: 'Cartão de Crédito', valorCentavos: 4000, valor: 40, valorBrutoCentavos: 4000,
+      valorTaxaCentavos: 176, valorLiquidoCentavos: 3824, bancoId: 'b1', pedidoId: 'p1',
+      cartao: { bandeira: 'CIELO', taxaPercentual: 4.4, valorTaxaCentavos: 176, valorLiquidoCentavos: 3824, detalhamentoParcelas: [{ numero: 1, valorCentavos: 4000, valorLiquidoCentavos: 3824 }] },
+    },
+    'bancos/b1': { tenantId: 'emp1', nome: 'SICOOB SAUDE', saldoCentavos: 0 },
+    'pedidos_venda/p1': { tenantId: 'emp1', status: 'Finalizada', totalTaxasPagamentoCentavos: 176, totalTaxasPagamento: 1.76 },
+  });
+  const s = carregar(fake.db);
+  const r = await s.alterarTaxaDoCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'c1', taxaCentavos: 200 } });
+  assert.equal(r.liquidoCentavos, 3800);
+  assert.equal(r.percentual, 5);
+  const t = fake.ler('transacoes/c1');
+  assert.equal(t.valorTaxaCentavos, 200);
+  assert.equal(t.valorLiquidoCentavos, 3800);
+  assert.equal(t.cartao.valorTaxaCentavos, 200);
+  assert.equal(t.cartao.taxaPercentual, 5);
+  assert.equal(t.cartao.detalhamentoParcelas[0].valorLiquidoCentavos, 3800);
+  assert.equal(t.cartao.bandeira, 'CIELO');
+  assert.equal(t.taxaAlteradaManualmente.deCentavos, 176);
+  assert.equal(fake.ler('pedidos_venda/p1').totalTaxasPagamentoCentavos, 200);
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 0, 'o banco so recebe ao conciliar');
+  // Conciliar depois credita o liquido novo.
+  await s.conciliarCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'c1' }, hoje: HOJE });
+  assert.equal(fake.ler('bancos/b1').saldoCentavos, 3800);
+  // Conciliada: nao muda mais.
+  await assert.rejects(() => s.alterarTaxaDoCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'c1', taxaCentavos: 100 } }), /já foi conciliada/);
+});
+
+test('cartao: taxa invalida e titulo que nao e\' de cartao sao recusados', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/c2': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', formaPagamento: 'Cartão de Débito', valorCentavos: 1000 },
+    'transacoes/b2': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', formaPagamento: 'Boleto', valorCentavos: 1000 },
+  });
+  const s = carregar(fake.db);
+  await assert.rejects(() => s.alterarTaxaDoCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'c2', taxaCentavos: 1000 } }), /não pode ser igual ou maior/);
+  await assert.rejects(() => s.alterarTaxaDoCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'c2', taxaCentavos: -5 } }), /zero ou maior/);
+  await assert.rejects(() => s.alterarTaxaDoCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'b2', taxaCentavos: 10 } }), /não é de cartão/);
+  const ok = await s.alterarTaxaDoCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'c2', taxaCentavos: 0 } });
+  assert.equal(ok.liquidoCentavos, 1000);
+});

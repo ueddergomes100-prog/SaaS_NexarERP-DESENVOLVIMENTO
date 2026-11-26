@@ -342,6 +342,8 @@ exports.PERMISSION_GROUPS = [
             // Troca do administrador (25/11/2026): era so' dono e administrador pelo papel.
             { id: 'financeiro.caixa_fechar', label: 'Financeiro: Caixa (Sessões PDV) — fechar o caixa de outro operador e acertar a gaveta de dia anterior', color: '#ef4444' },
             { id: 'financeiro.banco', label: 'Financeiro: Banco (Conciliação de Cartão)', color: '#10b981' },
+            // 26/11/2026: corrigir a taxa de uma parcela de cartao ainda a conciliar (as vezes a maquininha cobra diferente).
+            { id: 'financeiro.cartao_taxa', label: 'Financeiro: Banco — alterar a taxa do cartão a conciliar', color: '#ef4444' },
             { id: 'financeiro.cheques', label: 'Financeiro: Cheques (Compensação)', color: '#10b981' },
             // 21/10/2026: caixas da loja (CAIXA, COFRE...) e transferencias caixa <-> banco.
             { id: 'financeiro.caixas', label: 'Financeiro: Caixas e Transferências (caixa, cofre e bancos)', color: '#10b981' },

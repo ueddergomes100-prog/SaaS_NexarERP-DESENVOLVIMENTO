@@ -53,6 +53,7 @@ type RotaFinanceiro =
   | '/renegociar'
   | '/renegociacao/desfazer'
   | '/cartao/conciliar'
+  | '/cartao/taxa'
   | '/cheque/compensar'
   | '/cheque-emitido/compensar'
   | '/boleto/retorno'
@@ -342,6 +343,14 @@ export const desfazerRenegociacaoDaParcela = (args: { transacaoId: string; motiv
 /** Banco > conciliar recebimento de cartao. `bancoId` so' vale para titulo antigo sem banco. */
 export const conciliarCartaoNoBanco = (args: { transacaoId: string; bancoId?: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean }>('/cartao/conciliar', { ...args })
+);
+
+/**
+ * Banco > corrigir a taxa de uma parcela de cartao ainda a conciliar (26/11/2026).
+ * Permissao "Financeiro: Banco -- alterar a taxa do cartao a conciliar" (o dono sempre pode).
+ */
+export const alterarTaxaDoCartao = (args: { transacaoId: string; taxaCentavos: number; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean; liquidoCentavos: number; percentual: number }>('/cartao/taxa', { ...args })
 );
 
 /** Cheques > compensar cheque RECEBIDO (credita o banco). */

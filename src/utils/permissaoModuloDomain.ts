@@ -126,6 +126,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   // Caixas e transferencias (21/10/2026): parte do modulo do Fluxo de Caixa.
   'financeiro.caixas': ['financeiro.caixa'],
   'financeiro.caixa_fechar': ['financeiro.caixa_registros'],
+  'financeiro.cartao_taxa': ['financeiro.banco'],
 
   'fiscal.emitir': ['fiscal.nfe'],
   'fiscal.excluir': ['fiscal.nfe'],

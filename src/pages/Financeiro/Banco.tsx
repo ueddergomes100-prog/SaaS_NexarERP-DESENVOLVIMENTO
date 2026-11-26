@@ -1,12 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
-import { conciliarCartaoNoBanco } from '../../services/baixaFinanceiraService';
+import { alterarTaxaDoCartao, conciliarCartaoNoBanco } from '../../services/baixaFinanceiraService';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError, NexusSwal, escaparHtml } from '../../utils/alerts';
-import { Landmark, CreditCard, CheckCircle, Calendar, Search, Clock, FileText } from 'lucide-react';
+import { Landmark, CreditCard, CheckCircle, Calendar, Search, Clock, FileText, Pencil } from 'lucide-react';
 import { FORMA_ACERTO_FORNECEDOR } from '../../utils/acertoFornecedorDomain';
 import {
   fromCents,
+  toCents,
   transactionMovesPhysicalCash,
   transactionNetAmount,
 } from '../../utils/financeDomain';
@@ -116,6 +118,8 @@ const Banco: React.FC = () => {
   // Relatorio (19/10/2026): extrato do periodo + cartao a conciliar, como a tela mostra.
   const [previewAberto, setPreviewAberto] = useState(false);
   const { currentUser, tenantId } = useAuth();
+  // Taxa do cartao a conciliar (26/11/2026): o dono e quem tem a permissao corrigem a taxa de uma parcela.
+  const podeAlterarTaxa = usePodePermissao()('financeiro.cartao_taxa');
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = useMemo(() => bancos.filter((b) => b.ativo), [bancos]);
 
@@ -182,6 +186,70 @@ const Banco: React.FC = () => {
     } catch (error) {
       console.error('Erro ao conciliar recebimento de cartão:', error);
       showError('Erro', error instanceof Error ? error.message : 'Não foi possível confirmar o recebimento.');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  /**
+   * Corrigir a taxa de uma parcela de cartao ainda a conciliar (26/11/2026): a
+   * maquininha as vezes cobra diferente. Digita a taxa em R$; mostra na hora o
+   * percentual e o liquido que vai entrar no banco. O servidor confere a permissao.
+   */
+  const corrigirTaxa = async (t: TransacaoData) => {
+    if (!tenantId || processingId) return;
+    const brutoCents = toCents(Number(t.valor) || 0);
+    const taxaAtualCents = Number(t.cartao?.valorTaxaCentavos ?? 0) || 0;
+    const brl = (c: number) => fromCents(c).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const lerTaxa = (texto: string): number | null => {
+      const limpo = String(texto || '').trim().replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+      if (limpo === '') return null;
+      const n = Number(limpo);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+    };
+    const resultado = await NexusSwal.fire({
+      title: 'Corrigir a taxa do cartão',
+      html: `<div style="text-align:left;font-size:14px;line-height:1.6">`
+        + `<div><b>${escaparHtml(String(t.descricao || ''))}</b>${t.cartao?.numero ? ` (${t.cartao.numero}/${t.cartao.totalParcelas})` : ''}</div>`
+        + `<div>Valor bruto: <b>${brl(brutoCents)}</b> · taxa de agora: ${brl(taxaAtualCents)}</div>`
+        + `<label for="taxa-cartao-nova" style="display:block;margin-top:12px;font-weight:600">Taxa cobrada (R$)</label>`
+        + `<input id="taxa-cartao-nova" class="swal2-input" inputmode="decimal" style="margin:6px 0 0;width:100%;box-sizing:border-box" value="${fromCents(taxaAtualCents).toFixed(2).replace('.', ',')}">`
+        + `<div id="taxa-cartao-previa" style="margin-top:8px;color:var(--text-secondary)"></div></div>`,
+      showCancelButton: true,
+      confirmButtonText: 'Salvar taxa',
+      cancelButtonText: 'Cancelar',
+      didOpen: () => {
+        const campo = document.getElementById('taxa-cartao-nova') as HTMLInputElement | null;
+        const previa = document.getElementById('taxa-cartao-previa');
+        const atualizar = () => {
+          const c = lerTaxa(campo?.value || '');
+          if (!previa) return;
+          previa.textContent = c === null || c >= brutoCents
+            ? 'Digite a taxa em reais, menor que o valor da parcela.'
+            : `${(c / brutoCents * 100).toFixed(2).replace('.', ',')}% · líquido que vai entrar no banco: ${brl(brutoCents - c)}`;
+        };
+        campo?.addEventListener('input', atualizar);
+        campo?.focus();
+        campo?.select();
+        atualizar();
+      },
+      preConfirm: () => {
+        const c = lerTaxa((document.getElementById('taxa-cartao-nova') as HTMLInputElement | null)?.value || '');
+        if (c === null || c >= brutoCents) {
+          NexusSwal.showValidationMessage(`Digite a taxa em reais, de zero até menos que ${brl(brutoCents)}.`);
+          return false;
+        }
+        return c;
+      },
+    });
+    if (!resultado.isConfirmed || typeof resultado.value !== 'number') return;
+    if (resultado.value === taxaAtualCents) return;
+    setProcessingId(t.id);
+    try {
+      const r = await alterarTaxaDoCartao({ transacaoId: t.id, taxaCentavos: resultado.value, tenantId });
+      showSuccess(`Taxa corrigida. Líquido a conciliar: ${brl(r.liquidoCentavos)}.`);
+    } catch (error) {
+      showError('Não foi possível corrigir a taxa', error instanceof Error ? error.message : 'Tente de novo em instantes.');
     } finally {
       setProcessingId(null);
     }
@@ -438,7 +506,12 @@ const Banco: React.FC = () => {
                   const parcelaLabel = t.cartao?.numero ? ` (${t.cartao.numero}/${t.cartao.totalParcelas})` : '';
                   const cor = corDoBanco(chaveDoBanco(t, bancosDoExtrato), bancosDoExtrato);
                   return (
-                    <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)', ['--cor-banco' as string]: cor } as React.CSSProperties}>
+                    <tr
+                      key={t.id}
+                      onClick={podeAlterarTaxa ? () => { void corrigirTaxa(t); } : undefined}
+                      title={podeAlterarTaxa ? 'Clique para corrigir a taxa desta parcela' : undefined}
+                      style={{ borderBottom: '1px solid var(--border-color)', cursor: podeAlterarTaxa ? 'pointer' : undefined, ['--cor-banco' as string]: cor } as React.CSSProperties}
+                    >
                       <td style={{ padding: '10px 8px 10px 14px', color: 'var(--text-muted)' }}>{vencimento ? vencimento.split('-').reverse().join('/') : '-'}</td>
                       <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}{parcelaLabel}</td>
                       <td style={{ padding: '10px 8px' }}>{t.clienteNome || '-'}</td>
@@ -447,13 +520,16 @@ const Banco: React.FC = () => {
                         <td style={{ padding: '10px 8px' }}>{t.bancoNome || <span style={{ color: 'var(--text-muted)' }}>A definir</span>}</td>
                       )}
                       <td className="bpb-valor" style={{ padding: '10px 8px' }}>{moeda(Number(t.valor))}</td>
-                      <td className="bpb-valor bpb-saida" style={{ padding: '10px 8px' }}>{moeda(fromCents(t.cartao?.valorTaxaCentavos || 0))}</td>
+                      <td className="bpb-valor bpb-saida" style={{ padding: '10px 8px' }}>
+                        {moeda(fromCents(t.cartao?.valorTaxaCentavos || 0))}
+                        {podeAlterarTaxa && <Pencil size={12} aria-hidden="true" style={{ marginLeft: '6px', opacity: 0.6 }} />}
+                      </td>
                       <td className="bpb-valor bpb-entrada" style={{ padding: '10px 8px' }}>{moeda(transactionNetAmount(t))}</td>
                       <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                         <button
                           type="button"
                           className="bpb-confirmar"
-                          onClick={() => confirmarRecebimentoCartao(t)}
+                          onClick={(e) => { e.stopPropagation(); void confirmarRecebimentoCartao(t); }}
                           disabled={processingId === t.id}
                         >
                           <CheckCircle size={14} /> {processingId === t.id ? 'Confirmando...' : 'Confirmar no banco'}

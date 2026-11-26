@@ -29,6 +29,7 @@ const { adicionarCategoria, ErroConfiguracoesGerais } = require('../services/con
 const { descricaoDosAjustes } = require('../domain/ajustesDaBaixaDomain');
 const {
   conciliarCartao,
+  alterarTaxaDoCartao,
   compensarChequeRecebido,
   compensarChequeEmitido,
   baixarBoletoPeloRetorno,
@@ -599,6 +600,7 @@ router.post('/renegociacao/desfazer', async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const MENSAGEM_SEM_PERMISSAO = {
+  'financeiro.cartao_taxa': 'Você não tem permissão para alterar a taxa do cartão. Peça a um responsável liberar "Financeiro: Banco — alterar a taxa do cartão a conciliar" no seu usuário.',
   'financeiro.banco': 'Você não tem permissão para conciliar recebimentos no banco. Peça a um responsável liberar "Financeiro: Banco" no seu usuário.',
   'financeiro.cheques': 'Você não tem permissão para compensar cheques. Peça a um responsável liberar "Financeiro: Cheques" no seu usuário.',
   'financeiro.boletos': 'Você não tem permissão para mexer em boletos. Peça a um responsável liberar "Financeiro: Boletos (Emissão, Remessa e Retorno)" no seu usuário.',
@@ -631,6 +633,10 @@ const rotaDeMovimento = (permissao, acao, operacao, descreverLog) => async (req,
 /** POST /api/financeiro/cartao/conciliar  { transacaoId, bancoId? } */
 router.post('/cartao/conciliar', rotaDeMovimento('financeiro.banco', 'conciliar o cartão', conciliarCartao,
   (r) => `Recebimento de cartão "${r.descricao}" conciliado: ${reais(r.liquidoCentavos)} entraram no banco ${r.bancoNome || ''}.`));
+
+/** POST /api/financeiro/cartao/taxa  { transacaoId, taxaCentavos } -- parcela de cartao ainda a conciliar (26/11/2026). */
+router.post('/cartao/taxa', rotaDeMovimento('financeiro.cartao_taxa', 'alterar a taxa do cartão', alterarTaxaDoCartao,
+  (r) => `Taxa do cartão "${r.descricao}" alterada de ${reais(r.anteriorCentavos)} para ${reais(r.taxaCentavos)} (${String(r.percentual).replace('.', ',')}%); líquido a conciliar: ${reais(r.liquidoCentavos)}.`));
 
 /** POST /api/financeiro/cheque/compensar  { transacaoId, bancoId? } -- cheque RECEBIDO */
 router.post('/cheque/compensar', rotaDeMovimento('financeiro.cheques', 'compensar o cheque', compensarChequeRecebido,

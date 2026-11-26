@@ -193,6 +193,89 @@ const conciliarCartao = ({ user, tenantId, corpo, hoje }) => creditarRecebimento
   bancoIdEscolhido: corpo?.bancoId ? String(corpo.bancoId).trim() : '',
 });
 
+/**
+ * TAXA DO CARTAO A CONCILIAR (26/11/2026, Embala Minas: "as vezes da uma
+ * diferenca"). O dono, ou quem tem "Financeiro: Banco -- alterar a taxa do
+ * cartao a conciliar", corrige a taxa de UMA parcela ainda pendente: muda a taxa
+ * e o liquido do titulo (que e' o que entra no banco ao conciliar) e o total de
+ * taxas da venda/OS. Parcela ja' conciliada nao muda: o banco ja' recebeu.
+ * Regra pura em `camposDaTaxaDoCartao` (testada sem banco).
+ */
+const camposDaTaxaDoCartao = ({ dados, taxaCentavos }) => {
+  const bruto = Number(dados.valorBrutoCentavos ?? dados.valorCentavos ?? Math.round(Number(dados.valor || 0) * 100));
+  if (!Number.isInteger(taxaCentavos) || taxaCentavos < 0) {
+    return { erro: 'Informe a taxa em reais, zero ou maior (por exemplo 1,76).' };
+  }
+  if (!(bruto > 0)) return { erro: 'Esta parcela não tem valor. Atualize a tela.' };
+  if (taxaCentavos >= bruto) {
+    return { erro: `A taxa não pode ser igual ou maior que a parcela (${reaisSimples(bruto)}). Confira o valor digitado.` };
+  }
+  const liquido = bruto - taxaCentavos;
+  const percentual = Math.round((taxaCentavos / bruto) * 10000) / 100;
+  const reais = (c) => Math.round(c) / 100;
+  const cartao = dados.cartao && typeof dados.cartao === 'object' ? dados.cartao : null;
+  const detalhe = cartao && Array.isArray(cartao.detalhamentoParcelas) && cartao.detalhamentoParcelas.length === 1
+    ? [{ ...cartao.detalhamentoParcelas[0], valorLiquidoCentavos: liquido, valorLiquido: reais(liquido) }]
+    : null;
+  const anterior = Number(dados.valorTaxaCentavos ?? (cartao && cartao.valorTaxaCentavos) ?? 0) || 0;
+  return {
+    anteriorCentavos: anterior,
+    diferencaCentavos: taxaCentavos - anterior,
+    liquidoCentavos: liquido,
+    percentual,
+    campos: {
+      valorTaxa: reais(taxaCentavos),
+      valorTaxaCentavos: taxaCentavos,
+      valorLiquido: reais(liquido),
+      valorLiquidoCentavos: liquido,
+      ...(cartao ? {
+        cartao: {
+          ...cartao,
+          taxaPercentual: percentual,
+          valorTaxa: reais(taxaCentavos),
+          valorTaxaCentavos: taxaCentavos,
+          valorLiquido: reais(liquido),
+          valorLiquidoCentavos: liquido,
+          ...(detalhe ? { detalhamentoParcelas: detalhe } : {}),
+        },
+      } : {}),
+    },
+  };
+};
+
+const alterarTaxaDoCartao = async ({ user, tenantId, corpo }) => {
+  const transacaoId = idObrigatorio(corpo?.transacaoId, 'Parcela inválida. Atualize a tela e tente de novo.');
+  const taxaCentavos = Math.round(Number(corpo?.taxaCentavos));
+  const resumo = {};
+  await db.runTransaction(async (tx) => {
+    const titulo = await lerTitulo(tx, tenantId, { transacaoId, tipo: 'entrada' });
+    const dados = titulo.dados;
+    if (!isCardPayment(String(dados.formaPagamento || ''))) throw new ErroBaixa(400, 'Esta parcela não é de cartão: não tem taxa para alterar.');
+    if (dados.status === 'Paga') throw new ErroBaixa(409, 'Esta parcela já foi conciliada: o banco já recebeu o líquido. A taxa não muda mais por aqui.');
+    if (dados.status === 'Cancelada') throw new ErroBaixa(409, 'Esta parcela foi cancelada: não há taxa para alterar.');
+    const conta = camposDaTaxaDoCartao({ dados, taxaCentavos });
+    if (conta.erro) throw new ErroBaixa(400, conta.erro);
+    // Total de taxas gravado na venda/OS (o resumo dos pagamentos) acompanha a diferenca.
+    const origem = await lerOrigemSemTravar(tx, tenantId, dados);
+    tx.update(titulo.ref, {
+      ...conta.campos,
+      taxaAlteradaManualmente: { deCentavos: conta.anteriorCentavos, paraCentavos: taxaCentavos, por: user.uid, em: agora() },
+      updatedAt: agora(),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), 'Taxa do cartão alterada'),
+    });
+    if (origem.ref && conta.diferencaCentavos !== 0 && origem.dados.totalTaxasPagamentoCentavos !== undefined) {
+      const total = Math.max(0, Number(origem.dados.totalTaxasPagamentoCentavos || 0) + conta.diferencaCentavos);
+      tx.update(origem.ref, { totalTaxasPagamentoCentavos: total, totalTaxasPagamento: total / 100, updatedAt: agora() });
+    }
+    resumo.descricao = String(dados.descricao || '');
+    resumo.anteriorCentavos = conta.anteriorCentavos;
+    resumo.taxaCentavos = taxaCentavos;
+    resumo.liquidoCentavos = conta.liquidoCentavos;
+    resumo.percentual = conta.percentual;
+  });
+  return resumo;
+};
+
 const compensarChequeRecebido = ({ user, tenantId, corpo, hoje }) => creditarRecebimento({
   user,
   tenantId,
@@ -629,6 +712,8 @@ const transferirEntreBancos = async ({ user, tenantId, corpo }) => {
 };
 
 module.exports = {
+  alterarTaxaDoCartao,
+  camposDaTaxaDoCartao,
   // Tambem usado pelo repasse de cheque na nota avulsa (services/repasseCheques.js).
   registrarRecebimentoNaOrigem,
   conciliarCartao,

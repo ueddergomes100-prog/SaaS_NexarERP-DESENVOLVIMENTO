@@ -192,3 +192,56 @@ export const listaGeralDeVendasEscondidaParaFuncionario = (args: {
     isOwner: args.isOwner,
   });
 };
+
+// ---------------------------------------------------------------------------
+// CODIGO SO' NO CADASTRO ATIVO (26/11/2026, decisao do dono, Embala Minas)
+// ---------------------------------------------------------------------------
+//
+// Os usuarios importados do sistema antigo vieram com o codigo e inativos, e o
+// sistema recusava usar o mesmo codigo num cadastro novo ("ja' usa o codigo").
+// Regra de agora: cadastro inativo nao segura codigo. Ao salvar um codigo que
+// so' um inativo tem, o codigo sai do inativo (e o aviso diz de quem saiu);
+// codigo de cadastro ATIVO continua bloqueado. Inativo nao vende
+// (vendedorPin.validarPin recusa), entao nao ha' venda em nome dele a perder.
+
+export interface CadastroComCodigo {
+  id: string;
+  nome?: unknown;
+  nomeResponsavel?: unknown;
+  email?: unknown;
+  status?: unknown;
+  codigoVendedor?: unknown;
+}
+
+/** So' 'Ativo' (ou sem situacao gravada, como os cadastros antigos) segura o codigo. */
+export const cadastroSeguraCodigo = (cadastro: { status?: unknown } | null | undefined): boolean => {
+  const situacao = String(cadastro?.status ?? '').trim();
+  return situacao === '' || situacao === 'Ativo';
+};
+
+export const nomeDoCadastroComCodigo = (cadastro: CadastroComCodigo): string => (
+  String(cadastro.nome || cadastro.nomeResponsavel || cadastro.email || 'um funcionário sem nome').trim()
+);
+
+/** Quem, alem de `ignorarId`, tem o codigo: o ativo (bloqueia) e os inativos (perdem o codigo). */
+export const quemTemOCodigo = (
+  registros: ReadonlyArray<CadastroComCodigo>,
+  codigo: unknown,
+  ignorarId?: string | null,
+): { ativo: CadastroComCodigo | null; inativos: CadastroComCodigo[] } => {
+  const procurado = normalizarCodigoVendedor(codigo);
+  if (!procurado) return { ativo: null, inativos: [] };
+  const mesmos = registros.filter((r) => r.id !== ignorarId && normalizarCodigoVendedor(r.codigoVendedor) === procurado);
+  return {
+    ativo: mesmos.find((r) => cadastroSeguraCodigo(r)) || null,
+    inativos: mesmos.filter((r) => !cadastroSeguraCodigo(r)),
+  };
+};
+
+export const mensagemCodigoDeOutroAtivo = (codigo: string, nome: string): string => (
+  `O código ${codigo} já é de ${nome}, que está ativo. Escolha outro código; se ${nome} não trabalha mais aí, inative o cadastro dele e use o código de novo.`
+);
+
+export const avisoCodigoSaiuDosInativos = (codigo: string, nomes: ReadonlyArray<string>): string => (
+  nomes.length === 0 ? '' : `O código ${codigo} estava no cadastro inativo de ${nomes.join(', ')} e saiu de lá.`
+);

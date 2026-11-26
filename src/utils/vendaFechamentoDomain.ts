@@ -388,3 +388,27 @@ export const erroDaFormaDoVendedor = (args: {
     + '"Vendas: Pré-venda — Trocar a forma de pagamento escolhida pelo vendedor" (Usuários). '
     + `Receba em ${escolhida} ou peça a um responsável.`;
 };
+
+/**
+ * PRE-VENDA DO APP NAO PEDE A SENHA DO VENDEDOR AO FINALIZAR (26/11/2026, pedido
+ * do dono): "as vendas do mobile que vem ja' com o vendedor que fez, na hora de
+ * finalizar a pre-venda vai pedir senha nao, ne'?".
+ *
+ * Com "Exigir identificacao do vendedor" ligada, o Finalizar pedia o codigo e a
+ * senha do vendedor -- mas quem fatura e' o escritorio, e o vendedor do app
+ * esta' na rua. Ele ja' se identificou ao gravar: entrou no app com o codigo e a
+ * senha dele (o login do app e' o proprio vendedor). Regra: pre-venda gravada
+ * pelo login do proprio vendedor dispensa a identificacao no Finalizar, desde
+ * que o vendedor da venda continue o mesmo. Pre-venda gravada no balcao (login da
+ * estacao) continua pedindo, como sempre.
+ *
+ * Devolve o id do vendedor que gravou a pre-venda pelo proprio login, ou ''.
+ */
+export const vendedorQueGravouAPreVenda = (
+  pedido: { status?: unknown; vendedorId?: unknown; criadoPor?: unknown } | null | undefined,
+): string => {
+  if (!pedido || pedido.status !== 'Pré-venda') return '';
+  const vendedor = typeof pedido.vendedorId === 'string' ? pedido.vendedorId.trim() : '';
+  const autor = typeof pedido.criadoPor === 'string' ? pedido.criadoPor.trim() : '';
+  return vendedor && vendedor === autor ? vendedor : '';
+};

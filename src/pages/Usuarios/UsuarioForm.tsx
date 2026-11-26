@@ -21,6 +21,9 @@ import {
   PIN_GESTOR_MIN_DIGITOS,
   MENSAGEM_PIN_INVALIDO,
   normalizarCodigoVendedor,
+  mensagemCodigoDeOutroAtivo,
+  nomeDoCadastroComCodigo,
+  quemTemOCodigo,
   AJUDA_TAMANHO_PIN,
   PIN_VENDEDOR_MAX_DIGITOS,
   PIN_VENDEDOR_MIN_DIGITOS,
@@ -162,17 +165,19 @@ const UsuarioForm: React.FC = () => {
     fetchCnpjEmpresa();
   }, [tenantId]);
 
-  /** O codigo ja esta em uso por OUTRO funcionario da mesma empresa?
-   *  Dois vendedores com o mesmo codigo carimbariam venda e comissao na
-   *  pessoa errada -- e o backend recusa a validacao nesse caso. */
-  const codigoJaEmUso = async (codigo: string): Promise<boolean> => {
-    if (!codigo || !tenantId) return false;
+  /** Outro funcionario ATIVO ja' usa o codigo? Devolve a frase de erro, ou '' quando pode.
+   *  Codigo so' no cadastro ativo (26/11/2026): o de um inativo sai dele ao salvar
+   *  (o servidor tira e avisa). Dois ativos com o mesmo codigo carimbariam venda e
+   *  comissao na pessoa errada -- e o backend recusa a validacao nesse caso. */
+  const codigoDeOutroAtivo = async (codigo: string): Promise<string> => {
+    if (!codigo || !tenantId) return '';
     const snap = await getDocs(query(
       collection(db, 'usuarios'),
       where('tenantId', '==', tenantId),
       where('codigoVendedor', '==', codigo),
     ));
-    return snap.docs.some((documento) => documento.id !== id);
+    const { ativo } = quemTemOCodigo(snap.docs.map((d) => ({ id: d.id, ...d.data() })), codigo, id || null);
+    return ativo ? mensagemCodigoDeOutroAtivo(codigo, nomeDoCadastroComCodigo(ativo)) : '';
   };
 
   /**
@@ -260,8 +265,9 @@ const UsuarioForm: React.FC = () => {
           showError('Código inválido', MENSAGEM_CODIGO_INVALIDO);
           return;
         }
-        if (codigo && await codigoJaEmUso(codigo)) {
-          showError('Código já usado', `Outro funcionário desta empresa já usa o código ${codigo}. Escolha um código diferente.`);
+        const erroDoCodigo = codigo ? await codigoDeOutroAtivo(codigo) : '';
+        if (erroDoCodigo) {
+          showError('Código já usado', erroDoCodigo);
           return;
         }
 
@@ -275,6 +281,8 @@ const UsuarioForm: React.FC = () => {
         });
         if (r.motorista?.novo && !r.motorista.appLiberado) {
           showWarning(`Usuário atualizado e cadastrado como motorista (já aparece nas rotas). O aplicativo não foi liberado: a empresa já usa as ${r.motorista.limiteApp} vagas do app contratadas.`);
+        } else if (r.avisoCodigo) {
+          showWarning(`Usuário atualizado. ${r.avisoCodigo}`);
         } else {
           showSuccess('Usuário atualizado com sucesso!');
         }
@@ -339,8 +347,9 @@ const UsuarioForm: React.FC = () => {
       setIsLoading(false);
       return;
     }
-    if (codigoVendedor && await codigoJaEmUso(codigoVendedor)) {
-      showError('Código já usado', `Outro funcionário desta empresa já usa o código ${codigoVendedor}. Escolha um código diferente.`);
+    const erroDoCodigoNovo = codigoVendedor ? await codigoDeOutroAtivo(codigoVendedor) : '';
+    if (erroDoCodigoNovo) {
+      showError('Código já usado', erroDoCodigoNovo);
       setIsLoading(false);
       return;
     }
@@ -365,6 +374,8 @@ const UsuarioForm: React.FC = () => {
 
       if (criado.motorista && !criado.appLiberado) {
         showWarning(`Usuário criado e cadastrado como motorista (já aparece nas rotas). O aplicativo não foi liberado: a empresa já usa as ${criado.limiteApp ?? ''} vagas do app contratadas. Libere uma vaga em Equipe e Acessos ou fale com o suporte para aumentar o plano.`);
+      } else if (criado.avisoCodigo) {
+        showWarning(`Usuário criado. ${criado.avisoCodigo}`);
       } else {
         showSuccess(criado.motorista ? 'Usuário criado como motorista: já aparece nas rotas e no aplicativo.' : 'Usuário criado com sucesso!');
       }

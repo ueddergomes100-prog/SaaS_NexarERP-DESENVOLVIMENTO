@@ -595,11 +595,15 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     }
     const vendedorNome = vendedor.nome || vendedor.nomeResponsavel || user.nome || user.email || 'Vendedor';
 
+    // Pre-venda gravada pelo login do proprio vendedor (app Vendas, 26/11/2026): ele ja'
+    // se identificou ao entrar no app; com o mesmo vendedor, o Finalizar nao pede a senha.
+    const pedeIdentificacao = exigeIdentificacao && !(aberto && venda.vendedorQueGravouAPreVenda(aberto) === vendedorId);
+
     // Permissao por acao (item 15, 25/11/2026): so' no Pedido de Venda.
     if (pedidoDeVenda) {
       await conferirPermissoesDoFechamento({
         tx, user, pedido, aberto, totais, precos, vendedorId, doOrcamento, hoje: hojeDaVenda,
-        identificado: exigeIdentificacao,
+        identificado: pedeIdentificacao,
         percentualDoCliente,
       });
     }
@@ -617,7 +621,7 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       if (problema) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, `${explicacaoDoPreco}${problema}`);
     }
     let identificacao = null;
-    if (exigeIdentificacao) {
+    if (pedeIdentificacao) {
       if (!pedido.comprovanteVendedorId) throw new ErroVenda(cd.STATUS_PEDIR_DE_NOVO, cd.MENSAGEM_FALTA_IDENTIFICACAO);
       identificacao = await comprovantes.lerNaTransacao(tx, pedido.comprovanteVendedorId);
       const problema = cd.problemaDaIdentificacao(identificacao.dados, { tenantId, emitidoPara: user.uid, vendedorId, agoraMs });

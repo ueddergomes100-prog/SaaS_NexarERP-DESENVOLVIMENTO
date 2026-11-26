@@ -149,3 +149,19 @@ test('revisao de 25/11: a marca de sessao encerrada usa o horario do Firebase (t
   await sessoes.encerrarSessoes(['ana'], 'teste');
   assert.equal(fake.ler('usuarios/ana').sessaoValidaApos.getTime(), Date.parse('Wed, 25 Nov 2026 12:00:00 GMT'));
 });
+
+// Codigo so' no cadastro ativo (26/11/2026): um inativo com o mesmo codigo nao atrapalha o ativo.
+test('codigo repetido entre ativo e inativo: vale o ativo; dois ativos recusa', async () => {
+  const fake = criarBancoFalso({
+    'usuarios/novo': { tenantId: 'loja', role: 'Funcionario', status: 'Ativo', codigoVendedor: '05', nome: 'NOVO' },
+    'usuarios/velho': { tenantId: 'loja', role: 'Funcionario', status: 'Inativo', codigoVendedor: '05', nome: 'VELHO' },
+    'usuarios/a1': { tenantId: 'loja', role: 'Funcionario', status: 'Ativo', codigoVendedor: '06', nome: 'A1' },
+    'usuarios/a2': { tenantId: 'loja', role: 'Funcionario', status: 'Ativo', codigoVendedor: '06', nome: 'A2' },
+  }, { consultas: true });
+  const { pin } = carregar(fake.db);
+  await pin.definirPin({ tenantId: 'loja', usuarioId: 'novo', pin: '4826', autorId: 'dono' });
+  await pin.definirPin({ tenantId: 'loja', usuarioId: 'velho', pin: '1357', autorId: 'dono' });
+  const r = await validar(pin, '05', '4826', 'balcao');
+  assert.equal(r.vendedorId, 'novo');
+  await assert.rejects(() => validar(pin, '06', '4826', 'balcao'), (e) => e.status === 409);
+});

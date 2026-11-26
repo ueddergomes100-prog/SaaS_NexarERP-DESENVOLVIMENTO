@@ -411,3 +411,76 @@ test('CNPJ repetido so nas Configuracoes (revisao de 25/11): sem registro de out
   }, { consultas: true });
   assert.ok((await carregar(grupo.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ usuario: 'ana' }) })).uid);
 });
+
+// Codigo so' no cadastro ativo (26/11/2026, Embala Minas): usuario inativo importado do
+// sistema antigo nao segura o codigo; ativo continua bloqueando.
+test('codigo de cadastro inativo: sai dele e vai para o novo; de ativo continua recusado', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/loja': { tenantId: 'loja', role: 'Master', limiteUsuarios: 10, limiteAcessoMobile: 5 },
+    'usuarios/velho': { tenantId: 'loja', role: 'Funcionario', tipoRegistro: 'vendedor', nome: 'JOSE ANTIGO', codigoVendedor: '05', status: 'Inativo' },
+    'usuarios/ana': { tenantId: 'loja', role: 'Funcionario', nome: 'ANA', codigoVendedor: '08', status: 'Ativo' },
+    [`vendedores_mobile_login/${CNPJ}-05`]: { tenantId: 'loja', vendedorId: 'velho' },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  // Ativo: recusa dizendo de quem e'.
+  await assert.rejects(
+    () => s.criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ codigoVendedor: '8' }) }),
+    (e) => e.status === 409 && /código 08 já é de ANA, que está ativo/.test(e.message),
+  );
+  // Inativo: o codigo sai dele (e a entrada do app que apontava para ele) e vai para o novo.
+  const r = await s.criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ codigoVendedor: '5' }) });
+  assert.equal(fake.ler(`usuarios/${r.uid}`).codigoVendedor, '05');
+  assert.equal(fake.ler('usuarios/velho').codigoVendedor, undefined);
+  assert.equal(fake.ler('usuarios/velho').codigoVendedorLiberado, '05');
+  assert.equal(fake.ler(`vendedores_mobile_login/${CNPJ}-05`), undefined);
+  assert.match(r.avisoCodigo, /cadastro inativo de JOSE ANTIGO e saiu de lá/);
+});
+
+test('codigo de inativo: ficha, vendedor de balcao e a tela de Vendedores (codigo-livre)', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/loja': { tenantId: 'loja', role: 'Master', limiteUsuarios: 10 },
+    'usuarios/v1': { tenantId: 'loja', role: 'Funcionario', nome: 'V1', codigoVendedor: '11', status: 'Inativo' },
+    'usuarios/v2': { tenantId: 'loja', role: 'Funcionario', nome: 'V2', codigoVendedor: '12', status: 'Inativo' },
+    'usuarios/v3': { tenantId: 'loja', role: 'Funcionario', nome: 'V3', codigoVendedor: '13', status: 'Inativo' },
+    'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', status: 'Ativo' },
+    'usuarios/ivan': { tenantId: 'loja', role: 'Funcionario', nome: 'IVAN', status: 'Ativo' },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  const ficha = await s.editarFicha({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', nome: 'CARLOS', codigoVendedor: '11' } });
+  assert.equal(fake.ler('usuarios/carlos').codigoVendedor, '11');
+  assert.equal(fake.ler('usuarios/v1').codigoVendedor, undefined);
+  assert.match(ficha.avisoCodigo, /V1/);
+  const vendedor = await s.criarVendedorBalcao({ user: ADMIN, tenantId: 'loja', corpo: { nome: 'NOVO', codigoVendedor: '12', status: 'Ativo' } });
+  assert.equal(fake.ler(`usuarios/${vendedor.usuarioId}`).codigoVendedor, '12');
+  assert.equal(fake.ler('usuarios/v2').codigoVendedor, undefined);
+  const livre = await s.liberarCodigoParaCadastro({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'ivan', codigoVendedor: '13' } });
+  assert.deepEqual(livre.liberadosDe, ['V3']);
+  assert.equal(fake.ler('usuarios/v3').codigoVendedor, undefined);
+  // Agora o 11 e' de um ativo (CARLOS): a tela de Vendedores e' recusada.
+  await assert.rejects(
+    () => s.liberarCodigoParaCadastro({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'ivan', codigoVendedor: '11' } }),
+    (e) => e.status === 409 && /CARLOS/.test(e.message),
+  );
+  // Sem permissao: recusa.
+  await assert.rejects(
+    () => s.liberarCodigoParaCadastro({ user: { uid: 'x', tenantId: 'loja', permissoes: [] }, tenantId: 'loja', corpo: { codigoVendedor: '20' } }),
+    (e) => e.status === 403,
+  );
+});
+
+test('reativar quem perdeu o codigo para um ativo: volta sem o codigo, com aviso', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/loja': { tenantId: 'loja', role: 'Master', limiteUsuarios: 10 },
+    'usuarios/velho': { tenantId: 'loja', role: 'Funcionario', nome: 'VELHO', codigoVendedor: '05', status: 'Inativo' },
+    'usuarios/novo': { tenantId: 'loja', role: 'Funcionario', nome: 'NOVO', codigoVendedor: '05', status: 'Ativo' },
+    'usuarios/sozinho': { tenantId: 'loja', role: 'Funcionario', nome: 'SOZINHO', codigoVendedor: '09', status: 'Inativo' },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  const r = await s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'velho', ativo: true } });
+  assert.equal(fake.ler('usuarios/velho').status, 'Ativo');
+  assert.equal(fake.ler('usuarios/velho').codigoVendedor, undefined);
+  assert.match(r.avisoCodigo, /voltou sem o código de vendedor: o código 05 \(hoje é de NOVO\)/);
+  const r2 = await s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'sozinho', ativo: true } });
+  assert.equal(fake.ler('usuarios/sozinho').codigoVendedor, '09');
+  assert.equal(r2.avisoCodigo, undefined);
+});

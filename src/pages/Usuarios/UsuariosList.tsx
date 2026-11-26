@@ -4,7 +4,7 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
-import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
+import { showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
 import { nivelAcessoEfetivo } from '../../utils/permissoesNovasDomain';
 import {
@@ -181,8 +181,10 @@ const UsuariosList: React.FC = () => {
     if (!confirm.isConfirmed) return;
 
     try {
-      await alterarSituacaoNoServidor(user.id, novoStatus === 'Ativo');
-      showSuccess(novoStatus === 'Ativo' ? 'Usuário ativado!' : 'Usuário inativado!');
+      const r = await alterarSituacaoNoServidor(user.id, novoStatus === 'Ativo');
+      // Reativado sem o codigo: outro funcionario ativo ja' usa (26/11/2026).
+      if (r.avisoCodigo) showWarning(`Usuário ativado. ${r.avisoCodigo}`);
+      else showSuccess(novoStatus === 'Ativo' ? 'Usuário ativado!' : 'Usuário inativado!');
     } catch (erro) {
       showError('Não foi possível alterar', erro instanceof Error && erro.message ? erro.message : 'Não foi possível atualizar o status do usuário.');
     }

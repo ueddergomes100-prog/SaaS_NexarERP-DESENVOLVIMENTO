@@ -10,6 +10,7 @@ import {
   normalizarCodigoVendedor,
   parseExigirIdentificacaoVendedor,
 } from '../src/utils/vendedorPinDomain';
+import { quemTemOCodigo, cadastroSeguraCodigo, mensagemCodigoDeOutroAtivo, avisoCodigoSaiuDosInativos } from '../src/utils/vendedorPinDomain';
 import {
   checarPrefixoDaEmpresa,
   checarUsername,
@@ -239,4 +240,21 @@ test('contra-opcao (26/11/2026): exigir a identificacao e deixar todos verem as 
   assert.equal(minhasVendasNoMenu({ exigirIdentificacaoVendedor: true, escondeVendas: true }), true);
   assert.equal(minhasVendasNoMenu({ exigirIdentificacaoVendedor: true, escondeVendas: false }), false);
   assert.equal(minhasVendasNoMenu({ exigirIdentificacaoVendedor: false, escondeVendas: false }), true, 'sem identificacao, como sempre');
+});
+
+test('codigo so no cadastro ativo (26/11/2026): ativo bloqueia, inativo perde o codigo', () => {
+  const registros = [
+    { id: 'velho', nome: 'JOSE', codigoVendedor: '05', status: 'Inativo' },
+    { id: 'ana', nome: 'ANA', codigoVendedor: '8', status: 'Ativo' },
+    { id: 'antigo', nome: 'SEM SITUACAO', codigoVendedor: '09' },
+  ];
+  assert.deepEqual(quemTemOCodigo(registros, '5', 'eu'), { ativo: null, inativos: [registros[0]] });
+  assert.equal(quemTemOCodigo(registros, '08', 'eu').ativo?.id, 'ana');
+  assert.equal(quemTemOCodigo(registros, '08', 'ana').ativo, null, 'o proprio cadastro nao conta');
+  assert.equal(quemTemOCodigo(registros, '9', null).ativo?.id, 'antigo', 'sem situacao gravada = ativo');
+  assert.deepEqual(quemTemOCodigo(registros, 'xx', null), { ativo: null, inativos: [] });
+  assert.equal(cadastroSeguraCodigo({ status: 'Inativo' }), false);
+  assert.match(mensagemCodigoDeOutroAtivo('08', 'ANA'), /O código 08 já é de ANA, que está ativo/);
+  assert.equal(avisoCodigoSaiuDosInativos('05', []), '');
+  assert.match(avisoCodigoSaiuDosInativos('05', ['JOSE', 'RUI']), /inativo de JOSE, RUI e saiu de lá/);
 });

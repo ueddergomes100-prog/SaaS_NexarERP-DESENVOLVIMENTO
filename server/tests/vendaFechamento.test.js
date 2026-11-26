@@ -629,3 +629,26 @@ test('PDV a prazo (25/11/2026, Jomarly): so com a caixa da filial marcada e clie
   assert.equal(titulo.formaPagamento, 'Pagamento a Prazo');
   assert.equal(titulo.movimentaCaixaFisico, false);
 });
+
+// Pre-venda do app (26/11/2026, pedido do dono): gravada pelo login do proprio vendedor, o
+// Finalizar nao pede a senha dele; gravada pela estacao do balcao, continua pedindo.
+test('identificacao do vendedor: pre-venda gravada pelo proprio vendedor (app) nao pede a senha ao finalizar', async () => {
+  const preVenda = (criadoPor) => base({
+    'configuracoes/loja': { tenantId: 'loja', exigirIdentificacaoVendedor: true },
+    'estoque/p1': { tenantId: 'loja', nome: 'RAÇÃO', quantidade: 5, quantidadeReservada: 2 },
+    'pedidos_venda/pv1': {
+      tenantId: 'loja', status: 'Pré-venda', numeroPedido: '0050', origem: 'balcao', estoqueReservado: true, clienteId: 'cli1', clienteNome: 'MARIA',
+      vendedorId: 'vend1', itens: [{ id: 'p1', nome: 'RAÇÃO', quantidade: 2 }], criadoPor,
+    },
+  });
+  const doApp = criarBancoFalso(preVenda('vend1'), { consultas: true });
+  const r = await carregar(doApp.db).finalizarVenda({ user: FATURISTA, tenantId: 'loja', corpo: corpo({ idDocumento: undefined, pedidoId: 'pv1' }) });
+  assert.equal(r.numeroPedido, '0050');
+  assert.equal(doApp.ler('pedidos_venda/pv1').vendedorId, 'vend1');
+
+  const doBalcao = criarBancoFalso(preVenda('balcao01'), { consultas: true });
+  await assert.rejects(
+    () => carregar(doBalcao.db).finalizarVenda({ user: FATURISTA, tenantId: 'loja', corpo: corpo({ idDocumento: undefined, pedidoId: 'pv1' }) }),
+    (erro) => erro.status === 428 || /identifi/i.test(erro.message),
+  );
+});

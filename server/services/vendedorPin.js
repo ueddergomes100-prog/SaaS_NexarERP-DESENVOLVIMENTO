@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { cadastroSeguraCodigo } = require('../domain/vendedorPinDomain');
 const { admin, db } = require('../config/firebase');
 
 /**
@@ -324,23 +325,28 @@ async function validarPin({ tenantId, codigo, pin, canal = 'balcao' }) {
   }
 
   // Duas igualdades: o Firestore resolve com os indices de campo unico, sem
-  // precisar de indice composto. `limit(2)` e' pra detectar codigo duplicado.
+  // precisar de indice composto. Le todos com o codigo para separar ativo de inativo.
   const consulta = await db.collection('usuarios')
     .where('tenantId', '==', tenantId)
     .where('codigoVendedor', '==', codigoNormalizado)
-    .limit(2)
+    .limit(20)
     .get();
+  // Codigo so' no cadastro ativo (26/11/2026): um inativo com o mesmo codigo (os importados
+  // do sistema antigo) nao atrapalha o ativo. Sem nenhum ativo, segue com o inativo -- a
+  // resposta "inativo" so' sai depois da senha certa, como antes.
+  const ativosDoCodigo = consulta.docs.filter((d) => cadastroSeguraCodigo(d.data()));
+  const candidatos = ativosDoCodigo.length > 0 ? ativosDoCodigo : consulta.docs.slice(0, 1);
 
   if (consulta.empty) {
     throw new ErroPin(401, MENSAGEM_CODIGO_OU_SENHA);
   }
-  if (consulta.size > 1) {
+  if (ativosDoCodigo.length > 1) {
     // Nao escolhe um "provavel": dois vendedores com o mesmo codigo
     // carimbariam venda e comissao na pessoa errada.
     throw new ErroPin(409, `Existe mais de um vendedor com o código ${codigoNormalizado}. Corrija o cadastro em Usuários antes de continuar.`);
   }
 
-  const usuarioDoc = consulta.docs[0];
+  const usuarioDoc = candidatos[0];
   const usuario = usuarioDoc.data();
   const pinRef = db.collection(COLECAO_PIN).doc(usuarioDoc.id);
 

@@ -7,6 +7,7 @@ import {
   subtotalDaLinha,
   totaisDoFechamento,
 } from '../src/utils/vendaFechamentoDomain';
+import { vendedorQueGravouAPreVenda } from '../src/utils/vendaFechamentoDomain';
 
 const corpoBase = (extra: Record<string, unknown> = {}) => ({
   idDocumento: 'venda123',
@@ -161,4 +162,12 @@ test('parcelas do boleto escolhidas no app (26/11/2026): 1 a 12; o resto e nao i
   assert.equal(parcelasDoBoleto('4'), 4);
   assert.equal(parcelasDoBoleto(MAX_PARCELAS_DO_BOLETO_NO_APP), 12);
   for (const invalido of [0, -1, 13, 2.5, 'x', '', null, undefined]) assert.equal(parcelasDoBoleto(invalido), 0, String(invalido));
+});
+
+test('pre-venda gravada pelo login do proprio vendedor (app) dispensa a senha no Finalizar', () => {
+  assert.equal(vendedorQueGravouAPreVenda({ status: 'Pré-venda', vendedorId: 'v1', criadoPor: 'v1' }), 'v1');
+  assert.equal(vendedorQueGravouAPreVenda({ status: 'Pré-venda', vendedorId: 'v1', criadoPor: 'balcao01' }), '');
+  assert.equal(vendedorQueGravouAPreVenda({ status: 'Finalizada', vendedorId: 'v1', criadoPor: 'v1' }), '');
+  assert.equal(vendedorQueGravouAPreVenda({ status: 'Pré-venda', criadoPor: 'v1' }), '');
+  assert.equal(vendedorQueGravouAPreVenda(null), '');
 });

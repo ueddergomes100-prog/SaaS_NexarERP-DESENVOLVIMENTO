@@ -20,6 +20,7 @@ const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 const { permissionLabelMap } = require('../domain/permissionCatalog');
 const { nivelCabe, mensagemSemPermissao: mensagemSemPermissaoAdm } = require('./permissoesAdministracao');
 const { camposDaCobrancaParaNovoUsuario } = require('./mensalidades');
+const pinDom = require('../domain/vendedorPinDomain');
 
 class ErroLimite extends Error {
   constructor(status, message) {
@@ -56,6 +57,61 @@ const registrosDaEmpresa = async (tenantId) => {
 };
 
 const ehVendedorSemLogin = (r) => r && r.tipoRegistro === 'vendedor';
+
+/*
+ * CODIGO SO' NO CADASTRO ATIVO (26/11/2026, decisao do dono, Embala Minas):
+ * usuario inativo (os importados do sistema antigo) nao segura o codigo de
+ * vendedor. Codigo de cadastro ATIVO continua recusado; o dos inativos sai
+ * deles antes de gravar o novo dono (regra em domain/vendedorPinDomain).
+ */
+const inativosComOCodigo = (registros, codigo, ignorarId) => {
+  const { ativo, inativos } = pinDom.quemTemOCodigo(registros, codigo, ignorarId || null);
+  if (ativo) throw new ErroLimite(409, pinDom.mensagemCodigoDeOutroAtivo(codigo, pinDom.nomeDoCadastroComCodigo(ativo)));
+  return inativos;
+};
+
+/** Tira o codigo dos inativos (e o indice de login do app que apontava para eles). Devolve os nomes. */
+const tirarCodigoDosInativos = async ({ user, tenantId, codigo, inativos }) => {
+  if (!inativos || inativos.length === 0) return [];
+  const lote = db.batch();
+  inativos.forEach((r) => {
+    lote.update(db.collection('usuarios').doc(r.id), {
+      codigoVendedor: apagarCampo(),
+      // Rastro do que saiu (o historico do cadastro mostra).
+      codigoVendedorLiberado: codigo,
+      updatedAt: agora(),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), `Código ${codigo} liberado: o cadastro está inativo`),
+    });
+  });
+  await lote.commit();
+  const config = (await db.collection('configuracoes').doc(tenantId).get()).data() || {};
+  const cnpj = String(config.cnpj || '').replace(/D/g, '');
+  if (cnpj.length === 14) {
+    const indice = db.collection('vendedores_mobile_login').doc(`${cnpj}-${codigo}`);
+    const atual = await indice.get();
+    if (atual.exists && atual.data().tenantId === tenantId && inativos.some((r) => r.id === atual.data().vendedorId)) await indice.delete();
+  }
+  return inativos.map((r) => pinDom.nomeDoCadastroComCodigo(r));
+};
+
+/** Para a tela que grava o codigo direto (edicao do vendedor de balcao): confere e libera antes. */
+const liberarCodigoParaCadastro = async ({ user, tenantId, corpo }) => {
+  const c = corpo || {};
+  const usuarioId = String(c.usuarioId ?? '');
+  if (usuarioId && !/^[A-Za-z0-9_-]{1,128}$/.test(usuarioId)) throw new ErroLimite(400, 'Cadastro inválido. Atualize a tela e tente de novo.');
+  const codigo = normalizarCodigo(c.codigoVendedor);
+  if (!codigo) throw new ErroLimite(400, 'Código de vendedor inválido. Use 2 dígitos, de 00 a 99.');
+  const permissoesDoUsuario = (user && user.permissoes) || [];
+  const liberado = Boolean(user && (user.dono || user.isPlatformAdmin || user.isAdministrador));
+  if (!liberado && !permissoesDoUsuario.includes(PERMISSAO_INCLUIR_VENDEDOR) && !permissoesDoUsuario.includes('administrativo.equipe_editar')) {
+    throw new ErroLimite(403, 'Só o dono, um administrador ou quem tem a permissão "Cadastros: Vendedores — incluir e alterar" troca o código de vendedor.');
+  }
+  const snap = await db.collection('usuarios').where('tenantId', '==', tenantId).where('codigoVendedor', '==', codigo).get();
+  const registros = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const inativos = inativosComOCodigo(registros, codigo, usuarioId);
+  const liberadosDe = await tirarCodigoDosInativos({ user, tenantId, codigo, inativos });
+  return { codigo, liberadosDe, aviso: pinDom.avisoCodigoSaiuDosInativos(codigo, liberadosDe) };
+};
 
 /*
  * CNPJ DE OUTRA EMPRESA (seguranca, bloco B, 25/11/2026, item 2.16). Os indices
@@ -117,9 +173,7 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
   const { usuarios: limite } = await limitesDaEmpresa(tenantId);
   const comLogin = registros.filter((r) => !ehVendedorSemLogin(r)).length;
   if (comLogin >= limite) throw new ErroLimite(409, lim.mensagemLimiteDeUsuarios(limite));
-  if (codigoVendedor && registros.some((r) => r.codigoVendedor === codigoVendedor)) {
-    throw new ErroLimite(409, `Outro funcionário desta empresa já usa o código ${codigoVendedor}. Escolha um código diferente.`);
-  }
+  const inativosDoCodigo = codigoVendedor ? inativosComOCodigo(registros, codigoVendedor) : [];
 
   // "Este funcionario e' motorista" (26/10/2026, pedido do dono): o servidor ja'
   // cria o motorista vinculado (motoristas/{uid} -> aparece na rota), da' a
@@ -160,6 +214,7 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
     throw erro;
   }
 
+  const liberadosDe = await tirarCodigoDosInativos({ user, tenantId, codigo: codigoVendedor, inativos: inativosDoCodigo });
   await db.collection('usuarios').doc(novo.uid).set({
     nome,
     username: chave,
@@ -193,6 +248,7 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
   }
   return {
     uid: novo.uid, nome, usuario: checagemUsuario.username, limite, emUso: comLogin + 1,
+    avisoCodigo: pinDom.avisoCodigoSaiuDosInativos(codigoVendedor, liberadosDe),
     ...(motorista ? { motorista: true, appLiberado, limiteApp } : {}),
   };
 };
@@ -392,9 +448,10 @@ const editarFicha = async ({ user, tenantId, corpo }) => {
   const codigoBruto = String(c.codigoVendedor ?? '').trim();
   const codigoVendedor = codigoBruto ? normalizarCodigo(codigoBruto) : '';
   if (codigoBruto && !codigoVendedor) throw new ErroLimite(400, 'Código de vendedor inválido. Use 2 dígitos, de 01 a 99.');
+  let inativosDaFicha = [];
   if (codigoVendedor) {
     const mesmos = await db.collection('usuarios').where('tenantId', '==', tenantId).where('codigoVendedor', '==', codigoVendedor).get();
-    if (mesmos.docs.some((d) => d.id !== ref.id)) throw new ErroLimite(409, `Outro funcionário desta empresa já usa o código ${codigoVendedor}. Escolha um código diferente.`);
+    inativosDaFicha = inativosComOCodigo(mesmos.docs.map((d) => ({ id: d.id, ...d.data() })), codigoVendedor, ref.id);
   }
 
   const atualizacao = {
@@ -441,8 +498,9 @@ const editarFicha = async ({ user, tenantId, corpo }) => {
     }
   }
 
+  const liberadosDe = await tirarCodigoDosInativos({ user, tenantId, codigo: codigoVendedor, inativos: inativosDaFicha });
   await ref.update(atualizacao);
-  return { usuarioId: ref.id, nome, ...(resultadoMotorista ? { motorista: resultadoMotorista } : {}) };
+  return { usuarioId: ref.id, nome, avisoCodigo: pinDom.avisoCodigoSaiuDosInativos(codigoVendedor, liberadosDe), ...(resultadoMotorista ? { motorista: resultadoMotorista } : {}) };
 };
 
 /** Inativar / reativar. Inativo e' desconectado (o servidor e as rules recusam perfil inativo). */
@@ -453,11 +511,24 @@ const alterarSituacao = async ({ user, tenantId, corpo }) => {
   // Bloco B (25/11/2026): ninguem inativa o proprio usuario (perderia o acesso na hora).
   if (ref.id === user.uid) throw new ErroLimite(400, 'Você não pode inativar o seu próprio usuário. Peça ao dono da empresa.');
   const ativo = c.ativo === true;
+  // Codigo so' no cadastro ativo (26/11/2026): reativar quem perdeu a vez no codigo
+  // (outro ativo ja' usa) volta sem o codigo -- dois ativos com o mesmo codigo nao vendem.
+  let codigoPerdido = '';
+  const codigoDoAlvo = normalizarCodigo(alvo.codigoVendedor);
+  if (ativo && codigoDoAlvo && !pinDom.cadastroSeguraCodigo(alvo)) {
+    const mesmos = await db.collection('usuarios').where('tenantId', '==', tenantId).where('codigoVendedor', '==', codigoDoAlvo).get();
+    const { ativo: outro } = pinDom.quemTemOCodigo(mesmos.docs.map((d) => ({ id: d.id, ...d.data() })), codigoDoAlvo, ref.id);
+    if (outro) codigoPerdido = `${codigoDoAlvo} (hoje é de ${pinDom.nomeDoCadastroComCodigo(outro)})`;
+  }
   await ref.update({
+    ...(codigoPerdido ? { codigoVendedor: apagarCampo(), codigoVendedorLiberado: codigoDoAlvo } : {}),
     status: ativo ? 'Ativo' : 'Inativo',
     ...buildDocumentUpdateMetadata(user.uid, agora(), ativo ? 'Usuário reativado' : 'Usuário inativado'),
   });
-  return { usuarioId: ref.id, nome: alvo.nome || '', ativo };
+  return {
+    usuarioId: ref.id, nome: alvo.nome || '', ativo,
+    ...(codigoPerdido ? { avisoCodigo: `${alvo.nome || 'O funcionário'} voltou sem o código de vendedor: o código ${codigoPerdido}. Dê um código novo a ele na ficha.` } : {}),
+  };
 };
 
 /** Percentual de comissao do usuario: vazio apaga (cai na comissao padrao); senao, de 0 a 100. */
@@ -586,9 +657,7 @@ const criarVendedorBalcao = async ({ user, tenantId, corpo }) => {
     throw new ErroLimite(400, 'O código do vendedor tem 2 dígitos (de 00 a 99). Confira o código.');
   }
   if (!codigo && !sistemaAnterior) throw new ErroLimite(400, 'Informe o código do vendedor (2 dígitos, de 00 a 99).');
-  if (codigo && (await registrosDaEmpresa(tenantId)).some((reg) => reg.codigoVendedor === codigo)) {
-    throw new ErroLimite(409, `Outro funcionário desta empresa já usa o código ${codigo}. Escolha um código diferente.`);
-  }
+  const inativosDoVendedor = codigo ? inativosComOCodigo(await registrosDaEmpresa(tenantId), codigo) : [];
 
   const percentualServicos = lerPercentual(c.comissaoPercentualServicos);
   const percentualPecas = lerPercentual(c.comissaoPercentualPecas);
@@ -600,6 +669,7 @@ const criarVendedorBalcao = async ({ user, tenantId, corpo }) => {
     ? [...new Set(c.permissoes.filter(permApp.permissaoValida))].slice(0, 60)
     : [];
 
+  const liberadosDoVendedor = await tirarCodigoDosInativos({ user, tenantId, codigo, inativos: inativosDoVendedor });
   const ref = db.collection('usuarios').doc();
   await ref.set({
     nome,
@@ -623,7 +693,7 @@ const criarVendedorBalcao = async ({ user, tenantId, corpo }) => {
     ...(await camposDaCobrancaParaNovoUsuario(tenantId)),
     ...buildDocumentMetadata(user.uid, agora()),
   });
-  return { usuarioId: ref.id, nome, codigo };
+  return { usuarioId: ref.id, nome, codigo, avisoCodigo: pinDom.avisoCodigoSaiuDosInativos(codigo, liberadosDoVendedor) };
 };
 
-module.exports = { ErroLimite, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes, criarVendedorBalcao };
+module.exports = { ErroLimite, liberarCodigoParaCadastro, criarLogin, alterarAcessoApp, vagaNoApp, limitesDaEmpresa, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes, criarVendedorBalcao };

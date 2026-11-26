@@ -39,11 +39,14 @@ import {
   MENSAGEM_PIN_FRACO,
   MENSAGEM_PIN_INVALIDO,
   normalizarCodigoVendedor,
+  mensagemCodigoDeOutroAtivo,
+  nomeDoCadastroComCodigo,
+  quemTemOCodigo,
   AJUDA_TAMANHO_PIN,
   PIN_VENDEDOR_MAX_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
-import { alterarAcessoAppNoServidor, criarVendedorNoServidor } from '../../services/usuarioAcessoService';
+import { alterarAcessoAppNoServidor, criarVendedorNoServidor, liberarCodigoNoServidor } from '../../services/usuarioAcessoService';
 import { semAbrirLinha, useLinhaSelecionavel } from '../../hooks/useLinhaSelecionavel';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
@@ -297,13 +300,16 @@ const VendedoresList: React.FC = () => {
   /** O codigo ja e' de outra pessoa desta empresa? A checagem varre TODOS os
    *  registros (vendedores e contas de login juntos): o backend procura o
    *  codigo na empresa inteira e recusa a venda se achar dois. */
-  const codigoJaEmUso = async (codigo: string, ignorarId: string | null): Promise<boolean> => {
+  // Codigo so' no cadastro ativo (26/11/2026): o de um inativo nao conta -- sai dele
+  // ao salvar (o servidor tira e avisa). Devolve a frase de erro, ou '' quando pode.
+  const codigoDeOutroAtivo = async (codigo: string, ignorarId: string | null): Promise<string> => {
     const snap = await getDocs(query(
       collection(db, 'usuarios'),
       where('tenantId', '==', tenantId),
       where('codigoVendedor', '==', codigo),
     ));
-    return snap.docs.some((documento) => documento.id !== ignorarId);
+    const { ativo } = quemTemOCodigo(snap.docs.map((d) => ({ id: d.id, ...d.data() })), codigo, ignorarId);
+    return ativo ? mensagemCodigoDeOutroAtivo(codigo, nomeDoCadastroComCodigo(ativo)) : '';
   };
 
   /** Confirma o uso de um PIN obvio. Nao bloqueia -- a decisao e' do dono. */
@@ -379,10 +385,12 @@ const VendedoresList: React.FC = () => {
 
     setSalvando(true);
     try {
-      if (await codigoJaEmUso(codigo, editando?.id ?? null)) {
-        showError('Código já usado', `O código ${codigo} já é de outra pessoa desta empresa. Escolha um código diferente — dois cadastros com o mesmo código carimbariam a venda e a comissão na pessoa errada.`);
+      const erroDoCodigo = await codigoDeOutroAtivo(codigo, editando?.id ?? null);
+      if (erroDoCodigo) {
+        showError('Código já usado', erroDoCodigo);
         return;
       }
+      let avisoDoCodigo = '';
 
       const percentualServicos = parseComissaoPercentualInput(form.comissaoPercentualServicos);
       const percentualPecas = parseComissaoPercentualInput(form.comissaoPercentualPecas);
@@ -411,6 +419,10 @@ const VendedoresList: React.FC = () => {
       let vendedorId = editando?.id || '';
 
       if (editando) {
+        // O servidor confere de novo e tira o codigo de quem esta' inativo antes de gravar aqui.
+        if (form.status === 'Ativo' || codigo !== normalizarCodigoVendedor(editando.codigoVendedor)) {
+          avisoDoCodigo = (await liberarCodigoNoServidor(codigo, editando.id)).aviso;
+        }
         await updateDoc(doc(db, 'usuarios', editando.id), {
           nome,
           codigoVendedor: codigo,
@@ -439,6 +451,7 @@ const VendedoresList: React.FC = () => {
           ...(percentualPecas !== undefined ? { comissaoPercentualPecas: percentualPecas } : {}),
         });
         vendedorId = novo.usuarioId;
+        avisoDoCodigo = novo.avisoCodigo || '';
       }
 
       // Historico de alteracoes (09/11/2026): o que este salvar mudou. A senha
@@ -569,7 +582,8 @@ const VendedoresList: React.FC = () => {
         }
       }
 
-      showSuccess(editando ? 'Vendedor atualizado!' : `${nome} cadastrado com o código ${codigo}.`);
+      if (avisoDoCodigo) showWarning(`${editando ? 'Vendedor atualizado' : `${nome} cadastrado com o código ${codigo}`}. ${avisoDoCodigo}`);
+      else showSuccess(editando ? 'Vendedor atualizado!' : `${nome} cadastrado com o código ${codigo}.`);
       setModalAberto(false);
     } catch (error) {
       console.error('Erro ao salvar vendedor:', error);
@@ -600,6 +614,16 @@ const VendedoresList: React.FC = () => {
       cancelButtonText: 'Cancelar',
     });
     if (!confirm.isConfirmed) return;
+
+    // Reativar com um codigo que outro vendedor ativo ja' usa (26/11/2026): pede outro codigo antes.
+    const codigoDoVendedor = normalizarCodigoVendedor(vendedor.codigoVendedor);
+    if (novoStatus === 'Ativo' && codigoDoVendedor) {
+      const erroDoCodigo = await codigoDeOutroAtivo(codigoDoVendedor, vendedor.id).catch(() => '');
+      if (erroDoCodigo) {
+        showError('Código já usado', `${erroDoCodigo} Para reativar ${vendedor.nome}, edite o cadastro dele e escolha outro código.`);
+        return;
+      }
+    }
 
     try {
       await updateDoc(doc(db, 'usuarios', vendedor.id), {

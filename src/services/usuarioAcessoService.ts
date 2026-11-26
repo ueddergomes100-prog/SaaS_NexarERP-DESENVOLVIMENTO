@@ -67,11 +67,11 @@ const postar = async <T>(rota: string, corpo: Record<string, unknown>, falhou: s
  */
 /** `motorista`: ja' cria o motorista vinculado, a permissao de entregas e liga o app se houver vaga (26/10/2026). */
 export const criarLoginNoServidor = (dados: { nome: string; usuario: string; senha: string; codigoVendedor?: string; motorista?: { telefone: string; cnh: string } }) =>
-  postar<{ uid: string; limite: number; emUso: number; motorista?: boolean; appLiberado?: boolean; limiteApp?: number }>('criar', { ...dados }, 'Não foi possível criar o usuário. Tente novamente.');
+  postar<{ uid: string; limite: number; emUso: number; motorista?: boolean; appLiberado?: boolean; limiteApp?: number; avisoCodigo?: string }>('criar', { ...dados }, 'Não foi possível criar o usuário. Tente novamente.');
 
 /** Ficha do funcionario: nome, codigo e "e' motorista" (26/10/2026: pelo servidor, o gerente tambem edita). */
 export const salvarFichaNoServidor = (dados: { usuarioId: string; nome: string; codigoVendedor?: string; motorista?: { telefone: string; cnh: string } }) =>
-  postar<{ motorista?: { novo: boolean; appLiberado: boolean; limiteApp: number } }>('ficha', { ...dados }, 'Não foi possível salvar o funcionário. Tente novamente.');
+  postar<{ motorista?: { novo: boolean; appLiberado: boolean; limiteApp: number }; avisoCodigo?: string }>('ficha', { ...dados }, 'Não foi possível salvar o funcionário. Tente novamente.');
 
 /** Permissoes (e o nivel, so' dono/administrador) pelo servidor (26/10/2026). */
 /** Regras de comissao do usuario (troca do administrador, 25/11/2026: pelo servidor, com a permissao propria). */
@@ -107,11 +107,18 @@ export interface NovoVendedorBalcao {
   sistemaAnterior?: { codigoVendedor: string };
 }
 export const criarVendedorNoServidor = (dados: NovoVendedorBalcao) =>
-  postar<{ usuarioId: string; nome: string; codigo: string }>('vendedor', { ...dados }, 'Não foi possível cadastrar o vendedor. Tente novamente.');
+  postar<{ usuarioId: string; nome: string; codigo: string; avisoCodigo?: string }>('vendedor', { ...dados }, 'Não foi possível cadastrar o vendedor. Tente novamente.');
+
+/**
+ * Codigo so' no cadastro ativo (26/11/2026): antes de a tela de Vendedores gravar o
+ * codigo, o servidor recusa codigo de outro cadastro ATIVO e tira o codigo dos inativos.
+ */
+export const liberarCodigoNoServidor = (codigoVendedor: string, usuarioId?: string) =>
+  postar<{ codigo: string; liberadosDe: string[]; aviso: string }>('codigo-livre', { codigoVendedor, ...(usuarioId ? { usuarioId } : {}) }, 'Não foi possível conferir o código do vendedor. Tente novamente.');
 
 /** Inativa ou reativa o usuario (26/10/2026: pelo servidor). */
 export const alterarSituacaoNoServidor = (usuarioId: string, ativo: boolean) =>
-  postar<{ ativo: boolean }>('situacao', { usuarioId, ativo }, 'Não foi possível alterar a situação do usuário. Tente novamente.');
+  postar<{ ativo: boolean; avisoCodigo?: string }>('situacao', { usuarioId, ativo }, 'Não foi possível alterar a situação do usuário. Tente novamente.');
 
 /** Vincula um motorista ja' cadastrado (Operacoes > Motoristas) ao login deste funcionario (26/10/2026). */
 export const vincularMotoristaNoServidor = (usuarioId: string, motoristaId: string) =>

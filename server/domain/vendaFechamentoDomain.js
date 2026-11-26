@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.erroDaFormaDoVendedor = exports.parcelasDoBoleto = exports.MAX_PARCELAS_DO_BOLETO_NO_APP = exports.CAMPO_PARCELAS_DO_BOLETO = exports.formaDoVendedor = exports.CAMPO_FORMA_DO_VENDEDOR = exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
+exports.vendedorQueGravouAPreVenda = exports.erroDaFormaDoVendedor = exports.parcelasDoBoleto = exports.MAX_PARCELAS_DO_BOLETO_NO_APP = exports.CAMPO_PARCELAS_DO_BOLETO = exports.formaDoVendedor = exports.CAMPO_FORMA_DO_VENDEDOR = exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
 /*
  * FECHAMENTO DA VENDA NO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026).
  *
@@ -295,3 +295,26 @@ const erroDaFormaDoVendedor = (args) => {
         + `Receba em ${escolhida} ou peça a um responsável.`;
 };
 exports.erroDaFormaDoVendedor = erroDaFormaDoVendedor;
+/**
+ * PRE-VENDA DO APP NAO PEDE A SENHA DO VENDEDOR AO FINALIZAR (26/11/2026, pedido
+ * do dono): "as vendas do mobile que vem ja' com o vendedor que fez, na hora de
+ * finalizar a pre-venda vai pedir senha nao, ne'?".
+ *
+ * Com "Exigir identificacao do vendedor" ligada, o Finalizar pedia o codigo e a
+ * senha do vendedor -- mas quem fatura e' o escritorio, e o vendedor do app
+ * esta' na rua. Ele ja' se identificou ao gravar: entrou no app com o codigo e a
+ * senha dele (o login do app e' o proprio vendedor). Regra: pre-venda gravada
+ * pelo login do proprio vendedor dispensa a identificacao no Finalizar, desde
+ * que o vendedor da venda continue o mesmo. Pre-venda gravada no balcao (login da
+ * estacao) continua pedindo, como sempre.
+ *
+ * Devolve o id do vendedor que gravou a pre-venda pelo proprio login, ou ''.
+ */
+const vendedorQueGravouAPreVenda = (pedido) => {
+    if (!pedido || pedido.status !== 'Pré-venda')
+        return '';
+    const vendedor = typeof pedido.vendedorId === 'string' ? pedido.vendedorId.trim() : '';
+    const autor = typeof pedido.criadoPor === 'string' ? pedido.criadoPor.trim() : '';
+    return vendedor && vendedor === autor ? vendedor : '';
+};
+exports.vendedorQueGravouAPreVenda = vendedorQueGravouAPreVenda;

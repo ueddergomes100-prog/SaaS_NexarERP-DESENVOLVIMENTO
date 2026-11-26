@@ -1,7 +1,7 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const { redefinirSenhaAcesso, ErroSenhaAcesso } = require('../services/usuarioSenha');
-const { ErroLimite, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes, criarVendedorBalcao } = require('../services/limitesDoPlano');
+const { ErroLimite, liberarCodigoParaCadastro, criarLogin, alterarAcessoApp, vincularMotorista, editarFicha, alterarSituacao, salvarPermissoes, criarVendedorBalcao } = require('../services/limitesDoPlano');
 const { podeGerirFuncionario, temAPermissao } = require('../middleware/gestaoEquipe');
 const { encerrarSessoes } = require('../services/sessoes');
 const { PERMISSAO_ADMINISTRACAO: PA } = require('../domain/permissoesNovasDomain');
@@ -163,6 +163,30 @@ router.post('/vincular-motorista', podeGerirFuncionario(PA.equipeEditar), async 
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErroLimite(res, erro, 'vincular o motorista');
+  }
+});
+
+/**
+ * POST /api/usuarios/codigo-livre -- { usuarioId?, codigoVendedor } (26/11/2026).
+ * Antes de a tela de Vendedores gravar o codigo: recusa codigo de outro
+ * cadastro ATIVO e tira o codigo dos inativos (limitesDoPlano.liberarCodigoParaCadastro).
+ */
+router.post('/codigo-livre', async (req, res) => {
+  try {
+    const r = await liberarCodigoParaCadastro({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    if (r.liberadosDe.length > 0) {
+      registrarLog(req.user, {
+        modulo: 'cadastros',
+        acao: 'edicao',
+        descricao: `Código de vendedor ${r.codigo} tirado do cadastro inativo de ${r.liberadosDe.join(', ')} para ser usado em outro cadastro.`,
+        registroId: String(req.body?.usuarioId || ''),
+        documentoTipo: 'usuario',
+        documentoNumero: `Código ${r.codigo}`,
+      });
+    }
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    return responderErroLimite(res, erro, 'conferir o código do vendedor');
   }
 });
 

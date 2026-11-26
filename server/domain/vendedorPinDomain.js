@@ -34,7 +34,7 @@
  * vale e' sempre a do backend.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listaGeralDeVendasEscondidaParaFuncionario = exports.minhasVendasNoMenu = exports.parseIdentificacaoEscondeVendas = exports.CHAVE_IDENTIFICACAO_ESCONDE_VENDAS = exports.parseExigirIdentificacaoVendedor = exports.DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR = exports.AJUDA_TAMANHO_PIN = exports.MENSAGEM_PIN_CURTO = exports.MENSAGEM_PIN_FRACO = exports.MENSAGEM_PIN_INVALIDO = exports.MENSAGEM_CODIGO_INVALIDO = exports.isPinVendedorFraco = exports.isPinDigitadoValido = exports.isPinVendedorValido = exports.isCodigoVendedorValido = exports.normalizarCodigoVendedor = exports.MAX_VENDEDORES_COM_CODIGO = exports.PIN_GESTOR_MIN_DIGITOS = exports.PIN_DIGITADO_MIN_DIGITOS = exports.PIN_VENDEDOR_MAX_DIGITOS = exports.PIN_VENDEDOR_MIN_DIGITOS = exports.CODIGO_VENDEDOR_DIGITOS = void 0;
+exports.avisoCodigoSaiuDosInativos = exports.mensagemCodigoDeOutroAtivo = exports.quemTemOCodigo = exports.nomeDoCadastroComCodigo = exports.cadastroSeguraCodigo = exports.listaGeralDeVendasEscondidaParaFuncionario = exports.minhasVendasNoMenu = exports.parseIdentificacaoEscondeVendas = exports.CHAVE_IDENTIFICACAO_ESCONDE_VENDAS = exports.parseExigirIdentificacaoVendedor = exports.DEFAULT_EXIGIR_IDENTIFICACAO_VENDEDOR = exports.AJUDA_TAMANHO_PIN = exports.MENSAGEM_PIN_CURTO = exports.MENSAGEM_PIN_FRACO = exports.MENSAGEM_PIN_INVALIDO = exports.MENSAGEM_CODIGO_INVALIDO = exports.isPinVendedorFraco = exports.isPinDigitadoValido = exports.isPinVendedorValido = exports.isCodigoVendedorValido = exports.normalizarCodigoVendedor = exports.MAX_VENDEDORES_COM_CODIGO = exports.PIN_GESTOR_MIN_DIGITOS = exports.PIN_DIGITADO_MIN_DIGITOS = exports.PIN_VENDEDOR_MAX_DIGITOS = exports.PIN_VENDEDOR_MIN_DIGITOS = exports.CODIGO_VENDEDOR_DIGITOS = void 0;
 const visibilidadeVendasDomain_1 = require("./visibilidadeVendasDomain");
 exports.CODIGO_VENDEDOR_DIGITOS = 2;
 /**
@@ -164,3 +164,27 @@ const listaGeralDeVendasEscondidaParaFuncionario = (args) => {
     });
 };
 exports.listaGeralDeVendasEscondidaParaFuncionario = listaGeralDeVendasEscondidaParaFuncionario;
+/** So' 'Ativo' (ou sem situacao gravada, como os cadastros antigos) segura o codigo. */
+const cadastroSeguraCodigo = (cadastro) => {
+    const situacao = String(cadastro?.status ?? '').trim();
+    return situacao === '' || situacao === 'Ativo';
+};
+exports.cadastroSeguraCodigo = cadastroSeguraCodigo;
+const nomeDoCadastroComCodigo = (cadastro) => (String(cadastro.nome || cadastro.nomeResponsavel || cadastro.email || 'um funcionário sem nome').trim());
+exports.nomeDoCadastroComCodigo = nomeDoCadastroComCodigo;
+/** Quem, alem de `ignorarId`, tem o codigo: o ativo (bloqueia) e os inativos (perdem o codigo). */
+const quemTemOCodigo = (registros, codigo, ignorarId) => {
+    const procurado = (0, exports.normalizarCodigoVendedor)(codigo);
+    if (!procurado)
+        return { ativo: null, inativos: [] };
+    const mesmos = registros.filter((r) => r.id !== ignorarId && (0, exports.normalizarCodigoVendedor)(r.codigoVendedor) === procurado);
+    return {
+        ativo: mesmos.find((r) => (0, exports.cadastroSeguraCodigo)(r)) || null,
+        inativos: mesmos.filter((r) => !(0, exports.cadastroSeguraCodigo)(r)),
+    };
+};
+exports.quemTemOCodigo = quemTemOCodigo;
+const mensagemCodigoDeOutroAtivo = (codigo, nome) => (`O código ${codigo} já é de ${nome}, que está ativo. Escolha outro código; se ${nome} não trabalha mais aí, inative o cadastro dele e use o código de novo.`);
+exports.mensagemCodigoDeOutroAtivo = mensagemCodigoDeOutroAtivo;
+const avisoCodigoSaiuDosInativos = (codigo, nomes) => (nomes.length === 0 ? '' : `O código ${codigo} estava no cadastro inativo de ${nomes.join(', ')} e saiu de lá.`);
+exports.avisoCodigoSaiuDosInativos = avisoCodigoSaiuDosInativos;

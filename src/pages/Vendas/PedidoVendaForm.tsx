@@ -20,7 +20,7 @@ import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ResultadoDaRota, type RotaAberta } from '../../utils/rotaPreVendaDomain';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
-import { brutoDaLinhaCentavos, CAMPO_PARCELAS_DO_BOLETO, erroDaFormaDoVendedor, formaDoVendedor, parcelasDoBoleto, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR } from '../../utils/vendaFechamentoDomain';
+import { brutoDaLinhaCentavos, CAMPO_PARCELAS_DO_BOLETO, erroDaFormaDoVendedor, formaDoVendedor, parcelasDoBoleto, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR, vendedorQueGravouAPreVenda } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
@@ -501,6 +501,8 @@ const PedidoVendaForm: React.FC = () => {
   const [observacaoPedido, setObservacaoPedido] = useState('');
   // Forma escolhida pelo vendedor no app (25/11/2026): faturar com outra forma pede permissao.
   const [formaDoVendedorDaPreVenda, setFormaDoVendedorDaPreVenda] = useState('');
+  // Pre-venda gravada pelo proprio vendedor no app (26/11/2026): o Finalizar nao pede a senha dele.
+  const [vendedorQueGravou, setVendedorQueGravou] = useState('');
   // Montar o pedido a partir de uma NF-e de entrada (07/11/2026, pedido do dono):
   // botao pequeno no cabecalho do pedido novo; quantidades da nota, preco do cadastro.
   const [notaEntradaAberta, setNotaEntradaAberta] = useState(false);
@@ -1289,6 +1291,7 @@ const PedidoVendaForm: React.FC = () => {
             setClienteIdSelecionado(p.clienteId || null);
             setObservacaoPedido(String(p.observacao || ''));
             setFormaDoVendedorDaPreVenda(isPedidoAberto(p.status) ? formaDoVendedor(p) : '');
+            setVendedorQueGravou(vendedorQueGravouAPreVenda(p));
             setComNotaFiscalPedido(typeof p.comNotaFiscal === 'boolean' ? p.comNotaFiscal : null);
             setEntregaFutura(p.entregaFutura === true);
             setPrevisaoEntrega(parsePrevisaoEntrega(p.previsaoEntrega));
@@ -3776,7 +3779,10 @@ const PedidoVendaForm: React.FC = () => {
       return false;
     }
 
-    if (!garantirVendedorIdentificado(
+    // Pre-venda gravada pelo proprio vendedor (app Vendas): ele ja' se identificou ao entrar
+    // no app. Com o mesmo vendedor, nao pede a senha (o servidor confere a mesma regra).
+    const identificadoNoApp = Boolean(vendedorQueGravou) && vendedorQueGravou === vendedorId;
+    if (!identificadoNoApp && !garantirVendedorIdentificado(
       () => { void handleFinalizarVenda(); },
       `Finalizar venda de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorTotalPedido)}`,
       vendaPeloServidor,

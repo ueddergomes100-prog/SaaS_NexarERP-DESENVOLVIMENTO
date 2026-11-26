@@ -1,4 +1,7 @@
 "use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.acharCodigoIbge = exports.normalizarNomeCidade = exports.validarFilialPadrao = exports.filialDeEntrada = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.mensalidadeComFiliais = exports.erroLimiteDeFiliais = exports.filiaisCobradas = exports.lerPercentualFilial = exports.lerLimiteFiliais = exports.LIMITE_FILIAIS_PADRAO = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
+const papelAdministradorDomain_1 = require("./papelAdministradorDomain");
 /**
  * FILIAIS (2026-10-06) -- regras puras, usadas pela tela e pelo servidor
  * (compiladas para server/domain por scripts/build-server-domain.mjs).
@@ -11,17 +14,15 @@
  *  - O usuario pertence a uma filial (`usuarios/{uid}.tenantId`, a "casa"
  *    dele) e trabalha na `filialAtiva` (so' o servidor grava). As
  *    firestore.rules e o servidor usam a filial ativa como empresa da vez.
- *  - Quem entra em outras filiais: dono e administrador do grupo (role
- *    Master/Admin), e funcionario com a permissao "Utiliza outras filiais".
+ *  - Quem entra em outras filiais: o dono do grupo, e quem tem a permissao
+ *    "Utiliza outras filiais" (o administrador, desde 25/11/2026, tambem pela
+ *    permissao -- que ele tem enquanto o dono nao salvar as dele).
  *    Decisao do dono (06/10): as permissoes valem iguais em todas as filiais.
  */
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.matrizAPartirDaConfiguracao = exports.filialParaGravar = exports.configuracaoInicialDaFilial = exports.CAMPOS_DE_IDENTIDADE_DA_EMPRESA = exports.validarDadosDaFilial = exports.validarNomeECodigoDaFilial = exports.proximoCodigoDeFilial = exports.cnpjValido = exports.validarEdicaoDaFilial = exports.identidadeParaConfiguracao = exports.dadosDaFilialNaConfiguracao = exports.lerDadosDaFilial = exports.acharCodigoIbge = exports.normalizarNomeCidade = exports.validarFilialPadrao = exports.filialDeEntrada = exports.filialAtivaParaGravar = exports.validarTrocaDeFilial = exports.filiaisDoUsuario = exports.podeUsarOutrasFiliais = exports.pertenceAoGrupo = exports.ehGestorDoGrupo = exports.filialAtivaDoUsuario = exports.rotuloFilial = exports.mensalidadeComFiliais = exports.erroLimiteDeFiliais = exports.filiaisCobradas = exports.lerPercentualFilial = exports.lerLimiteFiliais = exports.LIMITE_FILIAIS_PADRAO = exports.lerGrupo = exports.lerFilial = exports.UFS = exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = void 0;
 exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS = 'filiais.utilizar';
 const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
 const soDigitos = (valor) => String(valor ?? '').replace(/\D/g, '');
 const lista = (valor) => (Array.isArray(valor) ? valor.filter((v) => typeof v === 'string') : []);
-const PAPEIS_GESTORES = ['Master', 'Admin'];
 exports.UFS = [
     'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB',
     'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO',
@@ -100,12 +101,18 @@ exports.rotuloFilial = rotuloFilial;
 /** Filial em que o usuario esta trabalhando agora (a ativa ou, sem ela, a casa). */
 const filialAtivaDoUsuario = (usuario) => texto(usuario.filialAtiva) || texto(usuario.tenantId) || usuario.uid;
 exports.filialAtivaDoUsuario = filialAtivaDoUsuario;
+/**
+ * Dono do grupo: liberado em tudo das filiais. Troca do administrador
+ * (25/11/2026, "o dono sempre pode; o resto so' com a permissao marcada"):
+ * o papel Master/Admin deixou de bastar -- o administrador vai pelas
+ * permissoes de Filiais (filiais.*, que ele tem todas enquanto o dono nao
+ * salvar as dele; permissoesNovasDomain.ts, pacote 'administrador-1').
+ * Grupo antigo sem `donoUid`: o dono e' o da matriz.
+ */
 const ehGestorDoGrupo = (grupo, usuario) => {
-    if (!grupo)
+    if (!grupo || !usuario.uid)
         return false;
-    if (grupo.donoUid && grupo.donoUid === usuario.uid)
-        return true;
-    return PAPEIS_GESTORES.includes(texto(usuario.role)) && (0, exports.pertenceAoGrupo)(grupo, usuario);
+    return (grupo.donoUid || grupo.matrizTenantId) === usuario.uid;
 };
 exports.ehGestorDoGrupo = ehGestorDoGrupo;
 const pertenceAoGrupo = (grupo, usuario) => (Boolean(grupo) && grupo.filiais.some((f) => f.tenantId === texto(usuario.tenantId)));
@@ -113,7 +120,9 @@ exports.pertenceAoGrupo = pertenceAoGrupo;
 const podeUsarOutrasFiliais = (grupo, usuario) => {
     if (!grupo || !(0, exports.pertenceAoGrupo)(grupo, usuario))
         return false;
-    return (0, exports.ehGestorDoGrupo)(grupo, usuario) || lista(usuario.permissoes).includes(exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS);
+    return (0, exports.ehGestorDoGrupo)(grupo, usuario) || lista(usuario.permissoes).includes(exports.PERMISSAO_UTILIZA_OUTRAS_FILIAIS)
+        // Administrador cujo pacote o dono ainda nao salvou (cadastro lido do banco: sem as efetivas).
+        || (0, papelAdministradorDomain_1.administradorComTodas)(usuario.permissoes, usuario.role);
 };
 exports.podeUsarOutrasFiliais = podeUsarOutrasFiliais;
 /** Filiais em que o usuario pode entrar (ativas), na ordem do codigo. Sem a permissao, so' a casa dele. */

@@ -52,6 +52,15 @@ const rotuloDaPermissao = (id) => {
 /** Permissoes que entraram e sairam (efetivas, sem os marcadores internos do app e dos pacotes). */
 const mudancasDePermissoes = (antes, depois, nivelAntes, opcoes) => mudancasEfetivas(Array.isArray(antes) ? antes : [], Array.isArray(depois) ? depois : [], nivelAntes, opcoes);
 
+const simNao = (v) => (v === true ? 'Sim' : 'Não');
+const percentual = (v) => (typeof v === 'number' ? `${String(v).replace('.', ',')}%` : 'padrão do sistema');
+const CAMPOS_DE_COMISSAO = [
+  { campo: 'recebeComissaoServicos', rotulo: 'Recebe comissão de serviços', formatar: simNao },
+  { campo: 'comissaoPercentualServicos', rotulo: 'Comissão de serviços (%)', formatar: percentual },
+  { campo: 'recebeComissaoPecas', rotulo: 'Recebe comissão de produtos', formatar: simNao },
+  { campo: 'comissaoPercentualPecas', rotulo: 'Comissão de produtos (%)', formatar: percentual },
+];
+
 /** Le' o cadastro para o historico; falha aqui nunca derruba a operacao. */
 const lerUsuarioParaHistorico = async (usuarioId) => {
   try {
@@ -111,7 +120,7 @@ router.post('/redefinir-senha', podeGerirFuncionario(PA.equipeSenha), async (req
 // Funcionario comum, sem permissao (services/limitesDoPlano.js).
 const podeCriarLogin = (req, res, next) => {
   const u = req.user;
-  if (u && (u.isPlatformAdmin || u.isTenantManager || temAPermissao(u, PA.equipeCriar))) return next();
+  if (u && (u.isPlatformAdmin || u.dono || temAPermissao(u, PA.equipeCriar))) return next();
   return res.status(403).json({ error: mensagemSemPermissao([PA.equipeCriar]) });
 };
 
@@ -180,15 +189,20 @@ router.post('/permissoes', podeGerirFuncionario(PA.equipePermissoes), async (req
   try {
     // "Antes" do historico: lido aqui, antes de gravar (so' serve ao historico).
     const antes = await lerUsuarioParaHistorico(req.body?.usuarioId);
-    const r = await salvarPermissoes({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {}, gerente: req.gerenteDaEquipe === true });
+    const r = await salvarPermissoes({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {}, gerente: req.gerenteDaEquipe === true, administrador: req.administradorDaEquipe === true });
     // Historico de alteracoes (09/11/2026): as permissoes que entraram e sairam e o nivel de acesso.
     void (async () => {
       const depois = await lerUsuarioParaHistorico(r.usuarioId);
       // Sem o "antes" (leitura falhou), nao da' para dizer o que entrou: registra so' que mudou.
-      const { entraram, sairam } = antes && depois ? mudancasDePermissoes(antes.permissoes, depois.permissoes, antes.nivelAcesso, { semFiliais: r.semFiliais }) : { entraram: [], sairam: [] };
+      // Papel do cadastro: administrador que o dono ainda nao tinha salvo tinha todas.
+      const { entraram, sairam } = antes && depois ? mudancasDePermissoes(antes.permissoes, depois.permissoes, antes.nivelAcesso, { semFiliais: r.semFiliais, papel: r.papel }) : { entraram: [], sairam: [] };
       const alteracoes = [
         ...entraram.map((p) => ({ campo: `Permissão: ${rotuloDaPermissao(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
         ...sairam.map((p) => ({ campo: `Permissão: ${rotuloDaPermissao(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),
+        // Regras de comissao (troca do administrador, 25/11/2026: agora tambem pelo servidor).
+        ...(antes && depois ? CAMPOS_DE_COMISSAO
+          .filter(({ campo }) => (antes[campo] ?? null) !== (depois[campo] ?? null))
+          .map(({ campo, rotulo, formatar }) => ({ campo: rotulo, valorAnterior: formatar(antes[campo]), valorNovo: formatar(depois[campo]) })) : []),
       ];
       const nivelAntes = NIVEL_ACESSO_LABELS[parseNivelAcesso(antes && antes.nivelAcesso)];
       const nivelDepois = NIVEL_ACESSO_LABELS[parseNivelAcesso(depois && depois.nivelAcesso)];

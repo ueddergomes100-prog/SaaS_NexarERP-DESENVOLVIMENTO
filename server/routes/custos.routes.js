@@ -8,7 +8,7 @@ const router = express.Router();
 router.use(authenticate);
 
 const tem = (user) => Boolean(
-  user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(PERMISSAO_CUSTOS)),
+  user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(PERMISSAO_CUSTOS)),
 );
 
 const rota = (oQue, fn) => async (req, res) => {

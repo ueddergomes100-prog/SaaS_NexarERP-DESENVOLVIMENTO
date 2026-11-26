@@ -27,7 +27,7 @@ router.use(authenticate);
 const PERMISSAO = 'financeiro.caixas';
 
 const temPermissao = (user, permissao) => (
-  Boolean(user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
+  Boolean(user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
 );
 
 const exigir = (req, res, permissoes) => {

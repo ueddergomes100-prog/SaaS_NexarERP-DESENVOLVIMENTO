@@ -59,7 +59,7 @@ test('estorno: motivo curto e\' recusado; motivo bom passa', () => {
 });
 
 test('permissao: gestor e plataforma sempre; funcionario so\' com a permissao', () => {
-  assert.equal(temPermissao({ isTenantManager: true }, 'financeiro.pagar'), true);
+  assert.equal(temPermissao({ dono: true }, 'financeiro.pagar'), true);
   assert.equal(temPermissao({ isPlatformAdmin: true }, 'financeiro.estornar'), true);
   assert.equal(temPermissao({ permissoes: ['financeiro.receber'] }, 'financeiro.receber'), true);
   assert.equal(temPermissao({ permissoes: ['financeiro.receber'] }, 'financeiro.pagar'), false);

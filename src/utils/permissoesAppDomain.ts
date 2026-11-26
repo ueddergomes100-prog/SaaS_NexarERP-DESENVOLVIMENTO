@@ -1,4 +1,5 @@
 import { hasTenantFullAccess } from './roles';
+import { administradorTemSemPacote } from './papelAdministradorDomain';
 
 /**
  * PERMISSOES DO APLICATIVO MOBILE (26/10/2026, pedido do dono).
@@ -76,14 +77,20 @@ export const permissoesParaGravar = (marcadas: unknown): string[] => (
   [...new Set([...lista(marcadas).filter((p) => p !== MARCADOR_APP_DEFINIDO), MARCADOR_APP_DEFINIDO])]
 );
 
-/** Dono/gestor sempre; o resto, pela chave do app (contando as implicitas). */
+/**
+ * O dono sempre; o resto, pela chave do app (contando as implicitas). O
+ * administrador tambem pela chave (troca do administrador, 25/11/2026): ele
+ * tem todas enquanto o dono nao salvar as dele.
+ */
 export const podeNoApp = (chave: string, args: { role: unknown; isOwner: boolean; permissoes: unknown }): boolean => (
   hasTenantFullAccess(args.role, args.isOwner) || permissoesEfetivas(args.permissoes).includes(chave)
+  || administradorTemSemPacote(args.permissoes, args.role, chave)
 );
 
-/** Pode trocar o preco do item no app? Nunca implicita: dono/administrador, ou a chave gravada. */
+/** Pode trocar o preco do item no app? Nunca implicita para funcionario: o dono, ou a chave (o administrador sem o pacote salvo tem). */
 export const podeAlterarPrecoNoApp = (args: { role: unknown; isOwner: boolean; permissoes: unknown }): boolean => (
   hasTenantFullAccess(args.role, args.isOwner) || lista(args.permissoes).includes(PERMISSAO_APP_ALTERAR_PRECO)
+  || administradorTemSemPacote(args.permissoes, args.role, PERMISSAO_APP_ALTERAR_PRECO)
 );
 
 /**

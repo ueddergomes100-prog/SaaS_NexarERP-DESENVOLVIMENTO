@@ -35,7 +35,7 @@ const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
 
 const temPermissao = (user, permissao) => Boolean(
   user.isPlatformAdmin
-  || user.isTenantManager
+  || user.dono
   || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)),
 );
 

@@ -64,9 +64,10 @@ const LogsSistema: React.FC = () => {
 
   const permitido = userRole === null
     ? null
-    : Boolean(isOwner || isPlatformAdminRole(userRole) || userRole === 'Master' || userRole === 'Admin' || userPermissions?.includes('administrativo.logs'));
+    : Boolean(isOwner || isPlatformAdminRole(userRole) || userPermissions?.includes('administrativo.logs'));
   // Item 15 (fase Administracao, 25/11/2026): exportar pede a sua (vem com "Admin: Histórico de alterações").
-  const podeExportar = Boolean(isOwner || isPlatformAdminRole(userRole) || userRole === 'Master' || userRole === 'Admin'
+  // Troca do administrador (25/11/2026): o administrador pela permissao, nao mais pelo papel.
+  const podeExportar = Boolean(isOwner || isPlatformAdminRole(userRole)
     || userPermissions?.includes(PERMISSAO_ADMINISTRACAO.logsExportar));
 
   const [inicio, setInicio] = useState(addDaysToDateInput(hoje, -6));

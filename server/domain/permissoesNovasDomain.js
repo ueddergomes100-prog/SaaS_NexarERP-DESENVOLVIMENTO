@@ -1,7 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.mudancasDePermissoes = exports.mexidasSemTer = exports.permissoesParaGravarDoUsuario = exports.permissoesEfetivasDoUsuario = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.pacotesGravados = exports.ehMarcadorInterno = exports.ehMarcadorDePacote = exports.MARCADORES_DOS_PACOTES = exports.marcadorDoPacote = exports.PREFIXO_MARCADOR_PACOTE = exports.PACOTES_DE_PERMISSOES = exports.permissaoDoCampoGeral = exports.PERMISSAO_DO_CAMPO_GERAL = exports.PERMISSAO_FILIAIS_GESTAO = exports.PERMISSAO_CONFIG_AREAS = exports.PERMISSAO_ADMINISTRACAO = exports.PERMISSAO_OS = exports.PERMISSAO_CADASTROS = exports.PERMISSAO_PRODUCAO = exports.PERMISSAO_FILIAIS = exports.PERMISSAO_ESTOQUE = exports.PERMISSAO_CRM = exports.PERMISSAO_OPERACOES = exports.PERMISSAO_VENDAS = exports.PERMISSAO_COMPRAS = exports.PERMISSAO_FISCAL_ENTRADA = exports.PERMISSAO_FISCAL = exports.PERMISSAO_FINANCEIRO = void 0;
+exports.mudancasDePermissoes = exports.mexidasSemTer = exports.permissoesParaGravarDoUsuario = exports.permissoesEfetivasDoUsuario = exports.nivelAcessoEfetivo = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.pacotesGravados = exports.ehMarcadorInterno = exports.ehMarcadorDePacote = exports.MARCADORES_DOS_PACOTES = exports.marcadorDoPacote = exports.PERMISSOES_DO_ADMINISTRADOR = exports.PREFIXO_MARCADOR_PACOTE = exports.PACOTES_DE_PERMISSOES = exports.permissaoDoCampoGeral = exports.PERMISSAO_DO_CAMPO_GERAL = exports.PERMISSAO_TROCA_ADMINISTRADOR = exports.PERMISSAO_FILIAIS_GESTAO = exports.PERMISSAO_CONFIG_AREAS = exports.PERMISSAO_ADMINISTRACAO = exports.PERMISSAO_OS = exports.PERMISSAO_CADASTROS = exports.PERMISSAO_PRODUCAO = exports.PERMISSAO_FILIAIS = exports.PERMISSAO_ESTOQUE = exports.PERMISSAO_CRM = exports.PERMISSAO_OPERACOES = exports.PERMISSAO_VENDAS = exports.PERMISSAO_COMPRAS = exports.PERMISSAO_FISCAL_ENTRADA = exports.PERMISSAO_FISCAL = exports.PERMISSAO_FINANCEIRO = exports.ehPapelDeAdministrador = exports.administradorTemSemPacote = exports.administradorComTodas = exports.PERMISSOES_QUE_RESTRINGEM = exports.PAPEIS_DE_ADMINISTRADOR = exports.PACOTE_ADMINISTRADOR = exports.MARCADOR_ADMINISTRADOR = void 0;
 const permissoesAppDomain_1 = require("./permissoesAppDomain");
+const permissionCatalog_1 = require("./permissionCatalog");
+const papelAdministradorDomain_1 = require("./papelAdministradorDomain");
+var papelAdministradorDomain_2 = require("./papelAdministradorDomain");
+Object.defineProperty(exports, "MARCADOR_ADMINISTRADOR", { enumerable: true, get: function () { return papelAdministradorDomain_2.MARCADOR_ADMINISTRADOR; } });
+Object.defineProperty(exports, "PACOTE_ADMINISTRADOR", { enumerable: true, get: function () { return papelAdministradorDomain_2.PACOTE_ADMINISTRADOR; } });
+Object.defineProperty(exports, "PAPEIS_DE_ADMINISTRADOR", { enumerable: true, get: function () { return papelAdministradorDomain_2.PAPEIS_DE_ADMINISTRADOR; } });
+Object.defineProperty(exports, "PERMISSOES_QUE_RESTRINGEM", { enumerable: true, get: function () { return papelAdministradorDomain_2.PERMISSOES_QUE_RESTRINGEM; } });
+Object.defineProperty(exports, "administradorComTodas", { enumerable: true, get: function () { return papelAdministradorDomain_2.administradorComTodas; } });
+Object.defineProperty(exports, "administradorTemSemPacote", { enumerable: true, get: function () { return papelAdministradorDomain_2.administradorTemSemPacote; } });
+Object.defineProperty(exports, "ehPapelDeAdministrador", { enumerable: true, get: function () { return papelAdministradorDomain_2.ehPapelDeAdministrador; } });
 /**
  * PERMISSAO NOVA "JA' VEM MARCADA" (item 15 da Embala Minas, 25/11/2026).
  *
@@ -31,9 +41,18 @@ const permissoesAppDomain_1 = require("./permissoesAppDomain");
  * `app.definido` do app (permissoesAppDomain.ts), nada nas rules muda. O
  * catalogo nao lista os marcadores, entao eles nao aparecem na tela.
  *
- * O ADMINISTRADOR (Master/Admin) e a plataforma continuam liberados pelos
- * helpers de papel (temPermissao no servidor, hasTenantFullAccess na tela);
- * isto aqui so' decide o que o FUNCIONARIO tem.
+ * O DONO (uid igual ao da empresa) e a plataforma continuam liberados pelos
+ * helpers de papel (temPermissao no servidor, hasTenantFullAccess na tela).
+ *
+ * O ADMINISTRADOR (papel Master/Admin que NAO e' o dono) deixou de ser
+ * liberado pelo papel (troca do administrador, 25/11/2026: "o dono sempre
+ * pode; o resto so' com a permissao marcada"). Ele passa pelas efetivas como
+ * um funcionario, com o pacote 'administrador-1': enquanto o cadastro dele
+ * NAO tem o marcador `pacote.administrador-1`, as efetivas sao TODAS as
+ * permissoes do catalogo (menos as que restringem, PERMISSOES_QUE_RESTRINGEM).
+ * Quando o dono salva as permissoes dele, grava o marcado + todos os
+ * marcadores, e dai' em diante vale so' o marcado. As efetivas recebem o
+ * papel em `opcoes.papel` (como ja' recebem o nivel).
  */
 /** Permissoes novas do Financeiro, fase 1 (o que ja' grava pelo servidor). */
 exports.PERMISSAO_FINANCEIRO = {
@@ -260,6 +279,21 @@ exports.PERMISSAO_FILIAIS_GESTAO = {
     resumo: 'filiais.resumo',
 };
 /**
+ * O que so' o papel de administrador fazia e ainda nao tinha permissao (troca
+ * do administrador, 25/11/2026). Nao vem com nada para funcionario; o
+ * administrador que o dono ainda nao salvou tem todas.
+ */
+exports.PERMISSAO_TROCA_ADMINISTRADOR = {
+    /** Liberar desconto e o aplicativo no cadastro de Vendedores (balcao). */
+    vendedoresLiberadores: 'cadastros.vendedores_liberadores',
+    /** Regras de comissao de cada usuario (Configuracoes > Permissao de Usuarios). */
+    comissaoUsuario: 'administrativo.comissao_usuario',
+    /** Ativar/desativar CFOP nas Tabelas Fiscais (vale para todas as filiais). */
+    tabelasAtivar: 'fiscal.tabelas_ativar',
+    /** App do motorista: ver as rotas de todos os motoristas. */
+    entregasTodas: 'operacoes.entregas_app_todas',
+};
+/**
  * Configuracoes Gerais (gravadas pelo servidor em todas as filiais): a
  * permissao que cada campo pede. O que nao esta' aqui pede
  * "Admin: Configuracoes gerais".
@@ -423,6 +457,14 @@ exports.PACOTES_DE_PERMISSOES = [
     },
 ];
 exports.PREFIXO_MARCADOR_PACOTE = 'pacote.';
+// ---------------------------------------------------------------------------
+// Pacote 'administrador-1' (troca do administrador, 25/11/2026) -- regra em
+// papelAdministradorDomain.ts (sem dependencias, usada tambem por roles.ts).
+// ---------------------------------------------------------------------------
+/** Todas as permissoes do catalogo que o administrador tem enquanto o pacote dele nao foi salvo. */
+exports.PERMISSOES_DO_ADMINISTRADOR = permissionCatalog_1.PERMISSION_CATALOG
+    .map((item) => item.id)
+    .filter((id) => !papelAdministradorDomain_1.PERMISSOES_QUE_RESTRINGEM.includes(id));
 /** O que fica gravado em `permissoes` quando o pacote ja' foi salvo para a pessoa. */
 const marcadorDoPacote = (id) => `${exports.PREFIXO_MARCADOR_PACOTE}${id}`;
 exports.marcadorDoPacote = marcadorDoPacote;
@@ -455,6 +497,16 @@ const permissoesEfetivas = (permissoes, nivelAcesso, opcoes = {}) => {
     const gravadas = lista(permissoes);
     const temGravada = new Set(gravadas);
     const resultado = new Set(gravadas);
+    // Administrador cujo pacote o dono ainda nao salvou: todas (ninguem perde acesso no deploy).
+    // O resultado leva o marcador dele, para aplicar de novo nao mudar nada.
+    if ((0, papelAdministradorDomain_1.administradorComTodas)(gravadas, opcoes.papel)) {
+        // A que restringe ("So' a Frente de Caixa") nao vale, nem se sobrou de quando ele era funcionario.
+        papelAdministradorDomain_1.PERMISSOES_QUE_RESTRINGEM.forEach((p) => resultado.delete(p));
+        exports.PERMISSOES_DO_ADMINISTRADOR.forEach((p) => resultado.add(p));
+        exports.MARCADORES_DOS_PACOTES.forEach((m) => resultado.add(m));
+        resultado.add(papelAdministradorDomain_1.MARCADOR_ADMINISTRADOR);
+        return [...resultado];
+    }
     const nivel = nivelDoPacote(nivelAcesso);
     for (const pacote of exports.PACOTES_DE_PERMISSOES) {
         if (temGravada.has((0, exports.marcadorDoPacote)(pacote.id)))
@@ -485,9 +537,30 @@ const permissoesEfetivas = (permissoes, nivelAcesso, opcoes = {}) => {
     return [...resultado];
 };
 exports.permissoesEfetivas = permissoesEfetivas;
-/** O que gravar: o que a tela marcou + o marcador de todos os pacotes (dai' em diante nada e' implicito). */
-const permissoesParaGravar = (marcadas) => ([...new Set([...lista(marcadas).filter((p) => !(0, exports.ehMarcadorDePacote)(p)), ...exports.MARCADORES_DOS_PACOTES])]);
+/**
+ * O que gravar: o que a tela marcou + o marcador de todos os pacotes (dai' em
+ * diante nada e' implicito). `papel` do cadastro ALVO: administrador leva
+ * tambem o marcador dele (dai' em diante vale so' o que o dono marcou).
+ */
+const permissoesParaGravar = (marcadas, papel) => ([...new Set([
+        ...lista(marcadas).filter((p) => !(0, exports.ehMarcadorDePacote)(p)),
+        ...exports.MARCADORES_DOS_PACOTES,
+        ...((0, papelAdministradorDomain_1.ehPapelDeAdministrador)(papel) ? [papelAdministradorDomain_1.MARCADOR_ADMINISTRADOR] : []),
+    ])]);
 exports.permissoesParaGravar = permissoesParaGravar;
+/**
+ * Nivel de acesso que vale (o que cada um ve de vendas). Administrador cujo
+ * pacote o dono ainda nao salvou ve como gerente (via tudo pelo papel ate'
+ * 25/11/2026); depois, o nivel que o dono escolheu ao salvar.
+ */
+const nivelAcessoEfetivo = (nivelAcesso, papel, permissoes) => {
+    if ((0, papelAdministradorDomain_1.administradorComTodas)(permissoes, papel))
+        return 'gerente';
+    if (nivelAcesso === 'administracao' || nivelAcesso === 'gerente')
+        return 'gerente';
+    return nivelAcesso === 'supervisor' ? 'supervisor' : 'funcionario';
+};
+exports.nivelAcessoEfetivo = nivelAcessoEfetivo;
 // ---------------------------------------------------------------------------
 // Tudo junto (app + pacotes): o que as telas e o servidor usam no cadastro.
 // ---------------------------------------------------------------------------
@@ -497,8 +570,8 @@ exports.permissoesParaGravar = permissoesParaGravar;
  */
 const permissoesEfetivasDoUsuario = (permissoes, nivelAcesso, opcoes = {}) => ((0, exports.permissoesEfetivas)((0, permissoesAppDomain_1.permissoesEfetivas)(permissoes), nivelAcesso, opcoes));
 exports.permissoesEfetivasDoUsuario = permissoesEfetivasDoUsuario;
-/** O que gravar no cadastro: marcadas + marcador do app + marcadores dos pacotes. */
-const permissoesParaGravarDoUsuario = (marcadas) => ((0, exports.permissoesParaGravar)((0, permissoesAppDomain_1.permissoesParaGravar)(marcadas)));
+/** O que gravar no cadastro: marcadas + marcador do app + marcadores dos pacotes (+ o do administrador, pelo papel do alvo). */
+const permissoesParaGravarDoUsuario = (marcadas, papel) => ((0, exports.permissoesParaGravar)((0, permissoesAppDomain_1.permissoesParaGravar)(marcadas), papel));
 exports.permissoesParaGravarDoUsuario = permissoesParaGravarDoUsuario;
 /**
  * Gerente so' da' e tira o que ELE MESMO tem (decisao de 19/10/2026), contando
@@ -507,15 +580,17 @@ exports.permissoesParaGravarDoUsuario = permissoesParaGravarDoUsuario;
  * uma permissao nova aparece como "tirou". Devolve as que ele mexeu sem ter.
  */
 const mexidasSemTer = (args) => {
-    const antes = new Set((0, exports.permissoesEfetivasDoUsuario)(args.antes, args.nivelAntes, args.opcoes));
-    const depois = new Set((0, exports.permissoesEfetivasDoUsuario)((0, exports.permissoesParaGravarDoUsuario)(args.depois)));
-    const dele = new Set((0, exports.permissoesEfetivasDoUsuario)(args.doGerente, args.nivelDoGerente, args.opcoes));
+    const opcoes = args.opcoes || {};
+    const antes = new Set((0, exports.permissoesEfetivasDoUsuario)(args.antes, args.nivelAntes, { ...opcoes, papel: args.papelAntes }));
+    const depois = new Set((0, exports.permissoesEfetivasDoUsuario)((0, exports.permissoesParaGravarDoUsuario)(args.depois, args.papelAntes), undefined, { papel: args.papelAntes }));
+    const dele = new Set((0, exports.permissoesEfetivasDoUsuario)(args.doGerente, args.nivelDoGerente, { ...opcoes, papel: args.papelDoGerente }));
     const mexidas = [...depois].filter((p) => !antes.has(p)).concat([...antes].filter((p) => !depois.has(p)));
     return mexidas.filter((p) => !dele.has(p) && !(0, exports.ehMarcadorInterno)(p));
 };
 exports.mexidasSemTer = mexidasSemTer;
 /** Permissoes que entraram e sairam (efetivas, sem marcadores), para o historico de alteracoes. */
 const mudancasDePermissoes = (antes, depois, nivelAntes, opcoes = {}) => {
+    // `opcoes.papel` = papel do cadastro (o mesmo antes e depois).
     const semMarcador = (l, nivel) => new Set((0, exports.permissoesEfetivasDoUsuario)(l, nivel, opcoes).filter((p) => !(0, exports.ehMarcadorInterno)(p)));
     const a = semMarcador(antes, nivelAntes);
     const d = semMarcador(depois);

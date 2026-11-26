@@ -9,7 +9,7 @@ const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreF
 
 const carregar = (db) => carregarComBancoFalso(db, 'services/limitesDoPlano')[3];
 
-const ADMIN = { uid: 'dono', tenantId: 'loja', isTenantManager: true };
+const ADMIN = { uid: 'dono', tenantId: 'loja', dono: true };
 const CNPJ = '12345678000199';
 
 const base = (extra = {}) => ({
@@ -279,8 +279,63 @@ test('permissoes pelo servidor: grava com o marcador do app; gerente so mexe no 
   const depois = fake.ler('usuarios/carlos');
   assert.ok(depois.permissoes.includes('app.preco'));
   assert.equal(depois.nivelAcesso, 'supervisor', 'gerente nao muda o nivel');
-  // Administrador/dono nao tem permissao por modulo.
-  await assert.rejects(() => s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'adm', permissoes: [] }, gerente: false }), (e) => e.status === 400);
+  // O dono nao tem permissoes para marcar (sempre pode tudo).
+  await assert.rejects(() => s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'loja', permissoes: [] }, gerente: false }), (e) => e.status === 400 && /dono da empresa sempre pode tudo/.test(e.message));
+});
+
+test('troca do administrador: so o dono marca as permissoes de um administrador; dai em diante vale o marcado (25/11/2026)', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/adm': { tenantId: 'loja', role: 'Admin', nome: 'ADM' },
+    'usuarios/adm2': { tenantId: 'loja', role: 'Admin', nome: 'ADM2' },
+    'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', permissoes: ['vendas.pedidos'] },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  // Outro administrador (nao dono) nao mexe nas permissoes de um administrador.
+  const ADM2 = { uid: 'adm2', tenantId: 'loja', role: 'Admin', isAdministrador: true, permissoes: [] };
+  await assert.rejects(
+    () => s.salvarPermissoes({ user: ADM2, tenantId: 'loja', corpo: { usuarioId: 'adm', permissoes: [] }, administrador: true }),
+    (e) => e.status === 403 && /Só o dono da empresa marca as permissões de um administrador/.test(e.message),
+  );
+  // O dono grava: vai o marcado + o marcador do administrador.
+  await s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'adm', permissoes: ['vendas.pedidos'], nivelAcesso: 'supervisor' } });
+  const adm = fake.ler('usuarios/adm');
+  assert.ok(adm.permissoes.includes('pacote.administrador-1'));
+  assert.ok(adm.permissoes.includes('vendas.pedidos'));
+  assert.ok(!adm.permissoes.includes('financeiro.pagar'));
+  assert.equal(adm.nivelAcesso, 'supervisor');
+  // Administrador (ainda sem o pacote salvo = todas) libera para o funcionario, limitado ao que ele tem.
+  await s.salvarPermissoes({ user: ADM2, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'financeiro.pagar'] }, administrador: true });
+  assert.ok(fake.ler('usuarios/carlos').permissoes.includes('financeiro.pagar'));
+  assert.ok(!fake.ler('usuarios/carlos').permissoes.includes('pacote.administrador-1'), 'funcionario nao leva o marcador do administrador');
+  // Administrador ja' salvo pelo dono, sem "financeiro.pagar", nao da' essa permissao.
+  const admSalvo = { uid: 'adm', tenantId: 'loja', role: 'Admin', isAdministrador: true, permissoes: adm.permissoes, nivelAcesso: 'supervisor' };
+  await assert.rejects(
+    () => s.salvarPermissoes({ user: admSalvo, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos'] }, administrador: true }),
+    (e) => e.status === 403 && /"Financeiro: Contas a Pagar"/.test(e.message),
+  );
+});
+
+test('troca do administrador: regras de comissao pelo servidor, com a permissao propria (25/11/2026)', async () => {
+  const fake = criarBancoFalso(base({
+    'usuarios/carlos': { tenantId: 'loja', role: 'Funcionario', nome: 'CARLOS', permissoes: [], comissaoPercentualPecas: 3 },
+  }), { consultas: true });
+  const s = carregar(fake.db);
+  const comissao = { recebeComissaoServicos: true, comissaoPercentualServicos: 5, recebeComissaoPecas: false, comissaoPercentualPecas: null };
+  const semComissao = { uid: 'adm', tenantId: 'loja', role: 'Admin', isAdministrador: true, permissoes: ['pacote.administrador-1', 'administrativo.equipe_permissoes'] };
+  await assert.rejects(
+    () => s.salvarPermissoes({ user: semComissao, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: [], comissao }, administrador: true }),
+    (e) => e.status === 403 && /regras de comissão/.test(e.message),
+  );
+  const ADM = { uid: 'adm', tenantId: 'loja', role: 'Admin', isAdministrador: true, permissoes: [] };
+  await s.salvarPermissoes({ user: ADM, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: [], comissao }, administrador: true });
+  const u = fake.ler('usuarios/carlos');
+  assert.equal(u.recebeComissaoServicos, true);
+  assert.equal(u.comissaoPercentualServicos, 5);
+  assert.equal(u.comissaoPercentualPecas, undefined, 'percentual vazio apaga (cai na comissao padrao)');
+  await assert.rejects(
+    () => s.salvarPermissoes({ user: ADM, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: [], comissao: { ...comissao, comissaoPercentualServicos: 150 } }, administrador: true }),
+    (e) => e.status === 400 && /0 a 100/.test(e.message),
+  );
 });
 
 test('vendedor de balcao so pelo servidor (bloco B, 25/11/2026): id gerado aqui, permissao conferida, codigo unico', async () => {

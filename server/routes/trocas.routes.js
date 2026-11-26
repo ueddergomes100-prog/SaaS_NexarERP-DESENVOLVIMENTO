@@ -54,7 +54,7 @@ const responderErro = (res, erro, operacao) => {
 };
 
 const temPermissao = (user, permissao) => (
-  Boolean(user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
+  Boolean(user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
 );
 
 const exigirSolicitar = (user) => {

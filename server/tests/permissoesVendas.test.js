@@ -28,7 +28,7 @@ test('efetivas: quem tem Vendas: Pedidos e nunca foi salvo ja tem as novas; salv
   const salvo = { uid: 'v2', permissoes: ['vendas.pedidos', 'vendas.finalizar', ...MARCADORES] };
   assert.equal(pv.podeEmVendas(salvo, 'vendas.finalizar'), true);
   assert.equal(pv.podeEmVendas(salvo, 'vendas.alterar_preco'), false, 'dono desmarcou ao salvar');
-  assert.equal(pv.podeEmVendas({ uid: 'a', permissoes: [], isTenantManager: true }, 'vendas.alterar_preco'), true, 'administrador segue liberado');
+  assert.equal(pv.podeEmVendas({ uid: 'a', permissoes: [], dono: true }, 'vendas.alterar_preco'), true, 'administrador segue liberado');
   assert.equal(pv.podeEmVendas({ uid: 'x' }, 'vendas.finalizar'), false, 'sem lista nao quebra');
   // A senha do vendedor vinha de "Cadastros: Vendedores — incluir".
   assert.equal(pv.podeEmVendas({ uid: 'c', permissoes: ['cadastros.vendedores_incluir'] }, 'vendas.gerenciar_pin_vendedor'), true);

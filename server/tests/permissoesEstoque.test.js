@@ -34,7 +34,7 @@ test('efetivas: quem tem a tela e nunca foi salvo ja tem as novas; salvo de novo
   const gravado = salvo('f2', ['cadastros.estoque_alterar', 'estoque.produto_inativar']);
   assert.equal(pe.podeNoEstoque(gravado, 'estoque.produto_inativar'), true);
   assert.equal(pe.podeNoEstoque(gravado, 'estoque.produto_excluir'), false, 'dono desmarcou ao salvar');
-  assert.equal(pe.podeNoEstoque({ uid: 'a', permissoes: [], isTenantManager: true }, 'estoque.produto_excluir'), true, 'administrador segue liberado');
+  assert.equal(pe.podeNoEstoque({ uid: 'a', permissoes: [], dono: true }, 'estoque.produto_excluir'), true, 'administrador segue liberado');
   assert.equal(pe.podeNoEstoque({ uid: 'x' }, 'mecanica.os_cancelar'), false, 'sem lista nao quebra');
 });
 

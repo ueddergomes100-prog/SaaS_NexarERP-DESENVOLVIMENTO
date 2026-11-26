@@ -40,7 +40,7 @@ const comGrupo = (extra = {}) => ({
   ...extra,
 });
 
-const DONO = { uid: 'dono', tenantId: 'dono', role: 'Master', isTenantManager: true, permissoes: [] };
+const DONO = { uid: 'dono', tenantId: 'dono', role: 'Master', dono: true, permissoes: [] };
 
 test('salvar com filiais: o mesmo valor vai para todas, sem mexer no que e\' de cada uma', async () => {
   const fake = criarBancoFalso(comGrupo());
@@ -62,7 +62,7 @@ test('salvar com filiais: o mesmo valor vai para todas, sem mexer no que e\' de 
 test('salvar com filiais: quem nao e\' dono/administrador do grupo e\' recusado, mesmo com a permissao de Configuracoes', async () => {
   const fake = criarBancoFalso(comGrupo());
   const { gerais } = carregar(fake.db);
-  const gerente = { uid: 'gerente', tenantId: 'f20', role: 'Funcionario', isTenantManager: false, permissoes: ['administrativo.config'] };
+  const gerente = { uid: 'gerente', tenantId: 'f20', role: 'Funcionario', dono: false, permissoes: ['administrativo.config'] };
   await assert.rejects(
     gerais.salvarConfiguracoesGerais({ user: gerente, corpo: GERAIS }),
     (erro) => erro.status === 403 && /valem para todas as filiais/.test(erro.message),
@@ -76,7 +76,7 @@ test('salvar sem filiais: grava so\' a empresa; vale a permissao de Configuracoe
     'configuracoes/emp': { tenantId: 'emp', nomeOficina: 'LOJA' },
   });
   const { gerais } = carregar(fake.db);
-  const comPermissao = { uid: 'u2', tenantId: 'emp', role: 'Funcionario', isTenantManager: false, permissoes: ['administrativo.config'] };
+  const comPermissao = { uid: 'u2', tenantId: 'emp', role: 'Funcionario', dono: false, permissoes: ['administrativo.config'] };
   const r = await gerais.salvarConfiguracoesGerais({ user: comPermissao, corpo: GERAIS });
   assert.equal(r.filiais, 1);
   assert.equal(fake.ler('configuracoes/emp').validarCadastroProduto, true);

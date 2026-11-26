@@ -7,7 +7,7 @@ import { collection, doc, getDoc, limit, onSnapshot, query, runTransaction, serv
 import { NexusSwal as Swal } from '../utils/alerts';
 import { auth, db } from '../services/firebase';
 import { clearStoredSessionId, ehSessaoDeEstacao, getStoredSessionId, setStoredSessionId } from '../utils/session';
-import { permissoesEfetivasDoUsuario } from '../utils/permissoesNovasDomain';
+import { nivelAcessoEfetivo, permissoesEfetivasDoUsuario, PERMISSAO_FILIAIS_GESTAO } from '../utils/permissoesNovasDomain';
 import { modulosBloqueadosEfetivos } from '../utils/moduleCatalog';
 import { DEFAULT_CONFIG_CASHBACK, parseConfigCashback, type ConfigCashback } from '../utils/cashbackDomain';
 import {
@@ -507,7 +507,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // ainda nao teve as permissoes salvas de novo conta com as chaves novas (ninguem
             // perde acesso) -- permissoesAppDomain.ts e permissoesNovasDomain.ts.
             // O nivel gerente traz o que liberava sozinho (Modo Avancado, transferencia sem nota).
-            const finalPermissions = permissoesEfetivasDoUsuario(toStringArray(data.permissoes), data.nivelAcesso);
+            // Troca do administrador (25/11/2026): com o papel, o administrador que o dono ainda
+            // nao salvou tem todas; depois, so' as marcadas (o papel deixou de liberar sozinho).
+            const finalPermissions = permissoesEfetivasDoUsuario(toStringArray(data.permissoes), data.nivelAcesso, { papel: finalRole });
             setAcessoAppMobile(data.acessoAppMobile === true);
             setUserNome(typeof data.nome === 'string' && data.nome ? data.nome : (typeof data.nomeResponsavel === 'string' ? data.nomeResponsavel : ''));
             let finalBlockedModules: string[] = [];
@@ -555,8 +557,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             setUserRole(finalRole);
             setUserPermissions(manterSeIgual(finalPermissions));
-            setPermissoesSemFiliais(manterSeIgual(permissoesEfetivasDoUsuario(toStringArray(data.permissoes), data.nivelAcesso, { semFiliais: true })));
-            setNivelAcesso(parseNivelAcesso(data.nivelAcesso));
+            setPermissoesSemFiliais(manterSeIgual(permissoesEfetivasDoUsuario(toStringArray(data.permissoes), data.nivelAcesso, { semFiliais: true, papel: finalRole })));
+            setNivelAcesso(parseNivelAcesso(nivelAcessoEfetivo(data.nivelAcesso, finalRole, data.permissoes)));
             setTenantOptions(manterSeIgual<TenantOption>([]));
             setSelectedTenant(null);
             setTenantId(finalTenant);
@@ -856,8 +858,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const filiaisDoUsuarioAtual = useMemo(() => filiaisDoUsuario(grupo, usuarioDasFiliais), [grupo, usuarioDasFiliais]);
   const filialAtual = useMemo(() => grupo?.filiais.find((f) => f.tenantId === tenantId) ?? null, [grupo, tenantId]);
   const podeTrocarFilial = podeUsarOutrasFiliais(grupo, usuarioDasFiliais) && filiaisDoUsuarioAtual.length > 1;
-  // Sem grupo ainda, quem pode criar a primeira filial e' o dono/administrador da empresa.
-  const ehGestorDasFiliais = grupo ? ehGestorDoGrupo(grupo, usuarioDasFiliais) : isTenantManagerRole(userRole);
+  // Sem grupo ainda, quem pode criar a primeira filial: o dono, ou quem tem "Filiais: Cadastrar filial"
+  // (troca do administrador, 25/11/2026: o papel deixou de bastar).
+  const ehGestorDasFiliais = grupo
+    ? ehGestorDoGrupo(grupo, usuarioDasFiliais)
+    : isOwner || userPermissions.includes(PERMISSAO_FILIAIS_GESTAO.cadastrar);
   // O plano (modulos) e' do grupo: fora da matriz, valem os bloqueios dela.
   // Modulo filho de pai bloqueado (28/10/2026) conta como bloqueado -- MODULO_PAI.
   const modulosDoPlano = grupo && tenantId && tenantId !== grupo.matrizTenantId ? grupo.modulosBloqueados : blockedModules;

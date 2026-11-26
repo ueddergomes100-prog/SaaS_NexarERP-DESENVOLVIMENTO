@@ -18,7 +18,9 @@ import './FilialSeletor.css';
  * filial anterior) e recarrega o sistema ja' na filial nova.
  */
 const FilialSeletor: React.FC = () => {
-  const { grupo, filialAtual, filiaisDoUsuario, podeTrocarFilial, ehGestorDasFiliais, trocarFilial } = useAuth();
+  const { grupo, filialAtual, filiaisDoUsuario, podeTrocarFilial, ehGestorDasFiliais, trocarFilial, userPermissions } = useAuth();
+  // "Gerenciar filiais": o dono, ou quem tem alguma permissao de Filiais (o administrador, pela permissao).
+  const podeGerenciarFiliais = ehGestorDasFiliais || ['filiais.gerenciar', 'filiais.cadastrar', 'filiais.alterar', 'filiais.resumo'].some((p) => userPermissions.includes(p));
   const navigate = useNavigate();
   const [aberto, setAberto] = useState(false);
   const [trocandoPara, setTrocandoPara] = useState<string | null>(null);
@@ -122,7 +124,7 @@ const FilialSeletor: React.FC = () => {
               );
             })}
           </div>
-          {ehGestorDasFiliais && (
+          {podeGerenciarFiliais && (
             <button
               type="button"
               className="filial-seletor__gerenciar"

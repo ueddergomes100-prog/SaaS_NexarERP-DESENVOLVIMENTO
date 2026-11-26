@@ -1,7 +1,12 @@
 /*
  * QUEM GERE UM FUNCIONARIO DA EQUIPE (26/10/2026, pedido do dono).
  *
- * Dono/administrador: como sempre. Item 15 (fase Administracao, 25/11/2026):
+ * Dono e plataforma: como sempre (o dono e' o unico que mexe no cadastro de um
+ * administrador). TROCA DO ADMINISTRADOR (25/11/2026): o administrador (papel
+ * Master/Admin que nao e' o dono) passa pela permissao da acao, como qualquer
+ * um -- ele tem todas enquanto o dono nao salvar as dele (pacote
+ * 'administrador-1') -- e alcanca funcionario e gerente, nunca o dono nem
+ * outro administrador; ele mesmo, so' na ficha e na senha. Item 15 (fase Administracao, 25/11/2026):
  * o resto, cada acao com a SUA permissao (Admin: Equipe -- criar login,
  * alterar a ficha, trocar a senha, inativar, liberar permissoes, nivel,
  * aplicativo), conferida pelas efetivas (permissoesNovasDomain.ts, pacote
@@ -16,14 +21,35 @@ const {
   parseNivelAcesso,
   podeSerAlvoDePermissaoPorGerente,
 } = require('../domain/visibilidadeVendasDomain');
-const { permissoesEfetivas, PERMISSAO_ADMINISTRACAO: PA } = require('../domain/permissoesNovasDomain');
+const { permissoesEfetivas, ehPapelDeAdministrador, PERMISSAO_ADMINISTRACAO: PA } = require('../domain/permissoesNovasDomain');
 const { mensagemSemPermissao } = require('../services/permissoesAdministracao');
 
-const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.isTenantManager));
+/** Liberado em tudo da Equipe: o dono e a plataforma. */
+const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.dono));
 
-/** Funcionario com a permissao da acao (contando o nivel e os pacotes). */
+/** Tem a permissao da acao (contando o nivel, os pacotes e o papel). */
 const temAPermissao = (user, permissao) => Boolean(user)
-  && permissoesEfetivas(user.permissoes, user.nivelAcesso).includes(permissao);
+  && permissoesEfetivas(user.permissoes, user.nivelAcesso, { papel: user.role }).includes(permissao);
+
+const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** O que o administrador faz no proprio cadastro (com a permissao): ficha (codigo) e senha. */
+const NO_PROPRIO_CADASTRO = [PA.equipeEditar, PA.equipeSenha];
+
+/**
+ * Administrador (nao dono) com a permissao da acao: alvo da mesma empresa, que
+ * nao e' o dono nem outro administrador; ele mesmo, so' ficha e senha. Le' o alvo no banco.
+ */
+const administradorPodeGerir = async (user, usuarioId, permissao) => {
+  const id = String(usuarioId ?? '');
+  if (!user || !user.isAdministrador || !temAPermissao(user, permissao) || !ID_VALIDO.test(id)) return false;
+  const snap = await db.collection('usuarios').doc(id).get();
+  const alvo = snap.exists ? snap.data() : null;
+  if (!alvo || alvo.tenantId !== user.tenantId) return false;
+  if (id === alvo.tenantId) return false;
+  if (id === user.uid) return NO_PROPRIO_CADASTRO.includes(permissao);
+  return !ehPapelDeAdministrador(alvo.role);
+};
 
 /** Compatibilidade: "gerente da equipe" = quem pode alterar a ficha de funcionario comum. */
 const ehGerenteDaEquipe = (user) => temAPermissao(user, PA.equipeEditar);
@@ -31,7 +57,7 @@ const ehGerenteDaEquipe = (user) => temAPermissao(user, PA.equipeEditar);
 /** Quem nao e' dono/administrador pode mexer neste funcionario com esta permissao? (le o alvo no banco) */
 const gerentePodeGerir = async (user, usuarioId, permissao = PA.equipeEditar) => {
   const id = String(usuarioId ?? '');
-  if (!temAPermissao(user, permissao) || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return false;
+  if (!temAPermissao(user, permissao) || !ID_VALIDO.test(id)) return false;
   const snap = await db.collection('usuarios').doc(id).get();
   const alvo = snap.exists ? snap.data() : null;
   return Boolean(alvo) && alvo.tenantId === user.tenantId && podeSerAlvoDePermissaoPorGerente({
@@ -43,6 +69,7 @@ const gerentePodeGerir = async (user, usuarioId, permissao = PA.equipeEditar) =>
 };
 
 const MENSAGEM_GERENTE = 'Sem ser o dono ou um administrador, você só altera funcionário comum: nunca um gerente, um administrador, o dono ou a si mesmo.';
+const MENSAGEM_ADMINISTRADOR = 'O cadastro do dono e o de outro administrador só o dono da empresa altera. Peça ao dono.';
 
 /*
  * DONO E ADMINISTRADOR COMO ALVO (seguranca, bloco B, 25/11/2026, decisao do dono).
@@ -74,17 +101,25 @@ const motivoGestorNaoPodeNoAlvo = async (user, usuarioId) => {
 };
 
 /**
- * Middleware (fabrica): dono/administrador (com a trava do bloco B sobre o alvo
- * dono/administrador), ou quem tem a permissao da acao sobre funcionario comum
- * (marca req.gerenteDaEquipe).
+ * Middleware (fabrica): dono e plataforma; o administrador com a permissao da
+ * acao (marca req.administradorDaEquipe); o resto com a permissao da acao
+ * sobre funcionario comum (marca req.gerenteDaEquipe).
  */
 const podeGerirFuncionario = (permissao) => async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Usuário não autenticado.' });
     if (ehGestor(req.user)) {
+      // Bloco B: trava sobre o alvo dono/administrador (para o dono e a plataforma nao recusa nada).
       const motivo = await motivoGestorNaoPodeNoAlvo(req.user, req.body?.usuarioId);
       if (motivo) return res.status(403).json({ error: motivo });
       return next();
+    }
+    if (req.user.isAdministrador) {
+      if (await administradorPodeGerir(req.user, req.body?.usuarioId, permissao)) {
+        req.administradorDaEquipe = true;
+        return next();
+      }
+      return res.status(403).json({ error: temAPermissao(req.user, permissao) ? MENSAGEM_ADMINISTRADOR : mensagemSemPermissao([permissao]) });
     }
     if (await gerentePodeGerir(req.user, req.body?.usuarioId, permissao)) {
       req.gerenteDaEquipe = true;
@@ -99,4 +134,4 @@ const podeGerirFuncionario = (permissao) => async (req, res, next) => {
   }
 };
 
-module.exports = { podeGerirFuncionario, gerentePodeGerir, ehGestor, ehGerenteDaEquipe, temAPermissao, MENSAGEM_GERENTE, motivoGestorNaoPodeNoAlvo };
+module.exports = { podeGerirFuncionario, gerentePodeGerir, administradorPodeGerir, ehGestor, ehGerenteDaEquipe, temAPermissao, MENSAGEM_GERENTE, MENSAGEM_ADMINISTRADOR, motivoGestorNaoPodeNoAlvo };

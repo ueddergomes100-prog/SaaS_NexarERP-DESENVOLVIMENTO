@@ -51,7 +51,7 @@ const VendedorEntregas: React.FC = () => {
   // id do cadastro de motorista, gravado em usuarios/{uid}.motoristaId.
   const { motoristaVinculado, carregado: vinculoCarregado } = useMotoristaVinculado(currentUser?.uid);
   // 28/10/2026 (dono): cada motorista ve so' as dele; "Todas" so' para dono e gestor.
-  const veTodas = veTodasAsRotas(userRole, isOwner);
+  const veTodas = veTodasAsRotas(userRole, isOwner, userPermissions);
   const uid = currentUser?.uid || '';
 
   useEffect(() => {

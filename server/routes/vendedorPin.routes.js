@@ -3,7 +3,7 @@ const { authenticate } = require('../middleware/auth');
 const { definirPin, removerPin, validarPin } = require('../services/vendedorPin');
 const { emitirComprovante } = require('../services/comprovantes');
 const { TIPO_IDENTIFICACAO } = require('../domain/conferenciaDescontoDomain');
-const { gerentePodeGerir, motivoGestorNaoPodeNoAlvo } = require('../middleware/gestaoEquipe');
+const { gerentePodeGerir, administradorPodeGerir, motivoGestorNaoPodeNoAlvo } = require('../middleware/gestaoEquipe');
 const { encerrarSessoes } = require('../services/sessoes');
 const { db } = require('../config/firebase');
 const { registrarLog } = require('../services/auditoria');
@@ -101,21 +101,21 @@ router.post('/validar', async (req, res) => {
 // 21/10/2026: alem do dono/administrador, quem tem "Cadastros: Vendedores — incluir e
 // alterar" define a senha -- so' de vendedor de balcao COMUM (ver definirPin, `restrito`).
 const { podeEmVendas, mensagemSemPermissao } = require('../services/permissoesVendas');
-const { PERMISSAO_VENDAS, PERMISSAO_ADMINISTRACAO } = require('../domain/permissoesNovasDomain');
+const { PERMISSAO_VENDAS, PERMISSAO_ADMINISTRACAO, PERMISSAO_TROCA_ADMINISTRADOR } = require('../domain/permissoesNovasDomain');
 const { mensagemSemPermissao: semPermissaoNaEquipe } = require('../services/permissoesAdministracao');
-const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.isTenantManager));
+// Troca do administrador (25/11/2026): so' o dono e a plataforma passam direto; o
+// administrador, com "Admin: Equipe -- trocar a senha" (nunca no dono nem em outro administrador).
+const ehGestor = (user) => Boolean(user && (user.isPlatformAdmin || user.dono));
 const podeDefinirPin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Usuario nao autenticado.' });
-  if (ehGestor(req.user)) {
-    // Bloco B (25/11/2026): PIN do dono so' ele; de administrador, so' o dono.
-    try {
-      const motivo = await motivoGestorNaoPodeNoAlvo(req.user, req.body?.usuarioId);
-      if (motivo) return res.status(403).json({ error: motivo });
-    } catch (erro) {
-      console.error('[PIN] conferir o alvo:', erro);
-      return res.status(500).json({ error: 'Não foi possível conferir sua permissão agora. Tente de novo em instantes.' });
+  if (ehGestor(req.user)) return next();
+  try {
+    if (await administradorPodeGerir(req.user, req.body?.usuarioId, PERMISSAO_ADMINISTRACAO.equipeSenha)) {
+      req.administradorDaEquipe = true;
+      return next();
     }
-    return next();
+  } catch (erro) {
+    console.error('[PIN] conferir administrador:', erro);
   }
   // 26/10/2026: o gerente (Equipe e Acessos) define o PIN de funcionario comum, sem a restricao de "so' balcao".
   // Item 15 (fase Administracao, 25/11/2026): pela permissao "Admin: Equipe -- trocar a senha"
@@ -141,7 +141,11 @@ router.post('/definir', podeDefinirPin, async (req, res) => {
       usuarioId: req.body?.usuarioId,
       pin: req.body?.pin,
       autorId: req.user.uid,
-      restrito: !ehGestor(req.user) && !req.gerenteDaEquipe,
+      // Sem ser dono/administrador/gerente da equipe: so' vendedor de balcao -- comum, ou
+      // tambem o que libera desconto/usa o app com "Cadastros: Vendedores -- liberar desconto e aplicativo".
+      restrito: ehGestor(req.user) || req.administradorDaEquipe || req.gerenteDaEquipe
+        ? false
+        : (podeEmVendas(req.user, PERMISSAO_TROCA_ADMINISTRADOR.vendedoresLiberadores) ? 'balcao' : true),
     });
     registrarSenhaNoHistorico(req.user, resultado.usuarioId, 'edicao', 'definida');
     // Bloco B: senha trocada derruba quem ja' tinha entrado com ela (menos quem trocou a propria).
@@ -161,6 +165,7 @@ const podeRemoverPin = async (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Usuario nao autenticado.' });
   if (ehGestor(req.user)) return next();
   try {
+    if (await administradorPodeGerir(req.user, req.body?.usuarioId, PERMISSAO_ADMINISTRACAO.equipeSenha)) return next();
     if (await gerentePodeGerir(req.user, req.body?.usuarioId, PERMISSAO_ADMINISTRACAO.equipeSenha)) return next();
   } catch (erro) {
     console.error('[PIN] conferir quem remove:', erro);

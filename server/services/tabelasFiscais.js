@@ -32,11 +32,11 @@ class ErroTabelasFiscais extends Error {
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
 
 const PERMISSAO = 'fiscal.tabelas';
-const podeUsarATela = (user) => user.isPlatformAdmin || user.isTenantManager || (user.permissoes || []).includes(PERMISSAO);
+const podeUsarATela = (user) => user.isPlatformAdmin || user.dono || (user.permissoes || []).includes(PERMISSAO);
 
 const exigirATela = (user) => {
   if (!podeUsarATela(user)) {
-    throw new ErroTabelasFiscais(403, 'Você não tem a permissão "Fiscal: Tabelas Fiscais". Peça ao administrador da empresa.');
+    throw new ErroTabelasFiscais(403, 'Você não tem a permissão "Fiscal: Tabelas Fiscais (CFOP, NCM, CEST)". Peça ao dono da empresa liberar no seu cadastro.');
   }
 };
 
@@ -55,7 +55,7 @@ const definirCfopAtivo = async ({ user, codigo, ativo }) => {
       exigirPermissao(user, usuario, grupo);
     } catch (erro) {
       if (erro instanceof ErroConfiguracoesGerais) {
-        throw new ErroTabelasFiscais(403, 'Ativar ou desativar CFOP vale para a empresa inteira: só o dono ou um administrador altera.');
+        throw new ErroTabelasFiscais(403, `Ativar ou desativar CFOP vale para a empresa inteira. ${erro.message}`);
       }
       throw erro;
     }

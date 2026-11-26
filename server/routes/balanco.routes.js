@@ -15,7 +15,7 @@ const router = express.Router();
 router.use(authenticate);
 
 const tem = (user, permissao) => Boolean(
-  user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)),
+  user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)),
 );
 const SEM_GERENCIAR = 'Você não tem permissão para abrir, conferir ou fechar balanço. Peça a um responsável liberar "Estoque: Balanço — abrir, conferir e fechar" no seu usuário.';
 const SEM_CONTAR = 'Você não tem permissão para contar balanço. Peça a um responsável liberar "Estoque: Balanço — contar" no seu usuário.';

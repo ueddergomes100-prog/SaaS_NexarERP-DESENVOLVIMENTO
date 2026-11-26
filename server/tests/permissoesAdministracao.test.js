@@ -31,7 +31,7 @@ test('nivel gerente: libera trava pela permissao marcada; salvo sem ela, nao lib
   assert.equal(pa.podeNaAdministracao({ uid: 'g', permissoes: [], nivelAcesso: 'gerente' }, 'administrativo.liberar_trava'), true);
   assert.equal(pa.podeNaAdministracao({ uid: 'f', permissoes: [], nivelAcesso: 'funcionario' }, 'administrativo.liberar_trava'), false);
   assert.equal(pa.podeNaAdministracao(salvo('g', [], { nivelAcesso: 'gerente' }), 'administrativo.liberar_trava'), false);
-  assert.equal(pa.podeNaAdministracao({ uid: 'a', permissoes: [], isTenantManager: true }, 'administrativo.backup_baixar'), true, 'administrador segue liberado');
+  assert.equal(pa.podeNaAdministracao({ uid: 'a', permissoes: [], dono: true }, 'administrativo.backup_baixar'), true, 'administrador segue liberado');
 });
 
 test('backup, computadores e numeracao nao vem com nada (so o administrador fazia)', () => {
@@ -58,7 +58,7 @@ test('exigirPermissao: o 403 sai antes de tocar em qualquer coisa; "qualquer" ba
   const ver = pa.exigirPermissao(['administrativo.backup_gerar', 'administrativo.backup_baixar'], { qualquer: true });
   assert.equal((await passar(ver, salvo('f', ['administrativo.backup_baixar']))).status, 'passou');
   assert.equal((await passar(ver, salvo('f', []))).status, 403);
-  assert.equal((await passar(gerar, { uid: 'a', isTenantManager: true })).status, 'passou');
+  assert.equal((await passar(gerar, { uid: 'a', dono: true })).status, 'passou');
   assert.equal((await passar(gerar, undefined)).status, 401);
 });
 
@@ -143,7 +143,7 @@ test('configuracoes gerais: cada bloco pela sua permissao; o que nao pode fica c
     'usuarios/u1': { tenantId: 'emp', role: 'Funcionario' },
     'configuracoes/emp': { tenantId: 'emp', ...GERAIS },
   });
-  const so = (permissoes) => ({ uid: 'u1', tenantId: 'emp', role: 'Funcionario', isTenantManager: false, permissoes: [...permissoes, ...MARCADORES] });
+  const so = (permissoes) => ({ uid: 'u1', tenantId: 'emp', role: 'Funcionario', dono: false, permissoes: [...permissoes, ...MARCADORES] });
   // So' o plano de contas: muda o plano; o resto fica (e mudar o resto e' recusado).
   let fake = banco();
   let gerais = carregarComBancoFalso(fake.db, 'services/configuracoesGerais')[3];
@@ -159,7 +159,7 @@ test('configuracoes gerais: cada bloco pela sua permissao; o que nao pode fica c
   gerais = carregarComBancoFalso(fake.db, 'services/configuracoesGerais')[3];
   await assert.rejects(gerais.salvarConfiguracoesGerais({ user: so(['administrativo.config']), corpo: GERAIS }), (e) => e.status === 403);
   // "Admin: Configuracoes" antes de salvar de novo (sem o marcador): empresa sem filiais ja' tinha.
-  const antigo = { uid: 'u1', tenantId: 'emp', role: 'Funcionario', isTenantManager: false, permissoes: ['administrativo.config'] };
+  const antigo = { uid: 'u1', tenantId: 'emp', role: 'Funcionario', dono: false, permissoes: ['administrativo.config'] };
   await gerais.salvarConfiguracoesGerais({ user: antigo, corpo: { ...GERAIS, trabalhaComLimiteCredito: true } });
   assert.equal(fake.ler('configuracoes/emp').trabalhaComLimiteCredito, true);
 });

@@ -6,8 +6,8 @@
  * conferida pelas EFETIVAS (permissoesNovasDomain.ts, pacote 'administracao-1'
  * -- o nivel gerente traz o que ele ja' fazia: abrir Equipe, liberar e retirar
  * permissoes, liberar trava; com a Equipe marcada, criar login, ficha, senha e
- * inativar). Dono/administrador (Master/Admin) e plataforma seguem liberados
- * nesta fase (a troca do administrador e' a proxima).
+ * inativar). Dono e plataforma seguem liberados; o administrador passa pelas
+ * efetivas (troca do administrador, 25/11/2026).
  *
  * Aqui so' o que passa pelo servidor: backup (gerar e baixar), computadores
  * do caixa, numeracao dos documentos, liberar trava, Equipe e Acessos,
@@ -22,6 +22,7 @@ const {
   PERMISSAO_ADMINISTRACAO: PA,
   PERMISSAO_CONFIG_AREAS: PCA,
   PERMISSAO_FILIAIS_GESTAO: PFG,
+  PERMISSAO_TROCA_ADMINISTRADOR: PTA,
   permissoesEfetivas,
 } = require('../domain/permissoesNovasDomain');
 
@@ -52,6 +53,10 @@ const ACOES = {
   [PFG.cadastrar]: { acao: 'cadastrar filiais' },
   [PFG.alterar]: { acao: 'alterar ou inativar filiais' },
   [PFG.resumo]: { acao: 'ver o resumo das filiais' },
+  // Troca do administrador (25/11/2026): o que so' o papel fazia.
+  [PTA.tabelasAtivar]: { acao: 'ativar ou desativar CFOP nas Tabelas Fiscais' },
+  [PTA.comissaoUsuario]: { acao: 'alterar as regras de comissão dos usuários' },
+  [PTA.vendedoresLiberadores]: { acao: 'liberar desconto ou o aplicativo no cadastro do vendedor' },
 };
 
 const mensagemSemPermissao = montarMensagemSemPermissao(ACOES);
@@ -72,12 +77,12 @@ const exigirPermissao = (ids, { qualquer = false } = {}) => (req, res, next) => 
 };
 
 /**
- * Usuario lido do banco (sem isTenantManager): tem a permissao contando o
- * nivel e os pacotes? Para os servicos que leem o cadastro na transacao
+ * Usuario lido do banco (ou req.user): tem a permissao contando o nivel, os
+ * pacotes e o papel (administrador sem o pacote salvo tem todas)? Para os servicos que leem o cadastro na transacao
  * (filiais.js, configuracoesGerais.js), onde o papel ja' foi conferido antes.
  */
 const temNoCadastro = (usuario, permissao, opcoes = {}) => Boolean(usuario)
-  && permissoesEfetivas(usuario.permissoes, usuario.nivelAcesso, opcoes).includes(permissao);
+  && permissoesEfetivas(usuario.permissoes, usuario.nivelAcesso, { ...opcoes, papel: usuario.role }).includes(permissao);
 
 /** Ordem dos niveis: quem nao e' administrador so' da' ate' o nivel que ele mesmo tem. */
 const ORDEM_DO_NIVEL = { funcionario: 0, supervisor: 1, gerente: 2 };

@@ -330,7 +330,7 @@ test('rotas /pagar/*: a permissao de cada uma; quem so tem Contas a Pagar (sem o
     const lancou = await chamar('/api/financeiro/pagar/lancar', { uid: 'u1', permissoes: ['financeiro.pagar'] }, despesa());
     assert.equal(lancou.status, 200, JSON.stringify(lancou.corpo));
     assert.equal(fake.ler('transacoes/desp_desp12345XYZ').status, 'Pendente');
-    const cancelou = await chamar('/api/financeiro/pagar/cancelar', { uid: 'a1', permissoes: [], isTenantManager: true }, { transacaoId: 'd1', motivo: 'lancada em duplicidade' });
+    const cancelou = await chamar('/api/financeiro/pagar/cancelar', { uid: 'a1', permissoes: [], dono: true }, { transacaoId: 'd1', motivo: 'lancada em duplicidade' });
     assert.equal(cancelou.status, 200, 'administrador continua liberado nesta fase');
   });
 });

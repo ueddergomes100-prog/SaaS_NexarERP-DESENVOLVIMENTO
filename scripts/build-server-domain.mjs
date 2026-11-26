@@ -86,6 +86,8 @@ const MODULOS = [
   'src/utils/loginIdentidadeDomain.ts',
   'src/utils/limitesDoPlanoDomain.ts',
   // Desconto, liberacao e vendedor conferidos pelo servidor (19/10/2026).
+  // Troca do administrador (25/11/2026): o papel deixa de liberar sozinho (sem dependencias).
+  'src/utils/papelAdministradorDomain.ts',
   'src/utils/roles.ts',
   'src/utils/visibilidadeVendasDomain.ts',
   'src/utils/vendedorPinDomain.ts',

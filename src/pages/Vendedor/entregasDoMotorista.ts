@@ -5,13 +5,19 @@ import { hasTenantFullAccess } from '../../utils/roles';
 
 /*
  * QUEM VE QUAL ROTA NO APP (28/10/2026, pedido do dono): igual as vendas do
- * app, cada motorista ve so' as rotas dele. Dono e gestor (administradores da
- * empresa) veem todas. Rota de outro motorista aberta pelo link tambem fica
- * fechada.
+ * app, cada motorista ve so' as rotas dele. O dono ve todas; os outros com a
+ * permissao "App: Entregas -- ver as rotas de todos os motoristas" (troca do
+ * administrador, 25/11/2026: o administrador ve pela permissao, que ele tem
+ * enquanto o dono nao salvar as dele). Rota de outro motorista aberta pelo
+ * link tambem fica fechada.
  */
 
-/** Dono e gestor veem as rotas de todos os motoristas. */
-export const veTodasAsRotas = (userRole: unknown, isOwner: boolean): boolean => hasTenantFullAccess(userRole, isOwner);
+export const PERMISSAO_ENTREGAS_TODAS = 'operacoes.entregas_app_todas';
+
+/** O dono, ou quem tem a permissao, ve as rotas de todos os motoristas. */
+export const veTodasAsRotas = (userRole: unknown, isOwner: boolean, permissoes: readonly string[] = []): boolean => (
+  hasTenantFullAccess(userRole, isOwner) || permissoes.includes(PERMISSAO_ENTREGAS_TODAS)
+);
 
 /**
  * A rota e' deste motorista: o motorista dela e' o proprio login ou o cadastro

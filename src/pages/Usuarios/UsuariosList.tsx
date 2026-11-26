@@ -5,7 +5,8 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { showSuccess, showError, NexusSwal } from '../../utils/alerts';
-import { isTenantManagerRole } from '../../utils/roles';
+import { isPlatformAdminRole, isTenantManagerRole } from '../../utils/roles';
+import { nivelAcessoEfetivo } from '../../utils/permissoesNovasDomain';
 import {
   NIVEL_ACESSO_LABELS,
   type NivelAcesso,
@@ -41,6 +42,7 @@ interface UsuarioData {
   role: string;
   status: string;
   nivelAcesso?: string;
+  permissoes?: string[];
 }
 
 const UsuariosList: React.FC = () => {
@@ -65,8 +67,12 @@ const UsuariosList: React.FC = () => {
   // porque as duas telas exigem permissoes diferentes (administrativo.equipe
   // vs administrativo.config) -- ver comentario em PermissoesUsuarioModal.
   const [usuarioPermissoes, setUsuarioPermissoes] = useState<UsuarioData | null>(null);
-  // Dono/administrador gere todos (menos outro gestor).
-  const canManageUsers = isTenantManagerRole(userRole) || Boolean(isOwner);
+  // O dono (e a plataforma) gere todos -- e e' o unico que mexe num administrador.
+  // Troca do administrador (25/11/2026): o administrador passa pela permissao de cada
+  // acao (tem todas enquanto o dono nao salvar as dele) e alcanca funcionario e
+  // gerente, nunca o dono nem outro administrador.
+  const canManageUsers = Boolean(isOwner) || isPlatformAdminRole(userRole);
+  const ehAdministrador = isTenantManagerRole(userRole) && !canManageUsers;
   // Item 15 (fase Administracao, 25/11/2026): o resto, cada acao pela sua permissao
   // (o gerente com Equipe e Acessos ja' vem com elas marcadas); o servidor confere de novo.
   const temPermissao = (id: string) => canManageUsers || userPermissions.includes(id);
@@ -110,9 +116,13 @@ const UsuariosList: React.FC = () => {
     targetNivelAcesso: parseNivelAcesso(user.nivelAcesso),
     actorUserId: currentUser?.uid,
   });
-  const podeNoUsuario = (user: UsuarioData, permissao: string) => (canManageUsers
-    ? !isTenantManagerRole(user.role)
-    : userPermissions.includes(permissao) && alvoComum(user));
+  const podeNoUsuario = (user: UsuarioData, permissao: string) => {
+    if (canManageUsers) return !isTenantManagerRole(user.role);
+    if (!userPermissions.includes(permissao)) return false;
+    // Administrador: funcionario e gerente (nunca o dono nem outro administrador).
+    if (ehAdministrador) return !isTenantManagerRole(user.role) && user.id !== tenantId;
+    return alvoComum(user);
+  };
   /** Abre a ficha (nome, codigo, senha de acesso e de vendedor). */
   const podeGerir = (user: UsuarioData) => podeNoUsuario(user, PERMISSAO_ADMINISTRACAO.equipeEditar)
     || podeNoUsuario(user, PERMISSAO_ADMINISTRACAO.equipeSenha);
@@ -122,15 +132,21 @@ const UsuariosList: React.FC = () => {
    * So' o LAPIS (ficha: codigo e senha de vendedor) em quem e' dono/administrador
    * (24/11/2026, pedido do dono: "o dono tem que ter pelo menos o lapis para
    * definir o codigo, pra conseguir entrar no caixa com codigo tambem"). A pessoa
-   * edita a propria ficha; o dono tambem edita a do administrador. Inativar e
-   * permissoes continuam fechados nessas linhas. O servidor ja' aceita (gestor).
+   * edita a propria ficha; o dono tambem edita a do administrador. Inativar
+   * continua fechado nessas linhas; as permissoes do administrador, so' o dono
+   * (troca do administrador, 25/11/2026). O administrador edita a propria ficha
+   * com a permissao de Equipe (ficha ou senha). O servidor confere de novo.
    */
   const podeEditarFicha = (user: UsuarioData) => {
     if (podeGerir(user)) return true;
-    if (!isTenantManagerRole(user.role) || !canManageUsers) return false;
-    if (user.id === currentUser?.uid) return true;
+    if (!isTenantManagerRole(user.role)) return false;
+    if (user.id === currentUser?.uid) {
+      return canManageUsers || [PERMISSAO_ADMINISTRACAO.equipeEditar, PERMISSAO_ADMINISTRACAO.equipeSenha].some((id) => userPermissions.includes(id));
+    }
     return Boolean(isOwner) && user.id !== tenantId;
   };
+  /** Permissoes de um administrador: so' o dono (o dono nao tem permissoes para marcar). */
+  const podePermissoesDoAdministrador = (user: UsuarioData) => Boolean(isOwner) && isTenantManagerRole(user.role) && user.id !== tenantId;
 
   /**
    * Inativar/reativar ADMINISTRADOR (bloco B de seguranca, 25/11/2026, decisao do
@@ -188,11 +204,11 @@ const UsuariosList: React.FC = () => {
   // sistema, que continua sendo quem manda nos modulos.
   const getNivelBadge = (user: UsuarioData) => {
     const ehDono = user.id === tenantId;
-    // Dono e papel de gestor ja veem tudo por outro caminho -- a etiqueta
-    // mostra o efeito, nao o campo gravado.
-    const nivel: NivelAcesso = ehDono || isTenantManagerRole(user.role)
+    // O dono ve tudo por outro caminho; o administrador que o dono ainda nao
+    // salvou ve como gerente -- a etiqueta mostra o efeito, nao o campo gravado.
+    const nivel: NivelAcesso = ehDono
       ? 'gerente'
-      : parseNivelAcesso(user.nivelAcesso);
+      : parseNivelAcesso(nivelAcessoEfetivo(user.nivelAcesso, user.role, user.permissoes));
     const cor = nivel === 'funcionario' ? '#6b7280' : '#10b981';
     return (
       <span style={{ backgroundColor: cor + '1a', color: cor, padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
@@ -335,16 +351,28 @@ const UsuariosList: React.FC = () => {
                     </td>
                     {podeAlgumaAcao && (
                       <td {...semAbrirLinha} style={{ padding: '16px', textAlign: 'right' }}>
-                        {isTenantManagerRole(user.role) && podeEditarFicha(user) && (
+                        {isTenantManagerRole(user.role) && (podeEditarFicha(user) || podePermissoesDoAdministrador(user)) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar código e senha de vendedor (para entrar no caixa com código)">
-                              <Edit2 size={18} />
-                            </button>
+                            {podePermissoesDoAdministrador(user) && (
+                              <button
+                                className="icon-btn"
+                                style={{ color: '#8b5cf6' }}
+                                onClick={() => setUsuarioPermissoes(user)}
+                                title="Definir as permissões deste administrador (enquanto você não salvar, ele tem todas)"
+                              >
+                                <Shield size={18} />
+                              </button>
+                            )}
+                            {podeEditarFicha(user) && (
+                              <button className="icon-btn" style={{ color: '#3b82f6' }} onClick={() => openTab(`/usuarios/editar/${user.id}`)} title="Editar código e senha de vendedor (para entrar no caixa com código)">
+                                <Edit2 size={18} />
+                              </button>
+                            )}
                           </div>
                         )}
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            {podeGerenciarPermissoes && (canManageUsers || alvoComum(user)) && (
+                            {podeGerenciarPermissoes && (canManageUsers || (ehAdministrador ? user.id !== tenantId : alvoComum(user))) && (
                               <button
                                 className="icon-btn"
                                 style={{ color: '#8b5cf6' }}

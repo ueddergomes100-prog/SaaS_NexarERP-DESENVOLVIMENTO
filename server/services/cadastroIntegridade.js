@@ -83,7 +83,7 @@ const CADASTROS = {
 // ---------------------------------------------------------------------------
 
 const temPermissao = (user, permissoes) => Boolean(
-  user && (user.isPlatformAdmin || user.isTenantManager
+  user && (user.isPlatformAdmin || user.dono
     || (Array.isArray(user.permissoes) && permissoes.some((p) => user.permissoes.includes(p)))),
 );
 

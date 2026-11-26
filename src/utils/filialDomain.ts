@@ -1,3 +1,5 @@
+import { administradorComTodas } from './papelAdministradorDomain';
+
 /**
  * FILIAIS (2026-10-06) -- regras puras, usadas pela tela e pelo servidor
  * (compiladas para server/domain por scripts/build-server-domain.mjs).
@@ -10,8 +12,9 @@
  *  - O usuario pertence a uma filial (`usuarios/{uid}.tenantId`, a "casa"
  *    dele) e trabalha na `filialAtiva` (so' o servidor grava). As
  *    firestore.rules e o servidor usam a filial ativa como empresa da vez.
- *  - Quem entra em outras filiais: dono e administrador do grupo (role
- *    Master/Admin), e funcionario com a permissao "Utiliza outras filiais".
+ *  - Quem entra em outras filiais: o dono do grupo, e quem tem a permissao
+ *    "Utiliza outras filiais" (o administrador, desde 25/11/2026, tambem pela
+ *    permissao -- que ele tem enquanto o dono nao salvar as dele).
  *    Decisao do dono (06/10): as permissoes valem iguais em todas as filiais.
  */
 
@@ -57,7 +60,6 @@ const texto = (valor: unknown): string => (typeof valor === 'string' ? valor.tri
 const soDigitos = (valor: unknown): string => String(valor ?? '').replace(/\D/g, '');
 const lista = (valor: unknown): string[] => (Array.isArray(valor) ? valor.filter((v): v is string => typeof v === 'string') : []);
 
-const PAPEIS_GESTORES = ['Master', 'Admin'];
 
 export const UFS = [
   'AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB',
@@ -145,10 +147,17 @@ export const rotuloFilial = (filial: Pick<FilialDoGrupo, 'codigo' | 'nome'> | nu
 /** Filial em que o usuario esta trabalhando agora (a ativa ou, sem ela, a casa). */
 export const filialAtivaDoUsuario = (usuario: UsuarioDaFilial): string => texto(usuario.filialAtiva) || texto(usuario.tenantId) || usuario.uid;
 
+/**
+ * Dono do grupo: liberado em tudo das filiais. Troca do administrador
+ * (25/11/2026, "o dono sempre pode; o resto so' com a permissao marcada"):
+ * o papel Master/Admin deixou de bastar -- o administrador vai pelas
+ * permissoes de Filiais (filiais.*, que ele tem todas enquanto o dono nao
+ * salvar as dele; permissoesNovasDomain.ts, pacote 'administrador-1').
+ * Grupo antigo sem `donoUid`: o dono e' o da matriz.
+ */
 export const ehGestorDoGrupo = (grupo: GrupoEmpresarial | null, usuario: UsuarioDaFilial): boolean => {
-  if (!grupo) return false;
-  if (grupo.donoUid && grupo.donoUid === usuario.uid) return true;
-  return PAPEIS_GESTORES.includes(texto(usuario.role)) && pertenceAoGrupo(grupo, usuario);
+  if (!grupo || !usuario.uid) return false;
+  return (grupo.donoUid || grupo.matrizTenantId) === usuario.uid;
 };
 
 export const pertenceAoGrupo = (grupo: GrupoEmpresarial | null, usuario: UsuarioDaFilial): boolean => (
@@ -157,7 +166,9 @@ export const pertenceAoGrupo = (grupo: GrupoEmpresarial | null, usuario: Usuario
 
 export const podeUsarOutrasFiliais = (grupo: GrupoEmpresarial | null, usuario: UsuarioDaFilial): boolean => {
   if (!grupo || !pertenceAoGrupo(grupo, usuario)) return false;
-  return ehGestorDoGrupo(grupo, usuario) || lista(usuario.permissoes).includes(PERMISSAO_UTILIZA_OUTRAS_FILIAIS);
+  return ehGestorDoGrupo(grupo, usuario) || lista(usuario.permissoes).includes(PERMISSAO_UTILIZA_OUTRAS_FILIAIS)
+    // Administrador cujo pacote o dono ainda nao salvou (cadastro lido do banco: sem as efetivas).
+    || administradorComTodas(usuario.permissoes, usuario.role);
 };
 
 /** Filiais em que o usuario pode entrar (ativas), na ordem do codigo. Sem a permissao, so' a casa dele. */

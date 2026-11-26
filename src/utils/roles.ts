@@ -1,3 +1,5 @@
+import { administradorTemSemPacote } from './papelAdministradorDomain';
+
 export type UserRole = 'NexarAdmin' | 'SuperAdmin' | 'Master' | 'Admin' | 'Funcionario';
 
 const VALID_ROLES: UserRole[] = ['NexarAdmin', 'SuperAdmin', 'Master', 'Admin', 'Funcionario'];
@@ -16,13 +18,24 @@ export const isTenantManagerRole = (role: unknown): boolean => {
   return TENANT_MANAGER_ROLES.includes(role as UserRole);
 };
 
+/**
+ * Liberado em tudo sem olhar permissao: o DONO da empresa e a equipe da
+ * plataforma. Troca do administrador (25/11/2026, decisao do dono: "o dono
+ * sempre pode; o resto so' com a permissao marcada"): o papel Master/Admin
+ * deixou de liberar sozinho -- o administrador passa pelas permissoes
+ * efetivas (permissoesNovasDomain.ts, pacote 'administrador-1': enquanto o
+ * dono nao salvar as permissoes dele, sao todas). `isTenantManagerRole` fica
+ * so' para saber QUEM e' administrador (alvo da Equipe, rotulos).
+ */
 export const hasTenantFullAccess = (role: unknown, isOwner: boolean): boolean => {
-  return isOwner || isTenantManagerRole(role) || isPlatformAdminRole(role);
+  return isOwner || isPlatformAdminRole(role);
 };
 
 /**
- * Padrao de acesso a modulo/catalogo: dono, papel de plataforma/gestor da
- * empresa, ou permissao especifica concedida ao funcionario.
+ * Padrao de acesso a modulo/catalogo: dono, plataforma, ou a permissao
+ * concedida ao funcionario ou ao administrador. `permissions` pode vir crua
+ * (cadastro de outra pessoa lido do banco): o administrador cujo pacote o
+ * dono ainda nao salvou conta com todas (papelAdministradorDomain.ts).
  */
 export const hasModuleAccess = (args: {
   role: unknown;
@@ -31,5 +44,6 @@ export const hasModuleAccess = (args: {
   requiredPermission: string;
 }): boolean => {
   return hasTenantFullAccess(args.role, args.isOwner) ||
-    !!args.permissions?.includes(args.requiredPermission);
+    !!args.permissions?.includes(args.requiredPermission) ||
+    administradorTemSemPacote(args.permissions, args.role, args.requiredPermission);
 };

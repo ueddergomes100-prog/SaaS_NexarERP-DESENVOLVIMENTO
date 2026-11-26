@@ -16,7 +16,7 @@ const BASE = {
   'configuracoes/loja': { tenantId: 'loja', email: 'loja@empresa.com.br', nomeOficina: 'SHOPPING RURAL' },
   'configuracoes_privadas/loja': { smtpHost: 'smtp.empresa.com.br', smtpPorta: 465, smtpUsuario: 'loja@empresa.com.br', smtpSenha: 'x' },
 };
-const DONO = { uid: 'dono', tenantId: 'loja', isTenantManager: true, permissoes: [] };
+const DONO = { uid: 'dono', tenantId: 'loja', dono: true, permissoes: [] };
 const b64 = (texto) => Buffer.from(texto).toString('base64');
 const CORPO = {
   para: 'contador@escritorio.com.br',

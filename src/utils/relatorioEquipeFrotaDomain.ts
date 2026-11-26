@@ -1,6 +1,7 @@
 import type { ColunaRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
 import type { DocumentoRelatorioDeCadastro } from './relatorioCadastrosFinanceirosDomain';
 import { NIVEL_ACESSO_LABELS, parseNivelAcesso } from './visibilidadeVendasDomain';
+import { administradorComTodas, nivelAcessoEfetivo } from './permissoesNovasDomain';
 import { formatarPlaca } from './frotaDomain';
 
 /*
@@ -59,7 +60,6 @@ const ROTULO_PERFIL: Record<string, string> = {
   Vendedor: 'Vendedor / Recepção (legado)',
 };
 
-const ehGestor = (role: unknown): boolean => role === 'Master' || role === 'Admin';
 
 /** Login como a tela mostra: sem o prefixo da empresa. */
 export const loginDoUsuario = (u: Pick<UsuarioDoRelatorio, 'username' | 'email'>): string => {
@@ -74,7 +74,7 @@ export const montarDocumentoEquipe = (
 ): DocumentoRelatorioDeCadastro => {
   const ativos = usuarios.filter((u) => (u.status || 'Ativo') === 'Ativo').length;
   const nivel = (u: UsuarioDoRelatorio): string => NIVEL_ACESSO_LABELS[
-    u.id === opcoes.donoId || ehGestor(u.role) ? 'gerente' : parseNivelAcesso(u.nivelAcesso)
+    u.id === opcoes.donoId ? 'gerente' : parseNivelAcesso(nivelAcessoEfetivo(u.nivelAcesso, u.role, u.permissoes))
   ];
 
   const colunas: ColunaRelatorio<UsuarioDoRelatorio>[] = [
@@ -82,8 +82,9 @@ export const montarDocumentoEquipe = (
     { id: 'login', titulo: 'Login', tipo: 'texto', largura: 36, valor: loginDoUsuario },
     { id: 'perfil', titulo: 'Perfil', tipo: 'texto', largura: 30, valor: (u) => ROTULO_PERFIL[String(u.role || '')] || String(u.role || '') },
     { id: 'nivel', titulo: 'Vê vendas como', tipo: 'texto', largura: 22, valor: nivel },
-    // Gestor (dono/administrador) tem acesso a tudo: as permissoes marcadas nao contam.
-    { id: 'permissoes', titulo: 'Permissões', tipo: 'texto', largura: 22, padrao: false, valor: (u) => (ehGestor(u.role) ? 'Todas' : String((u.permissoes || []).length)) },
+    // O dono tem acesso a tudo; o administrador que o dono ainda nao salvou tambem (troca do
+    // administrador, 25/11/2026). Fora isso, as marcadas (sem os marcadores internos).
+    { id: 'permissoes', titulo: 'Permissões', tipo: 'texto', largura: 22, padrao: false, valor: (u) => (u.id === opcoes.donoId || administradorComTodas(u.permissoes, u.role) ? 'Todas' : String((u.permissoes || []).filter((p) => !p.startsWith('pacote.') && p !== 'app.definido').length)) },
     { id: 'comissao', titulo: 'Comissão', tipo: 'texto', largura: 40, padrao: false, valor: textoDaComissao },
     { id: 'situacao', titulo: 'Situação', tipo: 'texto', largura: 16, valor: (u) => situacao((u.status || 'Ativo') === 'Ativo') },
   ];

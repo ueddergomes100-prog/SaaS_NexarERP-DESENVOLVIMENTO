@@ -30,9 +30,9 @@ const BASE = {
   'configuracoes/f20': { tenantId: 'f20', grupoId: 'g1', cfopsDesativados: ['5101'] },
 };
 
-const DONO = { uid: 'dono', tenantId: 'dono', role: 'Master', isTenantManager: true, permissoes: [] };
-const VENDEDOR = { uid: 'vendedor', tenantId: 'f20', role: 'Funcionario', isTenantManager: false, permissoes: ['fiscal.tabelas'] };
-const SEM_PERMISSAO = { uid: 'x', tenantId: 'f20', role: 'Funcionario', isTenantManager: false, permissoes: [] };
+const DONO = { uid: 'dono', tenantId: 'dono', role: 'Master', dono: true, permissoes: [] };
+const VENDEDOR = { uid: 'vendedor', tenantId: 'f20', role: 'Funcionario', dono: false, permissoes: ['fiscal.tabelas'] };
+const SEM_PERMISSAO = { uid: 'x', tenantId: 'f20', role: 'Funcionario', dono: false, permissoes: [] };
 const SUPORTE = { uid: 'sup', tenantId: 'plataforma', role: 'SuperAdmin', isPlatformAdmin: true, permissoes: [] };
 
 test('CFOP: o dono desativa e reativa em todas as filiais do grupo, sem repetir', async () => {
@@ -51,7 +51,7 @@ test('CFOP: o dono desativa e reativa em todas as filiais do grupo, sem repetir'
 test('CFOP: funcionario (mesmo com a permissao da tela) nao altera; CFOP fora da tabela e recusado', async () => {
   const fake = criarBancoFalso(BASE);
   const s = carregar(fake.db);
-  await assert.rejects(s.definirCfopAtivo({ user: VENDEDOR, codigo: '5102', ativo: false }), (e) => e.status === 403 && /dono ou um administrador/.test(e.message));
+  await assert.rejects(s.definirCfopAtivo({ user: VENDEDOR, codigo: '5102', ativo: false }), (e) => e.status === 403 && /vale para a empresa inteira.*ativar e desativar CFOP/.test(e.message));
   await assert.rejects(s.definirCfopAtivo({ user: DONO, codigo: '5999', ativo: false }), (e) => e.status === 400 && /não está na tabela/.test(e.message));
   await assert.rejects(s.definirCfopAtivo({ user: DONO, codigo: '5102', ativo: 'sim' }), (e) => e.status === 400);
   assert.deepEqual(fake.ler('configuracoes/f20').cfopsDesativados, ['5101']);

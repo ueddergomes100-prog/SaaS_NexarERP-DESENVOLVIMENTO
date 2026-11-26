@@ -71,7 +71,7 @@ const montarMensagem = ({ empresaNome, periodo, anexos }) => {
  * Envia. `criarTransporte(smtp)` vem de fora (nodemailer na rota; falso no teste).
  */
 const enviarAoContador = async ({ user, tenantId, corpo, criarTransporte }) => {
-  if (!(user.isPlatformAdmin || user.isTenantManager || (user.permissoes || []).includes(PERMISSAO))) {
+  if (!(user.isPlatformAdmin || user.dono || (user.permissoes || []).includes(PERMISSAO))) {
     throw new ErroEnvioContador(403, 'Você não tem a permissão "Fiscal: Relatório do Contador". Peça ao administrador da empresa.');
   }
   const pedido = lerPedido(corpo);

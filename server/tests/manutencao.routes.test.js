@@ -55,7 +55,7 @@ app.use(express.json());
 app.use('/api/manutencao', rota);
 
 const PLATAFORMA = { uid: 'u1', email: 'dono@teste', tenantId: 'T0', isPlatformAdmin: true };
-const DONO_DE_EMPRESA = { uid: 'u2', tenantId: 'T1', isPlatformAdmin: false, isTenantManager: true };
+const DONO_DE_EMPRESA = { uid: 'u2', tenantId: 'T1', isPlatformAdmin: false, dono: true };
 
 const comServidor = async (fn) => {
   const servidor = app.listen(0);

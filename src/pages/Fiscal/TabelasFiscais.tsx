@@ -368,9 +368,11 @@ const AbaNcmCest: React.FC<{ tipo: 'ncm' | 'cest'; podeAlimentar: boolean }> = (
 const TabelasFiscais: React.FC = () => {
   const { isPlatformAdmin, ehGestorDasFiliais, grupo, userPermissions } = useAuth();
   const [aba, setAba] = useState<Aba>('cfop');
-  // Mesma regra do servidor (Configuracoes Gerais): com filiais, dono/administrador do grupo;
-  // sem filiais, dono/administrador ou quem tem "Admin: Configuracoes".
-  const podeAtivar = isPlatformAdmin || ehGestorDasFiliais || (!grupo && userPermissions.includes('administrativo.config'));
+  // Mesma regra do servidor (configuracoesGerais.js, exigirPermissao): o dono, ou quem tem
+  // "Fiscal: Tabelas Fiscais — ativar e desativar CFOP" (troca do administrador, 25/11/2026:
+  // o administrador pela permissao); sem filiais, tambem "Admin: Configuracoes".
+  const podeAtivar = isPlatformAdmin || ehGestorDasFiliais || userPermissions.includes('fiscal.tabelas_ativar')
+    || (!grupo && userPermissions.includes('administrativo.config'));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

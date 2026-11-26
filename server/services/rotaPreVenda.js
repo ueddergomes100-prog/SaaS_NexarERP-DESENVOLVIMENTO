@@ -31,7 +31,7 @@ const { registrarLog } = require('./auditoria');
 const TS = () => admin.firestore.FieldValue.serverTimestamp();
 
 const temPermissao = (user, permissao) => (
-  Boolean(user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
+  Boolean(user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
 );
 
 // Quem grava pre-venda ou venda pode coloca'-la na rota; quem monta rota tambem.

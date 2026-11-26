@@ -22,7 +22,7 @@ router.use(authenticate);
 const PERMISSAO_PRODUCAO = 'operacoes.producao';
 const podeMexerNaProducao = (req, res, next) => {
   const u = req.user;
-  if (u && (u.isPlatformAdmin || u.isTenantManager || (u.permissoes || []).includes(PERMISSAO_PRODUCAO))) return next();
+  if (u && (u.isPlatformAdmin || u.dono || (u.permissoes || []).includes(PERMISSAO_PRODUCAO))) return next();
   return res.status(403).json({ error: 'Só quem tem a permissão de Produção, o dono ou um administrador cadastra as caixas (taras).' });
 };
 

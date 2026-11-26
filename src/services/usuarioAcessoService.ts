@@ -74,8 +74,22 @@ export const salvarFichaNoServidor = (dados: { usuarioId: string; nome: string; 
   postar<{ motorista?: { novo: boolean; appLiberado: boolean; limiteApp: number } }>('ficha', { ...dados }, 'Não foi possível salvar o funcionário. Tente novamente.');
 
 /** Permissoes (e o nivel, so' dono/administrador) pelo servidor (26/10/2026). */
-export const salvarPermissoesNoServidor = (usuarioId: string, permissoes: string[], nivelAcesso?: string) =>
-  postar<{ ok: boolean }>('permissoes', { usuarioId, permissoes, ...(nivelAcesso ? { nivelAcesso } : {}) }, 'Não foi possível salvar as permissões. Tente novamente.');
+/** Regras de comissao do usuario (troca do administrador, 25/11/2026: pelo servidor, com a permissao propria). */
+export interface ComissaoDoUsuario {
+  recebeComissaoServicos: boolean;
+  /** null = sem percentual proprio (usa a comissao padrao do sistema). */
+  comissaoPercentualServicos: number | null;
+  recebeComissaoPecas: boolean;
+  comissaoPercentualPecas: number | null;
+}
+
+export const salvarPermissoesNoServidor = (usuarioId: string, permissoes: string[], nivelAcesso?: string, comissao?: ComissaoDoUsuario) =>
+  postar<{ ok: boolean }>('permissoes', {
+    usuarioId,
+    permissoes,
+    ...(nivelAcesso ? { nivelAcesso } : {}),
+    ...(comissao ? { comissao } : {}),
+  }, 'Não foi possível salvar as permissões. Tente novamente.');
 
 /**
  * Cadastro de vendedor de balcao (sem login) pelo servidor (bloco B de seguranca,

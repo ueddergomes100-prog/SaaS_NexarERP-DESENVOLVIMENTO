@@ -5,8 +5,8 @@
  * permissoesVendas.js): cada acao pede a SUA permissao, conferida pelas
  * EFETIVAS (permissoesNovasDomain.ts, pacote 'estoque-1' -- quem ja' usa a tela
  * tem as novas ate' as permissoes dele serem salvas de novo; o nivel gerente
- * traz o Modo Avancado e a transferencia sem nota). Dono/administrador
- * (Master/Admin) e plataforma seguem liberados nesta fase.
+ * traz o Modo Avancado e a transferencia sem nota). Dono e plataforma seguem
+ * liberados; o administrador, pelas efetivas (troca do administrador, 25/11/2026).
  *
  * Aqui so' o que ja' passa pelo servidor: inativar/reativar e excluir
  * cadastro (cadastroIntegridade.js), fechar e cancelar balanco, receber,

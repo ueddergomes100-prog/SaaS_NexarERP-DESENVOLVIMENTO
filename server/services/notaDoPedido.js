@@ -26,7 +26,7 @@ class ErroNotaDoPedido extends Error {
 
 const temPermissao = (user, permissao) => Boolean(
   user.isPlatformAdmin
-  || user.isTenantManager
+  || user.dono
   || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)),
 );
 

@@ -28,7 +28,7 @@ const router = express.Router();
 router.use(authenticate);
 
 const tem = (user) => Boolean(
-  user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(PERMISSAO_ENTREGAS_FUTURAS)),
+  user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(PERMISSAO_ENTREGAS_FUTURAS)),
 );
 const SEM_PERMISSAO = 'Você não tem permissão para registrar entregas futuras. Peça a um responsável liberar "Expedição: Entregas futuras" no seu usuário.';
 

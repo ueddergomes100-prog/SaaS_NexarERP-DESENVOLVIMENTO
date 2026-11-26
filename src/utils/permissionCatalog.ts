@@ -57,6 +57,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'mecanica.os_app', label: 'App: OS (técnico) — ver e atender pelo celular', color: '#8b5cf6' },
       { id: 'mecanica.os_app_abrir', label: 'App: OS — abrir OS nova no campo', color: '#8b5cf6' },
       { id: 'operacoes.entregas_app', label: 'App: Entregas (motorista) — registrar entrega, recebido e canhoto', color: '#8b5cf6' },
+      // Troca do administrador (25/11/2026): so' o dono/administrador via todas; nao vem com nada.
+      { id: 'operacoes.entregas_app_todas', label: 'App: Entregas — ver as rotas de todos os motoristas', color: '#8b5cf6' },
       { id: 'app.conferencia', label: 'App: Conferência (precisa de Expedição)', color: '#8b5cf6' },
       { id: 'app.balanco', label: 'App: Balanço — contar (precisa de Estoque: Balanço — contar)', color: '#8b5cf6' },
       { id: 'app.liberacoes', label: 'App: Liberações de desconto (precisa de Aprovar Desconto)', color: '#8b5cf6' },
@@ -223,6 +225,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // 21/10/2026 (pedido do dono): incluir e alterar vendedor sem ser o dono. Liberar
       // desconto e o app continuam so' com o dono/administrador (ver VendedoresList.tsx).
       { id: 'cadastros.vendedores_incluir', label: 'Cadastros: Vendedores — incluir e alterar', color: '#8b5cf6' },
+      // Troca do administrador (25/11/2026): so' o papel fazia; nao vem com nada (o administrador que
+      // o dono ainda nao salvou tem todas -- permissoesNovasDomain.ts, pacote 'administrador-1').
+      { id: 'cadastros.vendedores_liberadores', label: 'Cadastros: Vendedores — liberar desconto e aplicativo no cadastro do vendedor', color: '#ef4444' },
       // Item 15 (fase Estoque e cadastros, 25/11/2026): pacote 'estoque-1' -- ja' vem marcadas
       // para quem tem a permissao da tela do cadastro.
       { id: 'cadastros.clientes_alterar', label: 'Cadastros: Clientes — incluir e alterar (alerta e padronizar nomes)', color: '#8b5cf6' },
@@ -415,6 +420,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // dono/administrador mexia; nao vem com nada.
       { id: 'fiscal.configurar', label: 'Fiscal: Configurar a nota fiscal (chave da Spedy e e-mail das notas)', color: '#ef4444' },
       { id: 'fiscal.numeracao', label: 'Fiscal: Série, próximo número, ambiente e CSC das notas', color: '#ef4444' },
+      // Troca do administrador (25/11/2026): com filiais, so' o dono/administrador ativava CFOP.
+      { id: 'fiscal.tabelas_ativar', label: 'Fiscal: Tabelas Fiscais — ativar e desativar CFOP (vale para a empresa inteira)', color: '#ef4444' },
       { id: 'utilitarios.sintegra', label: 'Utilitários: SINTEGRA', color: '#94a3b8' },
     ],
   },
@@ -459,6 +466,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'administrativo.backup_gerar', label: 'Admin: Backup — gerar e ver o agendamento', color: '#ef4444' },
       { id: 'administrativo.backup_baixar', label: 'Admin: Backup — baixar a cópia da empresa inteira', color: '#ef4444' },
       { id: 'administrativo.liberar_trava', label: 'Admin: Liberar documento aberto por outra pessoa', color: '#6b7280' },
+      // Troca do administrador (25/11/2026): so' o papel fazia; nao vem com nada.
+      { id: 'administrativo.comissao_usuario', label: 'Admin: Equipe — regras de comissão de cada usuário', color: '#ef4444' },
     ],
   },
   {

@@ -48,5 +48,9 @@ test('isPlatformAdminRole e isTenantManagerRole continuam corretos (regressao)',
 test('hasTenantFullAccess continua correto (regressao)', () => {
   assert.equal(hasTenantFullAccess('Funcionario', true), true);
   assert.equal(hasTenantFullAccess('Funcionario', false), false);
-  assert.equal(hasTenantFullAccess('Admin', false), true);
+  // Troca do administrador (25/11/2026): o papel sozinho nao libera; o dono e a plataforma sim.
+  assert.equal(hasTenantFullAccess('Admin', false), false);
+  assert.equal(hasTenantFullAccess('Master', false), false);
+  assert.equal(hasTenantFullAccess('Master', true), true);
+  assert.equal(hasTenantFullAccess('SuperAdmin', false), true);
 });

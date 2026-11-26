@@ -35,14 +35,15 @@ exports.MOTIVO_TRANSFERENCIA_RETORNO = 'transferencia_retorno';
 const parseTransferenciaSemNota = (valor) => valor === true;
 exports.parseTransferenciaSemNota = parseTransferenciaSemNota;
 /**
- * Sem nota: dono/administrador ou quem tem "Filiais: Transferir estoque sem
- * nota fiscal" (item 15, 25/11/2026). O nivel gerente nao libera mais
- * sozinho: ele traz a permissao marcada pelo pacote 'estoque-1'
- * (permissoesNovasDomain.ts) ate' as permissoes da pessoa serem salvas de novo.
+ * Sem nota: quem tem "Filiais: Transferir estoque sem nota fiscal" (item 15,
+ * 25/11/2026). O nivel gerente nao libera mais sozinho: ele traz a permissao
+ * marcada pelo pacote 'estoque-1' (permissoesNovasDomain.ts) ate' as
+ * permissoes da pessoa serem salvas de novo. Troca do administrador
+ * (25/11/2026): o papel tambem nao libera sozinho -- o dono e o administrador
+ * que o dono ainda nao salvou tem todas pelas efetivas com o papel.
  * `permissoes` cru do cadastro ou as efetivas da tela (aplicar de novo nao muda nada).
  */
-const podeTransferirSemNota = (usuario) => (['Master', 'Admin'].includes(String(usuario.role ?? ''))
-    || (0, permissoesNovasDomain_1.permissoesEfetivasDoUsuario)(usuario.permissoes, usuario.nivelAcesso).includes(permissoesNovasDomain_1.PERMISSAO_FILIAIS.transferirSemNota));
+const podeTransferirSemNota = (usuario) => ((0, permissoesNovasDomain_1.permissoesEfetivasDoUsuario)(usuario.permissoes, usuario.nivelAcesso, { papel: usuario.role }).includes(permissoesNovasDomain_1.PERMISSAO_FILIAIS.transferirSemNota));
 exports.podeTransferirSemNota = podeTransferirSemNota;
 const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
 const texto = (v) => (typeof v === 'string' ? v.trim() : '');

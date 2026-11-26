@@ -10,7 +10,7 @@ const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreF
 
 const carregar = (db) => carregarComBancoFalso(db, 'services/romaneios')[3];
 
-const GESTOR = { uid: 'gestor', tenantId: 'emp', isTenantManager: true, permissoes: [] };
+const GESTOR = { uid: 'gestor', tenantId: 'emp', dono: true, permissoes: [] };
 const LOGISTICA = { uid: 'log', tenantId: 'emp', permissoes: ['operacoes.romaneios'] };
 const LOGISTICA_FIN = { uid: 'logfin', tenantId: 'emp', permissoes: ['operacoes.romaneios', 'financeiro.pagar'] };
 const REABRE = { uid: 'sup', tenantId: 'emp', permissoes: ['operacoes.romaneios', 'operacoes.romaneios_reabrir'] };

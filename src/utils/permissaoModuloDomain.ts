@@ -49,6 +49,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.condicional': ['comercial.condicional'],
   'vendas.gerenciar_pin_vendedor': ['cadastros.vendedores'],
   'cadastros.vendedores_incluir': ['cadastros.vendedores'],
+  'cadastros.vendedores_liberadores': ['cadastros.vendedores'],
   'vendas.orcamentos': ['comercial.orcamentos'],
   'vendas.orcamentos_alterar': ['comercial.orcamentos'],
   'vendas.orcamentos_excluir': ['comercial.orcamentos'],
@@ -94,6 +95,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'operacoes.romaneios': ['operacoes.romaneios'],
   'operacoes.romaneios_reabrir': ['operacoes.romaneios'],
   'operacoes.entregas_app': ['operacoes.romaneios'],
+  'operacoes.entregas_app_todas': ['operacoes.romaneios'],
 
   'financeiro.estornar': ['financeiro.receber', 'financeiro.pagar', 'financeiro.caixa'],
   'financeiro.alterar_valor_documento': ['financeiro.receber'],
@@ -126,6 +128,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'fiscal.excluir': ['fiscal.nfe'],
   'fiscal.relatorio_contador': ['fiscal.relatorio_contador'],
   'fiscal.tabelas': ['fiscal.nfe'],
+  'fiscal.tabelas_ativar': ['fiscal.nfe'],
   'fiscal.cce': ['fiscal.nfe'],
   'fiscal.inutilizar': ['fiscal.nfe'],
   'fiscal.devolucao': ['fiscal.nfe'],
@@ -202,6 +205,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
 
   'administrativo.config': ['admin.config'],
   'administrativo.equipe': ['cadastros.usuarios'],
+  'administrativo.comissao_usuario': ['cadastros.usuarios'],
   'administrativo.logs': ['logs.sistema'],
   'administrativo.relatorios': ['logs.relatorios_diversos'],
 };

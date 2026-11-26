@@ -13,7 +13,7 @@ const {
 } = require('../services/cadastroIntegridade');
 
 test('permissao: dono/admin sempre; funcionario so com a permissao do cadastro', () => {
-  assert.equal(temPermissao({ isTenantManager: true, permissoes: [] }, ['cadastros.clientes']), true);
+  assert.equal(temPermissao({ dono: true, permissoes: [] }, ['cadastros.clientes']), true);
   assert.equal(temPermissao({ isPlatformAdmin: true }, ['x']), true);
   assert.equal(temPermissao({ permissoes: ['cadastros.clientes'] }, ['cadastros.clientes']), true);
   // quem so' vende escreve em clientes pelas rules, mas NAO inativa cliente

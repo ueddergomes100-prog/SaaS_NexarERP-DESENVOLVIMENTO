@@ -16,7 +16,7 @@ const router = express.Router();
 router.use(authenticate);
 
 const temPermissao = (user, permissao) => Boolean(
-  user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)),
+  user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)),
 );
 
 const responderErro = (res, erro, oQue) => {

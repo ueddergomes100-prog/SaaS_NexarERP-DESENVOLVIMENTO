@@ -342,3 +342,62 @@ test('configuracoes da filial: abre com a permissao; bloco sem a sua fica no val
   assert.match(avisoDosBlocosTravados([CA.pixPedido]), /"Financeiro: Chave Pix impressa no pedido"/);
   assert.equal(avisoDosBlocosTravados([]), '');
 });
+
+// ---------------------------------------------------------------------------
+// Troca do administrador (25/11/2026): pacote 'administrador-1'.
+// ---------------------------------------------------------------------------
+
+test('administrador sem o marcador tem todas as permissoes do catalogo (menos as que restringem); funcionario nao', async () => {
+  const nd = await import('../src/utils/permissoesNovasDomain');
+  const { PERMISSION_CATALOG } = await import('../src/utils/permissionCatalog');
+  const efetivas = new Set(nd.permissoesEfetivasDoUsuario([], 'funcionario', { papel: 'Admin' }));
+  for (const { id } of PERMISSION_CATALOG) {
+    if (nd.PERMISSOES_QUE_RESTRINGEM.includes(id)) assert.ok(!efetivas.has(id), `${id} restringe: nao vem`);
+    else assert.ok(efetivas.has(id), `${id} para o administrador`);
+  }
+  assert.ok(efetivas.has(nd.MARCADOR_ADMINISTRADOR), 'leva o marcador: aplicar de novo nao muda nada');
+  assert.deepEqual(
+    [...nd.permissoesEfetivasDoUsuario([...efetivas], 'funcionario', { papel: 'Admin' })].sort(),
+    [...efetivas].sort(),
+  );
+  // Master que nao e' o dono tambem e' administrador; funcionario e sem papel, nao.
+  assert.ok(nd.permissoesEfetivasDoUsuario([], undefined, { papel: 'Master' }).includes('financeiro.pagar'));
+  assert.ok(!nd.permissoesEfetivasDoUsuario([], undefined, { papel: 'Funcionario' }).includes('financeiro.pagar'));
+  assert.ok(!nd.permissoesEfetivasDoUsuario([]).includes('financeiro.pagar'));
+  // Nivel: ve as vendas de todos ate' o dono salvar; depois, o escolhido.
+  assert.equal(nd.nivelAcessoEfetivo('funcionario', 'Admin', []), 'gerente');
+  assert.equal(nd.nivelAcessoEfetivo('supervisor', 'Admin', [nd.MARCADOR_ADMINISTRADOR]), 'supervisor');
+  assert.equal(nd.nivelAcessoEfetivo(undefined, 'Funcionario', []), 'funcionario');
+  assert.equal(nd.nivelAcessoEfetivo('administracao', 'Funcionario', []), 'gerente');
+});
+
+test('administrador salvo pelo dono: vale so o marcado; o marcador so vai para administrador', async () => {
+  const nd = await import('../src/utils/permissoesNovasDomain');
+  const gravadas = nd.permissoesParaGravarDoUsuario(['vendas.pedidos'], 'Admin');
+  assert.ok(gravadas.includes(nd.MARCADOR_ADMINISTRADOR));
+  MARCADORES_DOS_PACOTES.forEach((m) => assert.ok(gravadas.includes(m), m));
+  const efetivas = nd.permissoesEfetivasDoUsuario(gravadas, 'gerente', { papel: 'Admin' });
+  assert.ok(efetivas.includes('vendas.pedidos'));
+  assert.ok(!efetivas.includes('financeiro.pagar'), 'desmarcada pelo dono, fica sem');
+  assert.ok(!efetivas.includes(PERMISSAO_ESTOQUE.produtoAvancado), 'o nivel gerente nao traz nada depois de salvo');
+  assert.ok(!nd.permissoesParaGravarDoUsuario(['vendas.pedidos'], 'Funcionario').includes(nd.MARCADOR_ADMINISTRADOR));
+  assert.ok(!nd.permissoesParaGravarDoUsuario(['vendas.pedidos']).includes(nd.MARCADOR_ADMINISTRADOR));
+  assert.ok(nd.ehMarcadorInterno(nd.MARCADOR_ADMINISTRADOR), 'nao aparece na tela nem no historico');
+  // Gerente/administrador so' da' o que tem: o administrador salvo sem Contas a Pagar nao da'.
+  const semTer = nd.mexidasSemTer({ antes: [], depois: ['financeiro.pagar'], doGerente: gravadas, papelDoGerente: 'Admin' });
+  assert.ok(semTer.includes('financeiro.pagar'));
+  assert.deepEqual(nd.mexidasSemTer({ antes: [], depois: ['financeiro.pagar'], doGerente: [], papelDoGerente: 'Admin' }), [], 'sem o pacote: tem todas');
+});
+
+test('papel sozinho nao libera mais: hasTenantFullAccess so o dono e a plataforma; hasModuleAccess olha o pacote', async () => {
+  const { hasTenantFullAccess, hasModuleAccess } = await import('../src/utils/roles');
+  assert.equal(hasTenantFullAccess('Admin', false), false);
+  assert.equal(hasTenantFullAccess('Master', false), false);
+  assert.equal(hasTenantFullAccess('Master', true), true);
+  assert.equal(hasTenantFullAccess('NexarAdmin', false), true);
+  const pode = (permissions: string[]) => hasModuleAccess({ role: 'Admin', isOwner: false, permissions, requiredPermission: 'cadastros.bancos' });
+  assert.equal(pode([]), true, 'administrador sem o pacote: todas');
+  assert.equal(pode(['pacote.administrador-1']), false);
+  assert.equal(pode(['pacote.administrador-1', 'cadastros.bancos']), true);
+  assert.equal(hasModuleAccess({ role: 'Funcionario', isOwner: false, permissions: [], requiredPermission: 'cadastros.bancos' }), false);
+});

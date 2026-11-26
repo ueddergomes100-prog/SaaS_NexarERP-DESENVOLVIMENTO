@@ -1,5 +1,6 @@
 const { auth, db } = require('../config/firebase');
 const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
+const { permissoesEfetivasDoUsuario, nivelAcessoEfetivo } = require('../domain/permissoesNovasDomain');
 const { MENSAGEM_SERVIDOR_BLOQUEADO } = require('../domain/mensalidadeDomain');
 const { sessaoEncerrada } = require('../services/sessoes');
 
@@ -125,6 +126,22 @@ async function authenticate(req, res, next) {
       return res.status(403).json({ error: 'Perfil de acesso nao encontrado para este usuario.' });
     }
 
+    // Dono da empresa: o login cujo uid e' o da empresa casa (mesma regra do AuthContext: isOwner).
+    const dono = homeTenantId === uid;
+    // TROCA DO ADMINISTRADOR (25/11/2026, decisao do dono: "o dono sempre pode; o
+    // resto so' com a permissao marcada"): o papel Master/Admin deixou de liberar
+    // sozinho. O administrador (que nao e' o dono) carrega as EFETIVAS dele --
+    // enquanto o dono nao salvar as permissoes dele, todas as do catalogo
+    // (permissoesNovasDomain.ts, pacote 'administrador-1') -- e o nivel que
+    // vale (gerente ate' la'). Assim toda rota que confere
+    // `user.dono || user.permissoes.includes(...)` trata o administrador pela
+    // permissao, sem ninguem perder acesso no dia do deploy.
+    const administrador = isTenantManagerRole(role) && !dono && !isPlatformAdminRole(role);
+    if (administrador) {
+      nivelAcesso = nivelAcessoEfetivo(nivelAcesso, role, permissoes);
+      permissoes = permissoesEfetivasDoUsuario(permissoes, nivelAcesso, { papel: role });
+    }
+
     req.user = {
       uid,
       email,
@@ -134,13 +151,14 @@ async function authenticate(req, res, next) {
       permissoes,
       nivelAcesso,
       nome: nome || email || uid,
-      // Dono da empresa: o login cujo uid e' o da empresa casa (mesma regra do AuthContext: isOwner).
-      dono: homeTenantId === uid,
+      // Liberado em tudo da empresa sem olhar permissao (com a plataforma, isPlatformAdmin).
+      dono,
+      // Papel de administrador (nao dono): passa pelas permissoes; so' o DONO mexe nele na Equipe.
+      isAdministrador: administrador,
       // Caminho da tela que chamou (fetchComTimeout manda em `_tela`): diz no
       // historico se veio do sistema, do app Vendas, do app do motorista...
       telaCliente: typeof req.query?._tela === 'string' ? req.query._tela.slice(0, 200) : '',
       isPlatformAdmin: isPlatformAdminRole(role),
-      isTenantManager: isTenantManagerRole(role)
     };
 
     next();
@@ -155,8 +173,9 @@ function requireAdmin(req, res, next) {
     return res.status(401).json({ error: 'Usuario nao autenticado.' });
   }
 
-  if (!req.user.isPlatformAdmin && !req.user.isTenantManager) {
-    return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem gerenciar backups.' });
+  // Hoje so' guarda rotas da plataforma (o controller confere isPlatformAdmin de novo).
+  if (!req.user.isPlatformAdmin && !req.user.dono) {
+    return res.status(403).json({ error: 'Acesso negado. Só a equipe Hennder e o dono da empresa usam esta função.' });
   }
 
   next();

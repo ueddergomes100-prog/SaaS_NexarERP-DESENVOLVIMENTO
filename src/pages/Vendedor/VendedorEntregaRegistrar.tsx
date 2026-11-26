@@ -74,7 +74,7 @@ const VendedorEntregaRegistrar: React.FC = () => {
   const [erroDaRota, setErro] = useState('');
   // 28/10/2026 (dono): motorista registra so' na rota dele; dono e gestor em todas (entregasDoMotorista.ts).
   const { motoristaVinculado, carregado: vinculoCarregado } = useMotoristaVinculado(currentUser?.uid);
-  const veTodas = veTodasAsRotas(userRole, isOwner);
+  const veTodas = veTodasAsRotas(userRole, isOwner, userPermissions);
   const rotaDeOutro = Boolean(rotaLida) && !veTodas && vinculoCarregado && !rotaEhDoMotorista(rotaLida?.motoristaId, currentUser?.uid, motoristaVinculado);
   const rota = rotaDeOutro || (!veTodas && !vinculoCarregado) ? null : rotaLida;
   const carregando = carregandoRota || (!veTodas && !vinculoCarregado);

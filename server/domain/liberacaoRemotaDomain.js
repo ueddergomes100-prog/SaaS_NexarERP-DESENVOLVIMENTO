@@ -4,6 +4,7 @@ exports.podeLiberarDesconto = exports.podeLiberarDescontoNoApp = exports.lerResp
 const conferenciaDescontoDomain_1 = require("./conferenciaDescontoDomain");
 Object.defineProperty(exports, "podeLiberarDesconto", { enumerable: true, get: function () { return conferenciaDescontoDomain_1.podeLiberarDesconto; } });
 const roles_1 = require("./roles");
+const papelAdministradorDomain_1 = require("./papelAdministradorDomain");
 exports.NOME_DA_TELA_REMOTA = { ...conferenciaDescontoDomain_1.NOME_DA_TELA, orcamento: 'Orçamento' };
 /** O gerente tem 10 minutos; depois o vendedor pede de novo (ou usa a senha). */
 exports.VALIDADE_DO_PEDIDO_MS = 10 * 60 * 1000;
@@ -145,6 +146,10 @@ const lerResposta = (corpo) => {
     return { resposta: { decisao, motivoRecusa: texto(c.motivoRecusa, exports.MOTIVO_RECUSA_MAXIMO), credencial } };
 };
 exports.lerResposta = lerResposta;
-/** Quem ve a tela Liberacoes no app: dono/gestor, ou quem tem "Liberar desconto". */
-const podeLiberarDescontoNoApp = (userRole, isOwner, permissoes) => ((0, roles_1.hasTenantFullAccess)(userRole, isOwner) || permissoes.includes(conferenciaDescontoDomain_1.PERMISSAO_LIBERAR_DESCONTO));
+/**
+ * Quem ve a tela Liberacoes no app: o dono, ou quem tem "Liberar desconto" (o
+ * administrador tambem pela permissao -- troca do administrador, 25/11/2026).
+ */
+const podeLiberarDescontoNoApp = (userRole, isOwner, permissoes) => ((0, roles_1.hasTenantFullAccess)(userRole, isOwner) || permissoes.includes(conferenciaDescontoDomain_1.PERMISSAO_LIBERAR_DESCONTO)
+    || (0, papelAdministradorDomain_1.administradorTemSemPacote)(permissoes, userRole, conferenciaDescontoDomain_1.PERMISSAO_LIBERAR_DESCONTO));
 exports.podeLiberarDescontoNoApp = podeLiberarDescontoNoApp;

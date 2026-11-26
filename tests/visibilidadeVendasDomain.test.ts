@@ -19,8 +19,10 @@ import {
 
 test('podeGerenciarPermissoesDeEquipe: dono, Admin/Master e Gerente sim; Funcionario/Supervisor comum nao', () => {
   assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: true, nivelAcesso: 'funcionario' }), true);
-  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Admin', isOwner: false, nivelAcesso: 'funcionario' }), true);
-  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Master', isOwner: false, nivelAcesso: 'funcionario' }), true);
+  // Troca do administrador (25/11/2026): o papel sozinho nao basta; o administrador entra
+  // como gerente pelo nivel que vale (nivelAcessoEfetivo) enquanto o dono nao salvar as dele.
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Admin', isOwner: false, nivelAcesso: 'funcionario' }), false);
+  assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Admin', isOwner: false, nivelAcesso: 'gerente' }), true);
   assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'gerente' }), true);
   assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'funcionario' }), false);
   assert.equal(podeGerenciarPermissoesDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'supervisor' }), false);
@@ -95,12 +97,18 @@ test('dono e roles de acesso total nunca perdem visibilidade', () => {
     somenteVendasProprias({ restricaoAtiva: true, nivelAcesso: 'funcionario', role: 'Funcionario', isOwner: true }),
     false,
   );
-  for (const role of ['Master', 'Admin', 'SuperAdmin', 'NexarAdmin']) {
+  for (const role of ['SuperAdmin', 'NexarAdmin']) {
     assert.equal(
       somenteVendasProprias({ restricaoAtiva: true, nivelAcesso: 'funcionario', role, isOwner: false }),
       false,
       `role ${role} nao deveria ser restringida`,
     );
+  }
+  // Troca do administrador (25/11/2026): o administrador vai pelo nivel que vale -- gerente
+  // enquanto o dono nao salvar as dele (nivelAcessoEfetivo), depois o que o dono escolheu.
+  for (const role of ['Master', 'Admin']) {
+    assert.equal(somenteVendasProprias({ restricaoAtiva: true, nivelAcesso: 'gerente', role, isOwner: false }), false, role);
+    assert.equal(somenteVendasProprias({ restricaoAtiva: true, nivelAcesso: 'funcionario', role, isOwner: false }), true, `${role} salvo como funcionario`);
   }
 });
 
@@ -227,9 +235,12 @@ test('supervisor e gerente veem as vendas de todos; funcionario nao', () => {
 
 test('dono e papel de gestor veem tudo, seja qual for o cargo', () => {
   assert.equal(podeVerVendasDeTodos({ nivelAcesso: 'funcionario', role: 'Funcionario', isOwner: true }), true);
-  for (const role of ['Master', 'Admin', 'SuperAdmin', 'NexarAdmin']) {
+  for (const role of ['SuperAdmin', 'NexarAdmin']) {
     assert.equal(podeVerVendasDeTodos({ nivelAcesso: 'funcionario', role, isOwner: false }), true, role);
   }
+  // Administrador: pelo nivel que vale (gerente ate' o dono salvar as dele).
+  assert.equal(podeVerVendasDeTodos({ nivelAcesso: 'gerente', role: 'Admin', isOwner: false }), true);
+  assert.equal(podeVerVendasDeTodos({ nivelAcesso: 'funcionario', role: 'Admin', isOwner: false }), false);
 });
 
 test('supervisor e gerente escapam da restricao de "so as proprias vendas"', () => {
@@ -243,8 +254,9 @@ test('supervisor e gerente escapam da restricao de "so as proprias vendas"', () 
 test('podeCriarLoginDeEquipe: dono, Admin/Master e Gerente com Equipe e Acessos (26/10/2026)', () => {
   const equipe = ['administrativo.equipe'];
   assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: true, nivelAcesso: 'funcionario', permissoes: [] }), true);
-  assert.equal(podeCriarLoginDeEquipe({ role: 'Master', isOwner: false, nivelAcesso: 'funcionario', permissoes: [] }), true);
-  assert.equal(podeCriarLoginDeEquipe({ role: 'Admin', isOwner: false, nivelAcesso: 'funcionario', permissoes: [] }), true);
+  // Troca do administrador (25/11/2026): o papel sozinho nao basta.
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Master', isOwner: false, nivelAcesso: 'funcionario', permissoes: [] }), false);
+  assert.equal(podeCriarLoginDeEquipe({ role: 'Admin', isOwner: false, nivelAcesso: 'gerente', permissoes: equipe }), true);
   assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'gerente', permissoes: equipe }), true);
   assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'gerente', permissoes: [] }), false, 'gerente sem a tela liberada nao cria');
   assert.equal(podeCriarLoginDeEquipe({ role: 'Funcionario', isOwner: false, nivelAcesso: 'supervisor', permissoes: equipe }), false);

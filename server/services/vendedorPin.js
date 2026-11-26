@@ -199,7 +199,12 @@ async function definirPin({ tenantId, usuarioId, pin, autorId, restrito = false 
   // Sem ser dono/administrador (permissao "incluir e alterar vendedor"): so' vendedor de
   // balcao comum. Quem soubesse a senha de quem libera desconto ou entra no app
   // aprovaria o proprio desconto / entraria no app como ele.
-  if (restrito && (
+  // restrito === 'balcao' (troca do administrador, 25/11/2026): com "Cadastros: Vendedores --
+  // liberar desconto e aplicativo", qualquer vendedor de balcao, mas nunca um login do sistema.
+  if (restrito === 'balcao' && usuario.tipoRegistro !== 'vendedor') {
+    throw new ErroPin(403, 'Este cadastro é um login do sistema: a senha dele é definida em Administração › Usuários, por quem tem "Admin: Equipe — trocar a senha".');
+  }
+  if (restrito === true && (
     usuario.tipoRegistro !== 'vendedor'
     || (Array.isArray(usuario.permissoes) && usuario.permissoes.length > 0)
     || usuario.acessoAppMobile === true

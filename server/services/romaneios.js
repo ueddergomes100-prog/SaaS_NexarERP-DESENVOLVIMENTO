@@ -59,7 +59,7 @@ const TS = () => admin.firestore.FieldValue.serverTimestamp();
 const APAGAR = () => admin.firestore.FieldValue.delete();
 
 const temPermissao = (user, permissao) => (
-  Boolean(user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
+  Boolean(user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(permissao)))
 );
 
 const exigirRomaneio = (user) => {

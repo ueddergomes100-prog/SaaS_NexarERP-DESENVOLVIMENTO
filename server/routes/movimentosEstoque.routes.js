@@ -12,7 +12,7 @@ const router = express.Router();
 router.use(authenticate);
 
 const tem = (user) => Boolean(
-  user.isPlatformAdmin || user.isTenantManager || (Array.isArray(user.permissoes) && user.permissoes.includes(PERMISSAO_MOVIMENTACAO)),
+  user.isPlatformAdmin || user.dono || (Array.isArray(user.permissoes) && user.permissoes.includes(PERMISSAO_MOVIMENTACAO)),
 );
 
 /** POST /api/movimentos-estoque -- { de, ate, itemId?, colecao? } (datas AAAA-MM-DD). */

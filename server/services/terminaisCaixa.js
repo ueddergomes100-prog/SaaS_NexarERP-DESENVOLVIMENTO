@@ -71,8 +71,8 @@ const MENSAGEM_TERMINAL_VENCIDO = 'Este computador ficou mais de 6 meses sem nin
 
 const MENSAGEM_TERMINAL_INVALIDO = 'Este computador não está mais ativado para entrar com código e senha. Entre com usuário e senha, ou peça ao dono ou a um administrador para ativar de novo ("Ativar de novo", embaixo do login).';
 
-/** Gerente: dono, administrador da empresa ou equipe da plataforma. */
-const ehGerente = (user) => Boolean(user && (user.dono || user.isTenantManager || user.isPlatformAdmin));
+/** Gerente: dono ou equipe da plataforma (o administrador, pela permissao -- troca do administrador, 25/11/2026). */
+const ehGerente = (user) => Boolean(user && (user.dono || user.isPlatformAdmin));
 
 /**
  * Item 15 (fase Administracao, 25/11/2026): alem do dono/administrador, quem
@@ -80,7 +80,7 @@ const ehGerente = (user) => Boolean(user && (user.dono || user.isTenantManager |
  * so' o administrador fazia).
  */
 const { podeNaAdministracao, mensagemSemPermissao } = require('./permissoesAdministracao');
-const { PERMISSAO_CONFIG_AREAS } = require('../domain/permissoesNovasDomain');
+const { PERMISSAO_CONFIG_AREAS, permissoesEfetivasDoUsuario } = require('../domain/permissoesNovasDomain');
 const PERMISSAO_COMPUTADORES = PERMISSAO_CONFIG_AREAS.caixaComputadores;
 const podeNosComputadores = (user) => ehGerente(user) || Boolean(user && podeNaAdministracao(user, PERMISSAO_COMPUTADORES));
 const SEM_PERMISSAO_COMPUTADORES = `${mensagemSemPermissao([PERMISSAO_COMPUTADORES])} Ou peça ao dono ou a um administrador para fazer.`;
@@ -166,14 +166,17 @@ async function entrarComCodigo({ terminalId, segredo, codigo, pin, destino = 'ca
   if (gestor && String(pin || '').length < DIGITOS_MINIMOS_GESTOR) {
     throw new ErroTerminal(403, `Dono e administrador entram com código só com senha de ${DIGITOS_MINIMOS_GESTOR} dígitos ou mais. Cadastre uma senha maior em Administração › Usuários (lápis na sua linha), ou entre pelo usuário e senha.`);
   }
-  const permissoes = Array.isArray(usuario.permissoes) ? usuario.permissoes : [];
+  // Troca do administrador (25/11/2026): o administrador entra no caixa pela permissao
+  // (efetivas com o papel: todas enquanto o dono nao salvar as dele); o dono sempre.
+  const ehDono = identificado.vendedorId === usuario.tenantId;
+  const permissoes = permissoesEfetivasDoUsuario(Array.isArray(usuario.permissoes) ? usuario.permissoes : [], usuario.nivelAcesso, { papel });
   if (noSistema && usuario.tipoRegistro === 'vendedor') {
     throw new ErroTerminal(403, `${identificado.vendedorNome} é vendedor de balcão: a senha dele serve para identificar a venda, não para entrar no sistema.`);
   }
   if (noSistema && String(pin || '').length < DIGITOS_MINIMOS_NO_SISTEMA) {
     throw new ErroTerminal(403, `A sua senha tem menos de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos. Para entrar no sistema com código e senha, peça ao responsável uma senha nova de ${DIGITOS_MINIMOS_NO_SISTEMA} dígitos ou mais, em Usuários (ou entre com usuário e senha).`);
   }
-  if (!noSistema && !gestor && !podeUsarFrenteDeCaixa({ role: papel, isOwner: false, permissoes })) {
+  if (!noSistema && !podeUsarFrenteDeCaixa({ role: papel, isOwner: ehDono, permissoes })) {
     throw new ErroTerminal(403, `${identificado.vendedorNome} não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no cadastro dele, em Usuários.`);
   }
   // Mensalidade em atraso (24/11/2026): funcionario nem entra; dono e

@@ -15,7 +15,7 @@ const filialDominio = require('../domain/filialDomain');
 const cashbackDominio = require('../domain/cashbackDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
-const { PERMISSAO_ADMINISTRACAO, permissaoDoCampoGeral } = require('../domain/permissoesNovasDomain');
+const { PERMISSAO_ADMINISTRACAO, PERMISSAO_TROCA_ADMINISTRADOR, permissaoDoCampoGeral } = require('../domain/permissoesNovasDomain');
 const { temNoCadastro, mensagemSemPermissao } = require('./permissoesAdministracao');
 
 class ErroConfiguracoesGerais extends Error {
@@ -37,21 +37,24 @@ const lerGrupo = async (leitor, tenantId) => {
 };
 
 /**
- * Tabelas fiscais (tabelasFiscais.js) gravam em todas as filiais com a regra
- * de antes: com filiais, so' o dono ou um administrador do grupo; sem
- * filiais, quem altera as Configuracoes da empresa. As Configuracoes Gerais
- * deixaram de usar esta (ver valoresPermitidos).
+ * Tabelas fiscais (tabelasFiscais.js: ativar/desativar CFOP) gravam em todas
+ * as filiais: o dono, ou quem tem "Fiscal: Tabelas Fiscais -- ativar e
+ * desativar CFOP" (troca do administrador, 25/11/2026: antes, com filiais, o
+ * papel de administrador do grupo bastava; o administrador que o dono ainda
+ * nao salvou tem todas). Sem filiais, "Admin: Configuracoes" continua valendo
+ * (era a regra de antes). As Configuracoes Gerais deixaram de usar esta (ver
+ * valoresPermitidos).
  */
+const PERMISSAO_ATIVAR_CFOP = PERMISSAO_TROCA_ADMINISTRADOR.tabelasAtivar;
 const exigirPermissao = (user, usuario, grupo) => {
   if (user.isPlatformAdmin) return;
   if (grupo) {
-    if (!filialDominio.ehGestorDoGrupo(grupo, usuario)) {
-      throw new ErroConfiguracoesGerais(403, 'As configurações gerais valem para todas as filiais: só o dono ou um administrador da empresa altera.');
-    }
-    return;
+    if (filialDominio.ehGestorDoGrupo(grupo, usuario)) return;
+    if (filialDominio.pertenceAoGrupo(grupo, usuario) && temNoCadastro(user, PERMISSAO_ATIVAR_CFOP)) return;
+    throw new ErroConfiguracoesGerais(403, mensagemSemPermissao([PERMISSAO_ATIVAR_CFOP]));
   }
-  if (user.isTenantManager || (user.permissoes || []).includes('administrativo.config')) return;
-  throw new ErroConfiguracoesGerais(403, 'Só o dono, um administrador ou quem tem a permissão "Admin: Configurações" altera as configurações gerais.');
+  if (user.dono || (user.permissoes || []).includes('administrativo.config') || temNoCadastro(user, PERMISSAO_ATIVAR_CFOP)) return;
+  throw new ErroConfiguracoesGerais(403, mensagemSemPermissao([PERMISSAO_ATIVAR_CFOP]));
 };
 
 /**
@@ -59,8 +62,9 @@ const exigirPermissao = (user, usuario, grupo) => {
  * Gerais pede a sua permissao (PERMISSAO_DO_CAMPO_GERAL): plano de contas,
  * regras do cashback e o resto ("Admin: Configuracoes gerais"). Quem tinha
  * "Admin: Configuracoes" ja' vem com as tres (pacote 'administracao-1').
- * Dono/administrador (do grupo, com filiais) segue liberado. Com filiais, o
- * funcionario precisa ser de uma filial do grupo.
+ * O dono (do grupo, com filiais) segue liberado; o administrador, pelas
+ * permissoes (troca do administrador, 25/11/2026). Com filiais, quem nao e' o
+ * dono precisa ser de uma filial do grupo.
  */
 const podeNoCampo = (user, usuario, grupo, permissao) => {
   if (user.isPlatformAdmin) return true;
@@ -69,7 +73,7 @@ const podeNoCampo = (user, usuario, grupo, permissao) => {
     return filialDominio.ehGestorDoGrupo(grupo, usuario)
       || (filialDominio.pertenceAoGrupo(grupo, usuario) && temNoCadastro(user, permissao));
   }
-  return Boolean(user.isTenantManager) || temNoCadastro(user, permissao, { semFiliais: true });
+  return Boolean(user.dono) || temNoCadastro(user, permissao, { semFiliais: true });
 };
 
 /**

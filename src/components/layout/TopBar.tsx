@@ -32,7 +32,7 @@ import { NexusSwal, escaparHtml } from '../../utils/alerts';
 import VersaoDoSistema from '../common/VersaoDoSistema';
 
 const TopBar: React.FC = () => {
-  const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, tenantOptions, selectedTenant, setActiveTenantId, userNome } = useAuth();
+  const { currentUser, tenantId, userRole, userPermissions, isPlatformAdmin, isOwner, tenantOptions, selectedTenant, setActiveTenantId, userNome } = useAuth();
   const { openTab } = useTabs();
   // Navegacao real (nao openTab): o painel da plataforma vive FORA do sistema
   // de abas, com shell proprio -- abrir como aba o colocaria dentro do ERP de
@@ -75,7 +75,8 @@ const TopBar: React.FC = () => {
   // efeito que dependia do array de permissoes -- recriado a cada sinal de
   // sessao de 30 s --, entao tudo era relido do servidor a cada 30 s.
   const diasNotificacao = Math.max(1, Math.round(Number(configData?.diasNotificacaoLembrete) || 15));
-  const hasContasPagarAccess = isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions.includes('financeiro.pagar');
+  // Troca do administrador (25/11/2026): o dono, ou pela permissao (o administrador tambem).
+  const hasContasPagarAccess = isPlatformAdmin || isOwner || userPermissions.includes('financeiro.pagar');
   const [avisosLembretes, setAvisosLembretes] = useState<any[]>([]);
   const [avisosAgendamentos, setAvisosAgendamentos] = useState<any[]>([]);
   const [avisosContasPagar, setAvisosContasPagar] = useState<any[]>([]);
@@ -748,7 +749,7 @@ const TopBar: React.FC = () => {
                   </button>
                 )}
 
-                {(isPlatformAdmin || isTenantManagerRole(userRole) || userPermissions?.includes('administrativo.config')) && (
+                {(isPlatformAdmin || isOwner || userPermissions?.includes('administrativo.config')) && (
                   <button 
                     onClick={() => { setShowProfileDropdown(false); openTab('/configuracoes', 'Configurações Gerais'); }}
                     style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', borderRadius: 'var(--radius-md)', transition: 'background 0.2s', textAlign: 'left', fontSize: '13px' }}

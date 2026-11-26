@@ -15,17 +15,19 @@ const { PERMISSAO_FILIAIS_GESTAO: PFG, PERMISSAO_ADMINISTRACAO: PA } = require('
 const { temNoCadastro, mensagemSemPermissao } = require('./permissoesAdministracao');
 
 /**
- * Item 15 (fase Administracao, 25/11/2026): alem do dono/administrador do
- * grupo, o funcionario de uma filial do grupo com a permissao propria
- * (cadastrar, alterar, ver todas, resumo, filial padrao). Nenhuma vem com
- * nada: so' o administrador fazia. Sem grupo, o papel ou a permissao.
+ * Item 15 (fase Administracao, 25/11/2026): alem do dono do grupo, quem e' de
+ * uma filial do grupo com a permissao propria (cadastrar, alterar, ver todas,
+ * resumo, filial padrao). Nenhuma vem com nada para funcionario. Troca do
+ * administrador (25/11/2026): o administrador tambem pela permissao (ele tem
+ * todas enquanto o dono nao salvar as dele -- temNoCadastro olha o papel).
+ * Sem grupo, o dono da empresa ou a permissao.
  */
 const podeNoGrupo = (grupo, usuario, permissao) => {
   if (grupo) {
     return dominio.ehGestorDoGrupo(grupo, usuario)
       || (dominio.pertenceAoGrupo(grupo, usuario) && temNoCadastro(usuario, permissao));
   }
-  return ['Master', 'Admin'].includes(usuario.role) || temNoCadastro(usuario, permissao);
+  return usuario.uid === usuario.tenantId || temNoCadastro(usuario, permissao);
 };
 
 class ErroFilial extends Error {
@@ -366,7 +368,11 @@ const entrarNaFilialPadrao = async ({ user }) => db.runTransaction(async (tx) =>
   return { mudou, filial: grupo.filiais.find((f) => f.tenantId === destino) || null };
 });
 
-/** Grava a filial padrao de um usuario do grupo (so' dono/administrador). */
+/**
+ * Grava a filial padrao de um usuario do grupo: o dono, ou quem tem "Admin:
+ * Equipe -- filial padrao". Troca do administrador (25/11/2026): a de um
+ * administrador ou a do dono, so' o dono do grupo define.
+ */
 const definirFilialPadrao = async ({ user, usuarioId, destino }) => db.runTransaction(async (tx) => {
   const alvoId = typeof usuarioId === 'string' ? usuarioId.trim() : '';
   const filialId = typeof destino === 'string' ? destino.trim() : '';
@@ -376,6 +382,10 @@ const definirFilialPadrao = async ({ user, usuarioId, destino }) => db.runTransa
   if (!grupo) throw new ErroFilial(404, 'Sua empresa não tem filiais cadastradas.');
   exigirGestor(grupo, gestor, PA.equipeFilialPadrao);
   const alvo = await lerUsuario(tx, alvoId);
+  const alvoEhAdministradorOuDono = alvoId === alvo.tenantId || ['Master', 'Admin'].includes(alvo.role);
+  if (alvoEhAdministradorOuDono && !dominio.ehGestorDoGrupo(grupo, gestor)) {
+    throw new ErroFilial(403, 'A filial padrão de um administrador ou do dono só o dono da empresa define.');
+  }
   const erro = dominio.validarFilialPadrao(grupo, alvo, filialId);
   if (erro) throw new ErroFilial(400, erro);
   // Igual a casa nao precisa ser gravada: sem padrao, ele ja' entra nela.

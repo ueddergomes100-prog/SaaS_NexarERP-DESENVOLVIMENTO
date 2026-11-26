@@ -38,15 +38,16 @@ export const MOTIVO_TRANSFERENCIA_RETORNO = 'transferencia_retorno';
 export const parseTransferenciaSemNota = (valor: unknown): boolean => valor === true;
 
 /**
- * Sem nota: dono/administrador ou quem tem "Filiais: Transferir estoque sem
- * nota fiscal" (item 15, 25/11/2026). O nivel gerente nao libera mais
- * sozinho: ele traz a permissao marcada pelo pacote 'estoque-1'
- * (permissoesNovasDomain.ts) ate' as permissoes da pessoa serem salvas de novo.
+ * Sem nota: quem tem "Filiais: Transferir estoque sem nota fiscal" (item 15,
+ * 25/11/2026). O nivel gerente nao libera mais sozinho: ele traz a permissao
+ * marcada pelo pacote 'estoque-1' (permissoesNovasDomain.ts) ate' as
+ * permissoes da pessoa serem salvas de novo. Troca do administrador
+ * (25/11/2026): o papel tambem nao libera sozinho -- o dono e o administrador
+ * que o dono ainda nao salvou tem todas pelas efetivas com o papel.
  * `permissoes` cru do cadastro ou as efetivas da tela (aplicar de novo nao muda nada).
  */
 export const podeTransferirSemNota = (usuario: { role?: unknown; nivelAcesso?: unknown; permissoes?: unknown }): boolean => (
-  ['Master', 'Admin'].includes(String(usuario.role ?? ''))
-  || permissoesEfetivasDoUsuario(usuario.permissoes, usuario.nivelAcesso).includes(PERMISSAO_FILIAIS.transferirSemNota)
+  permissoesEfetivasDoUsuario(usuario.permissoes, usuario.nivelAcesso, { papel: usuario.role }).includes(PERMISSAO_FILIAIS.transferirSemNota)
 );
 
 export interface LoteMovido {

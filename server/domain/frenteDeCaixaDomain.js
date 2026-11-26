@@ -25,6 +25,7 @@ exports.pagamentosSemOTroco = exports.contaDoTroco = exports.MENSAGEM_SEM_ACESSO
  * server/routes/vendas.routes.js usa PERMISSOES_QUE_OPERAM_O_CAIXA.
  */
 const roles_1 = require("./roles");
+const papelAdministradorDomain_1 = require("./papelAdministradorDomain");
 /** Permissao de sempre do PDV dentro do sistema. */
 exports.PERMISSAO_PDV = 'vendas.pdv';
 /** Funcionario caixa: entra direto no caixa e so' nele. */
@@ -40,13 +41,26 @@ exports.CAMINHO_INSTALACAO_CAIXA = '/caixa.html';
 /** A pagina aberta e' o app do caixa (e nao o sistema ou o app do vendedor)? */
 const ehAppDoCaixa = (pathname) => (pathname === exports.CAMINHO_APP_CAIXA || pathname.startsWith(`${exports.CAMINHO_APP_CAIXA}/`) || pathname === exports.CAMINHO_INSTALACAO_CAIXA);
 exports.ehAppDoCaixa = ehAppDoCaixa;
-const tem = (perfil, permissao) => (Array.isArray(perfil.permissoes) && perfil.permissoes.includes(permissao));
+/**
+ * Tem a permissao. Troca do administrador (25/11/2026): o administrador cujo
+ * pacote o dono ainda nao salvou conta com todas (menos as que restringem),
+ * mesmo com o cadastro cru.
+ */
+const tem = (perfil, permissao) => ((Array.isArray(perfil.permissoes) && perfil.permissoes.includes(permissao))
+    || (0, papelAdministradorDomain_1.administradorTemSemPacote)(perfil.permissoes, perfil.role, permissao));
 /** Pode abrir a Frente de Caixa (no sistema ou no app)? */
 const podeUsarFrenteDeCaixa = (perfil) => ((0, roles_1.hasTenantFullAccess)(perfil.role, Boolean(perfil.isOwner))
     || exports.PERMISSOES_QUE_OPERAM_O_CAIXA.some((permissao) => tem(perfil, permissao)));
 exports.podeUsarFrenteDeCaixa = podeUsarFrenteDeCaixa;
-/** Funcionario caixa: o login cai direto no caixa e o sistema nao aparece. Nunca vale para dono/administrador. */
-const entraDiretoNoCaixa = (perfil) => (!(0, roles_1.hasTenantFullAccess)(perfil.role, Boolean(perfil.isOwner)) && tem(perfil, exports.PERMISSAO_SO_CAIXA));
+/**
+ * Funcionario caixa: o login cai direto no caixa e o sistema nao aparece.
+ * Nunca vale para o dono, nem para o administrador cujo pacote o dono ainda
+ * nao salvou (um "So' a Frente de Caixa" que sobrou de quando ele era
+ * funcionario nao o prende). Depois de salvo, vale o que o dono marcou.
+ */
+const entraDiretoNoCaixa = (perfil) => (!(0, roles_1.hasTenantFullAccess)(perfil.role, Boolean(perfil.isOwner))
+    && !(0, papelAdministradorDomain_1.administradorComTodas)(perfil.permissoes, perfil.role)
+    && tem(perfil, exports.PERMISSAO_SO_CAIXA));
 exports.entraDiretoNoCaixa = entraDiretoNoCaixa;
 /** Para onde o login do sistema manda a pessoa. */
 const destinoAposLogin = (perfil, loginDaPlataforma) => {

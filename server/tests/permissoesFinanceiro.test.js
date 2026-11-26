@@ -62,7 +62,7 @@ test('efetivas: so a da tela e sem o pacote passa; com o pacote vale o marcado; 
   const salvo = { uid: 'f2', permissoes: ['financeiro.receber', MARCADOR] };
   assert.equal(podeNoFinanceiro(salvo, 'financeiro.receber_baixar'), false, 'dono desmarcou ao salvar');
   assert.deepEqual(permissoesQueFaltam(salvo, ['financeiro.receber_baixar', 'financeiro.baixa_lote']), ['financeiro.receber_baixar', 'financeiro.baixa_lote']);
-  assert.equal(podeNoFinanceiro({ uid: 'a', permissoes: [], isTenantManager: true }, 'financeiro.baixa_lote'), true);
+  assert.equal(podeNoFinanceiro({ uid: 'a', permissoes: [], dono: true }, 'financeiro.baixa_lote'), true);
   assert.equal(podeNoFinanceiro({ uid: 'p', permissoes: [], isPlatformAdmin: true }, 'financeiro.categorias'), true);
   assert.equal(podeNoFinanceiro({ uid: 'x' }, 'financeiro.receber_baixar'), false, 'sem lista nao quebra');
 });
@@ -184,7 +184,7 @@ test('rota /baixa: data anterior barrada sem a permissao; juros/multa do Receber
     const completo = { uid: 'f5', permissoes: ['financeiro.receber_baixar', 'financeiro.baixa_juros_multa', 'financeiro.baixa_data_anterior', MARCADOR] };
     const ok = await chamar('/baixa', completo, { ...pedido, dataPagamento: ontemDe(hoje), jurosCentavos: 300 });
     assert.equal(ok.status, 200, JSON.stringify(ok.corpo));
-    const admin = await chamar('/baixa', { uid: 'a1', permissoes: [], isTenantManager: true }, { ...pedido, transacaoId: 't2', dataPagamento: ontemDe(hoje), multaCentavos: 100 });
+    const admin = await chamar('/baixa', { uid: 'a1', permissoes: [], dono: true }, { ...pedido, transacaoId: 't2', dataPagamento: ontemDe(hoje), multaCentavos: 100 });
     assert.equal(admin.status, 200, 'administrador continua liberado nesta fase');
   });
 });

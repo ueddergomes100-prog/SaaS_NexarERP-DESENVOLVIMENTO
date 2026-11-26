@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.permissaoValida = exports.mexidasSemTer = exports.podeAlterarPrecoNoApp = exports.podeNoApp = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.appDefinido = exports.CHAVES_APP_NOVAS = exports.PERMISSAO_APP_ALTERAR_PRECO = exports.PERMISSAO_APP = exports.MARCADOR_APP_DEFINIDO = void 0;
 const roles_1 = require("./roles");
+const papelAdministradorDomain_1 = require("./papelAdministradorDomain");
 /**
  * PERMISSOES DO APLICATIVO MOBILE (26/10/2026, pedido do dono).
  *
@@ -68,11 +69,17 @@ exports.permissoesEfetivas = permissoesEfetivas;
 /** O que gravar: o que a tela marcou + o marcador (dai' em diante nada e' implicito). */
 const permissoesParaGravar = (marcadas) => ([...new Set([...lista(marcadas).filter((p) => p !== exports.MARCADOR_APP_DEFINIDO), exports.MARCADOR_APP_DEFINIDO])]);
 exports.permissoesParaGravar = permissoesParaGravar;
-/** Dono/gestor sempre; o resto, pela chave do app (contando as implicitas). */
-const podeNoApp = (chave, args) => ((0, roles_1.hasTenantFullAccess)(args.role, args.isOwner) || (0, exports.permissoesEfetivas)(args.permissoes).includes(chave));
+/**
+ * O dono sempre; o resto, pela chave do app (contando as implicitas). O
+ * administrador tambem pela chave (troca do administrador, 25/11/2026): ele
+ * tem todas enquanto o dono nao salvar as dele.
+ */
+const podeNoApp = (chave, args) => ((0, roles_1.hasTenantFullAccess)(args.role, args.isOwner) || (0, exports.permissoesEfetivas)(args.permissoes).includes(chave)
+    || (0, papelAdministradorDomain_1.administradorTemSemPacote)(args.permissoes, args.role, chave));
 exports.podeNoApp = podeNoApp;
-/** Pode trocar o preco do item no app? Nunca implicita: dono/administrador, ou a chave gravada. */
-const podeAlterarPrecoNoApp = (args) => ((0, roles_1.hasTenantFullAccess)(args.role, args.isOwner) || lista(args.permissoes).includes(exports.PERMISSAO_APP_ALTERAR_PRECO));
+/** Pode trocar o preco do item no app? Nunca implicita para funcionario: o dono, ou a chave (o administrador sem o pacote salvo tem). */
+const podeAlterarPrecoNoApp = (args) => ((0, roles_1.hasTenantFullAccess)(args.role, args.isOwner) || lista(args.permissoes).includes(exports.PERMISSAO_APP_ALTERAR_PRECO)
+    || (0, papelAdministradorDomain_1.administradorTemSemPacote)(args.permissoes, args.role, exports.PERMISSAO_APP_ALTERAR_PRECO));
 exports.podeAlterarPrecoNoApp = podeAlterarPrecoNoApp;
 /**
  * Gerente so' da' e tira o que ELE MESMO tem (decisao de 19/10/2026), agora

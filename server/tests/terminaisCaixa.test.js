@@ -22,7 +22,7 @@ const carregar = (db) => {
 };
 
 const GERENTE = { uid: 'dono', tenantId: 'loja', homeTenantId: 'loja', dono: true, nome: 'Dono' };
-const FUNCIONARIO = { uid: 'ana', tenantId: 'loja', homeTenantId: 'loja', dono: false, isTenantManager: false, nome: 'Ana' };
+const FUNCIONARIO = { uid: 'ana', tenantId: 'loja', homeTenantId: 'loja', dono: false, dono: false, nome: 'Ana' };
 
 const BASE = {
   'configuracoes/loja': { cnpj: '12.345.678/0001-90', nomeFantasia: 'Loja Teste' },

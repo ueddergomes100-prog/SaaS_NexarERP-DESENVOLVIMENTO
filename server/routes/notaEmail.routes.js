@@ -150,8 +150,11 @@ router.post('/nota/:notaId/enviar', async (req, res) => {
 router.post('/teste', async (req, res) => {
   try {
     const usuario = req.user || {};
-    if (!(usuario.isPlatformAdmin || usuario.isTenantManager)) {
-      throw new ErroEmail(403, 'Só o administrador da empresa pode testar o envio de e-mail.');
+    // Troca do administrador (25/11/2026): o dono, ou quem tem "Fiscal: Configurar a nota
+    // fiscal" (o administrador que o dono ainda nao salvou tem todas).
+    const permissoes = Array.isArray(usuario.permissoes) ? usuario.permissoes : [];
+    if (!(usuario.isPlatformAdmin || usuario.dono || permissoes.includes('fiscal.configurar'))) {
+      throw new ErroEmail(403, 'Você não tem permissão para testar o envio de e-mail das notas. Peça ao dono liberar "Fiscal: Configurar a nota fiscal (chave da Spedy e e-mail das notas)" no seu cadastro.');
     }
     const tenantId = resolveTenantId(req);
     const { empresaEmail, empresaNome, smtp } = await carregarConfiguracao(tenantId);

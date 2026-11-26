@@ -19,10 +19,10 @@ import { showError, showSuccess, showWarning, NexusSwal } from '../../utils/aler
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardFlow';
-import { isTenantManagerRole } from '../../utils/roles';
+import { isPlatformAdminRole } from '../../utils/roles';
 import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO, permissionLabelMap } from '../../utils/permissionCatalog';
-import { PERMISSAO_CONFIG_AREAS, PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
+import { PERMISSAO_CONFIG_AREAS, PERMISSAO_TROCA_ADMINISTRADOR, PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { ehMarcadorInterno } from '../../utils/permissoesNovasDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
@@ -177,7 +177,7 @@ const inputStyle: React.CSSProperties = {
 
 const VendedoresList: React.FC = () => {
   const { linha } = useLinhaSelecionavel();
-  const { tenantId, currentUser, userRole, userPermissions, exigirIdentificacaoVendedor, grupo } = useAuth();
+  const { tenantId, currentUser, userRole, userPermissions, exigirIdentificacaoVendedor, grupo, isOwner } = useAuth();
   const [vendedores, setVendedores] = useState<VendedorData[]>([]);
   const [previewAberto, setPreviewAberto] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -192,13 +192,17 @@ const VendedoresList: React.FC = () => {
   // alterar" (21/10/2026) inclui e altera vendedor COMUM: sem liberar desconto e
   // sem o app -- quem soubesse a senha de um vendedor que libera desconto (ou entra
   // no app) aprovaria o proprio desconto. Mesma trava nas rules e no servidor do PIN.
-  const ehGestor = isTenantManagerRole(userRole);
-  const podeGerenciar = ehGestor || userPermissions.includes(PERMISSAO_INCLUIR_VENDEDOR);
+  // Troca do administrador (25/11/2026): so' o dono (e a plataforma) passa direto; o resto --
+  // o administrador inclusive -- pela permissao (ele tem todas enquanto o dono nao salvar as dele).
+  // `ehGestor` = pode liberar desconto e o aplicativo no cadastro do vendedor.
+  const ehDono = Boolean(isOwner) || isPlatformAdminRole(userRole);
+  const ehGestor = ehDono || userPermissions.includes(PERMISSAO_TROCA_ADMINISTRADOR.vendedoresLiberadores);
+  const podeGerenciar = ehDono || userPermissions.includes(PERMISSAO_INCLUIR_VENDEDOR);
   // Item 15 (25/11/2026): a senha do vendedor tem permissao propria, conferida no servidor.
-  const podeSenhaVendedor = ehGestor || userPermissions.includes(PERMISSAO_VENDAS.gerenciarPinVendedor);
+  const podeSenhaVendedor = ehDono || userPermissions.includes(PERMISSAO_VENDAS.gerenciarPinVendedor);
   const vendedorEspecial = (v: VendedorData) => (v.permissoes || []).length > 0 || v.acessoAppMobile === true;
-  const podeMexerNo = (v: VendedorData) => ehGestor || (podeGerenciar && !vendedorEspecial(v));
-  const MENSAGEM_SO_GESTOR = 'Este vendedor libera desconto ou usa o aplicativo: só o dono ou o administrador da empresa altera.';
+  const podeMexerNo = (v: VendedorData) => podeGerenciar && (ehGestor || !vendedorEspecial(v));
+  const MENSAGEM_SO_GESTOR = 'Este vendedor libera desconto ou usa o aplicativo: para alterá-lo, peça ao dono liberar "Cadastros: Vendedores — liberar desconto e aplicativo no cadastro do vendedor" no seu cadastro.';
   /** CNPJ da empresa, precisado so' quando o admin liga "Usa o aplicativo
    *  mobile" -- e' a chave do indice de login (ver montarChaveVendedorMobileLogin
    *  em acessoMobileDomain.ts). Mesma fonte que UsuarioForm.tsx usa pro login
@@ -209,7 +213,7 @@ const VendedoresList: React.FC = () => {
   // Item 15 (fase Administracao, 25/11/2026): "Vendas: Metas mensais dos vendedores" (vem com
   // "Admin: Configurações", que era a que liberava). O banco ainda pede "Admin: Configurações"
   // (rules: canEditTenantConfig) ate' a fase das rules.
-  const podeDefinirMeta = ehGestor || userPermissions.includes(PERMISSAO_CONFIG_AREAS.metas);
+  const podeDefinirMeta = ehDono || userPermissions.includes(PERMISSAO_CONFIG_AREAS.metas);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -895,7 +899,7 @@ const VendedoresList: React.FC = () => {
 
               {!ehGestor && (
                 <p style={{ gridColumn: 'span 2', margin: 0, fontSize: '12px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '14px' }}>
-                  Liberar desconto e o aplicativo mobile: só o dono ou o administrador da empresa define.
+                  Liberar desconto e o aplicativo mobile: só o dono ou quem tem a permissão "Cadastros: Vendedores — liberar desconto e aplicativo" define.
                 </p>
               )}
               {ehGestor && (<>

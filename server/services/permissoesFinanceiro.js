@@ -13,9 +13,9 @@
  * CHECAGEM, e nao no middleware de login (auth.js), para nao mudar o que
  * `req.user.permissoes` significa para as outras ~40 rotas.
  *
- * Dono/administrador (Master/Admin) e plataforma seguem liberados pelo
- * `temPermissao` de sempre (o administrador so' passa a depender de permissao
- * no fim do projeto).
+ * Dono e plataforma seguem liberados pelo `temPermissao` de sempre. O
+ * administrador (Master/Admin que nao e' o dono) passa pelas efetivas desde a
+ * troca do administrador (25/11/2026; pacote 'administrador-1').
  */
 const { temPermissao } = require('./baixaFinanceiraRegras');
 const {
@@ -34,7 +34,8 @@ const PERMISSAO_DE_BAIXAR = { entrada: PF.receberBaixar, saida: PF.pagarBaixar }
  * Generico: as fases seguintes (Vendas, permissoesVendas.js) usam o mesmo.
  */
 const podePelasEfetivas = (user, permissao) => temPermissao(
-  { ...(user || {}), permissoes: permissoesEfetivas(user && user.permissoes, user && user.nivelAcesso) },
+  // Papel (troca do administrador, 25/11/2026): administrador cujo pacote o dono ainda nao salvou tem todas.
+  { ...(user || {}), permissoes: permissoesEfetivas(user && user.permissoes, user && user.nivelAcesso, { papel: user && user.role }) },
   permissao,
 );
 const podeNoFinanceiro = podePelasEfetivas;

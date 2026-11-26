@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreFalso');
 
 const T = 'loja';
-const dono = { uid: 'u1', email: 'dono@loja.com', tenantId: T, isTenantManager: true, permissoes: [] };
+const dono = { uid: 'u1', email: 'dono@loja.com', tenantId: T, dono: true, permissoes: [] };
 
 const pai = (extra = {}) => ({ tenantId: T, nome: 'CAMISETA', codigo: '123', temGrade: true, gradeNomes: ['TAMANHO'], quantidade: 0, ativo: true, statusAtivo: true, ...extra });
 const filho = (opcao, extra = {}) => ({

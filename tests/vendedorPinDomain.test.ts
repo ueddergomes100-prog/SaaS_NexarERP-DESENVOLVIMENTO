@@ -188,10 +188,16 @@ test('config desligada nunca esconde a lista, seja qual for o papel', () => {
 });
 
 test('quem tem acesso total continua vendo a lista, mesmo com a config ligada', () => {
-  for (const role of ['Master', 'Admin', 'SuperAdmin', 'NexarAdmin']) {
+  for (const role of ['SuperAdmin', 'NexarAdmin']) {
     assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
       exigirIdentificacaoVendedor: true, role, isOwner: false, nivelAcesso: 'funcionario',
     }), false, `role ${role} deveria continuar vendo a lista`);
+  }
+  // Troca do administrador (25/11/2026): o administrador pelo nivel que vale (gerente ate' o dono salvar).
+  for (const role of ['Master', 'Admin']) {
+    assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
+      exigirIdentificacaoVendedor: true, role, isOwner: false, nivelAcesso: 'gerente',
+    }), false, `administrador ${role} continua vendo a lista`);
   }
   assert.equal(listaGeralDeVendasEscondidaParaFuncionario({
     exigirIdentificacaoVendedor: true, role: 'Funcionario', isOwner: true, nivelAcesso: 'funcionario',

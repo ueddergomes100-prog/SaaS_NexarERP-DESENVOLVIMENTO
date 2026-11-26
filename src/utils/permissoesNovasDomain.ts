@@ -3,6 +3,23 @@ import {
   permissoesEfetivas as permissoesEfetivasDoApp,
   permissoesParaGravar as permissoesParaGravarDoApp,
 } from './permissoesAppDomain';
+import { PERMISSION_CATALOG } from './permissionCatalog';
+import {
+  MARCADOR_ADMINISTRADOR,
+  PERMISSOES_QUE_RESTRINGEM,
+  administradorComTodas,
+  ehPapelDeAdministrador,
+} from './papelAdministradorDomain';
+
+export {
+  MARCADOR_ADMINISTRADOR,
+  PACOTE_ADMINISTRADOR,
+  PAPEIS_DE_ADMINISTRADOR,
+  PERMISSOES_QUE_RESTRINGEM,
+  administradorComTodas,
+  administradorTemSemPacote,
+  ehPapelDeAdministrador,
+} from './papelAdministradorDomain';
 
 /**
  * PERMISSAO NOVA "JA' VEM MARCADA" (item 15 da Embala Minas, 25/11/2026).
@@ -33,9 +50,18 @@ import {
  * `app.definido` do app (permissoesAppDomain.ts), nada nas rules muda. O
  * catalogo nao lista os marcadores, entao eles nao aparecem na tela.
  *
- * O ADMINISTRADOR (Master/Admin) e a plataforma continuam liberados pelos
- * helpers de papel (temPermissao no servidor, hasTenantFullAccess na tela);
- * isto aqui so' decide o que o FUNCIONARIO tem.
+ * O DONO (uid igual ao da empresa) e a plataforma continuam liberados pelos
+ * helpers de papel (temPermissao no servidor, hasTenantFullAccess na tela).
+ *
+ * O ADMINISTRADOR (papel Master/Admin que NAO e' o dono) deixou de ser
+ * liberado pelo papel (troca do administrador, 25/11/2026: "o dono sempre
+ * pode; o resto so' com a permissao marcada"). Ele passa pelas efetivas como
+ * um funcionario, com o pacote 'administrador-1': enquanto o cadastro dele
+ * NAO tem o marcador `pacote.administrador-1`, as efetivas sao TODAS as
+ * permissoes do catalogo (menos as que restringem, PERMISSOES_QUE_RESTRINGEM).
+ * Quando o dono salva as permissoes dele, grava o marcado + todos os
+ * marcadores, e dai' em diante vale so' o marcado. As efetivas recebem o
+ * papel em `opcoes.papel` (como ja' recebem o nivel).
  */
 
 /** Permissoes novas do Financeiro, fase 1 (o que ja' grava pelo servidor). */
@@ -278,6 +304,22 @@ export const PERMISSAO_FILIAIS_GESTAO = {
 } as const;
 
 /**
+ * O que so' o papel de administrador fazia e ainda nao tinha permissao (troca
+ * do administrador, 25/11/2026). Nao vem com nada para funcionario; o
+ * administrador que o dono ainda nao salvou tem todas.
+ */
+export const PERMISSAO_TROCA_ADMINISTRADOR = {
+  /** Liberar desconto e o aplicativo no cadastro de Vendedores (balcao). */
+  vendedoresLiberadores: 'cadastros.vendedores_liberadores',
+  /** Regras de comissao de cada usuario (Configuracoes > Permissao de Usuarios). */
+  comissaoUsuario: 'administrativo.comissao_usuario',
+  /** Ativar/desativar CFOP nas Tabelas Fiscais (vale para todas as filiais). */
+  tabelasAtivar: 'fiscal.tabelas_ativar',
+  /** App do motorista: ver as rotas de todos os motoristas. */
+  entregasTodas: 'operacoes.entregas_app_todas',
+} as const;
+
+/**
  * Configuracoes Gerais (gravadas pelo servidor em todas as filiais): a
  * permissao que cada campo pede. O que nao esta' aqui pede
  * "Admin: Configuracoes gerais".
@@ -318,10 +360,16 @@ export interface PacoteDePermissoes {
   implicacoesSemFiliais?: Readonly<Record<string, readonly string[]>>;
 }
 
-/** Contexto da empresa para as permissoes implicitas (hoje: se ela tem filiais). */
+/** Contexto da empresa e da pessoa para as permissoes implicitas. */
 export interface OpcoesDasEfetivas {
   /** true = empresa sem grupo de filiais (vale `implicacoesSemFiliais`). */
   semFiliais?: boolean;
+  /**
+   * Papel do cadastro (`role`). Master/Admin sem o marcador do pacote
+   * 'administrador-1' tem todas as permissoes do catalogo (troca do
+   * administrador, 25/11/2026). Sem o papel, conta como funcionario.
+   */
+  papel?: unknown;
 }
 
 const F = PERMISSAO_FINANCEIRO;
@@ -479,6 +527,16 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
 
 export const PREFIXO_MARCADOR_PACOTE = 'pacote.';
 
+// ---------------------------------------------------------------------------
+// Pacote 'administrador-1' (troca do administrador, 25/11/2026) -- regra em
+// papelAdministradorDomain.ts (sem dependencias, usada tambem por roles.ts).
+// ---------------------------------------------------------------------------
+
+/** Todas as permissoes do catalogo que o administrador tem enquanto o pacote dele nao foi salvo. */
+export const PERMISSOES_DO_ADMINISTRADOR: readonly string[] = PERMISSION_CATALOG
+  .map((item) => item.id)
+  .filter((id) => !PERMISSOES_QUE_RESTRINGEM.includes(id));
+
 /** O que fica gravado em `permissoes` quando o pacote ja' foi salvo para a pessoa. */
 export const marcadorDoPacote = (id: string): string => `${PREFIXO_MARCADOR_PACOTE}${id}`;
 
@@ -522,6 +580,16 @@ export const permissoesEfetivas = (permissoes: unknown, nivelAcesso?: unknown, o
   const gravadas = lista(permissoes);
   const temGravada = new Set(gravadas);
   const resultado = new Set(gravadas);
+  // Administrador cujo pacote o dono ainda nao salvou: todas (ninguem perde acesso no deploy).
+  // O resultado leva o marcador dele, para aplicar de novo nao mudar nada.
+  if (administradorComTodas(gravadas, opcoes.papel)) {
+    // A que restringe ("So' a Frente de Caixa") nao vale, nem se sobrou de quando ele era funcionario.
+    PERMISSOES_QUE_RESTRINGEM.forEach((p) => resultado.delete(p));
+    PERMISSOES_DO_ADMINISTRADOR.forEach((p) => resultado.add(p));
+    MARCADORES_DOS_PACOTES.forEach((m) => resultado.add(m));
+    resultado.add(MARCADOR_ADMINISTRADOR);
+    return [...resultado];
+  }
   const nivel = nivelDoPacote(nivelAcesso);
   for (const pacote of PACOTES_DE_PERMISSOES) {
     if (temGravada.has(marcadorDoPacote(pacote.id))) continue;
@@ -547,10 +615,29 @@ export const permissoesEfetivas = (permissoes: unknown, nivelAcesso?: unknown, o
   return [...resultado];
 };
 
-/** O que gravar: o que a tela marcou + o marcador de todos os pacotes (dai' em diante nada e' implicito). */
-export const permissoesParaGravar = (marcadas: unknown): string[] => (
-  [...new Set([...lista(marcadas).filter((p) => !ehMarcadorDePacote(p)), ...MARCADORES_DOS_PACOTES])]
+/**
+ * O que gravar: o que a tela marcou + o marcador de todos os pacotes (dai' em
+ * diante nada e' implicito). `papel` do cadastro ALVO: administrador leva
+ * tambem o marcador dele (dai' em diante vale so' o que o dono marcou).
+ */
+export const permissoesParaGravar = (marcadas: unknown, papel?: unknown): string[] => (
+  [...new Set([
+    ...lista(marcadas).filter((p) => !ehMarcadorDePacote(p)),
+    ...MARCADORES_DOS_PACOTES,
+    ...(ehPapelDeAdministrador(papel) ? [MARCADOR_ADMINISTRADOR] : []),
+  ])]
 );
+
+/**
+ * Nivel de acesso que vale (o que cada um ve de vendas). Administrador cujo
+ * pacote o dono ainda nao salvou ve como gerente (via tudo pelo papel ate'
+ * 25/11/2026); depois, o nivel que o dono escolheu ao salvar.
+ */
+export const nivelAcessoEfetivo = (nivelAcesso: unknown, papel?: unknown, permissoes?: unknown): 'funcionario' | 'supervisor' | 'gerente' => {
+  if (administradorComTodas(permissoes, papel)) return 'gerente';
+  if (nivelAcesso === 'administracao' || nivelAcesso === 'gerente') return 'gerente';
+  return nivelAcesso === 'supervisor' ? 'supervisor' : 'funcionario';
+};
 
 // ---------------------------------------------------------------------------
 // Tudo junto (app + pacotes): o que as telas e o servidor usam no cadastro.
@@ -564,9 +651,9 @@ export const permissoesEfetivasDoUsuario = (permissoes: unknown, nivelAcesso?: u
   permissoesEfetivas(permissoesEfetivasDoApp(permissoes), nivelAcesso, opcoes)
 );
 
-/** O que gravar no cadastro: marcadas + marcador do app + marcadores dos pacotes. */
-export const permissoesParaGravarDoUsuario = (marcadas: unknown): string[] => (
-  permissoesParaGravar(permissoesParaGravarDoApp(marcadas))
+/** O que gravar no cadastro: marcadas + marcador do app + marcadores dos pacotes (+ o do administrador, pelo papel do alvo). */
+export const permissoesParaGravarDoUsuario = (marcadas: unknown, papel?: unknown): string[] => (
+  permissoesParaGravar(permissoesParaGravarDoApp(marcadas), papel)
 );
 
 /**
@@ -584,16 +671,21 @@ export const mexidasSemTer = (args: {
   nivelDoGerente?: unknown;
   /** Contexto da empresa (o mesmo para os tres lados). */
   opcoes?: OpcoesDasEfetivas;
+  /** Papel do editado e o de quem edita (administrador sem o pacote salvo tem todas). */
+  papelAntes?: unknown;
+  papelDoGerente?: unknown;
 }): string[] => {
-  const antes = new Set(permissoesEfetivasDoUsuario(args.antes, args.nivelAntes, args.opcoes));
-  const depois = new Set(permissoesEfetivasDoUsuario(permissoesParaGravarDoUsuario(args.depois)));
-  const dele = new Set(permissoesEfetivasDoUsuario(args.doGerente, args.nivelDoGerente, args.opcoes));
+  const opcoes = args.opcoes || {};
+  const antes = new Set(permissoesEfetivasDoUsuario(args.antes, args.nivelAntes, { ...opcoes, papel: args.papelAntes }));
+  const depois = new Set(permissoesEfetivasDoUsuario(permissoesParaGravarDoUsuario(args.depois, args.papelAntes), undefined, { papel: args.papelAntes }));
+  const dele = new Set(permissoesEfetivasDoUsuario(args.doGerente, args.nivelDoGerente, { ...opcoes, papel: args.papelDoGerente }));
   const mexidas = [...depois].filter((p) => !antes.has(p)).concat([...antes].filter((p) => !depois.has(p)));
   return mexidas.filter((p) => !dele.has(p) && !ehMarcadorInterno(p));
 };
 
 /** Permissoes que entraram e sairam (efetivas, sem marcadores), para o historico de alteracoes. */
 export const mudancasDePermissoes = (antes: unknown, depois: unknown, nivelAntes?: unknown, opcoes: OpcoesDasEfetivas = {}): { entraram: string[]; sairam: string[] } => {
+  // `opcoes.papel` = papel do cadastro (o mesmo antes e depois).
   const semMarcador = (l: unknown, nivel?: unknown) => new Set(permissoesEfetivasDoUsuario(l, nivel, opcoes).filter((p) => !ehMarcadorInterno(p)));
   const a = semMarcador(antes, nivelAntes);
   const d = semMarcador(depois);

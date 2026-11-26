@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const { criarBancoFalso, carregarComBancoFalso } = require('./helpers/firestoreFalso');
 
 const carregar = (db) => carregarComBancoFalso(db, 'services/numeracao').pop();
-const GESTOR = { uid: 'dono', tenantId: 'emp1', isTenantManager: true, email: 'dono@teste' };
-const FUNCIONARIO = { uid: 'f1', tenantId: 'emp1', isTenantManager: false, permissoes: ['administrativo.config'] };
+const GESTOR = { uid: 'dono', tenantId: 'emp1', dono: true, email: 'dono@teste' };
+const FUNCIONARIO = { uid: 'f1', tenantId: 'emp1', dono: false, permissoes: ['administrativo.config'] };
 
 const base = () => ({
   'contadores/emp1': { tenantId: 'emp1', pedidos_venda: 67, ordens_de_servico: 9 },

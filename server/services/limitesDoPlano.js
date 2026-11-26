@@ -18,7 +18,7 @@ const permApp = require('../domain/permissoesAppDomain');
 const permNovas = require('../domain/permissoesNovasDomain');
 const { parseNivelAcesso } = require('../domain/visibilidadeVendasDomain');
 const { permissionLabelMap } = require('../domain/permissionCatalog');
-const { nivelCabe } = require('./permissoesAdministracao');
+const { nivelCabe, mensagemSemPermissao: mensagemSemPermissaoAdm } = require('./permissoesAdministracao');
 const { camposDaCobrancaParaNovoUsuario } = require('./mensalidades');
 
 class ErroLimite extends Error {
@@ -29,6 +29,7 @@ class ErroLimite extends Error {
 }
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
+const apagarCampo = () => admin.firestore.FieldValue.delete();
 
 /** O plano e' do grupo: numa filial vale o da matriz. */
 const matrizDaEmpresa = async (tenantId) => {
@@ -459,43 +460,80 @@ const alterarSituacao = async ({ user, tenantId, corpo }) => {
   return { usuarioId: ref.id, nome: alvo.nome || '', ativo };
 };
 
+/** Percentual de comissao do usuario: vazio apaga (cai na comissao padrao); senao, de 0 a 100. */
+const lerPercentualDeComissao = (valor) => {
+  if (valor === null || valor === undefined || valor === '') return apagarCampo();
+  const n = Number(valor);
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw new ErroLimite(400, 'A comissão deve ser um percentual de 0 a 100. Corrija e salve de novo.');
+  return n;
+};
+
 /**
  * Permissoes do funcionario (26/10/2026: pelo servidor). Grava com o marcador do
  * app (permissoesAppDomain) e os dos pacotes de permissoes novas
  * (permissoesNovasDomain, 25/11/2026): dai' em diante vale o que esta' marcado.
- * Gerente: so' da'/tira o que ELE MESMO tem (contando as implicitas do app e
- * dos pacotes) e nunca muda o nivel de acesso.
+ * Gerente e administrador (nao dono): so' da'/tira o que ELE MESMO tem
+ * (contando as implicitas do app, dos pacotes e do papel); o nivel, so' com a
+ * permissao e ate' o dele.
+ *
+ * TROCA DO ADMINISTRADOR (25/11/2026): o DONO tambem marca as permissoes de um
+ * administrador (grava o marcador 'administrador-1': dai' em diante vale so' o
+ * marcado). So' o dono -- nem outro administrador. O dono nao tem permissoes
+ * para marcar (sempre pode tudo). `corpo.comissao` (opcional): regras de
+ * comissao do usuario, com "Admin: Equipe -- regras de comissao".
  */
-const salvarPermissoes = async ({ user, tenantId, corpo, gerente }) => {
+const salvarPermissoes = async ({ user, tenantId, corpo, gerente, administrador = false }) => {
   const c = corpo || {};
   const { ref, alvo } = await lerFuncionario(tenantId, c.usuarioId);
-  if (alvo.role !== 'Funcionario') throw new ErroLimite(400, 'Só funcionário tem permissões por módulo; administrador e dono já têm acesso a tudo.');
+  if (ref.id === alvo.tenantId) throw new ErroLimite(400, 'O dono da empresa sempre pode tudo: não há permissões para marcar no cadastro dele.');
+  const alvoAdministrador = permNovas.ehPapelDeAdministrador(alvo.role);
+  if (alvoAdministrador && !(user.dono || user.isPlatformAdmin)) {
+    throw new ErroLimite(403, 'Só o dono da empresa marca as permissões de um administrador.');
+  }
+  if (alvo.role !== 'Funcionario' && !alvoAdministrador) throw new ErroLimite(400, 'Este cadastro não tem permissões por módulo. Atualize a tela e tente de novo.');
   if (!Array.isArray(c.permissoes)) throw new ErroLimite(400, 'Lista de permissões inválida. Atualize a tela e tente de novo.');
+  const limitado = gerente || administrador;
   const novas = c.permissoes.filter(permApp.permissaoValida);
   // Empresa sem filiais: "Admin: Configuracoes" traz as Configuracoes Gerais (pacote 'administracao-1').
   const configSnap = await db.collection('configuracoes').doc(tenantId).get();
   const semFiliais = !(configSnap.exists && typeof configSnap.data().grupoId === 'string' && configSnap.data().grupoId);
   const opcoes = { semFiliais };
-  if (gerente) {
-    const semTer = permNovas.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes, nivelAntes: alvo.nivelAcesso, nivelDoGerente: user.nivelAcesso, opcoes });
+  if (limitado) {
+    const semTer = permNovas.mexidasSemTer({ antes: alvo.permissoes, depois: novas, doGerente: user.permissoes, nivelAntes: alvo.nivelAcesso, nivelDoGerente: user.nivelAcesso, opcoes, papelAntes: alvo.role, papelDoGerente: user.role });
     if (semTer.length > 0) {
       const rotulos = semTer.map((id) => `"${permissionLabelMap[id] || id}"`);
-      throw new ErroLimite(403, `Você só pode liberar ou retirar as permissões que você mesmo tem. Fora do seu alcance: ${rotulos.join(', ')}. Peça ao dono ou a um administrador.`);
+      throw new ErroLimite(403, `Você só pode liberar ou retirar as permissões que você mesmo tem. Fora do seu alcance: ${rotulos.join(', ')}. Peça ao dono da empresa.`);
     }
   }
   // Nivel de acesso (item 15, fase Administracao, 25/11/2026): sem ser o dono ou um
   // administrador, so' com "Admin: Equipe -- mudar o nivel de acesso", e ate' o nivel dele.
-  const podeNivel = !gerente || permNovas.permissoesEfetivas(user.permissoes, user.nivelAcesso).includes(permNovas.PERMISSAO_ADMINISTRACAO.equipeNivel);
+  const podeNivel = !limitado || permNovas.permissoesEfetivas(user.permissoes, user.nivelAcesso, { papel: user.role }).includes(permNovas.PERMISSAO_ADMINISTRACAO.equipeNivel);
   const nivel = podeNivel && c.nivelAcesso !== undefined ? parseNivelAcesso(c.nivelAcesso) : null;
-  if (nivel && gerente && nivel !== parseNivelAcesso(alvo.nivelAcesso) && !nivelCabe(nivel, parseNivelAcesso(user.nivelAcesso))) {
-    throw new ErroLimite(403, 'Você só dá um nível de acesso até o seu. Peça ao dono ou a um administrador.');
+  if (nivel && limitado && nivel !== parseNivelAcesso(alvo.nivelAcesso) && !nivelCabe(nivel, parseNivelAcesso(user.nivelAcesso))) {
+    throw new ErroLimite(403, 'Você só dá um nível de acesso até o seu. Peça ao dono da empresa.');
+  }
+  // Regras de comissao (troca do administrador, 25/11/2026): antes so' o dono/administrador,
+  // gravando direto no banco; agora tambem pelo servidor, com a permissao propria.
+  const comissao = c.comissao && typeof c.comissao === 'object' ? c.comissao : null;
+  const camposComissao = {};
+  if (comissao) {
+    const podeComissao = user.dono || user.isPlatformAdmin
+      || permNovas.permissoesEfetivas(user.permissoes, user.nivelAcesso, { papel: user.role }).includes(permNovas.PERMISSAO_TROCA_ADMINISTRADOR.comissaoUsuario);
+    if (!podeComissao) throw new ErroLimite(403, mensagemSemPermissaoAdm([permNovas.PERMISSAO_TROCA_ADMINISTRADOR.comissaoUsuario]));
+    Object.assign(camposComissao, {
+      recebeComissaoServicos: comissao.recebeComissaoServicos === true,
+      comissaoPercentualServicos: lerPercentualDeComissao(comissao.comissaoPercentualServicos),
+      recebeComissaoPecas: comissao.recebeComissaoPecas === true,
+      comissaoPercentualPecas: lerPercentualDeComissao(comissao.comissaoPercentualPecas),
+    });
   }
   await ref.update({
-    permissoes: permNovas.permissoesParaGravarDoUsuario(novas),
+    permissoes: permNovas.permissoesParaGravarDoUsuario(novas, alvo.role),
     ...(nivel ? { nivelAcesso: nivel } : {}),
-    ...buildDocumentUpdateMetadata(user.uid, agora(), 'Permissões atualizadas'),
+    ...camposComissao,
+    ...buildDocumentUpdateMetadata(user.uid, agora(), comissao ? 'Permissões/regras de comissão atualizadas' : 'Permissões atualizadas'),
   });
-  return { usuarioId: ref.id, nome: alvo.nome || '', semFiliais };
+  return { usuarioId: ref.id, nome: alvo.nome || '', semFiliais, papel: alvo.role || '' };
 };
 
 // ===========================================================================

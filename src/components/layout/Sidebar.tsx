@@ -63,7 +63,7 @@ import {
   Calculator
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { isTenantManagerRole } from '../../utils/roles';
+import { hasTenantFullAccess } from '../../utils/roles';
 import { menuVendedoresVisivel } from '../../utils/vendedorCadastroDomain';
 import hennderIcon from '../../assets/hennder-icon.webp';
 import wordmarkDark from '../../assets/hennder-wordmark-dark.webp';
@@ -147,7 +147,9 @@ const Sidebar: React.FC = () => {
     };
   });
 
-  const hasFullAccess = isOwner || isTenantManagerRole(userRole) || isPlatformAdmin;
+  // Troca do administrador (25/11/2026): so' o dono e a plataforma veem tudo sem olhar permissao;
+  // o administrador, pelas efetivas (todas enquanto o dono nao salvar as dele).
+  const hasFullAccess = hasTenantFullAccess(userRole, isOwner) || isPlatformAdmin;
   const isBlocked = useCallback((module?: string) => Boolean(module && blockedModules?.includes(module)), [blockedModules]);
   const canAccess = useCallback((item: NavItem) => {
     if (isBlocked(item.module)) return false;

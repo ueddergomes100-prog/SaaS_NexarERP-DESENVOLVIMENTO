@@ -1,5 +1,6 @@
 import { NOME_DA_TELA, PERMISSAO_LIBERAR_DESCONTO, podeLiberarDesconto, type TelaDoDesconto } from './conferenciaDescontoDomain';
 import { hasTenantFullAccess } from './roles';
+import { administradorTemSemPacote } from './papelAdministradorDomain';
 
 /**
  * LIBERACAO DE DESCONTO PELO CELULAR (pedido do dono, 21/10/2026).
@@ -239,9 +240,13 @@ export const lerResposta = (corpo: unknown): { erro: string } | { resposta: Resp
   return { resposta: { decisao, motivoRecusa: texto(c.motivoRecusa, MOTIVO_RECUSA_MAXIMO), credencial } };
 };
 
-/** Quem ve a tela Liberacoes no app: dono/gestor, ou quem tem "Liberar desconto". */
+/**
+ * Quem ve a tela Liberacoes no app: o dono, ou quem tem "Liberar desconto" (o
+ * administrador tambem pela permissao -- troca do administrador, 25/11/2026).
+ */
 export const podeLiberarDescontoNoApp = (userRole: unknown, isOwner: boolean, permissoes: string[]): boolean => (
   hasTenantFullAccess(userRole, isOwner) || permissoes.includes(PERMISSAO_LIBERAR_DESCONTO)
+  || administradorTemSemPacote(permissoes, userRole, PERMISSAO_LIBERAR_DESCONTO)
 );
 
 export { podeLiberarDesconto };

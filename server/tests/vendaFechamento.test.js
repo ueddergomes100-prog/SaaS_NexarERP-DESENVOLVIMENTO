@@ -488,7 +488,7 @@ test('pre-venda no caixa: exige a permissao de finalizar pre-venda e o caixa abe
 });
 
 test('pre-venda no caixa: pedido do agente, bonificacao, entrega futura e pre-venda ja\' faturada ficam fora, sem gravar', async () => {
-  const gestor = { ...CAIXA, isTenantManager: true };
+  const gestor = { ...CAIXA, dono: true };
   const recusa = async (extra, padrao) => {
     const fake = criarBancoFalso(base({ ...caixaDoOperador, ...preVendaGravada(extra) }), { consultas: true });
     await assert.rejects(

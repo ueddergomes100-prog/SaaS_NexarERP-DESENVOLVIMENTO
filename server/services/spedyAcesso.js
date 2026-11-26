@@ -14,7 +14,7 @@ const BASE_URLS = {
 
 const canUseFiscal = (user, action = 'emit') => {
   if (!user) return false;
-  if (user.isPlatformAdmin || user.isTenantManager) return true;
+  if (user.isPlatformAdmin || user.dono) return true;
   const permissions = Array.isArray(user.permissoes) ? user.permissoes : [];
   return action === 'delete'
     ? permissions.includes('fiscal.excluir')

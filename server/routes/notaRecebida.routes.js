@@ -66,7 +66,7 @@ const notaDoXml = (xml) => {
 
 const podeDarEntrada = (user) => {
   if (!user) return false;
-  if (user.isPlatformAdmin || user.isTenantManager) return true;
+  if (user.isPlatformAdmin || user.dono) return true;
   const permissoes = Array.isArray(user.permissoes) ? user.permissoes : [];
   return permissoes.includes('fiscal.entrada') || canUseFiscal(user);
 };

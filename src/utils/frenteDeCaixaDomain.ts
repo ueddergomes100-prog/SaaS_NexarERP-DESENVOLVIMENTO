@@ -22,6 +22,7 @@
  * server/routes/vendas.routes.js usa PERMISSOES_QUE_OPERAM_O_CAIXA.
  */
 import { hasTenantFullAccess } from './roles';
+import { administradorComTodas, administradorTemSemPacote } from './papelAdministradorDomain';
 
 /** Permissao de sempre do PDV dentro do sistema. */
 export const PERMISSAO_PDV = 'vendas.pdv';
@@ -48,8 +49,14 @@ export interface PerfilParaOCaixa {
   permissoes?: readonly string[] | null;
 }
 
+/**
+ * Tem a permissao. Troca do administrador (25/11/2026): o administrador cujo
+ * pacote o dono ainda nao salvou conta com todas (menos as que restringem),
+ * mesmo com o cadastro cru.
+ */
 const tem = (perfil: PerfilParaOCaixa, permissao: string): boolean => (
-  Array.isArray(perfil.permissoes) && perfil.permissoes.includes(permissao)
+  (Array.isArray(perfil.permissoes) && perfil.permissoes.includes(permissao))
+  || administradorTemSemPacote(perfil.permissoes, perfil.role, permissao)
 );
 
 /** Pode abrir a Frente de Caixa (no sistema ou no app)? */
@@ -58,9 +65,16 @@ export const podeUsarFrenteDeCaixa = (perfil: PerfilParaOCaixa): boolean => (
   || PERMISSOES_QUE_OPERAM_O_CAIXA.some((permissao) => tem(perfil, permissao))
 );
 
-/** Funcionario caixa: o login cai direto no caixa e o sistema nao aparece. Nunca vale para dono/administrador. */
+/**
+ * Funcionario caixa: o login cai direto no caixa e o sistema nao aparece.
+ * Nunca vale para o dono, nem para o administrador cujo pacote o dono ainda
+ * nao salvou (um "So' a Frente de Caixa" que sobrou de quando ele era
+ * funcionario nao o prende). Depois de salvo, vale o que o dono marcou.
+ */
 export const entraDiretoNoCaixa = (perfil: PerfilParaOCaixa): boolean => (
-  !hasTenantFullAccess(perfil.role, Boolean(perfil.isOwner)) && tem(perfil, PERMISSAO_SO_CAIXA)
+  !hasTenantFullAccess(perfil.role, Boolean(perfil.isOwner))
+  && !administradorComTodas(perfil.permissoes, perfil.role)
+  && tem(perfil, PERMISSAO_SO_CAIXA)
 );
 
 /** Para onde o login do sistema manda a pessoa. */

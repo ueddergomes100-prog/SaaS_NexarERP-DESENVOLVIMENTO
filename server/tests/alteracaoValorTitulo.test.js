@@ -152,7 +152,7 @@ test('rota: sem a permissao recebe 403 em portugues; com ela, altera e registra 
     const semMotivo = await chamar(USER, { ...corpo, motivo: '' });
     assert.equal(semMotivo.status, 400);
 
-    const gerente = await chamar({ uid: 'g1', tenantId: 'emp1', permissoes: [], isTenantManager: true }, corpo);
+    const gerente = await chamar({ uid: 'g1', tenantId: 'emp1', permissoes: [], dono: true }, corpo);
     assert.equal(gerente.status, 200);
     assert.equal(fake.ler('transacoes/t1').valorCentavos, 9000);
     assert.equal(logs.length, 1);

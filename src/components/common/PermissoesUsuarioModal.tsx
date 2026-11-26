@@ -23,7 +23,7 @@ import {
 import { checarLimiteAcessoMobile } from '../../utils/acessoMobileDomain';
 import { MENSAGEM_FORA_DO_PLANO, permissaoForaDoPlano } from '../../utils/permissaoModuloDomain';
 import { alterarAcessoAppNoServidor, salvarPermissoesNoServidor } from '../../services/usuarioAcessoService';
-import { PERMISSAO_ADMINISTRACAO, permissoesEfetivasDoUsuario } from '../../utils/permissoesNovasDomain';
+import { PERMISSAO_ADMINISTRACAO, ehPapelDeAdministrador, nivelAcessoEfetivo, permissoesEfetivasDoUsuario } from '../../utils/permissoesNovasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { podeUsarOutrasFiliais, rotuloFilial } from '../../utils/filialDomain';
 import { definirFilialPadrao } from '../../services/filialService';
@@ -47,10 +47,9 @@ interface PermissoesUsuarioModalProps {
  */
 const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuarioId, usuarioNome, onClose, onSaved }) => {
   const { currentUser, tenantId, userRole, isOwner, restringirVendasPorUsuario, grupo, userPermissions, blockedModules } = useAuth();
-  // Gerente (nivel de vendas) tambem abre este popup agora, mas so' pode
-  // mexer nos modulos liberados -- nivel de acesso e acesso mobile
-  // continuam so' Admin/Master/Dono (a regra do Firestore recusa a troca
-  // desses dois campos vinda de quem nao e' isso; ver firestore.rules).
+  // Dono (e plataforma): mexe em tudo. Troca do administrador (25/11/2026): o
+  // administrador, como o gerente, pela permissao de cada parte (ele tem todas
+  // enquanto o dono nao salvar as dele); o servidor confere de novo.
   const podeAlterarNivelEMobile = hasTenantFullAccess(userRole, isOwner);
   /** Empresa sem filiais: "Admin: Configurações" traz as Configurações Gerais (pacote 'administracao-1'). */
   const semFiliais = !grupo;
@@ -87,11 +86,13 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
       setIsLoading(true);
       try {
         const snap = await getDoc(doc(db, 'usuarios', usuarioId));
+        const papel = snap.exists() ? snap.data().role : undefined;
         // Efetivas (26/10/2026): quem nunca teve o app gravado ja' aparece com as chaves do app marcadas.
         // Idem as permissoes novas por acao (25/11/2026, permissoesNovasDomain.ts): aparecem marcadas
         // para quem tem a permissao da tela; ao salvar, o servidor grava o marcado de verdade.
-        setPermissoes(permissoesEfetivasDoUsuario(snap.exists() ? snap.data().permissoes : [], snap.exists() ? snap.data().nivelAcesso : undefined, { semFiliais }));
-        setNivelAcesso(parseNivelAcesso(snap.exists() ? snap.data().nivelAcesso : undefined));
+        // Administrador que o dono ainda nao salvou (troca do administrador): todas marcadas.
+        setPermissoes(permissoesEfetivasDoUsuario(snap.exists() ? snap.data().permissoes : [], snap.exists() ? snap.data().nivelAcesso : undefined, { semFiliais, papel }));
+        setNivelAcesso(parseNivelAcesso(nivelAcessoEfetivo(snap.exists() ? snap.data().nivelAcesso : undefined, papel, snap.exists() ? snap.data().permissoes : [])));
         const acessoMobileAtual = snap.exists() && snap.data().acessoAppMobile === true;
         setAcessoAppMobile(acessoMobileAtual);
         setAcessoAppMobileOriginal(acessoMobileAtual);
@@ -224,6 +225,11 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
         </div>
 
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {ehPapelDeAdministrador(papelDoUsuario) && (
+            <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: 0 }}>
+              Este usuário é <strong>administrador</strong>: ele tem só as permissões marcadas aqui. Enquanto você não salvar, ele continua com todas.
+            </p>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <label htmlFor="nivel-acesso-usuario" style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
               Nível de acesso

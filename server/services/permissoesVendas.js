@@ -4,8 +4,8 @@
  * Mesmo padrao do Financeiro (permissoesFinanceiro.js): cada acao pede a SUA
  * permissao, conferida pelas EFETIVAS (permissoesNovasDomain.ts, pacote
  * 'vendas-1' -- quem ja' usa a tela tem as novas ate' as permissoes dele serem
- * salvas de novo). Dono/administrador (Master/Admin) e plataforma seguem
- * liberados nesta fase.
+ * salvas de novo). Dono e plataforma seguem liberados; o administrador, pelas
+ * efetivas (troca do administrador, 25/11/2026).
  *
  * Decisao do dono: falta de permissao para mexer num valor que protege a
  * empresa = o valor fica no PADRAO, travado, conferido aqui -- nunca em branco:
@@ -85,13 +85,14 @@ const exigir = (user, ids, Erro, antes = '') => {
 
 /**
  * O cadastro de OUTRA pessoa (quem gravou a pre-venda ou o orcamento) tem a
- * permissao? Dono e administrador sim; o resto pelas efetivas do cadastro.
+ * permissao? Dono sim; o resto (administrador inclusive) pelas efetivas do cadastro.
  */
 const cadastroPode = (uid, registro, permissao) => {
   if (!registro) return false;
   const ehDono = Boolean(uid) && String(registro.tenantId || uid) === String(uid);
   if (hasTenantFullAccess(registro.role, ehDono)) return true;
-  return permissoesEfetivasDoUsuario(registro.permissoes, registro.nivelAcesso).includes(permissao);
+  // Administrador: pelas efetivas com o papel (todas enquanto o dono nao salvar as dele).
+  return permissoesEfetivasDoUsuario(registro.permissoes, registro.nivelAcesso, { papel: registro.role }).includes(permissao);
 };
 
 // ---------------------------------------------------------------------------

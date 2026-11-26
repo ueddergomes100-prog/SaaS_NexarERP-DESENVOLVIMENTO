@@ -9,7 +9,6 @@ import { DOCUMENTOS_COM_MENSAGEM, LIMITE_MENSAGEM_PADRAO, MENSAGENS_PADRAO_VAZIA
 import { DOCUMENTOS_DE_COBRANCA, EMISSAO_DOCUMENTOS_PADRAO, MODOS_DE_EMISSAO, VIAS_MAXIMAS, parseEmissaoDocumentos, type EmissaoDocumentos, type ModoEmissao } from '../../utils/documentosCobrancaDomain';
 import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoService';
 import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
-import { isTenantManagerRole } from '../../utils/roles';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor, Building2, Scale, ClipboardList } from 'lucide-react';
 import { useTabs } from '../../contexts/TabsContext';
@@ -25,7 +24,10 @@ import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useT
 import {
   PERMISSAO_ADMINISTRACAO,
   PERMISSAO_CONFIG_AREAS,
+  PERMISSAO_TROCA_ADMINISTRADOR,
+  ehPapelDeAdministrador,
   mudancasDePermissoes,
+  nivelAcessoEfetivo,
   permissoesEfetivasDoUsuario as permissoesEfetivas,
   permissoesParaGravarDoUsuario as permissoesParaGravar,
 } from '../../utils/permissoesNovasDomain';
@@ -421,7 +423,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const [showNumeracao, setShowNumeracao] = useState(false);
   const [numeracao, setNumeracao] = useState<SituacaoDaSequencia[] | null>(null);
   const [numeracaoErro, setNumeracaoErro] = useState('');
-  const podeVerNumeracao = isOwner || isTenantManagerRole(userRole) || userPermissions.includes(PERMISSAO_ADMINISTRACAO.numeracao);
+  const podeVerNumeracao = isOwner || isPlatformAdminRole(userRole) || userPermissions.includes(PERMISSAO_ADMINISTRACAO.numeracao);
   const carregarNumeracao = async () => {
     setNumeracaoErro('');
     try {
@@ -474,8 +476,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const [recebeComissaoPecas, setRecebeComissaoPecas] = useState(false);
   const [comissaoPercentualPecas, setComissaoPercentualPecas] = useState('');
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
-  // Item 15: dono/administrador mexe em tudo; o resto, pela permissao de cada parte.
+  // Item 15: o dono mexe em tudo (gravando direto); o resto -- o administrador inclusive, desde a
+  // troca do administrador (25/11/2026) --, pela permissao de cada parte, pelo servidor.
   const gestorDaEquipe = isPlatformAdmin || hasTenantFullAccess(userRole, isOwner);
+  const podeComissaoDoUsuario = gestorDaEquipe || userPermissions.includes(PERMISSAO_TROCA_ADMINISTRADOR.comissaoUsuario);
   const podeVerPermissoesDeUsuarios = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipePermissoes);
   const podeMudarNivel = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeNivel);
   const [moduleBlockedDraft, setModuleBlockedDraft] = useState<string[]>([]);
@@ -1612,8 +1616,9 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     setCopiarPermissoesDeId('');
     if (uId) {
       const user = tenantUsers.find(u => u.id === uId);
-      setSelectedUserPermissions(permissoesEfetivas(user?.permissoes || [], user?.nivelAcesso, { semFiliais: !grupo }));
-      setSelectedUserNivelAcesso(parseNivelAcesso(user?.nivelAcesso));
+      // Papel (troca do administrador, 25/11/2026): administrador que o dono ainda nao salvou aparece com todas.
+      setSelectedUserPermissions(permissoesEfetivas(user?.permissoes || [], user?.nivelAcesso, { semFiliais: !grupo, papel: user?.role }));
+      setSelectedUserNivelAcesso(parseNivelAcesso(nivelAcessoEfetivo(user?.nivelAcesso, user?.role, user?.permissoes)));
       setRecebeComissaoServicos(user?.recebeComissaoServicos || false);
       setComissaoPercentualServicos(user?.comissaoPercentualServicos != null ? String(user.comissaoPercentualServicos) : '');
       setRecebeComissaoPecas(user?.recebeComissaoPecas || false);
@@ -1636,8 +1641,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     if (!copiarPermissoesDeId) return;
     const origem = tenantUsers.find(u => u.id === copiarPermissoesDeId);
     if (!origem) return;
-    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || [], origem.nivelAcesso, { semFiliais: !grupo }));
-    setSelectedUserNivelAcesso(parseNivelAcesso(origem.nivelAcesso));
+    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || [], origem.nivelAcesso, { semFiliais: !grupo, papel: origem.role }));
+    setSelectedUserNivelAcesso(parseNivelAcesso(nivelAcessoEfetivo(origem.nivelAcesso, origem.role, origem.permissoes)));
     showWarning('Permissões copiadas', `Permissões e nível de acesso de ${origem.nome} copiados para a tela. Revise e clique em "Salvar Acessos" para confirmar.`);
   };
 
@@ -1695,16 +1700,31 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const handleSavePermissions = async () => {
     if (!selectedUserId || !currentUser) return;
     setIsSavingPermissions(true);
-    // Item 15 (fase Administracao, 25/11/2026): sem ser o dono/administrador, salva pelo
-    // servidor, que confere "Admin: Equipe — liberar e retirar permissões", o alvo (so'
-    // funcionario comum) e o que voce mesmo tem. Nivel so' com a permissao dele; comissao fica.
+    // Papel do alvo (administrador leva o marcador do pacote dele); o dono nunca: ele sempre pode tudo.
+    const papelDoSelecionado = selectedUserId === tenantId ? undefined : tenantUsers.find((u) => u.id === selectedUserId)?.role;
+    // Item 15 (fase Administracao, 25/11/2026): sem ser o dono, salva pelo servidor, que
+    // confere "Admin: Equipe — liberar e retirar permissões", o alvo (o administrador alcanca
+    // funcionario e gerente; o gerente, so' funcionario comum) e o que voce mesmo tem. Nivel
+    // so' com a permissao dele; comissao com "Admin: Equipe — regras de comissão".
     if (!gestorDaEquipe) {
       try {
-        await salvarPermissoesNoServidor(selectedUserId, selectedUserPermissions, podeMudarNivel ? selectedUserNivelAcesso : undefined);
+        const comissao = podeComissaoDoUsuario ? {
+          recebeComissaoServicos,
+          comissaoPercentualServicos: parseComissaoPercentualInput(comissaoPercentualServicos) ?? null,
+          recebeComissaoPecas,
+          comissaoPercentualPecas: parseComissaoPercentualInput(comissaoPercentualPecas) ?? null,
+        } : undefined;
+        await salvarPermissoesNoServidor(selectedUserId, selectedUserPermissions, podeMudarNivel ? selectedUserNivelAcesso : undefined, comissao);
         setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
           ...u,
-          permissoes: permissoesParaGravar(selectedUserPermissions),
+          permissoes: permissoesParaGravar(selectedUserPermissions, papelDoSelecionado),
           ...(podeMudarNivel ? { nivelAcesso: selectedUserNivelAcesso } : {}),
+          ...(comissao ? {
+            recebeComissaoServicos: comissao.recebeComissaoServicos,
+            comissaoPercentualServicos: comissao.comissaoPercentualServicos ?? undefined,
+            recebeComissaoPecas: comissao.recebeComissaoPecas,
+            comissaoPercentualPecas: comissao.comissaoPercentualPecas ?? undefined,
+          } : {}),
         } : u));
         showSuccess('Permissões salvas!');
       } catch (erro) {
@@ -1724,7 +1744,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const updatePayload: Record<string, unknown> = {
         // Com o marcador do app (26/10/2026) e os dos pacotes de permissoes novas
         // (25/11/2026, dentro de `permissoes` -- as rules nao mudam): dai' em diante vale o marcado.
-        permissoes: permissoesParaGravar(selectedUserPermissions),
+        // Administrador (pelo papel): leva o marcador dele -- dai' em diante vale so' o que o dono marcou.
+        permissoes: permissoesParaGravar(selectedUserPermissions, papelDoSelecionado),
         nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
         comissaoPercentualServicos: percentualServicosValor,
@@ -1744,7 +1765,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const usuarioAntes = tenantUsers.find((u) => u.id === selectedUserId) || {};
       // Sem os marcadores internos (app e pacotes) -- permissoesNovasDomain.ts.
       const rotuloPermissao = (id: string) => permissionLabelMap[id] || id;
-      const { entraram, sairam } = mudancasDePermissoes(usuarioAntes.permissoes || [], permissoesParaGravar(selectedUserPermissions), usuarioAntes.nivelAcesso, { semFiliais: !grupo });
+      const { entraram, sairam } = mudancasDePermissoes(usuarioAntes.permissoes || [], permissoesParaGravar(selectedUserPermissions, papelDoSelecionado), usuarioAntes.nivelAcesso, { semFiliais: !grupo, papel: papelDoSelecionado });
       const alteracoesUsuario: MudancaDeCampo[] = [
         ...entraram.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Não', valorNovo: 'Sim' })),
         ...sairam.map((p) => ({ campo: `Permissão: ${rotuloPermissao(p)}`, valorAnterior: 'Sim', valorNovo: 'Não' })),
@@ -1786,7 +1807,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       // Atualiza o estado local para não perder
       setTenantUsers(prev => prev.map(u => u.id === selectedUserId ? {
         ...u,
-        permissoes: selectedUserPermissions,
+        permissoes: permissoesParaGravar(selectedUserPermissions, papelDoSelecionado),
         nivelAcesso: selectedUserNivelAcesso,
         recebeComissaoServicos: recebeComissaoServicos,
         comissaoPercentualServicos: percentualServicosValor,
@@ -5000,7 +5021,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                           <input
                             type="checkbox"
                             checked={recebeComissaoServicos}
-                            disabled={!gestorDaEquipe}
+                            disabled={!podeComissaoDoUsuario}
                             onChange={(e) => setRecebeComissaoServicos(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
                           />
@@ -5016,7 +5037,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                               max="100"
                               title="Usa o padrão do sistema"
                               value={comissaoPercentualServicos}
-                              disabled={!gestorDaEquipe}
+                              disabled={!podeComissaoDoUsuario}
                               onChange={(e) => setComissaoPercentualServicos(e.target.value)}
                               style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
@@ -5032,7 +5053,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                           <input
                             type="checkbox"
                             checked={recebeComissaoPecas}
-                            disabled={!gestorDaEquipe}
+                            disabled={!podeComissaoDoUsuario}
                             onChange={(e) => setRecebeComissaoPecas(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#f59e0b', cursor: 'pointer' }}
                           />
@@ -5048,7 +5069,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                               max="100"
                               title="Usa o padrão do sistema"
                               value={comissaoPercentualPecas}
-                              disabled={!gestorDaEquipe}
+                              disabled={!podeComissaoDoUsuario}
                               onChange={(e) => setComissaoPercentualPecas(e.target.value)}
                               style={{ width: '160px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
@@ -5061,8 +5082,18 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     </div>
                   </div>
 
-                  {/* Bloco de Permissões */}
+                  {/* Bloco de Permissões. O dono nao tem permissoes para marcar: sempre pode tudo (troca do administrador, 25/11/2026). */}
+                  {selectedUserId === tenantId ? (
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                      Este é o <strong>dono da empresa</strong>: ele sempre pode tudo, então não há permissões para marcar.
+                    </p>
+                  ) : (
                   <div>
+                    {ehPapelDeAdministrador(tenantUsers.find((u) => u.id === selectedUserId)?.role) && (
+                      <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
+                        Este usuário é <strong>administrador</strong>. Ele tem só as permissões marcadas aqui: enquanto você não salvar, ele continua com todas. Só o dono da empresa altera as permissões de um administrador.
+                      </p>
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
                       <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-purple)' }}></span>
@@ -5117,6 +5148,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     })}
                   </div>
                   </div>
+                  )}
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
                     <button

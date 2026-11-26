@@ -18,6 +18,8 @@ export type FormaPagamentoNotaAvulsa = 'a_vista' | 'pendente';
 export interface NotaAvulsaItem {
   produtoId: string;
   produtoNome: string;
+  /** Codigo do produto no sistema (26/11/2026): aparece na tela e na nota gravada. Ausente em nota antiga. */
+  produtoCodigo?: string;
   /** Quantidade na unidade escolhida na compra (KG, ou SC quando o produto
    * tem embalagem e a empresa recebeu em saco). E tambem a base do calculo
    * financeiro (quantidade x precoCusto), nunca convertida. */

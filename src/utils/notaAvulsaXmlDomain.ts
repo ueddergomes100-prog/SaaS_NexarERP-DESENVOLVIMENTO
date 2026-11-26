@@ -70,7 +70,7 @@ export const fatorDoFornecedor = (produto: ProdutoParaVinculoAvulso | null | und
  */
 export const itemAvulsoDoXml = (
   item: Pick<ItemDaNota, 'quantidade' | 'valorProduto' | 'valorUnitario' | 'codigo'>,
-  produto: { id: string; nome: string; precoVenda?: number },
+  produto: { id: string; nome: string; precoVenda?: number; codigo?: string },
   fator = 1,
 ): NotaAvulsaItem & { codigoFornecedor?: string } => {
   const f = Number(fator) > 0 ? Number(fator) : 1;
@@ -80,6 +80,7 @@ export const itemAvulsoDoXml = (
   return {
     produtoId: produto.id,
     produtoNome: produto.nome,
+    ...(String(produto.codigo || '').trim() ? { produtoCodigo: String(produto.codigo).trim() } : {}),
     quantidade,
     precoCusto,
     precoVenda: Number(produto.precoVenda) || 0,

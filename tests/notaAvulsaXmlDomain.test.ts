@@ -38,3 +38,10 @@ test('boletos do XML viram parcelas; XML desta empresa vai para a Entrada de XML
   assert.equal(avisoDoDestinatario('12345678000190', { destinatario: { documento: '11122233344', nome: '', fantasia: '', inscricaoEstadual: '', regime: '', endereco: {} as never } }), null);
   assert.equal(fornecedorDoXml([{ id: 'f1', documento: '11.222.333/0001-44' }], { emitente: { documento: '11222333000144', nome: '', fantasia: '', inscricaoEstadual: '', regime: '', endereco: {} as never } })?.id, 'f1');
 });
+
+test('item do XML leva o codigo do produto do sistema (26/11/2026); sem codigo, sem a chave', () => {
+  const com = itemAvulsoDoXml({ quantidade: 2, valorProduto: 20, valorUnitario: 10, codigo: 'F1' }, { id: 'p1', nome: 'AREIA', codigo: ' 80 ' });
+  assert.equal(com.produtoCodigo, '80');
+  const sem = itemAvulsoDoXml({ quantidade: 2, valorProduto: 20, valorUnitario: 10, codigo: 'F1' }, { id: 'p1', nome: 'AREIA' });
+  assert.equal('produtoCodigo' in sem, false);
+});

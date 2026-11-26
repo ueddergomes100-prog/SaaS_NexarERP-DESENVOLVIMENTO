@@ -319,7 +319,7 @@ const NotaAvulsaForm: React.FC = () => {
         };
         return copia;
       }
-      return [...atual, { produtoId: produtoSelecionado.id, produtoNome: produtoSelecionado.nome, quantidade, precoCusto: custo, precoVenda: venda, ...dadosEmbalagem }];
+      return [...atual, { produtoId: produtoSelecionado.id, produtoNome: produtoSelecionado.nome, ...(String(produtoSelecionado.codigo || '').trim() ? { produtoCodigo: String(produtoSelecionado.codigo).trim() } : {}), quantidade, precoCusto: custo, precoVenda: venda, ...dadosEmbalagem }];
     });
 
     setProdutoBusca('');
@@ -820,6 +820,7 @@ const NotaAvulsaForm: React.FC = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', marginTop: '8px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '13px', textTransform: 'uppercase' }}>
+                <th style={{ padding: '10px' }}>Cód.</th>
                 <th style={{ padding: '10px' }}>Produto</th>
                 <th style={{ padding: '10px', textAlign: 'right' }}>Qtd</th>
                 <th style={{ padding: '10px', textAlign: 'right' }}>Custo Unit.</th>
@@ -832,6 +833,7 @@ const NotaAvulsaForm: React.FC = () => {
             <tbody>
               {itensComRateio.map((item) => (
                 <tr key={`${item.produtoId}::${item.embalagemId || ''}`} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{item.produtoCodigo || produtos.find((p) => p.id === item.produtoId)?.codigo || '—'}</td>
                   <td style={{ padding: '10px' }}>{item.produtoNome}</td>
                   <td style={{ padding: '10px', textAlign: 'right' }}>
                     {item.quantidade} {item.unidadeSigla || ''}
@@ -875,7 +877,7 @@ const NotaAvulsaForm: React.FC = () => {
               const custoBase = item.fatorConversao ? custoUnitarioComRateio(item) / item.fatorConversao : custoUnitarioComRateio(item);
               return (
                 <div key={`emb-${item.produtoId}`}>
-                  <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)', marginTop: '8px' }}>{produto.nome}</div>
+                  <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-secondary)', marginTop: '8px' }}>{produto.codigo ? `Cód. ${produto.codigo} · ` : ''}{produto.nome}</div>
                   <EmbalagensNaEntrada
                     idBase={`avulsa-${item.produtoId}`}
                     nomeDoProduto={produto.nome}

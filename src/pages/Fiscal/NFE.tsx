@@ -4686,6 +4686,8 @@ const NFE: React.FC = () => {
                                 {(importedPedidoId || (notaManualComItens && item.doCadastro)) && (
                                   <span style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
                                     {[
+                                      // Codigo do produto no sistema (26/11/2026); o id do documento nao conta.
+                                      item.codigoProduto && item.codigoProduto !== item.id ? `Cód. ${item.codigoProduto}` : '',
                                       item.unidadeMedidaSigla || 'UN (sem unidade no cadastro)',
                                       resolverGtin(item.codigoBarras) === 'SEM GTIN' ? 'SEM GTIN' : `GTIN ${resolverGtin(item.codigoBarras)}`,
                                       percentuaisTributos({ ...item, nome: item.nome }).total > 0

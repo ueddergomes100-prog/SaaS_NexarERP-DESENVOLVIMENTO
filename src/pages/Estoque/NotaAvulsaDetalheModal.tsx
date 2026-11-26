@@ -126,7 +126,7 @@ const NotaAvulsaDetalheModal: React.FC<{ tenantId: string; nota: NotaAvulsaParaV
                 return (
                   <tr key={`${item.produtoId}-${i}`}>
                     <td style={celula}>
-                      <strong>{item.produtoNome}</strong>
+                      <strong>{item.produtoCodigo ? `Cód. ${item.produtoCodigo} · ` : ''}{item.produtoNome}</strong>
                       {item.fatorConversao && item.fatorConversao !== 1 && (
                         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>entrou {base} no estoque (1 {sigla} = {item.fatorConversao})</div>
                       )}

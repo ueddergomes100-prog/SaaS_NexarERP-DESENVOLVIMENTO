@@ -27,6 +27,8 @@ import { campoInputStyle, campoLabelStyle, grupoStyle, moeda, moeda4, percentual
  */
 
 export interface CadastroVinculado {
+  /** Codigo do produto no sistema (26/11/2026: aparece junto do nome). */
+  codigo?: string;
   nome: string;
   quantidade: number;
   precoCusto?: number;
@@ -145,7 +147,7 @@ const ItemDaNotaCard: React.FC<ItemDaNotaCardProps> = ({
         {vinculado ? (
           <>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {ROTULO_ORIGEM_VINCULO[config.origemVinculo ?? 'automatico']}: <strong style={{ color: 'var(--text-primary)' }}>{cadastro?.nome}</strong>
+              {ROTULO_ORIGEM_VINCULO[config.origemVinculo ?? 'automatico']}: <strong style={{ color: 'var(--text-primary)' }}>{cadastro?.codigo ? `Cód. ${cadastro.codigo} · ` : ''}{cadastro?.nome}</strong>
             </span>
             <button type="button" className="btn-secondary" onClick={onAbrirVinculo} style={botaoPequeno}><Link2 size={13} /> Trocar cadastro</button>
             <button type="button" className="btn-secondary" onClick={onDesvincular} style={botaoPequeno}><Unlink size={13} /> Desvincular (cadastrar como novo)</button>

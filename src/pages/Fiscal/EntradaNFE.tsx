@@ -2286,7 +2286,7 @@ const EntradaNFE: React.FC = () => {
                     ? insumosAtuais.find((i) => i.id === config.matchId)
                     : undefined;
                   const cadastro: CadastroVinculado | undefined = correspondenteEstoque
-                    ? { nome: correspondenteEstoque.nome, quantidade: correspondenteEstoque.quantidade, precoCusto: correspondenteEstoque.precoCusto, precoVenda: correspondenteEstoque.precoVenda, unidade: correspondenteEstoque.unidadeMedidaSigla }
+                    ? { codigo: correspondenteEstoque.codigo, nome: correspondenteEstoque.nome, quantidade: correspondenteEstoque.quantidade, precoCusto: correspondenteEstoque.precoCusto, precoVenda: correspondenteEstoque.precoVenda, unidade: correspondenteEstoque.unidadeMedidaSigla }
                     : (correspondenteMateriaPrima ?? correspondenteInsumo)
                       ? { nome: (correspondenteMateriaPrima ?? correspondenteInsumo)!.nome, quantidade: (correspondenteMateriaPrima ?? correspondenteInsumo)!.quantidade, precoCusto: (correspondenteMateriaPrima ?? correspondenteInsumo)!.precoCusto, unidade: (correspondenteMateriaPrima ?? correspondenteInsumo)!.unidade }
                       : undefined;

@@ -604,6 +604,14 @@ service cloud.firestore {
         || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['limiteDeCredito', 'limiteDeCreditoCents'])
         || hasPermission('cadastros.clientes') || isTenantAdmin();
     }
+    // Forma de pagamento escolhida pelo vendedor no app (26/11/2026): nasce com a
+    // pre-venda e ninguem muda pela tela. Quem tem "Vendas: trocar a forma do
+    // vendedor" troca a forma da VENDA (pagamentos), nunca este registro -- e' ele
+    // que o servidor e a tela conferem ao finalizar.
+    function formaDoVendedorIntacta(collectionName) {
+      return collectionName != 'pedidos_venda'
+        || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['formaPagamentoVendedor']);
+    }
     function limiteDeCreditoNaoNasceSemPermissao(collectionName) {
       return collectionName != 'clientes'
         || request.resource.data.get('limiteDeCredito', null) == null
@@ -1160,7 +1168,7 @@ service cloud.firestore {
         'entregas',
         'caixas_pdv',
         'notas_avulsas'
-      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && cashbackSoPeloServidor(collectionName) && limiteDeCreditoProtegido(collectionName) && romaneioAbertoNaTela(collectionName) && (
+      ] && canUpdateTenantDocument() && situacaoRespeitada(collectionName) && cadastroDoGrupoRespeitado(collectionName) && entradaDeTransferenciaIntacta(collectionName) && cashbackSoPeloServidor(collectionName) && limiteDeCreditoProtegido(collectionName) && formaDoVendedorIntacta(collectionName) && romaneioAbertoNaTela(collectionName) && (
         // Gestor da empresa (Master/Admin) primeiro (2026-10-20): ele ja' era
         // liberado por canWriteTenantCollection, mas so' depois de avaliar
         // canAdjustStockQuantity inteira -- um Admin SEM as permissoes de venda

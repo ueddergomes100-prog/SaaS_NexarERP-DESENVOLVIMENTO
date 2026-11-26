@@ -95,6 +95,8 @@ import {
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import CreditosModal from '../../components/finance/CreditosModal';
+import { creditosConsultaService, type SaldoDoCliente } from '../../services/creditosConsultaService';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import RelatorioRecebimentos, { pedirPeriodoDosRecebimentos } from '../../components/finance/RelatorioRecebimentos';
 import AcertoFornecedorModal from '../../components/finance/AcertoFornecedorModal';
@@ -198,6 +200,25 @@ const ContasReceber: React.FC = () => {
   const podeCobrarWhatsapp = temAcao(PERMISSAO_FINANCEIRO.cobrarWhatsapp);
   const podeRelatorios = temAcao(PERMISSAO_FINANCEIRO.relatorios);
   const podeImportar = temAcao(PERMISSAO_FINANCEIRO.importarTitulos);
+  // Creditos e de onde vem cada um (26/11/2026): saldo na linha do cliente e a ficha dos creditos.
+  const podeVerCreditos = temAcao(PERMISSAO_FINANCEIRO.creditosVer);
+  const [creditosAbertos, setCreditosAbertos] = useState<{ alvo: { id: string; nome: string } | null } | null>(null);
+  const [saldosDeCredito, setSaldosDeCredito] = useState<SaldoDoCliente[]>([]);
+  useEffect(() => {
+    if (!podeVerCreditos || creditosAbertos) return;
+    let ativo = true;
+    creditosConsultaService.saldosDosClientes()
+      .then((r) => { if (ativo) setSaldosDeCredito(r.clientes); })
+      .catch((erro) => console.error('Erro ao ler os créditos dos clientes:', erro));
+    return () => { ativo = false; };
+  }, [podeVerCreditos, creditosAbertos]);
+  /** Saldo de credito do cliente da linha (pelo codigo; credito antigo sem codigo, pelo nome). */
+  const saldoDeCreditoDo = (clienteId: string | null, clienteNome: string): number => {
+    const nome = clienteNome.trim().toUpperCase();
+    return saldosDeCredito
+      .filter((c) => (clienteId && c.clienteId ? c.clienteId === clienteId : c.clienteNome.trim().toUpperCase() === nome))
+      .reduce((soma, c) => soma + c.saldoCentavos, 0);
+  };
   const semPermissao = (permissao: string, acao: string) => `Você não tem permissão para ${acao}. Peça a um responsável liberar "${permissionLabelMap[permissao] || permissao}" no seu cadastro de funcionário.`;
   const [renegociando, setRenegociando] = useState<{ clienteNome: string; titulos: ParcelaParaRenegociar[] } | null>(null);
   
@@ -1241,6 +1262,11 @@ const ContasReceber: React.FC = () => {
                 titulo: 'O cliente pagou direto um fornecedor: dá baixa na conta dele e na conta do fornecedor de uma vez, sem mexer em caixa nem em banco',
                 onClick: () => setAcertoAberto(true),
               }] : []),
+              ...(podeVerCreditos ? [{
+                texto: 'Créditos de clientes', Icone: Wallet,
+                titulo: 'Quem tem crédito, quanto sobra e de onde vem cada crédito (devolução, venda cancelada)',
+                onClick: () => setCreditosAbertos({ alvo: null }),
+              }] : []),
               ...(podeImportar ? [{ texto: 'Importar títulos', Icone: Upload, separadorAntes: true, onClick: () => openTab('/financeiro/contas-receber/importar', 'Importar Contas a Receber') }] : []),
             ]}
           />
@@ -1420,6 +1446,16 @@ const ContasReceber: React.FC = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {grupo.deFornecedor ? <Building2 size={16} style={{ color: 'var(--text-muted)' }} /> : <User size={16} style={{ color: 'var(--text-muted)' }} />}
                             {grupo.clienteNome}
+                            {podeVerCreditos && !grupo.deFornecedor && saldoDeCreditoDo(grupo.clienteId, grupo.clienteNome) > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setCreditosAbertos({ alvo: { id: grupo.clienteId || '', nome: grupo.clienteNome } }); }}
+                                title="Ver os créditos deste cliente e de onde vem cada um"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600, color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: '4px', padding: '1px 6px', background: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                <Wallet size={12} /> Crédito {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldoDeCreditoDo(grupo.clienteId, grupo.clienteNome) / 100))}
+                              </button>
+                            )}
                             {grupo.deFornecedor && (
                               <span style={{ fontSize: '11px', fontWeight: 600, color: '#8b5cf6', border: '1px solid rgba(139, 92, 246, 0.4)', borderRadius: '4px', padding: '1px 6px' }}>Fornecedor</span>
                             )}
@@ -1849,6 +1885,15 @@ const ContasReceber: React.FC = () => {
           }
         }}
       />
+      {creditosAbertos && (
+        <CreditosModal
+          modo="cliente"
+          alvo={creditosAbertos.alvo}
+          onFechar={() => setCreditosAbertos(null)}
+          onAbrirPedido={(pedidoId, rotulo) => { setCreditosAbertos(null); void openTab(`/pedidos-venda/visualizar/${pedidoId}`, rotulo); }}
+          onAbrirTela={(caminho, rotulo) => { setCreditosAbertos(null); void openTab(caminho, rotulo); }}
+        />
+      )}
     </div>
   );
 };

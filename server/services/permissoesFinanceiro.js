@@ -61,6 +61,7 @@ const ACOES = {
   [PF.cobrarWhatsapp]: { acao: 'cobrar clientes pelo WhatsApp' },
   [PF.relatorios]: { acao: 'tirar relatórios do Financeiro' },
   [PF.importarTitulos]: { acao: 'importar títulos de planilha' },
+  [PF.creditosVer]: { acao: 'ver os créditos dos clientes e de onde vêm' },
   [PFI.cartaCorrecao]: { acao: 'enviar carta de correção' },
   [PFI.inutilizar]: { acao: 'inutilizar numeração de notas' },
   [PFI.devolucao]: { acao: 'emitir NF-e de devolução' },

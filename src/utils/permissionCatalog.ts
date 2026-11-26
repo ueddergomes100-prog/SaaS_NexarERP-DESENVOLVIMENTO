@@ -393,6 +393,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'financeiro.baixa_credito_cliente', label: 'Financeiro: Contas a Receber — abater conta com crédito do cliente', color: '#10b981' },
       { id: 'financeiro.recibo', label: 'Financeiro: Contas a Receber — emitir recibo de pagamento', color: '#10b981' },
       { id: 'financeiro.cobrar_whatsapp', label: 'Financeiro: Contas a Receber — cobrar cliente pelo WhatsApp', color: '#10b981' },
+      { id: 'financeiro.creditos_ver', label: 'Financeiro: ver os créditos dos clientes (e o que o fornecedor deve) e de onde vem cada um', color: '#10b981' },
       { id: 'financeiro.relatorios', label: 'Financeiro: relatórios (PDF e Excel) das telas do Financeiro', color: '#10b981' },
       { id: 'financeiro.importar_titulos', label: 'Financeiro: importar títulos de planilha (Contas a Receber e a Pagar)', color: '#10b981' },
       // Item 15 (fase Administracao, 25/11/2026): blocos financeiros das Configuracoes. O plano

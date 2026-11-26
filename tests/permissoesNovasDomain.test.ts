@@ -47,7 +47,8 @@ const MARCADOR_FIN2 = marcadorDoPacote('financeiro-2');
 const MARCADOR_VENDAS = marcadorDoPacote('vendas-1');
 const MARCADOR_ESTOQUE = marcadorDoPacote('estoque-1');
 const MARCADOR_ADMINISTRACAO = marcadorDoPacote('administracao-1');
-const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO];
+const MARCADOR_FIN3 = marcadorDoPacote('financeiro-3');
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -77,6 +78,8 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
     'financeiro.pagar', F.pagarBaixar, F.baixaJurosMulta, F.baixaDataAnterior, F.baixaLote, F.categorias,
     // Pacote 2 (fase 2): lancar/alterar/cancelar despesa, relatorios e importar.
     F.pagarLancar, F.pagarEditar, F.pagarCancelar, F.relatorios, F.importarTitulos,
+    // Pacote financeiro-3 (26/11/2026): ver os creditos e de onde vem.
+    F.creditosVer,
     ...MARCADORES,
   ]));
   assert.deepEqual(permissoesEfetivas(['vendas.minhas_vendas']), ['vendas.minhas_vendas', ...MARCADORES]);
@@ -87,7 +90,7 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
   assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1']);
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1', 'financeiro-3']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');
@@ -400,4 +403,14 @@ test('papel sozinho nao libera mais: hasTenantFullAccess so o dono e a plataform
   assert.equal(pode(['pacote.administrador-1']), false);
   assert.equal(pode(['pacote.administrador-1', 'cadastros.bancos']), true);
   assert.equal(hasModuleAccess({ role: 'Funcionario', isOwner: false, permissions: [], requiredPermission: 'cadastros.bancos' }), false);
+});
+
+test('financeiro-3: quem usa o Contas a Receber ou a Pagar ja ve os creditos; salvo sem ela, nao ve', () => {
+  assert.ok(permissoesEfetivas(['financeiro.receber']).includes(F.creditosVer));
+  assert.ok(permissoesEfetivas(['financeiro.pagar']).includes(F.creditosVer));
+  assert.ok(!permissoesEfetivas(['vendas.pedidos']).includes(F.creditosVer));
+  // Salvo antes deste pacote (so' com os anteriores): ganha pela tela.
+  assert.ok(permissoesEfetivas(['financeiro.receber', MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO]).includes(F.creditosVer));
+  // Salvo com este pacote e sem a permissao marcada: fica sem.
+  assert.ok(!permissoesEfetivas(permissoesParaGravar(['financeiro.receber'])).includes(F.creditosVer));
 });

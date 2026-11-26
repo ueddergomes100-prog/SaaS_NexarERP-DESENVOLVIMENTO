@@ -709,4 +709,37 @@ router.post('/cheque/voltar-carteira', rotaDeMovimento('financeiro.cheques', 'vo
 router.post('/banco/transferencia', rotaDeMovimento('cadastros.bancos', 'fazer a transferência', transferirEntreBancos,
   (r) => `Transferência de ${reais(r.valorCentavos)} do banco ${r.nomeOrigem} para ${r.nomeDestino}.`));
 
+// ---------------------------------------------------------------------------
+// Creditos e de onde vem cada um (26/11/2026) -- so' leitura, services/creditosConsulta.js.
+// ---------------------------------------------------------------------------
+const creditosConsulta = require('../services/creditosConsulta');
+
+const rotaDeCreditos = (acao, consulta) => async (req, res) => {
+  try {
+    if (barrarSemPermissoes(req, res, [PERMISSAO_FINANCEIRO.creditosVer])) return undefined;
+    return res.json(await consulta(req.user.tenantId, req.query || {}));
+  } catch (erro) {
+    return responderErro(res, erro, acao);
+  }
+};
+
+/** GET /api/financeiro/creditos/clientes -- saldo de credito em aberto de cada cliente. */
+router.get('/creditos/clientes', rotaDeCreditos('ver os créditos dos clientes', (tenantId) => creditosConsulta.saldosDosClientes({ tenantId })));
+
+/** GET /api/financeiro/creditos/cliente?clienteId=&clienteNome= -- os creditos, a origem e onde foram usados. */
+router.get('/creditos/cliente', rotaDeCreditos('ver os créditos do cliente', (tenantId, q) => creditosConsulta.creditosDoCliente({
+  tenantId,
+  clienteId: String(q.clienteId || '').slice(0, 128),
+  clienteNome: String(q.clienteNome || '').slice(0, 200),
+})));
+
+/** GET /api/financeiro/creditos/fornecedores -- o que cada fornecedor deve a empresa, em aberto. */
+router.get('/creditos/fornecedores', rotaDeCreditos('ver o que os fornecedores devem', (tenantId) => creditosConsulta.saldosDosFornecedores({ tenantId })));
+
+/** GET /api/financeiro/creditos/fornecedor?fornecedorId= -- as contas a receber do fornecedor e a origem. */
+router.get('/creditos/fornecedor', rotaDeCreditos('ver o que o fornecedor deve', (tenantId, q) => creditosConsulta.contasDoFornecedor({
+  tenantId,
+  fornecedorId: String(q.fornecedorId || '').slice(0, 128),
+})));
+
 module.exports = router;

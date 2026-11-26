@@ -26,7 +26,7 @@ import { FORMAS_DE_PAGAMENTO, dividirEmParcelas } from '../../utils/pagamentoEnt
 import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
 import { avisoDeSoma, erroDaDespesa } from '../../utils/despesaParceladaDomain';
 import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
-import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2, FileText } from 'lucide-react';
+import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2, FileText, Wallet } from 'lucide-react';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import {
@@ -53,6 +53,8 @@ import {
 } from '../../utils/filtroListaDomain';
 import { BotaoFiltros, CampoFiltro, CampoPeriodo, PainelFiltros, estiloCampoFiltro } from '../../components/common/PainelFiltros';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import CreditosModal from '../../components/finance/CreditosModal';
+import { creditosConsultaService, type SaldoDoFornecedor } from '../../services/creditosConsultaService';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote } from '../../components/finance/BaixaEmLote';
@@ -161,6 +163,19 @@ const ContasPagar: React.FC = () => {
   const podePagarCancelar = temAcao(PERMISSAO_FINANCEIRO.pagarCancelar);
   const podeRelatorios = temAcao(PERMISSAO_FINANCEIRO.relatorios);
   const podeImportar = temAcao(PERMISSAO_FINANCEIRO.importarTitulos);
+  // O que o fornecedor deve a empresa e de onde vem (26/11/2026): na linha do fornecedor e em Mais opcoes.
+  const podeVerCreditos = temAcao(PERMISSAO_FINANCEIRO.creditosVer);
+  const [creditosAbertos, setCreditosAbertos] = useState<{ alvo: { id: string; nome: string } | null } | null>(null);
+  const [saldosDeFornecedor, setSaldosDeFornecedor] = useState<SaldoDoFornecedor[]>([]);
+  useEffect(() => {
+    if (!podeVerCreditos || creditosAbertos) return;
+    let ativo = true;
+    creditosConsultaService.saldosDosFornecedores()
+      .then((r) => { if (ativo) setSaldosDeFornecedor(r.fornecedores); })
+      .catch((erro) => console.error('Erro ao ler o que os fornecedores devem:', erro));
+    return () => { ativo = false; };
+  }, [podeVerCreditos, creditosAbertos]);
+  const deveAEmpresa = (fornecedorId: string | null): number => (fornecedorId ? (saldosDeFornecedor.find((f) => f.fornecedorId === fornecedorId)?.saldoCentavos || 0) : 0);
   const semPermissao = (permissao: string, acao: string) => `Você não tem permissão para ${acao}. Peça a um responsável liberar "${permissionLabelMap[permissao] || permissao}" no seu cadastro de funcionário.`;
 
   // Leitura enxuta (otimizacao de leituras, 2026-10-14 -- useTitulosFinanceiros):
@@ -871,6 +886,11 @@ const ContasPagar: React.FC = () => {
           </div>
           <MenuMaisOpcoes
             itens={[
+              ...(podeVerCreditos ? [{
+                texto: 'O que os fornecedores devem', Icone: Wallet,
+                titulo: 'Fornecedores que devem à empresa (devolução ao fornecedor, conta lançada à mão) e de onde vem cada valor',
+                onClick: () => setCreditosAbertos({ alvo: null }),
+              }] : []),
               ...(podeImportar ? [{ texto: 'Importar títulos', Icone: Upload, onClick: () => openTab('/financeiro/contas-pagar/importar', 'Importar Contas a Pagar') }] : []),
               ...(podeRelatorios ? [{
                 texto: 'Relatório', Icone: FileText,
@@ -1150,6 +1170,16 @@ const ContasPagar: React.FC = () => {
                               ? <Truck size={16} style={{ color: 'var(--text-muted)' }} />
                               : <Tag size={16} style={{ color: 'var(--text-muted)' }} />}
                             {grupo.titulo}
+                            {podeVerCreditos && deveAEmpresa(grupo.fornecedorId) > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setCreditosAbertos({ alvo: { id: grupo.fornecedorId || '', nome: grupo.titulo } }); }}
+                                title="Este fornecedor deve à empresa: ver de onde vem"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600, color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: '4px', padding: '1px 6px', background: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                <Wallet size={12} /> Deve à empresa {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(deveAEmpresa(grupo.fornecedorId) / 100))}
+                              </button>
+                            )}
                           </div>
                         </td>
                         <td style={{ padding: '16px', textAlign: 'center', color: 'var(--text-secondary)' }}>{grupo.transacoes.length}</td>
@@ -1454,6 +1484,15 @@ const ContasPagar: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+      {creditosAbertos && (
+        <CreditosModal
+          modo="fornecedor"
+          alvo={creditosAbertos.alvo}
+          onFechar={() => setCreditosAbertos(null)}
+          onAbrirPedido={(pedidoId, rotulo) => { setCreditosAbertos(null); void openTab(`/pedidos-venda/visualizar/${pedidoId}`, rotulo); }}
+          onAbrirTela={(caminho, rotulo) => { setCreditosAbertos(null); void openTab(caminho, rotulo); }}
+        />
       )}
     </div>
   );

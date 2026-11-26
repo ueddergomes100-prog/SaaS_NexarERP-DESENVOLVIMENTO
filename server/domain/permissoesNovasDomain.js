@@ -76,6 +76,8 @@ exports.PERMISSAO_FINANCEIRO = {
     cobrarWhatsapp: 'financeiro.cobrar_whatsapp',
     relatorios: 'financeiro.relatorios',
     importarTitulos: 'financeiro.importar_titulos',
+    // 26/11/2026: ver os creditos dos clientes (e o que o fornecedor deve) e de onde vem cada um.
+    creditosVer: 'financeiro.creditos_ver',
 };
 /** Fase 2 (25/11/2026): acoes das Notas Fiscais que ganham permissao propria. */
 exports.PERMISSAO_FISCAL = {
@@ -459,6 +461,15 @@ exports.PACOTES_DE_PERMISSOES = [
         },
         implicacoesSemFiliais: {
             'administrativo.config': [A.configGerais, CA.planoContas, CA.cashbackConfigurar],
+        },
+    },
+    {
+        // 26/11/2026 (pedido do dono): ver os creditos e de onde vem cada um. Quem ja'
+        // usa o Contas a Receber ou o Contas a Pagar continua vendo.
+        id: 'financeiro-3',
+        implicacoes: {
+            'financeiro.receber': [F.creditosVer],
+            'financeiro.pagar': [F.creditosVer],
         },
     },
 ];

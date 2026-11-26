@@ -327,6 +327,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       // (pedidos livres, despesas lancadas canceladas). Mesmo texto de
       // ROTULO_PERMISSAO_ROMANEIO_ENCERRADO (romaneioDomain.ts).
       { id: 'operacoes.romaneios_reabrir', label: 'Romaneio de Entrega: reabrir e cancelar depois de fechado', color: '#14b8a6' },
+      // Troca do administrador (25/11/2026): era so' dono e administrador pelo papel.
+      { id: 'operacoes.romaneios_configurar', label: 'Romaneio de Entrega: configurar motivos, tipos e formas', color: '#14b8a6' },
       // Item 15 (fase Vendas, 25/11/2026): pacote 'vendas-1'.
       { id: 'operacoes.expedicao_divergencia', label: 'Expedição: Fechar conferência com divergência', color: '#ef4444' },
       { id: 'operacoes.entregas_futuras_registrar', label: 'Expedição: Registrar entrega futura (a nota de remessa pede também Fiscal: Emitir)', color: '#14b8a6' },
@@ -343,6 +345,8 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
     itens: [
       { id: 'financeiro.caixa', label: 'Financeiro: Fluxo de Caixa', color: '#10b981' },
       { id: 'financeiro.caixa_registros', label: 'Financeiro: Caixa (Sessões PDV)', color: '#10b981' },
+      // Troca do administrador (25/11/2026): era so' dono e administrador pelo papel.
+      { id: 'financeiro.caixa_fechar', label: 'Financeiro: Caixa (Sessões PDV) — fechar o caixa de outro operador e acertar a gaveta de dia anterior', color: '#ef4444' },
       { id: 'financeiro.banco', label: 'Financeiro: Banco (Conciliação de Cartão)', color: '#10b981' },
       { id: 'financeiro.cheques', label: 'Financeiro: Cheques (Compensação)', color: '#10b981' },
       // 21/10/2026: caixas da loja (CAIXA, COFRE...) e transferencias caixa <-> banco.

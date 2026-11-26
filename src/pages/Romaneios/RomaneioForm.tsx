@@ -19,7 +19,7 @@ import { montarDocumentoListaSeparacao, type DocumentoListaSeparacao } from '../
 import { lerItensDosPedidos } from '../../services/listaSeparacaoService';
 import { FiltroColuna, OpcoesFiltro, OpcoesFiltroMultiplo, opcoesDaColuna } from '../../components/common/FiltroColuna';
 import { escaparHtml, NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
-import { hasTenantFullAccess } from '../../utils/roles';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
 import { erroDeAcessoNegado } from '../../utils/erroFirestoreDomain';
 import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
@@ -47,6 +47,7 @@ import {
   erroParaFechar,
   erroParaLiberar,
   erroParaReabrir,
+  PERMISSAO_ROMANEIO_CONFIGURAR,
   PERMISSAO_ROMANEIO_ENCERRADO,
   ROTULO_ACAO_HISTORICO,
   ROTULO_PERMISSAO_ROMANEIO_ENCERRADO,
@@ -140,12 +141,14 @@ interface MotoristaBasico { id: string; nome?: string; ativo?: boolean }
 const RomaneioForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { currentUser, tenantId, userRole, isOwner, userNome, userPermissions } = useAuth();
-  const podeConfigurar = hasTenantFullAccess(userRole, isOwner);
-  // Reabrir/cancelar rota ja' fechada (15/10/2026): permissao propria; dono e administrador ja' tem.
-  const podeMexerEncerrado = podeConfigurar || Boolean(userPermissions?.includes(PERMISSAO_ROMANEIO_ENCERRADO));
-  // Historico de alteracoes (09/11/2026): dono, administrador e quem tem a permissao.
-  const podeVerHistorico = podeConfigurar || Boolean(userPermissions?.includes('administrativo.logs'));
+  const { currentUser, tenantId, userNome } = useAuth();
+  // Troca do administrador (25/11/2026): cada acao com a sua permissao (o dono sempre pode).
+  const podePermissao = usePodePermissao();
+  const podeConfigurar = podePermissao(PERMISSAO_ROMANEIO_CONFIGURAR);
+  // Reabrir/cancelar rota ja' fechada (15/10/2026): permissao propria.
+  const podeMexerEncerrado = podePermissao(PERMISSAO_ROMANEIO_ENCERRADO);
+  // Historico de alteracoes (09/11/2026).
+  const podeVerHistorico = podePermissao('administrativo.logs');
   const [historicoAberto, setHistoricoAberto] = useState(false);
   const { items: motoristas } = useTenantCollection<MotoristaBasico>('motoristas', tenantId);
   const { items: frota } = useTenantCollection<VeiculoDaFrota & { id: string }>('frota', tenantId);

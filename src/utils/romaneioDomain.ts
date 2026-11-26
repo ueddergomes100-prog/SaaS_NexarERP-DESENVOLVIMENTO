@@ -708,6 +708,8 @@ export const erroParaFechar = (romaneio: Pick<Romaneio, 'status' | 'entregas' | 
 /** Permissao propria para mexer em rota ja' fechada (15/10/2026). Dono e administrador ja' tem. */
 export const PERMISSAO_ROMANEIO_ENCERRADO = 'operacoes.romaneios_reabrir';
 export const ROTULO_PERMISSAO_ROMANEIO_ENCERRADO = 'Romaneio de Entrega: reabrir e cancelar depois de fechado';
+/** Configurar motivos, tipos e formas do romaneio (25/11/2026, troca do administrador). */
+export const PERMISSAO_ROMANEIO_CONFIGURAR = 'operacoes.romaneios_configurar';
 
 /** Cancelar rota fechada ou com entrega ja' registrada DESFAZ o que aconteceu: pede a permissao propria e motivo. */
 export const cancelamentoDesfazEntregas = (romaneio: Pick<Romaneio, 'status' | 'entregas'>): boolean => (

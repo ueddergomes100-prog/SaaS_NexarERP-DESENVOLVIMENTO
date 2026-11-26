@@ -94,6 +94,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'operacoes.producao_relatorios': ['operacoes.producao'],
   'operacoes.romaneios': ['operacoes.romaneios'],
   'operacoes.romaneios_reabrir': ['operacoes.romaneios'],
+  'operacoes.romaneios_configurar': ['operacoes.romaneios'],
   'operacoes.entregas_app': ['operacoes.romaneios'],
   'operacoes.entregas_app_todas': ['operacoes.romaneios'],
 
@@ -123,6 +124,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'financeiro.importar_titulos': ['financeiro.receber', 'financeiro.pagar'],
   // Caixas e transferencias (21/10/2026): parte do modulo do Fluxo de Caixa.
   'financeiro.caixas': ['financeiro.caixa'],
+  'financeiro.caixa_fechar': ['financeiro.caixa_registros'],
 
   'fiscal.emitir': ['fiscal.nfe'],
   'fiscal.excluir': ['fiscal.nfe'],

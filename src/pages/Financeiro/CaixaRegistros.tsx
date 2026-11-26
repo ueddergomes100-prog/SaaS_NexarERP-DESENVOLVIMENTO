@@ -33,7 +33,8 @@ import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/aler
 import ComposicaoDoEsperado from './ComposicaoDoEsperado';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
 import { nomeDoOperador } from '../../utils/frenteDeCaixaDomain';
-import { hasTenantFullAccess } from '../../utils/roles';
+import { usePodePermissao } from '../../hooks/usePodePermissao';
+import { PERMISSAO_CONFIG_AREAS } from '../../utils/permissoesNovasDomain';
 import ComputadoresDoCaixaModal from './ComputadoresDoCaixaModal';
 import './Financeiro.css';
 
@@ -95,12 +96,15 @@ const formatDateTime = (value: any): string => {
 };
 
 const CaixaRegistros: React.FC = () => {
-  const { currentUser, tenantId, vendasVisiveisDeUsuarioId, userRole, isOwner } = useAuth();
+  const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   // Filtro por operador (22/11/2026): o caixa de cada funcionario na troca de turno.
   const [operadorFiltro, setOperadorFiltro] = useState('');
   const [computadoresAberto, setComputadoresAberto] = useState(false);
-  const ehGerente = hasTenantFullAccess(userRole, isOwner);
+  // Troca do administrador (25/11/2026): cada acao com a sua permissao (o dono sempre pode).
+  const podePermissao = usePodePermissao();
+  const podeFecharEAcertar = podePermissao('financeiro.caixa_fechar');
+  const podeComputadores = podePermissao(PERMISSAO_CONFIG_AREAS.caixaComputadores);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [vendasPorSessao, setVendasPorSessao] = useState<Record<string, VendaVinculada[]>>({});
   const [loadingVendas, setLoadingVendas] = useState<string | null>(null);
@@ -641,12 +645,12 @@ const CaixaRegistros: React.FC = () => {
           }, {
             texto: 'Acertar a gaveta de um dia anterior', Icone: CalendarCheck,
             titulo: 'Conta o dinheiro que ficou de um dia que já passou: a sobra ou falta e a ida ao COFRE entram com a data daquele dia',
-            oculto: !ehGerente || !gaveta?.ativo,
+            oculto: !podeFecharEAcertar || !gaveta?.ativo,
             onClick: () => { void acertarDiaAnterior(); },
           }, {
             texto: 'Computadores do caixa', Icone: MonitorCheck,
             titulo: 'Computadores onde cada funcionário entra com código e senha; dá para desativar um deles',
-            oculto: !ehGerente,
+            oculto: !podeComputadores,
             separadorAntes: true,
             onClick: () => setComputadoresAberto(true),
           }]}
@@ -698,7 +702,7 @@ const CaixaRegistros: React.FC = () => {
                       <td style={{ padding: '10px 8px', textAlign: 'right', color: '#f59e0b' }}>{currencyFormat(fromCents(sessao.totalSangriasCentavos))}</td>
                       <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700 }}>{valorAoVivo(vivo?.esperadoCentavos)}</td>
                       <td style={{ padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        {ehGerente && (
+                        {podeFecharEAcertar && (
                           <button
                             type="button"
                             className="btn-secondary"

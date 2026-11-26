@@ -818,6 +818,9 @@ const PedidoVendaForm: React.FC = () => {
   // ou desconto, o valor fica no padrao e travado (permissoesVendas.js no servidor).
   const podeVenda = (permissao: string) => hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(permissao);
   const podeAlterarPrecoVenda = podeVenda(PERMISSAO_VENDAS.alterarPreco);
+  // Preco abaixo da tabela fica como PRECO, sem virar desconto nem contar no limite
+  // (26/11/2026, decisao do dono). Precisa tambem da de alterar o preco (o campo).
+  const podePrecoSemDesconto = podeVenda(PERMISSAO_VENDAS.precoSemDesconto);
   const podeDarDescontoVenda = podeVenda(PERMISSAO_VENDAS.desconto);
   const podeAlterarDataVenda = podeVenda(PERMISSAO_VENDAS.alterarData);
   const podeAlterarVendedorVenda = podeVenda(PERMISSAO_VENDAS.alterarVendedor);
@@ -1933,7 +1936,8 @@ const PedidoVendaForm: React.FC = () => {
         ? undefined
         : (precoDigitadoDoItem > 0 ? precoDigitadoDoItem : undefined);
       const precoTabela = precoAutomatico(conferida.tabela, condicaoPagamento, qtdDoItem).preco;
-      const abaixoDaTabela = digitado !== undefined && digitado < precoTabela - 0.0001;
+      // Com "Preco abaixo da tabela fica como preco" (26/11/2026) o digitado vale como esta'.
+      const abaixoDaTabela = !podePrecoSemDesconto && digitado !== undefined && digitado < precoTabela - 0.0001;
       if (abaixoDaTabela && !permitirDescontoPorItem) {
         showError(
           'Preço abaixo da tabela',
@@ -2131,8 +2135,9 @@ const PedidoVendaForm: React.FC = () => {
       const precoTabela = montado.item.precoUnitario;
       const quantidade = montado.item.quantidade;
       const noItem = precoDaNotaNoItem(precoTabela, precoDaNota, quantidade);
-      if (noItem.abaixoDaTabelaCentavos > 0) {
-        // Abaixo da tabela: na finalizacao conta no limite de desconto. O que ja' sabemos
+      if (noItem.abaixoDaTabelaCentavos > 0 && !podePrecoSemDesconto) {
+        // Abaixo da tabela: na finalizacao conta no limite de desconto (com "Preco abaixo
+        // da tabela fica como preco", nao conta -- 26/11/2026). O que ja' sabemos
         // que vai travar la' (maximo do produto, limite "bloquear") fica no preco de venda.
         if (excedeLimiteItem(produto, noItem.abaixoDaTabelaCentavos, noItem.baseCentavos)) {
           maximoDoProduto.push(`${produto.nome} (máx. ${produto.descontoMaximoPercentual}%)`);
@@ -2360,7 +2365,8 @@ const PedidoVendaForm: React.FC = () => {
     const precoTabela = item.tabelaPreco
       ? precoAutomatico(item.tabelaPreco, condicaoPagamento, novaQtd).preco
       : (produtoCatalogo ? precoSugerido(produtoCatalogo, opcaoItem, novaQtd) : item.precoUnitario);
-    const abaixoDaTabela = precoMexido && novoPreco < precoTabela - 0.0001;
+    // Com "Preco abaixo da tabela fica como preco" (26/11/2026) o digitado vale como esta'.
+    const abaixoDaTabela = !podePrecoSemDesconto && precoMexido && novoPreco < precoTabela - 0.0001;
     if (abaixoDaTabela && !permitirDescontoPorItem) {
       return `O preço de tabela é R$ ${precoTabela.toFixed(2).replace('.', ',')} e o desconto por item está desligado em Configurações da filial: o preço não pode ficar abaixo dele.`;
     }
@@ -2376,7 +2382,8 @@ const PedidoVendaForm: React.FC = () => {
     // somado ao que o item ja' tinha (24/11/2026, descontoAoEditarItem).
     const descontoNovo = descontoAoEditarItem({
       precoMexido,
-      precoTabela,
+      // Preco livre: nada abaixo da tabela vira desconto (a diferenca fica zero).
+      precoTabela: podePrecoSemDesconto ? novoPreco : precoTabela,
       novoPreco,
       quantidade: novaQtd,
       descontoAtual: item.desconto,
@@ -2514,7 +2521,7 @@ const PedidoVendaForm: React.FC = () => {
   const produtosPorId = useMemo(() => Object.fromEntries(produtosCatalogo.map((p) => [p.id, p])), [produtosCatalogo]);
   const conferirPrecoAgora = !isViewing || canEditPendingOrder || faturandoPreVenda;
   const diferencaDePrecoCents = conferirPrecoAgora
-    ? conferirPrecos({ itens, produtos: produtosPorId, promocoes, hoje: hojeParaPromocao, condicao: condicaoPagamento, vendidoPorPromocao }).diferencaTotalCentavos
+    ? conferirPrecos({ itens, produtos: produtosPorId, promocoes, hoje: hojeParaPromocao, condicao: condicaoPagamento, vendidoPorPromocao, precoLivre: podePrecoSemDesconto }).diferencaTotalCentavos
     : 0;
   const baseDoDescontoCents = toCents(valorTotalItens) + diferencaDePrecoCents;
   const descontoParaLimiteCents = toCents(valorTotalDescontos) + diferencaDePrecoCents;

@@ -152,6 +152,9 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.alterar_data', label: 'Vendas: Lançar venda com data diferente de hoje', color: '#ef4444' },
       { id: 'vendas.alterar_vendedor', label: 'Vendas: Escolher o vendedor da venda', color: '#f59e0b' },
       { id: 'vendas.alterar_preco', label: 'Vendas: Alterar o preço do item (computador)', color: '#ef4444' },
+      // 26/11/2026 (decisao do dono): preco abaixo da tabela fica como preco, sem
+      // virar desconto nem contar no limite. Nasce desmarcada; precisa tambem da de cima.
+      { id: 'vendas.preco_sem_desconto', label: 'Vendas: Preço abaixo da tabela fica como preço (não vira desconto nem conta no limite)', color: '#ef4444' },
       { id: 'vendas.desconto', label: 'Vendas: Dar desconto no pedido (até o limite)', color: '#ef4444' },
       { id: 'vendas.cancelar', label: 'Vendas: Cancelar/Estornar venda finalizada', color: '#ef4444' },
       { id: 'vendas.alterar_transporte', label: 'Vendas: Corrigir transporte de venda finalizada', color: '#f59e0b' },

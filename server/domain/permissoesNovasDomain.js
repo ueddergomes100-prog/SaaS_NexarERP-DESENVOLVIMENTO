@@ -104,6 +104,12 @@ exports.PERMISSAO_VENDAS = {
     alterarData: 'vendas.alterar_data',
     alterarVendedor: 'vendas.alterar_vendedor',
     alterarPreco: 'vendas.alterar_preco',
+    /**
+     * Preco abaixo da tabela fica como PRECO, sem virar desconto e sem contar no
+     * limite de desconto (26/11/2026, decisao do dono). Nao entra em pacote:
+     * nasce desmarcada para todos; o dono sempre pode.
+     */
+    precoSemDesconto: 'vendas.preco_sem_desconto',
     desconto: 'vendas.desconto',
     cancelar: 'vendas.cancelar',
     alterarTransporte: 'vendas.alterar_transporte',

@@ -58,6 +58,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.alterar_data': ['comercial.pedidos'],
   'vendas.alterar_vendedor': ['comercial.pedidos'],
   'vendas.alterar_preco': ['comercial.pedidos'],
+  'vendas.preco_sem_desconto': ['comercial.pedidos'],
   'vendas.desconto': ['comercial.pedidos'],
   'vendas.cancelar': ['comercial.pedidos'],
   'vendas.alterar_transporte': ['comercial.pedidos'],

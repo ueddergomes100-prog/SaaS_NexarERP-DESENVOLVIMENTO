@@ -93,7 +93,7 @@ const conferirPrecos = (args) => {
                 restanteDaPromocao.set(chaveDaQuota, Math.max(0, restante - quantidadeBase));
         }
         const precoSistema = automatico.preco;
-        const diferenca = precoSistema > 0 && (0, financeDomain_1.toCents)(item.precoUnitario) < (0, financeDomain_1.toCents)(precoSistema)
+        const diferenca = !args.precoLivre && precoSistema > 0 && (0, financeDomain_1.toCents)(item.precoUnitario) < (0, financeDomain_1.toCents)(precoSistema)
             ? Math.max(0, brutoDaLinha(precoSistema, item.quantidade) - cobrado)
             : 0;
         diferencaTotalCentavos += diferenca;

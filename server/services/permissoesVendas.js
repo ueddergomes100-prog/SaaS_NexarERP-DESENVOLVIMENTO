@@ -39,6 +39,7 @@ const ACOES = {
   [PV.alterarData]: { acao: 'lançar venda com data diferente de hoje', dica: 'Sem ela, a venda sai com a data de hoje.' },
   [PV.alterarVendedor]: { acao: 'escolher o vendedor da venda', dica: 'Sem ela, a venda fica com o vendedor identificado (ou com você).' },
   [PV.alterarPreco]: { acao: 'alterar o preço do item', dica: 'Sem ela, o item vai pelo preço do cadastro.' },
+  [PV.precoSemDesconto]: { acao: 'deixar o preço abaixo da tabela sem virar desconto', dica: 'Sem ela, a diferença para o preço do sistema conta como desconto.' },
   [PV.desconto]: { acao: 'dar desconto na venda', dica: 'Sem ela, vale só o desconto do cadastro do cliente.' },
   [PV.cancelar]: { acao: 'cancelar ou estornar venda finalizada' },
   [PV.alterarTransporte]: { acao: 'corrigir o transporte de venda finalizada' },

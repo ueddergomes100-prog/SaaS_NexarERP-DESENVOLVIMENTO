@@ -55,6 +55,7 @@ const base = (config = {}, extra = {}) => ({
 });
 
 const finalizar = (s, corpo) => s.venda.finalizarVenda({ user: CAIXA, tenantId: 'loja', corpo });
+const s_finalizarCom = (s, user, corpo) => s.venda.finalizarVenda({ user, tenantId: 'loja', corpo });
 const pedeDeNovo = (trecho) => (erro) => erro.status === 428 && trecho.test(erro.message);
 
 test('preco abaixo do sistema conta como desconto: modo bloquear recusa dizendo de onde veio', async () => {
@@ -66,6 +67,17 @@ test('preco abaixo do sistema conta como desconto: modo bloquear recusa dizendo 
       && /20,0%/.test(erro.message),
   );
   assert.equal(fake.ler('pedidos_venda/venda1'), undefined);
+});
+
+test('com "Preco abaixo da tabela fica como preco" (26/11/2026) a diferenca nao conta como desconto', async () => {
+  const fake = criarBancoFalso(base({ modoLimiteDesconto: 'bloquear' }), { consultas: true });
+  const comPermissao = { ...CAIXA, permissoes: [...CAIXA.permissoes, 'vendas.preco_sem_desconto'] };
+  await s_finalizarCom(carregar(fake.db), comPermissao, venda(8));
+  const pedido = fake.ler('pedidos_venda/venda1');
+  assert.ok(pedido, 'a venda grava mesmo no modo bloquear');
+  assert.equal(pedido.itens[0].precoUnitario, 8);
+  assert.equal(pedido.valorTotalCentavos, 1600);
+  assert.ok(!(pedido.descontoPorPrecoCentavos > 0), 'nada de desconto por preco');
 });
 
 test('modo senha: pede liberacao; a liberacao do valor com a diferenca passa e a venda grava o desconto por preco', async () => {

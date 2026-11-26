@@ -168,7 +168,7 @@ test('pacote vendas-1: quem usa a tela ja tem as novas; o que hoje e so do admin
     V.cancelar, V.alterarTransporte, V.alterarNotaFiscal, V.devolucaoEstornar, V.gerenciarPinVendedor]) {
     assert.ok(efetivas.includes(p), p);
   }
-  for (const p of [V.importar, V.preVendaRelatorioValores, 'vendas.liberar_desconto', 'operacoes.rotas_configurar']) {
+  for (const p of [V.importar, V.preVendaRelatorioValores, V.precoSemDesconto, 'vendas.liberar_desconto', 'operacoes.rotas_configurar']) {
     assert.ok(!efetivas.includes(p), `${p} nao vem com nada`);
   }
   assert.ok(!permissoesEfetivas(['vendas.minhas_vendas']).includes(V.finalizar), 'Minhas Vendas nao fatura');

@@ -197,7 +197,7 @@ const vendidoNaPromocao = async (tenantId, promocaoId, ignorarPedidoId) => {
  * venda nao muda o que o vendedor combinou. `itens` no formato da conferencia
  * (precoUnitario, quantidade, desconto, embalagemId, fatorConversao).
  */
-const conferirPrecosNoServidor = async ({ tenantId, config, itens, pagamentos, ignorarPedidoId }) => {
+const conferirPrecosNoServidor = async ({ tenantId, config, itens, pagamentos, ignorarPedidoId, precoLivre = false }) => {
   const ids = [...new Set(itens.map((i) => i.id).filter((id) => id && id !== 'avulso'))];
   const produtos = {};
   if (ids.length) {
@@ -216,7 +216,7 @@ const conferirPrecosNoServidor = async ({ tenantId, config, itens, pagamentos, i
     (Array.isArray(pagamentos) ? pagamentos : []).map((p) => ({ forma: String((p && p.forma) || ''), parcelas: p && p.parcelas, parcelasAPrazo: p && p.parcelasAPrazo })),
     parseFormasAVista(config.formasPrecoAVista),
   );
-  return cp.conferirPrecos({ itens, produtos, promocoes, hoje, condicao, vendidoPorPromocao });
+  return cp.conferirPrecos({ itens, produtos, promocoes, hoje, condicao, vendidoPorPromocao, precoLivre });
 };
 
 /** Cadastros (usuarios) pelos ids, pela transacao ou direto. */
@@ -405,8 +405,11 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
 
   // Preco de cada item contra o do sistema (21/10/2026): abaixo dele, a
   // diferenca entra no desconto -- do item e do total.
+  // "Vendas: Preco abaixo da tabela fica como preco" (26/11/2026): so' no Pedido de Venda,
+  // pela permissao de QUEM FECHA a venda -- a diferenca para o sistema nao vira desconto.
+  const precoLivre = !pedido.pdvSessionId && pv.podeEmVendas(user, PV.precoSemDesconto);
   const precos = await conferirPrecosNoServidor({
-    tenantId, config, itens: pedido.itens, pagamentos: pedido.pagamentos, ignorarPedidoId: pedido.pedidoId || pedido.idDocumento,
+    tenantId, config, itens: pedido.itens, pagamentos: pedido.pagamentos, ignorarPedidoId: pedido.pedidoId || pedido.idDocumento, precoLivre,
   });
 
   // Desconto total contra o limite da tela, no modo da empresa (19/10/2026).

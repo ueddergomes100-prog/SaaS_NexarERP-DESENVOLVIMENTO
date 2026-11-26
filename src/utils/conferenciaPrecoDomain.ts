@@ -104,6 +104,13 @@ export const conferirPrecos = (args: {
   hoje: string;
   condicao: CondicaoPagamento;
   vendidoPorPromocao?: VendidoPorPromocao;
+  /**
+   * Quem fecha a venda tem "Vendas: Alterar o preco sem virar desconto"
+   * (26/11/2026): o preco cobrado vale como esta' e a diferenca para o sistema
+   * NAO conta como desconto. O preco do sistema continua calculado (e a quota
+   * da promocao continua sendo gasta).
+   */
+  precoLivre?: boolean;
 }): ResultadoDaConferencia => {
   const restanteDaPromocao = new Map<string, number | null>();
   let diferencaTotalCentavos = 0;
@@ -150,7 +157,7 @@ export const conferirPrecos = (args: {
     }
 
     const precoSistema = automatico.preco;
-    const diferenca = precoSistema > 0 && toCents(item.precoUnitario) < toCents(precoSistema)
+    const diferenca = !args.precoLivre && precoSistema > 0 && toCents(item.precoUnitario) < toCents(precoSistema)
       ? Math.max(0, brutoDaLinha(precoSistema, item.quantidade) - cobrado)
       : 0;
     diferencaTotalCentavos += diferenca;

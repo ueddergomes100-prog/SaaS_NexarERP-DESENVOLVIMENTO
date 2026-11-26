@@ -28,6 +28,13 @@ test('preco abaixo do sistema vira desconto do item (soma ao desconto que ja tin
   assert.match(explicacaoDaDiferenca({ nome: 'RACAO', precoUnitario: 8 }, r.itens[0]), /R\$ 8,00, abaixo do preço do sistema \(R\$ 10,00\)/);
 });
 
+test('preco livre (Vendas: Preco abaixo da tabela fica como preco): a diferenca nao vira desconto', () => {
+  const r = conferir([item({ precoUnitario: 8, desconto: 1 })], { precoLivre: true });
+  assert.deepEqual(r.itens[0], { precoSistema: 10, brutoCentavos: 1600, descontoCentavos: 100, diferencaCentavos: 0 });
+  assert.equal(r.diferencaTotalCentavos, 0);
+  assert.equal(explicacaoDaDiferenca({ nome: 'RACAO', precoUnitario: 8 }, r.itens[0]), '');
+});
+
 test('a vista usa o preco a vista; a prazo, o de venda', () => {
   assert.equal(conferir([item({ precoUnitario: 9 })], { condicao: 'vista' }).diferencaTotalCentavos, 0);
   assert.equal(conferir([item({ precoUnitario: 9 })], { condicao: 'prazo' }).diferencaTotalCentavos, 200);

@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { ChevronRight, Loader2, ShoppingBag } from 'lucide-react';
 import { db } from '../../services/firebase';
+import { TabIdContext, TabsContext } from '../../contexts/TabsContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { addDaysToDateInput, getDateInputInTimeZone } from '../../utils/dateTime';
 import { filtrarVendasVisiveis } from '../../utils/visibilidadeVendasDomain';
@@ -22,7 +23,9 @@ const PERIODOS: Array<{ id: Periodo; rotulo: string }> = [
   { id: '365', rotulo: '12 meses' },
   { id: '90', rotulo: '90 dias' },
 ];
-const NA_LISTA = 8;
+// Lista recolhida (27/11/2026, dono: "listar so' as ultimas 3 e botao de ver mais").
+const NA_LISTA = 3;
+const A_MAIS = 10;
 
 const moeda = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBr = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—');
@@ -50,7 +53,15 @@ const ComprasDoCliente: React.FC<Props> = ({ tenantId, clienteId, compacto = fal
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
   const [periodo, setPeriodo] = useState<Periodo>('tudo');
-  const [todas, setTodas] = useState(false);
+  const [visiveis, setVisiveis] = useState(NA_LISTA);
+  // Abrir a venda em ABA NOVA (27/11/2026: antes a ficha do cliente fechava).
+  const abas = useContext(TabsContext);
+  const abaAtual = useContext(TabIdContext);
+  const abrirVenda = (id: string, numero: string) => {
+    const caminho = `/pedidos-venda/visualizar/${id}`;
+    if (abas) void abas.openTab(caminho, `Pedido ${numero}`, abaAtual ?? undefined);
+    else navigate(caminho);
+  };
 
   useEffect(() => {
     if (!tenantId || !clienteId) return undefined;
@@ -89,7 +100,7 @@ const ComprasDoCliente: React.FC<Props> = ({ tenantId, clienteId, compacto = fal
     ...(mostrarValores ? [{ rotulo: 'Ticket médio', valor: moeda(resumo.ticketMedioCentavos) }] : []),
     { rotulo: 'Última compra', valor: dataBr(resumo.ultimaCompra) },
   ];
-  const lista = todas ? resumo.vendas : resumo.vendas.slice(0, NA_LISTA);
+  const lista = resumo.vendas.slice(0, visiveis);
 
   return (
     <section aria-label="Compras do cliente" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: compacto ? 0 : '12px' }}>
@@ -104,7 +115,7 @@ const ComprasDoCliente: React.FC<Props> = ({ tenantId, clienteId, compacto = fal
                 key={p.id}
                 type="button"
                 aria-pressed={ativo}
-                onClick={() => { setPeriodo(p.id); setTodas(false); }}
+                onClick={() => { setPeriodo(p.id); setVisiveis(NA_LISTA); }}
                 style={{
                   border: 'none', borderRadius: '999px', padding: '6px 12px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
                   background: ativo ? 'var(--accent-purple)' : 'var(--bg-tertiary)', color: ativo ? '#fff' : 'var(--text-secondary)',
@@ -165,7 +176,7 @@ const ComprasDoCliente: React.FC<Props> = ({ tenantId, clienteId, compacto = fal
                   borderTop: i === 0 ? 'none' : '1px solid var(--border-color)', textAlign: 'left', color: 'inherit', font: 'inherit',
                 };
                 return (
-                  <button key={v.id} type="button" title="Abrir a venda" onClick={() => navigate(`/pedidos-venda/visualizar/${v.id}`)} style={{ ...estiloLinha, cursor: 'pointer' }}>
+                  <button key={v.id} type="button" title="Abrir a venda em outra aba" onClick={() => abrirVenda(v.id, v.numero)} style={{ ...estiloLinha, cursor: 'pointer' }}>
                     {linha}
                     <ChevronRight size={16} aria-hidden="true" style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                   </button>
@@ -174,10 +185,12 @@ const ComprasDoCliente: React.FC<Props> = ({ tenantId, clienteId, compacto = fal
               {resumo.vendas.length > NA_LISTA && (
                 <button
                   type="button"
-                  onClick={() => setTodas((t) => !t)}
+                  onClick={() => setVisiveis((atual) => (atual >= resumo.vendas.length ? NA_LISTA : atual + A_MAIS))}
                   style={{ display: 'block', width: '100%', padding: '10px 14px', border: 'none', borderTop: '1px solid var(--border-color)', background: 'none', color: 'var(--accent-purple)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}
                 >
-                  {todas ? 'Mostrar só as últimas' : `Ver todas as ${resumo.vendas.length} vendas`}
+                  {visiveis >= resumo.vendas.length
+                    ? 'Mostrar só as últimas'
+                    : `Ver mais (${Math.min(A_MAIS, resumo.vendas.length - visiveis)} de ${resumo.vendas.length - visiveis} restantes)`}
                 </button>
               )}
             </div>}

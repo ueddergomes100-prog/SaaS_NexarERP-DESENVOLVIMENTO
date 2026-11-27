@@ -475,50 +475,6 @@ export const BaixaEmLoteModal: React.FC<{
               </label>
             )}
 
-            {podeDescontar && itens.length > 1 && (
-              <div className="lote-campo">
-                <label htmlFor="lote-desconto-geral">Desconto geral</label>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-                  <div role="group" aria-label="Desconto em reais ou em porcentagem" style={{ display: 'flex', borderRadius: '999px', overflow: 'hidden', border: '1px solid var(--border-color)', flexShrink: 0 }}>
-                    {([['R$', false], ['%', true]] as const).map(([rotulo, emPercentual]) => (
-                      <button
-                        key={rotulo}
-                        type="button"
-                        aria-pressed={descontoEmPercentual === emPercentual}
-                        disabled={bloqueado}
-                        onClick={() => { setDescontoEmPercentual(emPercentual); setErroDescontoGeral(''); }}
-                        style={{
-                          border: 'none', padding: '0 12px', fontWeight: 700, fontSize: '13px', cursor: bloqueado ? 'default' : 'pointer',
-                          background: descontoEmPercentual === emPercentual ? 'var(--accent-purple)' : 'transparent',
-                          color: descontoEmPercentual === emPercentual ? '#fff' : 'var(--text-secondary)',
-                        }}
-                      >
-                        {rotulo}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    id="lote-desconto-geral"
-                    type="text"
-                    inputMode="decimal"
-                    value={descontoGeral}
-                    disabled={bloqueado}
-                    aria-invalid={Boolean(erroDescontoGeral)}
-                    aria-describedby={erroDescontoGeral ? 'lote-desconto-geral-erro' : 'lote-desconto-geral-ajuda'}
-                    onChange={(e) => { setDescontoGeral(e.target.value); setErroDescontoGeral(''); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); aplicarDescontoGeral(); } }}
-                    style={{ flex: 1, minWidth: 0 }}
-                  />
-                  <button type="button" className="btn-secondary" disabled={bloqueado || !descontoGeral.trim()} onClick={aplicarDescontoGeral} style={{ whiteSpace: 'nowrap' }}>
-                    Aplicar nas contas
-                  </button>
-                </div>
-                {erroDescontoGeral
-                  ? <span id="lote-desconto-geral-erro" className="lote-erro-campo">{erroDescontoGeral}</span>
-                  : <span id="lote-desconto-geral-ajuda" className="lote-ajuda-campo">Reparte o desconto entre as contas, pelo valor de cada uma. Depois dá para ajustar conta por conta no borderô.</span>}
-              </div>
-            )}
-
             <p className="lote-ajuda">
               Juros, multa e desconto são por conta, no borderô. A conta fica quitada pelo valor cheio; os ajustes entram como lançamentos próprios.
               {!podeJurosMulta && (travadoNoPadrao
@@ -601,6 +557,45 @@ export const BaixaEmLoteModal: React.FC<{
               </table>
             </div>
             <div className="lote-bordero-total">
+              {/* Desconto geral perto do total (27/11/2026, dono: "coloca la' embaixo perto do valor total"). */}
+              {podeDescontar && itens.length > 1 && etapa === 'preencher' && (
+                <div className="lote-desconto-geral">
+                  <label htmlFor="lote-desconto-geral">Desconto geral</label>
+                  <div className="lote-desconto-geral-linha">
+                    <div role="group" aria-label="Desconto em reais ou em porcentagem" className="lote-desconto-geral-tipo">
+                      {([['R$', false], ['%', true]] as const).map(([rotulo, emPercentual]) => (
+                        <button
+                          key={rotulo}
+                          type="button"
+                          aria-pressed={descontoEmPercentual === emPercentual}
+                          disabled={bloqueado}
+                          onClick={() => { setDescontoEmPercentual(emPercentual); setErroDescontoGeral(''); }}
+                        >
+                          {rotulo}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      id="lote-desconto-geral"
+                      type="text"
+                      inputMode="decimal"
+                      className="lote-desconto-geral-valor"
+                      value={descontoGeral}
+                      disabled={bloqueado}
+                      aria-invalid={Boolean(erroDescontoGeral)}
+                      aria-describedby={erroDescontoGeral ? 'lote-desconto-geral-erro' : 'lote-desconto-geral-ajuda'}
+                      onChange={(e) => { setDescontoGeral(e.target.value); setErroDescontoGeral(''); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); aplicarDescontoGeral(); } }}
+                    />
+                    <button type="button" className="btn-secondary lote-desconto-geral-aplicar" disabled={bloqueado || !descontoGeral.trim()} onClick={aplicarDescontoGeral}>
+                      Aplicar nas contas
+                    </button>
+                  </div>
+                  {erroDescontoGeral
+                    ? <span id="lote-desconto-geral-erro" className="lote-erro-campo">{erroDescontoGeral}</span>
+                    : <span id="lote-desconto-geral-ajuda" className="lote-ajuda-campo">Reparte pelo valor de cada conta; depois dá para ajustar conta por conta.</span>}
+                </div>
+              )}
               <div>Contas<strong className="lote-numero">{resumo.quantidade}</strong></div>
               <div>Valor<strong className="lote-numero">{reais(resumo.valorCentavos)}</strong></div>
               {resumo.acrescimoCentavos > 0 && <div>Juros e multa<strong className="lote-numero">{reais(resumo.acrescimoCentavos)}</strong></div>}

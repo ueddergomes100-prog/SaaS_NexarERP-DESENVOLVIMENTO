@@ -394,6 +394,71 @@ body.light-theme .lote-bordero-folha input { color-scheme: light; }
 }
 .lote-bordero-total .lote-total-geral strong { color: var(--lote-tom); font-size: 20px; }
 
+/* Desconto geral na barra do total (27/11/2026): a esquerda, com campo grande. */
+.lote-desconto-geral {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-right: auto;
+  min-width: 0;
+}
+.lote-desconto-geral > label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.lote-desconto-geral-linha {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lote-desconto-geral-tipo {
+  display: flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-tertiary);
+}
+.lote-desconto-geral-tipo button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 0 14px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.lote-desconto-geral-tipo button[aria-pressed='true'] {
+  background-color: var(--accent-purple);
+  color: #fff;
+}
+.lote-desconto-geral-valor {
+  width: 170px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+.lote-desconto-geral-valor:focus-visible {
+  outline: 2px solid var(--accent-purple);
+  outline-offset: 1px;
+}
+.lote-desconto-geral-aplicar {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
 .lote-rodape {
   display: flex;
   align-items: center;

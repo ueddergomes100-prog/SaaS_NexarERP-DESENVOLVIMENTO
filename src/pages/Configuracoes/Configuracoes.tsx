@@ -47,7 +47,7 @@ import { documentoService } from '../../services/documentoService';
 import { isCnpjValido } from '../../utils/documentoValidacao';
 import { avisoDaSituacao, ehMeiNaReceita, preenchimentoPelaReceita, regimeSugerido, soOsVazios, type CamposDaEmpresa } from '../../utils/cnpjPreenchimentoDomain';
 import { DEFAULT_OS_PRINT_MODEL, OS_PRINT_MODELS } from '../../utils/osPrintModels';
-import { DEFAULT_PEDIDO_PRINT_MODEL, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
+import { DEFAULT_PEDIDO_PRINT_MODEL, MODELO_CUPOM_DO_CAIXA, MODELOS_IMPRESSAO_CAIXA, modeloDeImpressaoDoCaixa, PEDIDO_PRINT_MODELS } from '../../utils/pedidoPrintModels';
 import { ORCAMENTO_PRINT_MODELS, modeloDeImpressaoDoOrcamento } from '../../utils/orcamentoPrintModels';
 import { normalizarChavePix, parseConfigPixPedido } from '../../utils/pixPedidoDomain';
 import { formatCompanyAddress } from '../../utils/companyAddress';
@@ -263,6 +263,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   { campo: 'diasNotificacaoLembrete', rotulo: 'Antecedência dos lembretes preventivos (dias)', formatar: numeroHistorico },
   { campo: 'modeloImpressaoOS', rotulo: 'Modelo de impressão da OS' },
   { campo: 'modeloImpressaoPedidoVenda', rotulo: 'Modelo de impressão do pedido' },
+  { campo: 'modeloImpressaoCaixa', rotulo: 'Modelo de impressão da Frente de Caixa' },
   { campo: 'modeloImpressaoOrcamento', rotulo: 'Modelo de impressão do orçamento' },
   { campo: 'pixNoPedidoAtivo', rotulo: 'QR Code Pix no pedido', formatar: simNaoHistorico },
   { campo: 'pixNoPedidoChave', rotulo: 'Chave Pix do QR Code do pedido' },
@@ -619,6 +620,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     mostrarValorListaOS: DEFAULT_MOSTRAR_VALOR_LISTA_OS,
     mostrarResumoEstoque: DEFAULT_MOSTRAR_RESUMO_ESTOQUE,
     modeloImpressaoPedidoVenda: DEFAULT_PEDIDO_PRINT_MODEL,
+    modeloImpressaoCaixa: MODELO_CUPOM_DO_CAIXA as string,
     modeloImpressaoOrcamento: modeloDeImpressaoDoOrcamento(null) as string,
     observacoesPadraoPedido: '',
     pixNoPedidoAtivo: false,
@@ -836,6 +838,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             mostrarValorListaOS: parseMostrarValorListaOS(data.mostrarValorListaOS),
             mostrarResumoEstoque: parseMostrarResumoEstoque(data.mostrarResumoEstoque),
             modeloImpressaoPedidoVenda: data.modeloImpressaoPedidoVenda || DEFAULT_PEDIDO_PRINT_MODEL,
+            modeloImpressaoCaixa: modeloDeImpressaoDoCaixa(data),
             modeloImpressaoOrcamento: modeloDeImpressaoDoOrcamento(data) as string,
             observacoesPadraoPedido: data.observacoesPadraoPedido || '',
             pixNoPedidoAtivo: parseConfigPixPedido(data).ativo,
@@ -2617,6 +2620,42 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                       </label>
                     );
                   })}
+                </div>
+
+                {/* Frente de Caixa (27/11/2026): loja sem impressora de bobina imprime a venda num modelo do pedido. */}
+                <div style={{ marginTop: '18px' }}>
+                  <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)' }}>Modelo de impressão da Frente de Caixa</h4>
+                  <p style={{ margin: '4px 0 12px', fontSize: '12px', color: 'var(--text-muted)' }}>Como a venda sai no caixa, no cupom sem nota fiscal e na 2ª via (F9). Para quem não tem a impressora pequena de bobina, escolha um dos modelos do Pedido de Venda. O cupom fiscal (NFC-e) continua saindo pela nota.</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' }}>
+                    {MODELOS_IMPRESSAO_CAIXA.map((modelo) => {
+                      const selected = formData.modeloImpressaoCaixa === modelo.id;
+                      return (
+                        <label
+                          key={modelo.id}
+                          style={{
+                            display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '14px', borderRadius: '8px',
+                            border: `1px solid ${selected ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                            backgroundColor: selected ? 'rgba(139, 92, 246, 0.1)' : 'var(--bg-tertiary)',
+                            cursor: isEditingMode ? 'pointer' : 'default',
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="modeloImpressaoCaixa"
+                            value={modelo.id}
+                            checked={selected}
+                            onChange={handleChange}
+                            disabled={!isEditingMode}
+                            style={{ marginTop: '3px', accentColor: 'var(--accent-purple)' }}
+                          />
+                          <span>
+                            <strong style={{ display: 'block', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '4px' }}>{modelo.name}</strong>
+                            <span style={{ display: 'block', fontSize: '12px', lineHeight: 1.45, color: 'var(--text-muted)' }}>{modelo.description}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>

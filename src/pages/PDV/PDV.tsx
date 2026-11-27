@@ -97,7 +97,7 @@ import { avisoFaturarSemConferencia, conferenciaPendenteParaFaturar } from '../.
 import { MENSAGEM_VENDA_DE_OUTRO_USUARIO, TITULO_VENDA_DE_OUTRO_USUARIO, isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { formatDateInputPtBr } from '../../utils/dateTime';
 import { MENSAGEM_SEM_PERMISSAO_NFCE, acaoDeReimpressao, documentoDoCupomDoCaixa, podeEmitirCupomFiscal, type VendaDoCaixa } from '../../utils/cupomDoCaixaDomain';
-import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal, imprimirNaBobina, reabrirCupomFiscal } from './cupomDoCaixa';
+import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal, imprimirNaBobina, imprimirVendaNaFolha, reabrirCupomFiscal } from './cupomDoCaixa';
 import VendasDoCaixaModal from './components/VendasDoCaixaModal';
 import RelatorioDoCaixaModal from './components/RelatorioDoCaixaModal';
 import ReceberContaModal, { type RecebimentoConcluido } from './components/ReceberContaModal';
@@ -161,6 +161,7 @@ import type { CaixaSangria, PdvCartItem, PdvClient, PdvProduct, PdvSession } fro
 import hennderIcon from '../../assets/hennder-icon.webp';
 import './PDV.css';
 import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { MODELO_CUPOM_DO_CAIXA, modeloDeImpressaoDoCaixa, type ModeloImpressaoCaixaId } from '../../utils/pedidoPrintModels';
 
 interface BandeiraCartao {
   id: string;
@@ -232,6 +233,8 @@ const PDV: React.FC = () => {
   const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
   // "Nota" na Frente de Caixa (25/11/2026): caixa de marcar da filial.
   const [aPrazoNoCaixa, setAPrazoNoCaixa] = useState(false);
+  // Modelo de impressao da venda (27/11/2026, Configuracoes da filial): cupom na bobina ou um modelo do Pedido de Venda.
+  const [modeloImpressaoCaixa, setModeloImpressaoCaixa] = useState<ModeloImpressaoCaixaId>(MODELO_CUPOM_DO_CAIXA);
   // Banco padrao por forma (25/11/2026): Pix e cartao ja' vem com o banco da filial.
   const [configBancoPadrao, setConfigBancoPadrao] = useState<ConfigBancoPadrao>(() => parseConfigBancoPadrao(null));
   const [regrasDoAPrazo, setRegrasDoAPrazo] = useState<{ trabalhaComLimite: boolean; parametros: ParametrosVenda; noGrupo: boolean }>({
@@ -502,6 +505,7 @@ const PDV: React.FC = () => {
         setAllowNegativeStock(configData?.venderSemEstoque === true);
         setVendaPeloServidor(parseVendaPeloServidor(configData?.vendaPeloServidor));
         setAPrazoNoCaixa(parseAPrazoNaFrenteDeCaixa(configData?.aPrazoNaFrenteDeCaixa));
+        setModeloImpressaoCaixa(modeloDeImpressaoDoCaixa(configData));
         setConfigBancoPadrao(parseConfigBancoPadrao(configData));
         setRegrasDoAPrazo({
           trabalhaComLimite: parseTrabalhaComLimiteCredito(configData?.trabalhaComLimiteCredito),
@@ -1396,12 +1400,17 @@ const PDV: React.FC = () => {
   const imprimirNaoFiscalDaVenda = useCallback(async (venda: { pedidoId: string; numeroPedido: string; clienteId: string | null }, segundaVia = false) => {
     const documentoDoCliente = venda.clienteId ? (clients.find((c) => c.id === venda.clienteId)?.documento || '') : '';
     try {
+      // Loja sem impressora de bobina (27/11/2026): a venda sai no modelo do Pedido de Venda escolhido na filial.
+      if (modeloImpressaoCaixa !== MODELO_CUPOM_DO_CAIXA) {
+        await imprimirVendaNaFolha(venda.pedidoId);
+        return;
+      }
       await imprimirCupomNaoFiscal({ pedidoId: venda.pedidoId, empresa: configDaEmpresa, documentoDoCliente, operador: operatorName, segundaVia });
     } catch (erro) {
       console.error('Erro ao imprimir o cupom não fiscal:', erro);
       showError('Cupom não impresso', `A venda #${venda.numeroPedido} está gravada. ${erro instanceof Error ? erro.message : 'Confira a impressora e reimprima pelas Vendas do caixa (F9).'}`);
     }
-  }, [clients, configDaEmpresa, operatorName]);
+  }, [clients, configDaEmpresa, operatorName, modeloImpressaoCaixa]);
 
   const podeEmitirFiscal = podeEmitirCupomFiscal({ role: userRole, isOwner, permissoes: userPermissions });
   const documentoDaEmpresa = documentoDoCupomDoCaixa({ controlaFiscal, documentosFiscais: configDaEmpresa, comNotaFiscal: null });

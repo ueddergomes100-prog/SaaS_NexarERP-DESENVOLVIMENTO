@@ -78,6 +78,40 @@ export const imprimirCupomNaoFiscal = async (args: {
   await imprimirNaBobina(htmlDoCupomNaoFiscal(cupom, args.largura || 80, args.segundaVia ? { reimpressoEm: dataHoraDoCupom(agora) } : null));
 };
 
+/**
+ * Venda no modelo do Pedido de Venda (27/11/2026, Configuracoes da filial > Modelo de
+ * impressao da Frente de Caixa): carrega a pagina /caixa/imprimir/:id numa area
+ * escondida; ela desenha o papel (A4, meia folha, pre-venda) e chama a impressao.
+ * Sem janela nova: o navegador bloquearia a janela aberta depois da venda.
+ */
+export const imprimirVendaNaFolha = (pedidoId: string): Promise<void> => new Promise((resolve, reject) => {
+  const quadro = document.createElement('iframe');
+  quadro.setAttribute('aria-hidden', 'true');
+  quadro.title = 'Impressão da venda';
+  // Fora da tela, mas com tamanho de folha: o papel precisa de largura para desenhar.
+  Object.assign(quadro.style, { position: 'fixed', left: '-12000px', top: '0', width: '1100px', height: '1600px', border: '0' });
+  let terminou = false;
+  const encerrar = (falha?: Error) => {
+    if (terminou) return;
+    terminou = true;
+    window.removeEventListener('message', aoReceber);
+    window.clearTimeout(limite);
+    window.setTimeout(() => quadro.remove(), 1000);
+    if (falha) reject(falha); else resolve();
+  };
+  const aoReceber = (evento: MessageEvent) => {
+    if (evento.origin !== window.location.origin || evento.source !== quadro.contentWindow) return;
+    const dados = evento.data as { tipo?: string; mensagem?: string } | null;
+    if (dados?.tipo === 'hennder:caixa-impresso') encerrar();
+    if (dados?.tipo === 'hennder:caixa-impressao-erro') encerrar(new Error(dados.mensagem || 'Não foi possível montar a impressão da venda.'));
+  };
+  // A janela de imprimir pode ficar aberta um tempo: so' desiste depois de 2 minutos.
+  const limite = window.setTimeout(() => encerrar(new Error('A impressão demorou demais para abrir. Confira a internet e reimprima pelas Vendas do caixa (F9).')), 120000);
+  window.addEventListener('message', aoReceber);
+  quadro.src = `/caixa/imprimir/${encodeURIComponent(pedidoId)}`;
+  document.body.appendChild(quadro);
+});
+
 /** Reabre o cupom fiscal (PDF da NFC-e) ja' autorizado, para imprimir de novo. */
 export const reabrirCupomFiscal = (spedyId: string): Promise<void> => spedyService.openFiscalFile(spedyId, 'consumer', 'pdf');
 

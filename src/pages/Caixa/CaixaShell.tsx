@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import VerificadorDataDoSistema from '../../components/layout/VerificadorDataDoSistema';
 import PDV from '../PDV/PDV';
 import { CAMINHO_APP_CAIXA, CAMINHO_LOGIN_CAIXA, MENSAGEM_SEM_ACESSO_AO_CAIXA, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
+import CaixaImpressaoVenda from './CaixaImpressaoVenda';
 
 /**
  * Casca da Frente de Caixa como app separado (/caixa, 19/10/2026) -- o mesmo
@@ -49,6 +50,8 @@ const CaixaShell: React.FC = () => {
       <VerificadorDataDoSistema />
       <Routes>
         <Route index element={<PDV />} />
+        {/* Venda no modelo do Pedido de Venda (27/11/2026): o PDV abre esta pagina escondida para imprimir. */}
+        <Route path="imprimir/:id" element={<CaixaImpressaoVenda />} />
         <Route path="*" element={<Navigate to={CAMINHO_APP_CAIXA} replace />} />
       </Routes>
     </>

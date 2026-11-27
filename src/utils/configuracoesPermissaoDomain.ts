@@ -30,7 +30,7 @@ export const CAMPOS_DO_BLOCO_DA_FILIAL: Readonly<Record<string, readonly string[
   ],
   [A.textosDocumentos]: ['garantiaPadrao', 'observacoesPadraoPedido', 'mensagensPadrao'],
   [A.documentosImpressao]: [
-    'modeloImpressaoOS', 'mostrarValorListaOS', 'mostrarResumoEstoque', 'modeloImpressaoPedidoVenda',
+    'modeloImpressaoOS', 'mostrarValorListaOS', 'mostrarResumoEstoque', 'modeloImpressaoPedidoVenda', 'modeloImpressaoCaixa',
     'modeloImpressaoOrcamento', 'configOrcamento', 'maquinasPesadas', 'emissaoDocumentos',
   ],
   [CA.pixPedido]: ['pixNoPedidoAtivo', 'pixNoPedidoChave'],

@@ -1020,12 +1020,16 @@
   color: #f87171;
 }
 
+/* Pagamento (28/11/2026): os campos quebram linha sozinhos (cartao tem banco, bandeira,
+   NSU e parcelas) -- antes a 4a coluna tinha 38px e cortava a Bandeira. A lixeira
+   fica no canto de cima do cartao. */
 .pdv-payment-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 1.2fr 0.8fr 0.7fr 38px;
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 12px;
   align-items: end;
-  padding: 12px;
+  padding: 12px 54px 12px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -1509,4 +1513,11 @@
   gap: 8px;
   min-height: 44px;
   padding: 0 16px;
+}
+
+.pdv-payment-row > .pdv-row-action {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
 }

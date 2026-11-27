@@ -15,7 +15,8 @@ import { clienteComCodigo } from '../../utils/pedidoVendedorDomain';
 import VendedorHeader from './VendedorHeader';
 import { cashbackDisponivelParaVenda, lerResumoCashback, parteDoSaldoVenceu, temDivida, textoDoSaldo } from '../../utils/cashbackDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
+import { podeCadastrarClienteNoApp, podeTelaDoApp } from './vendedorPermissoes';
+import { PERMISSAO_APP_DEBITO_CLIENTE } from '../../utils/permissoesAppDomain';
 
 interface ClienteVendedor extends SearchableClient {
   id: string;
@@ -48,7 +49,9 @@ const toMillis = (value: unknown): number => {
 
 const VendedorConsultarCliente: React.FC = () => {
   const navigate = useNavigate();
-  const { tenantId, userPermissions, grupo, configCashback } = useAuth();
+  const { tenantId, userPermissions, grupo, configCashback, userRole, isOwner } = useAuth();
+  // Debito do cliente (27/11/2026): permissao do app "Ver o debito do cliente"; sem ela o saldo nem e' lido.
+  const podeVerDebito = podeTelaDoApp(PERMISSAO_APP_DEBITO_CLIENTE, userRole, isOwner, userPermissions);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
   const [busca, setBusca] = useState('');
@@ -87,7 +90,7 @@ const VendedorConsultarCliente: React.FC = () => {
 
     (async () => {
       const [saldo, pedidosSnap, orcamentosSnap] = await Promise.all([
-        calcularSaldoEmAbertoClienteCents(tenantId, selecionado.id, Boolean(grupo)).catch(() => 0),
+        podeVerDebito ? calcularSaldoEmAbertoClienteCents(tenantId, selecionado.id, Boolean(grupo)).catch(() => 0) : Promise.resolve(null),
         getDocs(query(
           collection(db, 'pedidos_venda'),
           where('tenantId', '==', tenantId),
@@ -135,7 +138,7 @@ const VendedorConsultarCliente: React.FC = () => {
     })();
 
     return () => { cancelado = true; };
-  }, [selecionado, tenantId]);
+  }, [selecionado, tenantId, podeVerDebito]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -232,7 +235,7 @@ const VendedorConsultarCliente: React.FC = () => {
                 )}
               </div>
 
-              {saldoCents !== null && saldoCents > 0 && (
+              {podeVerDebito && saldoCents !== null && saldoCents > 0 && (
                 <div style={{ fontSize: '14px', color: '#f59e0b', fontWeight: 600 }}>
                   Saldo em aberto: {formatarMoeda(saldoCents / 100)}
                 </div>

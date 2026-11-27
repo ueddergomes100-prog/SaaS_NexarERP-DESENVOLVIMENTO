@@ -71,7 +71,7 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
         const aberto = abertos.has(grupo.chave);
         const atrasoMaior = grupo.vencimentoMaisAntigo ? differenceInCalendarDays(grupo.vencimentoMaisAntigo, hoje) ?? 0 : 0;
         return (
-          <div key={grupo.chave} style={{ ...cartao, overflow: 'hidden' }}>
+          <div key={grupo.chave} style={{ ...cartao, overflow: 'hidden', flexShrink: 0 }}>
             <button
               type="button"
               onClick={() => alternar(grupo.chave)}

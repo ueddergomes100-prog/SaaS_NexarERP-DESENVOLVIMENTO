@@ -665,8 +665,9 @@ const criarVendedorBalcao = async ({ user, tenantId, corpo }) => {
     throw new ErroLimite(400, 'O percentual de comissão tem de ser um número de 0 a 100.');
   }
   // Sem ser o dono nem ter "Cadastros: Vendedores -- liberar desconto e aplicativo": vendedor comum, sem permissao nenhuma.
+  // Marcador de pacote (ex.: 'pacote.app-1', 27/11/2026) tambem fica: e' o que faz a caixinha desmarcada valer.
   const permissoes = gestor && Array.isArray(c.permissoes)
-    ? [...new Set(c.permissoes.filter(permApp.permissaoValida))].slice(0, 60)
+    ? [...new Set(c.permissoes.filter((p) => permApp.permissaoValida(p) || permNovas.MARCADORES_DOS_PACOTES.includes(p)))].slice(0, 60)
     : [];
 
   const liberadosDoVendedor = await tirarCodigoDosInativos({ user, tenantId, codigo, inativos: inativosDoVendedor });

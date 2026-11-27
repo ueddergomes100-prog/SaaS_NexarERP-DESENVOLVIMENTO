@@ -1,5 +1,6 @@
 import {
   MARCADOR_APP_DEFINIDO,
+  PERMISSAO_APP_DEBITO_CLIENTE,
   permissoesEfetivas as permissoesEfetivasDoApp,
   permissoesParaGravar as permissoesParaGravarDoApp,
 } from './permissoesAppDomain';
@@ -549,6 +550,14 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
     implicacoes: {
       'vendas.pdv': [V.pdvRelatorioCaixa],
       'vendas.so_caixa': [V.pdvRelatorioCaixa],
+    },
+  },
+  {
+    // 27/11/2026: ver o debito do cliente no app. Quem consulta cliente no app
+    // continua vendo (a chave do app ja' conta as implicitas de quem nunca salvou).
+    id: 'app-1',
+    implicacoes: {
+      'app.clientes': [PERMISSAO_APP_DEBITO_CLIENTE],
     },
   },
 ];

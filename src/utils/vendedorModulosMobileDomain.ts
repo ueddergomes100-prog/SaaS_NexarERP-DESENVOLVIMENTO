@@ -27,6 +27,8 @@ export const MODULOS_MOBILE_EXTRAS: ModuloMobileExtra[] = [
   { id: 'fiscal.emitir', label: 'Emitir Nota Fiscal' },
   { id: 'financeiro.pagar', label: 'Contas a Pagar' },
   { id: 'financeiro.receber', label: 'Contas a Receber' },
+  // 27/11/2026: saldo em aberto do cliente na consulta (vem marcado: pacote 'app-1').
+  { id: 'app.debito_cliente', label: 'Ver o débito do cliente (saldo em aberto)' },
 ];
 
 export const MODULOS_MOBILE_EXTRAS_IDS: string[] = MODULOS_MOBILE_EXTRAS.map((m) => m.id);

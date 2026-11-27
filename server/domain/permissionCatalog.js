@@ -41,6 +41,8 @@ exports.PERMISSION_GROUPS = [
             // Nao vem marcada para ninguem (permissoesAppDomain.ts): mexe no valor da venda.
             { id: 'app.alterar_preco', label: 'App: Alterar o preço do item (pedido e orçamento)', color: '#ef4444' },
             { id: 'app.clientes', label: 'App: Consultar Cliente', color: '#8b5cf6' },
+            // 27/11/2026: o saldo em aberto do cliente na consulta. Vem marcada com a de cima (pacote 'app-1').
+            { id: 'app.debito_cliente', label: 'App: Ver o débito do cliente (saldo em aberto na consulta do cliente)', color: '#8b5cf6' },
             // Nao vem marcada para ninguem (25/11/2026): sem ela, quem decide o destino do
             // valor da devolucao e' o escritorio, na confirmacao. Conferida no servidor.
             { id: 'app.devolucao_destino', label: 'App: Devolução — escolher para onde vai o valor (crédito, caixa ou banco)', color: '#ef4444' },

@@ -483,6 +483,14 @@ exports.PACOTES_DE_PERMISSOES = [
             'vendas.so_caixa': [V.pdvRelatorioCaixa],
         },
     },
+    {
+        // 27/11/2026: ver o debito do cliente no app. Quem consulta cliente no app
+        // continua vendo (a chave do app ja' conta as implicitas de quem nunca salvou).
+        id: 'app-1',
+        implicacoes: {
+            'app.clientes': [permissoesAppDomain_1.PERMISSAO_APP_DEBITO_CLIENTE],
+        },
+    },
 ];
 exports.PREFIXO_MARCADOR_PACOTE = 'pacote.';
 // ---------------------------------------------------------------------------

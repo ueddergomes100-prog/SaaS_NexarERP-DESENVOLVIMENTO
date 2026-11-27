@@ -49,7 +49,8 @@ const MARCADOR_ESTOQUE = marcadorDoPacote('estoque-1');
 const MARCADOR_ADMINISTRACAO = marcadorDoPacote('administracao-1');
 const MARCADOR_FIN3 = marcadorDoPacote('financeiro-3');
 const MARCADOR_PDV = marcadorDoPacote('pdv-1');
-const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3, MARCADOR_PDV];
+const MARCADOR_APP1 = marcadorDoPacote('app-1');
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3, MARCADOR_PDV, MARCADOR_APP1];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -91,7 +92,7 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
   assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1', 'financeiro-3', 'pdv-1']);
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1', 'financeiro-3', 'pdv-1', 'app-1']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');
@@ -425,4 +426,18 @@ test('pdv-1: quem opera a Frente de Caixa ja tira o relatorio parcial; salvo sem
   assert.ok(permissoesEfetivas(['vendas.pdv', MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3]).includes(RELATORIO));
   // Salvo com este pacote e sem a permissao marcada: fica sem.
   assert.ok(!permissoesEfetivas(permissoesParaGravar(['vendas.pdv'])).includes(RELATORIO));
+});
+
+test('app-1: quem consulta cliente no app ve o debito; salvo sem ela, nao ve', async () => {
+  const { permissoesEfetivasDoUsuario, permissoesParaGravarDoUsuario } = await import('../src/utils/permissoesNovasDomain');
+  const DEBITO = 'app.debito_cliente';
+  // Nunca salvou o app: App: Consultar Cliente vem implicita, e o debito com ela.
+  assert.ok(permissoesEfetivasDoUsuario(['vendas.pre_venda_criar']).includes(DEBITO));
+  // Salvo com App: Consultar Cliente antes deste pacote: continua vendo.
+  assert.ok(permissoesEfetivas(['app.clientes', 'app.definido', MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3, MARCADOR_PDV]).includes(DEBITO));
+  // Salvo agora sem marcar: nao ve.
+  assert.ok(!permissoesEfetivasDoUsuario(permissoesParaGravarDoUsuario(['app.clientes'])).includes(DEBITO));
+  assert.ok(permissoesEfetivasDoUsuario(permissoesParaGravarDoUsuario(['app.clientes', DEBITO])).includes(DEBITO));
+  // Vendedor de balcao salvo pela tela de Vendedores com o marcador e sem a caixinha: nao ve.
+  assert.ok(!permissoesEfetivasDoUsuario(['vendas.pre_venda_criar', MARCADOR_APP1]).includes(DEBITO));
 });

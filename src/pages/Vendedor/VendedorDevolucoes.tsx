@@ -70,7 +70,7 @@ const VendedorDevolucoes: React.FC = () => {
           const estilo = ESTILO[d.status] || ESTILO.aguardando_confirmacao;
           const expandida = aberta === d.id;
           return (
-            <div key={d.id} style={{ borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
+            <div key={d.id} style={{ borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', overflow: 'hidden', flexShrink: 0 }}>
               <button
                 type="button"
                 onClick={() => setAberta(expandida ? null : d.id)}

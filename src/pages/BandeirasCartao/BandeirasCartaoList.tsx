@@ -9,7 +9,7 @@ import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { hasModuleAccess } from '../../utils/roles';
 import { useTenantCollection, type TenantCollectionItem } from '../../hooks/useTenantCollection';
 import { pickMissingDefaults } from '../../utils/catalogDefaults';
-import { normalizeCreditCardFeeSchedule } from '../../utils/financeDomain';
+import { MAX_PARCELAS_CARTAO, normalizeCreditCardFeeSchedule } from '../../utils/financeDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type CampoComparado } from '../../utils/historicoAlteracoesDomain';
@@ -36,12 +36,18 @@ interface BandeiraCartao extends TenantCollectionItem {
   prazoRecebimentoDebitoDias?: number;
 }
 
-const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => (
-  Object.fromEntries(
+/** Acima de 12x (27/11/2026): parcela sem taxa gravada aparece EM BRANCO (nao '0') -- em branco, nao grava e a venda nela e' recusada. */
+const ehParcelaAlta = (installments: string) => Number(installments) > 12;
+const toCreditCardRateInputs = (value: unknown, fallbackFeePercent = 0) => {
+  const salvas = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return Object.fromEntries(
     Object.entries(normalizeCreditCardFeeSchedule(value, fallbackFeePercent))
-      .map(([installments, fee]) => [installments, String(fee)]),
-  )
-);
+      .map(([installments, fee]) => [
+        installments,
+        ehParcelaAlta(installments) && (salvas[installments] === undefined || salvas[installments] === null || String(salvas[installments]).trim() === '') ? '' : String(fee),
+      ]),
+  );
+};
 
 const toConfigurationNumber = (value: unknown) => {
   const parsed = Number(String(value ?? '').trim().replace(',', '.'));
@@ -75,12 +81,12 @@ const taxasParaHistorico = (dados: {
   taxaDebitoPercentual: dados.taxaDebitoPercentual ?? null,
   prazoRecebimentoCreditoDias: dados.prazoRecebimentoCreditoDias ?? null,
   prazoRecebimentoDebitoDias: dados.prazoRecebimentoDebitoDias ?? null,
-  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`credito${i + 1}x`, dados.taxasCreditoPorParcela?.[String(i + 1)] ?? null])),
+  ...Object.fromEntries(Array.from({ length: MAX_PARCELAS_CARTAO }, (_, i) => [`credito${i + 1}x`, dados.taxasCreditoPorParcela?.[String(i + 1)] ?? null])),
 });
 
 const CAMPOS_TAXAS_HISTORICO: CampoComparado[] = [
   { campo: 'taxaDebitoPercentual', rotulo: 'Taxa de débito (%)' },
-  ...Array.from({ length: 12 }, (_, i) => ({ campo: `credito${i + 1}x`, rotulo: `Taxa de crédito em ${i + 1}x (%)` })),
+  ...Array.from({ length: MAX_PARCELAS_CARTAO }, (_, i) => ({ campo: `credito${i + 1}x`, rotulo: `Taxa de crédito em ${i + 1}x (%)` })),
   { campo: 'prazoRecebimentoCreditoDias', rotulo: 'Prazo de recebimento do crédito (dias)' },
   { campo: 'prazoRecebimentoDebitoDias', rotulo: 'Prazo de recebimento do débito (dias)' },
 ];
@@ -309,10 +315,10 @@ const BandeirasCartaoList: React.FC = () => {
     const creditSettlementDays = toConfigurationNumber(feesForm.prazoRecebimentoCreditoDias);
     const debitSettlementDays = toConfigurationNumber(feesForm.prazoRecebimentoDebitoDias);
     const creditFees = Object.fromEntries(
-      Array.from({ length: 12 }, (_, index) => {
-        const installments = String(index + 1);
-        return [installments, toConfigurationNumber(feesForm.taxasCreditoPorParcela[installments])];
-      }),
+      Array.from({ length: MAX_PARCELAS_CARTAO }, (_, index) => String(index + 1))
+        // De 13x em diante, em branco = a bandeira nao parcela tanto: a chave nao vai.
+        .filter((installments) => !(ehParcelaAlta(installments) && String(feesForm.taxasCreditoPorParcela[installments] ?? '').trim() === ''))
+        .map((installments) => [installments, toConfigurationNumber(feesForm.taxasCreditoPorParcela[installments])]),
     );
 
     if (
@@ -784,12 +790,12 @@ const BandeirasCartaoList: React.FC = () => {
                       <AplicarEmTodas
                         onAplicar={(valor) => setFeesForm((current) => ({
                           ...current,
-                          taxasCreditoPorParcela: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), valor])),
+                          taxasCreditoPorParcela: Object.fromEntries(Array.from({ length: MAX_PARCELAS_CARTAO }, (_, i) => [String(i + 1), valor])),
                         }))}
                       />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))', gap: '10px' }}>
-                      {Array.from({ length: 12 }, (_, index) => {
+                      {Array.from({ length: MAX_PARCELAS_CARTAO }, (_, index) => {
                         const installments = String(index + 1);
                         return (
                           <label key={installments} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
@@ -808,6 +814,9 @@ const BandeirasCartaoList: React.FC = () => {
                         );
                       })}
                     </div>
+                    <p style={{ margin: '0', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      De 13x a {MAX_PARCELAS_CARTAO}x: preencha só se a empresa parcela tanto (e libere em Configurações › Máximo de parcelas no crédito). Em branco, a venda nessa parcela é recusada até a taxa ser cadastrada.
+                    </p>
                     <label style={{ ...rotuloCampoTaxa, maxWidth: '260px' }}>
                       Primeira parcela cai em
                       <CampoComUnidade

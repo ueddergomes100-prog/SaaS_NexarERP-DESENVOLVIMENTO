@@ -23,7 +23,7 @@ const configFinanceiraDaEmpresa = (config) => {
     const debito = c.prazoRecebimentoCartaoDebitoDias ?? 1;
     return {
         defaultTermDays: prazos[0] || 30,
-        maxCreditInstallments: Math.min(12, Math.max(1, Number(c.maxParcelasCartao ?? 12) || 12)),
+        maxCreditInstallments: (0, financeDomain_1.parseMaxParcelasCartao)(c.maxParcelasCartao),
         creditFeePercentByInstallment: (0, financeDomain_1.normalizeCreditCardFeeSchedule)(c.taxasCartaoCreditoPorParcela, Number(c.taxaCartaoCreditoPercentual) || 0),
         debitFeePercent: Math.max(0, Number(c.taxaCartaoDebitoPercentual || 0)),
         creditSettlementDays: credito === '' ? 30 : Math.max(0, Number(credito)),

@@ -108,6 +108,7 @@ import {
   type PaymentDraft,
   type PaymentMethod,
   type PaymentRecord,
+  parseMaxParcelasCartao,
 } from '../../utils/financeDomain';
 import { usePromocoesVigentes } from '../../hooks/usePromocoesVigentes';
 import { camposDePrecoDoItem, precoSugeridoDoItem, reprecificarPelaQuantidade } from '../../utils/precoComPromocaoDomain';
@@ -597,7 +598,7 @@ const OSForm: React.FC = () => {
           }
           setFinanceConfig({
             defaultTermDays,
-            maxCreditInstallments: Math.min(12, Math.max(1, Number(config.maxParcelasCartao ?? 12) || 12)),
+            maxCreditInstallments: parseMaxParcelasCartao(config.maxParcelasCartao),
             creditFeePercentByInstallment: normalizeCreditCardFeeSchedule(
               config.taxasCartaoCreditoPorParcela,
               config.taxaCartaoCreditoPercentual || 0,

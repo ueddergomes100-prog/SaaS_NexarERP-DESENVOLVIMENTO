@@ -199,6 +199,8 @@ export interface PaymentValidationOptions {
 
 export interface CardFeeSchedule {
   creditFeePercentByInstallment?: CreditCardFeeSchedule;
+  /** Parcelas com taxa de credito CADASTRADA na bandeira (27/11/2026): acima de 12x, sem a taxa, a venda e' recusada. */
+  creditInstallmentsWithFee?: number[];
   creditFeePercent?: number;
   debitFeePercent?: number;
   creditSettlementDays?: number;
@@ -349,6 +351,29 @@ export const parseCreditTerms = (value: unknown) => {
   return Array.from(new Set(terms)).sort((a, b) => a - b);
 };
 
+/**
+ * Teto de parcelas no cartao de credito (27/11/2026, pedido do dono: "tenho
+ * cliente que passa 21x"). Era 12. A empresa escolhe o dela nas Configuracoes
+ * ("Maximo de parcelas no credito", padrao 12) e a bandeira tem taxa de 1x ate'
+ * este teto.
+ */
+export const MAX_PARCELAS_CARTAO = 24;
+
+/** O "Maximo de parcelas no credito" das Configuracoes: de 1 ao teto; vazio/invalido = 12. */
+export const parseMaxParcelasCartao = (valor: unknown): number => (
+  Math.min(MAX_PARCELAS_CARTAO, Math.max(1, Number(valor ?? 12) || 12))
+);
+
+/** Parcelas que a bandeira tem com taxa preenchida (numeros de 1 ao teto). */
+export const parcelasComTaxaCadastrada = (value: unknown): number[] => {
+  if (!value || typeof value !== 'object') return [];
+  return Object.entries(value as Record<string, unknown>)
+    .filter(([, taxa]) => taxa !== null && taxa !== undefined && String(taxa).trim() !== '' && Number.isFinite(Number(String(taxa).replace(',', '.'))))
+    .map(([parcela]) => Number.parseInt(parcela, 10))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= MAX_PARCELAS_CARTAO)
+    .sort((a, b) => a - b);
+};
+
 export const normalizeCreditCardFeeSchedule = (
   value: unknown,
   fallbackFeePercent = 0,
@@ -361,7 +386,7 @@ export const normalizeCreditCardFeeSchedule = (
     : 0;
 
   return Object.fromEntries(
-    Array.from({ length: 12 }, (_, index) => {
+    Array.from({ length: MAX_PARCELAS_CARTAO }, (_, index) => {
       const installments = index + 1;
       const rawValue = source[String(installments)] ?? source[`${installments}x`] ?? fallback;
       const parsed = Number(String(rawValue ?? '').replace(',', '.'));
@@ -378,7 +403,7 @@ export const creditCardFeeForInstallments = (
   installments: number,
   fallbackFeePercent = 0,
 ) => {
-  const normalizedInstallments = Math.max(1, Math.min(12, Number.parseInt(String(installments), 10) || 1));
+  const normalizedInstallments = Math.max(1, Math.min(MAX_PARCELAS_CARTAO, Number.parseInt(String(installments), 10) || 1));
   return normalizeCreditCardFeeSchedule(schedule, fallbackFeePercent)[String(normalizedInstallments)];
 };
 
@@ -407,6 +432,7 @@ export const buildCardFeeSchedulesByBrand = (
         const schedule: CardFeeSchedule = {};
         if (bandeira?.taxasCreditoPorParcela !== undefined) {
           schedule.creditFeePercentByInstallment = normalizeCreditCardFeeSchedule(bandeira.taxasCreditoPorParcela);
+          schedule.creditInstallmentsWithFee = parcelasComTaxaCadastrada(bandeira.taxasCreditoPorParcela);
         }
         if (bandeira?.taxaDebitoPercentual !== undefined) {
           const parsed = Number(bandeira.taxaDebitoPercentual);
@@ -836,6 +862,18 @@ export const normalizePayments = (
 
       const brandKey = draft.bandeira?.trim();
       const brandSchedule = brandKey ? options.cardFeeSchedulesByBrand?.[brandKey] : undefined;
+      // Acima de 12x (27/11/2026): a bandeira com taxas cadastradas precisa ter a taxa desta
+      // parcela -- senao a venda sairia com taxa zero sem ninguem ver.
+      if (
+        draft.forma === 'Cartão de Crédito' && installments > 12
+        && brandSchedule?.creditInstallmentsWithFee && brandSchedule.creditInstallmentsWithFee.length > 0
+        && !brandSchedule.creditInstallmentsWithFee.includes(installments)
+      ) {
+        throw new Error(
+          `A bandeira ${brandKey} não tem a taxa do crédito em ${installments}x cadastrada.`
+          + ' Cadastre em Cadastros Auxiliares › Bandeiras de Cartão (botão de taxas da bandeira) e finalize de novo.',
+        );
+      }
       const effectiveCreditFeePercentByInstallment = brandSchedule?.creditFeePercentByInstallment
         ?? options.creditFeePercentByInstallment;
       const effectiveCreditFeePercent = brandSchedule?.creditFeePercent ?? options.creditFeePercent;

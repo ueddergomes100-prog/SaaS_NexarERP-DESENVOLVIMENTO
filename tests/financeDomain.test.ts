@@ -1141,3 +1141,28 @@ test('Cashback (20/10/2026): natureza de credito do cliente, confirmado na hora,
   assert.equal(asPaymentMethod('Cashback'), 'Cashback');
   assert.equal(contaComoReceita({ tipo: 'entrada', status: 'Paga', formaPagamento: 'Cashback' } as Parameters<typeof contaComoReceita>[0]), false);
 });
+
+test('ate 24x no credito (27/11/2026): teto, taxa de 13x+ da bandeira e recusa quando falta a taxa', async () => {
+  const { MAX_PARCELAS_CARTAO, parseMaxParcelasCartao, parcelasComTaxaCadastrada, buildCardFeeSchedulesByBrand } = await import('../src/utils/financeDomain');
+  assert.equal(MAX_PARCELAS_CARTAO, 24);
+  assert.equal(parseMaxParcelasCartao(21), 21);
+  assert.equal(parseMaxParcelasCartao(99), 24);
+  assert.equal(parseMaxParcelasCartao(undefined), 12);
+  assert.deepEqual(parcelasComTaxaCadastrada({ 1: 2, 2: '2,5', 21: 9.9, 22: '', 30: 1, x: 1 }), [1, 2, 21]);
+
+  const taxas: Record<string, number> = {};
+  for (let i = 1; i <= 12; i += 1) taxas[String(i)] = 2;
+  const so12 = buildCardFeeSchedulesByBrand([{ nome: 'Visa', taxasCreditoPorParcela: taxas }]);
+  const com21 = buildCardFeeSchedulesByBrand([{ nome: 'Visa', taxasCreditoPorParcela: { ...taxas, 21: 9.9 } }]);
+  const venda = (parcelas: string, cardFeeSchedulesByBrand: typeof so12) => normalizePayments(60_000, [
+    payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas, bandeira: 'Visa' }),
+  ], { cardFeeSchedulesByBrand, maxCreditInstallments: 24 });
+
+  const [em21] = venda('21', com21);
+  assert.equal(em21.cartao?.taxaPercentual, 9.9);
+  assert.throws(() => venda('21', so12), /bandeira Visa não tem a taxa do crédito em 21x cadastrada.*Bandeiras de Cartão/);
+  // Ate' 12x, o de sempre.
+  assert.equal(venda('12', so12)[0].cartao?.taxaPercentual, 2);
+  // Acima do maximo da empresa: recusa como antes.
+  assert.throws(() => normalizePayments(60_000, [payment({ forma: 'Cartão de Crédito', valor: '600.00', parcelas: '21', bandeira: 'Visa' })], { cardFeeSchedulesByBrand: com21, maxCreditInstallments: 12 }), /no máximo 12 parcelas/);
+});

@@ -296,6 +296,20 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </label>
               )}
 
+              {/* NSU / autorizacao (27/11/2026, pedido do dono): o mesmo campo do Pedido de Venda; opcional. */}
+              {pedeBandeira(draft.forma) && (
+                <label>
+                  <span>NSU / autorização</span>
+                  <input
+                    value={draft.autorizacao || ''}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    title="Número que sai no comprovante da maquininha (opcional). Ajuda a achar a venda na conciliação do cartão."
+                    onChange={(event) => updateDraft(draft.id, { autorizacao: event.target.value.slice(0, 40) })}
+                  />
+                </label>
+              )}
+
               {draft.forma === 'Cartão de Crédito' && !financeConfig.pagamentoCartaoSimplificadoAtivo && (
                 <label>
                   <span>Parcelas</span>

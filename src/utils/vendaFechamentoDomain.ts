@@ -9,7 +9,7 @@
  * daqui -- nao confia em total, saldo de banco nem status de pagamento vindos
  * do navegador.
  */
-import { fromCents, normalizeCreditCardFeeSchedule, parseCreditTerms, toCents, type CreditCardFeeSchedule } from './financeDomain';
+import { fromCents, normalizeCreditCardFeeSchedule, parseCreditTerms, parseMaxParcelasCartao, toCents, type CreditCardFeeSchedule } from './financeDomain';
 import { calcularDescontoCents } from './descontoDomain';
 import { lerTransporte, transporteParaGravar } from './transporteNotaDomain';
 
@@ -34,7 +34,7 @@ export const configFinanceiraDaEmpresa = (config: Record<string, unknown> | null
   const debito = c.prazoRecebimentoCartaoDebitoDias ?? 1;
   return {
     defaultTermDays: prazos[0] || 30,
-    maxCreditInstallments: Math.min(12, Math.max(1, Number(c.maxParcelasCartao ?? 12) || 12)),
+    maxCreditInstallments: parseMaxParcelasCartao(c.maxParcelasCartao),
     creditFeePercentByInstallment: normalizeCreditCardFeeSchedule(c.taxasCartaoCreditoPorParcela, Number(c.taxaCartaoCreditoPercentual) || 0),
     debitFeePercent: Math.max(0, Number(c.taxaCartaoDebitoPercentual || 0)),
     creditSettlementDays: credito === '' ? 30 : Math.max(0, Number(credito)),

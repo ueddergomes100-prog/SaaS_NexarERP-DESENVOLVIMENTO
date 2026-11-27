@@ -24,7 +24,10 @@ const corpoBase = (extra: Record<string, unknown> = {}) => ({
 test('configuracao financeira le a empresa como a tela de venda le', () => {
   const c = configFinanceiraDaEmpresa({ diasCrediario: '45, 30', maxParcelasCartao: 20, taxaCartaoDebitoPercentual: '1.5', prazoRecebimentoCartaoCreditoDias: '', prazoRecebimentoCartaoDebitoDias: 2 });
   assert.equal(c.defaultTermDays, 30);
-  assert.equal(c.maxCreditInstallments, 12);
+  // Teto de 24x desde 27/11/2026 (era 12): 20 vale; acima do teto cai no teto.
+  assert.equal(c.maxCreditInstallments, 20);
+  assert.equal(configFinanceiraDaEmpresa({ maxParcelasCartao: 30 }).maxCreditInstallments, 24);
+  assert.equal(configFinanceiraDaEmpresa({}).maxCreditInstallments, 12);
   assert.equal(c.debitFeePercent, 1.5);
   assert.equal(c.creditSettlementDays, 30);
   assert.equal(c.debitSettlementDays, 2);

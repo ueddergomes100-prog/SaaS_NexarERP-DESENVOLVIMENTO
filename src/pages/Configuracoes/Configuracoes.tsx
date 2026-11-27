@@ -82,7 +82,7 @@ import { DEFAULT_PRODUCT_SEARCH_MODE, type ProductSearchMode } from '../../utils
 import { DEFAULT_MOSTRAR_VALOR_LISTA_OS, parseMostrarValorListaOS } from '../../utils/osListaValorDomain';
 import { DEFAULT_MOSTRAR_RESUMO_ESTOQUE, parseMostrarResumoEstoque } from '../../utils/estoqueResumoDomain';
 import { DEFAULT_CONTROLA_FISCAL, parseControlaFiscal } from '../../utils/fiscalDomain';
-import { DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO, parseExigirEscolhaFormaPagamento } from '../../utils/financeDomain';
+import { DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO, MAX_PARCELAS_CARTAO, parseExigirEscolhaFormaPagamento, parseMaxParcelasCartao } from '../../utils/financeDomain';
 import { FORMAS_A_VISTA_PADRAO, FORMAS_CONFIGURAVEIS_A_VISTA, parseFormasAVista } from '../../utils/precoVendaDomain';
 import {
   DEFAULT_PERMITIR_DESCONTO_POR_ITEM,
@@ -232,7 +232,7 @@ const configParaHistorico = (f: Record<string, unknown>): Record<string, unknown
   return {
     ...f,
     ...Object.fromEntries(Object.entries(pv).map(([k, v]) => [`pv_${k}`, v])),
-    ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`credito${i + 1}x`, taxas[String(i + 1)]])),
+    ...Object.fromEntries(Array.from({ length: MAX_PARCELAS_CARTAO }, (_, i) => [`credito${i + 1}x`, taxas[String(i + 1)]])),
     bonificacaoAtiva: bonificacao.ativa === true,
     bonificacaoLimite: bonificacao.limitePercentual,
   };
@@ -343,7 +343,7 @@ const CAMPOS_CONFIG_HISTORICO: CampoComparado[] = [
   { campo: 'diasCrediario', rotulo: 'Prazos padrão do crediário (dias)', formatar: (v) => parseCreditTerms(v).join(', ') },
   { campo: 'maxParcelasCartao', rotulo: 'Máximo de parcelas no crédito', formatar: numeroHistorico },
   { campo: 'taxaCartaoDebitoPercentual', rotulo: 'Taxa do cartão de débito (%)', formatar: numeroHistorico },
-  ...Array.from({ length: 12 }, (_, i): CampoComparado => ({ campo: `credito${i + 1}x`, rotulo: `Taxa do cartão de crédito em ${i + 1}x (%)`, formatar: numeroHistorico })),
+  ...Array.from({ length: MAX_PARCELAS_CARTAO }, (_, i): CampoComparado => ({ campo: `credito${i + 1}x`, rotulo: `Taxa do cartão de crédito em ${i + 1}x (%)`, formatar: numeroHistorico })),
   { campo: 'prazoRecebimentoCartaoCreditoDias', rotulo: 'Prazo de recebimento do crédito (dias)', formatar: numeroHistorico },
   { campo: 'prazoRecebimentoCartaoDebitoDias', rotulo: 'Prazo de recebimento do débito (dias)', formatar: numeroHistorico },
   { campo: 'pagamentoCartaoSimplificadoAtivo', rotulo: 'Pagamento de cartão e cheque simplificado', formatar: simNaoHistorico },
@@ -819,7 +819,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             bairro: data.bairro ?? '',
             cep: data.cep ?? '',
             diasCrediario: data.diasCrediario ?? '30',
-            maxParcelasCartao: String(Math.min(12, Math.max(1, Number(data.maxParcelasCartao ?? 12) || 12))),
+            maxParcelasCartao: String(parseMaxParcelasCartao(data.maxParcelasCartao)),
             pagamentoCartaoSimplificadoAtivo: parsePagamentoCartaoSimplificadoAtivo(data.pagamentoCartaoSimplificadoAtivo),
             exigirEscolhaFormaPagamento: parseExigirEscolhaFormaPagamento(data.exigirEscolhaFormaPagamento),
             formasPrecoAVista: parseFormasAVista(data.formasPrecoAVista),
@@ -1301,14 +1301,14 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     const comissaoPadraoPecasValor = toConfigurationNumber(formData.comissaoPadraoPecas);
     const comissaoPadraoServicosValor = toConfigurationNumber(formData.comissaoPadraoServicos);
     const creditCardFees = Object.fromEntries(
-      Array.from({ length: 12 }, (_, index) => {
+      Array.from({ length: MAX_PARCELAS_CARTAO }, (_, index) => {
         const installments = String(index + 1);
         return [installments, toConfigurationNumber(formData.taxasCartaoCreditoPorParcela[installments])];
       }),
     );
 
-    if (!Number.isInteger(maxCardInstallments) || maxCardInstallments < 1 || maxCardInstallments > 12) {
-      showError('Configuração financeira inválida', 'O máximo de parcelas deve ser um número inteiro entre 1 e 12.');
+    if (!Number.isInteger(maxCardInstallments) || maxCardInstallments < 1 || maxCardInstallments > MAX_PARCELAS_CARTAO) {
+      showError('Configuração financeira inválida', `O máximo de parcelas no crédito deve ser um número inteiro entre 1 e ${MAX_PARCELAS_CARTAO}.`);
       return;
     }
     if (
@@ -4576,13 +4576,13 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                   type="number"
                   name="maxParcelasCartao"
                   min="1"
-                  max="12"
+                  max={MAX_PARCELAS_CARTAO}
                   step="1"
                   value={formData.maxParcelasCartao}
                   onChange={handleChange}
                   disabled={!isEditingMode}
                 />
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define até qual opção, entre 1x e 12x, poderá ser usada na operação.</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Define até qual opção, entre 1x e {MAX_PARCELAS_CARTAO}x, poderá ser usada na venda. Acima de 12x, cadastre a taxa dessas parcelas em cada bandeira (Cadastros Auxiliares › Bandeiras de Cartão): sem ela, a venda nessas parcelas é recusada.</p>
               </div>
 
               <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px', gridColumn: '1 / -1' }}>

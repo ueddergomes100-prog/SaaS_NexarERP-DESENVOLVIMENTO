@@ -5,6 +5,7 @@ import {
   parsePagamentoCartaoSimplificadoAtivo,
   toCents,
   type CreditCardFeeSchedule,
+  parseMaxParcelasCartao,
 } from '../../utils/financeDomain';
 import type { CamposDePrecoDoItem } from '../../utils/precoComPromocaoDomain';
 import {
@@ -46,7 +47,7 @@ export const buildPdvFinanceConfig = (config: Record<string, unknown> | null | u
 
   return {
     defaultTermDays: configuredTerms[0] || 30,
-    maxCreditInstallments: Math.min(12, Math.max(1, Number(config?.maxParcelasCartao ?? 12) || 12)),
+    maxCreditInstallments: parseMaxParcelasCartao(config?.maxParcelasCartao),
     creditFeePercentByInstallment: normalizeCreditCardFeeSchedule(
       config?.taxasCartaoCreditoPorParcela,
       Number(config?.taxaCartaoCreditoPercentual || 0),

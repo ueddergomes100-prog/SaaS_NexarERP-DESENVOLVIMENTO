@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = exports.reopenCommissionSnapshot = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.pedeBancoDeDestino = exports.isSimplifiedChequePayment = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
-exports.idsDosParesDesfeitos = exports.originalDoEstorno = exports.receitaDoConjuntoCentavos = exports.abateReceita = exports.contaComoReceita = exports.lancamentoDesfeito = exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = void 0;
+exports.reopenCommissionSnapshot = exports.cancelCommissionSnapshot = exports.recalculateCommissionAfterReturn = exports.buildServiceOrderCommissionSnapshot = exports.buildCommissionSnapshotFromItems = exports.buildCommissionSnapshot = exports.parseComissaoPercentualInput = exports.resolveComissaoPercentual = exports.reversePartialReceipt = exports.reversePaymentReceipt = exports.legacyPaymentForTransaction = exports.asPaymentMethod = exports.applyPaymentReceipt = exports.pagamentoDoTitulo = exports.tagPaymentAsChequeAwaitingClearance = exports.summarizePayments = exports.explodeInstallmentPaymentRecords = exports.normalizePayments = exports.createEmptyPaymentDraft = exports.buildChequeDetails = exports.formaPagamentoInicial = exports.parseExigirEscolhaFormaPagamento = exports.DEFAULT_EXIGIR_ESCOLHA_FORMA_PAGAMENTO = exports.buildCardDetails = exports.paymentIsImmediatelyConfirmed = exports.settledFinancialNatureForPayment = exports.financialNatureForPayment = exports.computeBankCreditsMap = exports.paymentRequiresBankAccount = exports.isPhysicalCashPayment = exports.resolveBancoPadraoSimplificado = exports.SIMPLIFIED_CARD_BANK_NAME = exports.pedeBancoDeDestino = exports.isSimplifiedChequePayment = exports.parsePagamentoCartaoSimplificadoAtivo = exports.DEFAULT_PAGAMENTO_CARTAO_SIMPLIFICADO_ATIVO = exports.isCardPayment = exports.buildCardFeeSchedulesByBrand = exports.creditCardFeeForInstallments = exports.normalizeCreditCardFeeSchedule = exports.parcelasComTaxaCadastrada = exports.parseMaxParcelasCartao = exports.MAX_PARCELAS_CARTAO = exports.parseCreditTerms = exports.gerarParcelasAPrazo = exports.INTERVALO_PARCELAS_PADRAO = exports.MAX_PARCELAS_A_PRAZO = exports.splitCents = exports.fromCents = exports.toCents = void 0;
+exports.idsDosParesDesfeitos = exports.originalDoEstorno = exports.receitaDoConjuntoCentavos = exports.abateReceita = exports.contaComoReceita = exports.lancamentoDesfeito = exports.isRevenueReversal = exports.REVENUE_REVERSAL_CATEGORIES = exports.transactionNetAmount = exports.transactionFeeAmount = exports.transactionGrossAmount = exports.validateBankTransfer = exports.transactionNetCents = exports.transactionFeeCents = exports.transactionGrossCents = exports.transactionMovesPhysicalCash = exports.transactionDueDateInput = void 0;
 const dateTime_1 = require("./dateTime");
 const toCents = (value) => {
     if (typeof value === 'string') {
@@ -73,6 +73,27 @@ const parseCreditTerms = (value) => {
     return Array.from(new Set(terms)).sort((a, b) => a - b);
 };
 exports.parseCreditTerms = parseCreditTerms;
+/**
+ * Teto de parcelas no cartao de credito (27/11/2026, pedido do dono: "tenho
+ * cliente que passa 21x"). Era 12. A empresa escolhe o dela nas Configuracoes
+ * ("Maximo de parcelas no credito", padrao 12) e a bandeira tem taxa de 1x ate'
+ * este teto.
+ */
+exports.MAX_PARCELAS_CARTAO = 24;
+/** O "Maximo de parcelas no credito" das Configuracoes: de 1 ao teto; vazio/invalido = 12. */
+const parseMaxParcelasCartao = (valor) => (Math.min(exports.MAX_PARCELAS_CARTAO, Math.max(1, Number(valor ?? 12) || 12)));
+exports.parseMaxParcelasCartao = parseMaxParcelasCartao;
+/** Parcelas que a bandeira tem com taxa preenchida (numeros de 1 ao teto). */
+const parcelasComTaxaCadastrada = (value) => {
+    if (!value || typeof value !== 'object')
+        return [];
+    return Object.entries(value)
+        .filter(([, taxa]) => taxa !== null && taxa !== undefined && String(taxa).trim() !== '' && Number.isFinite(Number(String(taxa).replace(',', '.'))))
+        .map(([parcela]) => Number.parseInt(parcela, 10))
+        .filter((n) => Number.isInteger(n) && n >= 1 && n <= exports.MAX_PARCELAS_CARTAO)
+        .sort((a, b) => a - b);
+};
+exports.parcelasComTaxaCadastrada = parcelasComTaxaCadastrada;
 const normalizeCreditCardFeeSchedule = (value, fallbackFeePercent = 0) => {
     const source = value && typeof value === 'object'
         ? value
@@ -80,7 +101,7 @@ const normalizeCreditCardFeeSchedule = (value, fallbackFeePercent = 0) => {
     const fallback = Number.isFinite(Number(fallbackFeePercent))
         ? Math.max(0, Math.min(100, Number(fallbackFeePercent)))
         : 0;
-    return Object.fromEntries(Array.from({ length: 12 }, (_, index) => {
+    return Object.fromEntries(Array.from({ length: exports.MAX_PARCELAS_CARTAO }, (_, index) => {
         const installments = index + 1;
         const rawValue = source[String(installments)] ?? source[`${installments}x`] ?? fallback;
         const parsed = Number(String(rawValue ?? '').replace(',', '.'));
@@ -92,7 +113,7 @@ const normalizeCreditCardFeeSchedule = (value, fallbackFeePercent = 0) => {
 };
 exports.normalizeCreditCardFeeSchedule = normalizeCreditCardFeeSchedule;
 const creditCardFeeForInstallments = (schedule, installments, fallbackFeePercent = 0) => {
-    const normalizedInstallments = Math.max(1, Math.min(12, Number.parseInt(String(installments), 10) || 1));
+    const normalizedInstallments = Math.max(1, Math.min(exports.MAX_PARCELAS_CARTAO, Number.parseInt(String(installments), 10) || 1));
     return (0, exports.normalizeCreditCardFeeSchedule)(schedule, fallbackFeePercent)[String(normalizedInstallments)];
 };
 exports.creditCardFeeForInstallments = creditCardFeeForInstallments;
@@ -111,6 +132,7 @@ const buildCardFeeSchedulesByBrand = (bandeiras) => (Object.fromEntries(bandeira
     const schedule = {};
     if (bandeira?.taxasCreditoPorParcela !== undefined) {
         schedule.creditFeePercentByInstallment = (0, exports.normalizeCreditCardFeeSchedule)(bandeira.taxasCreditoPorParcela);
+        schedule.creditInstallmentsWithFee = (0, exports.parcelasComTaxaCadastrada)(bandeira.taxasCreditoPorParcela);
     }
     if (bandeira?.taxaDebitoPercentual !== undefined) {
         const parsed = Number(bandeira.taxaDebitoPercentual);
@@ -478,6 +500,14 @@ const normalizePayments = (totalCents, drafts, options = {}) => {
             }
             const brandKey = draft.bandeira?.trim();
             const brandSchedule = brandKey ? options.cardFeeSchedulesByBrand?.[brandKey] : undefined;
+            // Acima de 12x (27/11/2026): a bandeira com taxas cadastradas precisa ter a taxa desta
+            // parcela -- senao a venda sairia com taxa zero sem ninguem ver.
+            if (draft.forma === 'Cartão de Crédito' && installments > 12
+                && brandSchedule?.creditInstallmentsWithFee && brandSchedule.creditInstallmentsWithFee.length > 0
+                && !brandSchedule.creditInstallmentsWithFee.includes(installments)) {
+                throw new Error(`A bandeira ${brandKey} não tem a taxa do crédito em ${installments}x cadastrada.`
+                    + ' Cadastre em Cadastros Auxiliares › Bandeiras de Cartão (botão de taxas da bandeira) e finalize de novo.');
+            }
             const effectiveCreditFeePercentByInstallment = brandSchedule?.creditFeePercentByInstallment
                 ?? options.creditFeePercentByInstallment;
             const effectiveCreditFeePercent = brandSchedule?.creditFeePercent ?? options.creditFeePercent;

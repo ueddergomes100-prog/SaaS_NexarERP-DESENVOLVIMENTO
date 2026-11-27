@@ -69,6 +69,7 @@ exports.ROTULO_MOVIMENTO_GAVETA = {
     dinheiro_entrada: 'Dinheiro recebido',
     dinheiro_saida: 'Dinheiro pago',
     sangria_pdv: 'Sangria do PDV',
+    suprimento_pdv: 'Suprimento do PDV',
     diferenca_fechamento: 'Diferença no fechamento',
     diferenca_abertura: 'Diferença na abertura',
 };
@@ -149,6 +150,24 @@ const movimentosDaSessao = (id, s) => {
             criadoEmIso: registradoEm.toISOString(),
         });
     });
+    // Suprimento (27/11/2026): o contrario da sangria -- entra na gaveta.
+    (Array.isArray(s.suprimentos) ? s.suprimentos : []).forEach((bruto, indice) => {
+        const g = (bruto && typeof bruto === 'object' ? bruto : {});
+        const valorCentavos = inteiro(g.valorCentavos);
+        const registradoEm = typeof g.registradoEm === 'string' ? new Date(g.registradoEm) : null;
+        if (valorCentavos <= 0 || !registradoEm || Number.isNaN(registradoEm.getTime()))
+            return;
+        const motivo = String(g.motivo || '').trim();
+        movimentos.push({
+            id: `suprimento:${id}:${String(g.id || indice)}`,
+            tipo: 'suprimento_pdv',
+            direcao: 'credito',
+            valorCentavos,
+            descricao: `Suprimento do PDV${motivo ? `: ${motivo}` : ''}${sufixo}`,
+            data: (0, dateTime_1.getDateInputInTimeZone)(registradoEm),
+            criadoEmIso: registradoEm.toISOString(),
+        });
+    });
     const diferenca = inteiro(s.diferencaCentavos);
     if (s.status === 'fechado' && s.fechamentoPelaGaveta === true && diferenca !== 0 && s.fechadoEm instanceof Date && !Number.isNaN(s.fechadoEm.getTime())) {
         movimentos.push({
@@ -178,7 +197,9 @@ exports.saldoDosMovimentos = saldoDosMovimentos;
  *    desta sessao - sangrias).
  */
 const esperadoNoFechamento = (args) => {
-    const porSessao = inteiro(args.saldoInicialCentavos) + inteiro(args.dinheiroDaSessaoCentavos) - inteiro(args.totalSangriasCentavos);
+    const suprimentos = inteiro(args.totalSuprimentosCentavos || 0);
+    const porSessao = inteiro(args.saldoInicialCentavos) + inteiro(args.dinheiroDaSessaoCentavos) + suprimentos - inteiro(args.totalSangriasCentavos);
+    const textoSuprimento = suprimentos > 0 ? ' + suprimentos' : '';
     if (args.gavetaAtiva && args.saldoDaGavetaCentavos !== null && args.caixasAbertos <= 1) {
         return {
             modo: 'gaveta',
@@ -190,8 +211,8 @@ const esperadoNoFechamento = (args) => {
         modo: 'sessao',
         saldoEsperadoCentavos: porSessao,
         explicacao: args.gavetaAtiva && args.caixasAbertos > 1
-            ? 'Há mais de um caixa aberto: a conta é só deste caixa (saldo inicial + vendas em dinheiro deste caixa − sangrias).'
-            : 'Saldo inicial + vendas em dinheiro deste caixa − sangrias.',
+            ? `Há mais de um caixa aberto: a conta é só deste caixa (saldo inicial + vendas em dinheiro deste caixa${textoSuprimento} − sangrias).`
+            : `Saldo inicial + vendas em dinheiro deste caixa${textoSuprimento} − sangrias.`,
     };
 };
 exports.esperadoNoFechamento = esperadoNoFechamento;
@@ -272,6 +293,15 @@ const composicaoDaSessao = (args) => {
         movimentos.push({
             id: `sangria:${g.id || i}`, tipo: 'sangria_pdv', direcao: 'debito', valorCentavos: inteiro(g.valorCentavos),
             descricao: `Sangria${motivo ? `: ${motivo}` : ''}`, data: (0, dateTime_1.getDateInputInTimeZone)(certo), criadoEmIso: certo.toISOString(),
+        });
+    });
+    (args.suprimentos || []).forEach((g, i) => {
+        const quando = g.registradoEm ? new Date(g.registradoEm) : null;
+        const certo = valida(quando) ? quando : abertura;
+        const motivo = String(g.motivo || '').trim();
+        movimentos.push({
+            id: `suprimento:${g.id || i}`, tipo: 'suprimento_pdv', direcao: 'credito', valorCentavos: inteiro(g.valorCentavos),
+            descricao: `Suprimento${motivo ? `: ${motivo}` : ''}`, data: (0, dateTime_1.getDateInputInTimeZone)(certo), criadoEmIso: certo.toISOString(),
         });
     });
     return (0, exports.comporPorDia)((0, exports.saldoDosMovimentos)(movimentos), movimentos, (0, dateTime_1.getDateInputInTimeZone)(abertura));

@@ -66,7 +66,7 @@ test('parcial: vendas, formas, dinheiro e sangrias; cancelada fora dos totais', 
     { forma: 'Dinheiro', pagamentos: 2, valorCentavos: 6000 },
     { forma: 'Pix', pagamentos: 2, valorCentavos: 3500 },
   ]);
-  assert.deepEqual(r.dinheiro, { saldoInicialCentavos: 10000, vendasCentavos: 6000, recebimentosCentavos: 0, sangriasCentavos: 2500, contaDoCaixaCentavos: 13500 });
+  assert.deepEqual(r.dinheiro, { saldoInicialCentavos: 10000, vendasCentavos: 6000, recebimentosCentavos: 0, suprimentosCentavos: 0, sangriasCentavos: 2500, contaDoCaixaCentavos: 13500 });
   // Sangrias na ordem do horario.
   assert.deepEqual(r.sangrias.map((s) => s.valorCentavos), [500, 2000]);
   // Parcial sem pedir a lista: nao lista cada venda.
@@ -178,4 +178,17 @@ test('comprovante de recebimento: total com juros, troco no dinheiro e texto esc
   assert.match(html, /DOCUMENTO SEM VALOR FISCAL/);
   const semTroco = htmlDoComprovanteDeRecebimento({ ...c, forma: 'Pix' });
   assert.doesNotMatch(semTroco, /Troco/i);
+});
+
+test('suprimentos no papel do caixa: somam no dinheiro deste caixa e saem listados', () => {
+  const dados = base({ suprimentos: [{ valorCentavos: 3000, motivo: 'Reforço de troco', registradoEm: h(9, 15), registradoPorNome: 'MARIA', bancoNome: '' }] });
+  const r = montarRelatorioDoCaixa(dados);
+  assert.equal(r.dinheiro.suprimentosCentavos, 3000);
+  assert.equal(r.dinheiro.contaDoCaixaCentavos, 10000 + 6000 + 3000 - 2500);
+  const html = htmlDoRelatorioDoCaixa(r);
+  assert.match(html, /\+ Suprimentos/);
+  assert.match(html, /SUPRIMENTOS \(1\)/);
+  const sem = montarRelatorioDoCaixa(base());
+  assert.equal(sem.dinheiro.suprimentosCentavos, 0);
+  assert.doesNotMatch(htmlDoRelatorioDoCaixa(sem), /SUPRIMENTOS/);
 });

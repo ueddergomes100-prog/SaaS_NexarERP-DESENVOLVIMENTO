@@ -38,6 +38,9 @@ export interface SessaoParaFechar {
   totalSangriasCentavos: number;
   /** Para fechar com a data de um dia anterior: so' as sangrias ate' aquele dia. */
   sangrias?: ReadonlyArray<{ valorCentavos?: number; registradoEm?: string }>;
+  /** Suprimentos (27/11/2026): somam no esperado. */
+  totalSuprimentosCentavos?: number;
+  suprimentos?: ReadonlyArray<{ valorCentavos?: number; registradoEm?: string }>;
 }
 
 /** Esperado + o que o fechamento precisa saber para perguntar o troco e gravar a data. */
@@ -90,6 +93,14 @@ const sangriasAteODia = (sessao: SessaoParaFechar, ate: string): number => {
     .reduce((soma, g) => soma + Number(g.valorCentavos || 0), 0);
 };
 
+const suprimentosAteODia = (sessao: SessaoParaFechar, ate: string): number => {
+  const lista = Array.isArray(sessao.suprimentos) ? sessao.suprimentos : [];
+  if (!ate) return lista.length > 0 ? lista.reduce((soma, g) => soma + Number(g.valorCentavos || 0), 0) : Number(sessao.totalSuprimentosCentavos || 0);
+  return lista
+    .filter((g) => !g.registradoEm || getDateInputInTimeZone(new Date(g.registradoEm)) <= ate)
+    .reduce((soma, g) => soma + Number(g.valorCentavos || 0), 0);
+};
+
 /**
  * Saldo esperado em dinheiro. Com a chave da gaveta ligada e um caixa so'
  * aberto, e' o saldo da gaveta (servidor); senao, a conta por sessao.
@@ -114,6 +125,7 @@ export const calcularEsperadoDoFechamento = async (tenantId: string, sessao: Ses
     saldoInicialCentavos: sessao.saldoInicialCentavos,
     dinheiroDaSessaoCentavos,
     totalSangriasCentavos: sangriasAteODia(sessao, dia),
+    totalSuprimentosCentavos: suprimentosAteODia(sessao, dia),
   });
   return {
     ...esperado,

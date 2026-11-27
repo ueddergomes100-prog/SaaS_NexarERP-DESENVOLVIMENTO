@@ -72,6 +72,8 @@ export interface SessaoCaixaDoRelatorio {
   fechadoEm: Date | null;
   saldoInicialCentavos: number;
   totalSangriasCentavos: number;
+  /** Suprimentos (27/11/2026); ausente = 0. */
+  totalSuprimentosCentavos?: number;
   saldoEsperadoCentavos: number | null;
   saldoFinalInformadoCentavos: number | null;
   diferencaCentavos: number | null;
@@ -160,6 +162,7 @@ export const montarDocumentoCaixaPdv = (
   const lista = [...sessoes].sort((a, b) => (a.abertoEm?.getTime() || 0) - (b.abertoEm?.getTime() || 0));
   const fechadas = lista.filter(fechada);
   const sangrias = lista.reduce((soma, s) => soma + Number(s.totalSangriasCentavos || 0), 0);
+  const suprimentos = lista.reduce((soma, s) => soma + Number(s.totalSuprimentosCentavos || 0), 0);
   const diferenca = fechadas.reduce((soma, s) => soma + Number(s.diferencaCentavos || 0), 0);
   const comDiferenca = fechadas.filter((s) => Number(s.diferencaCentavos || 0) !== 0).length;
 
@@ -171,6 +174,7 @@ export const montarDocumentoCaixaPdv = (
     { id: 'inicial', titulo: 'Saldo inicial', tipo: 'moeda', total: 'nenhum', valor: (s) => s.saldoInicialCentavos },
     { id: 'qtdSangrias', titulo: 'Nº sangrias', tipo: 'inteiro', padrao: false, valor: (s) => s.sangrias.length },
     { id: 'sangrias', titulo: 'Sangrias', tipo: 'moeda', valor: (s) => s.totalSangriasCentavos },
+    { id: 'suprimentos', titulo: 'Suprimentos', tipo: 'moeda', padrao: suprimentos > 0, valor: (s) => Number(s.totalSuprimentosCentavos || 0) },
     // Caixa aberto: o esperado de agora (23/11/2026); informado e diferenca so' existem depois de fechar.
     { id: 'vendido', titulo: 'Vendido (aberto)', tipo: 'moeda', padrao: false, valor: (s) => (!fechada(s) && s.lancamentos ? totalDoCaixaAberto(s.lancamentos) : null) },
     { id: 'esperado', titulo: 'Esperado', tipo: 'moeda', total: 'nenhum', valor: (s) => (fechada(s) ? s.saldoEsperadoCentavos : s.esperadoAoVivoCentavos ?? null) },

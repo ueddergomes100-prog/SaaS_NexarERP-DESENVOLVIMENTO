@@ -93,6 +93,8 @@ export interface DadosDoRelatorioDoCaixa {
   saldoInicialCentavos: number;
   lancamentos: ReadonlyArray<LancamentoDoCaixa>;
   sangrias: ReadonlyArray<SangriaDoCaixa>;
+  /** Suprimentos (27/11/2026): dinheiro colocado na gaveta sem ser venda. Ausente = nenhum. */
+  suprimentos?: ReadonlyArray<SangriaDoCaixa>;
   /** O esperado do fechamento; null quando nao deu para calcular (o papel sai com a conta do caixa). */
   esperado: EsperadoDoCaixa | null;
   /** So' no papel do fechamento. */
@@ -139,12 +141,14 @@ export interface RelatorioDoCaixa {
     vendasCentavos: number;
     /** Notinhas recebidas em dinheiro. */
     recebimentosCentavos: number;
+    suprimentosCentavos: number;
     sangriasCentavos: number;
-    /** Saldo inicial + vendas em dinheiro + notinhas em dinheiro - sangrias. */
+    /** Saldo inicial + vendas em dinheiro + notinhas em dinheiro + suprimentos - sangrias. */
     contaDoCaixaCentavos: number;
   };
   esperado: EsperadoDoCaixa | null;
   sangrias: SangriaDoCaixa[];
+  suprimentos: SangriaDoCaixa[];
   fechamento: FechamentoDoCaixa | null;
   /** Vazia quando a pessoa nao pediu a lista. */
   listaDeVendas: VendaNoRelatorio[];
@@ -221,6 +225,8 @@ export const montarRelatorioDoCaixa = (dados: DadosDoRelatorioDoCaixa): Relatori
 
   const sangrias = [...dados.sangrias].sort((a, b) => (a.registradoEm?.getTime() || 0) - (b.registradoEm?.getTime() || 0));
   const sangriasCentavos = sangrias.reduce((soma, s) => soma + inteiro(s.valorCentavos), 0);
+  const suprimentos = [...(dados.suprimentos || [])].sort((a, b) => (a.registradoEm?.getTime() || 0) - (b.registradoEm?.getTime() || 0));
+  const suprimentosCentavos = suprimentos.reduce((soma, s) => soma + inteiro(s.valorCentavos), 0);
   const vendasEmDinheiro = validos.filter((l) => l.dinheiro).reduce((soma, l) => soma + inteiro(l.valorCentavos), 0);
   const recebidoEmDinheiro = recebidas.filter((l) => l.dinheiro).reduce((soma, l) => soma + inteiro(l.valorCentavos), 0);
   const saldoInicial = inteiro(dados.saldoInicialCentavos);
@@ -253,11 +259,13 @@ export const montarRelatorioDoCaixa = (dados: DadosDoRelatorioDoCaixa): Relatori
       saldoInicialCentavos: saldoInicial,
       vendasCentavos: vendasEmDinheiro,
       recebimentosCentavos: recebidoEmDinheiro,
+      suprimentosCentavos,
       sangriasCentavos,
-      contaDoCaixaCentavos: saldoInicial + vendasEmDinheiro + recebidoEmDinheiro - sangriasCentavos,
+      contaDoCaixaCentavos: saldoInicial + vendasEmDinheiro + recebidoEmDinheiro + suprimentosCentavos - sangriasCentavos,
     },
     esperado: dados.esperado,
     sangrias,
+    suprimentos,
     fechamento: dados.tipo === 'fechamento' ? dados.fechamento : null,
     listaDeVendas: dados.listarVendas || dados.tipo === 'fechamento' ? listaCompleta : [],
   };
@@ -402,6 +410,7 @@ export const htmlDoRelatorioDoCaixa = (relatorio: RelatorioDoCaixa, largura: Lar
   ${linha('Saldo inicial (troco)', reais(r.dinheiro.saldoInicialCentavos))}
   ${linha('+ Vendas em dinheiro', reais(r.dinheiro.vendasCentavos))}
   ${r.dinheiro.recebimentosCentavos > 0 ? linha('+ Notinhas recebidas em dinheiro', reais(r.dinheiro.recebimentosCentavos)) : ''}
+  ${r.dinheiro.suprimentosCentavos > 0 ? linha('+ Suprimentos', reais(r.dinheiro.suprimentosCentavos)) : ''}
   ${linha('- Sangrias', reais(r.dinheiro.sangriasCentavos))}
   ${linha('= Dinheiro deste caixa', reais(r.dinheiro.contaDoCaixaCentavos), 'soma')}
   ${gaveta && r.esperado ? `${linha('Esperado na gaveta', reais(r.esperado.saldoEsperadoCentavos), 'forte')}<p class="peq">${e(r.esperado.explicacao)}</p>` : ''}
@@ -410,6 +419,15 @@ export const htmlDoRelatorioDoCaixa = (relatorio: RelatorioDoCaixa, largura: Lar
   <div class="centro forte">SANGRIAS (${r.sangrias.length})</div>
   ${sangrias}
   ${r.sangrias.length > 0 ? linha('Total das sangrias', reais(r.dinheiro.sangriasCentavos), 'soma') : ''}
+  ${r.suprimentos.length > 0 ? `
+  <div class="sep"></div>
+  <div class="centro forte">SUPRIMENTOS (${r.suprimentos.length})</div>
+  ${r.suprimentos.map((x) => `
+      <div class="item">
+        ${linha(`${horarioNaLinha(x.registradoEm, variosDias)} ${e(x.motivo || 'Suprimento')}`, reais(x.valorCentavos))}
+        ${x.registradoPorNome ? `<div class="peq">por ${e(x.registradoPorNome)}</div>` : ''}
+      </div>`).join('')}
+  ${linha('Total dos suprimentos', reais(r.dinheiro.suprimentosCentavos), 'soma')}` : ''}
   ${r.listaDeVendas.length > 0 ? `
   <div class="sep"></div>
   <div class="centro forte">CADA VENDA (${r.listaDeVendas.length})</div>

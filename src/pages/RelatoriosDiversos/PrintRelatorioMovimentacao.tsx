@@ -64,6 +64,7 @@ const turnosDosCaixas = (docs: QueryDocumentSnapshot<DocumentData>[]): TurnoDoCa
     aberto,
     saldoInicialCentavos: centavosOuNulo(c.saldoInicialCentavos) ?? 0,
     sangriasCentavos: centavosOuNulo(c.totalSangriasCentavos) ?? 0,
+    suprimentosCentavos: centavosOuNulo(c.totalSuprimentosCentavos) ?? 0,
     esperadoCentavos: aberto ? null : centavosOuNulo(c.saldoEsperadoCentavos),
     contadoCentavos: aberto ? null : centavosOuNulo(c.saldoFinalInformadoCentavos),
     diferencaCentavos: aberto ? null : centavosOuNulo(c.diferencaCentavos),

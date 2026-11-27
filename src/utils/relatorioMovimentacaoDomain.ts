@@ -49,6 +49,8 @@ export interface TurnoDoCaixa {
   aberto: boolean;
   saldoInicialCentavos: number;
   sangriasCentavos: number;
+  /** Suprimentos (27/11/2026); ausente = 0. */
+  suprimentosCentavos?: number;
   esperadoCentavos: number | null;
   contadoCentavos: number | null;
   diferencaCentavos: number | null;
@@ -308,6 +310,7 @@ export const montarDocumentoDaMovimentacao = (fontes: FontesDaMovimentacao, filt
     { id: 'fechamento', titulo: 'Fechou', tipo: 'texto', largura: 16, valor: (t) => (t.aberto ? 'ABERTO' : t.fechamento) },
     { id: 'inicial', titulo: 'Troco inicial', tipo: 'moeda', valor: (t) => t.saldoInicialCentavos },
     { id: 'sangrias', titulo: 'Sangrias', tipo: 'moeda', valor: (t) => t.sangriasCentavos },
+    { id: 'suprimentos', titulo: 'Suprimentos', tipo: 'moeda', padrao: r.turnos.some((t) => (t.suprimentosCentavos || 0) > 0), valor: (t) => t.suprimentosCentavos || 0 },
     { id: 'esperado', titulo: 'Esperado', tipo: 'moeda', valor: (t) => t.esperadoCentavos ?? 0, total: 'nenhum' },
     { id: 'contado', titulo: 'Contado', tipo: 'moeda', valor: (t) => t.contadoCentavos ?? 0, total: 'nenhum' },
     { id: 'diferenca', titulo: 'Diferença', tipo: 'moeda', valor: (t) => t.diferencaCentavos ?? 0 },

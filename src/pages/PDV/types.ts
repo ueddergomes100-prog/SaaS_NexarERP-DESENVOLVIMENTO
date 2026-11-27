@@ -139,6 +139,19 @@ export interface PdvSession {
   diferencaCentavos: number | null;
   sangrias: CaixaSangria[];
   totalSangriasCentavos: number;
+  /** Suprimentos (27/11/2026): dinheiro colocado na gaveta sem ser venda. */
+  suprimentos?: CaixaSuprimento[];
+  totalSuprimentosCentavos?: number;
+}
+
+/** Suprimento do caixa (27/11/2026): o contrario da sangria. */
+export interface CaixaSuprimento {
+  id: string;
+  valorCentavos: number;
+  motivo: string;
+  registradoEm: string;
+  registradoPor: string;
+  registradoPorNome: string;
 }
 
 export type PdvPaymentDraft = PaymentDraft;

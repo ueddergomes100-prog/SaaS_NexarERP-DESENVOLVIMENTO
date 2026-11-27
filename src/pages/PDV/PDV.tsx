@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Banknote, ClipboardList, FileText, HandCoins, History, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
+import { Banknote, ClipboardList, FileText, HandCoins, History, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X, PlusCircle } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -89,6 +89,7 @@ import PaymentModal from './components/PaymentModal';
 import PdvSummary from './components/PdvSummary';
 import ProductSearch from './components/ProductSearch';
 import SangriaModal from './components/SangriaModal';
+import SuprimentoModal from './components/SuprimentoModal';
 import PreVendasModal from './components/PreVendasModal';
 import VersaoDoSistema from '../../components/common/VersaoDoSistema';
 import { mostrarAlertaDoCliente } from '../../components/common/AlertaDoCliente';
@@ -157,7 +158,7 @@ import {
   type ModoLimiteDesconto,
 } from '../../utils/descontoDomain';
 import SolicitarAprovacaoDescontoModal, { type AprovacaoDesconto } from '../../components/common/SolicitarAprovacaoDescontoModal';
-import type { CaixaSangria, PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
+import type { CaixaSangria, CaixaSuprimento, PdvCartItem, PdvClient, PdvProduct, PdvSession } from './types';
 import hennderIcon from '../../assets/hennder-icon.webp';
 import './PDV.css';
 import { obterCatalogo, obterCatalogoEstoque } from '../../services/catalogoEstoqueService';
@@ -766,6 +767,8 @@ const PDV: React.FC = () => {
   const [relatorioModalOpen, setRelatorioModalOpen] = useState(false);
   // Receber notinha do cliente no caixa (28/11/2026): permissao propria, nasce desmarcada.
   const podeReceberConta = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_VENDAS.pdvReceberContas);
+  // Suprimento (27/11/2026): permissao propria, ja' marcada para quem opera o caixa (pacote 'pdv-2').
+  const podeSuprimento = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_VENDAS.pdvSuprimento);
   const [receberContaOpen, setReceberContaOpen] = useState(false);
 
   /** O que passou pelo caixa agora: vendas e sangrias lidas do banco e, se pedido, o esperado do fechamento. */
@@ -782,6 +785,8 @@ const PDV: React.FC = () => {
     const sangriasBrutas: CaixaSangria[] = Array.isArray(gravado?.sangrias) ? gravado.sangrias : sessao.sangrias;
     const saldoInicialCentavos = Number(gravado?.saldoInicialCentavos ?? sessao.saldoInicialCentavos) || 0;
     const sangrias = sangriasDoCaixa(sangriasBrutas);
+    const suprimentosBrutos: CaixaSuprimento[] = Array.isArray(gravado?.suprimentos) ? gravado.suprimentos : (sessao.suprimentos || []);
+    const suprimentos = sangriasDoCaixa(suprimentosBrutos);
     let esperado: DadosDoRelatorioDoCaixa['esperado'] = null;
     if (calcularEsperado) {
       try {
@@ -790,6 +795,8 @@ const PDV: React.FC = () => {
           saldoInicialCentavos,
           totalSangriasCentavos: sangrias.reduce((soma, g) => soma + g.valorCentavos, 0),
           sangrias: sangriasBrutas,
+          totalSuprimentosCentavos: suprimentos.reduce((soma, g) => soma + g.valorCentavos, 0),
+          suprimentos: suprimentosBrutos,
         });
         esperado = { saldoEsperadoCentavos: conta.saldoEsperadoCentavos, modo: conta.modo, explicacao: conta.explicacao };
       } catch (erro) {
@@ -808,6 +815,7 @@ const PDV: React.FC = () => {
       saldoInicialCentavos,
       lancamentos,
       sangrias,
+      suprimentos,
       esperado,
       fechamento: null,
       listarVendas: false,
@@ -1025,6 +1033,50 @@ const PDV: React.FC = () => {
     } catch (error) {
       console.error('Erro ao registrar sangria:', error);
       showError('Erro ao registrar sangria', 'Não foi possível registrar a sangria. Tente novamente.');
+    }
+  }, [currentUser, operatorName, session, sessionStorageKey, tenantId]);
+
+  // Suprimento (27/11/2026, pedido do dono): dinheiro que entra na gaveta sem ser venda.
+  const [suprimentoModalOpen, setSuprimentoModalOpen] = useState(false);
+  const registrarSuprimento = useCallback(async (valorCentavos: number, motivo: string) => {
+    if (!session || !currentUser || !tenantId) return;
+    const novo: CaixaSuprimento = {
+      id: crypto.randomUUID(),
+      valorCentavos,
+      motivo,
+      registradoEm: new Date().toISOString(),
+      registradoPor: currentUser.uid,
+      registradoPorNome: operatorName,
+    };
+    try {
+      await updateDoc(doc(db, 'caixas_pdv', session.id), {
+        suprimentos: arrayUnion(novo),
+        totalSuprimentosCentavos: increment(valorCentavos),
+        updatedAt: serverTimestamp(),
+        ...buildDocumentUpdateMetadata(currentUser.uid, serverTimestamp(), `Suprimento de ${currency.format(fromCents(valorCentavos))}`),
+      });
+      const nextSession: PdvSession = {
+        ...session,
+        suprimentos: [...(session.suprimentos || []), novo],
+        totalSuprimentosCentavos: (session.totalSuprimentosCentavos || 0) + valorCentavos,
+      };
+      setSession(nextSession);
+      localStorage.setItem(sessionStorageKey, JSON.stringify(nextSession));
+      showSuccess(`Suprimento de ${currency.format(fromCents(valorCentavos))} registrado.`);
+      const { createAuditLog } = await import('../../services/logService');
+      createAuditLog({
+        tenantId,
+        usuarioId: currentUser.uid,
+        usuarioEmail: currentUser.email || '',
+        modulo: 'financeiro',
+        acao: 'suprimento_caixa',
+        descricao: `Suprimento de ${currency.format(fromCents(valorCentavos))} (${motivo}) registrado por ${operatorName}.`,
+        registroRelacionadoId: session.id,
+        status: 'sucesso',
+      });
+    } catch (error) {
+      console.error('Erro ao registrar suprimento:', error);
+      showError('Erro ao registrar suprimento', 'Não foi possível registrar o suprimento. Confira a internet e tente de novo.');
     }
   }, [currentUser, operatorName, session, sessionStorageKey, tenantId]);
 
@@ -2348,6 +2400,11 @@ const PDV: React.FC = () => {
               <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
                 <Banknote size={16} aria-hidden="true" /> Sangria
               </button>
+              {podeSuprimento && (
+                <button type="button" className="pdv-topbar-button" onClick={() => setSuprimentoModalOpen(true)} title="Registrar suprimento (dinheiro colocado na gaveta: reforço de troco, dinheiro do cofre)">
+                  <PlusCircle size={16} aria-hidden="true" /> Suprimento
+                </button>
+              )}
               {podeReceberConta && (
                 <button type="button" className="pdv-topbar-button" onClick={() => setReceberContaOpen(true)} title="Receber notinha do cliente (Contas a Receber) neste caixa">
                   <HandCoins size={16} aria-hidden="true" /> Receber conta
@@ -2496,6 +2553,12 @@ const PDV: React.FC = () => {
         carregar={carregarRelatorioParcial}
         onClose={() => setRelatorioModalOpen(false)}
         onImprimir={imprimirRelatorioParcial}
+      />
+
+      <SuprimentoModal
+        open={suprimentoModalOpen}
+        onClose={() => setSuprimentoModalOpen(false)}
+        onConfirm={registrarSuprimento}
       />
 
       <SangriaModal

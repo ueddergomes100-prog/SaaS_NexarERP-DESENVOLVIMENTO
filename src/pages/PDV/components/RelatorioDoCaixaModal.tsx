@@ -125,6 +125,9 @@ const RelatorioDoCaixaModal: React.FC<RelatorioDoCaixaModalProps> = ({ open, car
               {relatorio.dinheiro.recebimentosCentavos > 0 && (
                 <div className="pdv-relatorio-caixa-linha"><span>+ Notinhas recebidas em dinheiro</span><span>{reais(relatorio.dinheiro.recebimentosCentavos)}</span></div>
               )}
+              {relatorio.dinheiro.suprimentosCentavos > 0 && (
+                <div className="pdv-relatorio-caixa-linha"><span>+ Suprimentos ({relatorio.suprimentos.length})</span><span>{reais(relatorio.dinheiro.suprimentosCentavos)}</span></div>
+              )}
               <div className="pdv-relatorio-caixa-linha"><span>− Sangrias</span><span>{reais(relatorio.dinheiro.sangriasCentavos)}</span></div>
               <div className="pdv-relatorio-caixa-linha pdv-relatorio-caixa-soma"><span>= Dinheiro deste caixa</span><span>{reais(relatorio.dinheiro.contaDoCaixaCentavos)}</span></div>
               {relatorio.esperado?.modo === 'gaveta' && (

@@ -62,6 +62,9 @@ interface CaixaSessaoData {
   diferencaCentavos: number | null;
   sangrias: SangriaData[];
   totalSangriasCentavos: number;
+  /** Suprimentos (27/11/2026): dinheiro colocado na gaveta sem ser venda. */
+  suprimentos?: SangriaData[];
+  totalSuprimentosCentavos?: number;
   createdAt?: any;
   fechadoEm?: any;
   /** Fechado conferindo contra o saldo da gaveta (fechamentoCaixaPdvService). */
@@ -265,6 +268,7 @@ const CaixaRegistros: React.FC = () => {
       saldoInicialCentavos: Number(s.saldoInicialCentavos || 0),
       dinheiroDaSessaoCentavos: dinheiroCentavos,
       totalSangriasCentavos: Number(s.totalSangriasCentavos || 0),
+      totalSuprimentosCentavos: Number(s.totalSuprimentosCentavos || 0),
     });
     return { vendidoCentavos: totalDoCaixaAberto(lancamentos), dinheiroCentavos, esperadoCentavos: esperado.saldoEsperadoCentavos, modo: esperado.modo };
   };
@@ -293,8 +297,11 @@ const CaixaRegistros: React.FC = () => {
         saldoInicialCentavos: Number(s.saldoInicialCentavos || 0),
         lancamentosEmDinheiro: lancamentos.filter((l) => l.dinheiro && !l.cancelado),
         sangrias: Array.isArray(s.sangrias) ? s.sangrias : [],
+        suprimentos: Array.isArray(s.suprimentos) ? s.suprimentos : [],
       }),
-      explicacao: 'Saldo inicial + vendas em dinheiro deste caixa − sangrias.',
+      explicacao: Number(s.totalSuprimentosCentavos || 0) > 0
+        ? 'Saldo inicial + vendas em dinheiro deste caixa + suprimentos − sangrias.'
+        : 'Saldo inicial + vendas em dinheiro deste caixa − sangrias.',
     };
   };
 
@@ -312,6 +319,8 @@ const CaixaRegistros: React.FC = () => {
         saldoInicialCentavos: Number(sessao.saldoInicialCentavos || 0),
         totalSangriasCentavos: Number(sessao.totalSangriasCentavos || 0),
         sangrias: Array.isArray(sessao.sangrias) ? sessao.sangrias : [],
+        totalSuprimentosCentavos: Number(sessao.totalSuprimentosCentavos || 0),
+        suprimentos: Array.isArray(sessao.suprimentos) ? sessao.suprimentos : [],
       }, dataDoFechamento);
       const contagem = await pedirValorContado(
         esperado,
@@ -517,6 +526,7 @@ const CaixaRegistros: React.FC = () => {
             fechadoEm: toDate(s.fechadoEm),
             saldoInicialCentavos: Number(s.saldoInicialCentavos || 0),
             totalSangriasCentavos: Number(s.totalSangriasCentavos || 0),
+            totalSuprimentosCentavos: Number(s.totalSuprimentosCentavos || 0),
             saldoEsperadoCentavos: s.saldoEsperadoCentavos ?? null,
             saldoFinalInformadoCentavos: s.saldoFinalInformadoCentavos ?? null,
             diferencaCentavos: s.diferencaCentavos ?? null,
@@ -579,6 +589,7 @@ const CaixaRegistros: React.FC = () => {
         emitidoEm: new Date(),
         saldoInicialCentavos: Number(sessao.saldoInicialCentavos || 0),
         sangrias,
+        suprimentos: sangriasDoCaixa(sessao.suprimentos),
         esperado,
         fechamento: fechada ? {
           fechadoEm: toDate(sessao.fechadoEm) || new Date(),
@@ -681,6 +692,34 @@ const CaixaRegistros: React.FC = () => {
                       <td style={{ padding: '6px 8px' }}>{sangria.motivo}</td>
                       <td style={{ padding: '6px 8px' }}>{sangria.registradoPorNome}</td>
                       <td style={{ padding: '6px 8px', textAlign: 'right', color: '#f59e0b', fontWeight: 600 }}>{currencyFormat(fromCents(sangria.valorCentavos))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {(sessao.suprimentos || []).length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '13px', fontWeight: 700 }}>
+                <Banknote size={16} color="#10b981" /> Suprimentos
+              </div>
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '6px 8px' }}>Horário</th>
+                    <th style={{ padding: '6px 8px' }}>Motivo</th>
+                    <th style={{ padding: '6px 8px' }}>Responsável</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(sessao.suprimentos || []).map((suprimento) => (
+                    <tr key={suprimento.id}>
+                      <td style={{ padding: '6px 8px', color: 'var(--text-muted)' }}>{new Date(suprimento.registradoEm).toLocaleString('pt-BR')}</td>
+                      <td style={{ padding: '6px 8px' }}>{suprimento.motivo}</td>
+                      <td style={{ padding: '6px 8px' }}>{suprimento.registradoPorNome}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{currencyFormat(fromCents(suprimento.valorCentavos))}</td>
                     </tr>
                   ))}
                 </tbody>

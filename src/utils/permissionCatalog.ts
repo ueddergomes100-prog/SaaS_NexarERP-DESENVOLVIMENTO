@@ -171,6 +171,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.pre_venda_relatorio_valores', label: 'Vendas: Pré-vendas em aberto — ver totais em valor', color: '#f59e0b' },
       // 26/11/2026 (pedido do dono): relatorio do caixa aberto, sem fechar. Vem marcada para quem usa o PDV (pacote 'pdv-1').
       { id: 'vendas.pdv_relatorio_caixa', label: 'Vendas: Frente de Caixa — relatório parcial do caixa (vendas, dinheiro e sangrias)', color: '#f59e0b' },
+      { id: 'vendas.pdv_suprimento', label: 'Vendas: Frente de Caixa — suprimento (colocar dinheiro na gaveta)', color: '#f59e0b' },
       // 28/11/2026 (pedido do dono): receber notinha (Contas a Receber) no caixa. Nasce desmarcada (decisao do dono).
       { id: 'vendas.pdv_receber_contas', label: 'Vendas: Frente de Caixa — receber contas do cliente (notinhas do Contas a Receber)', color: '#ef4444' },
       { id: 'vendas.importar', label: 'Vendas: Importar pedidos do sistema anterior', color: '#ef4444' },

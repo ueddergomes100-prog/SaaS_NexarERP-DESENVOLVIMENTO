@@ -73,12 +73,13 @@ export const ehACaixaGaveta = (caixa: { nome?: unknown; padrao?: unknown; ativo?
   caixa.padrao === true && caixa.ativo !== false && String(caixa.nome || '') === CAIXAS_PADRAO[0].nome
 );
 
-export type TipoMovimentoGaveta = 'dinheiro_entrada' | 'dinheiro_saida' | 'sangria_pdv' | 'diferenca_fechamento' | 'diferenca_abertura';
+export type TipoMovimentoGaveta = 'dinheiro_entrada' | 'dinheiro_saida' | 'sangria_pdv' | 'suprimento_pdv' | 'diferenca_fechamento' | 'diferenca_abertura';
 
 export const ROTULO_MOVIMENTO_GAVETA: Record<TipoMovimentoGaveta, string> = {
   dinheiro_entrada: 'Dinheiro recebido',
   dinheiro_saida: 'Dinheiro pago',
   sangria_pdv: 'Sangria do PDV',
+  suprimento_pdv: 'Suprimento do PDV',
   diferenca_fechamento: 'Diferença no fechamento',
   diferenca_abertura: 'Diferença na abertura',
 };
@@ -153,6 +154,8 @@ export interface SessaoParaGaveta {
   operadorNome?: unknown;
   terminalNome?: unknown;
   sangrias?: unknown;
+  /** Suprimentos (27/11/2026): dinheiro colocado na gaveta sem ser venda. */
+  suprimentos?: unknown;
   diferencaCentavos?: unknown;
   /** Gravado no fechamento quando o esperado foi o saldo da gaveta. */
   fechamentoPelaGaveta?: unknown;
@@ -203,6 +206,23 @@ export const movimentosDaSessao = (id: string, s: SessaoParaGaveta): MovimentoDa
       direcao: 'debito',
       valorCentavos,
       descricao: `Sangria do PDV${motivo ? `: ${motivo}` : ''}${sufixo}`,
+      data: getDateInputInTimeZone(registradoEm),
+      criadoEmIso: registradoEm.toISOString(),
+    });
+  });
+  // Suprimento (27/11/2026): o contrario da sangria -- entra na gaveta.
+  (Array.isArray(s.suprimentos) ? s.suprimentos : []).forEach((bruto, indice) => {
+    const g = (bruto && typeof bruto === 'object' ? bruto : {}) as Record<string, unknown>;
+    const valorCentavos = inteiro(g.valorCentavos);
+    const registradoEm = typeof g.registradoEm === 'string' ? new Date(g.registradoEm) : null;
+    if (valorCentavos <= 0 || !registradoEm || Number.isNaN(registradoEm.getTime())) return;
+    const motivo = String(g.motivo || '').trim();
+    movimentos.push({
+      id: `suprimento:${id}:${String(g.id || indice)}`,
+      tipo: 'suprimento_pdv',
+      direcao: 'credito',
+      valorCentavos,
+      descricao: `Suprimento do PDV${motivo ? `: ${motivo}` : ''}${sufixo}`,
       data: getDateInputInTimeZone(registradoEm),
       criadoEmIso: registradoEm.toISOString(),
     });
@@ -259,8 +279,12 @@ export const esperadoNoFechamento = (args: {
   saldoInicialCentavos: number;
   dinheiroDaSessaoCentavos: number;
   totalSangriasCentavos: number;
+  /** Suprimentos da sessao (27/11/2026); ausente = 0. */
+  totalSuprimentosCentavos?: number;
 }): EsperadoNoFechamento => {
-  const porSessao = inteiro(args.saldoInicialCentavos) + inteiro(args.dinheiroDaSessaoCentavos) - inteiro(args.totalSangriasCentavos);
+  const suprimentos = inteiro(args.totalSuprimentosCentavos || 0);
+  const porSessao = inteiro(args.saldoInicialCentavos) + inteiro(args.dinheiroDaSessaoCentavos) + suprimentos - inteiro(args.totalSangriasCentavos);
+  const textoSuprimento = suprimentos > 0 ? ' + suprimentos' : '';
   if (args.gavetaAtiva && args.saldoDaGavetaCentavos !== null && args.caixasAbertos <= 1) {
     return {
       modo: 'gaveta',
@@ -272,8 +296,8 @@ export const esperadoNoFechamento = (args: {
     modo: 'sessao',
     saldoEsperadoCentavos: porSessao,
     explicacao: args.gavetaAtiva && args.caixasAbertos > 1
-      ? 'Há mais de um caixa aberto: a conta é só deste caixa (saldo inicial + vendas em dinheiro deste caixa − sangrias).'
-      : 'Saldo inicial + vendas em dinheiro deste caixa − sangrias.',
+      ? `Há mais de um caixa aberto: a conta é só deste caixa (saldo inicial + vendas em dinheiro deste caixa${textoSuprimento} − sangrias).`
+      : `Saldo inicial + vendas em dinheiro deste caixa${textoSuprimento} − sangrias.`,
   };
 };
 
@@ -373,6 +397,8 @@ export const composicaoDaSessao = (args: {
   saldoInicialCentavos: number;
   lancamentosEmDinheiro: ReadonlyArray<{ id: string; descricao: string; clienteNome?: string; valorCentavos: number; criadoEm: Date | null }>;
   sangrias: ReadonlyArray<{ id?: string; valorCentavos: number; motivo?: string; registradoEm?: string }>;
+  /** Suprimentos (27/11/2026). */
+  suprimentos?: ReadonlyArray<{ id?: string; valorCentavos: number; motivo?: string; registradoEm?: string }>;
 }): ComposicaoDaGaveta => {
   const valida = (d: Date | null): d is Date => d instanceof Date && !Number.isNaN(d.getTime());
   const abertura = valida(args.abertoEm) ? args.abertoEm : new Date();
@@ -399,6 +425,15 @@ export const composicaoDaSessao = (args: {
     movimentos.push({
       id: `sangria:${g.id || i}`, tipo: 'sangria_pdv', direcao: 'debito', valorCentavos: inteiro(g.valorCentavos),
       descricao: `Sangria${motivo ? `: ${motivo}` : ''}`, data: getDateInputInTimeZone(certo), criadoEmIso: certo.toISOString(),
+    });
+  });
+  (args.suprimentos || []).forEach((g, i) => {
+    const quando = g.registradoEm ? new Date(g.registradoEm) : null;
+    const certo = valida(quando) ? quando : abertura;
+    const motivo = String(g.motivo || '').trim();
+    movimentos.push({
+      id: `suprimento:${g.id || i}`, tipo: 'suprimento_pdv', direcao: 'credito', valorCentavos: inteiro(g.valorCentavos),
+      descricao: `Suprimento${motivo ? `: ${motivo}` : ''}`, data: getDateInputInTimeZone(certo), criadoEmIso: certo.toISOString(),
     });
   });
   return comporPorDia(saldoDosMovimentos(movimentos), movimentos, getDateInputInTimeZone(abertura));

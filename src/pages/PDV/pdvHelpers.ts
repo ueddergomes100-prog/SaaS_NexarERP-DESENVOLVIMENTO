@@ -188,5 +188,14 @@ export const sessaoDoDocumento = (id: string, dados: Record<string, unknown>): P
       ...(x.bancoId ? { bancoId: String(x.bancoId), bancoNome: String(x.bancoNome || '') } : {}),
     })),
     totalSangriasCentavos: numero(dados.totalSangriasCentavos),
+    suprimentos: (Array.isArray(dados.suprimentos) ? dados.suprimentos as Array<Record<string, unknown>> : []).map((x, i) => ({
+      id: String(x.id || `suprimento-${i + 1}`),
+      valorCentavos: numero(x.valorCentavos),
+      motivo: String(x.motivo || ''),
+      registradoEm: paraIso(x.registradoEm) || '',
+      registradoPor: String(x.registradoPor || ''),
+      registradoPorNome: String(x.registradoPorNome || ''),
+    })),
+    totalSuprimentosCentavos: numero(dados.totalSuprimentosCentavos),
   };
 };

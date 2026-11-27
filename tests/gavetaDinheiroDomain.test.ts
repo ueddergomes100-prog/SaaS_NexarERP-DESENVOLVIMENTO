@@ -216,3 +216,40 @@ test('caixa conferido por sessao: saldo inicial + vendas em dinheiro - sangrias,
   assert.equal(c.dias[0].movimentos[1].clienteNome, 'CONSUMIDOR');
   assert.equal(composicaoDaSessao({ abertoEm: new Date(), saldoInicialCentavos: 0, lancamentosEmDinheiro: [], sangrias: [] }).dias.length, 0);
 });
+
+// Suprimento na Frente de Caixa (27/11/2026): o contrario da sangria.
+import {
+  composicaoDaSessao as composicaoComSuprimento,
+  esperadoNoFechamento as esperadoComSuprimento,
+  movimentosDaSessao as movimentosComSuprimento,
+} from '../src/utils/gavetaDinheiroDomain';
+
+test('suprimento: soma no esperado por sessao e explica na conta', () => {
+  const e = esperadoComSuprimento({ gavetaAtiva: false, saldoDaGavetaCentavos: null, caixasAbertos: 1, saldoInicialCentavos: 10000, dinheiroDaSessaoCentavos: 5000, totalSangriasCentavos: 2000, totalSuprimentosCentavos: 3000 });
+  assert.equal(e.saldoEsperadoCentavos, 16000);
+  assert.match(e.explicacao, /\+ suprimentos − sangrias/);
+  const sem = esperadoComSuprimento({ gavetaAtiva: false, saldoDaGavetaCentavos: null, caixasAbertos: 1, saldoInicialCentavos: 10000, dinheiroDaSessaoCentavos: 5000, totalSangriasCentavos: 2000 });
+  assert.equal(sem.saldoEsperadoCentavos, 13000, 'sem suprimento, como sempre');
+  assert.doesNotMatch(sem.explicacao, /suprimento/);
+});
+
+test('suprimento: entra no extrato da gaveta como credito e na composicao do esperado', () => {
+  const quando = '2026-11-27T13:00:00.000Z';
+  const movimentos = movimentosComSuprimento('cx1', {
+    status: 'aberto', operadorNome: 'MARIA',
+    sangrias: [{ id: 's1', valorCentavos: 2000, motivo: 'COFRE', registradoEm: quando }],
+    suprimentos: [{ id: 'p1', valorCentavos: 5000, motivo: 'Reforço de troco', registradoEm: quando }, { id: 'p2', valorCentavos: 0, registradoEm: quando }],
+  });
+  const suprimento = movimentos.find((m) => m.tipo === 'suprimento_pdv');
+  assert.ok(suprimento);
+  assert.equal(suprimento!.direcao, 'credito');
+  assert.equal(suprimento!.valorCentavos, 5000);
+  assert.match(suprimento!.descricao, /Suprimento do PDV: Reforço de troco \(MARIA\)/);
+  assert.equal(movimentos.filter((m) => m.tipo === 'suprimento_pdv').length, 1, 'valor zero nao entra');
+  const composicao = composicaoComSuprimento({
+    abertoEm: new Date('2026-11-27T11:00:00.000Z'), saldoInicialCentavos: 10000, lancamentosEmDinheiro: [],
+    sangrias: [{ id: 's1', valorCentavos: 2000, registradoEm: quando }],
+    suprimentos: [{ id: 'p1', valorCentavos: 5000, registradoEm: quando }],
+  });
+  assert.equal(composicao.saldoCentavos, 13000);
+});

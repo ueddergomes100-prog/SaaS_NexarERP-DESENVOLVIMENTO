@@ -23,6 +23,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'vendas.pdv': ['comercial.pedidos'],
   'vendas.so_caixa': ['comercial.pedidos'],
   'vendas.pdv_relatorio_caixa': ['comercial.pedidos'],
+  'vendas.pdv_suprimento': ['comercial.pedidos'],
   'vendas.pdv_receber_contas': ['comercial.pedidos'],
   'vendas.alterar': ['comercial.pedidos'],
   'vendas.excluir': ['comercial.pedidos'],

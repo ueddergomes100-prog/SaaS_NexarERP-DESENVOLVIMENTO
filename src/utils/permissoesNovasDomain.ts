@@ -143,6 +143,8 @@ export const PERMISSAO_VENDAS = {
   pdvRelatorioCaixa: 'vendas.pdv_relatorio_caixa',
   /** Receber notinha (Contas a Receber) no caixa (28/11/2026). Nasce desmarcada: o dono marca. */
   pdvReceberContas: 'vendas.pdv_receber_contas',
+  /** Suprimento na Frente de Caixa (27/11/2026); vem com o PDV (pacote 'pdv-2'). */
+  pdvSuprimento: 'vendas.pdv_suprimento',
   importar: 'vendas.importar',
   orcamentosRecusar: 'vendas.orcamentos_recusar',
   orcamentosConverter: 'vendas.orcamentos_converter',
@@ -582,6 +584,14 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
     id: 'vendas-2',
     implicacoes: {
       'vendas.alterar': [PERMISSAO_VENDAS.alterarObservacao],
+    },
+  },
+  {
+    // 27/11/2026 (pedido do dono): suprimento na Frente de Caixa. Quem opera o caixa continua podendo.
+    id: 'pdv-2',
+    implicacoes: {
+      'vendas.pdv': [PERMISSAO_VENDAS.pdvSuprimento],
+      'vendas.so_caixa': [PERMISSAO_VENDAS.pdvSuprimento],
     },
   },
 ];

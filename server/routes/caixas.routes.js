@@ -3,6 +3,7 @@ const { db } = require('../config/firebase');
 const { authenticate } = require('../middleware/auth');
 const { registrarLog } = require('../services/auditoria');
 const caixas = require('../services/caixas');
+const { reabrirCaixaPdv } = require('../services/reaberturaCaixaPdv');
 const { PERMISSOES_QUE_OPERAM_O_CAIXA } = require('../domain/frenteDeCaixaDomain');
 
 /**
@@ -125,6 +126,19 @@ router.post('/transferir', async (req, res) => {
     return res.json({ ok: true, ...r });
   } catch (erro) {
     return responderErro(res, erro, 'fazer a transferência');
+  }
+});
+
+/**
+ * POST /api/caixas/reabrir-pdv -- { sessaoId }. Reabre o caixa da Frente de Caixa
+ * fechado HOJE (27/11/2026). Regras em services/reaberturaCaixaPdv.js.
+ */
+router.post('/reabrir-pdv', async (req, res) => {
+  try {
+    const r = await reabrirCaixaPdv({ user: req.user, tenantId: req.user.tenantId, sessaoId: req.body?.sessaoId });
+    return res.json({ ok: true, caixa: r });
+  } catch (erro) {
+    return responderErro(res, erro, 'reabrir o caixa');
   }
 });
 

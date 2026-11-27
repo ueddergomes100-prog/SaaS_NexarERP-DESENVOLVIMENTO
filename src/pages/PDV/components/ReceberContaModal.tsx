@@ -11,6 +11,7 @@ import {
   type ResultadoDoRecebimentoNoCaixa,
 } from '../../../services/baixaFinanceiraService';
 import { currency, fromCurrencyInput } from '../pdvHelpers';
+import { descontoPercentualPorConta, ratearDescontoGeral } from '../../../utils/baixaEmLoteDomain';
 import type { PdvClient } from '../types';
 
 /**
@@ -24,7 +25,7 @@ export interface RecebimentoConcluido {
   cliente: PdvClient;
   forma: string;
   entregueCentavos: number;
-  itens: Array<{ descricao: string; vencimento: string; valorCentavos: number; acrescimoCentavos: number }>;
+  itens: Array<{ descricao: string; vencimento: string; valorCentavos: number; acrescimoCentavos: number; descontoCentavos?: number }>;
 }
 
 interface ReceberContaModalProps {
@@ -34,6 +35,8 @@ interface ReceberContaModalProps {
   /** Cliente ja' escolhido no cupom (se nao for o consumidor final). */
   clienteInicial: PdvClient | null;
   bancos: Array<{ id: string; nome: string }>;
+  /** Desconto geral (27/11/2026): so' com a permissao de desconto na baixa (o servidor confere). */
+  podeDescontar?: boolean;
   onClose: () => void;
   onRecebido: (recebimento: RecebimentoConcluido) => void;
 }
@@ -43,7 +46,7 @@ const FORMAS: PaymentMethod[] = ['Dinheiro', 'Pix', 'Cartão de Débito', 'Cart�
 const dataCurta = (iso: string) => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('/') : iso || '—');
 const reais = (centavos: number) => currency.format(fromCents(centavos));
 
-const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, clients, clienteInicial, bancos, onClose, onRecebido }) => {
+const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, clients, clienteInicial, bancos, podeDescontar = false, onClose, onRecebido }) => {
   const [cliente, setCliente] = useState<PdvClient | null>(null);
   const [consultaAberta, setConsultaAberta] = useState(false);
   const [filtros, setFiltros] = useState<FiltrosConsultaCliente>(FILTROS_CONSULTA_PADRAO);
@@ -56,6 +59,9 @@ const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, c
   const [entregue, setEntregue] = useState('');
   const [recebendo, setRecebendo] = useState(false);
   const [falhas, setFalhas] = useState<ResultadoDoRecebimentoNoCaixa[]>([]);
+  // Desconto geral (27/11/2026, igual a baixa em lote): repartido pelo valor das contas marcadas.
+  const [descontoGeral, setDescontoGeral] = useState('');
+  const [descontoEmPercentual, setDescontoEmPercentual] = useState(false);
   // A consulta chama onSelect e logo onClose: o fechar le' daqui se ja' tem cliente
   // (o estado ainda nao atualizou nesse instante e fecharia a janela toda).
   const clienteEscolhido = useRef<PdvClient | null>(null);
@@ -86,6 +92,8 @@ const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, c
     setContas([]);
     setMarcadas(new Set());
     setErro('');
+    setDescontoGeral('');
+    setDescontoEmPercentual(false);
     clienteEscolhido.current = clienteInicial;
     if (clienteInicial) {
       setCliente(clienteInicial);
@@ -126,12 +134,26 @@ const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, c
   };
 
   const escolhidas = useMemo(() => contas.filter((c) => marcadas.has(c.transacaoId)), [contas, marcadas]);
-  const total = escolhidas.reduce((soma, c) => soma + c.totalCentavos, 0);
+  const { descontos, erroDesconto } = useMemo(() => {
+    const texto = descontoGeral.trim();
+    if (!texto || !podeDescontar) return { descontos: escolhidas.map(() => 0), erroDesconto: '' };
+    const valores = escolhidas.map((c) => c.valorCentavos);
+    if (descontoEmPercentual) {
+      const p = Number(texto.replace(',', '.'));
+      const partes = Number.isFinite(p) ? descontoPercentualPorConta(valores, p) : null;
+      return partes ? { descontos: partes, erroDesconto: '' } : { descontos: escolhidas.map(() => 0), erroDesconto: 'Porcentagem de 0 a 100 (ex.: 10 ou 7,5).' };
+    }
+    const totalDesconto = fromCurrencyInput(texto);
+    const partes = ratearDescontoGeral(valores, totalDesconto);
+    return partes ? { descontos: partes, erroDesconto: '' } : { descontos: escolhidas.map(() => 0), erroDesconto: 'O desconto não pode passar do valor das contas marcadas.' };
+  }, [descontoGeral, descontoEmPercentual, escolhidas, podeDescontar]);
+  const totalDescontos = descontos.reduce((a, b) => a + b, 0);
+  const total = escolhidas.reduce((soma, c) => soma + c.totalCentavos, 0) - totalDescontos;
   const precisaBanco = paymentRequiresBankAccount(forma);
   const entregueCentavos = forma === 'Dinheiro' ? fromCurrencyInput(entregue) : 0;
   const troco = entregueCentavos > total ? entregueCentavos - total : 0;
   const hoje = getDateInputInTimeZone();
-  const podeReceber = Boolean(sessaoId) && escolhidas.length > 0 && (!precisaBanco || Boolean(bancoId)) && !recebendo
+  const podeReceber = Boolean(sessaoId) && escolhidas.length > 0 && (!precisaBanco || Boolean(bancoId)) && !recebendo && !erroDesconto
     && !(forma === 'Dinheiro' && entregueCentavos > 0 && entregueCentavos < total);
 
   if (!open) return null;
@@ -151,7 +173,10 @@ const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, c
         sessaoId,
         formaPagamento: forma,
         ...(precisaBanco ? { bancoId } : {}),
-        titulos: escolhidas.map((c) => ({ transacaoId: c.transacaoId, jurosCentavos: c.jurosCentavos, multaCentavos: c.multaCentavos })),
+        titulos: escolhidas.map((c, i) => ({
+          transacaoId: c.transacaoId, jurosCentavos: c.jurosCentavos, multaCentavos: c.multaCentavos,
+          ...(descontos[i] > 0 ? { descontoCentavos: descontos[i] } : {}),
+        })),
       });
       const certas = resultados.filter((r) => r.ok);
       const erradas = resultados.filter((r) => !r.ok);
@@ -167,6 +192,7 @@ const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, c
               vencimento: conta?.vencimento || '',
               valorCentavos: r.valorCentavos ?? conta?.valorCentavos ?? 0,
               acrescimoCentavos: r.acrescimoCentavos ?? 0,
+              descontoCentavos: r.descontoCentavos ?? 0,
             };
           }),
         });
@@ -264,6 +290,32 @@ const ReceberContaModal: React.FC<ReceberContaModalProps> = ({ open, sessaoId, c
                   </label>
                 )}
               </div>
+
+              {podeDescontar && (
+                <div className="pdv-receber-desconto">
+                  <span className="pdv-receber-desconto-rotulo">Desconto geral</span>
+                  <div className="pdv-receber-desconto-linha">
+                    <div role="group" aria-label="Desconto em reais ou em porcentagem" className="pdv-receber-desconto-tipo">
+                      {([['R$', false], ['%', true]] as const).map(([rotulo, emPercentual]) => (
+                        <button key={rotulo} type="button" aria-pressed={descontoEmPercentual === emPercentual} disabled={recebendo} onClick={() => setDescontoEmPercentual(emPercentual)}>
+                          {rotulo}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      aria-label="Valor do desconto geral"
+                      inputMode="decimal"
+                      value={descontoGeral}
+                      disabled={recebendo}
+                      aria-invalid={Boolean(erroDesconto)}
+                      onChange={(e) => setDescontoGeral(e.target.value)}
+                    />
+                  </div>
+                  {erroDesconto
+                    ? <small className="warn">{erroDesconto}</small>
+                    : totalDescontos > 0 && <small>Desconto de {reais(totalDescontos)}, repartido pelo valor de cada conta marcada.</small>}
+                </div>
+              )}
 
               <div className="pdv-payment-total">
                 <span>{escolhidas.length === 1 ? '1 conta marcada' : `${escolhidas.length} contas marcadas`}</span>

@@ -180,6 +180,25 @@ test('comprovante de recebimento: total com juros, troco no dinheiro e texto esc
   assert.doesNotMatch(semTroco, /Troco/i);
 });
 
+test('comprovante de recebimento: desconto geral abate do total e sai na linha da conta (27/11/2026)', () => {
+  const c = {
+    empresa: { nome: 'LOJA', cnpj: '' },
+    clienteNome: 'JOSE',
+    operadorNome: 'MARIA',
+    emitidoEm: h(15),
+    forma: 'Dinheiro',
+    itens: [
+      { descricao: 'Pedido #10', vencimento: '2026-11-01', valorCentavos: 10000, acrescimoCentavos: 0, descontoCentavos: 1000 },
+      { descricao: 'Pedido #11', vencimento: '2026-12-01', valorCentavos: 5000, acrescimoCentavos: 0 },
+    ],
+    entregueCentavos: 0,
+  };
+  assert.equal(totalDoComprovante(c), 14000);
+  const html = htmlDoComprovanteDeRecebimento(c);
+  assert.match(html, /desconto de 10,00/);
+  assert.match(html, /90,00/);
+});
+
 test('suprimentos no papel do caixa: somam no dinheiro deste caixa e saem listados', () => {
   const dados = base({ suprimentos: [{ valorCentavos: 3000, motivo: 'Reforço de troco', registradoEm: h(9, 15), registradoPorNome: 'MARIA', bancoNome: '' }] });
   const r = montarRelatorioDoCaixa(dados);

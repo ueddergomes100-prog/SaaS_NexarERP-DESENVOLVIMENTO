@@ -269,7 +269,7 @@ test('permissoes pelo servidor: grava com o marcador do app; gerente so mexe no 
   await s.salvarPermissoes({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'carlos', permissoes: ['vendas.pedidos', 'app.pedido'], nivelAcesso: 'supervisor' }, gerente: false });
   const u = fake.ler('usuarios/carlos');
   // Com os marcadores do app e dos pacotes de permissoes novas (25/11/2026): dai' em diante vale o marcado.
-  assert.deepEqual([...u.permissoes].sort(), ['app.definido', 'app.pedido', 'pacote.administracao-1', 'pacote.app-1', 'pacote.clientes-1', 'pacote.estoque-1', 'pacote.financeiro-1', 'pacote.financeiro-2', 'pacote.financeiro-3', 'pacote.pdv-1', 'pacote.pdv-2', 'pacote.vendas-1', 'pacote.vendas-2', 'vendas.pedidos']);
+  assert.deepEqual([...u.permissoes].sort(), ['app.definido', 'app.pedido', 'pacote.administracao-1', 'pacote.app-1', 'pacote.clientes-1', 'pacote.estoque-1', 'pacote.financeiro-1', 'pacote.financeiro-2', 'pacote.financeiro-3', 'pacote.pdv-1', 'pacote.pdv-2', 'pacote.pdv-3', 'pacote.vendas-1', 'pacote.vendas-2', 'vendas.pedidos']);
   assert.equal(u.nivelAcesso, 'supervisor');
   // Gerente sem "financeiro.pagar" nao da' essa permissao; nem muda o nivel.
   const gerente = { uid: 'g1', tenantId: 'loja', role: 'Funcionario', nivelAcesso: 'gerente', permissoes: ['vendas.pedidos', 'administrativo.equipe'] };

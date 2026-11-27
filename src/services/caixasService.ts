@@ -96,6 +96,11 @@ export const transferirEntreContas = (corpo: { origem: ContaRef; destino: ContaR
   chamarServidor<{ ok: true; nomeOrigem: string; nomeDestino: string; valorCentavos: number }>('POST', 'caixas/transferir', { ...corpo })
 );
 
+/** PDV: reabre o caixa fechado hoje (27/11/2026); o servidor confere o dia, a pessoa e a permissao. */
+export const reabrirCaixaPdv = (sessaoId: string) => (
+  chamarServidor<{ ok: true; caixa: Record<string, unknown> & { sessaoId: string } }>('POST', 'caixas/reabrir-pdv', { sessaoId })
+);
+
 /** PDV: sangria "para deposito" credita o banco escolhido na hora. */
 export const sangriaParaDeposito = (corpo: { bancoId: string; valorCentavos: number; sessaoId: string; data: string }) => (
   chamarServidor<{ ok: true; bancoNome: string; bancoId: string; valorCentavos: number }>('POST', 'caixas/sangria-deposito', { ...corpo })

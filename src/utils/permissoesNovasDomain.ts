@@ -145,6 +145,8 @@ export const PERMISSAO_VENDAS = {
   pdvReceberContas: 'vendas.pdv_receber_contas',
   /** Suprimento na Frente de Caixa (27/11/2026); vem com o PDV (pacote 'pdv-2'). */
   pdvSuprimento: 'vendas.pdv_suprimento',
+  /** Reabrir o caixa fechado hoje (27/11/2026); vem com o PDV (pacote 'pdv-3'). */
+  pdvReabrirCaixa: 'vendas.pdv_reabrir_caixa',
   importar: 'vendas.importar',
   orcamentosRecusar: 'vendas.orcamentos_recusar',
   orcamentosConverter: 'vendas.orcamentos_converter',
@@ -592,6 +594,14 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
     implicacoes: {
       'vendas.pdv': [PERMISSAO_VENDAS.pdvSuprimento],
       'vendas.so_caixa': [PERMISSAO_VENDAS.pdvSuprimento],
+    },
+  },
+  {
+    // 27/11/2026 (pedido do dono): reabrir o caixa fechado no mesmo dia. Quem opera o caixa continua podendo.
+    id: 'pdv-3',
+    implicacoes: {
+      'vendas.pdv': [PERMISSAO_VENDAS.pdvReabrirCaixa],
+      'vendas.so_caixa': [PERMISSAO_VENDAS.pdvReabrirCaixa],
     },
   },
 ];

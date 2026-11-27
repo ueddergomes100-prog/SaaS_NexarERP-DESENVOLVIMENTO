@@ -48,7 +48,7 @@ import {
   type PaymentRecord,
 } from '../../utils/financeDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
-import { resumoDaGaveta, sangriaParaDeposito, type ResumoDaGaveta } from '../../services/caixasService';
+import { reabrirCaixaPdv, resumoDaGaveta, sangriaParaDeposito, type ResumoDaGaveta } from '../../services/caixasService';
 import {
   calcularEsperadoDoFechamento,
   ErroDoFechamento,
@@ -101,6 +101,7 @@ import { MENSAGEM_SEM_PERMISSAO_NFCE, acaoDeReimpressao, documentoDoCupomDoCaixa
 import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal, imprimirNaBobina, imprimirVendaNaFolha, reabrirCupomFiscal } from './cupomDoCaixa';
 import VendasDoCaixaModal from './components/VendasDoCaixaModal';
 import RelatorioDoCaixaModal from './components/RelatorioDoCaixaModal';
+import { PERMISSAO_DESCONTO_NA_BAIXA } from '../../utils/ajustesDaBaixaDomain';
 import ReceberContaModal, { type RecebimentoConcluido } from './components/ReceberContaModal';
 import { empresaDoRelatorio, imprimirRelatorioDoCaixa, lerLancamentosDoCaixa, sangriasDoCaixa } from './relatorioDoCaixa';
 import { htmlDoComprovanteDeRecebimento, totalDoComprovante, type DadosDoRelatorioDoCaixa } from '../../utils/relatorioDoCaixaBobinaDomain';
@@ -582,6 +583,9 @@ const PDV: React.FC = () => {
     setClientModalOpen(false);
   }, []);
 
+  // Reabrir o caixa fechado hoje (27/11/2026): permissao propria, ja' marcada para quem opera o caixa (pacote 'pdv-3').
+  const podeReabrirCaixa = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_VENDAS.pdvReabrirCaixa);
+
   const openSession = useCallback(async () => {
     if (!currentUser || !tenantId) return;
 
@@ -619,6 +623,55 @@ const PDV: React.FC = () => {
       }
     } catch (error) {
       console.error('Erro ao conferir se já existe caixa aberto:', error);
+    }
+
+    // Reabrir (27/11/2026, pedido do dono): fechou o caixa HOJE? Pode continuar nele em vez
+    // de abrir outro. Virou o dia, abre um caixa novo como sempre. O servidor confere tudo.
+    if (podeReabrirCaixa) {
+      try {
+        const ultimo = await getDocs(query(
+          collection(db, 'caixas_pdv'),
+          where('tenantId', '==', tenantId),
+          where('operadorId', '==', currentUser.uid),
+          where('status', '==', 'fechado'),
+          orderBy('fechadoEm', 'desc'),
+          limit(1),
+        ));
+        const fechado = ultimo.empty ? null : ultimo.docs[0];
+        const dadosFechado = fechado?.data();
+        const fechadoEm = dadosFechado?.fechadoEm && typeof dadosFechado.fechadoEm.toDate === 'function' ? dadosFechado.fechadoEm.toDate() as Date : null;
+        if (fechado && dadosFechado && fechadoEm && !dadosFechado.fechadoComDataDe && getDateInputInTimeZone(fechadoEm) === getDateInputInTimeZone()) {
+          const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(fechadoEm);
+          const escolha = await NexusSwal.fire({
+            title: 'Reabrir o caixa de hoje?',
+            text: `Você fechou um caixa hoje às ${hora}. Reabra esse caixa para continuar nele (o fechamento é desfeito e você fecha de novo no fim), ou abra um caixa novo.`,
+            icon: 'question',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: `Reabrir o caixa das ${hora}`,
+            denyButtonText: 'Abrir um caixa novo',
+            cancelButtonText: 'Voltar',
+          });
+          if (escolha.isDismissed) return;
+          if (escolha.isConfirmed) {
+            try {
+              await reabrirCaixaPdv(fechado.id);
+              const reaberto = sessaoDoDocumento(fechado.id, {
+                ...dadosFechado, status: 'aberto', fechadoEm: null, saldoFinalInformadoCentavos: null, saldoEsperadoCentavos: null, diferencaCentavos: null,
+              });
+              setSession(reaberto);
+              localStorage.setItem(sessionStorageKey, JSON.stringify(reaberto));
+              showSuccess('Caixa reaberto. Para encerrar o dia, feche o caixa de novo.');
+            } catch (erro) {
+              showError('Não foi possível reabrir o caixa', erro instanceof Error && erro.message ? erro.message : 'Tente de novo em instantes ou abra um caixa novo.');
+            }
+            return;
+          }
+        }
+      } catch (error) {
+        // Sem a consulta, segue a abertura normal.
+        console.error('Erro ao procurar o caixa fechado hoje:', error);
+      }
     }
 
     let saldoAnteriorSugeridoCentavos: number | null = null;
@@ -757,7 +810,7 @@ const PDV: React.FC = () => {
       console.error('Erro ao abrir caixa:', error);
       showError('Erro ao abrir caixa', 'Não foi possível abrir o caixa. Tente novamente.');
     }
-  }, [currentUser, operatorName, sessionStorageKey, tenantId, terminalDoCaixa]);
+  }, [currentUser, operatorName, sessionStorageKey, tenantId, terminalDoCaixa, podeReabrirCaixa]);
 
   // ------------------------------------------------------------------ Relatorio do caixa (26/11/2026)
   // Parcial (botao "Relatório" e F10, sem fechar o caixa) e o do fechamento, que
@@ -2528,6 +2581,7 @@ const PDV: React.FC = () => {
         clients={clients}
         clienteInicial={selectedClient && !selectedClient.isPadrao ? selectedClient : null}
         bancos={bancosDisponiveis.filter((b) => b.ativo !== false).map((b) => ({ id: b.id, nome: b.nome }))}
+        podeDescontar={hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_DESCONTO_NA_BAIXA)}
         onClose={() => setReceberContaOpen(false)}
         onRecebido={(recebimento: RecebimentoConcluido) => {
           const comprovante = {

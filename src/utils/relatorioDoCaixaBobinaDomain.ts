@@ -449,7 +449,8 @@ export interface ComprovanteDeRecebimento {
   operadorNome: string;
   emitidoEm: Date;
   forma: string;
-  itens: Array<{ descricao: string; vencimento: string; valorCentavos: number; acrescimoCentavos: number }>;
+  /** `descontoCentavos` (27/11/2026): desconto dado na conta, abatido do que foi pago. */
+  itens: Array<{ descricao: string; vencimento: string; valorCentavos: number; acrescimoCentavos: number; descontoCentavos?: number }>;
   /** Dinheiro: quanto o cliente entregou (para o troco); 0 = nao informado. */
   entregueCentavos: number;
 }
@@ -457,7 +458,7 @@ export interface ComprovanteDeRecebimento {
 const dataCurta = (iso: string): string => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('/') : iso);
 
 export const totalDoComprovante = (c: ComprovanteDeRecebimento): number => (
-  c.itens.reduce((soma, i) => soma + inteiro(i.valorCentavos) + inteiro(i.acrescimoCentavos), 0)
+  c.itens.reduce((soma, i) => soma + inteiro(i.valorCentavos) + inteiro(i.acrescimoCentavos) - inteiro(i.descontoCentavos || 0), 0)
 );
 
 export const htmlDoComprovanteDeRecebimento = (c: ComprovanteDeRecebimento, largura: LarguraDaBobina = 80): string => {
@@ -467,8 +468,8 @@ export const htmlDoComprovanteDeRecebimento = (c: ComprovanteDeRecebimento, larg
   const troco = c.forma === 'Dinheiro' && c.entregueCentavos > total ? c.entregueCentavos - total : 0;
   const itens = c.itens.map((i) => `
     <div class="item">
-      ${linha(e(i.descricao), reais(i.valorCentavos + i.acrescimoCentavos))}
-      <div class="peq">Venc. ${e(dataCurta(i.vencimento))}${i.acrescimoCentavos > 0 ? ` · com ${reais(i.acrescimoCentavos)} de juros e multa` : ''}</div>
+      ${linha(e(i.descricao), reais(i.valorCentavos + i.acrescimoCentavos - inteiro(i.descontoCentavos || 0)))}
+      <div class="peq">Venc. ${e(dataCurta(i.vencimento))}${i.acrescimoCentavos > 0 ? ` · com ${reais(i.acrescimoCentavos)} de juros e multa` : ''}${inteiro(i.descontoCentavos || 0) > 0 ? ` · desconto de ${reais(inteiro(i.descontoCentavos || 0))}` : ''}</div>
     </div>`).join('');
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante de recebimento</title>

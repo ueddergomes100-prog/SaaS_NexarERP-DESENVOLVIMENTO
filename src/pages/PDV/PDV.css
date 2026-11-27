@@ -1652,3 +1652,51 @@
   cursor: not-allowed;
   box-shadow: none;
 }
+
+/* Desconto geral no Receber conta (27/11/2026). */
+.pdv-receber-desconto {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pdv-receber-desconto-rotulo {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.pdv-receber-desconto-linha {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.pdv-receber-desconto-tipo {
+  display: flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+.pdv-receber-desconto-tipo button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 700;
+  padding: 0 14px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.pdv-receber-desconto-tipo button[aria-pressed='true'] {
+  background: var(--accent-purple);
+  color: #fff;
+}
+.pdv-receber-desconto-linha input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: right;
+}
+.pdv-receber-desconto small { font-size: 12px; color: var(--text-muted); }
+.pdv-receber-desconto small.warn { color: #f59e0b; font-weight: 600; }

@@ -535,13 +535,14 @@ export interface ResultadoDoRecebimentoNoCaixa {
   descricao?: string;
   valorCentavos?: number;
   acrescimoCentavos?: number;
+  descontoCentavos?: number;
 }
 
 export const receberContasNoCaixa = async (args: {
   sessaoId: string;
   formaPagamento: string;
   bancoId?: string;
-  titulos: Array<{ transacaoId: string; jurosCentavos: number; multaCentavos: number }>;
+  titulos: Array<{ transacaoId: string; jurosCentavos: number; multaCentavos: number; descontoCentavos?: number }>;
 }): Promise<ResultadoDoRecebimentoNoCaixa[]> => (
   (await chamarFinanceiro<{ ok: boolean; resultados: ResultadoDoRecebimentoNoCaixa[] }>('/caixa/receber', {
     sessaoId: args.sessaoId,

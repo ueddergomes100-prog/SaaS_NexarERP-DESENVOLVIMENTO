@@ -67,7 +67,7 @@ test('caixa: recebe em dinheiro, quita a conta e grava em qual caixa entrou', as
   assert.equal(titulo.formaPagamento, 'Dinheiro');
   assert.equal(titulo.recebidoNoCaixaId, 'cx1');
   assert.equal(fake.ler('transacoes/r2').recebidoNoCaixaId, 'cx1');
-  assert.equal(fake.ler('transacoes/r1').baixaManual?.descontoCentavos ?? 0, 0, 'o caixa nao da desconto');
+  assert.equal(fake.ler('transacoes/r1').baixaManual?.descontoCentavos ?? 0, 0, 'sem desconto marcado, a conta sai cheia');
 });
 
 test('caixa: conta que nao pode ser recebida falha sozinha, sem desfazer as outras', async () => {
@@ -120,4 +120,27 @@ test('caixa: boleto emitido no banco nao e recebido no caixa, mesmo se o navegad
   assert.equal(r.resultados[0].ok, false);
   assert.match(r.resultados[0].erro, /boleto emitido/);
   assert.equal(fake.ler('transacoes/boletoEmitido').status, 'Pendente');
+});
+
+test('caixa: desconto geral (27/11/2026) abate da conta com a permissao de desconto na baixa', async () => {
+  const { fake, s } = montar();
+  const r = await s.receberNoCaixa({
+    user: { ...OPERADOR, permissoes: [PERMISSAO, 'financeiro.desconto_baixa'] }, tenantId: 'emp1',
+    corpo: { sessaoId: 'cx1', formaPagamento: 'Dinheiro', titulos: [{ transacaoId: 'r1', descontoCentavos: 500 }, { transacaoId: 'r2', descontoCentavos: 300 }] },
+  });
+  assert.deepEqual(r.resultados.map((x) => x.ok), [true, true]);
+  assert.deepEqual(r.resultados.map((x) => x.descontoCentavos), [500, 300]);
+  assert.equal(fake.ler('transacoes/r1').status, 'Paga');
+  assert.equal(fake.ler('transacoes/r1').baixaManual.descontoCentavos, 500);
+});
+
+test('caixa: desconto sem a permissao de desconto na baixa nao passa, mesmo se o navegador mandar', async () => {
+  const { fake, s } = montar();
+  const r = await s.receberNoCaixa({
+    user: OPERADOR, tenantId: 'emp1',
+    corpo: { sessaoId: 'cx1', formaPagamento: 'Dinheiro', titulos: [{ transacaoId: 'r1', descontoCentavos: 500 }] },
+  });
+  assert.equal(r.resultados[0].ok, false);
+  assert.match(r.resultados[0].erro, /desconto/i);
+  assert.equal(fake.ler('transacoes/r1').status, 'Pendente');
 });

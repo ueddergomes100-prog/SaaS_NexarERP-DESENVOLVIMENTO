@@ -15,8 +15,10 @@ const { podePelasEfetivas } = require('./permissoesFinanceiro');
  * direto no PDV". O operador do caixa escolhe o cliente, marca as contas em
  * aberto dele e recebe. A baixa e' a MESMA do Contas a Receber (registrarBaixa:
  * titulo, banco, venda/OS de origem, juros e multa), com duas diferencas:
- *  - juros e multa sempre no padrao da filial (o caixa nao negocia), sem
- *    desconto e sem pagamento parcial -- quita a conta;
+ *  - juros e multa sempre no padrao da filial (o caixa nao negocia) e sem
+ *    pagamento parcial -- quita a conta. Desconto (27/11/2026, pedido do dono:
+ *    "desconto nas notinhas totais tambem no frente de caixa") so' com a
+ *    permissao de desconto na baixa, conferida dentro da baixa;
  *  - o titulo guarda em qual caixa entrou o dinheiro (`recebidoNoCaixaId`), para
  *    o fechamento esperar esse dinheiro e os relatorios do caixa mostrarem.
  *
@@ -124,6 +126,7 @@ const receberNoCaixa = async ({ user, tenantId, corpo }) => {
         bancoId: c.bancoId,
         jurosCentavos: t && t.jurosCentavos,
         multaCentavos: t && t.multaCentavos,
+        descontoCentavos: t && t.descontoCentavos,
       }, hoje);
       if (erro) throw new ErroBaixa(400, erro);
       const lido = await db.collection('transacoes').doc(transacaoId).get();
@@ -131,9 +134,9 @@ const receberNoCaixa = async ({ user, tenantId, corpo }) => {
       if (dadosDoTitulo && dadosDoTitulo.tenantId === tenantId && temBoletoEmitido(dadosDoTitulo)) {
         throw new ErroBaixa(409, `"${dadosDoTitulo.descricao || 'Esta conta'}" tem boleto emitido no banco. Receba pelo Financeiro › Boletos, para baixar o boleto no banco também.`);
       }
-      // O caixa nao negocia: juros e multa no padrao (conferido dentro da baixa), sem desconto nem parcial.
+      // O caixa nao negocia juros e multa (no padrao, conferido dentro da baixa) nem recebe parcial.
+      // O desconto vem como a tela mandou; a baixa recusa sem a permissao de desconto.
       pedido.jurosNoPadrao = true;
-      pedido.descontoCentavos = 0;
       delete pedido.valorRecebidoCentavos;
       pedido.recebidoNoCaixaId = String(c.sessaoId);
       const resumo = await registrarBaixa({ user, tenantId, pedido });
@@ -143,6 +146,7 @@ const receberNoCaixa = async ({ user, tenantId, corpo }) => {
         descricao: resumo.descricao,
         valorCentavos: resumo.valorCentavos,
         acrescimoCentavos: resumo.acrescimoCentavos || 0,
+        descontoCentavos: resumo.descontoCentavos || 0,
         bancoNome: resumo.bancoNome || null,
       });
     } catch (erroDaConta) {

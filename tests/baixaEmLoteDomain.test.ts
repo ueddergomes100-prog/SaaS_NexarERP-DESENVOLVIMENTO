@@ -60,3 +60,26 @@ test('resumo: valor, juros so quando cobrados, total', () => {
   const comDesconto = [...itens, { valorCentavos: 2000, ajustes: { jurosCentavos: 0, multaCentavos: 0, descontoCentavos: 500 } }];
   assert.deepEqual(resumoDoLote(comDesconto), { quantidade: 3, valorCentavos: 17050, acrescimoCentavos: 250, descontoCentavos: 500, totalCentavos: 16800 });
 });
+
+// Desconto geral (27/11/2026): reparte pelo valor de cada conta, sem sobra nem falta.
+import { descontoPercentualPorConta as percentualPorConta, ratearDescontoGeral as ratear } from '../src/utils/baixaEmLoteDomain';
+
+test('desconto geral: reparte proporcional e fecha o total no centavo', () => {
+  assert.deepEqual(ratear([10000, 5000, 5000], 2000), [1000, 500, 500]);
+  const partes = ratear([3333, 3333, 3334], 100);
+  assert.ok(partes);
+  assert.equal(partes!.reduce((a, b) => a + b, 0), 100);
+  assert.deepEqual(ratear([1000, 2000], 0), [0, 0]);
+  assert.deepEqual(ratear([1000, 2000], 3000), [1000, 2000], 'desconto do valor todo');
+  assert.equal(ratear([1000, 2000], 3001), null, 'nao passa do valor das contas');
+  assert.equal(ratear([1000], -5), null);
+  const muitas = ratear([1, 1, 1, 997], 7);
+  assert.ok(muitas && muitas.every((p, i) => p <= [1, 1, 1, 997][i]) && muitas.reduce((a, b) => a + b, 0) === 7);
+});
+
+test('desconto geral em %: cada conta com a sua parte', () => {
+  assert.deepEqual(percentualPorConta([10000, 3333], 10), [1000, 333]);
+  assert.deepEqual(percentualPorConta([5000], 100), [5000]);
+  assert.equal(percentualPorConta([5000], 101), null);
+  assert.equal(percentualPorConta([5000], Number.NaN), null);
+});

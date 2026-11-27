@@ -270,6 +270,11 @@ body.light-theme .lote-bordero-folha input { color-scheme: light; }
   font-weight: 600;
   color: var(--status-red);
 }
+.lote-ajuda-campo {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
 .lote-opcao {
   display: flex;
   align-items: flex-start;

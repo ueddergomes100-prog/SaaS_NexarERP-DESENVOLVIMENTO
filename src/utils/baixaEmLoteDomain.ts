@@ -106,3 +106,36 @@ export const resumoDoLote = (itens: readonly ItemDoResumo[]): ResumoDoLote => {
   const descontoCentavos = itens.reduce((soma, item) => soma + Math.max(0, Math.round(item.ajustes?.descontoCentavos || 0)), 0);
   return { quantidade: itens.length, valorCentavos, acrescimoCentavos, descontoCentavos, totalCentavos: valorCentavos + acrescimoCentavos - descontoCentavos };
 };
+
+/*
+ * DESCONTO GERAL NA BAIXA EM LOTE (27/11/2026, pedido do dono: "selecionar todas as
+ * contas do cliente e dar desconto geral, em vez de ir notinha por notinha"). O
+ * desconto e' repartido entre as contas na proporcao do valor de cada uma, em
+ * centavos, sem sobra nem falta (o resto vai para as maiores fracoes). Nenhuma conta
+ * recebe desconto maior que o proprio valor. Depois, da' para mexer conta por conta.
+ */
+
+/** Reparte `totalCentavos` pelos valores. null = desconto invalido (maior que a soma ou negativo). */
+export const ratearDescontoGeral = (valoresCentavos: readonly number[], totalCentavos: number): number[] | null => {
+  const valores = valoresCentavos.map((v) => Math.max(0, Math.round(Number(v) || 0)));
+  const soma = valores.reduce((a, b) => a + b, 0);
+  const total = Math.round(Number(totalCentavos) || 0);
+  if (total < 0 || total > soma) return null;
+  if (total === 0 || soma === 0) return valores.map(() => 0);
+  const exatos = valores.map((v) => (v * total) / soma);
+  const partes = exatos.map((e) => Math.floor(e));
+  let falta = total - partes.reduce((a, b) => a + b, 0);
+  const ordem = exatos.map((e, i) => ({ i, fracao: e - Math.floor(e) })).sort((a, b) => b.fracao - a.fracao || valores[b.i] - valores[a.i]);
+  for (const { i } of ordem) {
+    if (falta <= 0) break;
+    if (partes[i] < valores[i]) { partes[i] += 1; falta -= 1; }
+  }
+  return partes;
+};
+
+/** Percentual (0 a 100) aplicado em cada conta; null = percentual invalido. */
+export const descontoPercentualPorConta = (valoresCentavos: readonly number[], percentual: number): number[] | null => {
+  const p = Number(percentual);
+  if (!Number.isFinite(p) || p < 0 || p > 100) return null;
+  return valoresCentavos.map((v) => Math.round((Math.max(0, Math.round(Number(v) || 0)) * p) / 100));
+};

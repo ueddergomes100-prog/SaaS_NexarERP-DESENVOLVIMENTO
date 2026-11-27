@@ -15,7 +15,9 @@ import {
 } from '../../utils/ajustesDaBaixaDomain';
 import {
   baixaEmLoteExigeBanco,
+  descontoPercentualPorConta,
   FORMAS_DA_BAIXA_EM_LOTE,
+  ratearDescontoGeral,
   resumoDoLote,
   type TipoDoLote,
 } from '../../utils/baixaEmLoteDomain';
@@ -254,6 +256,34 @@ export const BaixaEmLoteModal: React.FC<{
       return [i.id, { ...(atual[i.id] || sugerido), juros: sugerido.juros, multa: sugerido.multa }];
     })));
   };
+  // Desconto geral (27/11/2026): reparte um valor (ou %) entre as contas, pelo valor de cada uma.
+  const [descontoGeral, setDescontoGeral] = useState('');
+  const [descontoEmPercentual, setDescontoEmPercentual] = useState(false);
+  const [erroDescontoGeral, setErroDescontoGeral] = useState('');
+  const aplicarDescontoGeral = () => {
+    const valores = itens.map((i) => i.valorCentavos);
+    let partes: number[] | null;
+    if (descontoEmPercentual) {
+      const percentual = Number(String(descontoGeral).replace(',', '.').trim());
+      partes = descontoGeral.trim() && Number.isFinite(percentual) ? descontoPercentualPorConta(valores, percentual) : null;
+      if (!partes) { setErroDescontoGeral('Informe a porcentagem de 0 a 100 (ex.: 10 ou 7,5).'); return; }
+    } else {
+      const total = centavosDoCampo(descontoGeral);
+      partes = total === null ? null : ratearDescontoGeral(valores, total);
+      if (!partes) {
+        setErroDescontoGeral(total === null
+          ? 'Valor do desconto digitado errado. Use reais com vírgula, ex.: 25,00.'
+          : `O desconto não pode passar do valor das contas (${reais(valores.reduce((a, b) => a + b, 0))}).`);
+        return;
+      }
+    }
+    setErroDescontoGeral('');
+    const porConta = partes;
+    setCampos((atual) => Object.fromEntries(itens.map((i, indice) => [
+      i.id,
+      { ...(atual[i.id] || { juros: '', multa: '', desconto: '' }), desconto: textoDoCampo(porConta[indice]) },
+    ])));
+  };
   const [erros, setErros] = useState<{ forma?: string; data?: string; banco?: string }>({});
   const [erroGeral, setErroGeral] = useState('');
   const [etapa, setEtapa] = useState<Etapa>('preencher');
@@ -443,6 +473,50 @@ export const BaixaEmLoteModal: React.FC<{
                   Calculado conta por conta pelos parâmetros da filial; dá para mudar no borderô. Entra como lançamento "Juros e multa" junto de cada baixa.
                 </span>
               </label>
+            )}
+
+            {podeDescontar && itens.length > 1 && (
+              <div className="lote-campo">
+                <label htmlFor="lote-desconto-geral">Desconto geral</label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                  <div role="group" aria-label="Desconto em reais ou em porcentagem" style={{ display: 'flex', borderRadius: '999px', overflow: 'hidden', border: '1px solid var(--border-color)', flexShrink: 0 }}>
+                    {([['R$', false], ['%', true]] as const).map(([rotulo, emPercentual]) => (
+                      <button
+                        key={rotulo}
+                        type="button"
+                        aria-pressed={descontoEmPercentual === emPercentual}
+                        disabled={bloqueado}
+                        onClick={() => { setDescontoEmPercentual(emPercentual); setErroDescontoGeral(''); }}
+                        style={{
+                          border: 'none', padding: '0 12px', fontWeight: 700, fontSize: '13px', cursor: bloqueado ? 'default' : 'pointer',
+                          background: descontoEmPercentual === emPercentual ? 'var(--accent-purple)' : 'transparent',
+                          color: descontoEmPercentual === emPercentual ? '#fff' : 'var(--text-secondary)',
+                        }}
+                      >
+                        {rotulo}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    id="lote-desconto-geral"
+                    type="text"
+                    inputMode="decimal"
+                    value={descontoGeral}
+                    disabled={bloqueado}
+                    aria-invalid={Boolean(erroDescontoGeral)}
+                    aria-describedby={erroDescontoGeral ? 'lote-desconto-geral-erro' : 'lote-desconto-geral-ajuda'}
+                    onChange={(e) => { setDescontoGeral(e.target.value); setErroDescontoGeral(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); aplicarDescontoGeral(); } }}
+                    style={{ flex: 1, minWidth: 0 }}
+                  />
+                  <button type="button" className="btn-secondary" disabled={bloqueado || !descontoGeral.trim()} onClick={aplicarDescontoGeral} style={{ whiteSpace: 'nowrap' }}>
+                    Aplicar nas contas
+                  </button>
+                </div>
+                {erroDescontoGeral
+                  ? <span id="lote-desconto-geral-erro" className="lote-erro-campo">{erroDescontoGeral}</span>
+                  : <span id="lote-desconto-geral-ajuda" className="lote-ajuda-campo">Reparte o desconto entre as contas, pelo valor de cada uma. Depois dá para ajustar conta por conta no borderô.</span>}
+              </div>
             )}
 
             <p className="lote-ajuda">

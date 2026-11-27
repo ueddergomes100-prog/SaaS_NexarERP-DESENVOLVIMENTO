@@ -51,6 +51,10 @@ interface PaymentModalProps {
   configBancoPadrao?: ConfigBancoPadrao;
   /** Pre-venda com a forma escolhida pelo vendedor no app (25/11/2026): o pagamento ja' abre nela. */
   formaInicial?: string;
+  /** A venda tem cliente identificado (nao o consumidor final)? A prazo so' vale com ele. */
+  clienteIdentificado?: boolean;
+  /** Escolheu "Pagamento a Prazo" sem cliente (28/11/2026): o caixa abre a escolha do cliente na hora. */
+  onAPrazoSemCliente?: () => void;
   onClose: () => void;
   /** Os pagamentos chegam SEM o troco (somam o total); o troco vem a parte, so' para avisar. */
   onFinalize: (drafts: PaymentDraft[], observation: string, trocoCentavos: number) => void;
@@ -82,6 +86,8 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   aPrazoAtivo = false,
   configBancoPadrao,
   formaInicial = '',
+  clienteIdentificado = true,
+  onAPrazoSemCliente,
   onClose,
   onFinalize,
 }) => {
@@ -241,7 +247,11 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 <span>Forma</span>
                 <select
                   value={draft.forma}
-                  onChange={(event) => updateDraft(draft.id, { forma: event.target.value as PaymentMethod })}
+                  onChange={(event) => {
+                    const forma = event.target.value as PaymentMethod;
+                    updateDraft(draft.id, { forma });
+                    if (forma === FORMA_A_PRAZO && !clienteIdentificado) onAPrazoSemCliente?.();
+                  }}
                 >
                   {formas.map((method) => (
                     <option key={method} value={method}>{method}</option>

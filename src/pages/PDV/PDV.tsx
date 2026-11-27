@@ -2222,6 +2222,11 @@ const PDV: React.FC = () => {
   useEffect(() => {
     const handleShortcuts = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        // Cliente aberto por cima do pagamento (a prazo): o Esc fecha so' a escolha do cliente.
+        if (clientModalOpen && paymentModalOpen) {
+          setClientModalOpen(false);
+          return;
+        }
         if (paymentModalOpen || discountModalOpen || clientModalOpen || preVendasModalOpen || vendasModalOpen || relatorioModalOpen) {
           setPaymentModalOpen(false);
           setDiscountModalOpen(false);
@@ -2442,14 +2447,6 @@ const PDV: React.FC = () => {
         </main>
       )}
 
-      <ClientModal
-        open={clientModalOpen}
-        clients={clients}
-        selectedClient={selectedClient}
-        onClose={() => setClientModalOpen(false)}
-        onSelect={setSelectedClient}
-      />
-
       <RelatorioDoCaixaModal
         open={relatorioModalOpen}
         carregar={carregarRelatorioParcial}
@@ -2503,8 +2500,26 @@ const PDV: React.FC = () => {
         formaInicial={preVenda?.formaDoVendedor || ''}
         observacaoInicial={preVenda?.observacao || ''}
         rotuloFinalizar={preVenda ? 'Receber e faturar' : undefined}
+        clienteIdentificado={preVenda ? Boolean(preVenda.clienteId) : Boolean(selectedClient && !selectedClient.isPadrao)}
+        onAPrazoSemCliente={() => {
+          // Venda a prazo pede o cliente (28/11/2026): abre a escolha na hora, por cima do pagamento.
+          if (preVenda) {
+            showWarning(`A pré-venda #${preVenda.numeroPedido} está sem cliente identificado, e a prazo só vale com cliente. Escolha outra forma, ou acerte o cliente da pré-venda no Pedido de Venda.`);
+            return;
+          }
+          setClientModalOpen(true);
+        }}
         onClose={() => setPaymentModalOpen(false)}
         onFinalize={finalizeSale}
+      />
+
+      {/* Depois do pagamento (28/11/2026): quando abre pelo "a prazo", fica por cima dele. */}
+      <ClientModal
+        open={clientModalOpen}
+        clients={clients}
+        selectedClient={selectedClient}
+        onClose={() => setClientModalOpen(false)}
+        onSelect={setSelectedClient}
       />
 
       <VendasDoCaixaModal

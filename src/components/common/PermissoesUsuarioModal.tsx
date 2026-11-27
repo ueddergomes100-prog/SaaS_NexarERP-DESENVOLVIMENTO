@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Shield, Loader2, Save, Search } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
+import { X, Shield, Loader2, Save, Search, Copy } from 'lucide-react';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { showSuccess, showError } from '../../utils/alerts';
+import { showSuccess, showError, showWarning } from '../../utils/alerts';
+import { permissoesCopiadas, permissoesForaDoAlcance, rotuloDoUsuarioParaCopiar, usuariosParaCopiar } from '../../utils/copiaDePermissoesDomain';
 import { useEscapeLayer } from '../../hooks/useKeyboardFlow';
 import SeletorTodas from './SeletorTodas';
 import {
@@ -78,6 +79,9 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
   const [papelDoUsuario, setPapelDoUsuario] = useState('');
   const [filialPadrao, setFilialPadrao] = useState('');
   const [filialPadraoOriginal, setFilialPadraoOriginal] = useState('');
+  // Copiar de outro usuario (27/11/2026): so' preenche a janela; vale ao salvar (pelo servidor).
+  const [outrosUsuarios, setOutrosUsuarios] = useState<Array<Record<string, any> & { id: string }>>([]);
+  const [copiarDeId, setCopiarDeId] = useState('');
 
   useEscapeLayer(true, onClose);
 
@@ -112,6 +116,30 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
     };
     carregar();
   }, [usuarioId, semFiliais]);
+
+  useEffect(() => {
+    if (!tenantId) return undefined;
+    let ativo = true;
+    getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)))
+      .then((snap) => {
+        if (!ativo) return;
+        const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setOutrosUsuarios(usuariosParaCopiar(lista, { donoId: tenantId, destinoId: usuarioId }));
+      })
+      .catch((erro) => console.error('Permissões: não foi possível listar os usuários para copiar.', erro));
+    return () => { ativo = false; };
+  }, [tenantId, usuarioId]);
+
+  const copiarDeOutro = () => {
+    const origem = outrosUsuarios.find((u) => u.id === copiarDeId);
+    if (!origem) return;
+    const daOrigem = permissoesEfetivasDoUsuario(origem.permissoes || [], origem.nivelAcesso, { semFiliais, papel: origem.role });
+    setPermissoes((atuais) => permissoesCopiadas({ atuais, daOrigem, podeMexer }));
+    if (podeNivel) setNivelAcesso(parseNivelAcesso(nivelAcessoEfetivo(origem.nivelAcesso, origem.role, origem.permissoes)));
+    const fora = permissoesForaDoAlcance(daOrigem, podeMexer);
+    const nome = String(origem.nome || 'o usuário escolhido');
+    showWarning(`Permissões${podeNivel ? ' e nível de acesso' : ''} de ${nome} copiadas para a tela. Confira e clique em Salvar.${fora > 0 ? ` ${fora} permissão(ões) de ${nome} ficaram de fora: você não pode liberar o que não tem.` : ''}`);
+  };
 
   const toggle = (id: string) => {
     if (!podeMexer(id)) return;
@@ -256,6 +284,34 @@ const PermissoesUsuarioModal: React.FC<PermissoesUsuarioModalProps> = ({ usuario
               : 'O nível só decide quais vendas a pessoa enxerga, e hoje ele não muda nada: a opção "Não visualizar vendas de outro usuário" está desligada em Configurações → Configurações da filial → Configurações Avançadas.'}
           </p>
         </div>
+
+        {outrosUsuarios.length > 0 && (
+          <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <label htmlFor="copiar-permissoes-de" style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Copiar de outro usuário
+              </label>
+              <select
+                id="copiar-permissoes-de"
+                value={copiarDeId}
+                onChange={(e) => setCopiarDeId(e.target.value)}
+                disabled={isLoading}
+                style={{ flex: '1 1 220px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '13px' }}
+              >
+                <option value="">Escolha de quem copiar</option>
+                {outrosUsuarios.map((u) => (
+                  <option key={u.id} value={u.id}>{rotuloDoUsuarioParaCopiar(u)}</option>
+                ))}
+              </select>
+              <button type="button" className="btn-secondary" onClick={copiarDeOutro} disabled={isLoading || !copiarDeId} style={{ display: 'flex', alignItems: 'center', gap: '6px', opacity: copiarDeId ? 1 : 0.5 }}>
+                <Copy size={15} aria-hidden="true" /> Copiar
+              </button>
+            </div>
+            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+              Copia as permissões e o nível de acesso para esta janela; as regras de comissão não mudam. Só vale depois de clicar em Salvar.
+            </p>
+          </div>
+        )}
 
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: (isLoading || !podeApp) ? 'default' : 'pointer', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', opacity: podeApp ? 1 : 0.6 }}>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserCog, Plus, Search, Edit2, Power, Shield, FileText } from 'lucide-react';
+import { UserCog, Plus, Search, Edit2, Power, Shield, FileText, Copy } from 'lucide-react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -374,6 +374,18 @@ const UsuariosList: React.FC = () => {
                         )}
                         {!isTenantManagerRole(user.role) && (
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            {/* Duplicar (27/11/2026): funcionario novo ja' com as permissoes deste; muda nome, usuario, senha e codigo. */}
+                            {podeCriarUsuario && podeGerenciarPermissoes && (
+                              <button
+                                className="icon-btn"
+                                style={{ color: '#10b981' }}
+                                onClick={() => openTab(`/usuarios/novo?copiarDe=${user.id}`, 'Novo usuário')}
+                                title={`Duplicar: criar um usuário novo já com as permissões de ${user.nome || 'este usuário'}`}
+                                aria-label={`Duplicar ${user.nome || 'usuário'}`}
+                              >
+                                <Copy size={18} />
+                              </button>
+                            )}
                             {podeGerenciarPermissoes && (canManageUsers || (ehAdministrador ? user.id !== tenantId : alvoComum(user))) && (
                               <button
                                 className="icon-btn"

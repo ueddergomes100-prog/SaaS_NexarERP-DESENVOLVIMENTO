@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Save, UserCog, AlertCircle } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { collection, doc, getDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -29,7 +29,11 @@ import {
   PIN_VENDEDOR_MIN_DIGITOS,
 } from '../../utils/vendedorPinDomain';
 import { definirPinVendedor, VendedorPinError } from '../../services/vendedorPinService';
-import { criarLoginNoServidor, redefinirSenhaAcesso, salvarFichaNoServidor, UsuarioAcessoError, vincularMotoristaNoServidor } from '../../services/usuarioAcessoService';
+import { alterarAcessoAppNoServidor, criarLoginNoServidor, redefinirSenhaAcesso, salvarFichaNoServidor, salvarPermissoesNoServidor, UsuarioAcessoError, vincularMotoristaNoServidor } from '../../services/usuarioAcessoService';
+import { permissoesCopiadas, rotuloDoUsuarioParaCopiar, usuariosParaCopiar } from '../../utils/copiaDePermissoesDomain';
+import { nivelAcessoEfetivo, permissoesEfetivasDoUsuario } from '../../utils/permissoesNovasDomain';
+import { parseNivelAcesso } from '../../utils/visibilidadeVendasDomain';
+import { permissaoForaDoPlano } from '../../utils/permissaoModuloDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isRegistroComLogin } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_ADMINISTRACAO } from '../../utils/permissoesNovasDomain';
@@ -39,12 +43,59 @@ const UsuarioForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
-  const { tenantId, currentUser, grupo, userRole, isOwner, userPermissions } = useAuth();
+  const { tenantId, currentUser, grupo, userRole, isOwner, userPermissions, blockedModules } = useAuth();
   // Item 15 (fase Administracao, 25/11/2026): sem ser o dono/administrador, a ficha pede
   // "Admin: Equipe — alterar a ficha" e as senhas pedem "Admin: Equipe — trocar a senha".
   const gestorDaEquipe = hasTenantFullAccess(userRole, Boolean(isOwner));
   const podeFicha = !isEditing || gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeEditar);
   const podeSenha = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeSenha);
+  // Funcionario novo com as permissoes de outro (27/11/2026): "Duplicar" na lista abre com ?copiarDe=id.
+  const podeCopiarPermissoes = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipePermissoes);
+  const [searchParams] = useSearchParams();
+  const [copiarDeId, setCopiarDeId] = useState(() => searchParams.get('copiarDe') || '');
+  const [usuariosParaCopiarDe, setUsuariosParaCopiarDe] = useState<Array<Record<string, any> & { id: string }>>([]);
+  useEffect(() => {
+    if (isEditing || !podeCopiarPermissoes || !tenantId) return undefined;
+    let ativo = true;
+    getDocs(query(collection(db, 'usuarios'), where('tenantId', '==', tenantId)))
+      .then((snap) => {
+        if (ativo) setUsuariosParaCopiarDe(usuariosParaCopiar(snap.docs.map((d) => ({ id: d.id, ...d.data() })), { donoId: tenantId }));
+      })
+      .catch((erro) => console.error('Novo usuário: não foi possível listar os usuários para copiar.', erro));
+    return () => { ativo = false; };
+  }, [isEditing, podeCopiarPermissoes, tenantId]);
+
+  /**
+   * Depois de criar o login: grava as permissoes e o nivel da origem pelo servidor (a mesma
+   * rota da janela de permissoes, que confere quem pode dar o que) e liga o app se a origem
+   * usa. Devolve a frase do que nao deu certo ('' quando deu tudo certo).
+   */
+  const copiarPermissoesParaNovo = async (novoId: string, appJaLigado: boolean): Promise<string> => {
+    const origem = usuariosParaCopiarDe.find((u) => u.id === copiarDeId);
+    if (!origem) return '';
+    const nomeOrigem = String(origem.nome || 'o usuário escolhido');
+    const daOrigem = permissoesEfetivasDoUsuario(origem.permissoes || [], origem.nivelAcesso, { semFiliais: !grupo, papel: origem.role });
+    const podeMexer = (permissao: string) => !permissaoForaDoPlano(permissao, blockedModules) && (gestorDaEquipe || userPermissions.includes(permissao));
+    const podeNivel = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeNivel);
+    try {
+      await salvarPermissoesNoServidor(
+        novoId,
+        permissoesCopiadas({ atuais: [], daOrigem, podeMexer }),
+        podeNivel ? parseNivelAcesso(nivelAcessoEfetivo(origem.nivelAcesso, origem.role, origem.permissoes)) : undefined,
+      );
+    } catch (erro) {
+      return `As permissões de ${nomeOrigem} não foram copiadas: ${erro instanceof Error && erro.message ? erro.message : 'o servidor não respondeu.'} Abra as permissões do usuário novo e use "Copiar de outro usuário".`;
+    }
+    const podeApp = gestorDaEquipe || userPermissions.includes(PERMISSAO_ADMINISTRACAO.equipeApp);
+    if (origem.acessoAppMobile === true && podeApp && !appJaLigado) {
+      try {
+        await alterarAcessoAppNoServidor(novoId, true);
+      } catch (erro) {
+        return `Permissões de ${nomeOrigem} copiadas, mas o aplicativo não foi liberado: ${erro instanceof Error && erro.message ? erro.message : 'tente de novo nas permissões do usuário.'}`;
+      }
+    }
+    return '';
+  };
   
   const [formData, setFormData] = useState({
     nome: '',
@@ -372,12 +423,16 @@ const UsuarioForm: React.FC = () => {
         ...(ehMotorista ? { motorista: { telefone: dadosMotorista.telefone.trim(), cnh: dadosMotorista.cnh.trim() } } : {}),
       });
 
-      if (criado.motorista && !criado.appLiberado) {
+      const falhaDaCopia = copiarDeId ? await copiarPermissoesParaNovo(criado.uid, criado.appLiberado === true) : '';
+      if (falhaDaCopia) {
+        showWarning(`Usuário criado. ${falhaDaCopia}`);
+      } else if (criado.motorista && !criado.appLiberado) {
         showWarning(`Usuário criado e cadastrado como motorista (já aparece nas rotas). O aplicativo não foi liberado: a empresa já usa as ${criado.limiteApp ?? ''} vagas do app contratadas. Libere uma vaga em Equipe e Acessos ou fale com o suporte para aumentar o plano.`);
       } else if (criado.avisoCodigo) {
         showWarning(`Usuário criado. ${criado.avisoCodigo}`);
       } else {
-        showSuccess(criado.motorista ? 'Usuário criado como motorista: já aparece nas rotas e no aplicativo.' : 'Usuário criado com sucesso!');
+        const nomeDaOrigem = copiarDeId ? String(usuariosParaCopiarDe.find((u) => u.id === copiarDeId)?.nome || '') : '';
+        showSuccess(criado.motorista ? 'Usuário criado como motorista: já aparece nas rotas e no aplicativo.' : nomeDaOrigem ? `Usuário criado com as permissões de ${nomeDaOrigem}.` : 'Usuário criado com sucesso!');
       }
       navigate('/usuarios');
     } catch (error) {
@@ -490,6 +545,26 @@ const UsuarioForm: React.FC = () => {
             </div>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
               É a senha que ele usa pra entrar no sistema (junto com o CNPJ e o usuário) -- diferente da senha do vendedor abaixo, usada só na identificação da venda.
+            </span>
+          </div>
+        )}
+
+        {!isEditing && podeCopiarPermissoes && usuariosParaCopiarDe.length > 0 && (
+          <div className="input-group" style={{ gridColumn: 'span 12' }}>
+            <label htmlFor="copiar-permissoes-novo">Copiar permissões de</label>
+            <select
+              id="copiar-permissoes-novo"
+              value={copiarDeId}
+              onChange={(e) => setCopiarDeId(e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="">Nenhum (o usuário nasce sem permissões)</option>
+              {usuariosParaCopiarDe.map((u) => (
+                <option key={u.id} value={u.id}>{rotuloDoUsuarioParaCopiar(u)}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              O usuário novo já nasce com as permissões, o nível de acesso e o aplicativo (se houver vaga) de quem você escolher. Nome, usuário, senha e código são os que você preencher aqui; as regras de comissão não são copiadas.
             </span>
           </div>
         )}

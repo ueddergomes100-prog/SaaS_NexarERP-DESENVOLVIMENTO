@@ -10,7 +10,7 @@ import { DOCUMENTOS_DE_COBRANCA, EMISSAO_DOCUMENTOS_PADRAO, MODOS_DE_EMISSAO, VI
 import { ajustarNumeracao, listarNumeracao } from '../../services/numeracaoService';
 import type { SituacaoDaSequencia } from '../../utils/numeracaoDomain';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Copy, Tractor, Building2, Scale, ClipboardList } from 'lucide-react';
+import { Save, Store, FileText, Loader2, Edit2, CheckCircle, Bell, ChevronDown, ChevronUp, Shield, ListTree, Plus, X, Sliders, LayoutTemplate, Camera, MessageCircle, CreditCard, CalendarClock, Eye, EyeOff, Tractor, Building2, Scale, ClipboardList } from 'lucide-react';
 import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { salvarConfiguracoesGerais } from '../../services/filialService';
@@ -468,7 +468,6 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedUserPermissions, setSelectedUserPermissions] = useState<string[]>([]);
   const [selectedUserNivelAcesso, setSelectedUserNivelAcesso] = useState<NivelAcesso>(DEFAULT_NIVEL_ACESSO);
-  const [copiarPermissoesDeId, setCopiarPermissoesDeId] = useState('');
   const [recebeComissaoServicos, setRecebeComissaoServicos] = useState(false);
   // String, nao number: percentual em branco != percentual zero -- em
   // branco cai pra comissao padrao do sistema (ver resolveComissaoPercentual
@@ -1617,7 +1616,6 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
   const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const uId = e.target.value;
     setSelectedUserId(uId);
-    setCopiarPermissoesDeId('');
     if (uId) {
       const user = tenantUsers.find(u => u.id === uId);
       // Papel (troca do administrador, 25/11/2026): administrador que o dono ainda nao salvou aparece com todas.
@@ -1635,19 +1633,6 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       setRecebeComissaoPecas(false);
       setComissaoPercentualPecas('');
     }
-  };
-
-  /** So copia permissoes + nivel de acesso -- comissao e' remuneracao
-   * pessoal, nao "acesso", entao fica de fora (pedido do usuario,
-   * 2026-08-27). Nao salva sozinho: so preenche a tela, o admin ainda
-   * revisa e clica em "Salvar Acessos" pra confirmar. */
-  const handleCopiarPermissoes = () => {
-    if (!copiarPermissoesDeId) return;
-    const origem = tenantUsers.find(u => u.id === copiarPermissoesDeId);
-    if (!origem) return;
-    setSelectedUserPermissions(permissoesEfetivas(origem.permissoes || [], origem.nivelAcesso, { semFiliais: !grupo, papel: origem.role }));
-    setSelectedUserNivelAcesso(parseNivelAcesso(nivelAcessoEfetivo(origem.nivelAcesso, origem.role, origem.permissoes)));
-    showWarning('Permissões copiadas', `Permissões e nível de acesso de ${origem.nome} copiados para a tela. Revise e clique em "Salvar Acessos" para confirmar.`);
   };
 
   const togglePermission = (perm: string) => {
@@ -4953,34 +4938,11 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                 </select>
               </div>
 
+              {/* Copiar permissoes de outro usuario: foi para Usuarios (janela de permissoes, usuario novo e Duplicar), 27/11/2026. */}
               {selectedUserId && selectedUserId !== tenantId && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: 'var(--bg-secondary)', padding: '16px 20px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                  <label style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>Copiar permissões de outro usuário</label>
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <select
-                      value={copiarPermissoesDeId}
-                      onChange={(e) => setCopiarPermissoesDeId(e.target.value)}
-                      style={{ flex: '1 1 220px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 14px', color: 'var(--text-primary)' }}
-                    >
-                      <option value="">-- Escolha o usuário de origem --</option>
-                      {tenantUsers.filter(u => u.id !== selectedUserId).map(u => (
-                        <option key={u.id} value={u.id}>{u.nome} ({u.username})</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={handleCopiarPermissoes}
-                      disabled={!copiarPermissoesDeId}
-                      style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: copiarPermissoesDeId ? 1 : 0.5 }}
-                    >
-                      <Copy size={16} /> Copiar
-                    </button>
-                  </div>
-                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                    Copia as permissões (Módulos Permitidos) e o Nível de Acesso do usuário escolhido pra este. Não mexe nas regras de comissão. Só preenche a tela — clique em "Salvar Acessos" pra confirmar.
-                  </p>
-                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                  Para copiar as permissões de outro usuário, use Administração › Usuários: botão de permissões (Copiar de outro usuário) ou Duplicar.
+                </p>
               )}
 
               {selectedUserId && (

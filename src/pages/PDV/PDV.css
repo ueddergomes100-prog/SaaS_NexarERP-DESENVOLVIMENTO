@@ -1700,3 +1700,42 @@
 }
 .pdv-receber-desconto small { font-size: 12px; color: var(--text-muted); }
 .pdv-receber-desconto small.warn { color: #f59e0b; font-weight: 600; }
+
+/* Topo numa linha so' (27/11/2026): botao nunca quebra o texto em duas linhas;
+   quem encolhe e' o status do caixa, com reticencias. */
+.pdv-topbar-button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pdv-window-actions {
+  min-width: 0;
+}
+.pdv-status {
+  min-width: 0;
+  flex-shrink: 1;
+}
+.pdv-status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdv-topbar {
+  position: relative;
+  z-index: 20; /* o menu "Mais opcoes" abre por cima do cupom */
+}
+.pdv-topbar [role='menu'] {
+  color: var(--text-primary);
+}
+
+/* Caixa sem texto marcado de azul (27/11/2026, pedido do dono): clicar e
+   arrastar na tela do caixa nao seleciona nada; dentro dos campos de digitar
+   continua selecionando normalmente. */
+.pdv-shell {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.pdv-shell input,
+.pdv-shell textarea,
+.pdv-shell [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+}

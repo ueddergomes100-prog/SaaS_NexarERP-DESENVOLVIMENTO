@@ -90,6 +90,7 @@ import PdvSummary from './components/PdvSummary';
 import ProductSearch from './components/ProductSearch';
 import SangriaModal from './components/SangriaModal';
 import SuprimentoModal from './components/SuprimentoModal';
+import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import PreVendasModal from './components/PreVendasModal';
 import VersaoDoSistema from '../../components/common/VersaoDoSistema';
 import { mostrarAlertaDoCliente } from '../../components/common/AlertaDoCliente';
@@ -2442,27 +2443,22 @@ const PDV: React.FC = () => {
                   <ClipboardList size={16} aria-hidden="true" /> Pré-vendas
                 </button>
               )}
-              <button type="button" className="pdv-topbar-button" onClick={() => setVendasModalOpen(true)} title="Ver as vendas deste caixa e reimprimir o cupom (F9)">
-                <History size={16} aria-hidden="true" /> Vendas
-              </button>
-              {podeRelatorioDoCaixa && (
-                <button type="button" className="pdv-topbar-button" onClick={abrirRelatorioDoCaixa} title="Ver e imprimir o que já passou pelo caixa (vendas, dinheiro e sangrias), sem fechar (F10)">
-                  <FileText size={16} aria-hidden="true" /> Relatório
-                </button>
-              )}
-              <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
-                <Banknote size={16} aria-hidden="true" /> Sangria
-              </button>
-              {podeSuprimento && (
-                <button type="button" className="pdv-topbar-button" onClick={() => setSuprimentoModalOpen(true)} title="Registrar suprimento (dinheiro colocado na gaveta: reforço de troco, dinheiro do cofre)">
-                  <PlusCircle size={16} aria-hidden="true" /> Suprimento
-                </button>
-              )}
               {podeReceberConta && (
                 <button type="button" className="pdv-topbar-button" onClick={() => setReceberContaOpen(true)} title="Receber notinha do cliente (Contas a Receber) neste caixa">
                   <HandCoins size={16} aria-hidden="true" /> Receber conta
                 </button>
               )}
+              {/* Mais opcoes (27/11/2026, pedido do dono): o topo quebrava em duas
+                  linhas com o Suprimento. Os atalhos F9 e F10 continuam valendo. */}
+              <MenuMaisOpcoes
+                classeDoBotao="pdv-topbar-button"
+                itens={[
+                  { texto: 'Vendas deste caixa (F9)', Icone: History, titulo: 'Ver as vendas deste caixa e reimprimir o cupom', onClick: () => setVendasModalOpen(true) },
+                  { texto: 'Relatório do caixa (F10)', Icone: FileText, oculto: !podeRelatorioDoCaixa, titulo: 'Ver e imprimir o que já passou pelo caixa (vendas, dinheiro e sangrias), sem fechar', onClick: () => { void abrirRelatorioDoCaixa(); } },
+                  { texto: 'Sangria', Icone: Banknote, separadorAntes: true, titulo: 'Registrar sangria (dinheiro tirado da gaveta)', onClick: () => setSangriaModalOpen(true) },
+                  { texto: 'Suprimento', Icone: PlusCircle, oculto: !podeSuprimento, titulo: 'Registrar suprimento (dinheiro colocado na gaveta: reforço de troco, dinheiro do cofre)', onClick: () => setSuprimentoModalOpen(true) },
+                ]}
+              />
               <button
                 type="button"
                 className="pdv-topbar-button"

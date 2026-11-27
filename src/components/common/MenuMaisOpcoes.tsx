@@ -31,11 +31,13 @@ interface MenuMaisOpcoesProps {
   rotulo?: string;
   /** So' o icone "⋯" (para a linha de uma tabela); o rotulo vira a dica. */
   compacto?: boolean;
+  /** Classe do botao quando a tela tem botao proprio (topo roxo da Frente de Caixa, 27/11/2026). */
+  classeDoBotao?: string;
 }
 
 const LARGURA_MINIMA_MENU = 250;
 
-const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais opções', compacto = false }) => {
+const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais opções', compacto = false, classeDoBotao }) => {
   const [aberto, setAberto] = useState(false);
   // O menu abre alinhado pela direita do botao; quando o botao fica colado na
   // esquerda (celular, topo quebrado em linhas) nao cabe e sairia cortado
@@ -71,7 +73,7 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
     <div ref={ref} style={{ position: 'relative' }}>
       <button
         type="button"
-        className={compacto ? 'icon-btn' : 'btn-secondary'}
+        className={classeDoBotao || (compacto ? 'icon-btn' : 'btn-secondary')}
         aria-haspopup="menu"
         aria-expanded={aberto}
         aria-label={compacto ? rotulo : undefined}
@@ -93,7 +95,7 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
           }
           setAberto((atual) => !atual);
         }}
-        style={compacto
+        style={classeDoBotao ? undefined : compacto
           ? { padding: '8px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }
           : { display: 'flex', alignItems: 'center', gap: '8px' }}
       >

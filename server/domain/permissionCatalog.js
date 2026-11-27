@@ -43,6 +43,7 @@ exports.PERMISSION_GROUPS = [
             { id: 'app.clientes', label: 'App: Consultar Cliente', color: '#8b5cf6' },
             // 27/11/2026: o saldo em aberto do cliente na consulta. Vem marcada com a de cima (pacote 'app-1').
             { id: 'app.debito_cliente', label: 'App: Ver o débito do cliente (saldo em aberto na consulta do cliente)', color: '#8b5cf6' },
+            { id: 'app.compras_cliente', label: 'App: Ver as compras do cliente (vendas e produtos na consulta do cliente)', color: '#8b5cf6' },
             // Nao vem marcada para ninguem (25/11/2026): sem ela, quem decide o destino do
             // valor da devolucao e' o escritorio, na confirmacao. Conferida no servidor.
             { id: 'app.devolucao_destino', label: 'App: Devolução — escolher para onde vai o valor (crédito, caixa ou banco)', color: '#ef4444' },
@@ -234,6 +235,7 @@ exports.PERMISSION_GROUPS = [
             { id: 'cadastros.clientes_inativar', label: 'Cadastros: Clientes — inativar e excluir', color: '#ef4444' },
             { id: 'cadastros.clientes_importar', label: 'Cadastros: Clientes — importar planilha e histórico do sistema anterior', color: '#8b5cf6' },
             { id: 'cadastros.clientes_limite_credito', label: 'Cadastros: Clientes — alterar limite de crédito', color: '#ef4444' },
+            { id: 'cadastros.clientes_compras', label: 'Cadastros: Clientes — ver as compras do cliente na ficha (vendas, total e produtos)', color: '#8b5cf6' },
             { id: 'cadastros.fornecedores_alterar', label: 'Cadastros: Fornecedores — incluir e alterar', color: '#8b5cf6' },
             { id: 'cadastros.fornecedores_inativar', label: 'Cadastros: Fornecedores — inativar e excluir', color: '#ef4444' },
             { id: 'cadastros.fornecedores_importar', label: 'Cadastros: Fornecedores — importar planilha', color: '#8b5cf6' },

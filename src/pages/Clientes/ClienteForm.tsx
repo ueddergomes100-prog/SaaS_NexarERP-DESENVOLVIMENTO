@@ -6,6 +6,7 @@ import TravaDeEdicaoAviso from '../../components/common/TravaDeEdicaoAviso';
 import { ArrowLeft, Save, User, Loader2, MapPin, CreditCard, CheckCircle, TriangleAlert } from 'lucide-react';
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import ComprasSistemaAnterior from '../../components/clientes/ComprasSistemaAnterior';
+import ComprasDoCliente from '../../components/clientes/ComprasDoCliente';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
@@ -157,6 +158,8 @@ const ClienteForm: React.FC = () => {
   // Item 15 (25/11/2026): incluir/alterar e inativar com permissao propria (quem tem a tela ja'
   // tem marcadas). Inativar/excluir o servidor confere; incluir/alterar grava pelo navegador.
   const pode = usePodePermissao();
+  // Compras do cliente na ficha (27/11/2026): permissao propria, ja' marcada para quem abre Clientes (pacote 'clientes-1').
+  const podeVerCompras = pode(PERMISSAO_CADASTROS.clientesCompras);
   // Limite de credito protege a empresa: sem a permissao fica o gravado (cliente novo: em branco).
   const podeLimiteCredito = pode(PERMISSAO_CADASTROS.clientesLimiteCredito);
   /** Cadastro como estava ao abrir: o "antes" do Histórico de alterações. */
@@ -718,6 +721,8 @@ const ClienteForm: React.FC = () => {
               Última compra no sistema anterior: {dtUltimaCompraSistemaAntigo}
             </p>
           )}
+          {/* Vendas feitas no sistema para o cliente (27/11/2026). */}
+          {id && podeVerCompras && <ComprasDoCliente tenantId={tenantId} clienteId={id} />}
           {/* Ultimos pedidos do sistema antigo (migracao, 22/11/2026): so' consulta. */}
           {id && <ComprasSistemaAnterior tenantId={tenantId} clienteId={id} />}
 

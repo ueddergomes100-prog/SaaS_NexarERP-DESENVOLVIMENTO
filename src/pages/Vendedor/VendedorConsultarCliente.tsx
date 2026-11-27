@@ -5,6 +5,7 @@ import { collection, getDocs, limit, orderBy, query, where } from 'firebase/fire
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import ComprasSistemaAnterior from '../../components/clientes/ComprasSistemaAnterior';
+import ComprasDoCliente from '../../components/clientes/ComprasDoCliente';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { calcularSaldoEmAbertoClienteCents } from '../../utils/contasReceberQuery';
 import { buscarIdsClientesMaisFrequentes } from '../../services/vendedorRankingService';
@@ -16,7 +17,7 @@ import VendedorHeader from './VendedorHeader';
 import { cashbackDisponivelParaVenda, lerResumoCashback, parteDoSaldoVenceu, temDivida, textoDoSaldo } from '../../utils/cashbackDomain';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { podeCadastrarClienteNoApp, podeTelaDoApp } from './vendedorPermissoes';
-import { PERMISSAO_APP_DEBITO_CLIENTE } from '../../utils/permissoesAppDomain';
+import { PERMISSAO_APP_COMPRAS_CLIENTE, PERMISSAO_APP_DEBITO_CLIENTE } from '../../utils/permissoesAppDomain';
 
 interface ClienteVendedor extends SearchableClient {
   id: string;
@@ -52,6 +53,8 @@ const VendedorConsultarCliente: React.FC = () => {
   const { tenantId, userPermissions, grupo, configCashback, userRole, isOwner } = useAuth();
   // Debito do cliente (27/11/2026): permissao do app "Ver o debito do cliente"; sem ela o saldo nem e' lido.
   const podeVerDebito = podeTelaDoApp(PERMISSAO_APP_DEBITO_CLIENTE, userRole, isOwner, userPermissions);
+  // Compras do cliente (27/11/2026): total, ultima compra e o que mais leva (pacote 'clientes-1').
+  const podeVerCompras = podeTelaDoApp(PERMISSAO_APP_COMPRAS_CLIENTE, userRole, isOwner, userPermissions);
   const { items: clientes } = useTenantCollection<ClienteVendedor>('clientes', tenantId);
 
   const [busca, setBusca] = useState('');
@@ -301,6 +304,8 @@ const VendedorConsultarCliente: React.FC = () => {
                 ))
               )}
             </div>
+
+            {podeVerCompras && <ComprasDoCliente tenantId={tenantId} clienteId={selecionado?.id} compacto />}
 
             {/* Ultimos pedidos do sistema antigo (migracao, 22/11/2026): so' consulta. */}
             <ComprasSistemaAnterior tenantId={tenantId} clienteId={selecionado?.id} compacto />

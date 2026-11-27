@@ -1,5 +1,6 @@
 import {
   MARCADOR_APP_DEFINIDO,
+  PERMISSAO_APP_COMPRAS_CLIENTE,
   PERMISSAO_APP_DEBITO_CLIENTE,
   permissoesEfetivas as permissoesEfetivasDoApp,
   permissoesParaGravar as permissoesParaGravarDoApp,
@@ -224,6 +225,8 @@ export const PERMISSAO_CADASTROS = {
   clientesInativar: 'cadastros.clientes_inativar',
   clientesImportar: 'cadastros.clientes_importar',
   clientesLimiteCredito: 'cadastros.clientes_limite_credito',
+  /** Compras do cliente na ficha (27/11/2026); vem com a tela de Clientes (pacote 'clientes-1'). */
+  clientesCompras: 'cadastros.clientes_compras',
   fornecedoresAlterar: 'cadastros.fornecedores_alterar',
   fornecedoresInativar: 'cadastros.fornecedores_inativar',
   fornecedoresImportar: 'cadastros.fornecedores_importar',
@@ -560,6 +563,15 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
     id: 'app-1',
     implicacoes: {
       'app.clientes': [PERMISSAO_APP_DEBITO_CLIENTE],
+    },
+  },
+  {
+    // 27/11/2026 (pedido do dono): compras do cliente na ficha e na consulta do
+    // app. Quem ja' abre Clientes (ou consulta cliente no app) continua vendo.
+    id: 'clientes-1',
+    implicacoes: {
+      'cadastros.clientes': [PERMISSAO_CADASTROS.clientesCompras],
+      'app.clientes': [PERMISSAO_APP_COMPRAS_CLIENTE],
     },
   },
 ];

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.permissaoValida = exports.mexidasSemTer = exports.podeAlterarPrecoNoApp = exports.podeNoApp = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.appDefinido = exports.CHAVES_APP_NOVAS = exports.PERMISSAO_APP_DEBITO_CLIENTE = exports.PERMISSAO_APP_ALTERAR_PRECO = exports.PERMISSAO_APP = exports.MARCADOR_APP_DEFINIDO = void 0;
+exports.permissaoValida = exports.mexidasSemTer = exports.podeAlterarPrecoNoApp = exports.podeNoApp = exports.permissoesParaGravar = exports.permissoesEfetivas = exports.appDefinido = exports.CHAVES_APP_NOVAS = exports.PERMISSAO_APP_COMPRAS_CLIENTE = exports.PERMISSAO_APP_DEBITO_CLIENTE = exports.PERMISSAO_APP_ALTERAR_PRECO = exports.PERMISSAO_APP = exports.MARCADOR_APP_DEFINIDO = void 0;
 const roles_1 = require("./roles");
 const papelAdministradorDomain_1 = require("./papelAdministradorDomain");
 /**
@@ -54,6 +54,12 @@ exports.PERMISSAO_APP_ALTERAR_PRECO = 'app.alterar_preco';
  * desmarcar passa a valer ao salvar.
  */
 exports.PERMISSAO_APP_DEBITO_CLIENTE = 'app.debito_cliente';
+/**
+ * Ver as compras do cliente na consulta do app (27/11/2026): vendas feitas para
+ * ele, total e produtos que mais leva. Como o debito, FORA de PERMISSAO_APP: vem
+ * marcada para quem tem "App: Consultar Cliente" pelo pacote 'clientes-1'.
+ */
+exports.PERMISSAO_APP_COMPRAS_CLIENTE = 'app.compras_cliente';
 /** Chaves novas: quem nunca teve as permissoes do app gravadas conta com todas. */
 exports.CHAVES_APP_NOVAS = Object.values(exports.PERMISSAO_APP);
 const lista = (permissoes) => (Array.isArray(permissoes) ? permissoes.filter((p) => typeof p === 'string') : []);

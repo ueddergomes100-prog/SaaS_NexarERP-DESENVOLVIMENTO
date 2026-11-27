@@ -186,6 +186,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'cadastros.clientes_inativar': ['cadastros.clientes'],
   'cadastros.clientes_importar': ['cadastros.clientes'],
   'cadastros.clientes_limite_credito': ['cadastros.clientes'],
+  'cadastros.clientes_compras': ['cadastros.clientes'],
   'cadastros.fornecedores_alterar': ['cadastros.fornecedores'],
   'cadastros.fornecedores_inativar': ['cadastros.fornecedores'],
   'cadastros.fornecedores_importar': ['cadastros.fornecedores'],

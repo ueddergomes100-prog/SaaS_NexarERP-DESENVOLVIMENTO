@@ -57,6 +57,13 @@ export const PERMISSAO_APP_ALTERAR_PRECO = 'app.alterar_preco';
  */
 export const PERMISSAO_APP_DEBITO_CLIENTE = 'app.debito_cliente';
 
+/**
+ * Ver as compras do cliente na consulta do app (27/11/2026): vendas feitas para
+ * ele, total e produtos que mais leva. Como o debito, FORA de PERMISSAO_APP: vem
+ * marcada para quem tem "App: Consultar Cliente" pelo pacote 'clientes-1'.
+ */
+export const PERMISSAO_APP_COMPRAS_CLIENTE = 'app.compras_cliente';
+
 /** Chaves novas: quem nunca teve as permissoes do app gravadas conta com todas. */
 export const CHAVES_APP_NOVAS: string[] = Object.values(PERMISSAO_APP);
 

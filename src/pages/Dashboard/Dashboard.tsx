@@ -15,7 +15,9 @@ import {
   ShoppingCart,
   Users,
   Wallet,
-  Wrench
+  Wrench,
+  ArrowDownCircle,
+  ArrowUpCircle,
 } from 'lucide-react';
 import {
   Area,
@@ -67,6 +69,8 @@ import { calcularProgressoMeta, faltaParaMeta, parseMetaFaturamentoMensal } from
 import { horasDoEixoDoDia, momentoNoDiaDoPagamento } from '../../utils/dashboardHorasDomain';
 import './Dashboard.css';
 import { acompanharCatalogoEstoque } from '../../services/catalogoEstoqueService';
+import { pedirLancamento, type LancamentoPedido } from '../../utils/pedidoDeLancamento';
+import { hasTenantFullAccess } from '../../utils/roles';
 
 interface OSData {
   id: string;
@@ -335,7 +339,7 @@ const Dashboard: React.FC = () => {
   const topActionMenuRef = useRef<HTMLDivElement>(null);
   const quickActionMenuRef = useRef<HTMLDivElement>(null);
 
-  const { currentUser, userPermissions, tenantId, isOwner, vendasVisiveisDeUsuarioId, userNome, selectedTenant } = useAuth();
+  const { currentUser, userPermissions, tenantId, isOwner, vendasVisiveisDeUsuarioId, userNome, selectedTenant, userRole } = useAuth();
   const isTabActive = useContext(TabActiveContext);
   const hasFinancialAccess = isOwner || userPermissions?.includes('dashboard.valores');
 
@@ -347,11 +351,16 @@ const Dashboard: React.FC = () => {
     [currentDate, dashboardPeriod],
   );
 
-  const newActionOptions = [
+  // Contas a Receber e a Pagar (27/11/2026, pedido do dono): abrem a tela ja' no lancamento.
+  // So' para quem abre a tela; sem a permissao de lancar, a tela avisa.
+  const podeTela = (permissao: string) => hasTenantFullAccess(userRole, Boolean(isOwner)) || Boolean(userPermissions?.includes(permissao));
+  const newActionOptions: Array<{ label: string; detail: string; icon: typeof ShoppingCart; route: string; lancamento?: LancamentoPedido }> = [
     { label: 'Venda', detail: 'Novo pedido de venda', icon: ShoppingCart, route: '/pedidos-venda/novo' },
     { label: 'Cad. Cliente', detail: 'Cadastrar cliente', icon: Users, route: '/clientes/novo' },
     { label: 'OS', detail: 'Nova ordem de serviço', icon: Activity, route: '/os/nova' },
-    { label: 'Orçamento', detail: 'Novo orçamento', icon: FileText, route: '/orcamentos/novo' }
+    { label: 'Orçamento', detail: 'Novo orçamento', icon: FileText, route: '/orcamentos/novo' },
+    ...(podeTela('financeiro.receber') ? [{ label: 'Conta a Receber', detail: 'Lançar conta a receber', icon: ArrowDownCircle, route: '/financeiro/contas-receber', lancamento: 'receber' as const }] : []),
+    ...(podeTela('financeiro.pagar') ? [{ label: 'Conta a Pagar', detail: 'Lançar conta a pagar', icon: ArrowUpCircle, route: '/financeiro/contas-pagar', lancamento: 'pagar' as const }] : []),
   ];
 
   // O Dashboard fica sempre montado enquanto a aba existir (Sistema de
@@ -1044,6 +1053,7 @@ const Dashboard: React.FC = () => {
                 role="menuitem"
                 onClick={() => {
                   setOpenActionMenu(null);
+                  if (action.lancamento) pedirLancamento(action.lancamento);
                   navigate(action.route);
                 }}
               >

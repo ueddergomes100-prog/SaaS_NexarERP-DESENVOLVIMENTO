@@ -111,6 +111,7 @@ import './Financeiro.css';
 import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
 import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 import CampoBuscaAdiado from '../../components/common/CampoBuscaAdiado';
+import { consumirPedidoDeLancamento, EVENTO_ABRIR_LANCAMENTO } from '../../utils/pedidoDeLancamento';
 
 interface TransacaoData extends TituloParaEstorno {
   id: string;
@@ -291,6 +292,17 @@ const ContasReceber: React.FC = () => {
   const emissaoDocumentos = useMemo(() => parseEmissaoDocumentos(configFilial.emissaoDocumentos), [configFilial]);
   // Conta lancada a mao (19/10/2026): janela de lancar/editar e o plano de contas de receitas da filial.
   const [lancamento, setLancamento] = useState<{ aberto: boolean; editando: ContaParaEditar | null }>({ aberto: false, editando: null });
+  // "Nova Acao > Conta a Receber" no Dashboard (27/11/2026): abre o lancamento.
+  useEffect(() => {
+    const atender = () => {
+      if (!consumirPedidoDeLancamento('receber')) return;
+      if (podeLancarConta) setLancamento({ aberto: true, editando: null });
+      else showWarning('Sem permissão', semPermissao(PERMISSAO_FINANCEIRO.receberLancar, 'lançar contas a receber'));
+    };
+    atender();
+    window.addEventListener(EVENTO_ABRIR_LANCAMENTO, atender);
+    return () => window.removeEventListener(EVENTO_ABRIR_LANCAMENTO, atender);
+  }, [podeLancarConta]);
   const categoriasReceita = useMemo(() => {
     const plano = configFilial.planoContasReceitas;
     const lista = Array.isArray(plano) ? plano.map(String) : typeof plano === 'string' ? plano.split('\n') : [];

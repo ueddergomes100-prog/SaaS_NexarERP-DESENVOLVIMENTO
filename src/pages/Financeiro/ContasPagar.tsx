@@ -65,6 +65,7 @@ import './Financeiro.css';
 import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
 import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 import CampoBuscaAdiado from '../../components/common/CampoBuscaAdiado';
+import { consumirPedidoDeLancamento, EVENTO_ABRIR_LANCAMENTO } from '../../utils/pedidoDeLancamento';
 
 interface TransacaoData extends TituloParaEstorno {
   id: string;
@@ -407,6 +408,18 @@ const ContasPagar: React.FC = () => {
     setParcelasAceitas(false);
     setIsModalOpen(true);
   };
+
+  // "Nova Acao > Conta a Pagar" no Dashboard (27/11/2026): abre o lancamento (sem permissao, o aviso de sempre).
+  const abrirLancamentoRef = React.useRef(handleOpenModal);
+  useEffect(() => { abrirLancamentoRef.current = handleOpenModal; });
+  useEffect(() => {
+    const atender = () => {
+      if (consumirPedidoDeLancamento('pagar')) abrirLancamentoRef.current();
+    };
+    atender();
+    window.addEventListener(EVENTO_ABRIR_LANCAMENTO, atender);
+    return () => window.removeEventListener(EVENTO_ABRIR_LANCAMENTO, atender);
+  }, []);
 
   /** Liga o parcelamento (ou o cheque) e ja monta as parcelas com o valor digitado. */
   const prepararParcelas = (forma: string, parcelar: boolean) => {

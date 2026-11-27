@@ -700,12 +700,14 @@ const UsuarioForm: React.FC = () => {
           </>
         )}
 
+        {!(copiarDeId && !isEditing) && (
         <div className="input-group" style={{ gridColumn: 'span 12', marginTop: '8px' }}>
           <div style={{ padding: '12px 16px', backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: 'var(--radius-md)', color: '#3b82f6', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <UserCog size={18} style={{ flexShrink: 0 }} />
-            <span>As permissões de acesso deste usuário (Módulos) devem ser configuradas no menu <strong>Configurações &gt; Permissão de Usuários</strong> após a criação.</span>
+            <span>As permissões de acesso deste usuário se configuram em <strong>Equipe &amp; Acessos</strong>, no botão de permissões (escudo) da linha dele{isEditing ? '' : ', depois de salvar — ou escolha acima "Copiar permissões de" para ele já nascer com as de outro usuário'}.</span>
           </div>
         </div>
+        )}
 
         <div style={{ gridColumn: 'span 12', display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border-color)' }}>
           <button type="button" className="btn-secondary" onClick={() => navigate('/usuarios')}>Cancelar</button>

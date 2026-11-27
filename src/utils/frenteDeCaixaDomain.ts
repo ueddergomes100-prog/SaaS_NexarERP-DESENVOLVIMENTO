@@ -98,7 +98,7 @@ export const nomeDoOperador = (
   return responsavel || gravado;
 };
 
-export const MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.';
+export const MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Tem acesso à Frente de Caixa" ou "Vendas: Só a Frente de Caixa" no seu usuário.';
 
 /*
  * TROCO NA FRENTE DE CAIXA (25/11/2026, video da Jomarly: "deu 160, a pessoa

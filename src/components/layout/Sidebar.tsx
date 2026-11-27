@@ -76,6 +76,7 @@ import { lerTerminalGuardado } from '../../utils/terminalCaixaStorage';
 import { useDevolucoesAguardando } from '../../hooks/useDevolucoesAguardando';
 import { usePosicaoDoMenu } from '../../hooks/usePosicaoDoMenu';
 import MenuTopo from './MenuTopo';
+import { CAMINHO_APP_CAIXA } from '../../utils/frenteDeCaixaDomain';
 import './Layout.css';
 
 type NavItem = {
@@ -208,6 +209,9 @@ const Sidebar: React.FC = () => {
       icon: ShoppingCart,
       items: [
         { label: 'Pedidos de Venda', to: '/pedidos-venda', icon: ShoppingCart, module: 'comercial.pedidos', permission: 'vendas.pedidos' },
+        // Frente de Caixa no menu (27/11/2026, pedido do dono): quem tem acesso usa o sistema e abre o
+        // caixa por aqui, em outra aba do navegador (o caixa e' um app a parte, /caixa).
+        { label: 'Frente de Caixa', to: CAMINHO_APP_CAIXA, icon: Store, module: 'comercial.pedidos', permission: 'vendas.pdv' },
         // Acompanha a identificacao (26/11/2026): some quando a empresa exige o vendedor mas todos veem as vendas.
         ...(minhasVendasNoMenu({ exigirIdentificacaoVendedor, escondeVendas: identificacaoEscondeVendas })
           ? [{ label: 'Minhas Vendas', to: '/minhas-vendas', icon: UserCheck, module: 'comercial.pedidos', permission: 'vendas.minhas_vendas' }]
@@ -477,6 +481,11 @@ const Sidebar: React.FC = () => {
   const navigateTo = (to: string, label?: string) => {
     setActionMenuOpen(false);
     document.body.classList.remove('mobile-sidebar-open');
+    // A Frente de Caixa abre como app proprio, numa aba nova do navegador: o sistema continua aqui.
+    if (to === CAMINHO_APP_CAIXA) {
+      window.open(CAMINHO_APP_CAIXA, '_blank', 'noopener');
+      return;
+    }
     openTab(to, label);
   };
 

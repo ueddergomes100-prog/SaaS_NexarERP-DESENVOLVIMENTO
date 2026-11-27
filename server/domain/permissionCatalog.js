@@ -81,7 +81,8 @@ exports.PERMISSION_GROUPS = [
             // mesmo id (marcar Pedidos de Venda liberava PDV e Minhas Vendas
             // tambem, sem controle independente -- achado pelo usuario).
             { id: 'vendas.minhas_vendas', label: 'Vendas: Minhas Vendas', color: '#f59e0b' },
-            { id: 'vendas.pdv', label: 'Vendas: Frente de Caixa (PDV)', color: '#f59e0b' },
+            // 27/11/2026: "tem acesso" -- usa o sistema normal e abre o caixa pelo menu (Comercial > Frente de Caixa).
+            { id: 'vendas.pdv', label: 'Vendas: Tem acesso à Frente de Caixa (usa o sistema e abre o caixa pelo menu)', color: '#f59e0b' },
             // Funcionario caixa (19/10/2026): entra, no sistema ou no app /caixa, direto
             // na Frente de Caixa e so' nela, com o mesmo usuario e senha. Ver
             // src/utils/frenteDeCaixaDomain.ts.

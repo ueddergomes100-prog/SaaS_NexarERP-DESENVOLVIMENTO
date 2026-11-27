@@ -82,7 +82,7 @@ const nomeDoOperador = (perfil, gravado) => {
     return responsavel || gravado;
 };
 exports.nomeDoOperador = nomeDoOperador;
-exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.';
+exports.MENSAGEM_SEM_ACESSO_AO_CAIXA = 'Este login não tem acesso à Frente de Caixa. Peça ao administrador para liberar "Vendas: Tem acesso à Frente de Caixa" ou "Vendas: Só a Frente de Caixa" no seu usuário.';
 const centavos = (valor) => Math.max(0, Math.round(Number(valor) || 0));
 const contaDoTroco = (totalCentavos, pagamentos) => {
     const total = centavos(totalCentavos);

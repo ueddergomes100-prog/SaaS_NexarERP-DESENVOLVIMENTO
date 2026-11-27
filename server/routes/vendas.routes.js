@@ -42,7 +42,7 @@ router.post('/finalizar', async (req, res) => {
     // conferida no servico, com o pedido lido do banco. PDV (fatia 3c): a do PDV.
     if (req.body?.pdvSessionId) {
       if (!PERMISSOES_QUE_OPERAM_O_CAIXA.some((permissao) => temPermissao(req.user, permissao))) {
-        return res.status(403).json({ error: 'Você não tem permissão para vender no PDV. Peça a um responsável liberar "Vendas: Frente de Caixa (PDV)" ou "Vendas: Só a Frente de Caixa" no seu usuário.' });
+        return res.status(403).json({ error: 'Você não tem permissão para vender no PDV. Peça a um responsável liberar "Vendas: Tem acesso à Frente de Caixa" ou "Vendas: Só a Frente de Caixa" no seu usuário.' });
       }
     } else if (!req.body?.pedidoId && !temPermissao(req.user, 'vendas.pedidos')) {
       return res.status(403).json({ error: 'Você não tem permissão para vender. Peça a um responsável liberar "Vendas: Pedidos" no seu usuário.' });

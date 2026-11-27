@@ -149,6 +149,9 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
   const marcaDoAcerto = pedido.acertoFornecedor && pedido.acertoFornecedor.id
     ? { acertoFornecedor: { id: String(pedido.acertoFornecedor.id), texto: String(pedido.acertoFornecedor.texto || '') } }
     : {};
+  // Recebida na Frente de Caixa (28/11/2026): o caixa (sessao) onde o dinheiro entrou. Campo
+  // proprio -- a venda a prazo feita no PDV ja' tem pdvSessionId (a sessao da VENDA).
+  const marcaDoCaixa = pedido.tipo === 'entrada' && pedido.recebidoNoCaixaId ? { recebidoNoCaixaId: String(pedido.recebidoNoCaixaId) } : {};
   // Vendas que podem ter ficado pagas por inteiro com esta baixa (cashback, depois da transacao).
   const vendasParaCashback = new Set();
 
@@ -271,6 +274,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
           }
           : { fornecedorId: dados.fornecedorId || null, fornecedorNome: dados.fornecedorNome || null }),
         ...(dados.vendedorId ? { vendedorId: dados.vendedorId } : {}),
+        ...(tipoDoLancamento === 'entrada' ? marcaDoCaixa : {}),
         ...ligacao,
         baixaManual: montarBaixaManual({
           origem: origemDaBaixa,
@@ -434,6 +438,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       movimentaCaixaFisico: formaPagamento === 'Dinheiro',
       ...(banco ? { bancoId, bancoNome } : {}),
       ...marcaDoAcerto,
+      ...marcaDoCaixa,
       baixaManual: {
         ...montarBaixaManual({
           origem: 'contas_receber',
@@ -619,6 +624,8 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
         recebidoEm: apagar(),
         baixaManual: apagar(),
         ...(dados.acertoFornecedor ? { acertoFornecedor: apagar() } : {}),
+        // Recebida no caixa: o estorno tira do caixa (o fechamento e os relatorios deixam de contar).
+        ...(dados.recebidoNoCaixaId ? { recebidoNoCaixaId: apagar() } : {}),
         ...registroDoEstorno,
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Recebimento estornado: ${motivo}`),
       });

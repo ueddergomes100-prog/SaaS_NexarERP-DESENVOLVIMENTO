@@ -1521,3 +1521,134 @@
   right: 10px;
   width: 34px;
 }
+
+/* Receber conta do cliente no caixa (28/11/2026) */
+.pdv-receber-conta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pdv-receber-cliente {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.pdv-receber-cliente strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdv-receber-cliente button {
+  min-height: 40px;
+}
+
+.pdv-receber-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.pdv-receber-item {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.pdv-receber-item.marcada {
+  border-color: var(--accent-purple);
+}
+
+.pdv-receber-item input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-purple);
+}
+
+.pdv-receber-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.pdv-receber-desc small {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.pdv-receber-desc small.vencida {
+  color: #ef4444;
+}
+
+.pdv-receber-item strong {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdv-receber-forma {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 12px;
+}
+
+.pdv-receber-forma label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pdv-receber-forma label span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pdv-receber-forma input,
+.pdv-receber-forma select {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.pdv-receber-falhas {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.pdv-receber-falhas p {
+  margin: 0;
+}
+
+/* Receber conta: sem banco (Pix/cartao) ou sem conta marcada, o botao fica apagado. */
+.pdv-receber-conta .pdv-modal-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}

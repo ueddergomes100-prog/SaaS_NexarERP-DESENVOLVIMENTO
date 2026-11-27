@@ -117,7 +117,13 @@ const CaixaRegistros: React.FC = () => {
   // Relatorio (16/10/2026): caixas abertos + historico do periodo escolhido.
   const [previewAberto, setPreviewAberto] = useState(false);
   // Caixa aberto ao vivo (23/11/2026): o que ja' passou por cada caixa aberto, sem esperar fechar.
-  const [lancamentosPorSessao, setLancamentosPorSessao] = useState<Record<string, LancamentoDaSessao[]>>({});
+  const [vendasDoCaixaAoVivo, setLancamentosPorSessao] = useState<Record<string, LancamentoDaSessao[]>>({});
+  // Notinhas recebidas em cada caixa aberto (28/11/2026): somam no dinheiro e aparecem nos lancamentos.
+  const [recebidasNoCaixa, setRecebidasNoCaixa] = useState<Record<string, LancamentoDaSessao[]>>({});
+  const lancamentosPorSessao = useMemo(() => Object.fromEntries(
+    Object.entries(vendasDoCaixaAoVivo).map(([id, lista]) => [id, [...lista, ...(recebidasNoCaixa[id] || [])]
+      .sort((a, b) => (a.criadoEm?.getTime() || 0) - (b.criadoEm?.getTime() || 0))]),
+  ) as Record<string, LancamentoDaSessao[]>, [vendasDoCaixaAoVivo, recebidasNoCaixa]);
   // "Dinheiro das vendas na gaveta" ligado: o fechamento confere contra o saldo da gaveta.
   const [gaveta, setGaveta] = useState<ResumoDaGaveta | null>(null);
   // O que compoe o saldo da gaveta, dia a dia (pedido do dono, 24/11/2026).
@@ -185,7 +191,30 @@ const CaixaRegistros: React.FC = () => {
       },
       (erro) => console.error('Caixa (Sessões PDV): não foi possível acompanhar os lançamentos de um caixa aberto.', erro),
     ));
-    return () => parar.forEach((p) => p());
+    const pararRecebidas = ids.map((id) => onSnapshot(
+      query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('recebidoNoCaixaId', '==', id)),
+      (snap) => {
+        const lista: LancamentoDaSessao[] = snap.docs.map((d) => {
+          const t = d.data();
+          return {
+            id: d.id,
+            descricao: `Notinha recebida — ${String(t.descricao || '')}`,
+            clienteNome: String(t.clienteNome || ''),
+            formaPagamento: String(t.formaPagamento || ''),
+            valorCentavos: Number.isFinite(Number(t.valorCentavos)) && t.valorCentavos !== null && t.valorCentavos !== undefined ? Number(t.valorCentavos) : toCents(Number(t.valor || 0)),
+            criadoEm: toDate(t.recebidoEm) || toDate(t.updatedAt),
+            // Estornada depois (volta a Pendente): sai das contas do caixa.
+            cancelado: t.estornada === true || t.status !== 'Paga',
+            pendente: false,
+            dinheiro: transactionMovesPhysicalCash(t),
+          };
+        });
+        setRecebidasNoCaixa((atual) => ({ ...atual, [id]: lista }));
+        setVersaoDosLancamentos((v) => v + 1);
+      },
+      (erro) => console.error('Caixa (Sessões PDV): não foi possível acompanhar as notinhas recebidas num caixa aberto.', erro),
+    ));
+    return () => { parar.forEach((p) => p()); pararRecebidas.forEach((p) => p()); };
   }, [tenantId, idsDosAbertos]);
 
   /** Saldo da gaveta (pelo servidor): relido ao abrir e quando entra lancamento no caixa. */

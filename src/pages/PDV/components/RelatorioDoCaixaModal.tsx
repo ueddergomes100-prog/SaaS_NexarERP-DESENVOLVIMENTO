@@ -104,6 +104,12 @@ const RelatorioDoCaixaModal: React.FC<RelatorioDoCaixaModalProps> = ({ open, car
                   <span>{reais(relatorio.totalCanceladoCentavos)}</span>
                 </div>
               )}
+              {relatorio.recebimentos.length > 0 && (
+                <div className="pdv-relatorio-caixa-linha">
+                  <span>{relatorio.recebimentos.length === 1 ? '1 notinha recebida' : `${relatorio.recebimentos.length} notinhas recebidas`}</span>
+                  <span>{reais(relatorio.totalRecebidoCentavos)}</span>
+                </div>
+              )}
               {relatorio.porForma.map((f) => (
                 <div key={f.forma} className="pdv-relatorio-caixa-linha">
                   <span>{f.forma} <small>({f.pagamentos})</small></span>
@@ -116,6 +122,9 @@ const RelatorioDoCaixaModal: React.FC<RelatorioDoCaixaModalProps> = ({ open, car
               <h3>Dinheiro no caixa</h3>
               <div className="pdv-relatorio-caixa-linha"><span>Saldo inicial (troco)</span><span>{reais(relatorio.dinheiro.saldoInicialCentavos)}</span></div>
               <div className="pdv-relatorio-caixa-linha"><span>+ Vendas em dinheiro</span><span>{reais(relatorio.dinheiro.vendasCentavos)}</span></div>
+              {relatorio.dinheiro.recebimentosCentavos > 0 && (
+                <div className="pdv-relatorio-caixa-linha"><span>+ Notinhas recebidas em dinheiro</span><span>{reais(relatorio.dinheiro.recebimentosCentavos)}</span></div>
+              )}
               <div className="pdv-relatorio-caixa-linha"><span>− Sangrias</span><span>{reais(relatorio.dinheiro.sangriasCentavos)}</span></div>
               <div className="pdv-relatorio-caixa-linha pdv-relatorio-caixa-soma"><span>= Dinheiro deste caixa</span><span>{reais(relatorio.dinheiro.contaDoCaixaCentavos)}</span></div>
               {relatorio.esperado?.modo === 'gaveta' && (

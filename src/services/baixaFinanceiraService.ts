@@ -47,6 +47,8 @@ export class BaixaFinanceiraError extends Error {
 type RotaFinanceiro =
   | '/baixa'
   | '/baixa-lote'
+  | '/caixa/contas-abertas'
+  | '/caixa/receber'
   | '/estorno'
   | '/alterar-valor'
   | '/cobrar-em-boleto'
@@ -504,3 +506,47 @@ export const estornarBaixaComConfirmacao = async (args: {
     return false;
   }
 };
+
+// ---------------------------------------------------------------------------
+// Frente de Caixa (28/11/2026): receber notinha do cliente no caixa.
+// Regras no servidor: server/services/recebimentoNoCaixa.js.
+// ---------------------------------------------------------------------------
+
+export interface ContaAbertaNoCaixa {
+  transacaoId: string;
+  descricao: string;
+  /** yyyy-mm-dd */
+  vencimento: string;
+  formaPagamento: string;
+  valorCentavos: number;
+  jurosCentavos: number;
+  multaCentavos: number;
+  totalCentavos: number;
+}
+
+export const listarContasAbertasNoCaixa = async (clienteId: string): Promise<ContaAbertaNoCaixa[]> => (
+  (await chamarFinanceiro<{ ok: boolean; contas: ContaAbertaNoCaixa[] }>('/caixa/contas-abertas', { clienteId })).contas || []
+);
+
+export interface ResultadoDoRecebimentoNoCaixa {
+  transacaoId: string;
+  ok: boolean;
+  erro?: string;
+  descricao?: string;
+  valorCentavos?: number;
+  acrescimoCentavos?: number;
+}
+
+export const receberContasNoCaixa = async (args: {
+  sessaoId: string;
+  formaPagamento: string;
+  bancoId?: string;
+  titulos: Array<{ transacaoId: string; jurosCentavos: number; multaCentavos: number }>;
+}): Promise<ResultadoDoRecebimentoNoCaixa[]> => (
+  (await chamarFinanceiro<{ ok: boolean; resultados: ResultadoDoRecebimentoNoCaixa[] }>('/caixa/receber', {
+    sessaoId: args.sessaoId,
+    formaPagamento: args.formaPagamento,
+    ...(args.bancoId ? { bancoId: args.bancoId } : {}),
+    titulos: args.titulos,
+  })).resultados || []
+);

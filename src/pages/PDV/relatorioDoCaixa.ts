@@ -25,29 +25,37 @@ const paraData = (valor: unknown): Date | null => {
   return Number.isNaN(data.getTime()) ? null : data;
 };
 
-/** Titulos das vendas deste caixa (as mesmas que o fechamento soma). */
+/** Titulo do Firestore no formato do relatorio. */
+const lancamentoDoDocumento = (id: string, t: Record<string, any>, recebimento: boolean): LancamentoDoCaixa => {
+  const centavos = t.valorCentavos !== null && t.valorCentavos !== undefined && Number.isFinite(Number(t.valorCentavos))
+    ? Number(t.valorCentavos)
+    : toCents(Number(t.valor || 0));
+  return {
+    id,
+    pedidoId: recebimento ? '' : String(t.pedidoId || t.sourceId || ''),
+    paymentIndex: Number.isFinite(Number(t.paymentIndex)) && t.paymentIndex !== null && t.paymentIndex !== undefined ? Number(t.paymentIndex) : null,
+    descricao: String(t.descricao || ''),
+    clienteNome: String(t.clienteNome || ''),
+    formaPagamento: String(t.formaPagamento || ''),
+    valorCentavos: centavos,
+    criadoEm: paraData(recebimento ? (t.recebidoEm || t.updatedAt) : t.createdAt),
+    // Notinha estornada depois volta a Pendente: sai das contas do caixa.
+    cancelado: t.estornada === true || t.status === 'Cancelada' || (recebimento && t.status !== 'Paga'),
+    dinheiro: transactionMovesPhysicalCash(t),
+    ...(recebimento ? { recebimento: true } : {}),
+  };
+};
+
+/** Titulos das vendas deste caixa (as mesmas que o fechamento soma) e as notinhas recebidas nele (28/11/2026). */
 export const lerLancamentosDoCaixa = async (tenantId: string, sessaoId: string): Promise<LancamentoDoCaixa[]> => {
-  const snap = await getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', sessaoId)));
-  return snap.docs
-    .filter((d) => d.data().tipo !== 'saida')
-    .map((d) => {
-      const t = d.data();
-      const centavos = t.valorCentavos !== null && t.valorCentavos !== undefined && Number.isFinite(Number(t.valorCentavos))
-        ? Number(t.valorCentavos)
-        : toCents(Number(t.valor || 0));
-      return {
-        id: d.id,
-        pedidoId: String(t.pedidoId || t.sourceId || ''),
-        paymentIndex: Number.isFinite(Number(t.paymentIndex)) && t.paymentIndex !== null && t.paymentIndex !== undefined ? Number(t.paymentIndex) : null,
-        descricao: String(t.descricao || ''),
-        clienteNome: String(t.clienteNome || ''),
-        formaPagamento: String(t.formaPagamento || ''),
-        valorCentavos: centavos,
-        criadoEm: paraData(t.createdAt),
-        cancelado: t.estornada === true || t.status === 'Cancelada',
-        dinheiro: transactionMovesPhysicalCash(t),
-      };
-    });
+  const [vendas, recebidas] = await Promise.all([
+    getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('pdvSessionId', '==', sessaoId))),
+    getDocs(query(collection(db, 'transacoes'), where('tenantId', '==', tenantId), where('recebidoNoCaixaId', '==', sessaoId))),
+  ]);
+  return [
+    ...vendas.docs.filter((d) => d.data().tipo !== 'saida').map((d) => lancamentoDoDocumento(d.id, d.data(), false)),
+    ...recebidas.docs.filter((d) => d.data().tipo !== 'saida').map((d) => lancamentoDoDocumento(d.id, d.data(), true)),
+  ];
 };
 
 /** Sangrias como o PDV grava (array no documento do caixa). */

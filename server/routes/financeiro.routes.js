@@ -27,6 +27,7 @@ const { lancarContaAPagar, editarContaAPagar, cancelarContaAPagar } = require('.
 const { registrarChequeNaBaixa, abaterComCredito } = require('../services/recebimentoChequeCredito');
 const { adicionarCategoria, ErroConfiguracoesGerais } = require('../services/configuracoesGerais');
 const { descricaoDosAjustes } = require('../domain/ajustesDaBaixaDomain');
+const { listarAbertasDoCliente, receberNoCaixa } = require('../services/recebimentoNoCaixa');
 const {
   conciliarCartao,
   alterarTaxaDoCartao,
@@ -133,6 +134,36 @@ router.post('/baixa', async (req, res) => {
     return res.json({ ok: true, ...(resumo.parcial ? { parcial: resumo.parcial } : {}) });
   } catch (erro) {
     return responderErro(res, erro, 'dar baixa');
+  }
+});
+
+/**
+ * Frente de Caixa (28/11/2026): receber notinha do cliente no caixa.
+ * POST /api/financeiro/caixa/contas-abertas { clienteId }
+ * POST /api/financeiro/caixa/receber { sessaoId, formaPagamento, bancoId?, titulos: [{ transacaoId, jurosCentavos, multaCentavos }] }
+ * Regras e permissao em services/recebimentoNoCaixa.js.
+ */
+router.post('/caixa/contas-abertas', async (req, res) => {
+  try {
+    const contas = await listarAbertasDoCliente({ user: req.user, tenantId: req.user.tenantId, corpo: req.body || {} });
+    return res.json({ ok: true, contas });
+  } catch (erro) {
+    return responderErro(res, erro, 'listar as contas do cliente');
+  }
+});
+
+router.post('/caixa/receber', async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const r = await receberNoCaixa({ user: req.user, tenantId, corpo: req.body || {} });
+    r.resultados.filter((x) => x.ok).forEach((x) => {
+      registrarLogDaBaixa(req.user, tenantId, {
+        tipo: 'entrada', transacaoId: x.transacaoId, formaPagamento: r.formaPagamento, dataPagamento: r.dataPagamento,
+      }, { descricao: x.descricao, valorCentavos: x.valorCentavos, bancoNome: x.bancoNome, ajustes: null }, ' (recebida na Frente de Caixa)');
+    });
+    return res.json({ ok: true, resultados: r.resultados });
+  } catch (erro) {
+    return responderErro(res, erro, 'receber as contas no caixa');
   }
 });
 

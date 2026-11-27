@@ -45,6 +45,16 @@ export interface LancamentoDoCaixa {
   cancelado: boolean;
   /** Entrou dinheiro na gaveta. */
   dinheiro: boolean;
+  /** Notinha (Contas a Receber) recebida neste caixa (28/11/2026): nao e' venda. */
+  recebimento?: boolean;
+}
+
+export interface RecebimentoNoRelatorio {
+  quando: Date | null;
+  descricao: string;
+  clienteNome: string;
+  forma: string;
+  valorCentavos: number;
 }
 
 export interface SangriaDoCaixa {
@@ -119,12 +129,18 @@ export interface RelatorioDoCaixa {
   totalVendidoCentavos: number;
   canceladas: number;
   totalCanceladoCentavos: number;
+  /** Notinhas recebidas no caixa (sem as estornadas). */
+  recebimentos: RecebimentoNoRelatorio[];
+  totalRecebidoCentavos: number;
+  /** Tudo que entrou, por forma: vendas e notinhas recebidas. */
   porForma: FormaNoRelatorio[];
   dinheiro: {
     saldoInicialCentavos: number;
     vendasCentavos: number;
+    /** Notinhas recebidas em dinheiro. */
+    recebimentosCentavos: number;
     sangriasCentavos: number;
-    /** Saldo inicial + vendas em dinheiro - sangrias. */
+    /** Saldo inicial + vendas em dinheiro + notinhas em dinheiro - sangrias. */
     contaDoCaixaCentavos: number;
   };
   esperado: EsperadoDoCaixa | null;
@@ -154,8 +170,10 @@ const porHorario = (a: { quando: Date | null }, b: { quando: Date | null }): num
 );
 
 export const montarRelatorioDoCaixa = (dados: DadosDoRelatorioDoCaixa): RelatorioDoCaixa => {
-  const lancamentos = [...dados.lancamentos];
+  // Notinhas recebidas no caixa ficam a parte: nao sao venda (28/11/2026).
+  const lancamentos = dados.lancamentos.filter((l) => !l.recebimento);
   const validos = lancamentos.filter((l) => !l.cancelado);
+  const recebidas = dados.lancamentos.filter((l) => l.recebimento && !l.cancelado);
 
   // Vendas: agrupa os titulos pela venda de origem.
   const grupos = new Map<string, LancamentoDoCaixa[]>();
@@ -190,6 +208,13 @@ export const montarRelatorioDoCaixa = (dados: DadosDoRelatorioDoCaixa): Relatori
     atual.valorCentavos += inteiro(l.valorCentavos);
     formas.set(forma, atual);
   });
+  recebidas.forEach((l) => {
+    const forma = texto(l.formaPagamento) || 'Sem forma';
+    const atual = formas.get(forma) || { forma, chaves: new Set<string>(), valorCentavos: 0 };
+    atual.chaves.add(`rec:${l.id}`);
+    atual.valorCentavos += inteiro(l.valorCentavos);
+    formas.set(forma, atual);
+  });
   const porForma: FormaNoRelatorio[] = [...formas.values()]
     .map((f) => ({ forma: f.forma, pagamentos: f.chaves.size, valorCentavos: f.valorCentavos }))
     .sort((a, b) => b.valorCentavos - a.valorCentavos || a.forma.localeCompare(b.forma, 'pt-BR'));
@@ -197,7 +222,17 @@ export const montarRelatorioDoCaixa = (dados: DadosDoRelatorioDoCaixa): Relatori
   const sangrias = [...dados.sangrias].sort((a, b) => (a.registradoEm?.getTime() || 0) - (b.registradoEm?.getTime() || 0));
   const sangriasCentavos = sangrias.reduce((soma, s) => soma + inteiro(s.valorCentavos), 0);
   const vendasEmDinheiro = validos.filter((l) => l.dinheiro).reduce((soma, l) => soma + inteiro(l.valorCentavos), 0);
+  const recebidoEmDinheiro = recebidas.filter((l) => l.dinheiro).reduce((soma, l) => soma + inteiro(l.valorCentavos), 0);
   const saldoInicial = inteiro(dados.saldoInicialCentavos);
+  const listaDeRecebimentos: RecebimentoNoRelatorio[] = recebidas
+    .map((l) => ({
+      quando: l.criadoEm,
+      descricao: texto(l.descricao),
+      clienteNome: texto(l.clienteNome),
+      forma: texto(l.formaPagamento) || 'Sem forma',
+      valorCentavos: inteiro(l.valorCentavos),
+    }))
+    .sort(porHorario);
 
   return {
     tipo: dados.tipo,
@@ -211,12 +246,15 @@ export const montarRelatorioDoCaixa = (dados: DadosDoRelatorioDoCaixa): Relatori
     totalVendidoCentavos: validos.reduce((soma, l) => soma + inteiro(l.valorCentavos), 0),
     canceladas: vendasCanceladas.length,
     totalCanceladoCentavos: vendasCanceladas.reduce((soma, v) => soma + v.totalCentavos, 0),
+    recebimentos: listaDeRecebimentos,
+    totalRecebidoCentavos: listaDeRecebimentos.reduce((soma, r) => soma + r.valorCentavos, 0),
     porForma,
     dinheiro: {
       saldoInicialCentavos: saldoInicial,
       vendasCentavos: vendasEmDinheiro,
+      recebimentosCentavos: recebidoEmDinheiro,
       sangriasCentavos,
-      contaDoCaixaCentavos: saldoInicial + vendasEmDinheiro - sangriasCentavos,
+      contaDoCaixaCentavos: saldoInicial + vendasEmDinheiro + recebidoEmDinheiro - sangriasCentavos,
     },
     esperado: dados.esperado,
     sangrias,
@@ -294,6 +332,17 @@ export const htmlDoRelatorioDoCaixa = (relatorio: RelatorioDoCaixa, largura: Lar
         <div class="peq">${e(v.formas)}${v.clienteNome ? ` · ${e(v.clienteNome)}` : ''}</div>
       </div>`).join('');
 
+  // Notinhas recebidas no caixa (28/11/2026): sempre listadas (sao poucas e o administrador confere).
+  const recebimentos = r.recebimentos.length > 0 ? `
+  <div class="sep"></div>
+  <div class="centro forte">NOTINHAS RECEBIDAS (${r.recebimentos.length})</div>
+  ${r.recebimentos.map((x) => `
+      <div class="item">
+        ${linha(`${horarioNaLinha(x.quando, variosDias)} ${e(x.clienteNome || x.descricao)}`, reais(x.valorCentavos))}
+        <div class="peq">${e(x.forma)}${x.clienteNome ? ` · ${e(x.descricao)}` : ''}</div>
+      </div>`).join('')}
+  ${linha('Total recebido', reais(r.totalRecebidoCentavos), 'soma')}` : '';
+
   const blocoDoFechamento = fechamento ? `
   <div class="sep"></div>
   <div class="centro forte">CONFERÊNCIA</div>
@@ -344,13 +393,15 @@ export const htmlDoRelatorioDoCaixa = (relatorio: RelatorioDoCaixa, largura: Lar
   ${linha('Vendas', String(r.vendas))}
   ${linha('TOTAL VENDIDO R$', reais(r.totalVendidoCentavos), 'total')}
   ${r.canceladas > 0 ? linha(`Canceladas (${r.canceladas}), fora do total`, reais(r.totalCanceladoCentavos), 'peq') : ''}
+  ${recebimentos}
   <div class="sep"></div>
-  <div class="centro forte">POR FORMA DE PAGAMENTO</div>
+  <div class="centro forte">${r.recebimentos.length > 0 ? 'ENTRADAS POR FORMA (VENDAS E NOTINHAS)' : 'POR FORMA DE PAGAMENTO'}</div>
   ${formas}
   <div class="sep"></div>
   <div class="centro forte">DINHEIRO NO CAIXA</div>
   ${linha('Saldo inicial (troco)', reais(r.dinheiro.saldoInicialCentavos))}
   ${linha('+ Vendas em dinheiro', reais(r.dinheiro.vendasCentavos))}
+  ${r.dinheiro.recebimentosCentavos > 0 ? linha('+ Notinhas recebidas em dinheiro', reais(r.dinheiro.recebimentosCentavos)) : ''}
   ${linha('- Sangrias', reais(r.dinheiro.sangriasCentavos))}
   ${linha('= Dinheiro deste caixa', reais(r.dinheiro.contaDoCaixaCentavos), 'soma')}
   ${gaveta && r.esperado ? `${linha('Esperado na gaveta', reais(r.esperado.saldoEsperadoCentavos), 'forte')}<p class="peq">${e(r.esperado.explicacao)}</p>` : ''}
@@ -366,6 +417,73 @@ export const htmlDoRelatorioDoCaixa = (relatorio: RelatorioDoCaixa, largura: Lar
   ${assinaturas}
   <div class="sep"></div>
   <div class="centro peq">Impresso em ${dataHoraDoRelatorio(r.emitidoEm)}${r.impressoPorNome ? ` por ${e(r.impressoPorNome)}` : ''}</div>
+  <div class="centro peq forte">DOCUMENTO SEM VALOR FISCAL</div>
+</body></html>`;
+};
+
+// ---------------------------------------------------------------------------
+// Comprovante de notinha recebida no caixa (28/11/2026): vai para o cliente.
+// ---------------------------------------------------------------------------
+
+export interface ComprovanteDeRecebimento {
+  empresa: { nome: string; cnpj: string };
+  clienteNome: string;
+  operadorNome: string;
+  emitidoEm: Date;
+  forma: string;
+  itens: Array<{ descricao: string; vencimento: string; valorCentavos: number; acrescimoCentavos: number }>;
+  /** Dinheiro: quanto o cliente entregou (para o troco); 0 = nao informado. */
+  entregueCentavos: number;
+}
+
+const dataCurta = (iso: string): string => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso.split('-').reverse().join('/') : iso);
+
+export const totalDoComprovante = (c: ComprovanteDeRecebimento): number => (
+  c.itens.reduce((soma, i) => soma + inteiro(i.valorCentavos) + inteiro(i.acrescimoCentavos), 0)
+);
+
+export const htmlDoComprovanteDeRecebimento = (c: ComprovanteDeRecebimento, largura: LarguraDaBobina = 80): string => {
+  const e = (v: string) => escapar(v);
+  const linha = (rotulo: string, valor: string, classe = '') => `<div class="lin ${classe}"><span>${rotulo}</span><span>${valor}</span></div>`;
+  const total = totalDoComprovante(c);
+  const troco = c.forma === 'Dinheiro' && c.entregueCentavos > total ? c.entregueCentavos - total : 0;
+  const itens = c.itens.map((i) => `
+    <div class="item">
+      ${linha(e(i.descricao), reais(i.valorCentavos + i.acrescimoCentavos))}
+      <div class="peq">Venc. ${e(dataCurta(i.vencimento))}${i.acrescimoCentavos > 0 ? ` · com ${reais(i.acrescimoCentavos)} de juros e multa` : ''}</div>
+    </div>`).join('');
+  return `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Comprovante de recebimento</title>
+<style>
+  @page { size: ${largura}mm auto; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+  body { width: ${largura}mm; padding: 3mm ${largura === 58 ? 2 : 3.5}mm 8mm; font-family: Arial, Helvetica, sans-serif; font-size: ${largura === 58 ? 9.5 : 11}px; line-height: 1.25; }
+  .centro { text-align: center; } .forte { font-weight: 700; } .peq { font-size: 0.85em; }
+  .sep { border-top: 1px dashed #000; margin: 5px 0; }
+  .lin { display: flex; justify-content: space-between; gap: 6px; }
+  .lin span:last-child { white-space: nowrap; text-align: right; }
+  .lin.total { font-size: 1.3em; font-weight: 700; margin-top: 2px; }
+  .item { margin: 3px 0; }
+  .assina { margin-top: 26px; border-top: 1px solid #000; text-align: center; font-size: 0.85em; padding-top: 2px; }
+</style></head>
+<body>
+  <div class="centro forte" style="font-size:1.3em">${e(c.empresa.nome || 'EMPRESA')}</div>
+  ${c.empresa.cnpj ? `<div class="centro">CNPJ ${e(c.empresa.cnpj)}</div>` : ''}
+  <div class="sep"></div>
+  <div class="centro forte" style="font-size:1.2em">COMPROVANTE DE RECEBIMENTO</div>
+  <div class="centro peq">Contas pagas no caixa</div>
+  <div class="sep"></div>
+  ${linha('Cliente', e(c.clienteNome || '- - -'))}
+  ${linha('Data', dataHoraDoRelatorio(c.emitidoEm))}
+  <div class="sep"></div>
+  ${itens}
+  <div class="sep"></div>
+  ${linha('TOTAL PAGO R$', reais(total), 'total')}
+  ${linha('Forma', e(c.forma))}
+  ${c.forma === 'Dinheiro' && c.entregueCentavos > 0 ? `${linha('Valor entregue', reais(c.entregueCentavos))}${linha('Troco', reais(troco), 'forte')}` : ''}
+  <div class="assina">Recebido por ${e(c.operadorNome || 'caixa')}</div>
+  <div class="sep"></div>
   <div class="centro peq forte">DOCUMENTO SEM VALOR FISCAL</div>
 </body></html>`;
 };

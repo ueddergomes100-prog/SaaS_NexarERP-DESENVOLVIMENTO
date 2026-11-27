@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Banknote, ClipboardList, FileText, History, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
+import { Banknote, ClipboardList, FileText, HandCoins, History, Loader2, LockKeyhole, Maximize2, MonitorDown, PackageSearch, Store, X } from 'lucide-react';
 import {
   addDoc,
   arrayUnion,
@@ -97,11 +97,12 @@ import { avisoFaturarSemConferencia, conferenciaPendenteParaFaturar } from '../.
 import { MENSAGEM_VENDA_DE_OUTRO_USUARIO, TITULO_VENDA_DE_OUTRO_USUARIO, isVendaDoUsuario } from '../../utils/visibilidadeVendasDomain';
 import { formatDateInputPtBr } from '../../utils/dateTime';
 import { MENSAGEM_SEM_PERMISSAO_NFCE, acaoDeReimpressao, documentoDoCupomDoCaixa, podeEmitirCupomFiscal, type VendaDoCaixa } from '../../utils/cupomDoCaixaDomain';
-import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal, reabrirCupomFiscal } from './cupomDoCaixa';
+import { emitirCupomFiscalDoCaixa, imprimirCupomNaoFiscal, imprimirNaBobina, reabrirCupomFiscal } from './cupomDoCaixa';
 import VendasDoCaixaModal from './components/VendasDoCaixaModal';
 import RelatorioDoCaixaModal from './components/RelatorioDoCaixaModal';
+import ReceberContaModal, { type RecebimentoConcluido } from './components/ReceberContaModal';
 import { empresaDoRelatorio, imprimirRelatorioDoCaixa, lerLancamentosDoCaixa, sangriasDoCaixa } from './relatorioDoCaixa';
-import type { DadosDoRelatorioDoCaixa } from '../../utils/relatorioDoCaixaBobinaDomain';
+import { htmlDoComprovanteDeRecebimento, totalDoComprovante, type DadosDoRelatorioDoCaixa } from '../../utils/relatorioDoCaixaBobinaDomain';
 import { avisarSemPermissao } from '../../hooks/usePodePermissao';
 import { PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import {
@@ -759,6 +760,9 @@ const PDV: React.FC = () => {
   // Dono sempre pode; o resto pelas permissoes efetivas (as do pacote 'pdv-1' vem com o PDV).
   const podeRelatorioDoCaixa = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_VENDAS.pdvRelatorioCaixa);
   const [relatorioModalOpen, setRelatorioModalOpen] = useState(false);
+  // Receber notinha do cliente no caixa (28/11/2026): permissao propria, nasce desmarcada.
+  const podeReceberConta = hasTenantFullAccess(userRole, isOwner) || userPermissions.includes(PERMISSAO_VENDAS.pdvReceberContas);
+  const [receberContaOpen, setReceberContaOpen] = useState(false);
 
   /** O que passou pelo caixa agora: vendas e sangrias lidas do banco e, se pedido, o esperado do fechamento. */
   const dadosDoCaixa = useCallback(async (sessao: PdvSession, calcularEsperado = true): Promise<DadosDoRelatorioDoCaixa> => {
@@ -2335,6 +2339,11 @@ const PDV: React.FC = () => {
               <button type="button" className="pdv-topbar-button" onClick={() => setSangriaModalOpen(true)} title="Registrar sangria">
                 <Banknote size={16} aria-hidden="true" /> Sangria
               </button>
+              {podeReceberConta && (
+                <button type="button" className="pdv-topbar-button" onClick={() => setReceberContaOpen(true)} title="Receber notinha do cliente (Contas a Receber) neste caixa">
+                  <HandCoins size={16} aria-hidden="true" /> Receber conta
+                </button>
+              )}
               <button
                 type="button"
                 className="pdv-topbar-button"
@@ -2446,6 +2455,32 @@ const PDV: React.FC = () => {
           />
         </main>
       )}
+
+      <ReceberContaModal
+        open={receberContaOpen}
+        sessaoId={session?.id || null}
+        clients={clients}
+        clienteInicial={selectedClient && !selectedClient.isPadrao ? selectedClient : null}
+        bancos={bancosDisponiveis.filter((b) => b.ativo !== false).map((b) => ({ id: b.id, nome: b.nome }))}
+        onClose={() => setReceberContaOpen(false)}
+        onRecebido={(recebimento: RecebimentoConcluido) => {
+          const comprovante = {
+            empresa: empresaDoRelatorio(configDaEmpresa),
+            clienteNome: recebimento.cliente.nome,
+            operadorNome: operatorName,
+            emitidoEm: new Date(),
+            forma: recebimento.forma,
+            itens: recebimento.itens,
+            entregueCentavos: recebimento.entregueCentavos,
+          };
+          showSuccess(`Recebido ${currency.format(fromCents(totalDoComprovante(comprovante)))} de ${recebimento.cliente.nome} (${recebimento.forma}).`);
+          // Comprovante para o cliente, na bobina.
+          imprimirNaBobina(htmlDoComprovanteDeRecebimento(comprovante)).catch((erro) => {
+            console.error('Erro ao imprimir o comprovante de recebimento:', erro);
+            showWarning('O recebimento foi gravado, mas o comprovante não saiu na impressora. Confira a impressora.');
+          });
+        }}
+      />
 
       <RelatorioDoCaixaModal
         open={relatorioModalOpen}

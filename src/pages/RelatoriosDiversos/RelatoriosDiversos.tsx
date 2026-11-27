@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar, ShoppingCart, Users, Percent } from 'lucide-react';
+import { FileText, Car, Printer, Search, ArrowRight, BarChart2, DollarSign, ArrowUpCircle, ArrowDownCircle, Calendar, ShoppingCart, Users, Percent, ArrowLeftRight } from 'lucide-react';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import '../OS/OS.css'; // Reusing OS styles for consistency
 import { useAuth } from '../../contexts/AuthContext';
@@ -19,6 +19,7 @@ const PERMISSAO_DO_RELATORIO: Record<string, string> = {
   'contas-receber': PERMISSAO_ADMINISTRACAO.relatoriosFinanceiros,
   'contas-pagar': PERMISSAO_ADMINISTRACAO.relatoriosFinanceiros,
   'taxas-cartao': PERMISSAO_ADMINISTRACAO.relatoriosFinanceiros,
+  movimentacao: PERMISSAO_ADMINISTRACAO.relatoriosFinanceiros,
 };
 
 const RelatoriosDiversos: React.FC = () => {
@@ -105,6 +106,19 @@ const RelatoriosDiversos: React.FC = () => {
     () => getInitialState('descontosDataFim', getEndOfMonth())
   );
 
+  // Movimentacao do periodo (28/11/2026): abre em hoje, como o fechamento do dia.
+  const [movDataInicio, setMovDataInicio] = useState<string>(
+    () => getInitialState('movDataInicio', getDateInputInTimeZone())
+  );
+  const [movDataFim, setMovDataFim] = useState<string>(
+    () => getInitialState('movDataFim', getDateInputInTimeZone())
+  );
+
+  useEffect(() => {
+    sessionStorage.setItem('relatorios_movDataInicio', JSON.stringify(movDataInicio));
+    sessionStorage.setItem('relatorios_movDataFim', JSON.stringify(movDataFim));
+  }, [movDataInicio, movDataFim]);
+
   useEffect(() => {
     sessionStorage.setItem('relatorios_activeReport', JSON.stringify(activeReport));
   }, [activeReport]);
@@ -176,6 +190,13 @@ const RelatoriosDiversos: React.FC = () => {
       color: '#f59e0b'
     },
     {
+      id: 'movimentacao',
+      title: 'Movimentação do Período',
+      description: 'Vendas, recebimentos (vendas à vista e notinhas), contas pagas e sangrias da empresa toda num PDF só, com os totais por forma, caixa e banco.',
+      icon: <ArrowLeftRight size={24} color="#14b8a6" />,
+      color: '#14b8a6'
+    },
+    {
       id: 'contas-receber',
       title: 'Relatório de Recebimentos / Débitos',
       description: 'Gere PDFs com o resumo diário ou mensal do que foi recebido, ou liste todos os débitos de clientes em aberto.',
@@ -226,6 +247,10 @@ const RelatoriosDiversos: React.FC = () => {
 
   const handlePrintTaxasCartao = () => {
     navigate(`/relatorios-diversos/print/taxas-cartao?inicio=${taxasCartaoDataInicio}&fim=${taxasCartaoDataFim}`);
+  };
+
+  const handlePrintMovimentacao = () => {
+    navigate(`/relatorios-diversos/print/movimentacao?inicio=${movDataInicio}&fim=${movDataFim}`);
   };
 
   const handlePrintDescontos = () => {
@@ -545,6 +570,46 @@ const RelatoriosDiversos: React.FC = () => {
                     gap: '8px',
                     fontWeight: 'bold',
                     boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)'
+                  }}
+                >
+                  <Printer size={18} />
+                  GERAR PDF
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeReport === 'movimentacao' && (
+            <div className="card form-section animate-fade-in-up" style={{ padding: '24px', border: '1px solid #14b8a650', backgroundColor: '#14b8a60a' }}>
+              <div className="section-header" style={{ marginBottom: '24px' }}>
+                <ArrowLeftRight size={20} color="#14b8a6" />
+                <h3 style={{ color: '#14b8a6' }}>Filtros: Movimentação do Período</h3>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div className="input-group">
+                  <label htmlFor="mov-inicio">Data Inicial</label>
+                  <input id="mov-inicio" type="date" value={movDataInicio} onChange={(e) => setMovDataInicio(e.target.value)} style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                </div>
+                <div className="input-group">
+                  <label htmlFor="mov-fim">Data Final</label>
+                  <input id="mov-fim" type="date" value={movDataFim} onChange={(e) => setMovDataFim(e.target.value)} style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn-primary"
+                  onClick={handlePrintMovimentacao}
+                  style={{
+                    backgroundColor: '#14b8a6',
+                    borderColor: '#14b8a6',
+                    padding: '12px 24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 4px 12px rgba(20, 184, 166, 0.3)'
                   }}
                 >
                   <Printer size={18} />

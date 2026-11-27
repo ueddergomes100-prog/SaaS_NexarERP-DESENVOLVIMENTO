@@ -52,13 +52,27 @@ const reais = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'cur
 
 /** Dinheiro das vendas desta sessao (titulos em dinheiro do PDV; venda cancelada nao conta). `ate`: so' ate' o fim daquele dia. */
 export const dinheiroDaSessao = async (tenantId: string, sessaoId: string, ate = ''): Promise<number> => {
-  const snap = await getDocs(query(
-    collection(db, 'transacoes'),
-    where('tenantId', '==', tenantId),
-    where('pdvSessionId', '==', sessaoId),
-    where('movimentaCaixaFisico', '==', true),
-  ));
+  const [snap, recebidas] = await Promise.all([
+    getDocs(query(
+      collection(db, 'transacoes'),
+      where('tenantId', '==', tenantId),
+      where('pdvSessionId', '==', sessaoId),
+      where('movimentaCaixaFisico', '==', true),
+    )),
+    // Notinha recebida neste caixa (28/11/2026): o dinheiro tambem esta' na gaveta.
+    getDocs(query(
+      collection(db, 'transacoes'),
+      where('tenantId', '==', tenantId),
+      where('recebidoNoCaixaId', '==', sessaoId),
+    )),
+  ]);
   let total = 0;
+  recebidas.forEach((docSnap) => {
+    const t = docSnap.data();
+    if (t.movimentaCaixaFisico !== true || t.status !== 'Paga' || t.estornada === true) return;
+    if (!tituloAteODia(t, ate)) return;
+    total += Number(t.valorCentavos || 0);
+  });
   snap.forEach((docSnap) => {
     const t = docSnap.data();
     // Venda cancelada nesta sessao: o dinheiro voltou ao cliente (19/10/2026).

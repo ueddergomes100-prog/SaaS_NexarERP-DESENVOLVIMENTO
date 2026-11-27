@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  htmlDoComprovanteDeRecebimento,
   htmlDoRelatorioDoCaixa,
   montarRelatorioDoCaixa,
   numeroDaVendaNoLancamento,
   resultadoNoPapel,
+  totalDoComprovante,
   type DadosDoRelatorioDoCaixa,
   type LancamentoDoCaixa,
 } from '../src/utils/relatorioDoCaixaBobinaDomain';
@@ -64,7 +66,7 @@ test('parcial: vendas, formas, dinheiro e sangrias; cancelada fora dos totais', 
     { forma: 'Dinheiro', pagamentos: 2, valorCentavos: 6000 },
     { forma: 'Pix', pagamentos: 2, valorCentavos: 3500 },
   ]);
-  assert.deepEqual(r.dinheiro, { saldoInicialCentavos: 10000, vendasCentavos: 6000, sangriasCentavos: 2500, contaDoCaixaCentavos: 13500 });
+  assert.deepEqual(r.dinheiro, { saldoInicialCentavos: 10000, vendasCentavos: 6000, recebimentosCentavos: 0, sangriasCentavos: 2500, contaDoCaixaCentavos: 13500 });
   // Sangrias na ordem do horario.
   assert.deepEqual(r.sangrias.map((s) => s.valorCentavos), [500, 2000]);
   // Parcial sem pedir a lista: nao lista cada venda.
@@ -126,4 +128,54 @@ test('caixa sem movimento e resultado do papel', () => {
   assert.match(html, /Nenhuma sangria/);
   assert.equal(resultadoNoPapel(0), 'Conferido (sem diferença)');
   assert.equal(resultadoNoPapel(1250), 'Sobrou R$ 12,50');
+});
+
+test('notinhas recebidas no caixa: fora das vendas, dentro das formas e do dinheiro', () => {
+  const dados = base();
+  const r = montarRelatorioDoCaixa({
+    ...dados,
+    lancamentos: [
+      ...dados.lancamentos,
+      lanc({ id: 'n1', pedidoId: '', paymentIndex: null, descricao: 'Pedido #90 - Parcela 1/2', clienteNome: 'ANA', valorCentavos: 2500, dinheiro: true, criadoEm: h(10, 45), recebimento: true }),
+      lanc({ id: 'n2', pedidoId: '', paymentIndex: null, descricao: 'Pedido #91', clienteNome: 'ANA', formaPagamento: 'Pix', valorCentavos: 1200, criadoEm: h(10, 50), recebimento: true }),
+      // Estornada depois: some de tudo.
+      lanc({ id: 'n3', pedidoId: '', paymentIndex: null, descricao: 'Pedido #92', clienteNome: 'ANA', valorCentavos: 800, dinheiro: true, cancelado: true, criadoEm: h(10, 55), recebimento: true }),
+    ],
+  });
+  assert.equal(r.vendas, 4, 'notinha nao e venda');
+  assert.equal(r.totalVendidoCentavos, 17500);
+  assert.equal(r.recebimentos.length, 2);
+  assert.equal(r.totalRecebidoCentavos, 3700);
+  assert.equal(r.porForma.find((f) => f.forma === 'Pix')?.valorCentavos, 3000 + 500 + 1200);
+  assert.equal(r.dinheiro.recebimentosCentavos, 2500);
+  assert.equal(r.dinheiro.contaDoCaixaCentavos, 10000 + 6000 + 2500 - 2500);
+  const html = htmlDoRelatorioDoCaixa(r);
+  assert.match(html, /NOTINHAS RECEBIDAS \(2\)/);
+  assert.match(html, /Notinhas recebidas em dinheiro/);
+  assert.doesNotMatch(html, /Pedido #92/);
+});
+
+test('comprovante de recebimento: total com juros, troco no dinheiro e texto escapado', () => {
+  const c = {
+    empresa: { nome: 'LOJA <X>', cnpj: '' },
+    clienteNome: 'JOSE & FILHOS',
+    operadorNome: 'MARIA',
+    emitidoEm: h(15),
+    forma: 'Dinheiro',
+    itens: [
+      { descricao: 'Pedido #10', vencimento: '2026-11-01', valorCentavos: 10000, acrescimoCentavos: 350 },
+      { descricao: 'Pedido #11', vencimento: '2026-12-01', valorCentavos: 5000, acrescimoCentavos: 0 },
+    ],
+    entregueCentavos: 20000,
+  };
+  assert.equal(totalDoComprovante(c), 15350);
+  const html = htmlDoComprovanteDeRecebimento(c);
+  assert.match(html, /COMPROVANTE DE RECEBIMENTO/);
+  assert.match(html, /JOSE &amp; FILHOS/);
+  assert.doesNotMatch(html, /<X>/);
+  assert.match(html, /01\/11\/2026/);
+  assert.match(html, /46,50/, 'troco de 200,00 - 153,50');
+  assert.match(html, /DOCUMENTO SEM VALOR FISCAL/);
+  const semTroco = htmlDoComprovanteDeRecebimento({ ...c, forma: 'Pix' });
+  assert.doesNotMatch(semTroco, /Troco/i);
 });

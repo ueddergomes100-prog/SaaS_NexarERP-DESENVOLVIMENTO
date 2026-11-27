@@ -123,6 +123,8 @@ exports.PERMISSAO_VENDAS = {
     preVendaRelatorioValores: 'vendas.pre_venda_relatorio_valores',
     /** Relatorio parcial do caixa aberto na Frente de Caixa (26/11/2026); vem com o PDV (pacote 'pdv-1'). */
     pdvRelatorioCaixa: 'vendas.pdv_relatorio_caixa',
+    /** Receber notinha (Contas a Receber) no caixa (28/11/2026). Nasce desmarcada: o dono marca. */
+    pdvReceberContas: 'vendas.pdv_receber_contas',
     importar: 'vendas.importar',
     orcamentosRecusar: 'vendas.orcamentos_recusar',
     orcamentosConverter: 'vendas.orcamentos_converter',

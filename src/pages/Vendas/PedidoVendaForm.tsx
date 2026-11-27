@@ -20,7 +20,7 @@ import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ResultadoDaRota, type RotaAberta } from '../../utils/rotaPreVendaDomain';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
-import { brutoDaLinhaCentavos, CAMPO_PARCELAS_DO_BOLETO, erroDaFormaDoVendedor, formaDoVendedor, parcelasDoBoleto, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR, vendedorQueGravouAPreVenda } from '../../utils/vendaFechamentoDomain';
+import { brutoDaLinhaCentavos, CAMPO_DIAS_DAS_PARCELAS, CAMPO_PARCELAS_DO_BOLETO, diasDasParcelas, erroDaFormaDoVendedor, prazoDoAppNoPagamento, formaDoVendedor, parcelasDoBoleto, parseVendaPeloServidor, PERMISSAO_TROCAR_FORMA_DO_VENDEDOR, vendedorQueGravouAPreVenda } from '../../utils/vendaFechamentoDomain';
 import { analisarSaidaComReserva } from '../../utils/estoqueReservaDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { spedyService } from '../../services/spedyService';
@@ -1371,10 +1371,16 @@ const PedidoVendaForm: React.FC = () => {
               // Boleto com as parcelas escolhidas no app (26/11/2026): ja' abre parcelado; o prazo
               // de cada um e' o padrao do boleto da loja (PaymentsEditor completa).
               const parcelasDoApp = formaDaPreVenda === 'Boleto' ? parcelasDoBoleto(p[CAMPO_PARCELAS_DO_BOLETO]) : 0;
+              // Dias de cada parcela combinados no app (27/11/2026): abre com os vencimentos contados
+              // de hoje (o faturamento). Boleto sem os dias: prazo vazio, e o PaymentsEditor poe o
+              // prazo padrao do banco do boleto (antes ficava o 30 do rascunho vazio).
+              const prazoDoApp = prazoDoAppNoPagamento(formaDaPreVenda, diasDasParcelas(p[CAMPO_DIAS_DAS_PARCELAS]), getDateInputInTimeZone());
               setPaymentDrafts([{
                 ...createEmptyPaymentDraft('pagamento-1', toCents(p.valorTotal || 0)),
                 forma: formaDaPreVenda,
                 ...(parcelasDoApp ? { parcelasAPrazo: String(parcelasDoApp) } : {}),
+                ...(formaDaPreVenda === 'Boleto' && !prazoDoApp ? { prazoDias: '' } : {}),
+                ...(prazoDoApp || {}),
               }]);
             }
 

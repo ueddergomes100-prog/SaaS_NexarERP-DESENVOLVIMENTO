@@ -12,6 +12,7 @@
 import { fromCents, normalizeCreditCardFeeSchedule, parseCreditTerms, parseMaxParcelasCartao, toCents, type CreditCardFeeSchedule } from './financeDomain';
 import { calcularDescontoCents } from './descontoDomain';
 import { lerTransporte, transporteParaGravar } from './transporteNotaDomain';
+import { addDaysToDateInput } from './dateTime';
 
 // ---------------------------------------------------------------------------
 // Configuracao financeira da empresa (prazos e taxas do cartao)
@@ -368,6 +369,70 @@ export const MAX_PARCELAS_DO_BOLETO_NO_APP = 12;
 export const parcelasDoBoleto = (valor: unknown): number => {
   const n = typeof valor === 'number' ? valor : Number.parseInt(String(valor ?? ''), 10);
   return Number.isInteger(n) && n >= 1 && n <= MAX_PARCELAS_DO_BOLETO_NO_APP ? n : 0;
+};
+
+/**
+ * DIAS DE CADA PARCELA ESCOLHIDOS NO APP (27/11/2026, Ivan da Embala Minas:
+ * "7, 14, 21, 28, 42 dias... 14/21, 21/28/35", e o dono: "o app mobile tem que
+ * ter as mesmas formas e funcoes que ja' temos no sistema"). Boleto e Pagamento
+ * a Prazo no app ganham parcelas + intervalo e, no boleto, os dias de cada um
+ * editaveis -- como no Pedido de Venda. A pre-venda guarda os dias contados do
+ * faturamento (`diasDasParcelas`, ex.: [21, 28, 35]); o sistema abre o
+ * pagamento com eles (prazoDoAppNoPagamento). Sem o campo, vale o de antes:
+ * o prazo padrao da loja.
+ */
+export const CAMPO_DIAS_DAS_PARCELAS = 'diasDasParcelas';
+export const MAX_DIAS_DA_PARCELA = 999;
+export const FORMAS_COM_PRAZO_NO_APP = ['Boleto', 'Pagamento a Prazo'];
+
+/** Dias validos (1 a 999, cada parcela depois da anterior, ate' 12); [] = nao informado. */
+export const diasDasParcelas = (valor: unknown): number[] => {
+  if (!Array.isArray(valor) || valor.length < 1 || valor.length > MAX_PARCELAS_DO_BOLETO_NO_APP) return [];
+  const dias = valor.map((v) => (typeof v === 'number' ? v : Number.parseInt(String(v ?? ''), 10)));
+  const validos = dias.every((d, i) => Number.isInteger(d) && d >= 1 && d <= MAX_DIAS_DA_PARCELA && (i === 0 || d > dias[i - 1]));
+  return validos ? dias : [];
+};
+
+/** 3 parcelas de 21 em 21 => [21, 42, 63]. */
+export const diasUniformes = (parcelas: number, intervalo: number): number[] => (
+  Number.isInteger(parcelas) && parcelas >= 1 && Number.isInteger(intervalo) && intervalo >= 1
+    ? Array.from({ length: parcelas }, (_, i) => intervalo * (i + 1))
+    : []
+);
+
+/** Os dias seguem um intervalo so' (21/42/63)? Entao nao ha' vencimento personalizado. */
+export const diasSaoUniformes = (dias: number[]): boolean => dias.every((d, i) => d === dias[0] * (i + 1));
+
+/** O que o vendedor digitou nos dias de cada parcela: por que nao vale, ou null. */
+export const erroDosDiasDasParcelas = (digitados: string[]): string | null => {
+  const dias = digitados.map((d) => Number.parseInt(String(d ?? '').trim(), 10));
+  const vazia = dias.findIndex((d) => !Number.isInteger(d) || d < 1 || d > MAX_DIAS_DA_PARCELA);
+  if (vazia >= 0) return `Informe os dias da ${vazia + 1}ª parcela (de 1 a ${MAX_DIAS_DA_PARCELA}).`;
+  const foraDeOrdem = dias.findIndex((d, i) => i > 0 && d <= dias[i - 1]);
+  if (foraDeOrdem >= 0) return `A ${foraDeOrdem + 1}ª parcela precisa vencer depois da ${foraDeOrdem}ª: aumente os dias dela.`;
+  return null;
+};
+
+/**
+ * Campos do pagamento (PaymentDraft) que o sistema abre a partir dos dias do
+ * app, contados de `hoje` (o faturamento). null = sem dias: vale o padrao.
+ * Pagamento a Prazo no sistema so' tem intervalo fixo: usa o 1o dia como prazo.
+ */
+export const prazoDoAppNoPagamento = (forma: string, dias: number[], hoje: string): Record<string, unknown> | null => {
+  if (dias.length === 0 || !FORMAS_COM_PRAZO_NO_APP.includes(forma)) return null;
+  const primeiro = dias[0];
+  if (forma === 'Pagamento a Prazo') {
+    return { parcelasAPrazo: String(dias.length), prazoDias: String(primeiro), dataVencimento: addDaysToDateInput(hoje, primeiro) };
+  }
+  const personalizadas = dias.length > 1 && !diasSaoUniformes(dias)
+    ? dias.map((d) => ({ dias: String(d), vencimento: addDaysToDateInput(hoje, d) }))
+    : [];
+  return {
+    parcelasAPrazo: String(dias.length),
+    prazoDias: String(primeiro),
+    dataPrevistaRecebimento: addDaysToDateInput(hoje, primeiro),
+    parcelasPersonalizadas: personalizadas,
+  };
 };
 
 /** Por que a venda nao pode sair com estas formas, ou null. */

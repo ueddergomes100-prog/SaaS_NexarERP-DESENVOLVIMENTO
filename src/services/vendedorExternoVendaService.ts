@@ -12,7 +12,7 @@ import { computeReservationDelta } from '../utils/estoqueReservaDomain';
 import { toStockAdjustmentItems, type EmbalagemDeOrigem } from '../utils/embalagemDomain';
 import { buildDocumentMetadata } from '../utils/documentMetadata';
 import { toCents } from '../utils/financeDomain';
-import { CAMPO_PARCELAS_DO_BOLETO, parcelasDoBoleto } from '../utils/vendaFechamentoDomain';
+import { CAMPO_DIAS_DAS_PARCELAS, CAMPO_PARCELAS_DO_BOLETO, diasDasParcelas, FORMAS_COM_PRAZO_NO_APP, parcelasDoBoleto } from '../utils/vendaFechamentoDomain';
 import { STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 import { idsDasPromocoes } from '../utils/precoAppVendasDomain';
@@ -93,6 +93,8 @@ export interface CriarPreVendaExternaParams {
   formaPagamento?: string;
   /** Parcelas do boleto escolhidas no app (26/11/2026); so' vale com a forma Boleto. */
   parcelasBoleto?: number;
+  /** Dias de cada parcela (27/11/2026); so' vale com Boleto ou Pagamento a Prazo. */
+  diasDasParcelas?: number[];
   /** Id fixo do documento (o id do rascunho). Com ele, reenviar o mesmo
    *  rascunho depois de uma queda de conexao NAO cria um segundo pedido: se
    *  o primeiro envio chegou a gravar, a transacao so' devolve o que ja
@@ -196,6 +198,10 @@ export const criarPreVendaExterna = async (
       // Parcelas do boleto (26/11/2026): so' com Boleto e numero valido; a pre-venda abre com elas.
       ...(params.formaPagamento?.trim() === 'Boleto' && parcelasDoBoleto(params.parcelasBoleto)
         ? { [CAMPO_PARCELAS_DO_BOLETO]: parcelasDoBoleto(params.parcelasBoleto) }
+        : {}),
+      // Dias de cada parcela (27/11/2026): o faturamento abre com os vencimentos que o vendedor combinou.
+      ...(FORMAS_COM_PRAZO_NO_APP.includes(params.formaPagamento?.trim() || '') && diasDasParcelas(params.diasDasParcelas).length > 0
+        ? { [CAMPO_DIAS_DAS_PARCELAS]: diasDasParcelas(params.diasDasParcelas) }
         : {}),
       ...vinculo,
       tenantId,

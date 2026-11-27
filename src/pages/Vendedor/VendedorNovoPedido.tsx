@@ -2,7 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
-import { MAX_PARCELAS_DO_BOLETO_NO_APP, parcelasDoBoleto } from '../../utils/vendaFechamentoDomain';
+import {
+  diasDasParcelas,
+  diasUniformes,
+  erroDosDiasDasParcelas,
+  FORMAS_COM_PRAZO_NO_APP,
+  MAX_DIAS_DA_PARCELA,
+  MAX_PARCELAS_DO_BOLETO_NO_APP,
+  parcelasDoBoleto,
+} from '../../utils/vendaFechamentoDomain';
+import { addDaysToDateInput, formatDateInputPtBr, getDateInputInTimeZone } from '../../utils/dateTime';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -86,7 +95,18 @@ const VendedorNovoPedido: React.FC = () => {
   // a pre-venda ja' nasce com ela e trocar no faturamento pede permissao. Opcional.
   const [formaPagamento, setFormaPagamento] = useState(() => rascunhoAberto?.formaPagamento || '');
   // Boleto (26/11/2026): em quantas parcelas, como no Pedido de Venda; a pre-venda ja' nasce com elas.
-  const [parcelasBoleto, setParcelasBoleto] = useState<number>(() => parcelasDoBoleto(rascunhoAberto?.parcelasBoleto) || 1);
+  const [diasDoRascunho] = useState(() => diasDasParcelas(rascunhoAberto?.diasDasParcelas));
+  const [parcelasBoleto, setParcelasBoleto] = useState<number>(() => diasDoRascunho.length || parcelasDoBoleto(rascunhoAberto?.parcelasBoleto) || 1);
+  // Prazo das parcelas (27/11/2026, Embala Minas): como no Pedido de Venda -- intervalo e,
+  // no boleto, os dias de cada um editaveis (7, 14, 21/28/35...). Vazio = prazo padrao da loja.
+  const [intervaloPrazo, setIntervaloPrazo] = useState(() => (diasDoRascunho.length ? String(diasDoRascunho[0]) : ''));
+  const [diasLinhas, setDiasLinhas] = useState<string[]>(() => diasDoRascunho.map(String));
+  const temPrazo = FORMAS_COM_PRAZO_NO_APP.includes(formaPagamento);
+  const hojeNoApp = getDateInputInTimeZone();
+  const recalcularDias = (parcelas: number, intervalo: string) => {
+    const dias = Number.parseInt(intervalo, 10);
+    setDiasLinhas(Number.isInteger(dias) && dias >= 1 ? diasUniformes(parcelas, Math.min(dias, MAX_DIAS_DA_PARCELA)).map(String) : []);
+  };
   const [formasDaFilial, setFormasDaFilial] = useState<string[]>(() => formasDaEmpresa([], []).filter((f) => !FORMAS_FORA_DO_APP.includes(f)));
   useEffect(() => {
     if (!tenantId) return undefined;
@@ -137,6 +157,14 @@ const VendedorNovoPedido: React.FC = () => {
       return;
     }
     if (!tenantId || !currentUser) return;
+    const comDias = temPrazo && intervaloPrazo.trim() !== '';
+    if (comDias) {
+      const erroDosDias = diasLinhas.length !== parcelasBoleto ? 'Informe o intervalo das parcelas.' : erroDosDiasDasParcelas(diasLinhas);
+      if (erroDosDias) {
+        showError('Prazo das parcelas', erroDosDias);
+        return;
+      }
+    }
 
     // Rota de entrega: so' quando o pedido esta' pronto (e' quando ele vai pra
     // loja). Sem sinal, a rota fica por conta do servidor na hora do envio.
@@ -164,6 +192,7 @@ const VendedorNovoPedido: React.FC = () => {
         ...(controlaFiscal && notaFiscal ? { notaFiscal } : {}),
         ...(formaPagamento ? { formaPagamento } : {}),
         ...(formaPagamento === 'Boleto' ? { parcelasBoleto } : {}),
+        ...(comDias ? { diasDasParcelas: diasLinhas.map((d) => Number.parseInt(d, 10)) } : {}),
         criadoEm: rascunhoAberto?.criadoEm || agora,
         atualizadoEm: agora,
         ...camposDePronto(pronto, agora),
@@ -243,7 +272,11 @@ const VendedorNovoPedido: React.FC = () => {
             <select
               id="pedido-forma"
               value={formaPagamento}
-              onChange={(evento) => setFormaPagamento(evento.target.value)}
+              onChange={(evento) => {
+                setFormaPagamento(evento.target.value);
+                // A prazo no sistema so' tem intervalo fixo: dias personalizados do boleto voltam ao intervalo.
+                if (evento.target.value === 'Pagamento a Prazo') recalcularDias(parcelasBoleto, intervaloPrazo);
+              }}
               style={{
                 width: '100%', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', fontSize: '16px',
                 backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontFamily: 'inherit',
@@ -257,27 +290,91 @@ const VendedorNovoPedido: React.FC = () => {
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>A pré-venda já chega com esta forma. Trocar na loja só com permissão.</div>
           </div>
 
-          {formaPagamento === 'Boleto' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label htmlFor="pedido-parcelas-boleto" style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Parcelas do boleto
-              </label>
-              <select
-                id="pedido-parcelas-boleto"
-                value={parcelasBoleto}
-                onChange={(evento) => setParcelasBoleto(parcelasDoBoleto(evento.target.value) || 1)}
-                style={{
-                  width: '100%', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', fontSize: '16px',
-                  backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontFamily: 'inherit',
-                }}
-              >
-                {Array.from({ length: MAX_PARCELAS_DO_BOLETO_NO_APP }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>{n === 1 ? '1 boleto (à vista no vencimento)' : `${n} boletos`}</option>
-                ))}
-              </select>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>A pré-venda já chega com as parcelas; os vencimentos seguem o prazo do boleto da loja.</div>
-            </div>
-          )}
+          {temPrazo && (() => {
+            const estiloCampo: React.CSSProperties = {
+              width: '100%', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', fontSize: '16px',
+              backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-primary)', fontFamily: 'inherit', boxSizing: 'border-box',
+            };
+            const estiloRotulo: React.CSSProperties = { fontSize: '13.5px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' };
+            const ehBoleto = formaPagamento === 'Boleto';
+            const varias = parcelasBoleto > 1;
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label htmlFor="pedido-parcelas-boleto" style={estiloRotulo}>Parcelas</label>
+                    <select
+                      id="pedido-parcelas-boleto"
+                      value={parcelasBoleto}
+                      onChange={(evento) => {
+                        const n = parcelasDoBoleto(evento.target.value) || 1;
+                        setParcelasBoleto(n);
+                        recalcularDias(n, intervaloPrazo);
+                      }}
+                      style={estiloCampo}
+                    >
+                      {Array.from({ length: MAX_PARCELAS_DO_BOLETO_NO_APP }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>{n === 1 ? (ehBoleto ? '1 boleto' : '1 parcela') : `${n} ${ehBoleto ? 'boletos' : 'parcelas'}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label htmlFor="pedido-intervalo" style={estiloRotulo}>{varias ? 'Intervalo (dias)' : 'Prazo (dias)'}</label>
+                    <input
+                      id="pedido-intervalo"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={MAX_DIAS_DA_PARCELA}
+                      value={intervaloPrazo}
+                      onChange={(evento) => {
+                        const valor = evento.target.value.replace(/\D/g, '').slice(0, 3);
+                        setIntervaloPrazo(valor);
+                        recalcularDias(parcelasBoleto, valor);
+                      }}
+                      style={estiloCampo}
+                    />
+                  </div>
+                </div>
+                {diasLinhas.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {diasLinhas.map((dias, posicao) => {
+                      const n = Number.parseInt(dias, 10);
+                      const vence = Number.isInteger(n) && n >= 1 ? formatDateInputPtBr(addDaysToDateInput(hojeNoApp, n)) : '—';
+                      return (
+                        <div key={posicao} style={{ display: 'grid', gridTemplateColumns: 'auto 84px 1fr', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--text-primary)' }}>
+                          <span style={{ fontWeight: 700, minWidth: '72px' }}>{posicao + 1}º {ehBoleto ? 'boleto' : 'parcela'}</span>
+                          {ehBoleto ? (
+                            <input
+                              aria-label={`Dias do ${posicao + 1}º boleto`}
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              max={MAX_DIAS_DA_PARCELA}
+                              value={dias}
+                              onChange={(evento) => {
+                                const valor = evento.target.value.replace(/\D/g, '').slice(0, 3);
+                                setDiasLinhas((atual) => atual.map((d, i) => (i === posicao ? valor : d)));
+                              }}
+                              style={{ ...estiloCampo, padding: '9px 10px' }}
+                            />
+                          ) : (
+                            <span style={{ fontWeight: 600 }}>{dias} dias</span>
+                          )}
+                          <span style={{ color: 'var(--text-muted)' }}>vence {vence}</span>
+                        </div>
+                      );
+                    })}
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      {ehBoleto && varias ? 'Mude os dias de cada boleto se precisar (ex.: 14 e 21, ou 21, 28 e 35). ' : ''}Dias contados do faturamento; a pré-venda já chega com estes vencimentos.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Sem os dias, os vencimentos seguem o prazo padrão da loja.</div>
+                )}
+              </div>
+            );
+          })()}
 
           {controlaFiscal && (
             <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>

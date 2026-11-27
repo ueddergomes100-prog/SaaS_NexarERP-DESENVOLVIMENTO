@@ -42,6 +42,8 @@ export interface RascunhoVenda {
   formaPagamento?: string;
   /** So' com Boleto (26/11/2026): em quantas parcelas; a pre-venda ja' nasce com elas. */
   parcelasBoleto?: number;
+  /** Boleto e Pagamento a Prazo (27/11/2026): dias de cada parcela a contar do faturamento (ex.: [21, 28, 35]). */
+  diasDasParcelas?: number[];
   criadoEm: string;
   atualizadoEm: string;
   /** Motivo da ultima tentativa de envio que falhou. */

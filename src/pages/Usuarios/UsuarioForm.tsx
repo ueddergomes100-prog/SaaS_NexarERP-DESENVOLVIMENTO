@@ -110,6 +110,9 @@ const UsuarioForm: React.FC = () => {
   const [pinVendedor, setPinVendedor] = useState('');
   // Bloco B de seguranca (25/11/2026): senha de 2 ou 3 digitos (so' vale no balcao) e papel de gestor (entra por codigo so' com 6+).
   const [pinCurto, setPinCurto] = useState(false);
+  // Situacao da senha de vendedor (27/11/2026, Embala: "minha senha nao da"): a ficha
+  // nao dizia se havia senha cadastrada. null = sem senha; Date = quando foi salva.
+  const [pinDefinidoEm, setPinDefinidoEm] = useState<Date | null | undefined>(undefined);
   const [alvoEhGestor, setAlvoEhGestor] = useState(false);
   const [salvandoPin, setSalvandoPin] = useState(false);
   const [novaSenhaAcesso, setNovaSenhaAcesso] = useState('');
@@ -170,6 +173,7 @@ const UsuarioForm: React.FC = () => {
             codigoVendedor: data.codigoVendedor || ''
           });
           setPinCurto(data.pinCurto === true);
+          setPinDefinidoEm(data.pinDefinidoEm && typeof data.pinDefinidoEm.toDate === 'function' ? data.pinDefinidoEm.toDate() : (data.pinDefinidoEm ? new Date() : null));
           setAlvoEhGestor(data.role === 'Master' || data.role === 'Admin');
         }
         // Ja e' motorista? O vinculo e' motoristas/{uid} (criado aqui) ou o
@@ -265,6 +269,7 @@ const UsuarioForm: React.FC = () => {
       await definirPinVendedor(id, pinVendedor);
       setPinVendedor('');
       setPinCurto(false);
+      setPinDefinidoEm(new Date());
       showSuccess('Senha do vendedor salva!');
     } catch (error) {
       const mensagem = error instanceof VendedorPinError
@@ -615,6 +620,16 @@ const UsuarioForm: React.FC = () => {
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
               Cadastre aqui também quando o funcionário <strong>esquecer a senha</strong> — salvar uma nova substitui a antiga e destrava na hora quem estiver bloqueado por tentativas. A senha tem de {PIN_VENDEDOR_MIN_DIGITOS} a {PIN_VENDEDOR_MAX_DIGITOS} dígitos; <strong>dono e administrador</strong> só entram com código nos computadores ativados se a senha deles tiver {PIN_GESTOR_MIN_DIGITOS} dígitos ou mais.
             </span>
+            {pinDefinidoEm === null && (
+              <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 600, marginTop: '4px' }}>
+                Sem senha de vendedor: {formData.codigoVendedor ? `o código ${formData.codigoVendedor} não confirma venda nem entra no caixa` : 'informe o código e salve uma senha'} até salvar uma aqui. Não é a senha de login.
+              </span>
+            )}
+            {pinDefinidoEm instanceof Date && (
+              <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 600, marginTop: '4px' }}>
+                Senha de vendedor cadastrada em {pinDefinidoEm.toLocaleDateString('pt-BR')}. Na identificação da venda vale o código {formData.codigoVendedor || '—'} com esta senha, não a senha de login.
+              </span>
+            )}
             {pinCurto && (
               <span style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 600, marginTop: '4px' }}>{MENSAGEM_PIN_CURTO}</span>
             )}

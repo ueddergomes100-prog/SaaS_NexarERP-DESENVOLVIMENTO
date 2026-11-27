@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.vendedorQueGravouAPreVenda = exports.erroDaFormaDoVendedor = exports.parcelasDoBoleto = exports.MAX_PARCELAS_DO_BOLETO_NO_APP = exports.CAMPO_PARCELAS_DO_BOLETO = exports.formaDoVendedor = exports.CAMPO_FORMA_DO_VENDEDOR = exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
+exports.vendedorQueGravouAPreVenda = exports.erroDaFormaDoVendedor = exports.prazoDoAppNoPagamento = exports.erroDosDiasDasParcelas = exports.diasSaoUniformes = exports.diasUniformes = exports.diasDasParcelas = exports.FORMAS_COM_PRAZO_NO_APP = exports.MAX_DIAS_DA_PARCELA = exports.CAMPO_DIAS_DAS_PARCELAS = exports.parcelasDoBoleto = exports.MAX_PARCELAS_DO_BOLETO_NO_APP = exports.CAMPO_PARCELAS_DO_BOLETO = exports.formaDoVendedor = exports.CAMPO_FORMA_DO_VENDEDOR = exports.PERMISSAO_TROCAR_FORMA_DO_VENDEDOR = exports.erroDoAPrazoNoCaixa = exports.FORMA_A_PRAZO = exports.parseAPrazoNaFrenteDeCaixa = exports.parseVendaPeloServidor = exports.lerPedidoDeFechamento = exports.lerLotes = exports.LIMITE_DE_ITENS_NO_FECHAMENTO = exports.totaisDoFechamento = exports.subtotalDaLinha = exports.brutoDaLinhaCentavos = exports.configFinanceiraDaEmpresa = void 0;
 /*
  * FECHAMENTO DA VENDA NO SERVIDOR (item 8 da auditoria, fatia 3 -- 13/10/2026).
  *
@@ -15,6 +15,7 @@ exports.vendedorQueGravouAPreVenda = exports.erroDaFormaDoVendedor = exports.par
 const financeDomain_1 = require("./financeDomain");
 const descontoDomain_1 = require("./descontoDomain");
 const transporteNotaDomain_1 = require("./transporteNotaDomain");
+const dateTime_1 = require("./dateTime");
 /** Mesma leitura que o Pedido de Venda faz de `configuracoes/{empresa}`. */
 const configFinanceiraDaEmpresa = (config) => {
     const c = config || {};
@@ -279,6 +280,71 @@ const parcelasDoBoleto = (valor) => {
     return Number.isInteger(n) && n >= 1 && n <= exports.MAX_PARCELAS_DO_BOLETO_NO_APP ? n : 0;
 };
 exports.parcelasDoBoleto = parcelasDoBoleto;
+/**
+ * DIAS DE CADA PARCELA ESCOLHIDOS NO APP (27/11/2026, Ivan da Embala Minas:
+ * "7, 14, 21, 28, 42 dias... 14/21, 21/28/35", e o dono: "o app mobile tem que
+ * ter as mesmas formas e funcoes que ja' temos no sistema"). Boleto e Pagamento
+ * a Prazo no app ganham parcelas + intervalo e, no boleto, os dias de cada um
+ * editaveis -- como no Pedido de Venda. A pre-venda guarda os dias contados do
+ * faturamento (`diasDasParcelas`, ex.: [21, 28, 35]); o sistema abre o
+ * pagamento com eles (prazoDoAppNoPagamento). Sem o campo, vale o de antes:
+ * o prazo padrao da loja.
+ */
+exports.CAMPO_DIAS_DAS_PARCELAS = 'diasDasParcelas';
+exports.MAX_DIAS_DA_PARCELA = 999;
+exports.FORMAS_COM_PRAZO_NO_APP = ['Boleto', 'Pagamento a Prazo'];
+/** Dias validos (1 a 999, cada parcela depois da anterior, ate' 12); [] = nao informado. */
+const diasDasParcelas = (valor) => {
+    if (!Array.isArray(valor) || valor.length < 1 || valor.length > exports.MAX_PARCELAS_DO_BOLETO_NO_APP)
+        return [];
+    const dias = valor.map((v) => (typeof v === 'number' ? v : Number.parseInt(String(v ?? ''), 10)));
+    const validos = dias.every((d, i) => Number.isInteger(d) && d >= 1 && d <= exports.MAX_DIAS_DA_PARCELA && (i === 0 || d > dias[i - 1]));
+    return validos ? dias : [];
+};
+exports.diasDasParcelas = diasDasParcelas;
+/** 3 parcelas de 21 em 21 => [21, 42, 63]. */
+const diasUniformes = (parcelas, intervalo) => (Number.isInteger(parcelas) && parcelas >= 1 && Number.isInteger(intervalo) && intervalo >= 1
+    ? Array.from({ length: parcelas }, (_, i) => intervalo * (i + 1))
+    : []);
+exports.diasUniformes = diasUniformes;
+/** Os dias seguem um intervalo so' (21/42/63)? Entao nao ha' vencimento personalizado. */
+const diasSaoUniformes = (dias) => dias.every((d, i) => d === dias[0] * (i + 1));
+exports.diasSaoUniformes = diasSaoUniformes;
+/** O que o vendedor digitou nos dias de cada parcela: por que nao vale, ou null. */
+const erroDosDiasDasParcelas = (digitados) => {
+    const dias = digitados.map((d) => Number.parseInt(String(d ?? '').trim(), 10));
+    const vazia = dias.findIndex((d) => !Number.isInteger(d) || d < 1 || d > exports.MAX_DIAS_DA_PARCELA);
+    if (vazia >= 0)
+        return `Informe os dias da ${vazia + 1}ª parcela (de 1 a ${exports.MAX_DIAS_DA_PARCELA}).`;
+    const foraDeOrdem = dias.findIndex((d, i) => i > 0 && d <= dias[i - 1]);
+    if (foraDeOrdem >= 0)
+        return `A ${foraDeOrdem + 1}ª parcela precisa vencer depois da ${foraDeOrdem}ª: aumente os dias dela.`;
+    return null;
+};
+exports.erroDosDiasDasParcelas = erroDosDiasDasParcelas;
+/**
+ * Campos do pagamento (PaymentDraft) que o sistema abre a partir dos dias do
+ * app, contados de `hoje` (o faturamento). null = sem dias: vale o padrao.
+ * Pagamento a Prazo no sistema so' tem intervalo fixo: usa o 1o dia como prazo.
+ */
+const prazoDoAppNoPagamento = (forma, dias, hoje) => {
+    if (dias.length === 0 || !exports.FORMAS_COM_PRAZO_NO_APP.includes(forma))
+        return null;
+    const primeiro = dias[0];
+    if (forma === 'Pagamento a Prazo') {
+        return { parcelasAPrazo: String(dias.length), prazoDias: String(primeiro), dataVencimento: (0, dateTime_1.addDaysToDateInput)(hoje, primeiro) };
+    }
+    const personalizadas = dias.length > 1 && !(0, exports.diasSaoUniformes)(dias)
+        ? dias.map((d) => ({ dias: String(d), vencimento: (0, dateTime_1.addDaysToDateInput)(hoje, d) }))
+        : [];
+    return {
+        parcelasAPrazo: String(dias.length),
+        prazoDias: String(primeiro),
+        dataPrevistaRecebimento: (0, dateTime_1.addDaysToDateInput)(hoje, primeiro),
+        parcelasPersonalizadas: personalizadas,
+    };
+};
+exports.prazoDoAppNoPagamento = prazoDoAppNoPagamento;
 /** Por que a venda nao pode sair com estas formas, ou null. */
 const erroDaFormaDoVendedor = (args) => {
     const escolhida = String(args.formaDoVendedor || '').trim();

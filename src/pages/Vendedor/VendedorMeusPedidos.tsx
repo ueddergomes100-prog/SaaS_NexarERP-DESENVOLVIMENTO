@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, Receipt } from 'lucide-react';
+import { Eye, Receipt, Search, X } from 'lucide-react';
 import {
   addDoc, collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, startAfter, Timestamp, where,
   type DocumentData, type QueryConstraint, type QueryDocumentSnapshot,
@@ -17,6 +17,10 @@ import { nomeArquivoDocumento, numeroDaNota } from '../../utils/nomeArquivoDomai
 import { STATUS_NOTA_EM_TRANSMISSAO } from '../../utils/cancelamentoNotaVendaDomain';
 import { compartilharOuBaixarPdf } from './folhaParaPdf';
 import VendedorHeader from './VendedorHeader';
+import VendedorSeletorCliente from './VendedorSeletorCliente';
+import type { ClienteConfirmavel } from './VendedorConfirmarClienteModal';
+import type { SearchableClient } from '../../utils/clientSearch';
+import { useTenantCollection } from '../../hooks/useTenantCollection';
 import { PERMISSAO_APP, podeTelaDoApp } from './vendedorPermissoes';
 import {
   DIAS_RECENTES_SEM_MINHAS_VENDAS,
@@ -97,6 +101,14 @@ const VendedorMeusPedidos: React.FC = () => {
   // "Agora" e' fixado quando a lista carrega (nao a cada render): a janela
   // de 30 dias e' decidida uma vez por carga, e a renderizacao fica pura.
   const [agoraMillis, setAgoraMillis] = useState(0);
+  // Pedidos de um cliente (27/11/2026, Ivan da Embala: "nao tenho campo para procurar o
+  // cliente que eu quero devolver" -- so' havia o "Ver mais"). Escolhido o cliente, a
+  // lista traz todos os pedidos e orcamentos dele feitos por voce, sem paginar.
+  const [buscandoCliente, setBuscandoCliente] = useState(false);
+  const [clienteFiltro, setClienteFiltro] = useState<{ id: string; nome: string } | null>(null);
+  const [itensDoCliente, setItensDoCliente] = useState<ItemLista[] | null>(null);
+  const [carregandoCliente, setCarregandoCliente] = useState(false);
+  const { items: clientes } = useTenantCollection<SearchableClient & ClienteConfirmavel & { id: string; nome: string }>('clientes', tenantId, { enabled: buscandoCliente });
 
   // "Minhas Vendas" marcada no cadastro do funcionario: aparecem TODAS as
   // vendas dele aqui. Sem ela, so' as dos ultimos 30 dias.
@@ -298,8 +310,39 @@ const VendedorMeusPedidos: React.FC = () => {
     }
   };
 
-  const lista = filtrarMeusPedidos(itens, { temMinhasVendas, agoraMillis });
-  const listaVisivel = lista.slice(0, visiveis);
+  useEffect(() => {
+    if (!clienteFiltro || !tenantId || !currentUser) {
+      setItensDoCliente(null);
+      return undefined;
+    }
+    let vivo = true;
+    setCarregandoCliente(true);
+    // So' igualdades: o Firestore resolve sem indice composto novo.
+    const doCliente = [where('tenantId', '==', tenantId), where('clienteId', '==', clienteFiltro.id)];
+    Promise.all([
+      getDocs(query(collection(db, 'pedidos_venda'), ...doCliente, where('vendedorId', '==', currentUser.uid))),
+      getDocs(query(collection(db, 'orcamentos'), ...doCliente, where('criadoPor', '==', currentUser.uid))),
+    ])
+      .then(([pedidos, orcamentos]) => {
+        if (!vivo) return;
+        setItensDoCliente([
+          ...pedidos.docs.map((d) => paraItemDaLista('pedidos', d.id, d.data())),
+          ...orcamentos.docs.map((d) => paraItemDaLista('orcamentos', d.id, d.data())),
+        ]);
+      })
+      .catch((erro) => {
+        console.error('Meus Pedidos: erro ao buscar os pedidos do cliente.', erro);
+        if (vivo) {
+          setItensDoCliente([]);
+          showError('Não foi possível buscar', 'Não deu para carregar os pedidos deste cliente. Verifique a internet e tente de novo.');
+        }
+      })
+      .finally(() => { if (vivo) setCarregandoCliente(false); });
+    return () => { vivo = false; };
+  }, [clienteFiltro, tenantId, currentUser]);
+
+  const lista = filtrarMeusPedidos(itensDoCliente ?? itens, { temMinhasVendas, agoraMillis });
+  const listaVisivel = itensDoCliente ? lista : lista.slice(0, visiveis);
 
   // Situacao da nota de cada venda finalizada na tela (15/10/2026). Consulta
   // pelos pedidos visiveis, de 30 em 30 (limite do "in" do Firestore). Sem
@@ -363,13 +406,58 @@ const VendedorMeusPedidos: React.FC = () => {
       <VendedorHeader titulo="Meus Pedidos" />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {carregando ? (
+        {clienteFiltro ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'rgba(153,100,240,0.12)', border: '1px solid var(--brand-500)' }}>
+            <Search size={16} aria-hidden="true" style={{ color: 'var(--brand-400)', flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0, fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Pedidos de {clienteFiltro.nome}
+            </div>
+            <button
+              type="button"
+              aria-label="Mostrar todos os pedidos"
+              onClick={() => setClienteFiltro(null)}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--brand-400)', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', padding: '6px' }}
+            >
+              <X size={16} aria-hidden="true" /> Todos
+            </button>
+          </div>
+        ) : buscandoCliente ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <VendedorSeletorCliente
+              clientes={clientes}
+              mostrarDebitos={false}
+              onConfirmar={(cliente) => {
+                setClienteFiltro({ id: cliente.id, nome: cliente.nome });
+                setBuscandoCliente(false);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setBuscandoCliente(false)}
+              style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--brand-400)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', padding: '4px 0' }}
+            >
+              Voltar para a lista
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setBuscandoCliente(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '46px', padding: '0 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-muted)', fontSize: '15px', fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
+          >
+            <Search size={18} aria-hidden="true" /> Buscar pedidos de um cliente
+          </button>
+        )}
+
+        {buscandoCliente ? null : carregando || carregandoCliente ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : erroCarga ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: '#ef4444', fontSize: '14px' }}>{erroCarga}</div>
         ) : lista.length === 0 ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
-            {temMinhasVendas
+            {clienteFiltro
+              ? (temMinhasVendas ? 'Você não tem pedidos para este cliente.' : 'Nenhum pedido seu para este cliente nos últimos 30 dias.')
+              : temMinhasVendas
               ? 'Você ainda não tem nenhuma venda registrada.'
               : 'Nenhum pedido ou orçamento seu nos últimos 30 dias.'}
           </div>
@@ -443,7 +531,7 @@ const VendedorMeusPedidos: React.FC = () => {
           })
         )}
 
-        {!carregando && !erroCarga && lista.length > 0 && temMaisMeusPedidos({ totalNaLista: lista.length, visiveis, fontesEsgotadas }) && (
+        {!carregando && !erroCarga && !clienteFiltro && !buscandoCliente && lista.length > 0 && temMaisMeusPedidos({ totalNaLista: lista.length, visiveis, fontesEsgotadas }) && (
           <button
             type="button"
             onClick={() => { void verMais(); }}

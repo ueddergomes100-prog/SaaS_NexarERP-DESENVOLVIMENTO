@@ -52,6 +52,8 @@ interface PedidoDetalhe {
   pagamentos: Array<{ formaPagamento: string; valor: number }>;
   /** Devolucao pelo app (24/11/2026): o pedido pode ser devolvido por aqui? (a mesma regra do servidor) */
   podeDevolverPeloApp: boolean;
+  /** Por que nao da' para devolver pelo app (27/11/2026: antes o botao so' sumia). */
+  motivoSemDevolucao: string;
 }
 
 const ROTULO_CONFERENCIA: Record<string, string> = {
@@ -119,8 +121,13 @@ const VendedorPedidoDetalhe: React.FC = () => {
         encargos: Number(data.encargos || 0),
         valorTotal: Number(data.valorTotal || 0),
         pagamentos: Array.isArray(data.pagamentos) ? data.pagamentos : [],
-        podeDevolverPeloApp: erroParaDevolverPeloApp(snap.id, data, currentUser.uid) === null
-          && (Array.isArray(data.itens) ? data.itens : []).some((i: { quantidade?: number; quantidadeJaDevolvida?: number }) => Number(i.quantidade || 0) - Number(i.quantidadeJaDevolvida || 0) > 0),
+        ...((): { podeDevolverPeloApp: boolean; motivoSemDevolucao: string } => {
+          const erro = erroParaDevolverPeloApp(snap.id, data, currentUser.uid);
+          const restaItem = (Array.isArray(data.itens) ? data.itens : []).some((i: { quantidade?: number; quantidadeJaDevolvida?: number }) => Number(i.quantidade || 0) - Number(i.quantidadeJaDevolvida || 0) > 0);
+          if (erro) return { podeDevolverPeloApp: false, motivoSemDevolucao: data.status === 'Cancelada' ? '' : erro };
+          if (!restaItem) return { podeDevolverPeloApp: false, motivoSemDevolucao: 'Todos os itens deste pedido já foram devolvidos.' };
+          return { podeDevolverPeloApp: true, motivoSemDevolucao: '' };
+        })(),
       });
       setCarregando(false);
     }).catch(() => {
@@ -277,6 +284,19 @@ const VendedorPedidoDetalhe: React.FC = () => {
                 <RotateCcw size={18} />
                 Devolver itens
               </button>
+            )}
+
+            {/* Sem o botao, diz o porque (27/11/2026, Embala: "nao aparece essa opcao devolver"). */}
+            {!(configDevolucaoApp.permitida && pedido.podeDevolverPeloApp) && (configDevolucaoApp.permitida ? pedido.motivoSemDevolucao : pedido.status === 'Finalizada') && (
+              <div style={{ marginTop: '4px', padding: '12px 14px', borderRadius: '14px', border: '1px dashed var(--border-color)', fontSize: '13px', color: 'var(--text-muted)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <RotateCcw size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: '1px' }} />
+                <span>
+                  {configDevolucaoApp.permitida
+                    ? pedido.motivoSemDevolucao
+                    : 'A devolução pelo aplicativo está desligada nesta empresa. Peça ao escritório para ligar em Configurações da filial › Configurações Avançadas, ou faça a devolução na loja.'}
+                  {configDevolucaoApp.permitida && pedido.status !== 'Finalizada' && pedido.status !== 'Cancelada' ? ' Enquanto for pré-venda, peça à loja para alterar os itens ou cancelar.' : ''}
+                </span>
+              </div>
             )}
 
             {podeCancelar && (

@@ -174,3 +174,45 @@ test('pre-venda gravada pelo login do proprio vendedor (app) dispensa a senha no
   assert.equal(vendedorQueGravouAPreVenda({ status: 'Pré-venda', criadoPor: 'v1' }), '');
   assert.equal(vendedorQueGravouAPreVenda(null), '');
 });
+
+// Dias de cada parcela escolhidos no app (27/11/2026, Embala Minas).
+import {
+  diasDasParcelas as diasDasParcelasApp,
+  diasUniformes as diasUniformesApp,
+  erroDosDiasDasParcelas as erroDosDiasApp,
+  prazoDoAppNoPagamento as prazoDoAppApp,
+} from '../src/utils/vendaFechamentoDomain';
+
+test('dias das parcelas do app: validos, em ordem, ate 12; o resto vira []', () => {
+  assert.deepEqual(diasDasParcelasApp([21, 28, 35]), [21, 28, 35]);
+  assert.deepEqual(diasDasParcelasApp(['7', '14']), [7, 14]);
+  assert.deepEqual(diasDasParcelasApp([14, 7]), [], 'fora de ordem');
+  assert.deepEqual(diasDasParcelasApp([0]), []);
+  assert.deepEqual(diasDasParcelasApp([1000]), []);
+  assert.deepEqual(diasDasParcelasApp('21/28'), []);
+  assert.deepEqual(diasDasParcelasApp(Array.from({ length: 13 }, (_, i) => i + 1)), []);
+  assert.deepEqual(diasUniformesApp(3, 21), [21, 42, 63]);
+  assert.deepEqual(diasUniformesApp(2, 0), []);
+});
+
+test('dias das parcelas do app: mensagem do que o vendedor digitou', () => {
+  assert.equal(erroDosDiasApp(['21', '28', '35']), null);
+  assert.match(erroDosDiasApp(['21', '', '35']) || '', /2ª parcela/);
+  assert.match(erroDosDiasApp(['21', '14']) || '', /2ª parcela precisa vencer depois da 1ª/);
+});
+
+test('sistema abre a pre-venda com os dias do app, contados do faturamento', () => {
+  const hoje = '2026-11-27';
+  const personalizado = prazoDoAppApp('Boleto', [14, 21], hoje);
+  assert.deepEqual(personalizado, {
+    parcelasAPrazo: '2',
+    prazoDias: '14',
+    dataPrevistaRecebimento: '2026-12-11',
+    parcelasPersonalizadas: [{ dias: '14', vencimento: '2026-12-11' }, { dias: '21', vencimento: '2026-12-18' }],
+  });
+  // Intervalo fixo nao precisa de vencimento personalizado.
+  assert.deepEqual(prazoDoAppApp('Boleto', [21, 42, 63], hoje)?.parcelasPersonalizadas, []);
+  assert.deepEqual(prazoDoAppApp('Pagamento a Prazo', [30, 60], hoje), { parcelasAPrazo: '2', prazoDias: '30', dataVencimento: '2026-12-27' });
+  assert.equal(prazoDoAppApp('Pix', [30], hoje), null);
+  assert.equal(prazoDoAppApp('Boleto', [], hoje), null);
+});

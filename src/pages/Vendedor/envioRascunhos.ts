@@ -4,7 +4,7 @@ import { comNotaFiscalDaEscolha } from '../../utils/pedidoVendedorDomain';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ModoRotaPreVenda } from '../../utils/rotaPreVendaDomain';
 import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService';
 import { listarRascunhos, marcarErroRascunho, removerRascunho, type RascunhoVenda } from './vendedorRascunhosStore';
-import { parcelasDoBoleto } from '../../utils/vendaFechamentoDomain';
+import { diasDasParcelas, FORMAS_COM_PRAZO_NO_APP, parcelasDoBoleto } from '../../utils/vendaFechamentoDomain';
 import { idDoPedidoDeBonificacao, separarItensDaBonificacao, TIPO_PEDIDO_BONIFICACAO } from '../../utils/bonificacaoDomain';
 
 /*
@@ -84,6 +84,9 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
       itens: cobrados,
       ...(rascunho.formaPagamento ? { formaPagamento: rascunho.formaPagamento } : {}),
       ...(rascunho.formaPagamento === 'Boleto' && parcelasDoBoleto(rascunho.parcelasBoleto) ? { parcelasBoleto: parcelasDoBoleto(rascunho.parcelasBoleto) } : {}),
+      ...(FORMAS_COM_PRAZO_NO_APP.includes(rascunho.formaPagamento || '') && diasDasParcelas(rascunho.diasDasParcelas).length > 0
+        ? { diasDasParcelas: diasDasParcelas(rascunho.diasDasParcelas) }
+        : {}),
       idDocumento: rascunho.localId,
       ...(idBonificacao ? { pedidoBonificacaoId: idBonificacao } : {}),
     });

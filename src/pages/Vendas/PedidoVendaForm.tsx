@@ -15,7 +15,7 @@ import { useEmitirBoletosNaHora } from '../../hooks/useEmitirBoletosNaHora';
 import { creditoDaDevolucaoAposEstorno, planoDoEstornoDaDevolucao, type ItemDaDevolucao } from '../../utils/estornoDevolucaoDomain';
 import { conferirSaidaDoProduto } from '../../services/reservaEstoqueService';
 import { estornarCashbackDaVendaSemFalhar, gerarCashbackSemFalhar } from '../../services/cashbackService';
-import { alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, definirComNotaFiscalNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
+import { alterarObservacaoNoServidor, alterarPagamentoNoServidor, cancelarPreVendaNoServidor, cancelarVendaNoServidor, definirComNotaFiscalNoServidor, finalizarVendaNoServidor, VendaServidorError } from '../../services/vendaServidorService';
 import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService';
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { perguntaRotaNaPreVenda, textoDoResultadoDaRota, type ResultadoDaRota, type RotaAberta } from '../../utils/rotaPreVendaDomain';
@@ -908,6 +908,33 @@ const PedidoVendaForm: React.FC = () => {
   /** Pedido ja' gravado e fechado (finalizado): a troca vai direto pelo servidor, com registro. */
   const notaFiscalTrocaPeloServidor = Boolean(id) && isViewing && !isPreVendaAberta && !isPendingFromAgent;
   const podeTrocarNotaFiscalGravada = podeVenda(PERMISSAO_VENDAS.alterarNotaFiscal);
+  // Observacao de venda concluida (27/11/2026): pelo servidor, com registro no Historico de alteracoes.
+  const podeAlterarObservacaoConcluida = podeVenda(PERMISSAO_VENDAS.alterarObservacao);
+  const [salvandoObservacao, setSalvandoObservacao] = useState(false);
+  const alterarObservacaoConcluida = async () => {
+    if (!id || salvandoObservacao) return;
+    const resposta = await NexusSwal.fire({
+      title: 'Alterar observação',
+      input: 'textarea',
+      inputValue: observacaoPedido,
+      inputAttributes: { maxlength: '200', 'aria-label': 'Observação da venda' },
+      html: '<div style="font-size:13px;color:var(--text-secondary)">A alteração fica registrada no Histórico de alterações da venda (antes e depois).</div>',
+      showCancelButton: true,
+      confirmButtonText: 'Salvar observação',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!resposta.isConfirmed) return;
+    setSalvandoObservacao(true);
+    try {
+      const r = await alterarObservacaoNoServidor(id, String(resposta.value ?? ''));
+      setObservacaoPedido(r.observacao);
+      if (r.mudou) showSuccess('Observação alterada e registrada no histórico da venda.');
+    } catch (erro) {
+      showError('Não foi possível alterar a observação', erro instanceof Error && erro.message ? erro.message : 'Nada foi gravado. Tente de novo.');
+    } finally {
+      setSalvandoObservacao(false);
+    }
+  };
   const [trocandoNotaFiscal, setTrocandoNotaFiscal] = useState(false);
   const escolherNotaFiscal = async (comNota: boolean) => {
     if (comNotaFiscalPedido === comNota) return;
@@ -6611,7 +6638,20 @@ const PedidoVendaForm: React.FC = () => {
               </div>
             )}
             <div className="input-group" style={{ marginTop: '16px' }}>
-              <label htmlFor="pedido-observacao" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Observação</label>
+              <label htmlFor="pedido-observacao" style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                Observação
+                {isViewing && status === 'Finalizada' && podeAlterarObservacaoConcluida && (
+                  <button
+                    type="button"
+                    onClick={() => void alterarObservacaoConcluida()}
+                    disabled={salvandoObservacao}
+                    title="Alterar a observação desta venda concluída (fica no Histórico de alterações)"
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent-purple)', fontWeight: 700, fontSize: '12.5px', cursor: salvandoObservacao ? 'default' : 'pointer' }}
+                  >
+                    {salvandoObservacao ? 'Salvando...' : 'Alterar'}
+                  </button>
+                )}
+              </label>
               <input
                 id="pedido-observacao"
                 type="text"

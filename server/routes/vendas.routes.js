@@ -6,7 +6,7 @@ const { ErroVenda, finalizarVenda, temPermissao } = require('../services/vendaFe
 const { PERMISSOES_QUE_OPERAM_O_CAIXA } = require('../domain/frenteDeCaixaDomain');
 const { alterarPagamento, cancelarPreVenda, cancelarVenda } = require('../services/vendaCancelamento');
 const cashback = require('../services/cashback');
-const { ErroNotaDoPedido, definirComNotaFiscal } = require('../services/notaDoPedido');
+const { ErroNotaDoPedido, definirComNotaFiscal, alterarObservacao } = require('../services/notaDoPedido');
 const { lerPedidoDeMarcaNota } = require('../domain/notaDoPedidoDomain');
 const pv = require('../services/permissoesVendas');
 const { PERMISSAO_VENDAS: PV } = require('../domain/permissoesNovasDomain');
@@ -186,6 +186,21 @@ router.post('/nota-fiscal', async (req, res) => {
   } catch (erro) {
     if (erro instanceof ErroNotaDoPedido) return res.status(erro.status).json({ error: erro.message });
     return responderErro(res, erro, 'trocar o pedido de com/sem nota fiscal');
+  }
+});
+
+/**
+ * POST /api/vendas/observacao -- { pedidoId, observacao }. Observacao de venda
+ * concluida (27/11/2026), com registro no Historico de alteracoes.
+ */
+router.post('/observacao', async (req, res) => {
+  try {
+    const tenantId = empresaDaOperacao(req.user, req.body);
+    const r = await alterarObservacao({ user: req.user, tenantId, pedidoId: req.body?.pedidoId, observacao: req.body?.observacao });
+    return res.json({ ok: true, ...r });
+  } catch (erro) {
+    if (erro instanceof ErroNotaDoPedido) return res.status(erro.status).json({ error: erro.message });
+    return responderErro(res, erro, 'alterar a observação da venda');
   }
 });
 

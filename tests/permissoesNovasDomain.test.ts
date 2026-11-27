@@ -51,7 +51,8 @@ const MARCADOR_FIN3 = marcadorDoPacote('financeiro-3');
 const MARCADOR_PDV = marcadorDoPacote('pdv-1');
 const MARCADOR_APP1 = marcadorDoPacote('app-1');
 const MARCADOR_CLIENTES1 = marcadorDoPacote('clientes-1');
-const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3, MARCADOR_PDV, MARCADOR_APP1, MARCADOR_CLIENTES1];
+const MARCADOR_VENDAS2 = marcadorDoPacote('vendas-2');
+const MARCADORES = [MARCADOR_FIN, MARCADOR_FIN2, MARCADOR_VENDAS, MARCADOR_ESTOQUE, MARCADOR_ADMINISTRACAO, MARCADOR_FIN3, MARCADOR_PDV, MARCADOR_APP1, MARCADOR_CLIENTES1, MARCADOR_VENDAS2];
 
 test('toda permissao nova esta no catalogo (tem rotulo na tela) e o marcador nao', () => {
   const ids = new Set(PERMISSION_CATALOG.map((i) => i.id));
@@ -93,7 +94,7 @@ test('quem tem so Contas a Pagar ganha so as do Pagar; quem nao tem nenhuma, nad
 test('com o pacote gravado, vale so o que esta marcado; aplicar de novo nao muda nada', () => {
   const gravadas = permissoesParaGravar(['financeiro.receber', F.receberBaixar]);
   assert.deepEqual(ordenar(gravadas), ordenar(['financeiro.receber', F.receberBaixar, ...MARCADORES]));
-  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1', 'financeiro-3', 'pdv-1', 'app-1', 'clientes-1']);
+  assert.deepEqual(pacotesGravados(gravadas), ['financeiro-1', 'financeiro-2', 'vendas-1', 'estoque-1', 'administracao-1', 'financeiro-3', 'pdv-1', 'app-1', 'clientes-1', 'vendas-2']);
   assert.deepEqual(pacotesGravados(['financeiro.receber']), []);
   const efetivas = permissoesEfetivas(gravadas);
   assert.deepEqual(ordenar(efetivas), ordenar(gravadas), 'desmarcou baixa em lote: fica sem');

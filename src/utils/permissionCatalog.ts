@@ -163,6 +163,7 @@ export const PERMISSION_GROUPS: PermissionCatalogGroup[] = [
       { id: 'vendas.cancelar', label: 'Vendas: Cancelar/Estornar venda finalizada', color: '#ef4444' },
       { id: 'vendas.alterar_transporte', label: 'Vendas: Corrigir transporte de venda finalizada', color: '#f59e0b' },
       { id: 'vendas.alterar_nota_fiscal', label: 'Vendas: Trocar pedido entre com e sem nota fiscal', color: '#ef4444' },
+      { id: 'vendas.alterar_observacao', label: 'Vendas: Alterar a observação de venda concluída', color: '#f59e0b' },
       { id: 'vendas.devolucao_estornar', label: 'Vendas: Estornar devolução de venda', color: '#ef4444' },
       { id: 'vendas.pedidos_pendentes_recusar', label: 'Vendas: Pendente — Recusar pedido', color: '#ef4444' },
       { id: 'vendas.imprimir', label: 'Vendas: Imprimir pedido, recibo e minuta', color: '#f59e0b' },

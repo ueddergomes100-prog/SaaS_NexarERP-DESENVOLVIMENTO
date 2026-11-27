@@ -132,6 +132,8 @@ export const PERMISSAO_VENDAS = {
   cancelar: 'vendas.cancelar',
   alterarTransporte: 'vendas.alterar_transporte',
   alterarNotaFiscal: 'vendas.alterar_nota_fiscal',
+  /** Observacao de venda concluida (27/11/2026); vem com 'Alterar Pedidos' (pacote 'vendas-2'). */
+  alterarObservacao: 'vendas.alterar_observacao',
   devolucaoEstornar: 'vendas.devolucao_estornar',
   pendenteRecusar: 'vendas.pedidos_pendentes_recusar',
   imprimir: 'vendas.imprimir',
@@ -572,6 +574,14 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
     implicacoes: {
       'cadastros.clientes': [PERMISSAO_CADASTROS.clientesCompras],
       'app.clientes': [PERMISSAO_APP_COMPRAS_CLIENTE],
+    },
+  },
+  {
+    // 27/11/2026 (pedido do dono): alterar a observacao da venda concluida. Quem ja'
+    // altera pedidos continua podendo.
+    id: 'vendas-2',
+    implicacoes: {
+      'vendas.alterar': [PERMISSAO_VENDAS.alterarObservacao],
     },
   },
 ];

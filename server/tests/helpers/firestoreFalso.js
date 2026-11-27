@@ -250,7 +250,7 @@ const carregarComBancoFalso = (db, ...servicos) => {
   const caminhos = ['services/baixaFinanceira', 'services/movimentoBanco', 'services/condicionais', ...servicos]
     .map((s) => require.resolve(path.join(base, s)));
   // Servicos usados por dentro de outros (guardam o `db` ao carregar): sempre com o banco novo.
-  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/contaDoCadastro', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades', 'services/sessoes', 'services/travaDeRotina']
+  const sempreNovos = ['services/comprovantes', 'services/vendedorPin', 'services/contaDoCadastro', 'services/cashback', 'services/configuracoesGerais', 'services/transporteDaDevolucao', 'services/mensalidades', 'services/sessoes', 'services/travaDeRotina', 'services/auditoria']
     .map((s) => require.resolve(path.join(base, s)));
   [...sempreNovos, ...caminhos].forEach((c) => { delete require.cache[c]; });
   return caminhos.map((c) => require(c));

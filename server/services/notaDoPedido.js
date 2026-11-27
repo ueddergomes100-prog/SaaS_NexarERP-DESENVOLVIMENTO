@@ -16,6 +16,7 @@ const nd = require('../domain/notaDoPedidoDomain');
 const { ehPedidoDoSistemaAnterior, mensagemPedidoDoSistemaAnterior } = require('../domain/importacaoPedidosAnterioresDomain');
 const { podeEmVendas, mensagemSemPermissao } = require('./permissoesVendas');
 const { PERMISSAO_VENDAS: PV } = require('../domain/permissoesNovasDomain');
+const { registrarLogNaTransacao } = require('./auditoria');
 
 class ErroNotaDoPedido extends Error {
   constructor(status, message) {
@@ -119,4 +120,48 @@ const definirComNotaFiscal = async ({ user, tenantId, pedidoId, comNotaFiscal })
   return { mudou, numeroPedido: pedido.numeroPedido || '', antes: marcaAtual, vendedorId: pedido.vendedorId || null, vendedorNome: pedido.vendedorNome || null };
 });
 
-module.exports = { ErroNotaDoPedido, travarEmissao, definirComNotaFiscal };
+/**
+ * OBSERVACAO DE VENDA CONCLUIDA (27/11/2026, pedido do dono): troca so' o texto da
+ * observacao de um pedido ja' finalizado e grava, na MESMA transacao, o registro no
+ * Historico de alteracoes (antes -> depois). Pre-venda/pedido em aberto se edita
+ * pela tela, como sempre; cancelado nao muda.
+ */
+const OBSERVACAO_MAX = 200;
+const alterarObservacao = async ({ user, tenantId, pedidoId, observacao }) => {
+  if (!podeEmVendas(user, PV.alterarObservacao)) {
+    throw new ErroNotaDoPedido(403, mensagemSemPermissao([PV.alterarObservacao]));
+  }
+  if (typeof pedidoId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(pedidoId)) {
+    throw new ErroNotaDoPedido(400, 'Pedido inválido. Atualize a tela e tente de novo.');
+  }
+  const nova = String(observacao ?? '').replace(/\s+/g, ' ').trim().toUpperCase().slice(0, OBSERVACAO_MAX);
+  return db.runTransaction(async (tx) => {
+    const { ref, pedido } = await lerPedidoDaEmpresa(tx, tenantId, pedidoId);
+    if (pedido.status === 'Cancelada') throw new ErroNotaDoPedido(409, 'Pedido cancelado não muda a observação.');
+    if (pedido.status !== 'Finalizada') {
+      throw new ErroNotaDoPedido(409, 'Este pedido ainda está em aberto: altere a observação na própria tela do pedido e grave de novo.');
+    }
+    const antes = String(pedido.observacao || '').trim();
+    if (antes === nova) return { mudou: false, observacao: nova, numeroPedido: pedido.numeroPedido || '' };
+    tx.update(ref, {
+      observacao: nova,
+      observacaoAlteradaPor: user.uid,
+      observacaoAlteradaEm: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'vendas',
+      acao: 'edicao',
+      descricao: `Observação da venda #${pedido.numeroPedido || ''} alterada.`,
+      registroId: pedidoId,
+      documentoTipo: 'pedido',
+      documentoNumero: `Pedido ${pedido.numeroPedido || ''}`,
+      vendedorId: pedido.vendedorId || null,
+      vendedorNome: pedido.vendedorNome || null,
+      alteracoes: [{ campo: 'Observação', valorAnterior: antes || '(vazia)', valorNovo: nova || '(vazia)' }],
+    });
+    return { mudou: true, observacao: nova, numeroPedido: pedido.numeroPedido || '' };
+  });
+};
+
+module.exports = { ErroNotaDoPedido, travarEmissao, definirComNotaFiscal, alterarObservacao, OBSERVACAO_MAX };

@@ -158,6 +158,15 @@ export const alterarPagamentoNoServidor = (pedidoId: string, pagamentos: unknown
  * Troca "Com nota / Sem nota" de um pedido gravado (23/10/2026). O servidor confere a
  * permissão e recusa "Sem nota" em pedido que já tem nota. Ver server/services/notaDoPedido.js.
  */
+/**
+ * Observacao de venda concluida (27/11/2026): o servidor confere a permissao, troca o
+ * texto e grava o registro no Historico de alteracoes. Ver server/services/notaDoPedido.js.
+ */
+export const alterarObservacaoNoServidor = (pedidoId: string, observacao: string) =>
+  postarNoServidor<{ ok: true; mudou: boolean; observacao: string; numeroPedido: string }>('observacao', { pedidoId, observacao },
+    'Não foi possível alterar a observação. Nada foi gravado. Tente novamente.',
+    'Abra o pedido de novo para conferir se a observação foi gravada.');
+
 export const definirComNotaFiscalNoServidor = (pedidoId: string, comNotaFiscal: boolean) =>
   postarNoServidor<{ ok: true; mudou: boolean; comNotaFiscal: boolean }>('nota-fiscal', { pedidoId, comNotaFiscal },
     'Não foi possível trocar o pedido de com/sem nota fiscal. Nada foi gravado. Tente novamente.',

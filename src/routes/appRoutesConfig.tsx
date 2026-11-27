@@ -214,9 +214,12 @@ export const appRoutesConfig: RouteObject[] = [
 
   { path: 'financeiro/caixa', element: <Caixa /> },
   { path: 'financeiro/caixa-registros', element: <CaixaRegistros /> },
+  { path: 'financeiro/caixa-registros/relatorio', element: <PrintRelatorioMovimentacao voltarPara="/financeiro/caixa-registros" /> },
   { path: 'financeiro/banco', element: <Banco /> },
   { path: 'financeiro/cheques', element: <Cheques /> },
   { path: 'financeiro/caixas', element: <CaixasTransferencias /> },
+  // Relatorio completo do caixa (27/11/2026): o mesmo da Movimentacao, aberto pelas telas de caixa.
+  { path: 'financeiro/caixas/relatorio', element: <PrintRelatorioMovimentacao voltarPara="/financeiro/caixas" /> },
   { path: 'financeiro/custos', element: <CustosFormacaoPreco /> },
   { path: 'financeiro/boletos', element: <Boletos /> }, // Financeiro > Boletos
   { path: 'financeiro/contas-receber', element: <ContasReceber /> },

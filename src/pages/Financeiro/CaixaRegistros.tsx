@@ -37,6 +37,8 @@ import { usePodePermissao } from '../../hooks/usePodePermissao';
 import { PERMISSAO_CONFIG_AREAS, PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
 import { empresaDoRelatorio, imprimirRelatorioDoCaixa, lerLancamentosDoCaixa, sangriasDoCaixa } from '../PDV/relatorioDoCaixa';
 import ComputadoresDoCaixaModal from './ComputadoresDoCaixaModal';
+import { useTabs } from '../../contexts/TabsContext';
+import { pedirFiltroDoRelatorioDoCaixa } from '../../components/finance/pedirFiltroDoRelatorioDoCaixa';
 import './Financeiro.css';
 
 interface SangriaData {
@@ -99,6 +101,7 @@ const formatDateTime = (value: any): string => {
 };
 
 const CaixaRegistros: React.FC = () => {
+  const { openTab } = useTabs();
   const { currentUser, tenantId, vendasVisiveisDeUsuarioId } = useAuth();
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   // Filtro por operador (22/11/2026): o caixa de cada funcionario na troca de turno.
@@ -747,7 +750,11 @@ const CaixaRegistros: React.FC = () => {
         </div>
         <MenuMaisOpcoes
           itens={[{
-            texto: 'Relatório', Icone: FileText,
+            texto: 'Relatório completo do caixa', Icone: FileText,
+            titulo: 'Vendas e recebimentos por forma de pagamento, turnos do caixa, sangrias e contas pagas, em PDF',
+            onClick: () => { void pedirFiltroDoRelatorioDoCaixa('/financeiro/caixa-registros/relatorio').then((caminho) => { if (caminho) void openTab(caminho, 'Relatório do caixa'); }); },
+          }, {
+            texto: 'Relatório das sessões', Icone: FileText,
             titulo: 'Abre em PDF os caixas abertos e as sessões fechadas no período escolhido (dali dá para imprimir, salvar o PDF ou salvar em Excel)',
             desabilitado: loading,
             // Rele os caixas abertos antes de abrir: o relatorio sai com os valores de agora.

@@ -6,6 +6,7 @@ import '../OS/OS.css'; // Reusing OS styles for consistency
 import { useAuth } from '../../contexts/AuthContext';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { PERMISSAO_ADMINISTRACAO } from '../../utils/permissoesNovasDomain';
+import { formasDaEmpresa } from '../../utils/formasPagamentoDomain';
 
 /**
  * Item 15 (fase Administracao, 25/11/2026): os relatorios financeiros e os de
@@ -113,6 +114,10 @@ const RelatoriosDiversos: React.FC = () => {
   const [movDataFim, setMovDataFim] = useState<string>(
     () => getInitialState('movDataFim', getDateInputInTimeZone())
   );
+
+  // Formas de pagamento do relatorio (27/11/2026): nenhuma marcada = todas.
+  const [movFormas, setMovFormas] = useState<string[]>([]);
+  const formasDoFiltro = formasDaEmpresa([], []);
 
   useEffect(() => {
     sessionStorage.setItem('relatorios_movDataInicio', JSON.stringify(movDataInicio));
@@ -250,7 +255,7 @@ const RelatoriosDiversos: React.FC = () => {
   };
 
   const handlePrintMovimentacao = () => {
-    navigate(`/relatorios-diversos/print/movimentacao?inicio=${movDataInicio}&fim=${movDataFim}`);
+    navigate(`/relatorios-diversos/print/movimentacao?inicio=${movDataInicio}&fim=${movDataFim}${movFormas.length > 0 ? `&formas=${encodeURIComponent(movFormas.join(','))}` : ''}`);
   };
 
   const handlePrintDescontos = () => {
@@ -596,6 +601,21 @@ const RelatoriosDiversos: React.FC = () => {
                   <input id="mov-fim" type="date" value={movDataFim} onChange={(e) => setMovDataFim(e.target.value)} style={{ width: '100%', padding: '12px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }} />
                 </div>
               </div>
+
+              <fieldset style={{ border: 'none', margin: '0 0 20px', padding: 0 }}>
+                <legend style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Formas de pagamento (nenhuma marcada = todas)</legend>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {formasDoFiltro.map((forma) => {
+                    const marcada = movFormas.includes(forma);
+                    return (
+                      <label key={forma} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '999px', cursor: 'pointer', fontSize: '13px', border: `1px solid ${marcada ? '#14b8a6' : 'var(--border-color)'}`, backgroundColor: marcada ? '#14b8a61a' : 'transparent', color: 'var(--text-primary)' }}>
+                        <input type="checkbox" checked={marcada} onChange={() => setMovFormas((atual) => (atual.includes(forma) ? atual.filter((f) => f !== forma) : [...atual, forma]))} style={{ accentColor: '#14b8a6' }} />
+                        {forma}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button

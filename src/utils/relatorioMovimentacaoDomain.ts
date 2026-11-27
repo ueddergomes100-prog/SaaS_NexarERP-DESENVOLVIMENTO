@@ -1,6 +1,6 @@
 import { isRevenueReversal } from './financeDomain';
 import { calcularRelatorioFinanceiro, type TransacaoRelatorioFinanceiro } from './relatorioFinanceiroDomain';
-import { calcularRecebimentos, type LinhaDeRecebimento, type TotalAgrupado } from './relatorioRecebimentosDomain';
+import { calcularRecebimentos, DESTINO_ACERTO, DESTINO_CAIXA, DESTINO_CREDITO, type LinhaDeRecebimento, type TotalAgrupado } from './relatorioRecebimentosDomain';
 import { rotuloCondicaoPagamento, totaisVendas, totalPorFormaPagamento, type VendaRelatorio } from './relatorioVendasDomain';
 import { secaoDetalheVendas, secaoPorFormaPagamento } from './relatorioVendasPdf';
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
@@ -34,9 +34,31 @@ export interface SangriaDaMovimentacao {
   valorCentavos: number;
 }
 
+/**
+ * Turno do caixa (sessao da Frente de Caixa, 27/11/2026, pedido do dono: "turnos do
+ * caixa, tudo completo"): quem abriu, quando, troco inicial, sangrias e a conferencia
+ * do fechamento (esperado x contado). null = ainda nao fechado.
+ */
+export interface TurnoDoCaixa {
+  id: string;
+  /** yyyy-mm-dd da abertura. */
+  dia: string;
+  abertura: string;
+  fechamento: string;
+  operadorNome: string;
+  aberto: boolean;
+  saldoInicialCentavos: number;
+  sangriasCentavos: number;
+  esperadoCentavos: number | null;
+  contadoCentavos: number | null;
+  diferencaCentavos: number | null;
+}
+
 export interface FiltroDaMovimentacao {
   inicio: string;
   fim: string;
+  /** So' estas formas (vendas, recebimentos e contas pagas). Vazio/ausente = todas. */
+  formas?: string[];
 }
 
 export interface FontesDaMovimentacao {
@@ -45,6 +67,8 @@ export interface FontesDaMovimentacao {
   entradasPagas: TransacaoRelatorioFinanceiro[];
   saidasPagas: TransacaoRelatorioFinanceiro[];
   sangrias: SangriaDaMovimentacao[];
+  /** Turnos da Frente de Caixa abertos no periodo (27/11/2026). */
+  turnos?: TurnoDoCaixa[];
 }
 
 export type OrigemDaMovimentacao =
@@ -85,6 +109,11 @@ export interface ResultadoDaMovimentacao {
   pagoCentavos: number;
   sangrias: SangriaDaMovimentacao[];
   sangriasCentavos: number;
+  vendasPorForma: Array<{ forma: string; vendas: number; valorCentavos: number }>;
+  vendasDaLista: VendaRelatorio[];
+  turnos: TurnoDoCaixa[];
+  /** Soma das diferencas dos turnos fechados (sobra +, falta -). */
+  diferencaDosTurnosCentavos: number;
   /** Entrou (recebido) - saiu (pago). Sangria nao entra: e' dinheiro que muda de lugar. */
   saldoCentavos: number;
 }
@@ -108,68 +137,94 @@ export const origemDaMovimentacao = (linha: LinhaDeRecebimento, t: TransacaoRela
 };
 
 export const calcularMovimentacao = (fontes: FontesDaMovimentacao, filtro: FiltroDaMovimentacao): ResultadoDaMovimentacao => {
-  // Vendido
-  const vendasValidas = fontes.vendas.filter((v) => !v.cancelled);
-  const totais = totaisVendas(fontes.vendas);
+  const formas = new Set((filtro.formas || []).map((f) => texto(f)).filter(Boolean));
+  const naForma = (forma: unknown): boolean => formas.size === 0 || formas.has(texto(forma));
+
+  // Vendido: com filtro de forma, so' as vendas que tem alguma das formas e so' a parte delas.
+  const vendasDaLista = formas.size === 0
+    ? fontes.vendas
+    : fontes.vendas.filter((v) => (Array.isArray(v.payments) ? v.payments : []).some((p: { formaPagamento?: unknown }) => naForma(p?.formaPagamento)));
+  const vendasValidas = vendasDaLista.filter((v) => !v.cancelled);
+  const totais = totaisVendas(vendasDaLista);
+  const vendasPorForma = totalPorFormaPagamento(vendasDaLista).filter((f) => naForma(f.forma));
   const porCondicao = agruparPor(vendasValidas, (v) => rotuloCondicaoPagamento(String(v.paymentCondition || '')), (v) => Number(v.netCents || 0));
   const daCondicao = (rotulo: string) => porCondicao.find((g) => g.rotulo === rotulo)?.valorCentavos || 0;
+  const vendidoCentavos = formas.size === 0 ? totais.netCents : vendasPorForma.reduce((soma, f) => soma + f.valorCentavos, 0);
 
-  // Entrou
+  // Entrou (mesma conta do relatorio de Recebimentos), so' nas formas escolhidas.
   const recebido = calcularRecebimentos(fontes.entradasPagas, { inicio: filtro.inicio, fim: filtro.fim, somenteContas: false }, fontes.saidasPagas);
   const porId = new Map(fontes.entradasPagas.map((t) => [t.id, t]));
-  const origemDe = new Map(recebido.linhas.map((l) => [l.id, origemDaMovimentacao(l, porId.get(l.id))]));
-  const entradasValidas = recebido.linhas.filter((l) => !l.estornado);
-  const porOrigem = agruparPor(entradasValidas, (l) => origemDe.get(l.id) || l.origem, (l) => l.valorCentavos);
-  const notinhasCentavos = entradasValidas
-    .filter((l) => origemDe.get(l.id) === 'Notinha recebida na Frente de Caixa' || origemDe.get(l.id) === 'Conta recebida no Financeiro')
-    .reduce((soma, l) => soma + l.valorCentavos, 0);
+  const entradas = recebido.linhas.filter((l) => naForma(l.formaPagamento));
+  const origemDe = new Map(entradas.map((l) => [l.id, origemDaMovimentacao(l, porId.get(l.id))]));
+  const entradasValidas = entradas.filter((l) => !l.estornado);
+  const somaDe = (lista: LinhaDeRecebimento[]) => lista.reduce((soma, l) => soma + l.valorCentavos, 0);
+  const totalRecebido = somaDe(entradasValidas);
+  const semDinheiroCentavos = somaDe(entradasValidas.filter((l) => l.destino === DESTINO_ACERTO || l.destino === DESTINO_CREDITO));
+  const caixaCentavos = somaDe(entradasValidas.filter((l) => l.destino === DESTINO_CAIXA));
+  const entrouCentavos = totalRecebido - semDinheiroCentavos;
+  const notinhasCentavos = somaDe(entradasValidas.filter((l) => {
+    const origem = origemDe.get(l.id);
+    return origem === 'Notinha recebida na Frente de Caixa' || origem === 'Conta recebida no Financeiro';
+  }));
 
   // Saiu: contas pagas. O estorno de venda/OS cancelada nao e' conta paga: ja'
   // aparece na entrada como ESTORNADO.
   const saidasSemEstorno = fontes.saidasPagas.filter((t) => !isRevenueReversal(t as Parameters<typeof isRevenueReversal>[0]));
   const pagas = calcularRelatorioFinanceiro(saidasSemEstorno, { tipo: 'saida', status: 'Paga', inicio: filtro.inicio, fim: filtro.fim });
   const saidaPorId = new Map(saidasSemEstorno.map((t) => [t.id, t]));
-  const pagamentos: LinhaDePagamento[] = pagas.linhas.map((l) => {
-    const t = saidaPorId.get(l.id);
-    return {
-      id: l.id,
-      data: l.data,
-      descricao: l.descricao,
-      categoria: l.categoria,
-      favorecido: texto(t?.fornecedorNome) || l.clienteNome,
-      formaPagamento: l.formaPagamento || 'Sem forma',
-      valorCentavos: l.valorCentavos,
-    };
-  });
+  const pagamentos: LinhaDePagamento[] = pagas.linhas
+    .filter((l) => naForma(l.formaPagamento || 'Sem forma'))
+    .map((l) => {
+      const t = saidaPorId.get(l.id);
+      return {
+        id: l.id,
+        data: l.data,
+        descricao: l.descricao,
+        categoria: l.categoria,
+        favorecido: texto(t?.fornecedorNome) || l.clienteNome,
+        formaPagamento: l.formaPagamento || 'Sem forma',
+        valorCentavos: l.valorCentavos,
+      };
+    });
   const pagoCentavos = pagamentos.reduce((soma, p) => soma + p.valorCentavos, 0);
 
-  // Sangrias do periodo
-  const sangrias = fontes.sangrias
-    .filter((s) => s.dia >= filtro.inicio && s.dia <= filtro.fim && s.valorCentavos > 0)
-    .sort((a, b) => `${a.dia} ${a.hora}`.localeCompare(`${b.dia} ${b.hora}`));
+  // Sangrias e turnos do periodo (dinheiro da gaveta: so' com Dinheiro no filtro).
+  const comDinheiro = naForma('Dinheiro');
+  const sangrias = comDinheiro
+    ? fontes.sangrias
+      .filter((s) => s.dia >= filtro.inicio && s.dia <= filtro.fim && s.valorCentavos > 0)
+      .sort((a, b) => `${a.dia} ${a.hora}`.localeCompare(`${b.dia} ${b.hora}`))
+    : [];
+  const turnos = (fontes.turnos || [])
+    .filter((t) => t.dia >= filtro.inicio && t.dia <= filtro.fim)
+    .sort((a, b) => `${a.dia} ${a.abertura}`.localeCompare(`${b.dia} ${b.abertura}`));
 
   return {
     vendasValidas: totais.count,
-    vendidoCentavos: totais.netCents,
+    vendidoCentavos,
     vendidoAVistaCentavos: daCondicao('À vista'),
     vendidoAPrazoCentavos: daCondicao('A prazo'),
     porCondicao,
-    entradas: recebido.linhas,
-    porOrigem,
-    porForma: recebido.porForma,
-    porDestino: recebido.porDestino,
-    entrouCentavos: recebido.entrouCentavos,
-    caixaCentavos: recebido.caixaCentavos,
-    bancosCentavos: recebido.bancosCentavos,
-    semDinheiroCentavos: recebido.semDinheiroCentavos,
+    entradas,
+    porOrigem: agruparPor(entradasValidas, (l) => origemDe.get(l.id) || l.origem, (l) => l.valorCentavos),
+    porForma: agruparPor(entradasValidas, (l) => l.formaPagamento, (l) => l.valorCentavos),
+    porDestino: agruparPor(entradasValidas, (l) => l.destino, (l) => l.valorCentavos),
+    entrouCentavos,
+    caixaCentavos,
+    bancosCentavos: entrouCentavos - caixaCentavos,
+    semDinheiroCentavos,
     notinhasCentavos,
-    estornadoCentavos: recebido.estornadoCentavos,
+    estornadoCentavos: somaDe(entradas.filter((l) => l.estornado)),
     pagamentos,
     pagamentosPorForma: agruparPor(pagamentos, (p) => p.formaPagamento, (p) => p.valorCentavos),
     pagoCentavos,
     sangrias,
     sangriasCentavos: sangrias.reduce((soma, s) => soma + s.valorCentavos, 0),
-    saldoCentavos: recebido.entrouCentavos - pagoCentavos,
+    saldoCentavos: entrouCentavos - pagoCentavos,
+    vendasPorForma,
+    vendasDaLista,
+    turnos,
+    diferencaDosTurnosCentavos: turnos.reduce((soma, t) => soma + (t.aberto ? 0 : (t.diferencaCentavos || 0)), 0),
   };
 };
 
@@ -219,6 +274,9 @@ export const montarDocumentoDaMovimentacao = (fontes: FontesDaMovimentacao, filt
     { rotulo: 'Sangrias', valor: moeda(r.sangriasCentavos) },
     { rotulo: 'Saldo (entrou menos saiu)', valor: moeda(r.saldoCentavos) },
   ];
+  if (r.turnos.length > 0) {
+    indicadores.push({ rotulo: `Turnos do caixa (${r.turnos.length})`, valor: r.diferencaDosTurnosCentavos === 0 ? 'Sem diferença' : `${r.diferencaDosTurnosCentavos > 0 ? 'Sobrou' : 'Faltou'} ${moeda(Math.abs(r.diferencaDosTurnosCentavos))}` });
+  }
   if (r.semDinheiroCentavos > 0) indicadores.push({ rotulo: 'Baixado sem entrar dinheiro (acerto/crédito)', valor: moeda(r.semDinheiroCentavos) });
   if (r.estornadoCentavos > 0) indicadores.push({ rotulo: 'Estornado (fora do total)', valor: moeda(r.estornadoCentavos) });
 
@@ -243,6 +301,17 @@ export const montarDocumentoDaMovimentacao = (fontes: FontesDaMovimentacao, filt
     { id: 'forma', titulo: 'Forma', tipo: 'texto', largura: 30, valor: (p) => p.formaPagamento },
     { id: 'valor', titulo: 'Valor', tipo: 'moeda', valor: (p) => p.valorCentavos },
   ];
+  const colunasTurnos: ColunaRelatorio<TurnoDoCaixa>[] = [
+    { id: 'data', titulo: 'Data', tipo: 'texto', largura: 20, padrao: !umDia, valor: (t) => dataBr(t.dia) },
+    { id: 'operador', titulo: 'Operador', tipo: 'texto', largura: 40, valor: (t) => t.operadorNome },
+    { id: 'abertura', titulo: 'Abriu', tipo: 'texto', largura: 14, valor: (t) => t.abertura },
+    { id: 'fechamento', titulo: 'Fechou', tipo: 'texto', largura: 16, valor: (t) => (t.aberto ? 'ABERTO' : t.fechamento) },
+    { id: 'inicial', titulo: 'Troco inicial', tipo: 'moeda', valor: (t) => t.saldoInicialCentavos },
+    { id: 'sangrias', titulo: 'Sangrias', tipo: 'moeda', valor: (t) => t.sangriasCentavos },
+    { id: 'esperado', titulo: 'Esperado', tipo: 'moeda', valor: (t) => t.esperadoCentavos ?? 0, total: 'nenhum' },
+    { id: 'contado', titulo: 'Contado', tipo: 'moeda', valor: (t) => t.contadoCentavos ?? 0, total: 'nenhum' },
+    { id: 'diferenca', titulo: 'Diferença', tipo: 'moeda', valor: (t) => t.diferencaCentavos ?? 0 },
+  ];
   const colunasSangrias: ColunaRelatorio<SangriaDaMovimentacao>[] = [
     { id: 'data', titulo: 'Data', tipo: 'texto', largura: 20, padrao: !umDia, valor: (s) => dataBr(s.dia) },
     { id: 'hora', titulo: 'Hora', tipo: 'texto', largura: 14, valor: (s) => s.hora },
@@ -255,13 +324,21 @@ export const montarDocumentoDaMovimentacao = (fontes: FontesDaMovimentacao, filt
   return {
     titulo: 'Movimentação do Período',
     periodo: umDia ? `Dia ${dataBr(filtro.inicio)}` : `Período: ${dataBr(filtro.inicio)} a ${dataBr(filtro.fim)}`,
-    filtros: ['Empresa toda: vendas, recebimentos (vendas à vista, notinhas, OS), contas pagas e sangrias da Frente de Caixa'],
+    filtros: [
+      'Empresa toda: vendas, recebimentos (vendas à vista, notinhas, OS), contas pagas, turnos e sangrias da Frente de Caixa',
+      ...((filtro.formas || []).length > 0 ? [`Só as formas: ${(filtro.formas || []).join(', ')}`] : []),
+    ],
     indicadores,
     secoes: [
+      // Ordem do fechamento (27/11/2026): o que vendeu e como, o que recebeu e como, depois o resto.
+      secaoPorFormaPagamento(r.vendasPorForma, { id: 'vendasPorForma', titulo: 'Vendido por forma de pagamento', opcional: true, padrao: true }) as SecaoRelatorio,
+      secaoDeGrupo('entradasPorForma', 'Recebido por forma de pagamento', 'Forma de pagamento', r.porForma, 'Nada recebido no período.'),
       secaoDeGrupo('vendasPorCondicao', 'Vendas: à vista e a prazo', 'Condição', r.porCondicao, 'Nenhuma venda no período.', 'Vendas'),
-      secaoPorFormaPagamento(totalPorFormaPagamento(fontes.vendas), { id: 'vendasPorForma', titulo: 'Vendas por forma de pagamento', opcional: true, padrao: false }) as SecaoRelatorio,
-      secaoDeGrupo('entradasPorOrigem', 'Entradas: de onde veio o dinheiro', 'Origem', r.porOrigem, 'Nada recebido no período.'),
-      secaoDeGrupo('entradasPorForma', 'Entradas por forma de pagamento', 'Forma de pagamento', r.porForma, 'Nada recebido no período.'),
+      secaoDeGrupo('entradasPorOrigem', 'Recebido: de onde veio o dinheiro', 'Origem', r.porOrigem, 'Nada recebido no período.'),
+      {
+        id: 'turnos', titulo: 'Turnos do caixa (Frente de Caixa)', colunas: colunasTurnos, linhas: r.turnos, opcional: true, padrao: true,
+        unidade: ['turno', 'turnos'], mensagemVazia: 'Nenhum caixa aberto no período.',
+      } as SecaoRelatorio,
       secaoDeGrupo('entradasPorDestino', 'Entradas por caixa e banco', 'Onde caiu', r.porDestino, 'Nada recebido no período.'),
       secaoDeGrupo('saidasPorForma', 'Saídas: contas pagas por forma', 'Forma de pagamento', r.pagamentosPorForma, 'Nenhuma conta paga no período.'),
       {
@@ -276,7 +353,7 @@ export const montarDocumentoDaMovimentacao = (fontes: FontesDaMovimentacao, filt
         id: 'pagamentos', titulo: 'Contas pagas (cada lançamento)', colunas: colunasPagamentos, linhas: r.pagamentos, opcional: true, padrao: false,
         unidade: ['conta paga', 'contas pagas'], mensagemVazia: 'Nenhuma conta paga no período.',
       } as SecaoRelatorio,
-      secaoDetalheVendas(fontes.vendas, { id: 'vendas', titulo: 'Vendas do período (cada venda)', opcional: true, padrao: false }) as SecaoRelatorio,
+      secaoDetalheVendas(r.vendasDaLista, { id: 'vendas', titulo: 'Vendas do período (cada venda)', opcional: true, padrao: false }) as SecaoRelatorio,
     ],
   };
 };

@@ -9,7 +9,7 @@ import { dateInputToUtcEnd, dateInputToUtcStart, getDateInputInTimeZone } from '
 import { enriquecerVendas, vendaNoPeriodo } from '../../utils/relatorioVendasDomain';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import type { TransacaoRelatorioFinanceiro } from '../../utils/relatorioFinanceiroDomain';
-import { montarDocumentoDaMovimentacao, type SangriaDaMovimentacao } from '../../utils/relatorioMovimentacaoDomain';
+import { montarDocumentoDaMovimentacao, type SangriaDaMovimentacao, type TurnoDoCaixa } from '../../utils/relatorioMovimentacaoDomain';
 import RelatorioPreview, { type DocumentoRelatorioSemEmpresa } from '../../components/Reports/RelatorioPreview';
 
 /*
@@ -46,19 +46,51 @@ const sangriasDosCaixas = (docs: QueryDocumentSnapshot<DocumentData>[]): Sangria
   });
 });
 
-const PrintRelatorioMovimentacao: React.FC = () => {
+const centavosOuNulo = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Math.round(Number(v)));
+
+/** Turnos da Frente de Caixa (caixas_pdv): abertura, fechamento e a conferencia. */
+const turnosDosCaixas = (docs: QueryDocumentSnapshot<DocumentData>[]): TurnoDoCaixa[] => docs.flatMap((d) => {
+  const c = d.data();
+  const abertoEm = paraData(c.createdAt) || paraData(c.abertoEm);
+  if (!abertoEm) return [];
+  const fechadoEm = paraData(c.fechadoEm);
+  const aberto = c.status === 'aberto';
+  return [{
+    id: d.id,
+    dia: getDateInputInTimeZone(abertoEm),
+    abertura: horaBr.format(abertoEm),
+    fechamento: fechadoEm ? `${getDateInputInTimeZone(fechadoEm) !== getDateInputInTimeZone(abertoEm) ? `${getDateInputInTimeZone(fechadoEm).split('-').reverse().slice(0, 2).join('/')} ` : ''}${horaBr.format(fechadoEm)}` : '',
+    operadorNome: String(c.operadorNome || ''),
+    aberto,
+    saldoInicialCentavos: centavosOuNulo(c.saldoInicialCentavos) ?? 0,
+    sangriasCentavos: centavosOuNulo(c.totalSangriasCentavos) ?? 0,
+    esperadoCentavos: aberto ? null : centavosOuNulo(c.saldoEsperadoCentavos),
+    contadoCentavos: aberto ? null : centavosOuNulo(c.saldoFinalInformadoCentavos),
+    diferencaCentavos: aberto ? null : centavosOuNulo(c.diferencaCentavos),
+  }];
+});
+
+interface Props {
+  /** Tela para onde o "Voltar" leva (Relatorios Diversos, Caixas e Transferencias, Sessoes PDV). */
+  voltarPara?: string;
+}
+
+const PrintRelatorioMovimentacao: React.FC<Props> = ({ voltarPara = '/relatorios-diversos' }) => {
   const { search } = useLocation();
   const navigate = useNavigate();
   const { tenantId, currentUser } = useAuth();
   const params = new URLSearchParams(search);
   const inicio = params.get('inicio') || '';
   const fim = params.get('fim') || '';
+  // Formas escolhidas (27/11/2026): "Dinheiro,Pix". Vazio = todas.
+  const formasTexto = params.get('formas') || '';
   const periodoInvalido = !inicio || !fim || inicio > fim;
 
   const vendasLidas = useDadosRelatorioVendas({ de: inicio, ate: fim });
   const [entradas, setEntradas] = useState<TransacaoRelatorioFinanceiro[]>([]);
   const [saidas, setSaidas] = useState<TransacaoRelatorioFinanceiro[]>([]);
   const [sangrias, setSangrias] = useState<SangriaDaMovimentacao[]>([]);
+  const [turnos, setTurnos] = useState<TurnoDoCaixa[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
 
@@ -102,6 +134,7 @@ const PrintRelatorioMovimentacao: React.FC = () => {
         setEntradas(lidasEntradas);
         setSaidas(lidasSaidas);
         setSangrias(sangriasDosCaixas(caixasSnap.docs));
+        setTurnos(turnosDosCaixas(caixasSnap.docs));
       } catch (falha) {
         console.error('Erro ao buscar a movimentação do período:', falha);
         if (!cancelado) setErro('Não foi possível carregar a movimentação. Verifique sua conexão e tente de novo.');
@@ -122,11 +155,16 @@ const PrintRelatorioMovimentacao: React.FC = () => {
   }, [vendasLidas.data, inicio, fim]);
 
   const lendo = carregando || vendasLidas.loading;
-  const falha = erro || vendasLidas.error;
+  // Sem acesso as vendas (so' financeiro), o relatorio sai do mesmo jeito, sem a parte das vendas.
+  const falha = erro;
+  const semVendas = Boolean(vendasLidas.error);
 
-  const documento = useMemo<DocumentoRelatorioSemEmpresa | null>(() => (
-    lendo || falha ? null : montarDocumentoDaMovimentacao({ vendas, entradasPagas: entradas, saidasPagas: saidas, sangrias }, { inicio, fim })
-  ), [lendo, falha, vendas, entradas, saidas, sangrias, inicio, fim]);
+  const documento = useMemo<DocumentoRelatorioSemEmpresa | null>(() => {
+    if (lendo || falha) return null;
+    const formas = formasTexto.split(',').map((f) => f.trim()).filter(Boolean);
+    const doc = montarDocumentoDaMovimentacao({ vendas: semVendas ? [] : vendas, entradasPagas: entradas, saidasPagas: saidas, sangrias, turnos }, { inicio, fim, formas });
+    return semVendas ? { ...doc, filtros: [...doc.filtros, 'Sem as vendas: este usuário não tem acesso aos pedidos de venda.'] } : doc;
+  }, [lendo, falha, semVendas, vendas, entradas, saidas, sangrias, turnos, inicio, fim, formasTexto]);
 
   return (
     <div style={{ padding: '20px' }}>
@@ -134,7 +172,7 @@ const PrintRelatorioMovimentacao: React.FC = () => {
         relatorioId="movimentacao"
         documento={periodoInvalido ? null : documento}
         nomeArquivo={nomeArquivoRelatorio('Movimentacao', inicio, fim)}
-        onFechar={() => navigate('/relatorios-diversos')}
+        onFechar={() => navigate(voltarPara)}
         carregando={lendo}
         erro={periodoInvalido ? 'Período inválido: volte e confira a data inicial e a data final.' : falha}
       />

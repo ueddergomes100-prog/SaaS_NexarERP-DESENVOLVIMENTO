@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAtualizarQuandoVisivel } from '../../hooks/useAtualizarQuandoVisivel';
-import { ArrowLeftRight, Landmark, Loader2, Pencil, Plus, Vault, Wallet, X } from 'lucide-react';
+import { ArrowLeftRight, FileText, Landmark, Loader2, Pencil, Plus, Vault, Wallet, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
@@ -19,6 +19,8 @@ import {
   type CaixaResumo,
   type LancamentoDoCaixa,
 } from '../../services/caixasService';
+import { useTabs } from '../../contexts/TabsContext';
+import { pedirFiltroDoRelatorioDoCaixa } from '../../components/finance/pedirFiltroDoRelatorioDoCaixa';
 
 /**
  * FINANCEIRO > CAIXAS E TRANSFERENCIAS (21/10/2026, pedido do dono: "todo ERP
@@ -77,6 +79,7 @@ const Janela: React.FC<{ titulo: string; onFechar: () => void; children: React.R
 );
 
 const CaixasTransferencias: React.FC = () => {
+  const { openTab } = useTabs();
   const { tenantId } = useAuth();
   // Olhinho (21/11/2026): esconde os saldos dos caixas e bancos junto com as outras telas.
   const { mostrar: mostrarValor } = useValoresOcultos();
@@ -247,6 +250,11 @@ const CaixasTransferencias: React.FC = () => {
           <BotaoOlhoValores />
           <MenuMaisOpcoes
             itens={[
+              {
+                texto: 'Relatório completo do caixa', Icone: FileText,
+                titulo: 'Vendas e recebimentos por forma de pagamento, turnos do caixa, sangrias e contas pagas, em PDF',
+                onClick: () => { void pedirFiltroDoRelatorioDoCaixa('/financeiro/caixas/relatorio').then((caminho) => { if (caminho) void openTab(caminho, 'Relatório do caixa'); }); },
+              },
               { texto: 'Novo caixa', Icone: Plus, titulo: 'Cadastra outro lugar onde a loja guarda dinheiro (ex.: segunda gaveta)', onClick: abrirNovoCaixa },
               { texto: 'Lançar no caixa', Icone: Wallet, titulo: 'Entrada ou saída a mão num caixa (acerto, troco inicial, retirada)', desabilitado: caixas.length === 0, onClick: () => abrirLancar() },
             ]}

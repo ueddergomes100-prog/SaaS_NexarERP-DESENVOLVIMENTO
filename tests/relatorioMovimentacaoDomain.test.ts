@@ -95,3 +95,34 @@ test('movimentacao: periodo sem nada', () => {
   assert.equal(r.saldoCentavos, 0);
   assert.deepEqual(r.porOrigem, []);
 });
+
+test('movimentacao: filtro de forma corta vendas, recebimentos e contas pagas; sangria so com Dinheiro', () => {
+  const soPix = calcularMovimentacao(fontes(), { ...filtro, formas: ['Pix'] });
+  assert.equal(soPix.vendidoCentavos, 0, 'nenhuma venda em Pix');
+  assert.deepEqual(soPix.entradas.map((e) => e.id), ['e3']);
+  assert.equal(soPix.entrouCentavos, 7000);
+  assert.equal(soPix.caixaCentavos, 0);
+  assert.equal(soPix.pagoCentavos, 4000, 'a luz paga em Pix');
+  assert.equal(soPix.sangrias.length, 0);
+
+  const soDinheiro = calcularMovimentacao(fontes(), { ...filtro, formas: ['Dinheiro'] });
+  assert.equal(soDinheiro.vendidoCentavos, 10000);
+  assert.deepEqual(soDinheiro.vendasPorForma.map((f) => f.forma), ['Dinheiro']);
+  assert.equal(soDinheiro.entrouCentavos, 15000);
+  assert.equal(soDinheiro.sangrias.length, 1);
+});
+
+test('movimentacao: turnos do caixa do periodo e a diferenca somada dos fechados', () => {
+  const turnos = [
+    { id: 'a', dia: '2026-11-28', abertura: '08:00', fechamento: '12:00', operadorNome: 'MARIA', aberto: false, saldoInicialCentavos: 10000, sangriasCentavos: 0, esperadoCentavos: 25000, contadoCentavos: 24500, diferencaCentavos: -500 },
+    { id: 'b', dia: '2026-11-28', abertura: '12:05', fechamento: '', operadorNome: 'JOAO', aberto: true, saldoInicialCentavos: 24500, sangriasCentavos: 0, esperadoCentavos: null, contadoCentavos: null, diferencaCentavos: null },
+    { id: 'c', dia: '2026-11-27', abertura: '08:00', fechamento: '18:00', operadorNome: 'ANA', aberto: false, saldoInicialCentavos: 0, sangriasCentavos: 0, esperadoCentavos: 0, contadoCentavos: 100, diferencaCentavos: 100 },
+  ];
+  const r = calcularMovimentacao({ ...fontes(), turnos }, filtro);
+  assert.deepEqual(r.turnos.map((t) => t.id), ['a', 'b'], 'so do periodo, na ordem da abertura');
+  assert.equal(r.diferencaDosTurnosCentavos, -500);
+  const doc = montarDocumentoDaMovimentacao({ ...fontes(), turnos }, filtro);
+  assert.ok(doc.secoes.some((s) => s.id === 'turnos'));
+  assert.equal(doc.secoes[0].id, 'vendasPorForma', 'o papel comeca pelo vendido por forma');
+  assert.equal(doc.indicadores.find((i) => i.rotulo.startsWith('Turnos do caixa'))?.valor.replace(/\s/g, ' '), 'Faltou R$ 5,00');
+});

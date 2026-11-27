@@ -228,7 +228,9 @@ import {
   parsePermitirDividirPagamento,
   parseConfigBancoPadrao,
   type ConfigBancoPadrao,
+  ehConsumidorFinal,
 } from '../../utils/formasPagamentoDomain';
+import { CIDADE_SEM_CADASTRO_MAX, lerClienteSemCadastro, NOME_SEM_CADASTRO_MAX } from '../../utils/clienteSemCadastroDomain';
 import {
   condicaoDoPagamento,
   parseFormasAVista,
@@ -500,6 +502,9 @@ const PedidoVendaForm: React.FC = () => {
   const [clienteIdSelecionado, setClienteIdSelecionado] = useState<string | null>(null);
   /** Observacao do pedido: sai na Minuta de Entrega ("Obs.:"). */
   const [observacaoPedido, setObservacaoPedido] = useState('');
+  // Cliente a cadastrar (27/11/2026, Embala): nome/cidade/telefone da pessoa no Consumidor Final,
+  // so' para este pedido e so' a vista. Regra em clienteSemCadastroDomain.ts.
+  const [semCadastro, setSemCadastro] = useState({ nome: '', cidade: '', telefone: '' });
   // Forma escolhida pelo vendedor no app (25/11/2026): faturar com outra forma pede permissao.
   const [formaDoVendedorDaPreVenda, setFormaDoVendedorDaPreVenda] = useState('');
   // Pre-venda gravada pelo proprio vendedor no app (26/11/2026): o Finalizar nao pede a senha dele.
@@ -1290,6 +1295,10 @@ const PedidoVendaForm: React.FC = () => {
             }
             setClienteNome(p.clienteNome || '');
             setClienteIdSelecionado(p.clienteId || null);
+            {
+              const lido = lerClienteSemCadastro(p.clienteSemCadastro);
+              setSemCadastro({ nome: lido?.nome || '', cidade: lido?.cidade || '', telefone: lido?.telefone || '' });
+            }
             setObservacaoPedido(String(p.observacao || ''));
             setFormaDoVendedorDaPreVenda(isPedidoAberto(p.status) ? formaDoVendedor(p) : '');
             setVendedorQueGravou(vendedorQueGravouAPreVenda(p));
@@ -2897,6 +2906,9 @@ const PedidoVendaForm: React.FC = () => {
     }
   };
 
+  /** Cliente a cadastrar que vai no documento: so' no Consumidor Final e com nome. */
+  const clienteSemCadastroParaGravar = (nomeDoCliente: string) => (ehConsumidorFinal(nomeDoCliente) ? lerClienteSemCadastro(semCadastro) : null);
+
   const handleGravarPreVenda = async (): Promise<boolean> => {
     if (submitLockRef.current) return false;
     if (!currentUser || !tenantId) return false;
@@ -3055,6 +3067,7 @@ const PedidoVendaForm: React.FC = () => {
           numeroPedido: numeroGravado,
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
+          ...(clienteSemCadastroParaGravar(finalClienteNome) ? { clienteSemCadastro: clienteSemCadastroParaGravar(finalClienteNome) } : {}),
           // Sempre gravada (vazia inclusive): apagar o texto tem que apagar
           // no documento tambem.
           observacao: observacaoPedido.trim(),
@@ -4042,6 +4055,7 @@ const PedidoVendaForm: React.FC = () => {
           ...(vendedorIdentificadoRef.current?.comprovanteId ? { comprovanteVendedorId: vendedorIdentificadoRef.current.comprovanteId } : {}),
           clienteId: clienteIdParaSalvar,
           clienteNome: finalClienteNome,
+          ...(clienteSemCadastroParaGravar(finalClienteNome) ? { clienteSemCadastro: clienteSemCadastroParaGravar(finalClienteNome) } : {}),
           observacao: observacaoPedido.trim(),
           itens: itensParaGravar,
           descontoGeral: {
@@ -4231,6 +4245,7 @@ const PedidoVendaForm: React.FC = () => {
             numeroPedido: finalNumeroPedido,
             clienteId: clienteIdParaSalvar,
             clienteNome: finalClienteNome,
+            ...(clienteSemCadastroParaGravar(finalClienteNome) ? { clienteSemCadastro: clienteSemCadastroParaGravar(finalClienteNome) } : {}),
             observacao: observacaoPedido.trim(),
             itens: itensParaGravar,
             // Bonificacao (30/10/2026): a venda guarda o id do pedido de bonificacao separado dela.
@@ -6455,6 +6470,46 @@ const PedidoVendaForm: React.FC = () => {
                 </button>
               )}
             </div>
+            {ehConsumidorFinal(clienteNome) && (
+              <div style={{ marginTop: '12px', padding: '12px 14px', borderRadius: '14px', background: 'var(--bg-tertiary)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Cliente a cadastrar <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(opcional — sai no pedido, na minuta e no romaneio; só à vista)</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1fr)', gap: '10px' }}>
+                  <div className="input-group">
+                    <label htmlFor="sem-cadastro-nome" style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Nome</label>
+                    <input
+                      id="sem-cadastro-nome"
+                      value={semCadastro.nome}
+                      maxLength={NOME_SEM_CADASTRO_MAX}
+                      disabled={isViewing && !canEditPendingCliente}
+                      onChange={(event) => setSemCadastro((atual) => ({ ...atual, nome: aplicarCaixaAltaCadastro(event.target, event.target.value) }))}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="sem-cadastro-cidade" style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Cidade</label>
+                    <input
+                      id="sem-cadastro-cidade"
+                      value={semCadastro.cidade}
+                      maxLength={CIDADE_SEM_CADASTRO_MAX}
+                      disabled={isViewing && !canEditPendingCliente}
+                      onChange={(event) => setSemCadastro((atual) => ({ ...atual, cidade: aplicarCaixaAltaCadastro(event.target, event.target.value) }))}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label htmlFor="sem-cadastro-telefone" style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>Telefone</label>
+                    <input
+                      id="sem-cadastro-telefone"
+                      inputMode="tel"
+                      value={semCadastro.telefone}
+                      maxLength={15}
+                      disabled={isViewing && !canEditPendingCliente}
+                      onChange={(event) => setSemCadastro((atual) => ({ ...atual, telefone: event.target.value.replace(/[^\d()\s-]/g, '') }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             {!ocultarVendedorResponsavel && (
               <div className="input-group" style={{ marginTop: '16px' }}>
                 <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Vendedor responsável *</label>

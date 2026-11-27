@@ -17,6 +17,7 @@ import {
 import { formatCompanyAddress } from '../../utils/companyAddress';
 import { composicaoDaEmbalagemNoPapel } from '../../utils/embalagemNoPapelDomain';
 import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos, valorLiquidoDoPapel, type PagamentoImpresso } from '../../utils/pagamentoImpressoDomain';
+import { complementoDoClienteSemCadastro, lerClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
 import './PedidoPrintPreVenda.css';
 
 interface PedidoPrintPreVendaProps {
@@ -175,7 +176,7 @@ const PedidoPrintPreVenda: React.FC<PedidoPrintPreVendaProps> = ({ pedidoData, c
           {!simplificado && <span><span className="pv-rotulo">Contrato:</span></span>}
         </div>
         <div className="pv-linha">
-          <span className={simplificado ? 'pv-cliente-destaque' : undefined}><span className="pv-rotulo">Cliente:</span> {codigoENomeMinuta(clientData?.codigo, pedidoData.clienteNome || 'Consumidor Final')}</span>
+          <span className={simplificado ? 'pv-cliente-destaque' : undefined}><span className="pv-rotulo">Cliente:</span> {codigoENomeMinuta(lerClienteSemCadastro(pedidoData.clienteSemCadastro) ? '' : clientData?.codigo, nomeDoClienteDoPedido(pedidoData))}{complementoDoClienteSemCadastro(pedidoData) ? ` (${complementoDoClienteSemCadastro(pedidoData)})` : ''}</span>
           <span><span className="pv-rotulo">Fone:</span> {foneCliente}</span>
           <span><span className="pv-rotulo">CNPJ/CPF:</span> {formatarDocumentoMinuta(clientData?.documento)}</span>
         </div>

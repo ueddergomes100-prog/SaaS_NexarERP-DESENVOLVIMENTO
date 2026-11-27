@@ -13,6 +13,7 @@ import { fromCents, normalizeCreditCardFeeSchedule, parseCreditTerms, parseMaxPa
 import { calcularDescontoCents } from './descontoDomain';
 import { lerTransporte, transporteParaGravar } from './transporteNotaDomain';
 import { addDaysToDateInput } from './dateTime';
+import { erroDasFormasSemCadastro, lerClienteSemCadastro, type ClienteSemCadastro } from './clienteSemCadastroDomain';
 
 // ---------------------------------------------------------------------------
 // Configuracao financeira da empresa (prazos e taxas do cartao)
@@ -137,6 +138,8 @@ export interface PedidoDeFechamento {
   vendedorId: string;
   clienteId: string | null;
   clienteNome: string;
+  /** Cliente a cadastrar (27/11/2026, clienteSemCadastroDomain): nome/cidade/telefone no Consumidor Final; so' a vista. */
+  clienteSemCadastro: ClienteSemCadastro | null;
   observacao: string;
   dataVenda: string;
   itens: ItemDoFechamento[];
@@ -278,6 +281,10 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
   if (pdvSessionId && !ID_VALIDO.test(pdvSessionId)) return { erro: 'Caixa do PDV inválido. Feche e abra o PDV de novo.' };
   const comprovanteVendedorId = c.comprovanteVendedorId ? String(c.comprovanteVendedorId) : null;
   if (comprovanteVendedorId && !ID_VALIDO.test(comprovanteVendedorId)) return { erro: 'Identificação do vendedor inválida. Finalize de novo e digite o código e a senha.' };
+  // Cliente a cadastrar (27/11/2026): so' a vista -- Boleto e a prazo precisam do cadastro.
+  const clienteSemCadastro = lerClienteSemCadastro(c.clienteSemCadastro);
+  const erroSemCadastro = erroDasFormasSemCadastro(listaDePagamentos.map((p) => (p && typeof p === 'object' ? ((p as Record<string, unknown>).forma || (p as Record<string, unknown>).formaPagamento) : '')), clienteSemCadastro);
+  if (erroSemCadastro) return { erro: erroSemCadastro };
 
   return {
     pedido: {
@@ -286,6 +293,7 @@ export const lerPedidoDeFechamento = (corpo: unknown): { erro: string } | { pedi
       vendedorId,
       clienteId,
       clienteNome: texto(c.clienteNome, 200).toUpperCase() || 'CONSUMIDOR FINAL',
+      clienteSemCadastro,
       observacao: texto(c.observacao, 2000),
       dataVenda,
       itens,

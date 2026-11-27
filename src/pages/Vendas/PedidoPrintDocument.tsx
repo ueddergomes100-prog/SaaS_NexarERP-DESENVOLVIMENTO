@@ -5,6 +5,7 @@ import { ehPreVenda } from '../../utils/preVendaDomain';
 import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos } from '../../utils/pagamentoImpressoDomain';
 import { usePedidoPrintExtras } from '../../hooks/usePedidoPrintExtras';
 import { composicaoDaEmbalagemNoPapel } from '../../utils/embalagemNoPapelDomain';
+import { complementoDoClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
 
@@ -53,7 +54,8 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
       <div className="a4-section">
         <h3 className="section-title">Dados do Cliente</h3>
         <div className="a4-grid">
-          <p><strong>Nome:</strong> {pedidoData.clienteNome}</p>
+          <p><strong>Nome:</strong> {nomeDoClienteDoPedido(pedidoData, '---')}</p>
+          {complementoDoClienteSemCadastro(pedidoData) && <p><strong>Cliente:</strong> {complementoDoClienteSemCadastro(pedidoData)}</p>}
           <p><strong>CPF/CNPJ:</strong> {clientData?.documento || '---'}</p>
           <p><strong>Telefone:</strong> {clientData?.telefone || '---'}</p>
           <p><strong>E-mail:</strong> {clientData?.email || '---'}</p>

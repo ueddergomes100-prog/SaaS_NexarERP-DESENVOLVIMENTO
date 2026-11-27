@@ -12,6 +12,7 @@ import { rotuloNotaFiscalPedido } from '../../utils/pedidoVendedorDomain';
 import { erroParaDevolverPeloApp } from '../../utils/devolucaoVendaDomain';
 import { useConfigDevolucaoApp } from '../../hooks/useConfigDevolucaoApp';
 import { comOrigem } from './navegacaoApp';
+import { nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
 
 /**
  * Pedido ja enviado pra base: so' leitura. Editar acontece no rascunho,
@@ -110,7 +111,7 @@ const VendedorPedidoDetalhe: React.FC = () => {
         ...(data.tipoPedido ? { tipoPedido: String(data.tipoPedido) } : {}),
         status: data.status || '',
         statusConferencia: data.statusConferencia,
-        clienteNome: data.clienteNome || '',
+        clienteNome: nomeDoClienteDoPedido(data, ''),
         observacao: data.observacao || '',
         ...(typeof data.comNotaFiscal === 'boolean' ? { comNotaFiscal: data.comNotaFiscal } : {}),
         dataVenda: data.dataVenda,

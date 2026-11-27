@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronDown, ChevronUp, RefreshCw, Search } from 'lucide-react';
 import { devolucaoAppService, type DevolucaoDoVendedor } from '../../services/devolucaoAppService';
 import { ROTULO_DESTINO_DEVOLUCAO, ROTULO_SITUACAO_DEVOLUCAO, type StatusDevolucao } from '../../utils/devolucaoVendaDomain';
 import VendedorHeader from './VendedorHeader';
@@ -22,6 +23,7 @@ const formatarData = (millis: number | null) => (millis ? new Date(millis).toLoc
 const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const VendedorDevolucoes: React.FC = () => {
+  const navigate = useNavigate();
   const voltarPara = useVoltarPara();
   const [lista, setLista] = useState<DevolucaoDoVendedor[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -58,13 +60,21 @@ const VendedorDevolucoes: React.FC = () => {
       />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {/* Nova devolucao pelo cliente (27/11/2026, Ivan da Embala: "nao tenho campo para procurar o cliente que eu quero devolver"). */}
+        <button
+          type="button"
+          onClick={() => navigate('/vendedor/pedidos', { state: { buscarCliente: true } })}
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', height: '46px', padding: '0 14px', borderRadius: 'var(--app-raio-linha)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', color: 'var(--text-muted)', fontSize: '15px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', flexShrink: 0 }}
+        >
+          <Search size={18} aria-hidden="true" /> Devolver: buscar o pedido pelo cliente
+        </button>
         {carregando ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>
         ) : erro ? (
           <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.5 }}>{erro}</div>
         ) : lista.length === 0 ? (
           <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.5 }}>
-            Você ainda não fez nenhuma devolução.<br />Para devolver, abra o pedido em "Meus Pedidos" e toque em "Devolver itens".
+            Você ainda não fez nenhuma devolução.<br />Para devolver, busque o pedido pelo cliente (acima) ou abra em "Meus Pedidos" e toque em "Devolver itens".
           </div>
         ) : lista.map((d) => {
           const estilo = ESTILO[d.status] || ESTILO.aguardando_confirmacao;

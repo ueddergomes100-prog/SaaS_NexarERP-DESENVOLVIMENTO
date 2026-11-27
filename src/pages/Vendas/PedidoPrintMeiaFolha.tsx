@@ -8,6 +8,7 @@ import { pagamentoImpresso, rotuloDaForma } from '../../utils/pagamentoImpressoD
 import QrCodePix from '../../components/common/QrCodePix';
 import { usePedidoPrintExtras } from '../../hooks/usePedidoPrintExtras';
 import { composicaoDaEmbalagemNoPapel, quantidadeComUnidade } from '../../utils/embalagemNoPapelDomain';
+import { complementoDoClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
 import './PedidoPrintMeiaFolha.css';
 
 interface Parcela {
@@ -142,7 +143,7 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
           com valor vazio ("E-mail:" sem e-mail) so ocupa espaco num papel
           pequeno e faz o balcao achar que o sistema perdeu o dado. */}
       <div className="mf-cliente-row">
-        <span><strong>Cliente:</strong> {pedidoData.clienteNome || 'Consumidor Final'}</span>
+        <span><strong>Cliente:</strong> {nomeDoClienteDoPedido(pedidoData)}{complementoDoClienteSemCadastro(pedidoData) ? ` (${complementoDoClienteSemCadastro(pedidoData)})` : ''}</span>
         {/* O telefone e DO CLIENTE (sai de clientData) -- ficava embaixo do
             vendedor, dando a entender que era o telefone dele. Assumiu o lugar
             do codigo do cliente, que nao diz nada a quem recebe o papel: o

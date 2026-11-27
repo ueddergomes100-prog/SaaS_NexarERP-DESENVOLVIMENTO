@@ -44,6 +44,8 @@ export interface RascunhoVenda {
   parcelasBoleto?: number;
   /** Boleto e Pagamento a Prazo (27/11/2026): dias de cada parcela a contar do faturamento (ex.: [21, 28, 35]). */
   diasDasParcelas?: number[];
+  /** Cliente a cadastrar (27/11/2026): nome/cidade/telefone no Consumidor Final; so' a vista. */
+  clienteSemCadastro?: { nome: string; cidade?: string; telefone?: string };
   criadoEm: string;
   atualizadoEm: string;
   /** Motivo da ultima tentativa de envio que falhou. */

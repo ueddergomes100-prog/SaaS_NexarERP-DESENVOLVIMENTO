@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
+import { ehConsumidorFinal, formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
 import {
   diasDasParcelas,
   diasUniformes,
@@ -39,6 +39,7 @@ import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } fro
 import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { textoDaRotaEscolhida, type RotaEscolhida } from '../../utils/rotaPreVendaDomain';
+import { CIDADE_SEM_CADASTRO_MAX, erroDasFormasSemCadastro, FORMAS_PROIBIDAS_SEM_CADASTRO, lerClienteSemCadastro, NOME_SEM_CADASTRO_MAX } from '../../utils/clienteSemCadastroDomain';
 
 /** Abatimentos do cliente e formas da loja que nao se combinam no pedido do vendedor. */
 const FORMAS_FORA_DO_APP: string[] = ['Crédito de Devolução', 'Cashback'];
@@ -47,6 +48,7 @@ interface ClienteVendedor extends SearchableClient, ClienteConfirmavel {
   id: string;
   nome: string;
   telefone?: string;
+  isPadrao?: boolean;
 }
 
 /**
@@ -107,6 +109,14 @@ const VendedorNovoPedido: React.FC = () => {
     const dias = Number.parseInt(intervalo, 10);
     setDiasLinhas(Number.isInteger(dias) && dias >= 1 ? diasUniformes(parcelas, Math.min(dias, MAX_DIAS_DA_PARCELA)).map(String) : []);
   };
+  // Cliente a cadastrar (27/11/2026, Embala): no Consumidor Final, o nome/cidade/telefone da
+  // pessoa so' neste pedido; so' a vista (Boleto e a prazo somem). Regra em clienteSemCadastroDomain.ts.
+  const [semCadastro, setSemCadastro] = useState(() => ({
+    nome: rascunhoAberto?.clienteSemCadastro?.nome || '',
+    cidade: rascunhoAberto?.clienteSemCadastro?.cidade || '',
+    telefone: rascunhoAberto?.clienteSemCadastro?.telefone || '',
+  }));
+  const clienteEhConsumidorFinal = Boolean(clienteSelecionado && (clienteSelecionado.isPadrao === true || ehConsumidorFinal(clienteSelecionado.nome)));
   const [formasDaFilial, setFormasDaFilial] = useState<string[]>(() => formasDaEmpresa([], []).filter((f) => !FORMAS_FORA_DO_APP.includes(f)));
   useEffect(() => {
     if (!tenantId) return undefined;
@@ -157,6 +167,12 @@ const VendedorNovoPedido: React.FC = () => {
       return;
     }
     if (!tenantId || !currentUser) return;
+    const semCadastroParaGravar = clienteEhConsumidorFinal ? lerClienteSemCadastro(semCadastro) : null;
+    const erroSemCadastro = erroDasFormasSemCadastro([formaPagamento], semCadastroParaGravar || (clienteEhConsumidorFinal ? { nome: 'CONSUMIDOR FINAL' } : null));
+    if (erroSemCadastro) {
+      showError('Cliente sem cadastro', erroSemCadastro);
+      return;
+    }
     const comDias = temPrazo && intervaloPrazo.trim() !== '';
     if (comDias) {
       const erroDosDias = diasLinhas.length !== parcelasBoleto ? 'Informe o intervalo das parcelas.' : erroDosDiasDasParcelas(diasLinhas);
@@ -189,6 +205,7 @@ const VendedorNovoPedido: React.FC = () => {
         },
         itens,
         ...(normalizarObservacaoPedido(observacao) ? { observacao: normalizarObservacaoPedido(observacao) } : {}),
+        ...(semCadastroParaGravar ? { clienteSemCadastro: semCadastroParaGravar } : {}),
         ...(controlaFiscal && notaFiscal ? { notaFiscal } : {}),
         ...(formaPagamento ? { formaPagamento } : {}),
         ...(formaPagamento === 'Boleto' ? { parcelasBoleto } : {}),
@@ -231,6 +248,49 @@ const VendedorNovoPedido: React.FC = () => {
           </div>
         ) : (
           <VendedorSeletorCliente clientes={clientes} onConfirmar={setClienteSelecionado} />
+        )}
+        {!clienteSelecionado && (
+          <button
+            type="button"
+            onClick={() => {
+              const padrao = clientes.find((c) => c.isPadrao === true) || clientes.find((c) => ehConsumidorFinal(c.nome));
+              if (!padrao) {
+                showError('Cliente a cadastrar', 'Não achei o cadastro "CONSUMIDOR FINAL" desta empresa. Peça ao escritório para conferir em Cadastros › Clientes.');
+                return;
+              }
+              setClienteSelecionado(padrao);
+              if (FORMAS_PROIBIDAS_SEM_CADASTRO.includes(formaPagamento)) setFormaPagamento('');
+            }}
+            style={{ marginTop: '10px', marginRight: '18px', fontSize: '14px', color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, padding: 0 }}
+          >
+            + Cliente a cadastrar
+          </button>
+        )}
+        {clienteEhConsumidorFinal && (
+          <div style={{ marginTop: '10px', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cliente a cadastrar</div>
+            {([
+              ['nome', 'Nome', 'text', NOME_SEM_CADASTRO_MAX],
+              ['cidade', 'Cidade', 'text', CIDADE_SEM_CADASTRO_MAX],
+              ['telefone', 'Telefone', 'tel', 15],
+            ] as const).map(([campo, rotulo, tipo, max]) => (
+              <label key={campo} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                {rotulo}
+                <input
+                  type={tipo}
+                  inputMode={tipo === 'tel' ? 'tel' : undefined}
+                  maxLength={max}
+                  value={semCadastro[campo]}
+                  onChange={(evento) => {
+                    const valor = campo === 'telefone' ? evento.target.value.replace(/[^\d()\s-]/g, '') : evento.target.value.toUpperCase();
+                    setSemCadastro((atual) => ({ ...atual, [campo]: valor }));
+                  }}
+                  style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '16px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                />
+              </label>
+            ))}
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Sai no pedido, na minuta e no romaneio. Sem cadastro, a venda é só à vista (sem boleto e sem a prazo).</div>
+          </div>
         )}
         {!clienteSelecionado && podeCadastrarClienteNoApp(userPermissions) && (
           <button
@@ -283,7 +343,9 @@ const VendedorNovoPedido: React.FC = () => {
               }}
             >
               <option value="">A loja escolhe ao faturar</option>
-              {[...new Set([...formasDaFilial, ...(formaPagamento ? [formaPagamento] : [])])].map((forma) => (
+              {[...new Set([...formasDaFilial, ...(formaPagamento ? [formaPagamento] : [])])]
+                .filter((forma) => !clienteEhConsumidorFinal || !FORMAS_PROIBIDAS_SEM_CADASTRO.includes(forma))
+                .map((forma) => (
                 <option key={forma} value={forma}>{forma}</option>
               ))}
             </select>

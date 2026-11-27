@@ -17,6 +17,7 @@ import { STATUS_PRE_VENDA, type OrigemPedido } from '../utils/preVendaDomain';
 import { getDateInputInTimeZone } from '../utils/dateTime';
 import { idsDasPromocoes } from '../utils/precoAppVendasDomain';
 import type { OrigemPreco, TabelaDePrecoDoItem } from '../utils/precoVendaDomain';
+import { erroDasFormasSemCadastro, lerClienteSemCadastro, type ClienteSemCadastro } from '../utils/clienteSemCadastroDomain';
 
 /**
  * Criacao de Pedido/Orcamento pelo aplicativo do vendedor externo.
@@ -95,6 +96,8 @@ export interface CriarPreVendaExternaParams {
   parcelasBoleto?: number;
   /** Dias de cada parcela (27/11/2026); so' vale com Boleto ou Pagamento a Prazo. */
   diasDasParcelas?: number[];
+  /** Cliente a cadastrar (27/11/2026, clienteSemCadastroDomain): so' a vista. */
+  clienteSemCadastro?: ClienteSemCadastro;
   /** Id fixo do documento (o id do rascunho). Com ele, reenviar o mesmo
    *  rascunho depois de uma queda de conexao NAO cria um segundo pedido: se
    *  o primeiro envio chegou a gravar, a transacao so' devolve o que ja
@@ -118,6 +121,10 @@ export const criarPreVendaExterna = async (
   params: CriarPreVendaExternaParams,
 ): Promise<{ id: string; numeroPedido: string }> => {
   const { tenantId, usuarioId, vendedorId, vendedorNome, clienteId, clienteNome, itens, permitirVendaSemEstoque, idDocumento, observacao, comNotaFiscal, conferenciaMercadoriaAtiva } = params;
+  // Cliente a cadastrar: so' a vista (Boleto e a prazo precisam do cadastro).
+  const semCadastroDoPedido = lerClienteSemCadastro(params.clienteSemCadastro);
+  const erroSemCadastro = erroDasFormasSemCadastro([params.formaPagamento || ''], semCadastroDoPedido);
+  if (erroSemCadastro) throw new Error(erroSemCadastro);
   // Ligacao venda <-> bonificacao: so' as chaves que vieram (nunca undefined no Firestore).
   const vinculo = {
     ...(params.tipoPedido ? { tipoPedido: params.tipoPedido } : {}),
@@ -199,6 +206,8 @@ export const criarPreVendaExterna = async (
       ...(params.formaPagamento?.trim() === 'Boleto' && parcelasDoBoleto(params.parcelasBoleto)
         ? { [CAMPO_PARCELAS_DO_BOLETO]: parcelasDoBoleto(params.parcelasBoleto) }
         : {}),
+      // Cliente a cadastrar (27/11/2026): nome/cidade/telefone da pessoa no Consumidor Final.
+      ...(semCadastroDoPedido ? { clienteSemCadastro: semCadastroDoPedido } : {}),
       // Dias de cada parcela (27/11/2026): o faturamento abre com os vencimentos que o vendedor combinou.
       ...(FORMAS_COM_PRAZO_NO_APP.includes(params.formaPagamento?.trim() || '') && diasDasParcelas(params.diasDasParcelas).length > 0
         ? { [CAMPO_DIAS_DAS_PARCELAS]: diasDasParcelas(params.diasDasParcelas) }

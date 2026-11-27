@@ -16,6 +16,7 @@ const financeDomain_1 = require("./financeDomain");
 const descontoDomain_1 = require("./descontoDomain");
 const transporteNotaDomain_1 = require("./transporteNotaDomain");
 const dateTime_1 = require("./dateTime");
+const clienteSemCadastroDomain_1 = require("./clienteSemCadastroDomain");
 /** Mesma leitura que o Pedido de Venda faz de `configuracoes/{empresa}`. */
 const configFinanceiraDaEmpresa = (config) => {
     const c = config || {};
@@ -194,6 +195,11 @@ const lerPedidoDeFechamento = (corpo) => {
     const comprovanteVendedorId = c.comprovanteVendedorId ? String(c.comprovanteVendedorId) : null;
     if (comprovanteVendedorId && !ID_VALIDO.test(comprovanteVendedorId))
         return { erro: 'Identificação do vendedor inválida. Finalize de novo e digite o código e a senha.' };
+    // Cliente a cadastrar (27/11/2026): so' a vista -- Boleto e a prazo precisam do cadastro.
+    const clienteSemCadastro = (0, clienteSemCadastroDomain_1.lerClienteSemCadastro)(c.clienteSemCadastro);
+    const erroSemCadastro = (0, clienteSemCadastroDomain_1.erroDasFormasSemCadastro)(listaDePagamentos.map((p) => (p && typeof p === 'object' ? (p.forma || p.formaPagamento) : '')), clienteSemCadastro);
+    if (erroSemCadastro)
+        return { erro: erroSemCadastro };
     return {
         pedido: {
             pedidoId,
@@ -201,6 +207,7 @@ const lerPedidoDeFechamento = (corpo) => {
             vendedorId,
             clienteId,
             clienteNome: texto(c.clienteNome, 200).toUpperCase() || 'CONSUMIDOR FINAL',
+            clienteSemCadastro,
             observacao: texto(c.observacao, 2000),
             dataVenda,
             itens,

@@ -6,6 +6,7 @@ import { colocarPedidoNaRotaSemFalhar } from '../../services/rotaPreVendaService
 import { listarRascunhos, marcarErroRascunho, removerRascunho, type RascunhoVenda } from './vendedorRascunhosStore';
 import { diasDasParcelas, FORMAS_COM_PRAZO_NO_APP, parcelasDoBoleto } from '../../utils/vendaFechamentoDomain';
 import { idDoPedidoDeBonificacao, separarItensDaBonificacao, TIPO_PEDIDO_BONIFICACAO } from '../../utils/bonificacaoDomain';
+import { lerClienteSemCadastro, type ClienteSemCadastro } from '../../utils/clienteSemCadastroDomain';
 
 /*
  * ENVIO DOS RASCUNHOS DO APP VENDAS.
@@ -84,6 +85,7 @@ const enviarUm = async (ctx: ContextoDeEnvio, rascunho: RascunhoVenda): Promise<
       itens: cobrados,
       ...(rascunho.formaPagamento ? { formaPagamento: rascunho.formaPagamento } : {}),
       ...(rascunho.formaPagamento === 'Boleto' && parcelasDoBoleto(rascunho.parcelasBoleto) ? { parcelasBoleto: parcelasDoBoleto(rascunho.parcelasBoleto) } : {}),
+      ...(lerClienteSemCadastro(rascunho.clienteSemCadastro) ? { clienteSemCadastro: lerClienteSemCadastro(rascunho.clienteSemCadastro) as ClienteSemCadastro } : {}),
       ...(FORMAS_COM_PRAZO_NO_APP.includes(rascunho.formaPagamento || '') && diasDasParcelas(rascunho.diasDasParcelas).length > 0
         ? { diasDasParcelas: diasDasParcelas(rascunho.diasDasParcelas) }
         : {}),

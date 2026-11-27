@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, Receipt, Search, X } from 'lucide-react';
 import {
   addDoc, collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, startAfter, Timestamp, where,
@@ -30,6 +30,7 @@ import {
   quantoBuscarDaFonte,
   temMaisMeusPedidos,
 } from '../../utils/meusPedidosMobileDomain';
+import { nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
 
 interface ItemLista {
   id: string;
@@ -66,7 +67,7 @@ const paraItemDaLista = (fonte: FonteMeusPedidos, id: string, data: DocumentData
   numero: (fonte === 'pedidos' ? data.numeroPedido : data.numeroOrcamento) || '',
   status: data.status || '',
   ...(data.tipoPedido === 'bonificacao' ? { bonificacao: true } : {}),
-  clienteNome: data.clienteNome || '',
+  clienteNome: nomeDoClienteDoPedido(data, ''),
   valorTotal: Number(data.valorTotal || 0),
   createdAtMillis: toMillis(data.createdAt),
   ...(typeof data.comNotaFiscal === 'boolean' ? { comNotaFiscal: data.comNotaFiscal } : {}),
@@ -87,6 +88,7 @@ const corStatus = (status: string): string => {
 
 const VendedorMeusPedidos: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { tenantId, currentUser, userPermissions, controlaFiscal, userRole, isOwner } = useAuth();
   const [itens, setItens] = useState<ItemLista[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -104,7 +106,8 @@ const VendedorMeusPedidos: React.FC = () => {
   // Pedidos de um cliente (27/11/2026, Ivan da Embala: "nao tenho campo para procurar o
   // cliente que eu quero devolver" -- so' havia o "Ver mais"). Escolhido o cliente, a
   // lista traz todos os pedidos e orcamentos dele feitos por voce, sem paginar.
-  const [buscandoCliente, setBuscandoCliente] = useState(false);
+  // Vindo de "Minhas Devolucoes" (buscar o pedido pelo cliente): ja' abre a busca.
+  const [buscandoCliente, setBuscandoCliente] = useState(() => Boolean((location.state as { buscarCliente?: boolean } | null)?.buscarCliente));
   const [clienteFiltro, setClienteFiltro] = useState<{ id: string; nome: string } | null>(null);
   const [itensDoCliente, setItensDoCliente] = useState<ItemLista[] | null>(null);
   const [carregandoCliente, setCarregandoCliente] = useState(false);

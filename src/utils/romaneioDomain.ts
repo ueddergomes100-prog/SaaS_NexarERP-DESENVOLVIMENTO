@@ -29,6 +29,7 @@ import type { DespesaRota } from './rotaDomain';
 import { STATUS_PRE_VENDA } from './preVendaDomain';
 import { diferencasEntre, type MudancaDeCampo } from './historicoAlteracoesDomain';
 import { getDateInputInTimeZone } from './dateTime';
+import { lerClienteSemCadastro, telefoneFormatado } from './clienteSemCadastroDomain';
 
 export type StatusRomaneio = 'montagem' | 'em_rota' | 'fechado' | 'cancelado';
 export type StatusEntrega = 'pendente' | 'entregue' | 'nao_entregue';
@@ -357,6 +358,8 @@ export interface PedidoParaRomaneio {
   dataVenda?: unknown;
   clienteId?: unknown;
   clienteNome?: unknown;
+  /** Cliente a cadastrar (27/11/2026, clienteSemCadastroDomain): nome/cidade/telefone do Consumidor Final. */
+  clienteSemCadastro?: unknown;
   vendedorNome?: unknown;
   formaPagamento?: unknown;
   valorTotal?: unknown;
@@ -431,18 +434,21 @@ export const montarEntregaDoPedido = (
   pedido: PedidoParaRomaneio,
   cliente: ClienteParaRomaneio | null | undefined,
   nota: { numero?: unknown; tipo?: unknown } | null | undefined,
-): EntregaRomaneio => ({
+): EntregaRomaneio => {
+  // Cliente a cadastrar (27/11/2026): sai o nome, a cidade e o telefone da pessoa, nao "CONSUMIDOR FINAL".
+  const semCadastro = lerClienteSemCadastro(pedido.clienteSemCadastro);
+  return {
   pedidoId: pedido.id,
   numeroPedido: limpar(pedido.numeroPedido),
   dataVenda: limpar(pedido.dataVenda),
   notaNumero: nota?.numero ? limpar(nota.numero) : '',
   notaTipo: nota?.numero ? limpar(nota.tipo) : '',
   clienteId: limpar(pedido.clienteId),
-  clienteCodigo: limpar(cliente?.codigo),
-  clienteNome: limpar(pedido.clienteNome || cliente?.nome).toUpperCase(),
-  endereco: enderecoDoCliente(cliente),
-  cidade: [limpar(cliente?.cidade), limpar(cliente?.estado)].filter(Boolean).join('/').toUpperCase(),
-  telefone: limpar(cliente?.celular || cliente?.telefone),
+  clienteCodigo: semCadastro ? '' : limpar(cliente?.codigo),
+  clienteNome: semCadastro ? semCadastro.nome : limpar(pedido.clienteNome || cliente?.nome).toUpperCase(),
+  endereco: semCadastro ? '' : enderecoDoCliente(cliente),
+  cidade: semCadastro ? (semCadastro.cidade || '') : [limpar(cliente?.cidade), limpar(cliente?.estado)].filter(Boolean).join('/').toUpperCase(),
+  telefone: semCadastro ? (semCadastro.telefone ? telefoneFormatado(semCadastro.telefone) : '') : limpar(cliente?.celular || cliente?.telefone),
   vendedorNome: limpar(pedido.vendedorNome).toUpperCase(),
   formaPagamento: limpar(pedido.formaPagamento),
   valorTotalCentavos: centavosDe(pedido.valorTotalCentavos, pedido.valorTotal),
@@ -461,7 +467,8 @@ export const montarEntregaDoPedido = (
   recebidoForma: '',
   observacao: '',
   canhotoUrl: '',
-});
+  };
+};
 
 /** Le uma entrega gravada, completando campo que falte (documento antigo/parcial). */
 export const normalizarEntrega = (raw: Partial<EntregaRomaneio> & { pedidoId: string }): EntregaRomaneio => {

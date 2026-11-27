@@ -58,6 +58,7 @@
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
 const venda = require('../domain/vendaFechamentoDomain');
+const semCadastro = require('../domain/clienteSemCadastroDomain');
 const credito = require('../domain/creditoDomain');
 const reserva = require('../domain/estoqueReservaDomain');
 const { toStockAdjustmentItems, toBaseQuantity } = require('../domain/embalagemDomain');
@@ -392,6 +393,10 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
   }
   pagamentos = fin.explodeInstallmentPaymentRecords(pagamentos);
   const resumo = fin.summarizePayments(pagamentos);
+  // Cliente a cadastrar (27/11/2026, clienteSemCadastroDomain): so' a vista. A leitura do
+  // pedido ja' recusou Boleto/a prazo; com a pre-venda gravada, a transacao confere de novo.
+  let clienteSemCadastro = pedido.clienteSemCadastro || null;
+
   const aPrazo = resumo.paymentCondition === 'aprazo';
   // "Nota" na Frente de Caixa (25/11/2026): so' com a caixa da filial marcada
   // e com o cliente identificado. O resto (atraso, limite) e' o de sempre, abaixo.
@@ -524,6 +529,12 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
     if (pedido.pedidoId) {
       if (!pedidoSnap.exists || pedidoSnap.data().tenantId !== tenantId) throw new ErroVenda(404, 'Este pedido não existe mais. Atualize a lista de pedidos.');
       aberto = pedidoSnap.data();
+      // Cliente a cadastrar (27/11/2026): tela antiga que nao manda o campo fica com o da pre-venda (mesmo cliente).
+      if (!clienteSemCadastro && String(aberto.clienteId || '') === String(pedido.clienteId || '')) {
+        clienteSemCadastro = semCadastro.lerClienteSemCadastro(aberto.clienteSemCadastro);
+        const erroSemCadastro = semCadastro.erroDasFormasSemCadastro(pagamentos.map((p) => p.formaPagamento), clienteSemCadastro);
+        if (erroSemCadastro) throw new ErroVenda(409, erroSemCadastro);
+      }
       if (!isPedidoAberto(aberto.status)) {
         throw new ErroVenda(409, `O pedido #${aberto.numeroPedido || ''} já foi finalizado ou cancelado (talvez por outra pessoa). Atualize a tela.`);
       }
@@ -816,6 +827,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       numeroPedido,
       clienteId: pedido.clienteId,
       clienteNome: pedido.clienteNome,
+      // Cliente a cadastrar: so' grava quando ha' (o set substitui o documento: sem ele, o campo some).
+      ...(clienteSemCadastro ? { clienteSemCadastro } : {}),
       observacao: pedido.observacao,
       itens: pedido.itens,
       promocaoIds,

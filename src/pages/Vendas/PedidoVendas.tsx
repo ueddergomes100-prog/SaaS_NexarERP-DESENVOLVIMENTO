@@ -52,6 +52,7 @@ import {
   getDateInputInTimeZone,
   isWithinDateRange,
 } from '../../utils/dateTime';
+import { nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
 
 interface ItemVenda {
   id: string;
@@ -66,6 +67,8 @@ interface PedidoVendaData {
   createdAt?: { seconds?: number; nanoseconds?: number };
   dataVenda?: string;
   clienteNome?: string;
+  /** Cliente a cadastrar (27/11/2026): o nome dele aparece no lugar de CONSUMIDOR FINAL. */
+  clienteSemCadastro?: unknown;
   formaPagamento?: string;
   status: string;
   valorTotal: number;
@@ -421,7 +424,8 @@ const PedidoVendas: React.FC = () => {
           : p.status === STATUS_CANCELADA
   );
   const casaComBusca = (p: PedidoVendaData) => (
-    !searchTerm || p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm)
+    !searchTerm || nomeDoClienteDoPedido(p, '').toLowerCase().includes(searchTerm.toLowerCase())
+      || p.clienteNome?.toLowerCase().includes(searchTerm.toLowerCase()) || p.numeroPedido?.includes(searchTerm)
   );
   const pedidosDoContexto = pedidos.filter(p => pertenceAAba(p, activeTab) && casaComBusca(p));
 
@@ -1022,8 +1026,8 @@ const PedidoVendas: React.FC = () => {
                     <td className="hd-tabela__mudo">{formatarDataEfetiva(p)}</td>
                     <td className="hd-tabela__cliente">
                       <div className="hd-pessoa">
-                        <AvatarIniciais nome={p.clienteNome} />
-                        <strong>{p.clienteNome || 'Cliente não informado'}</strong>
+                        <AvatarIniciais nome={nomeDoClienteDoPedido(p, '')} />
+                        <strong>{nomeDoClienteDoPedido(p, 'Cliente não informado')}</strong>
                       </div>
                     </td>
                     <td className="hd-tabela__mudo">{p.vendedorNome || '—'}</td>

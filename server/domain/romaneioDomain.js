@@ -5,6 +5,7 @@ exports.descricaoDaEntrega = exports.descricaoDaMontagem = exports.pedidosQueMud
 const preVendaDomain_1 = require("./preVendaDomain");
 const historicoAlteracoesDomain_1 = require("./historicoAlteracoesDomain");
 const dateTime_1 = require("./dateTime");
+const clienteSemCadastroDomain_1 = require("./clienteSemCadastroDomain");
 exports.ROTULO_STATUS_ROMANEIO = {
     montagem: 'Em montagem',
     em_rota: 'Em rota',
@@ -249,37 +250,41 @@ const enderecoDoCliente = (cliente) => {
 };
 exports.enderecoDoCliente = enderecoDoCliente;
 /** Monta a linha da entrega a partir do pedido. Nenhum campo fica `undefined` (Firestore recusa). */
-const montarEntregaDoPedido = (pedido, cliente, nota) => ({
-    pedidoId: pedido.id,
-    numeroPedido: limpar(pedido.numeroPedido),
-    dataVenda: limpar(pedido.dataVenda),
-    notaNumero: nota?.numero ? limpar(nota.numero) : '',
-    notaTipo: nota?.numero ? limpar(nota.tipo) : '',
-    clienteId: limpar(pedido.clienteId),
-    clienteCodigo: limpar(cliente?.codigo),
-    clienteNome: limpar(pedido.clienteNome || cliente?.nome).toUpperCase(),
-    endereco: (0, exports.enderecoDoCliente)(cliente),
-    cidade: [limpar(cliente?.cidade), limpar(cliente?.estado)].filter(Boolean).join('/').toUpperCase(),
-    telefone: limpar(cliente?.celular || cliente?.telefone),
-    vendedorNome: limpar(pedido.vendedorNome).toUpperCase(),
-    formaPagamento: limpar(pedido.formaPagamento),
-    valorTotalCentavos: centavosDe(pedido.valorTotalCentavos, pedido.valorTotal),
-    valorDescontoCentavos: centavosDe(pedido.valorTotalDescontosCentavos, pedido.valorTotalDescontos),
-    status: 'pendente',
-    recebedorNome: '',
-    recebedorDocumento: '',
-    canhotoCaminho: '',
-    justificativaValor: '',
-    registradoVia: '',
-    registradoEm: '',
-    dataEntrega: '',
-    registradoPor: '',
-    motivo: '',
-    recebidoCentavos: 0,
-    recebidoForma: '',
-    observacao: '',
-    canhotoUrl: '',
-});
+const montarEntregaDoPedido = (pedido, cliente, nota) => {
+    // Cliente a cadastrar (27/11/2026): sai o nome, a cidade e o telefone da pessoa, nao "CONSUMIDOR FINAL".
+    const semCadastro = (0, clienteSemCadastroDomain_1.lerClienteSemCadastro)(pedido.clienteSemCadastro);
+    return {
+        pedidoId: pedido.id,
+        numeroPedido: limpar(pedido.numeroPedido),
+        dataVenda: limpar(pedido.dataVenda),
+        notaNumero: nota?.numero ? limpar(nota.numero) : '',
+        notaTipo: nota?.numero ? limpar(nota.tipo) : '',
+        clienteId: limpar(pedido.clienteId),
+        clienteCodigo: semCadastro ? '' : limpar(cliente?.codigo),
+        clienteNome: semCadastro ? semCadastro.nome : limpar(pedido.clienteNome || cliente?.nome).toUpperCase(),
+        endereco: semCadastro ? '' : (0, exports.enderecoDoCliente)(cliente),
+        cidade: semCadastro ? (semCadastro.cidade || '') : [limpar(cliente?.cidade), limpar(cliente?.estado)].filter(Boolean).join('/').toUpperCase(),
+        telefone: semCadastro ? (semCadastro.telefone ? (0, clienteSemCadastroDomain_1.telefoneFormatado)(semCadastro.telefone) : '') : limpar(cliente?.celular || cliente?.telefone),
+        vendedorNome: limpar(pedido.vendedorNome).toUpperCase(),
+        formaPagamento: limpar(pedido.formaPagamento),
+        valorTotalCentavos: centavosDe(pedido.valorTotalCentavos, pedido.valorTotal),
+        valorDescontoCentavos: centavosDe(pedido.valorTotalDescontosCentavos, pedido.valorTotalDescontos),
+        status: 'pendente',
+        recebedorNome: '',
+        recebedorDocumento: '',
+        canhotoCaminho: '',
+        justificativaValor: '',
+        registradoVia: '',
+        registradoEm: '',
+        dataEntrega: '',
+        registradoPor: '',
+        motivo: '',
+        recebidoCentavos: 0,
+        recebidoForma: '',
+        observacao: '',
+        canhotoUrl: '',
+    };
+};
 exports.montarEntregaDoPedido = montarEntregaDoPedido;
 /** Le uma entrega gravada, completando campo que falte (documento antigo/parcial). */
 const normalizarEntrega = (raw) => {

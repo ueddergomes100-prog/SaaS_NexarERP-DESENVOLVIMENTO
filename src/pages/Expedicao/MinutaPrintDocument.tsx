@@ -16,6 +16,7 @@ import {
   rotuloDocumentoMinuta,
   vendedorMinuta,
 } from '../../utils/minutaDomain';
+import { complementoDoClienteSemCadastro, lerClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
 import './MinutaPrint.css';
 
 /** Pergunta quantas vias imprimir. null = cancelou. A minuta saia sempre com
@@ -145,7 +146,7 @@ const MinutaPrintDocument: React.FC<MinutaPrintDocumentProps> = ({
         </div>
 
         <div className="minuta-linha">
-          <span>Cliente: {codigoENomeMinuta(cliente?.codigo, pedidoData.clienteNome || 'Consumidor Final')}</span>
+          <span>Cliente: {codigoENomeMinuta(lerClienteSemCadastro(pedidoData.clienteSemCadastro) ? '' : cliente?.codigo, nomeDoClienteDoPedido(pedidoData))}{complementoDoClienteSemCadastro(pedidoData) ? ` (${complementoDoClienteSemCadastro(pedidoData)})` : ''}</span>
           <span>Emissão: {formatarEmissaoMinuta(criadoEm)}</span>
         </div>
 

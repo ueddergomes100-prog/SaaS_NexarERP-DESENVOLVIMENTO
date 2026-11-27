@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { collection, query, where, doc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs, documentId } from 'firebase/firestore';
+import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
 import { db } from '../../services/firebase';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -232,6 +233,8 @@ const ContasReceber: React.FC = () => {
   const [chequeBaixaState, setChequeBaixaState] = useState<{ transacao: TransacaoData; bancoId?: string; bancoNome?: string } | null>(null);
   const [clientesExpandidos, setClientesExpandidos] = useState<Set<string>>(new Set());
   const [buscaCliente, setBuscaCliente] = useState('');
+  // Codigo do cliente na lista (27/11/2026, pedido do dono): lido do cadastro em lotes, uma vez por cliente.
+  const [codigosDosClientes, setCodigosDosClientes] = useState<Record<string, string>>({});
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [situacaoTitulo, setSituacaoTitulo] = useState<SituacaoTitulo>(SITUACAO_TITULO_PADRAO);
   const [periodoDe, setPeriodoDe] = useState('');
@@ -1072,9 +1075,33 @@ const ContasReceber: React.FC = () => {
     });
 
     return Array.from(mapa.values())
-      .filter((g) => !buscaCliente.trim() || g.clienteNome.toLowerCase().includes(buscaCliente.trim().toLowerCase()))
+      .filter((g) => {
+        const termo = buscaCliente.trim().toLowerCase();
+        if (!termo) return true;
+        const codigo = g.clienteId ? (codigosDosClientes[g.clienteId] || '') : '';
+        return g.clienteNome.toLowerCase().includes(termo) || (codigo !== '' && codigo.toLowerCase() === termo.replace(/^#/, ''));
+      })
       .sort((a, b) => b.totalPendente - a.totalPendente);
   })();
+
+  // Codigos que faltam: so' dos clientes que estao na lista agora (lotes de LOTE_IN_POR_ID).
+  const idsSemCodigo = [...new Set(titulosFiltrados.map((t) => (!t.fornecedorId && t.clienteId ? t.clienteId : '')).filter((id) => id && !(id in codigosDosClientes)))].sort().join('|');
+  useEffect(() => {
+    if (!idsSemCodigo || !tenantId) return undefined;
+    let vivo = true;
+    const ids = idsSemCodigo.split('|');
+    const lotes: string[][] = [];
+    for (let i = 0; i < ids.length; i += LOTE_IN_POR_ID) lotes.push(ids.slice(i, i + LOTE_IN_POR_ID));
+    Promise.all(lotes.map((lote) => getDocs(query(collection(db, 'clientes'), where('tenantId', '==', tenantId), where(documentId(), 'in', lote)))
+      .then((snap) => {
+        const achados: Record<string, string> = Object.fromEntries(lote.map((id) => [id, '']));
+        snap.forEach((d) => { achados[d.id] = String(d.data().codigo ?? '').trim(); });
+        return achados;
+      })
+      .catch(() => Object.fromEntries(lote.map((id) => [id, ''])) as Record<string, string>)))
+      .then((partes) => { if (vivo) setCodigosDosClientes((atual) => Object.assign({}, atual, ...partes)); });
+    return () => { vivo = false; };
+  }, [idsSemCodigo, tenantId]);
 
   // ---- Baixa em lote: so' conta em aberto, sem cheque nem cartao (baixaEmLoteDomain).
   const elegiveis = new Map(titulosFiltrados.filter((t) => podeEntrarNoLote(t, 'entrada')).map((t) => [t.id, t]));
@@ -1457,6 +1484,9 @@ const ContasReceber: React.FC = () => {
                         <td style={{ padding: '16px', fontWeight: 600 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {grupo.deFornecedor ? <Building2 size={16} style={{ color: 'var(--text-muted)' }} /> : <User size={16} style={{ color: 'var(--text-muted)' }} />}
+                            {grupo.clienteId && codigosDosClientes[grupo.clienteId] && (
+                              <span style={{ color: 'var(--text-muted)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }} title="Código do cliente">{codigosDosClientes[grupo.clienteId]} ·</span>
+                            )}
                             {grupo.clienteNome}
                             {podeVerCreditos && !grupo.deFornecedor && saldoDeCreditoDo(grupo.clienteId, grupo.clienteNome) > 0 && (
                               <button

@@ -50,3 +50,14 @@ test('notas: data personalizada com a regra das outras listas', () => {
   assert.deepEqual(janelaDoPeriodoNotas('personalizado', HOJE, '2026-09-10', '2026-09-01'), { de: '2026-09-01', ate: '2026-09-10' });
   assert.deepEqual(janelaDoPeriodoNotas('personalizado', HOJE, '', '2026-09-10'), { de: '2026-10-01', ate: HOJE }, 'incompleto fica no mes');
 });
+
+test('periodo lembrado (28/11/2026): so\' Hoje, Ontem, 7 dias e Este mes; o resto volta ao mes atual', async () => {
+  const { lerPeriodoLembrado, periodoPodeSerLembrado, chavePeriodoLembrado } = await import('../src/utils/periodoListaDomain');
+  assert.equal(lerPeriodoLembrado('hoje'), 'hoje');
+  assert.equal(lerPeriodoLembrado('7dias'), '7dias');
+  for (const estranho of [null, undefined, '', 'personalizado', 'lixo']) assert.equal(lerPeriodoLembrado(estranho), PERIODO_LISTA_PADRAO);
+  assert.equal(periodoPodeSerLembrado('personalizado'), false, 'faixa de datas esquecida faria pedido "sumir"');
+  assert.equal(periodoPodeSerLembrado(''), false, 'todo o periodo pesa nas leituras');
+  assert.equal(periodoPodeSerLembrado('hoje'), true);
+  assert.notEqual(chavePeriodoLembrado('pedidos', 'u1'), chavePeriodoLembrado('pedidos', 'u2'), 'cada usuario guarda o seu');
+});

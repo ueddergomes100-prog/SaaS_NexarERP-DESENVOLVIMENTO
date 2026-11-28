@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { ehPedidoDeBonificacao } from '../../utils/bonificacaoDomain';
 import { useNavigate } from 'react-router-dom';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
@@ -8,7 +8,7 @@ import { foiImpresso, OPCOES_FILTRO_IMPRESSAO, passaNoFiltroDeImpressao, rotuloD
 import { ShoppingCart, Plus, Search, FileText, Printer, XCircle, UserCheck, Filter, Truck, CheckCircle2, Lock } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc, getDocs, serverTimestamp, Timestamp, type QuerySnapshot, type DocumentData } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
-import { diasDoPeriodoLista, PERIODO_LISTA_PADRAO, type PresetPeriodoLista } from '../../utils/periodoListaDomain';
+import { chavePeriodoLembrado, diasDoPeriodoLista, lerPeriodoLembrado, periodoPodeSerLembrado, type PresetPeriodoLista } from '../../utils/periodoListaDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs, TabActiveContext } from '../../contexts/TabsContext';
@@ -217,7 +217,13 @@ const PedidoVendas: React.FC = () => {
   // Coluna Imp.: Todos / Impressos / Nao impressos (pedido do cliente de 15/10/2026).
   const [filtroImpressao, setFiltroImpressao] = useState<FiltroImpressao>('');
   // Abre no mes atual (decisao do dono, 14/10): o periodo vai para a consulta.
-  const [filtroDataPreset, setFiltroDataPreset] = useState<FiltroDataPreset>(PERIODO_LISTA_PADRAO);
+  // Desde 28/11/2026 abre no ultimo periodo que ESTE usuario escolheu (Hoje,
+  // Ontem, 7 dias ou Este mes), guardado neste computador -- ver periodoListaDomain.
+  const chavePeriodo = chavePeriodoLembrado('pedidos', currentUser?.uid || 'anonimo');
+  const lerPeriodoPadrao = useCallback((): FiltroDataPreset => {
+    try { return lerPeriodoLembrado(localStorage.getItem(chavePeriodo)); } catch { return lerPeriodoLembrado(null); }
+  }, [chavePeriodo]);
+  const [filtroDataPreset, setFiltroDataPreset] = useState<FiltroDataPreset>(lerPeriodoPadrao);
   // A pessoa mexeu no filtro de Data? Nas abas de pedidos em ABERTO
   // (Pre-vendas, Pendentes) o mes atual padrao NAO filtra: pre-venda de
   // setembro ainda em aberto tem de continuar na fila (o susto do #0154).
@@ -225,6 +231,9 @@ const PedidoVendas: React.FC = () => {
   const escolherPeriodo = (preset: FiltroDataPreset) => {
     setFiltroDataPreset(preset);
     setPeriodoEscolhido(true);
+    if (periodoPodeSerLembrado(preset)) {
+      try { localStorage.setItem(chavePeriodo, preset); } catch { /* so' preferencia da tela */ }
+    }
   };
   const [filtroDataInicio, setFiltroDataInicio] = useState('');
   const [filtroDataFim, setFiltroDataFim] = useState('');
@@ -235,11 +244,11 @@ const PedidoVendas: React.FC = () => {
     setFiltroFormaPagamento('');
     setFiltroConferencia('');
     setFiltroImpressao('');
-    setFiltroDataPreset(PERIODO_LISTA_PADRAO);
+    setFiltroDataPreset(lerPeriodoPadrao());
     setPeriodoEscolhido(false);
     setFiltroDataInicio('');
     setFiltroDataFim('');
-  }, [isTabActive]);
+  }, [isTabActive, lerPeriodoPadrao]);
 
   // Lista geral so e' escondida da TELA (nao do Firestore) do funcionario
   // comum quando a empresa liga "Exigir identificacao do vendedor" -- ver
@@ -518,7 +527,7 @@ const PedidoVendas: React.FC = () => {
     setFiltroFormaPagamento('');
     setFiltroConferencia('');
     setFiltroImpressao('');
-    setFiltroDataPreset(PERIODO_LISTA_PADRAO);
+    setFiltroDataPreset(lerPeriodoPadrao());
     setPeriodoEscolhido(false);
     setFiltroDataInicio('');
     setFiltroDataFim('');

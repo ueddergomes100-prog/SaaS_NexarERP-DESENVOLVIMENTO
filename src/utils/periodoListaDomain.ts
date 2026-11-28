@@ -18,6 +18,27 @@ export type PresetPeriodoLista = '' | 'hoje' | 'ontem' | '7dias' | 'mes' | 'pers
 
 export const PERIODO_LISTA_PADRAO: PresetPeriodoLista = 'mes';
 
+/*
+ * Periodo lembrado por usuario (28/11/2026, pedido do dono): "salvar o ultimo
+ * filtro que o usuario escolher ... tem gente que gosta que vem as do dia".
+ * So' os periodos que andam com o calendario sao lembrados (Hoje, Ontem,
+ * 7 dias, Este mes): eles nunca deixam a lista "presa" num dia antigo.
+ * "Todo o periodo" e "Personalizado" NAO sao lembrados -- uma faixa de datas
+ * esquecida faria parecer que pedido sumiu (o susto do #0154) e o historico
+ * inteiro a cada abertura pesa nas leituras. Os outros filtros de coluna
+ * (vendedor, forma, impressao) continuam zerando ao sair da tela.
+ */
+const PERIODOS_LEMBRADOS: readonly PresetPeriodoLista[] = ['hoje', 'ontem', '7dias', 'mes'];
+
+export const periodoPodeSerLembrado = (preset: PresetPeriodoLista): boolean => PERIODOS_LEMBRADOS.includes(preset);
+
+/** Le o periodo guardado; qualquer coisa estranha volta ao padrao (mes atual). */
+export const lerPeriodoLembrado = (salvo: string | null | undefined): PresetPeriodoLista => (
+  PERIODOS_LEMBRADOS.find((p) => p === salvo) ?? PERIODO_LISTA_PADRAO
+);
+
+export const chavePeriodoLembrado = (tela: string, uid: string): string => `${tela}.periodo.${uid}`;
+
 export interface DiasDoPeriodo {
   /** Primeiro dia, AAAA-MM-DD (inclusive). */
   de: string;

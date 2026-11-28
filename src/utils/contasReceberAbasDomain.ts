@@ -86,3 +86,27 @@ export const percentualQuitado = (totais: { emAbertoCentavos: number; recebidoCe
   const total = totais.emAbertoCentavos + totais.recebidoCentavos;
   return total > 0 ? Math.round((totais.recebidoCentavos / total) * 100) : 0;
 };
+
+const normalizar = (texto: unknown): string => String(texto ?? '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLocaleLowerCase('pt-BR').trim().replace(/\s+/g, ' ');
+
+/**
+ * BUSCA DO CONTAS A RECEBER (28/11/2026, pedido do dono: "nao da' para buscar
+ * pelo cod"). Antes so' achava o codigo digitado EXATAMENTE igual ("457" nao
+ * achava "0457"). Agora: nome em qualquer parte (sem ligar para acento e
+ * maiuscula) ou codigo pelo comeco, sem ligar para os zeros a esquerda; "#"
+ * na frente e' aceito, como nas outras buscas.
+ */
+export const clienteCasaComBusca = (nome: string, codigo: string, busca: string): boolean => {
+  const termo = normalizar(busca).replace(/^#\s*/, '');
+  if (!termo) return true;
+  if (normalizar(nome).includes(termo)) return true;
+  const cod = normalizar(codigo);
+  if (!cod) return false;
+  if (/^\d+$/.test(termo) && /^\d+$/.test(cod)) {
+    const semZeros = (v: string) => v.replace(/^0+(?=\d)/, '');
+    return semZeros(cod).startsWith(semZeros(termo));
+  }
+  return cod.startsWith(termo);
+};

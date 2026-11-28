@@ -44,3 +44,17 @@ test('totais do cliente: em aberto, recebido (menos o desconto da baixa) e quant
   assert.equal(percentualQuitado(t), 70);
   assert.equal(percentualQuitado({ emAbertoCentavos: 0, recebidoCentavos: 0 }), 0);
 });
+
+test('busca do Contas a Receber (28/11/2026): pelo nome ou pelo codigo do cliente', async () => {
+  const { clienteCasaComBusca } = await import('../src/utils/contasReceberAbasDomain');
+  assert.equal(clienteCasaComBusca('JOÃO DA SILVA', '0457', '457'), true, 'sem ligar para zero a esquerda');
+  assert.equal(clienteCasaComBusca('JOÃO DA SILVA', '457', '0457'), true);
+  assert.equal(clienteCasaComBusca('JOÃO DA SILVA', '0457', '#457'), true, '# na frente');
+  assert.equal(clienteCasaComBusca('JOÃO DA SILVA', '2913', '29'), true, 'comeco do codigo');
+  assert.equal(clienteCasaComBusca('JOÃO DA SILVA', '2913', '13'), false, 'meio do codigo nao');
+  assert.equal(clienteCasaComBusca('JOÃO DA SILVA', '', 'joao'), true, 'nome sem acento');
+  assert.equal(clienteCasaComBusca('MERCADO 13 DE MAIO', '2913', '13'), true, 'numero no nome continua achando');
+  assert.equal(clienteCasaComBusca('PADARIA', 'C-10', 'c-1'), true, 'codigo com letra');
+  assert.equal(clienteCasaComBusca('PADARIA', '', '457'), false);
+  assert.equal(clienteCasaComBusca('PADARIA', '0457', '   '), true);
+});

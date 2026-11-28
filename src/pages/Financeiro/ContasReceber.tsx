@@ -109,6 +109,7 @@ import { estadoDaSelecao, FORMAS_DA_BAIXA_EM_LOTE, LIMITE_BAIXA_EM_LOTE, marcarN
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
 import {
   abaDaSituacao,
+  clienteCasaComBusca,
   passaNaAbaGeral,
   percentualQuitado,
   periodoDosRecebidos,
@@ -1183,10 +1184,8 @@ const ContasReceber: React.FC = () => {
 
     return Array.from(mapa.values())
       .filter((g) => {
-        const termo = buscaCliente.trim().toLowerCase();
-        if (!termo) return true;
         const codigo = g.clienteId ? (codigosDosClientes[g.clienteId] || '') : '';
-        return g.clienteNome.toLowerCase().includes(termo) || (codigo !== '' && codigo.toLowerCase() === termo.replace(/^#/, ''));
+        return clienteCasaComBusca(g.clienteNome, codigo, buscaCliente);
       })
       .sort((a, b) => b.totalPendente - a.totalPendente || b.totalRecebido - a.totalRecebido);
   })();
@@ -1527,7 +1526,7 @@ const ContasReceber: React.FC = () => {
         <div className="search-bar" style={{ position: 'relative', width: '360px', maxWidth: '100%' }}>
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <CampoBuscaAdiado
-            placeholder="Buscar cliente..."
+            placeholder="Buscar cliente ou código..."
             valor={buscaCliente}
             aoMudar={setBuscaCliente}
             style={{ width: '100%', padding: '10px 14px 10px 40px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)' }}

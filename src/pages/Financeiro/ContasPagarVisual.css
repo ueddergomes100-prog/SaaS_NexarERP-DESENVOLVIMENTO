@@ -1,0 +1,126 @@
+/* Contas a Pagar redesenhado (28/11/2026): painel de cartoes que filtram, atalhos de
+   vencimento a vista, valores sem vermelho por padrao e selos de situacao. So' visual. */
+.pagar-botao-lancar { display: inline-flex; align-items: center; }
+
+.pagar-painel {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.pagar-cartao {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.pagar-cartao:hover { border-color: var(--brand-300); transform: translateY(-1px); }
+.pagar-cartao:focus-visible { outline: none; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.28); }
+.pagar-cartao[aria-pressed='true'] { border-color: var(--brand-600); box-shadow: 0 0 0 2px var(--brand-600) inset; }
+.pagar-cartao-rotulo { font-size: 12.5px; font-weight: 700; color: var(--text-muted); }
+.pagar-cartao-valor { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pagar-cartao-qtd { font-size: 12px; color: var(--text-muted); }
+.pagar-cartao--vermelho { background: rgba(239, 68, 68, 0.08); }
+.pagar-cartao--vermelho .pagar-cartao-valor { color: #b91c1c; }
+.pagar-cartao--ambar { background: rgba(245, 158, 11, 0.1); }
+.pagar-cartao--ambar .pagar-cartao-valor { color: #b45309; }
+.pagar-cartao--violeta .pagar-cartao-valor { color: var(--brand-700); }
+.pagar-cartao--verde { background: rgba(16, 185, 129, 0.08); }
+.pagar-cartao--verde .pagar-cartao-valor { color: #047857; }
+body:not(.light-theme) .pagar-cartao--vermelho .pagar-cartao-valor { color: #f87171; }
+body:not(.light-theme) .pagar-cartao--ambar .pagar-cartao-valor { color: #fbbf24; }
+body:not(.light-theme) .pagar-cartao--violeta .pagar-cartao-valor { color: var(--brand-300); }
+body:not(.light-theme) .pagar-cartao--verde .pagar-cartao-valor { color: #34d399; }
+
+.pagar-atalhos { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.pagar-atalhos-rotulo, .pagar-formas-rotulo {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.pagar-chip {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pagar-chip:hover { border-color: var(--brand-400); color: var(--text-primary); }
+.pagar-chip[aria-pressed='true'] { background: var(--brand-600); border-color: var(--brand-600); color: #fff; }
+.pagar-chip:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 2px; }
+
+.pagar-formas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.pagar-forma {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.pagar-forma strong { color: var(--text-primary); }
+
+.pagar-vencimento { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.pagar-selo {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pagar-selo--vermelho { background: rgba(239, 68, 68, 0.12); color: #b91c1c; }
+.pagar-selo--ambar { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.pagar-selo--verde { background: rgba(16, 185, 129, 0.14); color: #047857; }
+body:not(.light-theme) .pagar-selo--vermelho { color: #f87171; }
+body:not(.light-theme) .pagar-selo--ambar { color: #fbbf24; }
+body:not(.light-theme) .pagar-selo--verde { color: #34d399; }
+
+.pagar-categoria {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--brand-50);
+  color: var(--brand-800);
+  white-space: nowrap;
+}
+body:not(.light-theme) .pagar-categoria { background: rgba(124, 58, 237, 0.16); color: var(--brand-200); }
+
+.pagar-valor {
+  padding: 16px;
+  text-align: right;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.pagar-valor--compacto { padding: 10px 8px; font-weight: 700; }
+.pagar-valor--pago { color: #047857; }
+body:not(.light-theme) .pagar-valor--pago { color: #34d399; }
+
+@media (max-width: 1180px) {
+  .pagar-painel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .pagar-painel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

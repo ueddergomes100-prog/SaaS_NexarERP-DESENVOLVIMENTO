@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { painelDoContasAPagar } from '../../utils/painelContasPagarDomain';
+import './ContasPagarVisual.css';
 import { collection, query, where, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -26,7 +28,7 @@ import { FORMAS_DE_PAGAMENTO, dividirEmParcelas } from '../../utils/pagamentoEnt
 import type { ParcelaComCheque } from '../../utils/chequeEmitidoDomain';
 import { avisoDeSoma, erroDaDespesa } from '../../utils/despesaParceladaDomain';
 import { rotuloDoVeiculo, type VeiculoDaFrota } from '../../utils/frotaDomain';
-import { CheckCircle, Clock, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2, FileText, Wallet } from 'lucide-react';
+import { CheckCircle, Plus, X, ArrowDownCircle, Loader2, Calendar, Edit, XCircle, ChevronDown, ChevronRight, Search, Truck, Tag, Upload, Undo2, FileText, Wallet } from 'lucide-react';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
 import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import {
@@ -47,7 +49,6 @@ import {
   intervaloDoAtalhoVencimento,
   passaNaSituacaoTitulo,
   passaNoPeriodoDoTitulo,
-  tituloVencido,
   type AtalhoVencimento,
   type SituacaoTitulo,
 } from '../../utils/filtroListaDomain';
@@ -676,14 +677,9 @@ const ContasPagar: React.FC = () => {
   // em vez de new Date().toISOString(), que e' UTC -- de madrugada o UTC ja
   // virou o dia seguinte e "Pago Hoje"/dias de atraso saiam errados.
   const hojeStr = getDateInputInTimeZone();
-  const contasPendentes = transacoes.filter(t => t.status === 'Pendente');
-  const pagamentosHoje = transacoes.filter(t => t.status === 'Paga' && t.dataPagamento === hojeStr);
 
   // Olhinho (21/11/2026): esconde os totais do topo junto com as outras telas.
   const { mostrar: mostrarValor } = useValoresOcultos();
-  const totalPendente = contasPendentes.reduce((acc, curr) => acc + curr.valor, 0);
-  // Desconto obtido na baixa (15/10/2026) e' lancamento de entrada: sai daqui para o card mostrar o que saiu de fato.
-  const totalPagoHoje = pagamentosHoje.reduce((acc, curr) => acc + curr.valor - (Number(curr.baixaManual?.descontoCentavos) || 0) / 100, 0);
 
   // O que aparece na lista: situacao (em aberto / vencidas / pagas / todas) e
   // periodo. Os cartoes do topo (Total Pendente, Pago Hoje) seguem o total
@@ -700,10 +696,6 @@ const ContasPagar: React.FC = () => {
     && passaNoFiltroDeForma(t, formaFiltro)
   ));
 
-  // Conta vencida nunca pode sumir da tela so' porque o filtro de hoje esta
-  // ligado: o aviso continua aparecendo, com atalho pra ver a lista.
-  const titulosVencidos = transacoes.filter((t) => tituloVencido(t, hojeStr));
-  const totalVencido = titulosVencidos.reduce((soma, t) => soma + Number(t.valor || 0), 0);
   const mostrandoVencidas = situacaoTitulo === 'vencidas';
 
   const filtrosAtivos = (situacaoTitulo !== SITUACAO_TITULO_PADRAO ? 1 : 0)
@@ -724,6 +716,20 @@ const ContasPagar: React.FC = () => {
     setPeriodoDe('');
     setPeriodoAte('');
   };
+  // Cartoes do painel (28/11/2026): cada um leva a lista para a situacao e o vencimento dele.
+  const irPara = (situacao: SituacaoTitulo, atalho: AtalhoVencimento) => {
+    setSituacaoTitulo(situacao);
+    setAtalhoVencimento(atalho);
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
+  const painel = painelDoContasAPagar(transacoes.map((t) => ({
+    status: t.status,
+    data: t.data,
+    valor: Number(t.valor) || 0,
+    dataPagamento: t.dataPagamento,
+    descontoCentavos: Number(t.baixaManual?.descontoCentavos) || 0,
+  })), hojeStr);
   const listandoPagas = situacaoTitulo === 'pagas';
   const rotuloQuantidade = listandoPagas ? 'Títulos pagos' : situacaoTitulo === 'todas' ? 'Títulos' : 'Títulos em aberto';
   const rotuloValor = listandoPagas ? 'Valor pago (R$)' : situacaoTitulo === 'todas' ? 'Valor (R$)' : 'Valor pendente (R$)';
@@ -875,28 +881,10 @@ const ContasPagar: React.FC = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <h1 className="page-title" style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Contas a Pagar</h1>
-          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Gestão de custos, boletos e despesas agendadas</p>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>O que a empresa tem para pagar, por vencimento</p>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
           <BotaoOlhoValores />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-            <Clock size={24} color="#ef4444" />
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Pago Hoje</div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>
-                {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPagoHoje))}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: 'var(--bg-secondary)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
-            <Clock size={24} color="#ef4444" />
-            <div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total Pendente</div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>
-                {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPendente))}
-              </div>
-            </div>
-          </div>
           <MenuMaisOpcoes
             itens={[
               ...(podeVerCreditos ? [{
@@ -914,9 +902,9 @@ const ContasPagar: React.FC = () => {
             ]}
           />
           {podePagarLancar && (
-          <button className="btn-primary" onClick={handleOpenModal} style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)' }}>
+          <button className="btn-primary pagar-botao-lancar" onClick={handleOpenModal}>
             <Plus size={18} style={{ marginRight: 8 }} />
-            Lançar Despesa
+            Lançar despesa
           </button>
           )}
         </div>
@@ -950,39 +938,38 @@ const ContasPagar: React.FC = () => {
         <BotaoFiltros aberto={filtrosAbertos} onToggle={() => setFiltrosAbertos((v) => !v)} quantidadeAtiva={filtrosAtivos} />
       </div>
 
-      {/* Conta vencida nunca some da tela: o filtro padrao e' "vencem hoje",
-          entao sem este aviso o atraso ficaria escondido atras de um filtro. */}
-      {titulosVencidos.length > 0 && !mostrandoVencidas && (
-        <div
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap',
-            padding: '14px 18px', borderRadius: 'var(--radius-md)',
-            backgroundColor: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#fca5a5', fontSize: '14px' }}>
-            <Clock size={18} color="#ef4444" />
-            <span>
-              <strong style={{ color: '#fff' }}>
-                {titulosVencidos.length} {titulosVencidos.length === 1 ? 'conta vencida' : 'contas vencidas'}
-              </strong>
-              {' — '}
-              {mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalVencido))}
-              {' em atraso.'}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={verVencidas}
-            style={{
-              padding: '8px 14px', backgroundColor: '#ef4444', color: '#fff', border: 'none',
-              borderRadius: 'var(--radius-md)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-            }}
-          >
-            Ver as vencidas
+      {/* Painel (28/11/2026, redesenho pedido pelo dono): cada cartao e' um atalho de
+          filtro. Conta vencida nunca some da tela: o cartao "Vencidas" fica sempre a vista. */}
+      <div className="pagar-painel" role="group" aria-label="Resumo do Contas a Pagar">
+        {([
+          { chave: 'vencidas', rotulo: 'Vencidas', numero: painel.vencidas, tom: 'vermelho', ativo: mostrandoVencidas, acao: verVencidas, dica: 'Contas que já passaram do vencimento e continuam em aberto' },
+          { chave: 'hoje', rotulo: 'Vencem hoje', numero: painel.hoje, tom: 'ambar', ativo: situacaoTitulo === 'abertas' && atalhoVencimento === 'hoje', acao: () => irPara('abertas', 'hoje'), dica: 'Contas em aberto que vencem hoje' },
+          { chave: 'semana', rotulo: 'Esta semana', numero: painel.semana, tom: 'violeta', ativo: situacaoTitulo === 'abertas' && atalhoVencimento === 'semana', acao: () => irPara('abertas', 'semana'), dica: 'Contas em aberto que vencem de segunda a domingo desta semana' },
+          { chave: 'aberto', rotulo: 'Em aberto', numero: painel.emAberto, tom: 'neutro', ativo: situacaoTitulo === 'abertas' && atalhoVencimento === 'todos', acao: () => irPara('abertas', 'todos'), dica: 'Tudo o que falta pagar, de qualquer data' },
+          { chave: 'pago', rotulo: 'Pago hoje', numero: painel.pagoHoje, tom: 'verde', ativo: situacaoTitulo === 'pagas' && atalhoVencimento === 'hoje', acao: () => irPara('pagas', 'hoje'), dica: 'O que foi pago hoje' },
+        ] as const).map((c) => (
+          <button key={c.chave} type="button" className={`pagar-cartao pagar-cartao--${c.tom}`} aria-pressed={c.ativo} onClick={c.acao} title={c.dica}>
+            <span className="pagar-cartao-rotulo">{c.rotulo}</span>
+            <strong className="pagar-cartao-valor">{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(c.numero.centavos / 100))}</strong>
+            <span className="pagar-cartao-qtd">{c.numero.quantidade} {c.numero.quantidade === 1 ? 'conta' : 'contas'}</span>
           </button>
-        </div>
-      )}
+        ))}
+      </div>
+
+      <div className="pagar-atalhos" role="group" aria-label={listandoPagas ? 'Pago em' : 'Vencimento'}>
+        <span className="pagar-atalhos-rotulo">{listandoPagas ? 'Pago em' : 'Vencimento'}</span>
+        {(Object.keys(ROTULO_ATALHO_VENCIMENTO) as AtalhoVencimento[]).map((chave) => (
+          <button
+            key={chave}
+            type="button"
+            className="pagar-chip"
+            aria-pressed={atalhoVencimento === chave}
+            onClick={() => { setAtalhoVencimento(chave); if (chave === 'personalizado') setFiltrosAbertos(true); }}
+          >
+            {chave === 'hoje' ? (listandoPagas ? 'Hoje' : 'Vencem hoje') : ROTULO_ATALHO_VENCIMENTO[chave]}
+          </button>
+        ))}
+      </div>
       <PainelFiltros aberto={filtrosAbertos} quantidadeAtiva={filtrosAtivos} onLimpar={limparFiltros}>
         <CampoFiltro rotulo="Situação">
           <select value={situacaoTitulo} onChange={(e) => setSituacaoTitulo(e.target.value as SituacaoTitulo)} style={estiloCampoFiltro}>
@@ -1019,11 +1006,11 @@ const ContasPagar: React.FC = () => {
         </CampoFiltro>
       </PainelFiltros>
       {resumoPorForma.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px', margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-          <span style={{ color: 'var(--text-muted)' }}>Em aberto na lista, por forma:</span>
+        <div className="pagar-formas">
+          <span className="pagar-formas-rotulo">Em aberto na lista, por forma</span>
           {resumoPorForma.map((linha) => (
-            <span key={linha.forma}>
-              {linha.forma} <strong style={{ color: 'var(--text-primary)' }}>{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(linha.centavos / 100))}</strong>
+            <span key={linha.forma} className="pagar-forma">
+              {linha.forma} <strong>{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(linha.centavos / 100))}</strong>
             </span>
           ))}
         </div>
@@ -1086,11 +1073,11 @@ const ContasPagar: React.FC = () => {
                     <tr key={t.id} className={classeDaLinha(t)} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '4px 0 4px 8px' }}>{caixaDoTitulo(t)}</td>
                       <td style={{ padding: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: diasAtraso > 0 ? '#ef4444' : venceHoje ? '#f59e0b' : 'var(--text-secondary)', fontWeight: diasAtraso > 0 || venceHoje ? 700 : 400 }}>
-                          <Calendar size={15} />
-                          {t.data ? t.data.split('-').reverse().join('/') : '-'}
-                          {diasAtraso > 0 && <span style={{ fontSize: '12px' }}>({diasAtraso} {diasAtraso === 1 ? 'dia' : 'dias'} em atraso)</span>}
-                          {venceHoje && <span style={{ fontSize: '12px' }}>(hoje)</span>}
+                        <div className="pagar-vencimento">
+                          <span>{t.data ? t.data.split('-').reverse().join('/') : '-'}</span>
+                          {diasAtraso > 0 && <span className="pagar-selo pagar-selo--vermelho">vencida há {diasAtraso} {diasAtraso === 1 ? 'dia' : 'dias'}</span>}
+                          {venceHoje && <span className="pagar-selo pagar-selo--ambar">vence hoje</span>}
+                          {t.status === 'Paga' && <span className="pagar-selo pagar-selo--verde">paga{t.dataPagamento ? ` em ${t.dataPagamento.split('-').reverse().join('/')}` : ''}</span>}
                         </div>
                       </td>
                       <td style={{ padding: '16px', fontWeight: 600 }}>
@@ -1107,12 +1094,10 @@ const ContasPagar: React.FC = () => {
                         )}
                       </td>
                       <td style={{ padding: '16px' }}>
-                        <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                          {t.categoria}
-                        </span>
+                        <span className="pagar-categoria">{t.categoria}</span>
                       </td>
                       <td style={{ padding: '16px', fontSize: '13px', color: formaDoTitulo(t) ? 'var(--text-primary)' : 'var(--text-muted)' }}>{rotuloDaFormaDoTitulo(t)}</td>
-                      <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: t.status === 'Paga' ? '#10b981' : '#ef4444' }}>
+                      <td className={`pagar-valor${t.status === 'Paga' ? ' pagar-valor--pago' : ''}`}>
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                       </td>
                       <td style={{ padding: '16px', textAlign: 'center' }}>{acoesDoTitulo(t)}</td>
@@ -1206,7 +1191,7 @@ const ContasPagar: React.FC = () => {
                             <span style={{ color: 'var(--text-muted)' }}>-</span>
                           )}
                         </td>
-                        <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: '#ef4444' }}>
+                        <td className="pagar-valor">
                           {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente)}
                         </td>
                       </tr>
@@ -1244,12 +1229,10 @@ const ContasPagar: React.FC = () => {
                                       )}
                                     </td>
                                     <td style={{ padding: '10px 8px' }}>
-                                      <span style={{ fontSize: '12px', backgroundColor: 'var(--bg-secondary)', padding: '4px 8px', borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                                        {t.categoria}
-                                      </span>
+                                      <span className="pagar-categoria">{t.categoria}</span>
                                     </td>
                                     <td style={{ padding: '10px 8px', fontSize: '12.5px', color: formaDoTitulo(t) ? 'var(--text-primary)' : 'var(--text-muted)' }}>{rotuloDaFormaDoTitulo(t)}</td>
-                                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: t.status === 'Paga' ? '#10b981' : '#ef4444' }}>
+                                    <td className={`pagar-valor pagar-valor--compacto${t.status === 'Paga' ? ' pagar-valor--pago' : ''}`}>
                                       {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(t.valor))}
                                     </td>
                                     <td style={{ padding: '10px 8px', textAlign: 'center' }}>

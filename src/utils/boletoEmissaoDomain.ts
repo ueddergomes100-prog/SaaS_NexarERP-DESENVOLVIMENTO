@@ -172,8 +172,15 @@ export const detalheDoRecebimentoBoleto = (t: { valorCentavos: number; valorPago
   const r = t.retornoDoBanco || {};
   const jurosMulta = r.jurosMultaCentavos ?? Math.max(0, pago - valorBoleto);
   const desconto = r.descontoCentavos ?? Math.max(0, valorBoleto - pago);
-  const tarifa = r.tarifaCentavos ?? (r.valorLiquidoCentavos !== undefined ? Math.max(0, pago - r.valorLiquidoCentavos) : 0);
-  const liquido = r.valorLiquidoCentavos ?? Math.max(0, pago - tarifa);
+  // Tarifa (conferido no retorno real do Sicoob, 28/11/2026): o Sicoob manda a
+  // tarifa no Segmento T e o "liquido" IGUAL ao pago (credita cheio e cobra a
+  // tarifa a parte na conta). Outro banco pode mandar o liquido ja' sem a tarifa.
+  // Vale a maior das duas leituras, e o liquido e' sempre pago - tarifa -- o
+  // mesmo que a baixa faz no saldo do banco (movimentoBanco.js).
+  const tarifaDoArquivo = Math.max(0, r.tarifaCentavos ?? 0);
+  const tarifaPeloLiquido = r.valorLiquidoCentavos !== undefined ? Math.max(0, pago - r.valorLiquidoCentavos) : 0;
+  const tarifa = Math.min(pago, Math.max(tarifaDoArquivo, tarifaPeloLiquido));
+  const liquido = Math.max(0, pago - tarifa);
   return { valorBoleto, jurosMulta, desconto, pago, tarifa, liquido, veioDoBanco: r.valorLiquidoCentavos !== undefined || r.tarifaCentavos !== undefined };
 };
 

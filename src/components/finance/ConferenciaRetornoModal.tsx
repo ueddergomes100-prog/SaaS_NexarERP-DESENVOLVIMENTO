@@ -74,7 +74,7 @@ const ConferenciaRetornoModal: React.FC<Props> = ({ conferencia, nomeDoArquivo, 
             {totais.descontoCentavos > 0 && <small>descontos {reais(totais.descontoCentavos)}</small>}
           </div>
           <div className="retorno-total">
-            <span>Entra no banco</span>
+            <span>Líquido (sem as tarifas)</span>
             <strong>{reais(totais.liquidoCentavos)}</strong>
             {totais.tarifaCentavos > 0 && <small className="retorno-tarifa">tarifas − {reais(totais.tarifaCentavos)}</small>}
           </div>

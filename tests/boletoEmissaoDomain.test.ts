@@ -381,3 +381,14 @@ test('retorno CNAB240 (28/11/2026): juros/multa, desconto, tarifa e liquido do b
   const rejeitado = lerTU(linhaSegmentoT({ nossoNumero: '1201', codigoOcorrencia: '03', valorCentavos: 0, dataOcorrencia: '22092026' }));
   assert.equal(rejeitado.detalhe, undefined);
 });
+
+
+test('tarifa do Sicoob (retorno real de 23/11/2026): liquido no arquivo igual ao pago, tarifa a parte; o liquido da tela fica pago menos tarifa', async () => {
+  const { detalheDoRecebimentoBoleto } = await import('../src/utils/boletoEmissaoDomain');
+  const d = detalheDoRecebimentoBoleto({ valorCentavos: 28145, valorPagoCentavos: 29078, retornoDoBanco: { jurosMultaCentavos: 933, descontoCentavos: 0, tarifaCentavos: 250, valorLiquidoCentavos: 29078 } });
+  assert.equal(d.tarifa, 250);
+  assert.equal(d.liquido, 28828);
+  // Banco que ja' manda o liquido sem a tarifa e sem o campo da tarifa: a diferenca vira tarifa.
+  const outro = detalheDoRecebimentoBoleto({ valorCentavos: 10000, valorPagoCentavos: 10000, retornoDoBanco: { valorLiquidoCentavos: 9800 } });
+  assert.deepEqual([outro.tarifa, outro.liquido], [200, 9800]);
+});

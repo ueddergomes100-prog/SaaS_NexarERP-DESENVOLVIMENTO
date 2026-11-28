@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { zoomDoElemento } from '../../utils/modoCompactoDomain';
 import { X } from 'lucide-react';
 import {
   ordenarProdutosDaBusca,
@@ -259,15 +260,17 @@ function ProductAutocompleteInner<T extends SearchableProduct & { id: string }>(
     }
 
     const medir = () => {
+      // Modo compacto (28/11/2026): medidas da tela convertidas para o tamanho do conteudo reduzido.
+      const z = zoomDoElemento(raiz);
       const retangulo = campo.getBoundingClientRect();
-      const espaco = window.innerHeight - retangulo.bottom - FOLGA_VERTICAL;
+      const espaco = (window.innerHeight - retangulo.bottom) / z - FOLGA_VERTICAL;
       const nova: Geometria = { maxHeight: Math.round(Math.max(ALTURA_MINIMA, Math.min(espaco, ALTURA_MAXIMA))) };
       const alvo = ancora?.current;
       if (alvo) {
         const daAncora = alvo.getBoundingClientRect();
         const daRaiz = raiz.getBoundingClientRect();
-        nova.left = Math.round(daAncora.left - daRaiz.left - ancoraFolga);
-        nova.width = Math.round(daAncora.width + ancoraFolga * 2);
+        nova.left = Math.round((daAncora.left - daRaiz.left) / z - ancoraFolga);
+        nova.width = Math.round(daAncora.width / z + ancoraFolga * 2);
       }
       setGeometria((atual) => (
         atual.maxHeight === nova.maxHeight && atual.left === nova.left && atual.width === nova.width ? atual : nova

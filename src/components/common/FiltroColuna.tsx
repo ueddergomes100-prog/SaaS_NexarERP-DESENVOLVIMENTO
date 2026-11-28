@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { zoomDoElemento } from '../../utils/modoCompactoDomain';
 import { ChevronDown, Search } from 'lucide-react';
 
 /*
@@ -44,14 +45,16 @@ export const FiltroColuna: React.FC<{ ativo: boolean; children: (fechar: () => v
       // sem "popover": fica com position fixed e z-index alto
     }
     const posicionar = () => {
+      // Modo compacto (28/11/2026): contas na medida da tela; o estilo vai dividido pelo zoom.
+      const z = zoomDoElemento(painel);
       const r = botao.getBoundingClientRect();
-      const largura = painel.offsetWidth;
-      const altura = painel.offsetHeight;
+      const largura = painel.offsetWidth * z;
+      const altura = painel.offsetHeight * z;
       let topo = r.bottom + 4;
       if (topo + altura > window.innerHeight - FOLGA && r.top - 4 - altura >= FOLGA) topo = r.top - 4 - altura;
       const esquerda = Math.max(FOLGA, Math.min(r.left, window.innerWidth - largura - FOLGA));
-      painel.style.top = `${Math.max(FOLGA, topo)}px`;
-      painel.style.left = `${esquerda}px`;
+      painel.style.top = `${Math.max(FOLGA, topo) / z}px`;
+      painel.style.left = `${esquerda / z}px`;
     };
     posicionar();
     window.addEventListener('resize', posicionar);

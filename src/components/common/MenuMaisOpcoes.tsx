@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { zoomDoElemento } from '../../utils/modoCompactoDomain';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 
 /**
@@ -87,10 +88,12 @@ const MenuMaisOpcoes: React.FC<MenuMaisOpcoesProps> = ({ itens, rotulo = 'Mais o
           if (compacto && caixa) {
             const alturaEstimada = visiveis.length * 40 + 24;
             const cabeAbaixo = caixa.bottom + 6 + alturaEstimada <= window.innerHeight;
+            // Modo compacto (28/11/2026): o menu fixo dentro do conteudo reduzido recebe a medida dividida pelo zoom.
+            const z = zoomDoElemento(ref.current);
             setPosicaoFixa({
               position: 'fixed',
-              right: Math.max(8, window.innerWidth - caixa.right),
-              ...(cabeAbaixo ? { top: caixa.bottom + 6 } : { bottom: window.innerHeight - caixa.top + 6 }),
+              right: Math.max(8, window.innerWidth - caixa.right) / z,
+              ...(cabeAbaixo ? { top: (caixa.bottom + 6) / z } : { bottom: (window.innerHeight - caixa.top + 6) / z }),
             });
           }
           setAberto((atual) => !atual);

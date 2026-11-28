@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { zoomDoElemento } from '../../utils/modoCompactoDomain';
 import { alturaDaTabelaNaJanela, usaTabelaNaJanela } from '../../utils/tabelaNaJanelaDomain';
 import './tabelaNaJanela.css';
 
@@ -25,7 +26,8 @@ const px = (valor: string | null | undefined): number => parseFloat(valor || '0'
  * que existe de fato: o bloco que envolve a pagina pode esticar ate' o fim da
  * janela, e esse vazio nao conta.
  */
-const alturaDepoisDaCaixa = (caixa: HTMLElement, area: HTMLElement, fimDaCaixa: number): number => {
+// `z` (28/11/2026, modo compacto): retangulos vem na escala da tela; tudo aqui e' no tamanho do conteudo.
+const alturaDepoisDaCaixa = (caixa: HTMLElement, area: HTMLElement, fimDaCaixa: number, z = 1): number => {
   let fim = fimDaCaixa;
   let el: HTMLElement = caixa;
   while (el.parentElement && el !== area && el.parentElement !== area) {
@@ -36,7 +38,7 @@ const alturaDepoisDaCaixa = (caixa: HTMLElement, area: HTMLElement, fimDaCaixa: 
       if (ret.width === 0 && ret.height === 0) continue;
       const estilo = getComputedStyle(irmao);
       if (estilo.position === 'absolute' || estilo.position === 'fixed') continue;
-      fim = Math.max(fim, ret.bottom + px(estilo.marginBottom));
+      fim = Math.max(fim, ret.bottom / z + px(estilo.marginBottom));
     }
     const estiloPai = getComputedStyle(pai);
     fim += px(estiloPai.paddingBottom) + px(estiloPai.borderBottomWidth);
@@ -57,11 +59,12 @@ const ajustar = (caixa: HTMLElement) => {
   }
   // Aba escondida: nao mede (daria zero); ajusta quando a aba voltar.
   if (area.clientHeight === 0 || caixa.offsetParent === null) return;
+  const z = zoomDoElemento(caixa);
   const retCaixa = caixa.getBoundingClientRect();
-  const depois = alturaDepoisDaCaixa(caixa, area, retCaixa.bottom);
+  const depois = alturaDepoisDaCaixa(caixa, area, retCaixa.bottom / z, z);
   const altura = alturaDaTabelaNaJanela({
     alturaVisivel: area.clientHeight,
-    topoDaTabela: retCaixa.top - area.getBoundingClientRect().top + area.scrollTop,
+    topoDaTabela: (retCaixa.top - area.getBoundingClientRect().top) / z + area.scrollTop,
     respiroInferior: depois,
   });
   if (altura === null) return;

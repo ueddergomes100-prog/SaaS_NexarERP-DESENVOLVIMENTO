@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { lerPreferenciaCompacto, ROTULO_PREFERENCIA_COMPACTO, type PreferenciaCompacto } from '../../utils/modoCompactoDomain';
+import { guardarPreferenciaCompacto, lerPreferenciaGuardada } from '../../utils/modoCompactoUi';
 import { X, User, Lock } from 'lucide-react';
 import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -29,6 +31,7 @@ interface PerfilModalProps {
  */
 const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData }) => {
   const { currentUser, tenantId, userNome, atualizarNomeDoUsuario } = useAuth();
+  const [tamanhoDaTela, setTamanhoDaTela] = useState<PreferenciaCompacto>(() => lerPreferenciaGuardada());
   const [nome, setNome] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -149,6 +152,25 @@ const PerfilModal: React.FC<PerfilModalProps> = ({ onClose, userData }) => {
                 style={{ width: '100%', paddingLeft: '38px', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px 10px 10px 38px', color: 'var(--text-primary)', outline: 'none' }}
               />
             </div>
+          </div>
+
+          {/* Tamanho da tela (28/11/2026): vale so' neste computador. */}
+          <div className="input-group">
+            <label htmlFor="perfil-tamanho-tela">Tamanho da tela neste computador</label>
+            <select
+              id="perfil-tamanho-tela"
+              className="input-field"
+              value={tamanhoDaTela}
+              onChange={(e) => { const p = lerPreferenciaCompacto(e.target.value); setTamanhoDaTela(p); guardarPreferenciaCompacto(p); }}
+              style={{ width: '100%', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '10px', color: 'var(--text-primary)' }}
+            >
+              {(Object.keys(ROTULO_PREFERENCIA_COMPACTO) as PreferenciaCompacto[]).map((p) => (
+                <option key={p} value={p}>{ROTULO_PREFERENCIA_COMPACTO[p]}</option>
+              ))}
+            </select>
+            <small style={{ display: 'block', marginTop: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              No automático, em telas menores (como monitor de 19-20" com o Windows em 125%) o conteúdo fica um pouco menor para caber sem a barrinha de rolar para o lado.
+            </small>
           </div>
 
           <div style={{ marginTop: '8px', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>

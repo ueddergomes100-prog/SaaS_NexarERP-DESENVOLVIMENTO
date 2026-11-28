@@ -5,6 +5,7 @@ import './styles/impressaoMaiuscula.css'
 import './styles/seletor.css'
 import './styles/seletorDeData.css'
 import './styles/popups.css'
+import './styles/modoCompacto.css'
 import App from './App.tsx'
 import { registerServiceWorker } from './registerServiceWorker'
 // Guarda o "pode instalar" do navegador antes de qualquer tela montar.
@@ -13,6 +14,7 @@ import { iniciarTema } from './utils/tema'
 import { iniciarSeletorDeData } from './utils/seletorDeDataUi'
 import { iniciarCursorNaCaixaAlta } from './utils/cursorNaCaixaAlta'
 import { iniciarDuploCliqueSemSelecao } from './utils/duploCliqueSemSelecao'
+import { iniciarModoCompacto } from './utils/modoCompactoUi'
 
 // Tema (escuro/claro/automatico) vale para o sistema e para o app Vendas.
 iniciarTema()
@@ -22,6 +24,7 @@ iniciarSeletorDeData()
 iniciarCursorNaCaixaAlta()
 // Duplo clique para abrir uma linha nao marca mais o texto de azul.
 iniciarDuploCliqueSemSelecao()
+iniciarModoCompacto()
 
 const PRELOAD_RELOAD_KEY = 'nexus_preload_reload_attempted';
 const PRELOAD_RELOAD_WINDOW_MS = 60000;

@@ -1,0 +1,5 @@
+/* Modo compacto (28/11/2026): so' a area do conteudo fica menor; menu e topo seguem iguais.
+   Regra e quem liga em src/utils/modoCompactoDomain.ts e modoCompactoUi.ts. */
+html[data-compacto='1'] .page-content {
+  zoom: 0.85;
+}

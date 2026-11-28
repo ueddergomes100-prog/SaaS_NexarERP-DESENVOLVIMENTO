@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { zoomDoElemento } from '../../utils/modoCompactoDomain';
 import {
   chaveDaColuna,
   colunaAjustavel,
@@ -68,7 +69,7 @@ const prepararColuna = (th: HTMLTableCellElement, chave: string) => {
   alca.title = 'Arraste para alargar ou estreitar a coluna. Dois cliques voltam ao tamanho padrão.';
   alca.innerHTML = ICONE;
 
-  let inicio: { x: number; largura: number } | null = null;
+  let inicio: { x: number; largura: number; z: number } | null = null;
   const definir = (px: number) => {
     const valor = limitarLargura(px);
     aplicarLargura(th, valor);
@@ -78,19 +79,21 @@ const prepararColuna = (th: HTMLTableCellElement, chave: string) => {
     e.preventDefault();
     e.stopPropagation();
     alca.setPointerCapture(e.pointerId);
-    inicio = { x: e.clientX, largura: th.getBoundingClientRect().width };
+    // Modo compacto (28/11/2026): mouse e medida vem na escala da tela; a largura vai no tamanho do conteudo.
+    const z = zoomDoElemento(th);
+    inicio = { x: e.clientX, largura: th.getBoundingClientRect().width / z, z };
     alca.classList.add('arrastando');
   });
   alca.addEventListener('pointermove', (e) => {
     if (!inicio) return;
-    definir(inicio.largura + (e.clientX - inicio.x));
+    definir(inicio.largura + (e.clientX - inicio.x) / inicio.z);
   });
   const soltar = (e: PointerEvent) => {
     if (!inicio) return;
     if (alca.hasPointerCapture(e.pointerId)) alca.releasePointerCapture(e.pointerId);
     inicio = null;
     alca.classList.remove('arrastando');
-    gravarArmazenado(chave, limitarLargura(th.getBoundingClientRect().width));
+    gravarArmazenado(chave, limitarLargura(th.getBoundingClientRect().width / zoomDoElemento(th)));
   };
   alca.addEventListener('pointerup', soltar);
   alca.addEventListener('pointercancel', soltar);
@@ -105,7 +108,7 @@ const prepararColuna = (th: HTMLTableCellElement, chave: string) => {
   alca.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    const atual = th.getBoundingClientRect().width;
+    const atual = th.getBoundingClientRect().width / zoomDoElemento(th);
     gravarArmazenado(chave, definir(atual + (e.key === 'ArrowRight' ? 20 : -20)));
   });
 

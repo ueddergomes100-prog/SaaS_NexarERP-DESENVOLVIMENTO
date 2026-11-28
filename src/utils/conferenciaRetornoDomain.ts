@@ -14,6 +14,8 @@ import { differenceInCalendarDays } from './dateTime';
 
 export interface LinhaLiquidada {
   nossoNumero?: string;
+  /** Baixa por decurso de prazo: tarifa que o banco cobrou. */
+  tarifaCentavos?: number;
   /** Dia do pagamento, AAAA-MM-DD. */
   dataOcorrencia?: string;
   valorPagoCentavos?: number;
@@ -28,7 +30,19 @@ export interface TituloDoRetorno {
   valorCentavos: number;
   status: string;
   dataVencimento?: string;
-  boleto?: { nossoNumero?: string; vencimento?: string } | null;
+  boleto?: { nossoNumero?: string; vencimento?: string; baixaPorPrazo?: unknown } | null;
+}
+
+/** Boleto que o banco baixou por decurso de prazo: nao pode mais ser pago; a conta segue em aberto. */
+export interface DocumentoBaixadoPorPrazo {
+  tituloId: string;
+  nossoNumero: string;
+  cliente: string;
+  descricao: string;
+  vencimento: string;
+  dataBaixa: string;
+  valorCentavos: number;
+  tarifaCentavos: number;
 }
 
 export interface DocumentoABaixar {
@@ -54,6 +68,8 @@ export interface ConferenciaDoRetorno {
   aBaixar: DocumentoABaixar[];
   jaPagos: Array<{ nossoNumero: string; cliente: string; descricao: string }>;
   naoEncontrados: string[];
+  /** Baixados pelo banco por decurso de prazo, ainda nao registrados aqui (28/11/2026). */
+  baixadosPorPrazo: DocumentoBaixadoPorPrazo[];
   totais: {
     quantidade: number;
     valorBoletosCentavos: number;
@@ -62,10 +78,16 @@ export interface ConferenciaDoRetorno {
     tarifaCentavos: number;
     pagoCentavos: number;
     liquidoCentavos: number;
+    /** Tarifas das baixas por decurso de prazo. */
+    tarifaPrazoCentavos: number;
   };
 }
 
-export const montarConferenciaDoRetorno = (liquidados: LinhaLiquidada[], titulos: TituloDoRetorno[]): ConferenciaDoRetorno => {
+export const montarConferenciaDoRetorno = (
+  liquidados: LinhaLiquidada[],
+  titulos: TituloDoRetorno[],
+  baixasPorPrazo: LinhaLiquidada[] = [],
+): ConferenciaDoRetorno => {
   const porNossoNumero = new Map<string, TituloDoRetorno>();
   for (const t of titulos) {
     const nn = t.boleto?.nossoNumero;
@@ -107,6 +129,28 @@ export const montarConferenciaDoRetorno = (liquidados: LinhaLiquidada[], titulos
     });
   }
 
+  // Baixa por decurso de prazo: so' conta em aberto e ainda nao registrada (reimportar nao duplica).
+  const baixadosPorPrazo: DocumentoBaixadoPorPrazo[] = [];
+  const vistosPrazo = new Set<string>();
+  for (const linha of baixasPorPrazo) {
+    const nossoNumero = String(linha.nossoNumero || '');
+    if (!nossoNumero || vistosPrazo.has(nossoNumero)) continue;
+    vistosPrazo.add(nossoNumero);
+    const titulo = porNossoNumero.get(nossoNumero);
+    if (!titulo) { naoEncontrados.push(nossoNumero); continue; }
+    if (titulo.status !== 'Pendente' || titulo.boleto?.baixaPorPrazo) continue;
+    baixadosPorPrazo.push({
+      tituloId: titulo.id,
+      nossoNumero,
+      cliente: titulo.clienteNome || titulo.fornecedorNome || 'Cliente não identificado',
+      descricao: titulo.descricao,
+      vencimento: titulo.boleto?.vencimento || titulo.dataVencimento || '',
+      dataBaixa: linha.dataOcorrencia || '',
+      valorCentavos: titulo.valorCentavos,
+      tarifaCentavos: Math.max(0, Math.round(Number(linha.tarifaCentavos) || 0)),
+    });
+  }
+
   // Mais atrasado primeiro: e' onde estao os juros.
   aBaixar.sort((a, b) => b.diasDeAtraso - a.diasDeAtraso || a.cliente.localeCompare(b.cliente, 'pt-BR'));
   const soma = (campo: keyof Pick<DocumentoABaixar, 'valorBoletoCentavos' | 'jurosMultaCentavos' | 'descontoCentavos' | 'tarifaCentavos' | 'pagoCentavos' | 'liquidoCentavos'>) => (
@@ -116,6 +160,7 @@ export const montarConferenciaDoRetorno = (liquidados: LinhaLiquidada[], titulos
     aBaixar,
     jaPagos,
     naoEncontrados,
+    baixadosPorPrazo,
     totais: {
       quantidade: aBaixar.length,
       valorBoletosCentavos: soma('valorBoletoCentavos'),
@@ -124,6 +169,7 @@ export const montarConferenciaDoRetorno = (liquidados: LinhaLiquidada[], titulos
       tarifaCentavos: soma('tarifaCentavos'),
       pagoCentavos: soma('pagoCentavos'),
       liquidoCentavos: soma('liquidoCentavos'),
+      tarifaPrazoCentavos: baixadosPorPrazo.reduce((acc, d) => acc + d.tarifaCentavos, 0),
     },
   };
 };

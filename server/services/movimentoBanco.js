@@ -739,7 +739,82 @@ const transferirEntreBancos = async ({ user, tenantId, corpo }) => {
   return { ...resumo, valorCentavos };
 };
 
+/**
+ * BOLETO BAIXADO PELO BANCO POR DECURSO DE PRAZO (28/11/2026, pedido do dono).
+ * O banco tirou o boleto da cobranca (passou o limite de pagamento). Aqui:
+ *  - o boleto fica marcado `baixaPorPrazo` (nao pode mais ser pago);
+ *  - a CONTA continua em aberto, para cobrar do jeito que a loja quiser;
+ *  - a tarifa que o banco cobrou vira despesa "Tarifas bancarias" e sai do saldo.
+ * Importar o mesmo arquivo de novo nao registra duas vezes.
+ */
+const registrarBaixaPorPrazo = async ({ user, tenantId, corpo, hoje }) => {
+  const transacaoId = idObrigatorio(corpo?.transacaoId, 'Boleto inválido. Atualize a tela e importe o retorno de novo.');
+  const dataInformada = String(corpo?.dataOcorrencia || '').trim();
+  const dataBaixa = DATA_ISO.test(dataInformada) ? dataInformada : hoje;
+  const tarifaBruta = Number(corpo?.tarifaCentavos);
+  const tarifaPedida = Number.isInteger(tarifaBruta) && tarifaBruta >= 0 && tarifaBruta <= 100000 ? tarifaBruta : 0;
+  const resumo = { jaRegistrado: false, jaPago: false, cancelado: false, descricao: '', tarifaCentavos: 0 };
+
+  await db.runTransaction(async (tx) => {
+    const titulo = await lerTitulo(tx, tenantId, { transacaoId, tipo: 'entrada' });
+    const dados = titulo.dados;
+    resumo.descricao = String(dados.descricao || transacaoId);
+    if (!dados.boleto) throw new ErroBaixa(400, `O título "${resumo.descricao}" não é um boleto emitido pelo sistema.`);
+    if (dados.status === 'Paga') { resumo.jaPago = true; return; }
+    if (dados.status === 'Cancelada') { resumo.cancelado = true; return; }
+    if (dados.boleto.baixaPorPrazo) { resumo.jaRegistrado = true; return; }
+    const banco = tarifaPedida > 0 && dados.bancoId
+      ? await lerBanco(tx, tenantId, String(dados.bancoId), 'Banco do boleto não encontrado. Confira o cadastro de bancos.')
+      : null;
+    const tarifaRef = tarifaPedida > 0 ? db.collection('transacoes').doc() : null;
+
+    tx.update(titulo.ref, {
+      boleto: { ...dados.boleto, baixaPorPrazo: { em: dataBaixa, tarifaCentavos: tarifaPedida } },
+      updatedAt: agora(),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), 'Boleto baixado pelo banco por decurso de prazo (retorno do banco)'),
+    });
+    if (tarifaRef) {
+      tx.set(tarifaRef, {
+        tenantId,
+        tipo: 'saida',
+        status: 'Paga',
+        descricao: `Tarifa do banco (baixa por prazo) — ${resumo.descricao}`,
+        categoria: CATEGORIA_TARIFA_BANCARIA,
+        valor: tarifaPedida / 100,
+        valorCentavos: tarifaPedida,
+        data: dataBaixa,
+        dataVencimento: dataBaixa,
+        dataPagamento: dataBaixa,
+        formaPagamento: 'Boleto',
+        naturezaFinanceira: settledFinancialNatureForPayment('Boleto'),
+        movimentaCaixaFisico: false,
+        ...(banco ? { bancoId: String(dados.bancoId), bancoNome: String(banco.dados.nome || dados.bancoNome || '') } : {}),
+        clienteId: dados.clienteId || null,
+        clienteNome: dados.clienteNome || null,
+        ...(dados.filialId ? { filialId: dados.filialId } : {}),
+        tarifaDaTransacaoId: transacaoId,
+        origemLancamento: 'retorno_boleto',
+        createdAt: agora(),
+        updatedAt: agora(),
+        criadoPor: user.uid,
+        criadoEm: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Tarifa da baixa por decurso de prazo: "${resumo.descricao}"`),
+      });
+    }
+    if (banco) {
+      tx.update(banco.ref, {
+        saldoCentavos: Number(banco.dados.saldoCentavos || 0) - tarifaPedida,
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Tarifa de baixa por prazo do boleto "${resumo.descricao}"`),
+      });
+    }
+    resumo.tarifaCentavos = tarifaPedida;
+  });
+  return resumo;
+};
+
 module.exports = {
+  registrarBaixaPorPrazo,
   alterarTaxaDoCartao,
   camposDaTaxaDoCartao,
   // Tambem usado pelo repasse de cheque na nota avulsa (services/repasseCheques.js).

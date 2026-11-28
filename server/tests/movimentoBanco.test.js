@@ -331,3 +331,26 @@ test('tarifa do boleto (28/11/2026): vira despesa "Tarifas bancárias" e sai do 
   assert.equal(fake2.ler('bancos/b6').saldoCentavos, 10000);
   assert.equal(fake2.ler('transacoes/bl3').tarifaTransacaoId, undefined);
 });
+
+
+test('decurso de prazo (28/11/2026): boleto marcado, conta continua em aberto, tarifa vira despesa e sai do banco; repetir nao duplica', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/bp1': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Pedido #50 - Parcela 1/1', clienteNome: 'JOSE', formaPagamento: 'Boleto', boleto: { nossoNumero: '27191', status: 'em_remessa', vencimento: '2026-05-26' }, valorCentavos: 70175, bancoId: 'b7' },
+    'bancos/b7': { tenantId: 'emp1', nome: 'Sicoob', saldoCentavos: 10000 },
+  });
+  const s = carregar(fake.db);
+  const corpo = { transacaoId: 'bp1', dataOcorrencia: '2026-11-23', tarifaCentavos: 100 };
+  const r1 = await s.registrarBaixaPorPrazo({ user: USER, tenantId: 'emp1', corpo, hoje: HOJE });
+  assert.equal(r1.jaRegistrado, false);
+  const titulo = fake.ler('transacoes/bp1');
+  assert.equal(titulo.status, 'Pendente', 'a conta continua em aberto');
+  assert.deepEqual(titulo.boleto.baixaPorPrazo, { em: '2026-11-23', tarifaCentavos: 100 });
+  assert.equal(fake.ler('bancos/b7').saldoCentavos, 9900);
+  const tarifas = fake.listar('transacoes/').filter((t) => t.tarifaDaTransacaoId === 'bp1');
+  assert.equal(tarifas.length, 1);
+  assert.equal(tarifas[0].categoria, 'Tarifas bancárias');
+  assert.equal(tarifas[0].tipo, 'saida');
+  const r2 = await s.registrarBaixaPorPrazo({ user: USER, tenantId: 'emp1', corpo, hoje: HOJE });
+  assert.equal(r2.jaRegistrado, true);
+  assert.equal(fake.ler('bancos/b7').saldoCentavos, 9900, 'importar de novo nao cobra a tarifa duas vezes');
+});

@@ -8,7 +8,7 @@
  * boletoDomain/boletoCnabDomain/boletoRemessaSicoob (puro e testado).
  */
 import type { DetalheRetornoBoleto } from '../utils/boletoEmissaoDomain';
-import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where, type DocumentData } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where, type DocumentData, arrayUnion } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { createAuditLog } from './logService';
 import { buildDocumentUpdateMetadata } from '../utils/documentMetadata';
@@ -142,7 +142,9 @@ export const emitirUmTitulo = async (a: { tenantId: string; uid: string; titulo:
     const tituloRef = doc(db, 'transacoes', titulo.id);
     const tituloSnap = await transaction.get(tituloRef);
     if (!tituloSnap.exists()) throw new Error('Título não encontrado. Atualize a página.');
-    if (tituloSnap.data().boleto) throw new Error('Este título já tem boleto emitido.');
+    // Boleto que o banco baixou por decurso de prazo (28/11/2026): pode sair um novo; o antigo fica guardado.
+    const boletoAnterior = tituloSnap.data().boleto;
+    if (boletoAnterior && !boletoAnterior.baixaPorPrazo) throw new Error('Este título já tem boleto emitido.');
 
     // `piso - 1` porque reserveTenantSequence devolve o PROXIMO valor:
     // com piso 1203 o primeiro emitido tem que sair 1203, nao 1204.
@@ -180,6 +182,7 @@ export const emitirUmTitulo = async (a: { tenantId: string; uid: string; titulo:
 
     transaction.update(tituloRef, {
       boleto: dadosGerados,
+      ...(boletoAnterior ? { boletosBaixadosPorPrazo: arrayUnion(boletoAnterior) } : {}),
       bancoId: banco.id,
       bancoNome: banco.nome,
       updatedAt: serverTimestamp(),

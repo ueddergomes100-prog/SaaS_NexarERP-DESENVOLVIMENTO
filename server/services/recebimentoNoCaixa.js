@@ -53,7 +53,8 @@ const lerCaixaAberto = async (tenantId, user, sessaoId) => {
 /** Boleto registrado no banco (mesma regra do acerto com fornecedor): recebido no caixa, ficaria aberto no banco. */
 const temBoletoEmitido = (t) => {
   const boleto = t.boleto && typeof t.boleto === 'object' ? t.boleto : null;
-  return Boolean(boleto && boleto.nossoNumero && boleto.status !== 'cancelado');
+  // Baixado pelo banco por decurso de prazo (28/11/2026): saiu do banco, o caixa pode receber.
+  return Boolean(boleto && boleto.nossoNumero && boleto.status !== 'cancelado' && !boleto.baixaPorPrazo);
 };
 
 /** Conta que o caixa pode receber: em aberto, sem cheque (compensacao), cartao (conciliacao) nem boleto emitido. */

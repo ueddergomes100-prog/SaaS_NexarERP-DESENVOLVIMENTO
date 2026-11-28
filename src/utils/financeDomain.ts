@@ -136,6 +136,12 @@ export interface BoletoDetails {
   remessaSistemaAnterior?: string;
   /** Valor registrado no banco quando difere do titulo (parte paga no sistema anterior). */
   valorNoBancoCentavos?: number;
+  /**
+   * Baixado pelo BANCO por decurso de prazo (28/11/2026): passou o limite de
+   * pagamento e o boleto nao pode mais ser pago. A conta continua em aberto
+   * para cobrar de outro jeito. `em` = dia da baixa; tarifa que o banco cobrou.
+   */
+  baixaPorPrazo?: { em: string; tarifaCentavos: number };
 }
 
 export interface PaymentRecord {

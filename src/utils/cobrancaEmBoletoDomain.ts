@@ -35,7 +35,8 @@ export const bloqueioParaCobrarEmBoleto = (titulo: TituloParaCobrarEmBoleto): st
   if (titulo.status === 'Cancelada') return 'Esta parcela está cancelada.';
   if (titulo.status === 'Renegociada') return 'Esta parcela foi renegociada. O boleto sai pelas parcelas da renegociação.';
   if (titulo.status !== 'Pendente') return 'Só parcelas em aberto são cobradas em boleto. Atualize a tela e tente de novo.';
-  if (titulo.boleto) return 'Esta parcela já tem boleto emitido. Veja em Financeiro › Boletos.';
+  // Boleto baixado pelo banco por decurso de prazo (28/11/2026): pode sair um boleto novo.
+  if (titulo.boleto && !(titulo.boleto as { baixaPorPrazo?: unknown }).baixaPorPrazo) return 'Esta parcela já tem boleto emitido. Veja em Financeiro › Boletos.';
   if (isCardPayment(String(titulo.formaPagamento || '')) || titulo.cartao) return 'Parcela de cartão é paga pela operadora e não vira boleto.';
   if (titulo.formaPagamento === 'Cheque' || titulo.cheque) return 'Esta parcela já tem cheque registrado e não vira boleto.';
   return '';

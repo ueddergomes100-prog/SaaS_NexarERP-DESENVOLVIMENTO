@@ -32,7 +32,8 @@ const bloqueioParaCobrarEmBoleto = (titulo) => {
         return 'Esta parcela foi renegociada. O boleto sai pelas parcelas da renegociação.';
     if (titulo.status !== 'Pendente')
         return 'Só parcelas em aberto são cobradas em boleto. Atualize a tela e tente de novo.';
-    if (titulo.boleto)
+    // Boleto baixado pelo banco por decurso de prazo (28/11/2026): pode sair um boleto novo.
+    if (titulo.boleto && !titulo.boleto.baixaPorPrazo)
         return 'Esta parcela já tem boleto emitido. Veja em Financeiro › Boletos.';
     if ((0, financeDomain_1.isCardPayment)(String(titulo.formaPagamento || '')) || titulo.cartao)
         return 'Parcela de cartão é paga pela operadora e não vira boleto.';

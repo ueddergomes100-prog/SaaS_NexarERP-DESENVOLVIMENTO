@@ -73,13 +73,14 @@ export const documentoDoBoleto = (a: { numeroNota?: string | null; numeroPedido?
 
 // --- Status efetivo (vencido e calculado, nunca gravado) -------------------
 
-export type StatusBoletoEfetivo = StatusBoleto | 'vencido';
+export type StatusBoletoEfetivo = StatusBoleto | 'vencido' | 'baixado_prazo';
 
 export const ROTULO_STATUS_BOLETO: Record<StatusBoletoEfetivo, string> = {
   emitido: 'Emitido',
   em_remessa: 'Em remessa',
   pago: 'Pago',
   vencido: 'Vencido',
+  baixado_prazo: 'Baixado pelo banco (prazo)',
 };
 
 /**
@@ -88,8 +89,10 @@ export const ROTULO_STATUS_BOLETO: Record<StatusBoletoEfetivo, string> = {
  * cujo vencimento ja passou fica vencido ate' o retorno confirmar a baixa
  * ou alguem confirmar manualmente.
  */
-export const statusBoletoEfetivo = (boleto: Pick<BoletoDetails, 'status' | 'vencimento'>, hoje = getDateInputInTimeZone()): StatusBoletoEfetivo => {
+export const statusBoletoEfetivo = (boleto: Pick<BoletoDetails, 'status' | 'vencimento'> & { baixaPorPrazo?: unknown }, hoje = getDateInputInTimeZone()): StatusBoletoEfetivo => {
   if (boleto.status === 'pago') return 'pago';
+  // Baixado pelo banco por decurso de prazo (28/11/2026): nao pode mais ser pago.
+  if (boleto.baixaPorPrazo) return 'baixado_prazo';
   const dias = differenceInCalendarDays(hoje, boleto.vencimento);
   if (dias !== null && dias < 0) return 'vencido';
   return boleto.status;
@@ -196,6 +199,14 @@ export interface LinhaRetornoLida {
    * Segmento U, tarifa do banco (T 199-213) e o valor liquido creditado (U 93-107).
    */
   detalhe?: DetalheRetornoBoleto;
+  /**
+   * Baixa por DECURSO DE PRAZO (28/11/2026, CNAB240): ocorrencia 09 com motivo
+   * 12/13 (tabela FEBRABAN: decurso de prazo -- cliente/banco). Conferido no
+   * retorno real do Sicoob (motivo 13, tarifa de R$ 1,00 no Segmento T).
+   */
+  baixaPorPrazo?: boolean;
+  /** Tarifa que o banco cobrou nesta ocorrencia (Segmento T 199-213), em centavos. */
+  tarifaCentavos?: number;
   /** "Seu numero" que a remessa mandou (so' no CNAB400). */
   seuNumero?: string;
   /** AAAA-MM-DD (so' no CNAB400). */
@@ -332,6 +343,20 @@ export const parseLinhaRetornoSicoob = (linha: string, proxima?: string): LinhaR
   const nossoNumero = apenasDigitos(linha.slice(37, 47));
   const codigoOcorrencia = linha.slice(15, 17);
   const u = lerSegmentoU240(proxima);
+  // Baixa por decurso de prazo (28/11/2026): ocorrencia 09 + motivo 12/13 (T 214-223).
+  const motivo = linha.slice(213, 223).trim().slice(-2);
+  if (codigoOcorrencia === '09' && (motivo === '12' || motivo === '13')) {
+    return {
+      nossoNumero,
+      codigoOcorrencia,
+      dataOcorrencia: (u && u.dataOcorrencia) || undefined,
+      valorPagoCentavos: 0,
+      liquidado: false,
+      informativo: false,
+      baixaPorPrazo: true,
+      tarifaCentavos: Number.parseInt(linha.slice(198, 213), 10) || 0,
+    };
+  }
   const valorPagoCentavos = u ? u.valorPagoCentavos : 0;
   const dataOcorrencia = u ? u.dataOcorrencia : '';
 
@@ -368,6 +393,8 @@ export interface ResumoRetorno {
   /** Entrada confirmada / titulo em ser: informativo, nao pede nenhuma acao. */
   informativos: LinhaRetornoLida[];
   paraConferir: LinhaRetornoLida[];
+  /** Baixados pelo banco por decurso de prazo (28/11/2026): nao podem mais ser pagos. */
+  baixadosPorPrazo: LinhaRetornoLida[];
 }
 
 /** Le o arquivo de retorno inteiro (texto bruto) e separa o que pode virar
@@ -380,7 +407,8 @@ export const lerArquivoRetornoSicoob = (conteudo: string): ResumoRetorno => {
     totalLinhas: linhas.length,
     liquidados: lidas.filter((l) => l.liquidado),
     informativos: lidas.filter((l) => !l.liquidado && l.informativo),
-    paraConferir: lidas.filter((l) => !l.liquidado && !l.informativo && l.nossoNumero),
+    paraConferir: lidas.filter((l) => !l.liquidado && !l.informativo && !l.baixaPorPrazo && l.nossoNumero),
+    baixadosPorPrazo: lidas.filter((l) => l.baixaPorPrazo && l.nossoNumero),
   };
 };
 

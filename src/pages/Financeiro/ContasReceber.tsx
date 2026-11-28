@@ -1748,6 +1748,14 @@ const ContasReceber: React.FC = () => {
                                           {textoDoParcial(t as { pagoParcialCentavos?: number; valorAntesDoParcialCentavos?: number })}
                                         </div>
                                       )}
+                                      {t.status === 'Pendente' && t.boleto?.baixaPorPrazo && (
+                                        <div
+                                          title="Passou o prazo de pagamento e o banco tirou o boleto da cobrança. Cobre do jeito que quiser: Dar Baixa (dinheiro, Pix, cheque...), receber no caixa, renegociar ou emitir um boleto novo."
+                                          style={{ display: 'inline-block', fontSize: '11px', fontWeight: 700, color: '#b45309', background: 'rgba(245, 158, 11, 0.14)', borderRadius: '999px', padding: '2px 8px', marginTop: '4px' }}
+                                        >
+                                          Boleto baixado pelo banco (decurso de prazo){t.boleto.baixaPorPrazo.em ? ` em ${t.boleto.baixaPorPrazo.em.split('-').reverse().join('/')}` : ''}: não pode mais ser pago
+                                        </div>
+                                      )}
                                       {t.origemLancamento === 'manual' && (
                                         <div
                                           title={[t.documento ? `Documento: ${t.documento}` : '', t.observacao ? `Observação: ${t.observacao}` : ''].filter(Boolean).join(' · ') || undefined}

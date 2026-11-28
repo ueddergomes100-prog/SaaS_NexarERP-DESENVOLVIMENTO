@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ConferenciaRetornoModal from '../../components/finance/ConferenciaRetornoModal';
 import { montarConferenciaDoRetorno, type ConferenciaDoRetorno } from '../../utils/conferenciaRetornoDomain';
+import { registrarBoletoBaixadoPorPrazo } from '../../services/baixaFinanceiraService';
 import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { Barcode, Download, FileUp, FolderOpen, Link2, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
@@ -91,7 +92,7 @@ import PastasDosBoletosModal from '../../components/finance/PastasDosBoletosModa
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
-type Aba = 'aguardando' | 'emitidos' | 'remessa' | 'pagos' | 'vencidos';
+type Aba = 'aguardando' | 'emitidos' | 'remessa' | 'pagos' | 'vencidos' | 'baixados';
 
 const ROTULO_ABA: Record<Aba, string> = {
   aguardando: 'Aguardando emissão',
@@ -99,6 +100,8 @@ const ROTULO_ABA: Record<Aba, string> = {
   remessa: 'Em remessa',
   pagos: 'Pagos',
   vencidos: 'Vencidos',
+  // Baixados pelo banco por decurso de prazo (28/11/2026): nao podem mais ser pagos.
+  baixados: 'Baixados pelo banco',
 };
 
 /**
@@ -246,6 +249,8 @@ const Boletos: React.FC = () => {
       remessa: visiveis.filter((t) => efetivo(t) === 'em_remessa'),
       pagos: visiveis.filter((t) => efetivo(t) === 'pago'),
       vencidos: visiveis.filter((t) => efetivo(t) === 'vencido'),
+      // So' os que continuam em aberto: o que ja' foi recebido de outro jeito sai daqui.
+      baixados: visiveis.filter((t) => efetivo(t) === 'baixado_prazo' && t.status === 'Pendente'),
     } as Record<Aba, TituloBoleto[]>;
   }, [titulos, busca, periodoFaturamento, faturadoDe, faturadoAte, filtrosExtras]);
 
@@ -849,8 +854,8 @@ const Boletos: React.FC = () => {
 
       // Conferir antes de dar baixa (28/11/2026, pedido do dono): documento por
       // documento, com vencimento, dia do pagamento, juros e multa e os totais.
-      const conferencia = montarConferenciaDoRetorno(resumo.liquidados, candidatos);
-      if (conferencia.aBaixar.length === 0) {
+      const conferencia = montarConferenciaDoRetorno(resumo.liquidados, candidatos, resumo.baixadosPorPrazo);
+      if (conferencia.aBaixar.length === 0 && conferencia.baixadosPorPrazo.length === 0) {
         await NexusSwal.fire({
           title: 'Nada novo para baixar',
           html: `<div style="text-align:left;font-size:14px">`
@@ -977,13 +982,30 @@ const Boletos: React.FC = () => {
         const recusadosTexto = recusados.length === 0 ? ''
           : `<p style="margin:8px 0 4px"><b>O banco recebeu, mas o sistema não pôde dar baixa em:</b></p><ul style="margin:0 0 8px 18px;padding:0">`
             + recusados.map((m) => `<li>${escaparHtml(m)}</li>`).join('') + `</ul>`;
+        // Baixas por decurso de prazo (28/11/2026): marca o boleto e lanca a tarifa; a conta segue em aberto.
+        let prazoRegistrados = 0;
+        for (const doc of conferencia.baixadosPorPrazo) {
+          try {
+            const r = await registrarBoletoBaixadoPorPrazo({
+              transacaoId: doc.tituloId,
+              ...(doc.dataBaixa ? { dataOcorrencia: doc.dataBaixa } : {}),
+              tarifaCentavos: doc.tarifaCentavos,
+              tenantId: tenantId || '',
+            });
+            if (!r.jaRegistrado && !r.jaPago && !r.cancelado) prazoRegistrados += 1;
+          } catch (erroPrazo) {
+            recusados.push(`Baixa por prazo de "${doc.descricao}" (${doc.cliente}): ${erroPrazo instanceof Error ? erroPrazo.message : 'tente importar de novo.'}`);
+          }
+        }
         const extras = [
+          prazoRegistrados > 0 ? `${prazoRegistrados} boleto(s) baixado(s) pelo banco por decurso de prazo: a conta continua em aberto (aba "Baixados pelo banco" e Contas a Receber).` : '',
           jaPagos > 0 ? `${jaPagos} já estava(m) pago(s) aqui (nada mudou).` : '',
           avulsosLancados > 0 ? `${avulsosLancados} recebimento(s) avulso(s) de boleto cancelado lançado(s).` : '',
         ].filter(Boolean).join(' ');
+        const soPrazo = baixadosLista.length === 0 && naoEncontradosLista.length === 0 && recusados.length === 0 && prazoRegistrados > 0;
         await NexusSwal.fire({
-          icon: gravidadeDoRetorno(resumoDoRetorno) === 'sucesso' ? 'success' : 'warning',
-          title: tituloDoRetorno(resumoDoRetorno),
+          icon: soPrazo || gravidadeDoRetorno(resumoDoRetorno) === 'sucesso' ? 'success' : 'warning',
+          title: soPrazo ? 'Retorno importado' : tituloDoRetorno(resumoDoRetorno),
           width: 720,
           html: `<div style="text-align:left;font-size:14px">${tabelaBaixados}${naoEncontradosTexto}${recusadosTexto}`
             + (extras ? `<p style="margin:8px 0 0;color:var(--text-muted)">${escaparHtml(extras)}</p>` : '')
@@ -1560,10 +1582,14 @@ const Boletos: React.FC = () => {
                           padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 700,
                           backgroundColor: situacao === 'pago' ? 'rgba(16,185,129,0.18)'
                             : situacao === 'vencido' ? 'rgba(239,68,68,0.18)'
-                              : 'rgba(148,163,184,0.18)',
-                          color: situacao === 'pago' ? '#10b981' : situacao === 'vencido' ? '#ef4444' : 'var(--text-muted)',
-                        }}>
+                              : situacao === 'baixado_prazo' ? 'rgba(245,158,11,0.18)'
+                                : 'rgba(148,163,184,0.18)',
+                          color: situacao === 'pago' ? '#10b981' : situacao === 'vencido' ? '#ef4444' : situacao === 'baixado_prazo' ? '#b45309' : 'var(--text-muted)',
+                        }}
+                          title={situacao === 'baixado_prazo' ? 'O banco tirou este boleto da cobrança porque passou o prazo de pagamento: ele não pode mais ser pago. A conta continua em aberto no Contas a Receber para cobrar de outro jeito (receber no Dar Baixa, no caixa, renegociar ou emitir um boleto novo).' : undefined}
+                        >
                           {situacao === 'aguardando' ? 'Aguardando emissão' : ROTULO_STATUS_BOLETO[situacao]}
+                          {situacao === 'baixado_prazo' && t.boleto?.baixaPorPrazo?.em ? ` em ${t.boleto.baixaPorPrazo.em.split('-').reverse().join('/')}` : ''}
                         </span>
                       </td>
                       {aba === 'pagos' && t.status === 'Paga' ? (

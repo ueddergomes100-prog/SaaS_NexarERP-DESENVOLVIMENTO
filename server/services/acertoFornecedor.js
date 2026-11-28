@@ -38,7 +38,7 @@ const bloqueioDaConta = (dados, lado) => {
       : 'ela foi paga com cheque emitido (Financeiro › Cheques).';
   }
   const boleto = dados.boleto && typeof dados.boleto === 'object' ? dados.boleto : null;
-  if (lado === 'receber' && boleto && boleto.nossoNumero && boleto.status !== 'cancelado') {
+  if (lado === 'receber' && boleto && boleto.nossoNumero && boleto.status !== 'cancelado' && !boleto.baixaPorPrazo) {
     return 'ela tem boleto emitido. Desfaça a emissão em Financeiro › Boletos antes.';
   }
   if (lado === 'receber' && isCardPayment(dados.formaPagamento)) {

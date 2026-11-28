@@ -36,7 +36,7 @@ test('conferencia do retorno (28/11/2026): cada boleto com vencimento, pago em, 
   assert.deepEqual(c.naoEncontrados, ['999']);
   assert.deepEqual(c.totais, {
     quantidade: 3, valorBoletosCentavos: 30000, jurosMultaCentavos: 560, descontoCentavos: 0,
-    tarifaCentavos: 250, pagoCentavos: 30560, liquidoCentavos: 30310,
+    tarifaCentavos: 250, pagoCentavos: 30560, liquidoCentavos: 30310, tarifaPrazoCentavos: 0,
   });
 });
 
@@ -45,4 +45,22 @@ test('conferencia do retorno: pago a menos sem detalhe do banco vira desconto', 
   assert.equal(c.aBaixar[0].descontoCentavos, 500);
   assert.equal(c.aBaixar[0].jurosMultaCentavos, 0);
   assert.equal(c.totais.liquidoCentavos, 9500);
+});
+
+
+test('conferencia: baixados por decurso de prazo em bloco proprio, com a tarifa; ja registrado ou pago fica de fora', () => {
+  const c = montarConferenciaDoRetorno([], [
+    titulo('p1', '100'),
+    titulo('p2', '101', { boleto: { nossoNumero: '101', vencimento: '2026-05-26', baixaPorPrazo: { em: '2026-11-20' } } }),
+    titulo('p3', '102', { status: 'Paga' }),
+  ], [
+    { nossoNumero: '100', dataOcorrencia: '2026-11-23', tarifaCentavos: 100 },
+    { nossoNumero: '101', dataOcorrencia: '2026-11-23', tarifaCentavos: 100 },
+    { nossoNumero: '102', dataOcorrencia: '2026-11-23', tarifaCentavos: 100 },
+    { nossoNumero: '555', dataOcorrencia: '2026-11-23', tarifaCentavos: 100 },
+  ]);
+  assert.equal(c.aBaixar.length, 0);
+  assert.deepEqual(c.baixadosPorPrazo.map((d) => [d.nossoNumero, d.tarifaCentavos, d.dataBaixa]), [['100', 100, '2026-11-23']]);
+  assert.equal(c.totais.tarifaPrazoCentavos, 100);
+  assert.deepEqual(c.naoEncontrados, ['555']);
 });

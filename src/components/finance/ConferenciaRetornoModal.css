@@ -194,3 +194,30 @@ body:not(.light-theme) .retorno-botao--voltar { background: rgba(183, 147, 242, 
   .retorno-rodape { flex-direction: column-reverse; padding: 16px; }
   .retorno-botao { width: 100%; }
 }
+
+/* Baixados pelo banco por decurso de prazo (28/11/2026). */
+.retorno-prazo {
+  margin: 14px 26px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.retorno-prazo h3 { margin: 0; font-size: 15px; font-weight: 800; color: #b45309; }
+body:not(.light-theme) .retorno-prazo h3 { color: #fbbf24; }
+.retorno-prazo-cabecalho p { margin: 4px 0 10px; font-size: 13px; color: var(--text-secondary); }
+.retorno-prazo ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.retorno-prazo li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+}
+.retorno-prazo li > div:first-child { display: flex; flex-direction: column; min-width: 0; }
+.retorno-prazo li > div:first-child span { font-size: 12px; color: var(--text-muted); }
+.retorno-prazo-valores { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 560px) {
+  .retorno-prazo { margin-left: 16px; margin-right: 16px; }
+}

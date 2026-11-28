@@ -392,3 +392,24 @@ test('tarifa do Sicoob (retorno real de 23/11/2026): liquido no arquivo igual ao
   const outro = detalheDoRecebimentoBoleto({ valorCentavos: 10000, valorPagoCentavos: 10000, retornoDoBanco: { valorLiquidoCentavos: 9800 } });
   assert.deepEqual([outro.tarifa, outro.liquido], [200, 9800]);
 });
+
+
+test('decurso de prazo (28/11/2026, retorno real do Sicoob): ocorrencia 09 motivo 13 com tarifa de R$ 1,00', async () => {
+  const { lerArquivoRetornoSicoob, statusBoletoEfetivo, ROTULO_STATUS_BOLETO } = await import('../src/utils/boletoEmissaoDomain');
+  let [t, u] = linhaSegmentoT({ nossoNumero: '27191', codigoOcorrencia: '09', valorCentavos: 70175, valorPagoCentavos: 0, dataOcorrencia: '23112026' }).split('\r\n');
+  t = t.slice(0, 198) + '000000000000100' + '0000000013' + t.slice(223);
+  u = u.slice(0, 77) + '0'.repeat(30) + u.slice(107);
+  const resumo = lerArquivoRetornoSicoob(`${t}\r\n${u}`);
+  assert.equal(resumo.liquidados.length, 0);
+  assert.equal(resumo.paraConferir.length, 0, 'decurso de prazo nao cai mais em "outra ocorrencia"');
+  assert.equal(resumo.baixadosPorPrazo.length, 1);
+  assert.equal(resumo.baixadosPorPrazo[0].tarifaCentavos, 100);
+  assert.equal(resumo.baixadosPorPrazo[0].dataOcorrencia, '2026-11-23');
+  // Baixa 09 com outro motivo (ex.: pedida pela loja) continua para conferir.
+  let [t2, u2] = linhaSegmentoT({ nossoNumero: '27192', codigoOcorrencia: '09', valorCentavos: 100, valorPagoCentavos: 0, dataOcorrencia: '23112026' }).split('\r\n');
+  t2 = t2.slice(0, 213) + '0000000010' + t2.slice(223);
+  assert.equal(lerArquivoRetornoSicoob(`${t2}\r\n${u2}`).paraConferir.length, 1);
+  assert.equal(statusBoletoEfetivo({ status: 'em_remessa', vencimento: '2026-05-26', baixaPorPrazo: { em: '2026-11-23', tarifaCentavos: 100 } }, '2026-11-28'), 'baixado_prazo');
+  assert.equal(statusBoletoEfetivo({ status: 'pago', vencimento: '2026-05-26', baixaPorPrazo: { em: '2026-11-23', tarifaCentavos: 100 } }, '2026-11-28'), 'pago');
+  assert.match(ROTULO_STATUS_BOLETO.baixado_prazo, /prazo/);
+});

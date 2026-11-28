@@ -34,6 +34,7 @@ const {
   compensarChequeRecebido,
   compensarChequeEmitido,
   baixarBoletoPeloRetorno,
+  registrarBaixaPorPrazo,
   receberBoletoCanceladoPeloRetorno,
   lancarNoBanco,
   transferirEntreBancos,
@@ -691,6 +692,10 @@ router.post('/cheque-emitido/compensar', rotaDeMovimento('financeiro.cheques', '
 /** POST /api/financeiro/boleto/retorno  { transacaoId, valorPagoCentavos, dataPagamento? } -- um boleto por chamada */
 router.post('/boleto/retorno', rotaDeMovimento('financeiro.boletos', 'dar baixa no boleto', baixarBoletoPeloRetorno,
   (r, corpo) => (r.jaEstavaPago ? '' : `Boleto "${r.descricao}" baixado pelo arquivo de retorno: ${reais(Number(corpo.valorPagoCentavos))}.`)));
+
+/** POST /api/financeiro/boleto/retorno/prazo  { transacaoId, dataOcorrencia?, tarifaCentavos? } -- baixa por decurso de prazo (28/11/2026) */
+router.post('/boleto/retorno/prazo', rotaDeMovimento('financeiro.boletos', 'registrar a baixa do boleto por decurso de prazo', registrarBaixaPorPrazo,
+  (r) => (r.jaRegistrado || r.jaPago || r.cancelado ? '' : `Boleto "${r.descricao}" baixado pelo banco por decurso de prazo (não pode mais ser pago; a conta continua em aberto)${r.tarifaCentavos ? `. Tarifa de ${reais(r.tarifaCentavos)} lançada` : ''}.`)));
 
 /**
  * POST /api/financeiro/boleto/retorno/cancelado  { transacaoId, valorPagoCentavos, dataPagamento? }

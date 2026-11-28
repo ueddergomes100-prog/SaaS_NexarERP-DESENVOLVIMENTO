@@ -124,7 +124,7 @@ export interface TituloParaEstorno {
   naturezaFinanceira?: string;
   ultimaAlteracao?: string;
   baixaManual?: Partial<BaixaManualRegistro> | null;
-  boleto?: { status?: string } | null;
+  boleto?: { status?: string; baixaPorPrazo?: { em?: string } | null } | null;
   cheque?: unknown;
   sourcePaymentTransactionId?: string;
   notaAvulsaId?: string;

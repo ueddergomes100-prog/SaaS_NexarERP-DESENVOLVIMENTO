@@ -62,6 +62,7 @@ type RotaFinanceiro =
   | '/cheque-emitido/compensar'
   | '/boleto/retorno'
   | '/boleto/retorno/cancelado'
+  | '/boleto/retorno/prazo'
   | '/boleto/sistema-anterior'
   | '/banco/lancamento'
   | '/banco/transferencia'
@@ -411,6 +412,11 @@ export const baixarBoletoPeloRetorno = (args: {
   detalheDoRetorno?: { jurosMultaCentavos?: number; descontoCentavos?: number; tarifaCentavos?: number; valorLiquidoCentavos?: number };
 }) => (
   chamarFinanceiro<ResultadoBaixaPeloRetorno>('/boleto/retorno', { ...args })
+);
+
+/** Boleto baixado pelo banco por decurso de prazo (28/11/2026): marca o boleto e lanca a tarifa; a conta segue em aberto. */
+export const registrarBoletoBaixadoPorPrazo = (args: { transacaoId: string; dataOcorrencia?: string; tarifaCentavos?: number; tenantId: string }) => (
+  chamarFinanceiro<{ jaRegistrado: boolean; jaPago: boolean; cancelado: boolean; descricao: string; tarifaCentavos: number }>('/boleto/retorno/prazo', { ...args })
 );
 
 /**

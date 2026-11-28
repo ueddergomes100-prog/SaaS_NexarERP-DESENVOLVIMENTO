@@ -30,7 +30,11 @@ const ConferenciaRetornoModal: React.FC<Props> = ({ conferencia, nomeDoArquivo, 
   const { mostrar } = useValoresOcultos();
   const reais = (c: number) => mostrar(moeda.format(c / 100));
   const confirmarRef = useRef<HTMLButtonElement | null>(null);
-  const { aBaixar, jaPagos, naoEncontrados, totais } = conferencia;
+  const { aBaixar, jaPagos, naoEncontrados, baixadosPorPrazo, totais } = conferencia;
+  const textoDoBotao = [
+    aBaixar.length > 0 ? `Dar baixa em ${totais.quantidade} ${totais.quantidade === 1 ? 'boleto' : 'boletos'} · ${reais(totais.pagoCentavos)}` : '',
+    baixadosPorPrazo.length > 0 ? `${aBaixar.length > 0 ? 'e registrar' : 'Registrar'} ${baixadosPorPrazo.length} ${baixadosPorPrazo.length === 1 ? 'baixado' : 'baixados'} por prazo` : '',
+  ].filter(Boolean).join(' ');
 
   useEffect(() => {
     confirmarRef.current?.focus();
@@ -80,6 +84,7 @@ const ConferenciaRetornoModal: React.FC<Props> = ({ conferencia, nomeDoArquivo, 
           </div>
         </div>
 
+        {aBaixar.length > 0 && (
         <div className="retorno-tabela-caixa">
           <table className="retorno-tabela">
             <caption className="retorno-so-leitor">Boletos que serão baixados</caption>
@@ -125,6 +130,31 @@ const ConferenciaRetornoModal: React.FC<Props> = ({ conferencia, nomeDoArquivo, 
             </tbody>
           </table>
         </div>
+        )}
+
+        {/* Baixados pelo banco por decurso de prazo (28/11/2026): nao podem mais ser pagos. */}
+        {baixadosPorPrazo.length > 0 && (
+          <section className="retorno-prazo" aria-labelledby="retorno-prazo-titulo">
+            <div className="retorno-prazo-cabecalho">
+              <h3 id="retorno-prazo-titulo">Baixados pelo banco por decurso de prazo</h3>
+              <p>Passou o prazo de pagamento e o banco tirou estes boletos da cobrança: eles <strong>não podem mais ser pagos</strong>. A conta continua em aberto no Contas a Receber para você cobrar do jeito que quiser.{totais.tarifaPrazoCentavos > 0 ? ` Tarifa do banco: ${reais(totais.tarifaPrazoCentavos)}.` : ''}</p>
+            </div>
+            <ul>
+              {baixadosPorPrazo.map((d) => (
+                <li key={d.tituloId}>
+                  <div>
+                    <strong>{d.cliente}</strong>
+                    <span>{d.descricao} · nº {d.nossoNumero} · venceu {dataBr(d.vencimento)}</span>
+                  </div>
+                  <div className="retorno-prazo-valores">
+                    <strong>{reais(d.valorCentavos)}</strong>
+                    {d.tarifaCentavos > 0 && <span className="retorno-tarifa">tarifa − {reais(d.tarifaCentavos)}</span>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {deFora.length > 0 && (
           <ul className="retorno-de-fora" aria-label="O que fica de fora desta baixa">
@@ -135,7 +165,7 @@ const ConferenciaRetornoModal: React.FC<Props> = ({ conferencia, nomeDoArquivo, 
         <footer className="retorno-rodape">
           <button type="button" className="retorno-botao retorno-botao--voltar" onClick={onCancelar}>Cancelar</button>
           <button type="button" ref={confirmarRef} className="retorno-botao retorno-botao--confirmar" onClick={onConfirmar}>
-            Dar baixa em {totais.quantidade} {totais.quantidade === 1 ? 'boleto' : 'boletos'} · {reais(totais.pagoCentavos)}
+            {textoDoBotao}
           </button>
         </footer>
       </div>

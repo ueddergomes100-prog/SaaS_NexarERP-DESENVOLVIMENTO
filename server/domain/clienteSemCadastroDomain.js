@@ -14,7 +14,7 @@
  * FINAL". Nao cria cadastro.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.erroDasFormasSemCadastro = exports.complementoDoClienteSemCadastro = exports.nomeDoClienteDoPedido = exports.telefoneFormatado = exports.lerClienteSemCadastro = exports.FORMAS_PROIBIDAS_SEM_CADASTRO = exports.CIDADE_SEM_CADASTRO_MAX = exports.NOME_SEM_CADASTRO_MAX = exports.CAMPO_CLIENTE_SEM_CADASTRO = void 0;
+exports.erroDasFormasSemCadastro = exports.complementoDoClienteSemCadastro = exports.nomeDoClienteDoPedido = exports.telefoneFormatado = exports.resumoDoClienteSemCadastro = exports.clienteSemCadastroCompleto = exports.lerClienteSemCadastro = exports.FORMAS_PROIBIDAS_SEM_CADASTRO = exports.CIDADE_SEM_CADASTRO_MAX = exports.NOME_SEM_CADASTRO_MAX = exports.CAMPO_CLIENTE_SEM_CADASTRO = void 0;
 exports.CAMPO_CLIENTE_SEM_CADASTRO = 'clienteSemCadastro';
 exports.NOME_SEM_CADASTRO_MAX = 60;
 exports.CIDADE_SEM_CADASTRO_MAX = 40;
@@ -37,6 +37,24 @@ const lerClienteSemCadastro = (valor) => {
     };
 };
 exports.lerClienteSemCadastro = lerClienteSemCadastro;
+/**
+ * Os 3 campos preenchidos (28/11/2026, dono: "quando digitar os 3 campos, nome
+ * cidade e telefone ele fechar em dropdown"): no app o bloco se fecha numa linha
+ * para a lista de produtos nao descer. Mesmo criterio do que e' gravado.
+ */
+const clienteSemCadastroCompleto = (valor) => {
+    const lido = (0, exports.lerClienteSemCadastro)(valor);
+    return Boolean(lido && lido.cidade && lido.telefone);
+};
+exports.clienteSemCadastroCompleto = clienteSemCadastroCompleto;
+/** Resumo de uma linha do bloco fechado: "JOAO · CARATINGA · (33) 99999-0000". */
+const resumoDoClienteSemCadastro = (valor) => {
+    const lido = (0, exports.lerClienteSemCadastro)(valor);
+    if (!lido)
+        return '';
+    return [lido.nome, lido.cidade, lido.telefone ? (0, exports.telefoneFormatado)(lido.telefone) : ''].filter(Boolean).join(' · ');
+};
+exports.resumoDoClienteSemCadastro = resumoDoClienteSemCadastro;
 /** Telefone para o papel: (33) 99999-0000. */
 const telefoneFormatado = (digitos) => {
     const d = String(digitos || '').replace(/\D/g, '');

@@ -107,6 +107,18 @@ import { nomeArquivoRelatorio } from '../../utils/relatorioPdfDomain';
 import { BaixaEmLoteModal, BarraDeSelecaoLote, CaixaDeSelecao, type ItemDoLote } from '../../components/finance/BaixaEmLote';
 import { estadoDaSelecao, FORMAS_DA_BAIXA_EM_LOTE, LIMITE_BAIXA_EM_LOTE, marcarNaSelecao, podeEntrarNoLote } from '../../utils/baixaEmLoteDomain';
 import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTitulosFinanceiros';
+import {
+  abaDaSituacao,
+  passaNaAbaGeral,
+  percentualQuitado,
+  periodoDosRecebidos,
+  periodoRecebidosAtivo,
+  ROTULO_PERIODO_RECEBIDOS,
+  totaisDoCliente,
+  type AbaReceber,
+  type PeriodoRecebidos,
+} from '../../utils/contasReceberAbasDomain';
+import './ContasReceberAbas.css';
 import './Financeiro.css';
 import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
 import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
@@ -161,7 +173,10 @@ interface GrupoCliente {
   /** Grupo de conta a receber de FORNECEDOR (lancada a mao). */
   deFornecedor: boolean;
   transacoes: TransacaoData[];
+  /** So' o que esta' em aberto (28/11/2026: antes, na lista "todas", somava os recebidos tambem). */
   totalPendente: number;
+  /** Recebido no periodo (liquido menos o desconto da baixa), em reais. */
+  totalRecebido: number;
   vencimentoMaisAntigo: string | null;
   diasAtrasoMax: number;
 }
@@ -171,6 +186,22 @@ const dataReferenciaTransacao = (t: TransacaoData) => transactionDueDateInput(t)
 
 // Formas que o "Dar Baixa" aceita; a filial escolhe quais usa (formasDeRecebimento).
 const FORMAS_RECEBIMENTO = ['Dinheiro', 'Pix', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência', 'Cheque', 'Outros'];
+
+/** Recebido x em aberto de um cliente na aba Geral (28/11/2026), com a barra do quanto ja' foi quitado. */
+const CelulaRecebidoEmAberto: React.FC<{ recebido: number; emAberto: number }> = ({ recebido, emAberto }) => {
+  const { mostrar } = useValoresOcultos();
+  const reais = (v: number) => mostrar(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v));
+  const quitado = percentualQuitado({ recebidoCentavos: Math.round(recebido * 100), emAbertoCentavos: Math.round(emAberto * 100) });
+  return (
+    <div className="receber-cliente-totais">
+      <div><span>recebido</span> <strong className="receber-verde">{reais(recebido)}</strong></div>
+      <div><span>em aberto</span> <strong className={emAberto > 0 ? 'receber-ambar' : undefined}>{reais(emAberto)}</strong></div>
+      <div className="receber-barra" role="img" aria-label={`${quitado}% já recebido`} title={`${quitado}% do total deste cliente já foi recebido`}>
+        <span style={{ width: `${quitado}%` }} />
+      </div>
+    </div>
+  );
+};
 
 const ContasReceber: React.FC = () => {
   const { openTab } = useTabs();
@@ -1079,9 +1110,30 @@ const ContasReceber: React.FC = () => {
   const titulosFiltrados = transacoes.filter((t) => {
     if (t.formaPagamento === 'Cartão de Crédito' || t.formaPagamento === 'Cartão de Débito') return false;
     const titulo = { status: t.status, data: dataReferenciaTransacao(t) || t.data, dataPagamento: t.dataPagamento };
+    // Aba Geral (28/11/2026): todo em aberto + o recebido no periodo, pela data do recebimento.
+    if (situacaoTitulo === 'todas') return passaNaAbaGeral(titulo, periodoDe, periodoAte);
     return passaNaSituacaoTitulo(titulo, hojeStr, situacaoTitulo)
       && passaNoPeriodoDoTitulo(titulo, situacaoTitulo, periodoDe, periodoAte);
   });
+  const abaAtiva = abaDaSituacao(situacaoTitulo);
+  const totaisDaLista = totaisDoCliente(titulosFiltrados.map((t) => ({
+    status: t.status,
+    liquidoCentavos: transactionNetCents(t),
+    descontoCentavos: Number(t.baixaManual?.descontoCentavos) || 0,
+  })));
+  const periodoRapido = periodoRecebidosAtivo(periodoDe, periodoAte, hojeStr);
+  const escolherPeriodoRecebidos = (periodo: PeriodoRecebidos) => {
+    const r = periodoDosRecebidos(periodo, hojeStr);
+    setPeriodoDe(r.de);
+    setPeriodoAte(r.ate);
+  };
+  const irParaAba = (aba: AbaReceber) => {
+    if (aba === abaAtiva) return;
+    setSituacaoTitulo(aba === 'abertos' ? 'abertas' : 'todas');
+    // O periodo de cada aba e' outro (vencimento x recebimento): troca de aba limpa.
+    setPeriodoDe('');
+    setPeriodoAte('');
+  };
   const filtrosAtivos = (situacaoTitulo !== SITUACAO_TITULO_PADRAO ? 1 : 0) + (periodoDe || periodoAte ? 1 : 0);
   const limparFiltros = () => {
     setSituacaoTitulo(SITUACAO_TITULO_PADRAO);
@@ -1090,7 +1142,7 @@ const ContasReceber: React.FC = () => {
   };
   const listandoRecebidas = situacaoTitulo === 'pagas';
   const rotuloQuantidade = listandoRecebidas ? 'Títulos recebidos' : situacaoTitulo === 'todas' ? 'Títulos' : 'Títulos em aberto';
-  const rotuloValor = listandoRecebidas ? 'Valor recebido (R$)' : situacaoTitulo === 'todas' ? 'Valor (R$)' : 'Valor pendente (R$)';
+  const rotuloValor = listandoRecebidas ? 'Valor recebido (R$)' : situacaoTitulo === 'todas' ? 'Recebido × em aberto (R$)' : 'Valor pendente (R$)';
 
   // Agrupa os titulos filtrados por cliente. Usa clienteId quando disponivel
   // (vendas/OS finalizadas a partir de 2026-07-29); registros antigos sem
@@ -1114,13 +1166,15 @@ const ContasReceber: React.FC = () => {
           deFornecedor,
           transacoes: [],
           totalPendente: 0,
+          totalRecebido: 0,
           vencimentoMaisAntigo: null,
           diasAtrasoMax: 0,
         };
         mapa.set(chave, grupo);
       }
       grupo.transacoes.push(t);
-      grupo.totalPendente += transactionNetAmount(t);
+      if (t.status === 'Paga') grupo.totalRecebido += Math.max(0, transactionNetAmount(t) - (Number(t.baixaManual?.descontoCentavos) || 0) / 100);
+      else grupo.totalPendente += transactionNetAmount(t);
       if (dataRef && (!grupo.vencimentoMaisAntigo || dataRef < grupo.vencimentoMaisAntigo)) {
         grupo.vencimentoMaisAntigo = dataRef;
       }
@@ -1134,7 +1188,7 @@ const ContasReceber: React.FC = () => {
         const codigo = g.clienteId ? (codigosDosClientes[g.clienteId] || '') : '';
         return g.clienteNome.toLowerCase().includes(termo) || (codigo !== '' && codigo.toLowerCase() === termo.replace(/^#/, ''));
       })
-      .sort((a, b) => b.totalPendente - a.totalPendente);
+      .sort((a, b) => b.totalPendente - a.totalPendente || b.totalRecebido - a.totalRecebido);
   })();
 
   // Codigos que faltam: so' dos clientes que estao na lista agora (lotes de LOTE_IN_POR_ID).
@@ -1414,6 +1468,61 @@ const ContasReceber: React.FC = () => {
         </div>
       </div>
 
+      {/* Abas (28/11/2026, pedido do dono): o recebido do cliente a vista, sem tirar relatorio. */}
+      <div className="receber-abas" role="tablist" aria-label="O que mostrar no Contas a Receber">
+        {([['abertos', 'Em aberto'], ['geral', 'Geral']] as const).map(([aba, rotulo]) => (
+          <button
+            key={aba}
+            type="button"
+            role="tab"
+            id={`receber-aba-${aba}`}
+            aria-selected={abaAtiva === aba}
+            tabIndex={abaAtiva === aba ? 0 : -1}
+            className="receber-aba"
+            onClick={() => irParaAba(aba)}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+              e.preventDefault();
+              const outra: AbaReceber = aba === 'abertos' ? 'geral' : 'abertos';
+              irParaAba(outra);
+              document.getElementById(`receber-aba-${outra}`)?.focus();
+            }}
+            title={aba === 'abertos' ? 'O que falta receber' : 'O que está em aberto e o que já foi recebido, cliente por cliente'}
+          >
+            {rotulo}
+            {aba === 'abertos' && <span className="receber-aba-contador">{contasPendentes.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {abaAtiva === 'geral' && (
+        <div className="receber-geral">
+          <div className="receber-geral-periodos" role="group" aria-label="Recebidos de qual período">
+            <span className="receber-geral-rotulo">Recebidos de</span>
+            {(Object.keys(ROTULO_PERIODO_RECEBIDOS) as PeriodoRecebidos[]).map((p) => (
+              <button key={p} type="button" className="receber-chip" aria-pressed={periodoRapido === p} onClick={() => escolherPeriodoRecebidos(p)}>
+                {ROTULO_PERIODO_RECEBIDOS[p]}
+              </button>
+            ))}
+            <button type="button" className="receber-chip" aria-pressed={periodoRapido === null} onClick={() => setFiltrosAbertos(true)} title="Escolha as datas em Filtros › Recebido em">
+              {periodoRapido === null && periodoDe && periodoAte
+                ? `${periodoDe.split('-').reverse().join('/')} a ${periodoAte.split('-').reverse().join('/')}`
+                : 'Outro período'}
+            </button>
+          </div>
+          <div className="receber-geral-totais" role="status" aria-live="polite">
+            <div>
+              <span>Recebido no período</span>
+              <strong className="receber-verde">{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totaisDaLista.recebidoCentavos / 100))}</strong>
+            </div>
+            <div>
+              <span>Em aberto</span>
+              <strong className="receber-ambar">{mostrarValor(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totaisDaLista.emAbertoCentavos / 100))}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div className="search-bar" style={{ position: 'relative', width: '360px', maxWidth: '100%' }}>
           <Search size={18} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
@@ -1435,14 +1544,14 @@ const ContasReceber: React.FC = () => {
           </select>
         </CampoFiltro>
         <CampoPeriodo
-          rotulo={listandoRecebidas ? 'Recebido em' : 'Vencimento'}
+          rotulo={listaTemRecebidas ? 'Recebido em' : 'Vencimento'}
           de={periodoDe}
           ate={periodoAte}
           onChangeDe={setPeriodoDe}
           onChangeAte={setPeriodoAte}
         />
       </PainelFiltros>
-      {listaTemRecebidas && !periodoDe && !periodoAte && (
+      {listandoRecebidas && !periodoDe && !periodoAte && (
         <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-muted)' }}>
           Recebidas deste mês. Para outro período, use Filtros › Recebido em.
         </p>
@@ -1574,8 +1683,14 @@ const ContasReceber: React.FC = () => {
                             <span style={{ color: 'var(--text-muted)' }}>-</span>
                           )}
                         </td>
-                        <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: '#f59e0b' }}>
-                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.totalPendente)}
+                        {situacaoTitulo === 'todas' ? (
+                          <td style={{ padding: '16px', textAlign: 'right' }}>
+                            {/* Recebido x em aberto do cliente, com a barrinha do quanto ja' foi quitado (28/11/2026). */}
+                            <CelulaRecebidoEmAberto recebido={grupo.totalRecebido} emAberto={grupo.totalPendente} />
+                          </td>
+                        ) : (
+                        <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: listandoRecebidas ? '#10b981' : '#f59e0b' }}>
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(listandoRecebidas ? grupo.totalRecebido : grupo.totalPendente)}
                           {(() => {
                             const acrescimo = somaDosAcrescimos(grupo.transacoes.map(acrescimoDaLista));
                             return acrescimo > 0 ? (
@@ -1585,6 +1700,7 @@ const ContasReceber: React.FC = () => {
                             ) : null;
                           })()}
                         </td>
+                        )}
                         <td style={{ padding: '16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
 {podeCobrarWhatsapp && grupo.transacoes.some((t) => t.status === 'Pendente') && (
                           /* So' o icone, igual ao da parcela (pedido do dono, 15/10/2026). */

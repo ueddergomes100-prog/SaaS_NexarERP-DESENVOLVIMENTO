@@ -62,7 +62,7 @@ test('fechar: despesas viram lançamentos pagos, entregue fica preso, não entre
 
   const lancadas = transacoes(fake);
   assert.equal(lancadas.length, 2);
-  assert.ok(lancadas.every((t) => t.status === 'Paga' && t.tipo === 'saida' && t.categoria === 'DESPESAS DE ROTA' && t.romaneioId === 'R1' && t.veiculoId === 'v1'));
+  assert.ok(lancadas.every((t) => t.status === 'Paga' && t.tipo === 'saida' && String(t.categoria).toUpperCase() === 'DESPESAS DE ROTA' && t.romaneioId === 'R1' && t.veiculoId === 'v1'));
   const rota = fake.ler(`rotas/${romaneio.despesasRotaId}`);
   assert.equal(rota.totalCentavos, 28000);
   assert.equal(rota.transacaoIds.length, 2);

@@ -6,6 +6,7 @@ import { ArrowLeft, ShoppingCart, User, Package, Trash2, XCircle, Printer, Eye, 
 import { collection, addDoc, doc, getDoc, getDocs, updateDoc, deleteField, getCountFromServer, serverTimestamp, query, where, orderBy, limit, runTransaction, onSnapshot, Timestamp } from 'firebase/firestore';
 import EscolherNotaEntradaModal from './EscolherNotaEntradaModal';
 import { itensDaNotaParaVenda, observacaoDoPedidoDaNota, precoDaLinha, precoDaNotaNoItem, type NotaEntradaParaEscolha, type PrecoDoPedidoDaNota } from '../../utils/pedidoDaNotaEntradaDomain';
+import { categoriaDaVenda, lerVinculos, type VinculosDoPlano } from '../../utils/vinculosPlanoContasDomain';
 import type { NotaFiscalEntradaItemRecord } from '../../utils/entradaNfeDomain';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -482,6 +483,8 @@ const PedidoVendaForm: React.FC = () => {
    * vai junto: repetir depois de cair a conexao nao grava duas vezes.
    */
   const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
+  // Lancamentos automaticos do plano de contas (28/11/2026).
+  const [vinculosDoPlano, setVinculosDoPlano] = useState<VinculosDoPlano>({});
   const idVendaServidorRef = useRef('');
 
   const [nfeDoc, setNfeDoc] = useState<LinkedNfe | null>(null);
@@ -1233,6 +1236,7 @@ const PedidoVendaForm: React.FC = () => {
           const config = configSnap.data();
           setPermitirVendaSemEstoque(config.venderSemEstoque === true);
           setVendaPeloServidor(parseVendaPeloServidor(config.vendaPeloServidor));
+          setVinculosDoPlano(lerVinculos(config.vinculosPlanoContas));
           setPagamentoCartaoSimplificadoAtivo(parsePagamentoCartaoSimplificadoAtivo(config.pagamentoCartaoSimplificadoAtivo));
           setProdutoSearchMode(config.buscaProdutoModo === 'exata' ? 'exata' : DEFAULT_PRODUCT_SEARCH_MODE);
           setConferenciaMercadoriaAtiva(config.conferenciaMercadoria === true);
@@ -3691,7 +3695,7 @@ const PedidoVendaForm: React.FC = () => {
             : '';
           transaction.set(doc(db, 'transacoes', payment.transactionId), {
             descricao: `Venda Direta #${numeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
-            categoria: 'Venda de Peças',
+            categoria: categoriaDaVenda({ vinculosPlanoContas: vinculosDoPlano }, payment.formaPagamento),
             valor: payment.valor,
             valorCentavos: payment.valorCentavos,
             valorBruto: payment.valor,
@@ -4422,7 +4426,8 @@ const PedidoVendaForm: React.FC = () => {
               : '';
             transaction.set(doc(db, 'transacoes', payment.transactionId), {
               descricao: `Venda Direta #${finalNumeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
-              categoria: 'Venda de Peças',
+              // Plano de contas (28/11/2026): categoria da venda na forma ("Venda no Pix"...).
+              categoria: categoriaDaVenda({ vinculosPlanoContas: vinculosDoPlano }, payment.formaPagamento),
               valor: payment.valor,
               valorCentavos: payment.valorCentavos,
               valorBruto: payment.valor,

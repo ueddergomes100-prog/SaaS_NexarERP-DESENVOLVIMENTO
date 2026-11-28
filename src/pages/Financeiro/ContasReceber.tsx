@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, query, where, doc, getDoc, getDocs, documentId } from 'firebase/firestore';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
+import { planoEfetivo } from '../../utils/vinculosPlanoContasDomain';
 import { db } from '../../services/firebase';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -339,9 +340,8 @@ const ContasReceber: React.FC = () => {
     return () => window.removeEventListener(EVENTO_ABRIR_LANCAMENTO, atender);
   }, [podeLancarConta]);
   const categoriasReceita = useMemo(() => {
-    const plano = configFilial.planoContasReceitas;
-    const lista = Array.isArray(plano) ? plano.map(String) : typeof plano === 'string' ? plano.split('\n') : [];
-    const limpas = lista.map((c) => c.trim()).filter(Boolean);
+    // Plano salvo + as pre-definidas dos lancamentos automaticos (28/11/2026).
+    const limpas = planoEfetivo(configFilial).receitas;
     return limpas.length > 0 ? limpas : CATEGORIAS_RECEITA_PADRAO;
   }, [configFilial]);
   // Formas de pagamento "Usa" da filial: o recebimento acompanha a venda (16/10/2026).

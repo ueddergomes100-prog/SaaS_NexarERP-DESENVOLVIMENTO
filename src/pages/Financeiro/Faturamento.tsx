@@ -50,6 +50,8 @@ const Faturamento: React.FC = () => {
 
   // Plano de contas (28/11/2026): as categorias "So' informa" saem do lucro, num bloco a parte.
   const [soInforma, setSoInforma] = useState<string[]>([]);
+  // Lancamentos automaticos do plano de contas (28/11/2026): categorias de venda por forma no DRE.
+  const [vinculosPlanoContas, setVinculosPlanoContas] = useState<unknown>(undefined);
   useEffect(() => {
     if (!tenantId) return;
     let cancelado = false;
@@ -57,16 +59,17 @@ const Faturamento: React.FC = () => {
       .then((snap) => {
         const lista = snap.exists() ? snap.data().planoContasSoInforma : null;
         if (!cancelado) setSoInforma(Array.isArray(lista) ? lista.map(String) : []);
+        if (!cancelado) setVinculosPlanoContas(snap.exists() ? snap.data().vinculosPlanoContas : undefined);
       })
       .catch((erro) => console.error('Faturamento & DRE: não leu o plano de contas.', erro));
     return () => { cancelado = true; };
   }, [tenantId]);
 
   // Somente lancamentos pagos do ano selecionado; mesma conta do relatorio.
-  const resumo = useMemo(() => calcularFaturamentoAnual(transacoes, anoFiltro, undefined, { soInforma }), [transacoes, anoFiltro, soInforma]);
+  const resumo = useMemo(() => calcularFaturamentoAnual(transacoes, anoFiltro, undefined, { soInforma, vinculosPlanoContas }), [transacoes, anoFiltro, soInforma, vinculosPlanoContas]);
   const documento = useMemo<DocumentoRelatorioSemEmpresa>(
-    () => montarDocumentoFaturamentoAnual(transacoes, anoFiltro, undefined, { soInforma }),
-    [transacoes, anoFiltro, soInforma],
+    () => montarDocumentoFaturamentoAnual(transacoes, anoFiltro, undefined, { soInforma, vinculosPlanoContas }),
+    [transacoes, anoFiltro, soInforma, vinculosPlanoContas],
   );
 
   const receitaBruta = fromCents(resumo.receitaBrutaCentavos);

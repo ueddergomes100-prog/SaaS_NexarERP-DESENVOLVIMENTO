@@ -24,6 +24,7 @@ const { descompactarXml } = require('../domain/xmlCompactoDomain');
 const { usesCsosn, DEFAULT_REGIME_TRIBUTARIO } = require('../domain/fiscalDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
+const { categoriaDoEventoDaFilial } = require('./planoDeContas');
 
 class ErroDevolucaoCompra extends Error {
   constructor(status, message) {
@@ -54,6 +55,8 @@ const registrar = async ({ user, tenantId, corpo }) => {
   const notaRef = db.collection('notas_fiscais_entrada').doc(pedido.notaEntradaId);
   const devolucaoRef = db.collection(COLECAO).doc();
   const hoje = getDateInputInTimeZone();
+  // Plano de contas (28/11/2026): vinculo "Devolucao de compra ao fornecedor".
+  const categoriaDaDevolucao = await categoriaDoEventoDaFilial(tenantId, 'devolucao_compra');
 
   return db.runTransaction(async (tx) => {
     // ---------------- LEITURAS ----------------
@@ -137,7 +140,7 @@ const registrar = async ({ user, tenantId, corpo }) => {
     if (contaReceberRef) {
       tx.set(contaReceberRef, {
         descricao: `DEVOLUÇÃO DE COMPRA ${descricaoNota}`,
-        categoria: 'Devolução de Compra',
+        categoria: categoriaDaDevolucao,
         tipo: 'entrada',
         status: 'Pendente',
         valor: financeiro.aReceberCentavos / 100,

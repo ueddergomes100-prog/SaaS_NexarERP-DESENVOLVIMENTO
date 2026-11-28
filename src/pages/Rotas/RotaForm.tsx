@@ -7,6 +7,7 @@ import { createAuditLog } from '../../services/logService';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePodePermissao } from '../../hooks/usePodePermissao';
 import { PERMISSAO_OPERACOES } from '../../utils/permissoesNovasDomain';
+import { categoriaDoEvento } from '../../utils/vinculosPlanoContasDomain';
 import { hasTenantFullAccess } from '../../utils/roles';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
 import CampoComSugestoes from '../../components/common/CampoComSugestoes';
@@ -74,6 +75,7 @@ const RotaForm: React.FC = () => {
 
   // Tipos de despesa que a empresa cadastrou (configuracoes/{tenantId}.tiposDespesaRota).
   const [tiposPersonalizados, setTiposPersonalizados] = useState<string[]>([]);
+  const [categoriaDaRota, setCategoriaDaRota] = useState<string>(() => categoriaDoEvento({}, 'despesas_rota'));
   const [gerenciandoTipos, setGerenciandoTipos] = useState(false);
   const [novoTipo, setNovoTipo] = useState('');
   const [salvandoTipos, setSalvandoTipos] = useState(false);
@@ -85,6 +87,8 @@ const RotaForm: React.FC = () => {
     getDoc(doc(db, 'configuracoes', tenantId))
       .then((snap) => {
         const lista = snap.exists() ? snap.data().tiposDespesaRota : [];
+        // Plano de contas (28/11/2026): vinculo "Despesas de rota (romaneio)".
+        setCategoriaDaRota(categoriaDoEvento(snap.exists() ? snap.data() : {}, 'despesas_rota'));
         setTiposPersonalizados(Array.isArray(lista) ? lista.map(normalizarTipoPersonalizado).filter(Boolean) : []);
       })
       .catch((erro) => console.error('Erro ao carregar os tipos de despesa da rota:', erro));
@@ -246,7 +250,7 @@ const RotaForm: React.FC = () => {
           data: rota.data,
           dataPagamento: rota.data,
           valor: Number(despesa.valor) || 0,
-          categoria: CATEGORIA_DESPESA_ROTA,
+          categoria: categoriaDaRota,
           // O dinheiro ja saiu (o motorista pagou na estrada), mas nao saiu do
           // caixa da loja -- por isso Paga e sem movimento de caixa fisico.
           status: 'Paga',
@@ -474,7 +478,7 @@ const RotaForm: React.FC = () => {
           )}
 
           <p style={{ marginTop: '16px', marginBottom: 0, fontSize: '12.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Ao salvar, cada despesa vira um lançamento em <strong>{CATEGORIA_DESPESA_ROTA}</strong>, já como paga — o dinheiro
+            Ao salvar, cada despesa vira um lançamento em <strong>{categoriaDaRota}</strong>, já como paga — o dinheiro
             saiu na viagem. Não movimenta o caixa da loja.
           </p>
         </div>

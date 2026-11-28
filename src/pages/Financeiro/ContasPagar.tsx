@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { painelDoContasAPagar } from '../../utils/painelContasPagarDomain';
+import { planoEfetivo } from '../../utils/vinculosPlanoContasDomain';
 import './ContasPagarVisual.css';
 import { collection, query, where, doc, getDoc, getDocs } from 'firebase/firestore';
 import { db } from '../../services/firebase';
@@ -268,9 +269,9 @@ const ContasPagar: React.FC = () => {
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         if (configSnap.exists()) {
           const data = configSnap.data();
-          if (data.planoContasDespesas) {
-            setCategoriasDespesa(Array.isArray(data.planoContasDespesas) ? data.planoContasDespesas : data.planoContasDespesas.split('\n').filter((c: string) => c.trim() !== ''));
-          }
+          // Plano salvo + as pre-definidas dos lancamentos automaticos (28/11/2026).
+          const despesas = planoEfetivo(data).despesas;
+          if (despesas.length > 0) setCategoriasDespesa(despesas);
         }
       } catch (err) {
         console.error("Erro ao buscar plano de contas", err);

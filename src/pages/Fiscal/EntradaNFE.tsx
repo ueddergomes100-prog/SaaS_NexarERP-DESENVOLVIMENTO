@@ -7,6 +7,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
 import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
+import { categoriaDoEvento, planoEfetivo } from '../../utils/vinculosPlanoContasDomain';
 import { escaparHtml, showSuccess, showError, showWarning, NexusSwal } from '../../utils/alerts';
 import ClientAutocomplete from '../../components/common/ClientAutocomplete';
 import { useTenantCollection } from '../../hooks/useTenantCollection';
@@ -252,7 +253,10 @@ const EntradaNFE: React.FC = () => {
   // CFOP escolhido para aplicar em todos os itens de uma vez (07/11/2026).
   const [cfopParaTodos, setCfopParaTodos] = useState('');
   const { desativados: cfopsDesativados } = useCfopsDesativados();
-  const [categoriaDespesa, setCategoriaDespesa] = useState<string>(CATEGORIAS_DE_COMPRA[0]);
+  const [categoriaDespesa, setCategoriaDespesa] = useState<string>(() => categoriaDoEvento({}, 'compra_mercadoria'));
+  // Vinculos do plano de contas (28/11/2026): categoria padrao da compra e do frete.
+  const [categoriaDaCompraPadrao, setCategoriaDaCompraPadrao] = useState<string>(() => categoriaDoEvento({}, 'compra_mercadoria'));
+  const [categoriaDoFrete, setCategoriaDoFrete] = useState<string>(() => categoriaDoEvento({}, 'frete'));
   // Plano de contas de despesas da empresa (Configuracoes); vazio = lista padrao de compras.
   const [categoriasDaEmpresa, setCategoriasDaEmpresa] = useState<string[]>([]);
   const [formaPrevista, setFormaPrevista] = useState('Boleto');
@@ -457,14 +461,14 @@ const EntradaNFE: React.FC = () => {
       try {
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         setRegimeTributario((configSnap.data()?.regimeTributario ?? DEFAULT_REGIME_TRIBUTARIO) as RegimeTributario);
-        const plano = configSnap.data()?.planoContasDespesas;
-        const listaDoPlano: string[] = Array.isArray(plano) ? plano : (typeof plano === 'string' ? plano.split(String.fromCharCode(10)) : []);
-        const categoriasLimpas = listaDoPlano.map((c) => String(c).trim()).filter(Boolean);
+        // Plano de contas (28/11/2026): plano salvo + pre-definidas; compra e frete pelos vinculos.
+        const config = configSnap.data() || {};
+        const categoriasLimpas = planoEfetivo(config).despesas;
         setCategoriasDaEmpresa(categoriasLimpas);
-        if (categoriasLimpas.length > 0) {
-          const preferida = categoriasLimpas.find((c) => c.toUpperCase() === CATEGORIAS_DE_COMPRA[0]) ?? categoriasLimpas[0];
-          setCategoriaDespesa(preferida);
-        }
+        const daCompra = categoriaDoEvento(config, 'compra_mercadoria');
+        setCategoriaDaCompraPadrao(daCompra);
+        setCategoriaDoFrete(categoriaDoEvento(config, 'frete'));
+        setCategoriaDespesa(daCompra);
       } catch (err) {
         console.error("Erro ao carregar regime tributário:", err);
       }
@@ -1048,7 +1052,7 @@ const EntradaNFE: React.FC = () => {
         setModoPagamento('prazo');
         setParcelas(parcelasIniciais(nota.duplicatas, dataEmissao, nota.totais.total));
         setParcelasAceitas(false);
-        setCategoriaDespesa(CATEGORIAS_DE_COMPRA[0]);
+        setCategoriaDespesa(categoriaDaCompraPadrao);
         setFormaPrevista(({ '01': 'Dinheiro', '02': 'Cheque', '03': 'Cartão', '04': 'Cartão', '14': 'Boleto', '15': 'Boleto', '16': 'Transferência', '17': 'PIX', '18': 'Transferência' } as Record<string, string>)[nota.pagamentos[0]?.forma ?? ''] ?? 'Boleto');
         setDestinoPagamento('caixa');
         setBancoId('');
@@ -1729,7 +1733,7 @@ const EntradaNFE: React.FC = () => {
             descricao: descricaoDoTituloDeFrete(parsedData.numeroNF, { ...frete, transportadoraNome: credorFrete.nome }),
             data: vencimentoDoFrete(frete, parsedData.dataEmissao),
             valor: frete.valor,
-            categoria: 'FRETES',
+            categoria: categoriaDoFrete,
             status: 'Pendente',
             tipo: 'saida',
             fornecedorId: credorFrete.id,

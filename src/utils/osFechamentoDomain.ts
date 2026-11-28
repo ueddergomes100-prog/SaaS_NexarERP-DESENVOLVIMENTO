@@ -388,6 +388,8 @@ export interface DadosDoTituloDaOs {
   mecanicoId: string;
   usuarioId: string;
   tenantId: string;
+  /** Categoria do plano de contas (vinculo "Ordem de servico", 28/11/2026). Sem ela: "Servicos". */
+  categoria?: string;
 }
 
 /** Mesmo lancamento que a tela sempre gravou para cada pagamento da OS (sem metadados). */
@@ -395,7 +397,7 @@ export const camposDoTituloDaOs = (p: PaymentRecord, args: DadosDoTituloDaOs): R
   const parcela = p.cartao?.numero ? ` (Parcela ${p.cartao.numero}/${p.cartao.totalParcelas})` : '';
   return {
     descricao: `Recebimento OS #${args.numeroOS || args.osId.substring(0, 6).toUpperCase()} - ${p.formaPagamento}${parcela}`,
-    categoria: 'Serviços',
+    categoria: args.categoria || 'Serviços',
     valor: p.valor,
     valorCentavos: p.valorCentavos,
     valorBruto: p.valor,
@@ -482,6 +484,8 @@ export interface EntradaDaFinalizacao {
   dataSaida: string;
   /** Pagamentos ja' normalizados e explodidos (normalizePayments + explodeInstallmentPaymentRecords). */
   pagamentos: PaymentRecord[];
+  /** Categoria dos titulos (vinculosPlanoContasDomain: evento 'os'). */
+  categoria?: string;
   /** Lotes por linha de peca (chave = indice da peca), ja' conferidos por quem grava. */
   lotesPorLinha: Record<string, LoteUsado[]>;
   mecanico: PerfilDoMecanico | null;
@@ -609,6 +613,7 @@ export const planoDaFinalizacaoDaOs = (e: EntradaDaFinalizacao): { erro: string 
     mecanicoId,
     usuarioId: e.usuarioId,
     tenantId: e.tenantId,
+    ...(e.categoria ? { categoria: e.categoria } : {}),
   };
   return {
     plano: {

@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { avisarSemPermissao, usePodePermissao } from '../../hooks/usePodePermissao';
 import { PERMISSAO_ESTOQUE } from '../../utils/permissoesNovasDomain';
+import { categoriaDoEvento } from '../../utils/vinculosPlanoContasDomain';
 import { showError, showSuccess } from '../../utils/alerts';
 import { sincronizarCustosSemFalhar } from '../../services/custoProducaoService';
 import type { MudancaDeCusto } from '../../utils/custoProducaoDomain';
@@ -127,6 +128,7 @@ const NotaAvulsaForm: React.FC = () => {
   /** XML de outro CNPJ que deu origem a nota (25/11/2026). */
   const [xmlOrigem, setXmlOrigem] = useState<OrigemXmlDaNota | null>(null);
   const [cnpjDaEmpresa, setCnpjDaEmpresa] = useState('');
+  const [categoriaDaCompra, setCategoriaDaCompra] = useState<string>(() => categoriaDoEvento({}, 'compra_mercadoria'));
 
   useEffect(() => {
     if (!tenantId) return;
@@ -178,6 +180,8 @@ const NotaAvulsaForm: React.FC = () => {
       (snap) => {
         setVenderPorEmbalagem(snap.data()?.venderPorEmbalagem ?? DEFAULT_VENDER_POR_EMBALAGEM);
         setCnpjDaEmpresa(String(snap.data()?.cnpj || ''));
+        // Plano de contas (28/11/2026): vinculo "Compra de mercadoria".
+        setCategoriaDaCompra(categoriaDoEvento(snap.data() || {}, 'compra_mercadoria'));
       },
       (error) => console.error('Erro ao carregar configuração de embalagem:', error),
     );
@@ -567,7 +571,7 @@ const NotaAvulsaForm: React.FC = () => {
           const [{ ref: transacaoRef, valorCentavos, data }] = transacoesParaCriar;
           transaction.set(transacaoRef, {
             descricao: `Nota Avulsa #${numeroFinal} - ${fornecedorSelecionado.nome}`,
-            categoria: 'FORNECEDORES DE PEÇAS',
+            categoria: categoriaDaCompra,
             valor: valorCentavos / 100,
             valorCentavos,
             tipo: 'saida',
@@ -590,7 +594,7 @@ const NotaAvulsaForm: React.FC = () => {
             if (!parcela) return;
             transaction.set(ref, {
               descricao: `Nota Avulsa #${numeroFinal} - ${fornecedorSelecionado.nome}${sufixoParcela(index)}`,
-              categoria: 'FORNECEDORES DE PEÇAS',
+              categoria: categoriaDaCompra,
               tipo: 'saida',
               // Forma DA PARCELA (24/11/2026): em aberto, ou ja' paga (debito do banco logo abaixo).
               ...camposDoTituloDaParcela(parcela, { formaPadrao: formaPadraoParcelas, bancos }),

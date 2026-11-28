@@ -111,7 +111,7 @@ export const avisoDosBlocosTravados = (blocosTravados: readonly string[]): strin
  * permissao protege na tela. O servidor confere de novo (configuracoesGerais.js).
  */
 export const CAMPOS_GERAIS_DA_PERMISSAO: Readonly<Record<string, readonly string[]>> = {
-  [CA.planoContas]: ['planoContasReceitas', 'planoContasDespesas', 'planoContasSoInforma'],
+  [CA.planoContas]: ['planoContasReceitas', 'planoContasDespesas', 'planoContasSoInforma', 'vinculosPlanoContas'],
   [CA.cashbackConfigurar]: ['cashback'],
   [A.configGerais]: [
     'validarCadastroProduto', 'modoValidacaoCliente', 'trabalhaComLimiteCredito', 'transferenciaSemNota',

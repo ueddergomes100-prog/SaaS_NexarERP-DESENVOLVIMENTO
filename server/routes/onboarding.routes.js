@@ -681,8 +681,15 @@ router.post('/complete', limiteCompletePorIp, async (req, res) => {
         cidade: data.cnpjData?.municipio || '',
         uf: data.cnpjData?.uf || '',
         cep: data.cnpjData?.cep || '',
-        planoContasReceitas: ['Servicos', 'Venda de Produtos', 'Outras Receitas'],
-        planoContasDespesas: ['Aluguel', 'Agua/Luz/Internet', 'Salarios', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutencao', 'Outros'],
+        // Plano de contas (28/11/2026): ja' nasce com as categorias dos lancamentos automaticos
+        // (venda por forma, juros, tarifa, compra, frete...) -- vinculosPlanoContasDomain.
+        ...(() => {
+          const plano = require('../domain/vinculosPlanoContasDomain').planoEfetivo({
+            planoContasReceitas: ['Serviços', 'Outras Receitas'],
+            planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Marketing', 'Manutenção', 'Outros'],
+          });
+          return { planoContasReceitas: plano.receitas, planoContasDespesas: plano.despesas };
+        })(),
         tenantId: createdUid,
         createdAt: now
       });

@@ -62,6 +62,8 @@ const MODULOS = [
   'src/utils/cobrancaEmBoletoDomain.ts',
   // Renegociacao de parcelas a receber (15/10/2026).
   'src/utils/renegociacaoDomain.ts',
+  // Lancamentos automaticos ligados ao plano de contas (28/11/2026).
+  'src/utils/vinculosPlanoContasDomain.ts',
   // Configuracoes Gerais x da filial (15/10/2026): campos que valem para o grupo inteiro.
   'src/utils/configuracoesGeraisDomain.ts',
   // Trava de edicao (15/10/2026): um documento aberto por vez.

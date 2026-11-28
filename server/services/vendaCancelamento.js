@@ -14,6 +14,7 @@
  */
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
+const vpc = require('../domain/vinculosPlanoContasDomain');
 const { configFinanceiraDaEmpresa } = require('../domain/vendaFechamentoDomain');
 const cv = require('../domain/cancelamentoVendaDomain');
 const { lotesQueVoltamNoCancelamento } = require('../domain/loteRetornoDomain');
@@ -418,7 +419,8 @@ const alterarPagamento = async ({ user, tenantId, corpo }) => {
       const parcela = p.cartao && p.cartao.numero ? ` (Parcela ${p.cartao.numero}/${p.cartao.totalParcelas})` : '';
       tx.set(db.collection('transacoes').doc(p.transactionId), {
         descricao: `Venda Direta #${numeroPedido} - ${p.formaPagamento}${parcela}`,
-        categoria: 'Venda de Peças',
+        // Plano de contas (28/11/2026): categoria da venda na forma do pagamento.
+        categoria: vpc.categoriaDaVenda(config, p.formaPagamento),
         valor: p.valor,
         valorCentavos: p.valorCentavos,
         valorBruto: p.valor,

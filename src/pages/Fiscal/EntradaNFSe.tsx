@@ -6,6 +6,7 @@ import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTabs } from '../../contexts/TabsContext';
 import { escaparHtml, NexusSwal, showError } from '../../utils/alerts';
+import { planoEfetivo } from '../../utils/vinculosPlanoContasDomain';
 import { buildDocumentMetadata, buildDocumentUpdateMetadata } from '../../utils/documentMetadata';
 import { getDateInputInTimeZone } from '../../utils/dateTime';
 import { compactarXml } from '../../utils/xmlCompactoDomain';
@@ -96,9 +97,8 @@ const EntradaNFSe: React.FC = () => {
       try {
         const config = (await getDoc(doc(db, 'configuracoes', tenantId))).data() || {};
         setCnpjEmpresa(String(config.cnpj || ''));
-        const plano = config.planoContasDespesas;
-        const lista: string[] = Array.isArray(plano) ? plano : (typeof plano === 'string' ? plano.split(String.fromCharCode(10)) : []);
-        const limpas = lista.map((c) => String(c).trim()).filter(Boolean);
+        // Plano salvo + as pre-definidas dos lancamentos automaticos (28/11/2026).
+        const limpas = planoEfetivo(config).despesas;
         // Plano da empresa sem categoria de servico: oferece "SERVICOS DE TERCEIROS"
         // junto (senao a nota caia na primeira do plano, ex. "Aluguel").
         const deServico = limpas.find((c) => /servi|terceir|manuten|honor/i.test(c));

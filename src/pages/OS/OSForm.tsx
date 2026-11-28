@@ -145,6 +145,7 @@ import {
   type EmbalagemDeOrigem,
 } from '../../utils/embalagemDomain';
 import { cancelarOsPelaTela, finalizarOsPelaTela, reabrirOsPelaTela } from '../../services/osFechamentoService';
+import { categoriaDoEvento } from '../../utils/vinculosPlanoContasDomain';
 import { cancelarOsNoServidor, finalizarOsNoServidor, reabrirOsNoServidor, OsServidorError } from '../../services/osServidorService';
 import { STATUS_PEDIR_DE_NOVO } from '../../utils/conferenciaDescontoDomain';
 import { DESLOCAMENTO_VAZIO, aplicarDeslocamentoNosServicos, identificacaoCurta, kmDoDeslocamento, parseDeslocamento, temDeslocamento, validarIdentificacaoEquipamento, valorDeslocamentoCentavos, type Deslocamento } from '../../utils/oficinaDomain';
@@ -325,6 +326,8 @@ const OSForm: React.FC = () => {
    * resolveComissaoPercentual em financeDomain.ts. */
   const [comissaoPadraoPecas, setComissaoPadraoPecas] = useState<number | undefined>(undefined);
   const [comissaoPadraoServicos, setComissaoPadraoServicos] = useState<number | undefined>(undefined);
+  // Categoria dos titulos da OS no plano de contas (28/11/2026).
+  const [categoriaDaOs, setCategoriaDaOs] = useState<string>(() => categoriaDoEvento({}, 'os'));
 
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingOS, setIsFetchingOS] = useState(isEditing);
@@ -577,6 +580,7 @@ const OSForm: React.FC = () => {
           setParametrosVenda(parseParametrosVenda(config.parametrosVenda));
           setComissaoPadraoPecas(typeof config.comissaoPadraoPecas === 'number' ? config.comissaoPadraoPecas : undefined);
           setComissaoPadraoServicos(typeof config.comissaoPadraoServicos === 'number' ? config.comissaoPadraoServicos : undefined);
+          setCategoriaDaOs(categoriaDoEvento(config, 'os'));
           const configuredTerms = parseCreditTerms(config.diasCrediario);
           const defaultTermDays = configuredTerms[0] || 30;
           const creditSettlementDays = config.prazoRecebimentoCartaoCreditoDias ?? 30;
@@ -1743,6 +1747,7 @@ const OSForm: React.FC = () => {
           percentualDaPeca: (pecaId) => pecasEstoque.find((p) => p.id === pecaId)?.comissaoPercentual,
           comissaoPadraoServicos,
           comissaoPadraoPecas,
+          categoriaDaOs,
           guardaDoCredito: osEhAprazo && clienteIdParaSalvar ? { clienteId: clienteIdParaSalvar, versaoNaChecagem: creditoVersaoNaChecagem } : null,
         });
       statusGravadoRef.current = STATUS_OS_FINALIZADA;

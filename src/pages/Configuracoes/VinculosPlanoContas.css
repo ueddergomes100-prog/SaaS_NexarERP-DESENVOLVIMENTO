@@ -1,0 +1,92 @@
+/* Plano de Contas > Lancamentos automaticos (28/11/2026). Regra em src/utils/vinculosPlanoContasDomain.ts. */
+
+.vinculos-plano {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-color);
+}
+
+.vinculos-plano__cabeca h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-purple);
+}
+
+.vinculos-plano__cabeca p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.vinculos-plano__grupos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+  gap: 14px;
+}
+
+.vinculos-plano__grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-tertiary);
+}
+
+.vinculos-plano__grupo h5 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.vinculos-plano__linha {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.vinculos-plano__linha label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.vinculos-plano__linha select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Ponto da natureza: verde entra dinheiro, vermelho sai (mesmas cores das listas acima). */
+.vinculos-plano__tipo {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.vinculos-plano__tipo.is-receita { background-color: #10b981; }
+.vinculos-plano__tipo.is-despesa { background-color: #ef4444; }
+
+.vinculos-plano__fixos {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}

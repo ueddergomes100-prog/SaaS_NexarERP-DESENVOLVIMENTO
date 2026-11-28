@@ -324,6 +324,7 @@ exports.PERMISSAO_DO_CAMPO_GERAL = {
     planoContasReceitas: exports.PERMISSAO_CONFIG_AREAS.planoContas,
     planoContasDespesas: exports.PERMISSAO_CONFIG_AREAS.planoContas,
     planoContasSoInforma: exports.PERMISSAO_CONFIG_AREAS.planoContas,
+    vinculosPlanoContas: exports.PERMISSAO_CONFIG_AREAS.planoContas,
     cashback: exports.PERMISSAO_CONFIG_AREAS.cashbackConfigurar,
 };
 const permissaoDoCampoGeral = (campo) => (exports.PERMISSAO_DO_CAMPO_GERAL[campo] || exports.PERMISSAO_ADMINISTRACAO.configGerais);

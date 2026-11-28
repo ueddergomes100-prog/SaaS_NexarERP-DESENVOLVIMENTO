@@ -353,6 +353,7 @@ export const PERMISSAO_DO_CAMPO_GERAL: Readonly<Record<string, string>> = {
   planoContasReceitas: PERMISSAO_CONFIG_AREAS.planoContas,
   planoContasDespesas: PERMISSAO_CONFIG_AREAS.planoContas,
   planoContasSoInforma: PERMISSAO_CONFIG_AREAS.planoContas,
+  vinculosPlanoContas: PERMISSAO_CONFIG_AREAS.planoContas,
   cashback: PERMISSAO_CONFIG_AREAS.cashbackConfigurar,
 };
 

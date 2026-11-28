@@ -33,6 +33,13 @@ const {
 } = require('../domain/financeDomain');
 const { montarBaixaManual, validarDataBaixa } = require('../domain/baixaFinanceiraDomain');
 const { CATEGORIA_DO_ACRESCIMO, CATEGORIA_DO_DESCONTO } = require('../domain/ajustesDaBaixaDomain');
+const vpc = require('../domain/vinculosPlanoContasDomain');
+
+/** Configuracao da filial para o plano de contas (28/11/2026). Ler antes de qualquer escrita da transacao. */
+const lerConfigDoPlano = async (tx, tenantId) => {
+  const snap = await tx.get(db.collection('configuracoes').doc(tenantId));
+  return snap.exists ? (snap.data() || {}) : {};
+};
 const { centavosParaAOrigem } = require('../domain/alteracaoValorTituloDomain');
 const { recusarSeRenegociada, lerRenegociacaoDoTitulo, quitarOrigensSeRenegociacaoPaga } = require('./renegociacaoOrigem');
 const cashback = require('./cashback');
@@ -364,6 +371,7 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
   await db.runTransaction(async (tx) => {
     const titulo = await lerTitulo(tx, tenantId, { transacaoId, tipo: 'entrada' });
     const dados = titulo.dados;
+    const config = await lerConfigDoPlano(tx, tenantId);
     if (dados.status === 'Paga') {
       resumo.jaEstavaPago = true;
       return;
@@ -443,7 +451,8 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
     if (acrescimoRef) {
       tx.set(acrescimoRef, lancamentoDaDiferenca({
         tipo: 'entrada',
-        categoria: pagoAMaisDoSistemaAnterior ? 'Valor pago a mais' : CATEGORIA_DO_ACRESCIMO.entrada,
+        // Plano de contas (28/11/2026): vinculos "Boleto pago a mais" e "Juros e multa recebidos".
+        categoria: pagoAMaisDoSistemaAnterior ? vpc.categoriaDoEvento(config, 'pago_a_mais') : (vpc.categoriaDoEvento(config, 'juros_recebidos') || CATEGORIA_DO_ACRESCIMO.entrada),
         descricao: pagoAMaisDoSistemaAnterior
           ? `Valor pago a mais — ${resumo.descricao} (o boleto do sistema anterior valia ${reaisSimples(valorNoBancoCentavos)}; parte já tinha sido paga lá)`
           : `Juros e multa — ${resumo.descricao}`,
@@ -455,7 +464,7 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
     if (descontoRef) {
       tx.set(descontoRef, lancamentoDaDiferenca({
         tipo: 'saida',
-        categoria: CATEGORIA_DO_DESCONTO.entrada,
+        categoria: vpc.categoriaDoEvento(config, 'descontos_concedidos') || CATEGORIA_DO_DESCONTO.entrada,
         descricao: `Desconto concedido — ${resumo.descricao}`,
         valorCentavos: aMenosCentavos,
         ligacao: { descontoDaTransacaoId: transacaoId },
@@ -465,7 +474,7 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
     if (tarifaRef) {
       tx.set(tarifaRef, lancamentoDaDiferenca({
         tipo: 'saida',
-        categoria: CATEGORIA_TARIFA_BANCARIA,
+        categoria: vpc.categoriaDoEvento(config, 'tarifa_bancaria') || CATEGORIA_TARIFA_BANCARIA,
         descricao: `Tarifa do banco — ${resumo.descricao}`,
         valorCentavos: tarifaCentavos,
         ligacao: { tarifaDaTransacaoId: transacaoId },
@@ -758,6 +767,7 @@ const registrarBaixaPorPrazo = async ({ user, tenantId, corpo, hoje }) => {
   await db.runTransaction(async (tx) => {
     const titulo = await lerTitulo(tx, tenantId, { transacaoId, tipo: 'entrada' });
     const dados = titulo.dados;
+    const config = await lerConfigDoPlano(tx, tenantId);
     resumo.descricao = String(dados.descricao || transacaoId);
     if (!dados.boleto) throw new ErroBaixa(400, `O título "${resumo.descricao}" não é um boleto emitido pelo sistema.`);
     if (dados.status === 'Paga') { resumo.jaPago = true; return; }
@@ -779,7 +789,7 @@ const registrarBaixaPorPrazo = async ({ user, tenantId, corpo, hoje }) => {
         tipo: 'saida',
         status: 'Paga',
         descricao: `Tarifa do banco (baixa por prazo) — ${resumo.descricao}`,
-        categoria: CATEGORIA_TARIFA_BANCARIA,
+        categoria: vpc.categoriaDoEvento(config, 'tarifa_bancaria') || CATEGORIA_TARIFA_BANCARIA,
         valor: tarifaPedida / 100,
         valorCentavos: tarifaPedida,
         data: dataBaixa,

@@ -34,6 +34,7 @@ const {
   transactionDueDateInput,
   transactionNetCents,
 } = require('../domain/financeDomain');
+const vpc = require('../domain/vinculosPlanoContasDomain');
 const { acrescimoPorAtraso, parseParametrosVenda } = require('../domain/parametrosVendaDomain');
 const {
   montarBaixaManual,
@@ -173,13 +174,19 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     recusarSeRenegociada(dados);
 
     const origem = tipo === 'entrada' ? await lerOrigem(tx, tenantId, dados, 'recebido') : { ref: null, dados: null };
+    // Configuracao da filial (lida uma vez, antes das escritas): juros padrao e plano de contas (28/11/2026).
+    const configSnap = await tx.get(db.collection('configuracoes').doc(tenantId));
+    const config = configSnap.exists ? (configSnap.data() || {}) : {};
+    // Plano de contas (decisao do dono, 28/11/2026): conta de VENDA recebida numa forma
+    // passa para a categoria da venda nessa forma (a prazo pago no Pix = "Venda no Pix").
+    const categoriaRecebida = tipo === 'entrada' ? vpc.categoriaNaBaixa(config, dados.categoria, formaPagamento) : null;
+    const trocaCategoria = Boolean(categoriaRecebida) && categoriaRecebida !== String(dados.categoria || '');
     // Item 15 (decisao do dono, 25/11/2026): Contas a Receber sem a permissao
     // "alterar juros e multa" -- juros e multa ficam no padrao da filial, nunca
     // menos (nenhum funcionario deixa de cobrar). Mesma conta da tela
     // (ContasReceber.tsx: acrescimoPorAtraso sobre o liquido e o vencimento).
     if (pedido.jurosNoPadrao && tipo === 'entrada') {
-      const config = await tx.get(db.collection('configuracoes').doc(tenantId));
-      const parametros = parseParametrosVenda(config.exists ? (config.data() || {}).parametrosVenda : undefined);
+      const parametros = parseParametrosVenda(config.parametrosVenda);
       const padrao = acrescimoPorAtraso(parametros, transactionNetCents(dados), transactionDueDateInput(dados), dataPagamento)
         || { jurosCentavos: 0, multaCentavos: 0 };
       if (ajustes.jurosCentavos !== padrao.jurosCentavos || ajustes.multaCentavos !== padrao.multaCentavos) {
@@ -296,7 +303,8 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
     if (acrescimoRef) {
       tx.set(acrescimoRef, lancamentoDaBaixa({
         tipoDoLancamento: tipo,
-        categoria: CATEGORIA_DO_ACRESCIMO[tipo],
+        // Plano de contas (28/11/2026): vinculo "Juros e multa recebidos/pagos" (padrao = nome de sempre).
+        categoria: vpc.categoriaDoEvento(config, tipo === 'entrada' ? 'juros_recebidos' : 'juros_pagos') || CATEGORIA_DO_ACRESCIMO[tipo],
         descricao: `Juros e multa — ${resumo.descricao}`,
         valor: acrescimoCentavos,
         ligacao: { acrescimoDaTransacaoId: donoDosAjustes, jurosCentavos: ajustes.jurosCentavos, multaCentavos: ajustes.multaCentavos },
@@ -307,7 +315,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       tx.set(descontoRef, lancamentoDaBaixa({
         // Desconto e' o contrario do titulo: concedido no Receber (saida), obtido no Pagar (entrada).
         tipoDoLancamento: tipo === 'entrada' ? 'saida' : 'entrada',
-        categoria: CATEGORIA_DO_DESCONTO[tipo],
+        categoria: vpc.categoriaDoEvento(config, tipo === 'entrada' ? 'descontos_concedidos' : 'descontos_obtidos') || CATEGORIA_DO_DESCONTO[tipo],
         descricao: `${tipo === 'entrada' ? 'Desconto concedido' : 'Desconto obtido'} — ${resumo.descricao}`,
         valor: descontoCentavos,
         ligacao: { descontoDaTransacaoId: donoDosAjustes },
@@ -335,6 +343,7 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         status: 'Paga',
         descricao: `${resumo.descricao} — ${oQue}`,
         ...camposDaContaNoParcial(dados),
+        ...(trocaCategoria ? { categoria: categoriaRecebida } : {}),
         valor: fromCents(principalCentavos),
         valorCentavos: principalCentavos,
         data: dataPagamento,
@@ -431,6 +440,8 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
       status: 'Paga',
       formaPagamentoOriginal: dados.formaPagamentoOriginal || dados.formaPagamento || null,
       formaPagamento,
+      // Guarda a categoria de antes: o estorno devolve (28/11/2026).
+      ...(trocaCategoria ? { categoria: categoriaRecebida, categoriaAntesDaBaixa: String(dados.categoria || '') } : {}),
       valorCentavos,
       valor: fromCents(valorCentavos),
       dataPagamento,
@@ -629,6 +640,8 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
         // Sem forma antes da baixa (titulo importado): apaga a que a baixa
         // gravou, em vez de deixar "Pix" num titulo que ainda nao foi pago.
         formaPagamento: plano.formaAnterior ? plano.formaAnterior : apagar(),
+        // A baixa trocou a categoria pela da forma paga (28/11/2026): volta a de antes.
+        ...(dados.categoriaAntesDaBaixa ? { categoria: dados.categoriaAntesDaBaixa, categoriaAntesDaBaixa: apagar() } : {}),
         naturezaFinanceira: plano.naturezaAnterior,
         movimentaCaixaFisico: false,
         dataPagamento: apagar(),

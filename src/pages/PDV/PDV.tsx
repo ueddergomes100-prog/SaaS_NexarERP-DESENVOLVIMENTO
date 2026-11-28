@@ -20,6 +20,7 @@ import {
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { NexusSwal, showError, showSuccess, showWarning } from '../../utils/alerts';
+import { categoriaDaVenda, lerVinculos, type VinculosDoPlano } from '../../utils/vinculosPlanoContasDomain';
 import { conferirSaidaComReserva } from '../../services/reservaEstoqueService';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
 import { CAMINHO_INSTALACAO_CAIXA, CAMINHO_LOGIN_CAIXA, MODULO_DO_CAIXA, ehAppDoCaixa, nomeDoOperador, podeUsarFrenteDeCaixa } from '../../utils/frenteDeCaixaDomain';
@@ -234,6 +235,8 @@ const PDV: React.FC = () => {
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
   // Chave "Venda pelo servidor" da empresa (SuperAdmin) -- fatia 3c, 19/10/2026.
   const [vendaPeloServidor, setVendaPeloServidor] = useState(false);
+  // Lancamentos automaticos do plano de contas (28/11/2026).
+  const [vinculosDoPlano, setVinculosDoPlano] = useState<VinculosDoPlano>({});
   // "Nota" na Frente de Caixa (25/11/2026): caixa de marcar da filial.
   const [aPrazoNoCaixa, setAPrazoNoCaixa] = useState(false);
   // Modelo de impressao da venda (27/11/2026, Configuracoes da filial): cupom na bobina ou um modelo do Pedido de Venda.
@@ -509,6 +512,7 @@ const PDV: React.FC = () => {
         setClients(nextClients);
         setAllowNegativeStock(configData?.venderSemEstoque === true);
         setVendaPeloServidor(parseVendaPeloServidor(configData?.vendaPeloServidor));
+        setVinculosDoPlano(lerVinculos(configData?.vinculosPlanoContas));
         setAPrazoNoCaixa(parseAPrazoNaFrenteDeCaixa(configData?.aPrazoNaFrenteDeCaixa));
         setModeloImpressaoCaixa(modeloDeImpressaoDoCaixa(configData));
         setConfigBancoPadrao(parseConfigBancoPadrao(configData));
@@ -2256,7 +2260,8 @@ const PDV: React.FC = () => {
             : '';
           transaction.set(doc(db, 'transacoes', payment.transactionId), {
             descricao: `PDV #${finalNumeroPedido} - ${payment.formaPagamento}${parcelaLabel}`,
-            categoria: 'Venda de Peças',
+            // Plano de contas (28/11/2026): categoria da venda na forma ("Venda no Pix"...).
+            categoria: categoriaDaVenda({ vinculosPlanoContas: vinculosDoPlano }, payment.formaPagamento),
             valor: payment.valor,
             valorCentavos: payment.valorCentavos,
             valorBruto: payment.valor,

@@ -16,6 +16,8 @@ import EstadoVazio from '../../components/common/EstadoVazio';
 import { salvarConfiguracoesGerais } from '../../services/filialService';
 import { salvarModulosBloqueados } from '../../services/plataformaService';
 import { comNatureza, naturezaDaCategoria, ROTULO_NATUREZA, semCamposGerais, type NaturezaDaCategoria } from '../../utils/configuracoesGeraisDomain';
+import VinculosPlanoContas from './VinculosPlanoContas';
+import { lerVinculos, planoEfetivo, situacoesDaCategoria, type EventoFinanceiro, type VinculosDoPlano } from '../../utils/vinculosPlanoContasDomain';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
@@ -617,6 +619,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
     planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Tarifas bancárias', 'Outros'],
     planoContasSoInforma: [] as string[],
+    vinculosPlanoContas: {} as VinculosDoPlano,
     modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
     mostrarValorListaOS: DEFAULT_MOSTRAR_VALOR_LISTA_OS,
     mostrarResumoEstoque: DEFAULT_MOSTRAR_RESUMO_ESTOQUE,
@@ -725,10 +728,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               showError('Não foi possível carregar a chave da Spedy', 'A conexão falhou ao buscar a chave da integração fiscal já configurada. Recarregue a tela. Salvar aqui não apaga a chave, mas o campo pode aparecer vazio mesmo com uma chave já cadastrada.');
             }
           }
-          let receitas = data.planoContasReceitas || [];
-          if (typeof receitas === 'string') receitas = receitas.split('\n').filter((c: string) => c.trim() !== '');
-          let despesas = data.planoContasDespesas || [];
-          if (typeof despesas === 'string') despesas = despesas.split('\n').filter((c: string) => c.trim() !== '');
+          // Plano salvo + as categorias pre-definidas que faltam (lancamentos automaticos, 28/11/2026).
+          const { receitas, despesas } = planoEfetivo(data);
 
           // O que foi ENVIADO pra Spedy da ultima vez (gravado abaixo, depois de
           // sincronizar). Vazio = nunca sincronizou por aqui: o proximo salvar envia.
@@ -836,6 +837,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
             planoContasSoInforma: Array.isArray(data.planoContasSoInforma) ? data.planoContasSoInforma.map(String) : [],
+            vinculosPlanoContas: lerVinculos(data.vinculosPlanoContas),
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
             mostrarValorListaOS: parseMostrarValorListaOS(data.mostrarValorListaOS),
             mostrarResumoEstoque: parseMostrarResumoEstoque(data.mostrarResumoEstoque),
@@ -1091,6 +1093,14 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     });
   };
   const naturezaDe = (nome: string) => naturezaDaCategoria(nome, { despesas: formData.planoContasDespesas, soInforma: formData.planoContasSoInforma });
+  // Lancamentos automaticos (28/11/2026): categoria de cada situacao e quem esta' ligado a uma categoria.
+  const configDosVinculos = { vinculosPlanoContas: formData.vinculosPlanoContas };
+  const ligadaA = (nome: string) => situacoesDaCategoria(configDosVinculos, nome);
+  const trocarVinculo = (evento: EventoFinanceiro, categoria: string) => setFormData((prev) => ({
+    ...prev,
+    vinculosPlanoContas: { ...prev.vinculosPlanoContas, [evento]: categoria },
+  }));
+
   const seletorDeNatureza = (nome: string) => (
     <div role="group" aria-label={`O que "${nome}" faz no DRE`} style={{ display: 'inline-flex', borderRadius: '999px', border: '1px solid var(--border-color)', overflow: 'hidden', flexShrink: 0 }}>
       {(['soma', 'retira', 'informa'] as const).map((n) => {
@@ -1892,6 +1902,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
         planoContasReceitas: formData.planoContasReceitas,
         planoContasDespesas: formData.planoContasDespesas,
         planoContasSoInforma: formData.planoContasSoInforma,
+        vinculosPlanoContas: formData.vinculosPlanoContas,
         validarCadastroProduto: formData.validarCadastroProduto === true,
         modoValidacaoCliente: formData.modoValidacaoCliente,
         trabalhaComLimiteCredito: formData.trabalhaComLimiteCredito === true,
@@ -2823,9 +2834,23 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
                       <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1, minWidth: 0 }}>{cat}</span>
                       {seletorDeNatureza(cat)}
-                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, planoContasReceitas: prev.planoContasReceitas.filter((_, i) => i !== idx), planoContasSoInforma: prev.planoContasSoInforma.filter((c) => c !== cat) }))} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <X size={14} style={{ opacity: isEditingMode ? 1 : 0.5 }} />
-                      </button>
+                      {(() => {
+                        // Categoria ligada a um lancamento automatico nao sai do plano sem trocar o vinculo (28/11/2026).
+                        const ligacoes = ligadaA(cat);
+                        const travada = ligacoes.length > 0;
+                        return (
+                          <button
+                            type="button"
+                            aria-label={`Excluir ${cat}`}
+                            title={travada ? `Ligada a: ${ligacoes.join(', ')}. Troque em Lançamentos automáticos para excluir.` : undefined}
+                            onClick={() => setFormData(prev => ({ ...prev, planoContasReceitas: prev.planoContasReceitas.filter((_, i) => i !== idx), planoContasSoInforma: prev.planoContasSoInforma.filter((c) => c !== cat) }))}
+                            disabled={!isEditingMode || travada}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode && !travada ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          >
+                            <X size={14} style={{ opacity: isEditingMode && !travada ? 1 : 0.35 }} />
+                          </button>
+                        );
+                      })()}
                     </div>
                   ))}
                   {formData.planoContasReceitas.length === 0 && (
@@ -2858,15 +2883,41 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
                       <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1, minWidth: 0 }}>{cat}</span>
                       {seletorDeNatureza(cat)}
-                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, planoContasDespesas: prev.planoContasDespesas.filter((_, i) => i !== idx), planoContasSoInforma: prev.planoContasSoInforma.filter((c) => c !== cat) }))} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <X size={14} style={{ opacity: isEditingMode ? 1 : 0.5 }} />
-                      </button>
+                      {(() => {
+                        // Categoria ligada a um lancamento automatico nao sai do plano sem trocar o vinculo (28/11/2026).
+                        const ligacoes = ligadaA(cat);
+                        const travada = ligacoes.length > 0;
+                        return (
+                          <button
+                            type="button"
+                            aria-label={`Excluir ${cat}`}
+                            title={travada ? `Ligada a: ${ligacoes.join(', ')}. Troque em Lançamentos automáticos para excluir.` : undefined}
+                            onClick={() => setFormData(prev => ({ ...prev, planoContasDespesas: prev.planoContasDespesas.filter((_, i) => i !== idx), planoContasSoInforma: prev.planoContasSoInforma.filter((c) => c !== cat) }))}
+                            disabled={!isEditingMode || travada}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode && !travada ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          >
+                            <X size={14} style={{ opacity: isEditingMode && !travada ? 1 : 0.35 }} />
+                          </button>
+                        );
+                      })()}
                     </div>
                   ))}
                   {formData.planoContasDespesas.length === 0 && (
                     <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px 0' }}>Nenhuma categoria de despesa cadastrada.</p>
                   )}
                 </div>
+              </div>
+
+              {/* Lancamentos automaticos (28/11/2026): cada situacao em que o sistema lanca sozinho e a categoria dela. */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <VinculosPlanoContas
+                  vinculos={formData.vinculosPlanoContas}
+                  receitas={formData.planoContasReceitas}
+                  despesas={formData.planoContasDespesas}
+                  editavel={isEditingMode}
+                  formasOcultas={formData.formasPagamentoOcultas}
+                  onTrocar={trocarVinculo}
+                />
               </div>
 
               <div style={{ gridColumn: '1 / -1' }}>

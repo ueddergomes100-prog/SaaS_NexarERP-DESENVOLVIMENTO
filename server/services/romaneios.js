@@ -28,6 +28,7 @@ const {
 } = require('../domain/romaneioDomain');
 const { registrarLogNaTransacao } = require('./auditoria');
 const { CATEGORIA_DESPESA_ROTA, descricaoDaDespesaNoFinanceiro } = require('../domain/rotaDomain');
+const { categoriaDoEventoDaFilial } = require('./planoDeContas');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 
 /**
@@ -182,6 +183,8 @@ const romaneioDoCorpo = (gravado, corpo) => {
 const fecharRomaneio = async ({ user, id: idBruto, corpo, usuarioNome, agoraIso }) => {
   exigirRomaneio(user);
   const id = idValido(idBruto);
+  // Plano de contas (28/11/2026): vinculo "Despesas de rota (romaneio)".
+  const categoriaDaRota = await categoriaDoEventoDaFilial(user.tenantId, 'despesas_rota') || CATEGORIA_DESPESA_ROTA;
 
   return db.runTransaction(async (tx) => {
     const { ref, dados, romaneio: gravado } = await lerNaTransacao(tx, user, id);
@@ -233,7 +236,7 @@ const fecharRomaneio = async ({ user, id: idBruto, corpo, usuarioNome, agoraIso 
         const nova = db.collection('transacoes').doc();
         tx.set(nova, {
           ...camposDaTransacao(linha.despesa, final, titulo),
-          categoria: CATEGORIA_DESPESA_ROTA,
+          categoria: categoriaDaRota,
           // Mesmo desenho da tela Rotas e Despesas: o motorista ja' pagou na estrada, nao saiu do caixa.
           status: 'Paga',
           tipo: 'saida',

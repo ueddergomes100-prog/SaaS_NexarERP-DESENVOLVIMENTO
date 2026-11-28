@@ -22,11 +22,14 @@ exports.comNatureza = exports.naturezaDaCategoria = exports.ROTULO_NATUREZA = ex
 const clienteValidacaoDomain_1 = require("./clienteValidacaoDomain");
 const notaTransferenciaDomain_1 = require("./notaTransferenciaDomain");
 const cashbackDomain_1 = require("./cashbackDomain");
+const vinculosPlanoContasDomain_1 = require("./vinculosPlanoContasDomain");
 exports.CAMPOS_GERAIS = [
     'planoContasReceitas',
     'planoContasDespesas',
     // Natureza "So' informa" (28/11/2026): categorias que aparecem no DRE fora do lucro.
     'planoContasSoInforma',
+    // Lancamentos automaticos (28/11/2026): cada situacao do sistema ligada a uma categoria (vinculosPlanoContasDomain.ts).
+    'vinculosPlanoContas',
     'validarCadastroProduto',
     'modoValidacaoCliente',
     'trabalhaComLimiteCredito',
@@ -141,6 +144,10 @@ const lerConfiguracoesGerais = (corpo) => {
         return { ok: false, erro: soInformaLida.erro };
     const doPlano = new Set([...receitas.valor, ...despesas.valor].map((c) => c.toLocaleLowerCase('pt-BR')));
     const soInforma = soInformaLida.valor.filter((c) => doPlano.has(c.toLocaleLowerCase('pt-BR')));
+    // Vinculos (28/11/2026): opcional (tela antiga nao manda); receita so' em categoria de receita e vice-versa.
+    const vinculos = (0, vinculosPlanoContasDomain_1.conferirVinculos)(dados.vinculosPlanoContas, { receitas: receitas.valor, despesas: despesas.valor });
+    if (!vinculos.ok)
+        return { ok: false, erro: vinculos.erro };
     const validarProduto = lerSimNao(dados.validarCadastroProduto, 'Validar cadastro de produto');
     if (!validarProduto.ok)
         return { ok: false, erro: validarProduto.erro };
@@ -168,6 +175,7 @@ const lerConfiguracoesGerais = (corpo) => {
             planoContasReceitas: receitas.valor,
             planoContasDespesas: despesas.valor,
             planoContasSoInforma: soInforma,
+            vinculosPlanoContas: vinculos.vinculos,
             validarCadastroProduto: validarProduto.valor,
             modoValidacaoCliente: dados.modoValidacaoCliente,
             trabalhaComLimiteCredito: limiteCredito.valor,
@@ -194,6 +202,8 @@ const lerCampoDoDocumento = (campo, valor) => {
         case 'planoContasDespesas':
         case 'planoContasSoInforma':
             return (0, exports.juntarCategorias)(valor);
+        case 'vinculosPlanoContas':
+            return (0, vinculosPlanoContasDomain_1.lerVinculos)(valor);
         case 'modoValidacaoCliente':
             return (0, clienteValidacaoDomain_1.parseModoValidacaoCliente)(valor);
         case 'transferenciaNfeTributacao':
@@ -234,6 +244,7 @@ exports.ROTULO_DO_CAMPO_GERAL = {
     planoContasReceitas: 'categorias de receita',
     planoContasDespesas: 'categorias de despesa',
     planoContasSoInforma: 'categorias "só informa"',
+    vinculosPlanoContas: 'lançamentos automáticos do plano de contas',
     validarCadastroProduto: 'validar cadastro de produto',
     modoValidacaoCliente: 'cliente não cadastrado',
     trabalhaComLimiteCredito: 'limite de crédito',

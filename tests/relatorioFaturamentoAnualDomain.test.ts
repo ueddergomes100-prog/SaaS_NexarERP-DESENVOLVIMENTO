@@ -221,3 +221,19 @@ test('plano de contas no DRE (28/11/2026): cada categoria na sua linha e "Só in
   // O balancete mensal tambem nao conta o "Só informa".
   assert.equal(r.meses[2].receitaBrutaCentavos, 105000);
 });
+
+test('DRE: vendas por forma (plano de contas de 28/11/2026) contam como venda; categoria trocada no vinculo tambem', () => {
+  const novos = [
+    t({ valor: 100, categoria: 'Venda no Pix' }),
+    t({ valor: 50, categoria: 'venda a prazo' }),
+    t({ valor: 30, categoria: 'Balcão' }),
+    t({ valor: 20, categoria: 'Oficina', formaPagamento: 'Dinheiro' }),
+    t({ valor: 10, categoria: 'Venda de Peças' }),
+  ];
+  const semVinculo = calcularFaturamentoAnual(novos, 2025, hoje2026);
+  assert.equal(semVinculo.receitaPecasCentavos, 10000 + 5000 + 1000);
+  assert.equal(semVinculo.receitaOutrosCentavos, 3000 + 2000);
+  const comVinculo = calcularFaturamentoAnual(novos, 2025, hoje2026, { vinculosPlanoContas: { 'venda:Dinheiro': 'Balcão', os: 'Oficina' } });
+  assert.equal(comVinculo.receitaPecasCentavos, 10000 + 5000 + 3000 + 1000);
+  assert.equal(comVinculo.receitaServicosCentavos, 2000);
+});

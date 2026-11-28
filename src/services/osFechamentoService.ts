@@ -127,6 +127,8 @@ export interface FinalizacaoPelaTela {
   percentualDaPeca: (id: string) => number | undefined;
   comissaoPadraoServicos?: number;
   comissaoPadraoPecas?: number;
+  /** Categoria do plano de contas da OS (vinculo "Ordem de servico", 28/11/2026). */
+  categoriaDaOs?: string;
   /** OS a prazo com limite de credito: versao lida junto com o saldo do cliente. */
   guardaDoCredito: { clienteId: string; versaoNaChecagem: number } | null;
 }
@@ -175,6 +177,7 @@ export const finalizarOsPelaTela = async (ctx: ContextoDaOs, f: FinalizacaoPelaT
       percentualDoServico: f.percentualDoServico,
       percentualDaPeca: f.percentualDaPeca,
       comissaoPadraoServicos: f.comissaoPadraoServicos,
+      ...(f.categoriaDaOs ? { categoria: f.categoriaDaOs } : {}),
       comissaoPadraoPecas: f.comissaoPadraoPecas,
       agoraIso: new Date().toISOString(),
     });

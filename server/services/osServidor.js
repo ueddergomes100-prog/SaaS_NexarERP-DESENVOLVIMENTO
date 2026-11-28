@@ -25,6 +25,7 @@
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
 const osf = require('../domain/osFechamentoDomain');
+const vpc = require('../domain/vinculosPlanoContasDomain');
 const credito = require('../domain/creditoDomain');
 const { configFinanceiraDaEmpresa } = require('../domain/vendaFechamentoDomain');
 const { parseParametrosVenda, bloqueioPorAtraso } = require('../domain/parametrosVendaDomain');
@@ -331,6 +332,8 @@ const finalizarOs = async ({ user, tenantId, corpo }) => {
       os,
       dataSaida: pedido.dataSaida,
       pagamentos,
+      // Plano de contas (28/11/2026): categoria ligada a "Ordem de servico".
+      categoria: vpc.categoriaDoEvento(config, 'os'),
       lotesPorLinha,
       mecanico,
       percentualDoServico: (id) => percentuaisServicos[id],

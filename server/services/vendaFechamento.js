@@ -58,6 +58,7 @@
 const { admin, db } = require('../config/firebase');
 const fin = require('../domain/financeDomain');
 const venda = require('../domain/vendaFechamentoDomain');
+const vpc = require('../domain/vinculosPlanoContasDomain');
 const semCadastro = require('../domain/clienteSemCadastroDomain');
 const credito = require('../domain/creditoDomain');
 const reserva = require('../domain/estoqueReservaDomain');
@@ -953,7 +954,8 @@ const finalizarVenda = async ({ user, tenantId, corpo }) => {
       const parcela = p.cartao && p.cartao.numero ? ` (Parcela ${p.cartao.numero}/${p.cartao.totalParcelas})` : '';
       tx.set(db.collection('transacoes').doc(p.transactionId), {
         descricao: `${pdv ? 'PDV' : 'Venda Direta'} #${numeroPedido} - ${p.formaPagamento}${parcela}`,
-        categoria: 'Venda de Peças',
+        // Plano de contas (28/11/2026): uma categoria por forma ("Venda no Pix"...), pelo vinculo da empresa.
+        categoria: vpc.categoriaDaVenda(config, p.formaPagamento),
         valor: p.valor,
         valorCentavos: p.valorCentavos,
         valorBruto: p.valor,

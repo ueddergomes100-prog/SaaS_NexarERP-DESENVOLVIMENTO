@@ -256,7 +256,7 @@ const camposDoTituloDaOs = (p, args) => {
     const parcela = p.cartao?.numero ? ` (Parcela ${p.cartao.numero}/${p.cartao.totalParcelas})` : '';
     return {
         descricao: `Recebimento OS #${args.numeroOS || args.osId.substring(0, 6).toUpperCase()} - ${p.formaPagamento}${parcela}`,
-        categoria: 'Serviços',
+        categoria: args.categoria || 'Serviços',
         valor: p.valor,
         valorCentavos: p.valorCentavos,
         valorBruto: p.valor,
@@ -409,6 +409,7 @@ const planoDaFinalizacaoDaOs = (e) => {
         mecanicoId,
         usuarioId: e.usuarioId,
         tenantId: e.tenantId,
+        ...(e.categoria ? { categoria: e.categoria } : {}),
     };
     return {
         plano: {

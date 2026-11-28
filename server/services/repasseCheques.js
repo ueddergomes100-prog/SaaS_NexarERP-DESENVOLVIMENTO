@@ -23,6 +23,7 @@ const { STATUS_RENEGOCIADA } = require('../domain/renegociacaoDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { ErroBaixa, agora, apagar, lerTitulo, lerOrigem, centavosDoTitulo, camposDoResumoDePagamentos, camposDaContaNoParcial, temPermissao } = require('./baixaFinanceira');
 const { montarBaixaManual } = require('../domain/baixaFinanceiraDomain');
+const { categoriaDoEventoDaFilial } = require('./planoDeContas');
 const { registrarRecebimentoNaOrigem } = require('./movimentoBanco');
 const { lerRenegociacaoDoTitulo, quitarOrigensSeRenegociacaoPaga, reabrirOrigensSeRenegociacaoEstavaPaga } = require('./renegociacaoOrigem');
 const { registrarLogNaTransacao } = require('./auditoria');
@@ -86,6 +87,8 @@ const lerNota = async (tx, tenantId, notaId) => {
 const repassarNaNotaAvulsa = async ({ user, tenantId, notaAvulsaId, hoje }) => {
   exigir(user);
   const resumo = { jaRepassado: false, vendas: new Set() };
+  // Plano de contas (28/11/2026): vinculo "Compra de mercadoria".
+  const categoriaDaCompra = await categoriaDoEventoDaFilial(tenantId, 'compra_mercadoria');
   await db.runTransaction(async (tx) => {
     // ---------------- LEITURAS ----------------
     const nota = await lerNota(tx, tenantId, notaAvulsaId);
@@ -135,7 +138,7 @@ const repassarNaNotaAvulsa = async ({ user, tenantId, notaAvulsaId, hoje }) => {
     const tituloRef = db.collection('transacoes').doc(idDoTituloDoRepasse(nota.ref.id));
     tx.set(tituloRef, {
       descricao: `Nota Avulsa #${numero} - ${fornecedor.fornecedorNome} (cheques de clientes)`,
-      categoria: 'FORNECEDORES DE PEÇAS',
+      categoria: categoriaDaCompra,
       tipo: 'saida',
       status: 'Paga',
       valor: fromCents(totalCentavos),

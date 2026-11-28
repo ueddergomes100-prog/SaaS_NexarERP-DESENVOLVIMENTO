@@ -7,6 +7,7 @@ import { useTitulosFinanceiros, type HistoricoDePagas } from '../../hooks/useTit
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { showSuccess, showError } from '../../utils/alerts';
+import { planoEfetivo } from '../../utils/vinculosPlanoContasDomain';
 import { aplicarCaixaAltaCadastro } from '../../utils/textoCadastroDomain';
 import { isPlatformAdminRole } from '../../utils/roles';
 import { fromCents, idsDosParesDesfeitos, toCents, transactionMovesPhysicalCash, transactionNetAmount } from '../../utils/financeDomain';
@@ -105,12 +106,10 @@ const Caixa: React.FC = () => {
         const configSnap = await getDoc(doc(db, 'configuracoes', tenantId));
         if (configSnap.exists()) {
           const data = configSnap.data();
-          if (data.planoContasReceitas) {
-            setCategoriasReceita(Array.isArray(data.planoContasReceitas) ? data.planoContasReceitas : data.planoContasReceitas.split('\n').filter((c: string) => c.trim() !== ''));
-          }
-          if (data.planoContasDespesas) {
-            setCategoriasDespesa(Array.isArray(data.planoContasDespesas) ? data.planoContasDespesas : data.planoContasDespesas.split('\n').filter((c: string) => c.trim() !== ''));
-          }
+          // Plano salvo + as categorias pre-definidas dos lancamentos automaticos (28/11/2026).
+          const plano = planoEfetivo(data);
+          if (plano.receitas.length > 0) setCategoriasReceita(plano.receitas);
+          if (plano.despesas.length > 0) setCategoriasDespesa(plano.despesas);
         }
       } catch (err) {
         console.error("Erro ao buscar plano de contas", err);

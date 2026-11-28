@@ -16,10 +16,18 @@ const listaDeCategorias = (v) => {
   if (typeof v === 'string') return v.split('\n').map((c) => c.trim()).filter(Boolean).join(', ');
   return '';
 };
+// Lancamentos automaticos (28/11/2026): "Venda em Pix: Recebido no Pix; ..." (so' os trocados; o resto e' o padrao).
+const vinculosDoPlano = (v) => {
+  const { EVENTOS_FINANCEIROS, lerVinculos } = require('../domain/vinculosPlanoContasDomain');
+  const lidos = lerVinculos(v);
+  const partes = EVENTOS_FINANCEIROS.filter((d) => lidos[d.evento]).map((d) => `${d.rotulo}: ${lidos[d.evento]}`);
+  return partes.length ? partes.join('; ') : 'padrão do sistema';
+};
 const CAMPOS_GERAIS_NO_HISTORICO = [
   { campo: 'planoContasReceitas', rotulo: 'Categorias de receita', formatar: listaDeCategorias },
   { campo: 'planoContasDespesas', rotulo: 'Categorias de despesa', formatar: listaDeCategorias },
   { campo: 'planoContasSoInforma', rotulo: 'Categorias "só informa"', formatar: listaDeCategorias },
+  { campo: 'vinculosPlanoContas', rotulo: 'Lançamentos automáticos do plano de contas', formatar: vinculosDoPlano },
   { campo: 'validarCadastroProduto', rotulo: 'Validar cadastro de produto', formatar: simNao },
   { campo: 'modoValidacaoCliente', rotulo: 'Validação do cadastro de cliente' },
   { campo: 'trabalhaComLimiteCredito', rotulo: 'Trabalha com limite de crédito', formatar: simNao },

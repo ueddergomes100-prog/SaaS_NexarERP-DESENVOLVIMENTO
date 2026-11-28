@@ -9,6 +9,7 @@
  */
 const { admin, db } = require('../config/firebase');
 const cu = require('../domain/custosDomain');
+const { planoEfetivo } = require('../domain/vinculosPlanoContasDomain');
 const { ehProdutoComGrade } = require('../domain/gradeProdutosDomain');
 const { getDateInputInTimeZone } = require('../domain/dateTime');
 const { buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
@@ -33,9 +34,8 @@ const lerConfig = async (tenantId) => {
 
 const categoriasDoPlano = async (tenantId) => {
   const snap = await db.collection('configuracoes').doc(tenantId).get();
-  const plano = snap.exists ? snap.data().planoContasDespesas : null;
-  const lista = Array.isArray(plano) ? plano : String(plano || '').split('\n');
-  return lista.map((c) => String(c || '').trim()).filter(Boolean);
+  // Plano salvo + as pre-definidas dos lancamentos automaticos (28/11/2026).
+  return planoEfetivo(snap.exists ? snap.data() : {}).despesas;
 };
 
 /** Lancamentos pagos dos meses (entradas e saidas), so' os campos que a conta usa. */

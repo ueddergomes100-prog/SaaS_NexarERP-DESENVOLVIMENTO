@@ -22,6 +22,7 @@ import {
   transactionNetAmount,
 } from './financeDomain';
 import type { ColunaRelatorio, IndicadorRelatorio, SecaoRelatorio } from './relatorioPdfDomain';
+import { categoriaDoEvento, categoriasDeVenda } from './vinculosPlanoContasDomain';
 
 type ValorDoLancamento = Parameters<typeof transactionGrossAmount>[0];
 
@@ -63,8 +64,6 @@ const mesDoLancamento = (t: TransacaoFaturamento): string => {
   return '';
 };
 
-const ehServico = (t: TransacaoFaturamento) => t.categoria === 'Serviços' || t.categoria === 'Serviços Automotivos';
-const ehPecas = (t: TransacaoFaturamento) => t.categoria === 'Venda de Peças';
 
 /** Receita de verdade: entrada paga nao desfeita (venda/OS cancelada some -- 19/10/2026),
  *  que nao e' credito de devolucao nem estorno de devolucao. */
@@ -87,6 +86,8 @@ const ehDespesa = (t: TransacaoFaturamento) => t.tipo === 'saida' && !isRevenueR
 export interface OpcoesDre {
   /** Categorias marcadas "So' informa" no Plano de Contas. */
   soInforma?: readonly string[];
+  /** Lancamentos automaticos do plano de contas (28/11/2026): quais categorias sao venda e qual e' a da OS. */
+  vinculosPlanoContas?: unknown;
 }
 
 export interface ValorPorCategoria {
@@ -194,6 +195,13 @@ export const calcularFaturamentoAnual = (
   const informativos = [...grupoInformativo.values()].sort((a, b) => a.categoria.localeCompare(b.categoria, 'pt-BR'));
 
   // --- DRE SIMPLIFICADO ---
+  // Venda (28/11/2026): todas as categorias de venda por forma ("Venda no Pix"...) e o nome
+  // antigo "Venda de Pecas"; servico: a categoria ligada a OS e os nomes de sempre.
+  const configDoPlano = { vinculosPlanoContas: opcoes.vinculosPlanoContas };
+  const deVenda = new Set(categoriasDeVenda(configDoPlano).map(chaveDaCategoria));
+  const deServico = new Set(['Serviços', 'Serviços Automotivos', categoriaDoEvento(configDoPlano, 'os')].map(chaveDaCategoria));
+  const ehServico = (t: TransacaoFaturamento) => deServico.has(chaveDaCategoria(nomeDaCategoria(t)));
+  const ehPecas = (t: TransacaoFaturamento) => deVenda.has(chaveDaCategoria(nomeDaCategoria(t)));
   const receitasFiltradas = transacoesAno.filter(ehReceita);
   const receitaServicosCentavos = somar(receitasFiltradas.filter(ehServico), brutoCentavos);
   const receitaPecasCentavos = somar(receitasFiltradas.filter(ehPecas), brutoCentavos);

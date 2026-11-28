@@ -20,12 +20,15 @@
 import { parseModoValidacaoCliente, type ModoValidacaoCliente } from './clienteValidacaoDomain';
 import { TRIBUTACAO_TRANSFERENCIA_OPCOES, parseTributacaoTransferencia, type TributacaoTransferencia } from './notaTransferenciaDomain';
 import { lerConfigCashback, parseConfigCashback, type ConfigCashback } from './cashbackDomain';
+import { conferirVinculos, lerVinculos, type VinculosDoPlano } from './vinculosPlanoContasDomain';
 
 export const CAMPOS_GERAIS = [
   'planoContasReceitas',
   'planoContasDespesas',
   // Natureza "So' informa" (28/11/2026): categorias que aparecem no DRE fora do lucro.
   'planoContasSoInforma',
+  // Lancamentos automaticos (28/11/2026): cada situacao do sistema ligada a uma categoria (vinculosPlanoContasDomain.ts).
+  'vinculosPlanoContas',
   'validarCadastroProduto',
   'modoValidacaoCliente',
   'trabalhaComLimiteCredito',
@@ -45,6 +48,8 @@ export interface ConfiguracoesGerais {
   planoContasDespesas: string[];
   /** Categorias (de receita ou de despesa) marcadas "So' informa": nao entram no lucro do DRE. */
   planoContasSoInforma: string[];
+  /** So' os vinculos diferentes do padrao (vinculosPlanoContasDomain.ts). */
+  vinculosPlanoContas: VinculosDoPlano;
   validarCadastroProduto: boolean;
   modoValidacaoCliente: ModoValidacaoCliente;
   trabalhaComLimiteCredito: boolean;
@@ -162,6 +167,9 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
   if (!soInformaLida.ok) return { ok: false, erro: soInformaLida.erro };
   const doPlano = new Set([...receitas.valor, ...despesas.valor].map((c) => c.toLocaleLowerCase('pt-BR')));
   const soInforma = soInformaLida.valor.filter((c) => doPlano.has(c.toLocaleLowerCase('pt-BR')));
+  // Vinculos (28/11/2026): opcional (tela antiga nao manda); receita so' em categoria de receita e vice-versa.
+  const vinculos = conferirVinculos(dados.vinculosPlanoContas, { receitas: receitas.valor, despesas: despesas.valor });
+  if (!vinculos.ok) return { ok: false, erro: vinculos.erro };
   const validarProduto = lerSimNao(dados.validarCadastroProduto, 'Validar cadastro de produto');
   if (!validarProduto.ok) return { ok: false, erro: validarProduto.erro };
   const limiteCredito = lerSimNao(dados.trabalhaComLimiteCredito, 'Trabalha com limite de crédito');
@@ -184,6 +192,7 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
       planoContasReceitas: receitas.valor,
       planoContasDespesas: despesas.valor,
       planoContasSoInforma: soInforma,
+      vinculosPlanoContas: vinculos.vinculos,
       validarCadastroProduto: validarProduto.valor,
       modoValidacaoCliente: dados.modoValidacaoCliente as ModoValidacaoCliente,
       trabalhaComLimiteCredito: limiteCredito.valor,
@@ -209,6 +218,8 @@ const lerCampoDoDocumento = (campo: CampoGeral, valor: unknown): unknown => {
     case 'planoContasDespesas':
     case 'planoContasSoInforma':
       return juntarCategorias(valor);
+    case 'vinculosPlanoContas':
+      return lerVinculos(valor);
     case 'modoValidacaoCliente':
       return parseModoValidacaoCliente(valor);
     case 'transferenciaNfeTributacao':
@@ -258,6 +269,7 @@ export const ROTULO_DO_CAMPO_GERAL: Record<CampoGeral, string> = {
   planoContasReceitas: 'categorias de receita',
   planoContasDespesas: 'categorias de despesa',
   planoContasSoInforma: 'categorias "só informa"',
+  vinculosPlanoContas: 'lançamentos automáticos do plano de contas',
   validarCadastroProduto: 'validar cadastro de produto',
   modoValidacaoCliente: 'cliente não cadastrado',
   trabalhaComLimiteCredito: 'limite de crédito',

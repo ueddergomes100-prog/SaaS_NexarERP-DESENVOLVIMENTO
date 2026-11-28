@@ -109,6 +109,7 @@ const movimentoDoTitulo = (id, t, criadoEmIso = '') => {
         data,
         criadoEmIso,
         ...(clienteNome ? { clienteNome } : {}),
+        ...(t.estornada === true || t.statusOperacional === 'Cancelada' ? { cancelada: true } : {}),
     };
 };
 exports.movimentoDoTitulo = movimentoDoTitulo;

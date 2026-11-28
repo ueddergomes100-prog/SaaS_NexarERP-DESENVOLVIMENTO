@@ -334,10 +334,20 @@ const CaixasTransferencias: React.FC = () => {
                 ) : extrato.length === 0 ? (
                   <tr><td colSpan={5} style={{ textAlign: 'center', padding: '28px', color: 'var(--text-muted)' }}>Nenhum lançamento neste caixa ainda.</td></tr>
                 ) : extrato.map((l) => (
-                  <tr key={l.id}>
+                  <tr key={l.id} style={l.cancelada ? { opacity: 0.75 } : undefined}>
                     <td>{dataBr(l.data)}</td>
                     <td>{ROTULO_TIPO_LANCAMENTO[l.tipo] || l.tipo}</td>
-                    <td>{l.descricao}</td>
+                    <td>
+                      {l.descricao}
+                      {l.cancelada && (
+                        <span
+                          title="Venda cancelada depois: o dinheiro voltou no lançamento de estorno do cancelamento"
+                          style={{ marginLeft: '8px', display: 'inline-block', fontSize: '11px', fontWeight: 700, color: '#b91c1c', background: 'rgba(239, 68, 68, 0.12)', borderRadius: '999px', padding: '2px 8px' }}
+                        >
+                          Cancelada
+                        </span>
+                      )}
+                    </td>
                     <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{l.direcao === 'credito' ? formatarReais(l.valorCentavos) : ''}</td>
                     <td style={{ textAlign: 'right', color: '#ef4444', fontWeight: 600 }}>{l.direcao === 'debito' ? formatarReais(l.valorCentavos) : ''}</td>
                   </tr>

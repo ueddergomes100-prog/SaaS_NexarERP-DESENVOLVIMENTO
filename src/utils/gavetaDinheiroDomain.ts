@@ -95,6 +95,12 @@ export interface MovimentoDaGaveta {
   criadoEmIso: string;
   /** Cliente do titulo, quando tem (relatorio do caixa, 24/11/2026). */
   clienteNome?: string;
+  /**
+   * Venda/OS cancelada depois (28/11/2026, pedido do dono: "a que eu cancelei
+   * poderia ficar ali o registro mas escrito cancelada"). O dinheiro entrou e
+   * saiu de novo no estorno (outra linha): a linha fica, com o selo.
+   */
+  cancelada?: true;
 }
 
 const dataIso = (v: unknown): string => (typeof v === 'string' && DATA_ISO.test(v.slice(0, 10)) ? v.slice(0, 10) : '');
@@ -117,6 +123,9 @@ export interface TituloParaGaveta {
   naturezaFinanceira?: string;
   movimentaCaixaFisico?: boolean;
   clienteNome?: unknown;
+  /** Recebimento desfeito pelo cancelamento da venda/OS (cancelamentoVendaDomain). */
+  estornada?: unknown;
+  statusOperacional?: unknown;
 }
 
 /**
@@ -145,6 +154,7 @@ export const movimentoDoTitulo = (id: string, t: TituloParaGaveta, criadoEmIso =
     data,
     criadoEmIso,
     ...(clienteNome ? { clienteNome } : {}),
+    ...(t.estornada === true || t.statusOperacional === 'Cancelada' ? { cancelada: true as const } : {}),
   };
 };
 

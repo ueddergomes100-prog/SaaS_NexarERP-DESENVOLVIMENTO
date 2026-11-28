@@ -51,6 +51,8 @@ export interface LancamentoDoCaixa {
   descricao: string;
   data: string;
   criadoEmIso: string;
+  /** Venda/OS cancelada depois: a linha fica, com o selo "Cancelada" (28/11/2026). */
+  cancelada?: boolean;
 }
 
 export const listarCaixasEBancos = () => (

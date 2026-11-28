@@ -253,3 +253,10 @@ test('suprimento: entra no extrato da gaveta como credito e na composicao do esp
   });
   assert.equal(composicao.saldoCentavos, 13000);
 });
+
+test('extrato do caixa: venda cancelada depois continua na lista, com o selo "cancelada"', () => {
+  const pago = { tipo: 'entrada', status: 'Paga', valorCentavos: 3660, descricao: 'PDV #10 - Dinheiro', dataPagamento: '2026-11-28', formaPagamento: 'Dinheiro' };
+  assert.equal(movimentoDoTitulo('a', pago)?.cancelada, undefined);
+  assert.equal(movimentoDoTitulo('a', { ...pago, estornada: true, statusOperacional: 'Cancelada' })?.cancelada, true);
+  assert.equal(movimentoDoTitulo('a', { ...pago, estornada: true })?.valorCentavos, 3660, 'a linha nao some nem muda de valor');
+});

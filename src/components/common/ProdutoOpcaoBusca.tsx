@@ -77,9 +77,11 @@ interface Props {
   produto: ProdutoParaOpcaoBusca;
   /** O que foi digitado, pra marcar onde a busca casou. */
   termo?: string;
+  /** App Vendas com embalagem (28/11/2026): os precos saem na tabela de unidades, nao aqui. */
+  semPreco?: boolean;
 }
 
-const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
+const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo, semPreco = false }) => {
   const nivel = nivelDeEstoque(produto.quantidade);
   const codigo = produto.codigo || produto.codigoBarras || produto.skuSistema || '';
   const casas = produto.unidadeMedidaCasasDecimais ?? 0;
@@ -100,7 +102,7 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
         ))}
       </span>
 
-      <span className="produto-opcao__preco">
+      {!semPreco && <span className="produto-opcao__preco">
         {formatarPreco(produto.precoVenda)}
         {atacado && (
           <span className="produto-opcao__atacado" title={`Preço de atacado: ${formatarPreco(atacado.preco)} ${atacado.quantidade}`}>
@@ -108,7 +110,7 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
             <span>{atacado.quantidade}</span>
           </span>
         )}
-      </span>
+      </span>}
 
       <span className="produto-opcao__meta">
         <span className={`produto-opcao__estoque is-${nivel}`}>

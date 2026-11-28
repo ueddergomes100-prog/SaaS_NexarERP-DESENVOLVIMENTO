@@ -15,6 +15,7 @@
  */
 import { custoDaEmbalagem, margemSobreCusto, normalizeEmbalagens } from './embalagemDomain';
 import { tabelaDoProduto } from './precoVendaDomain';
+import { resumoDeReserva } from './estoqueReservaDomain';
 
 /** O que a lista precisa enxergar do produto do estoque. */
 export interface ProdutoDaListaDeEstoque {
@@ -157,3 +158,56 @@ export const resumoDasEmbalagens = (embalagens: ReadonlyArray<Pick<UnidadeDeVend
 export const equivalenciaDaEmbalagem = (unidade: Pick<UnidadeDeVendaDaLista, 'sigla' | 'fatorConversao'>, siglaDaBase: string): string => (
   `1 ${unidade.sigla} = ${unidade.fatorConversao.toLocaleString('pt-BR', { maximumFractionDigits: 6 })} ${siglaDaBase || 'UN'}`
 );
+
+/**
+ * APP VENDAS: AS UNIDADES PARA ESCOLHER NO PRODUTO (28/11/2026, dono: "no
+ * mobile nao mostra os valores do fd nem a prazo nem a vista igual ta' no
+ * desktop"). Uma linha por unidade que a tela oferece (opcoesDeUnidadeDaTela,
+ * na mesma ordem), com os precos da mesma conta da lista do estoque e o
+ * disponivel (saldo menos reserva) ja' na unidade da linha.
+ */
+export interface UnidadeParaEscolherNoApp {
+  /** Vazio = a unidade do estoque. */
+  embalagemId: string;
+  base: boolean;
+  sigla: string;
+  /** "1 FD = 12 PCT"; vazio na unidade do estoque. */
+  equivalencia: string;
+  /** Nome dado a embalagem no cadastro ("FARDO 12"); vazio se nao tem. */
+  descricao: string;
+  disponivel: number;
+  casasDecimais: number;
+  /** Preco de venda (a prazo). */
+  venda: number;
+  /** Preco a vista quando existe e e' diferente do de venda; 0 = so' um preco. */
+  vista: number;
+}
+
+export const unidadesParaEscolherNoApp = (
+  produto: ProdutoDaListaDeEstoque & { quantidade?: unknown; quantidadeReservada?: unknown },
+  idsOferecidos: ReadonlyArray<string>,
+): UnidadeParaEscolherNoApp[] => {
+  const todas = unidadesDeVendaDaLista(produto);
+  const base = todas[0];
+  const disponivelNaBase = resumoDeReserva(produto).disponivel;
+  return idsOferecidos
+    .map((id) => todas.find((unidade) => unidade.embalagemId === id))
+    .filter((unidade): unidade is UnidadeDeVendaDaLista => Boolean(unidade))
+    .map((unidade) => {
+      const potencia = 10 ** Math.min(6, Math.max(0, unidade.casasDecimais));
+      const disponivel = unidade.base
+        ? Math.round(disponivelNaBase * potencia) / potencia
+        : saldoNaEmbalagem(disponivelNaBase, unidade);
+      return {
+        embalagemId: unidade.embalagemId,
+        base: unidade.base,
+        sigla: unidade.sigla,
+        equivalencia: unidade.base ? '' : equivalenciaDaEmbalagem(unidade, base.sigla),
+        descricao: unidade.descricao,
+        disponivel,
+        casasDecimais: unidade.casasDecimais,
+        venda: unidade.venda,
+        vista: unidade.vista > 0 && unidade.vista !== unidade.venda ? unidade.vista : 0,
+      };
+    });
+};

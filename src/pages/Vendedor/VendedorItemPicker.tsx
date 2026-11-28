@@ -11,6 +11,9 @@ import { lerPrecoDigitado, precificarNoApp, precoDaTabelaDoItem, promocaoParaMos
 import { textoDoValorAtacado } from '../../utils/precoVendaDomain';
 import { bonificarItem, cobrarItem, ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
 import { camposDeUnidadeDoItem, findOpcaoUnidadeVenda, mostraSeletorDeUnidade, opcaoNaUnidadeDoEstoque, opcoesDeUnidadeDaTela, toBaseQuantity } from '../../utils/embalagemDomain';
+import { unidadesParaEscolherNoApp } from '../../utils/estoqueUnidadesDeVendaDomain';
+import { atacadoParaBusca } from '../../utils/fichaProdutoBuscaDomain';
+import { VendedorQuantidadeDoProduto, VendedorUnidadesDoProduto } from './VendedorUnidadesDoProduto';
 
 export interface ProdutoVendedorExterno {
   id: string;
@@ -281,72 +284,95 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} onMouseDown={manterFocoNaBusca}>
             {resultado.items.map((produto) => {
               const marcado = produto.id in selecionados;
+              // Produto com embalagem (28/11/2026): unidades em linhas com preco a prazo/a vista; a linha escolhe a unidade.
+              const opcoes = opcoesDeUnidadeDaTela(produto, venderPorEmbalagem);
+              const comUnidades = mostraSeletorDeUnidade(opcoes);
+              const escolhida = findOpcaoUnidadeVenda(opcoes, unidadesEscolhidas[produto.id]);
+              const caixaDeMarcar = (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    width: '24px', height: '24px', borderRadius: '7px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: marcado ? 'var(--brand-500)' : 'transparent', border: `1.5px solid ${marcado ? 'var(--brand-500)' : 'var(--text-muted)'}`,
+                  }}
+                >
+                  {marcado && <Check size={15} color="#fff" strokeWidth={3} />}
+                </div>
+              );
+              const promocao = mostrarValores && (() => {
+                const promo = promocaoParaMostrar(precos, produto);
+                return promo ? (
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#10b981' }} title={promo.nome}>
+                    {promo.soAVista ? 'Promoção à vista' : 'Promoção'}: {formatarMoeda(promo.preco)}
+                  </span>
+                ) : null;
+              })();
               return (
                 <div
                   key={produto.id}
                   onClick={() => { alternarSelecao(produto.id); fecharTecladoDaBusca(); }}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderRadius: '14px', cursor: 'pointer',
+                    display: 'flex', flexDirection: comUnidades ? 'column' : 'row', alignItems: comUnidades ? 'stretch' : 'center',
+                    gap: '10px', padding: '12px 14px', borderRadius: '14px', cursor: 'pointer',
                     backgroundColor: marcado ? 'rgba(153,100,240,0.14)' : 'var(--bg-elevated)',
                     border: `1.5px solid ${marcado ? 'var(--brand-500)' : 'var(--border-color)'}`,
                   }}
                 >
-                  <div
-                    aria-hidden="true"
-                    style={{
-                      width: '24px', height: '24px', borderRadius: '7px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      backgroundColor: marcado ? 'var(--brand-500)' : 'transparent', border: `1.5px solid ${marcado ? 'var(--brand-500)' : 'var(--text-muted)'}`,
-                    }}
-                  >
-                    {marcado && <Check size={15} color="#fff" strokeWidth={3} />}
-                  </div>
-
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <ProdutoOpcaoBusca produto={produto} termo={produtoBusca} />
-                    {mostrarValores && (() => {
-                      const promo = promocaoParaMostrar(precos, produto);
-                      return promo ? (
-                        <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#10b981' }} title={promo.nome}>
-                          {promo.soAVista ? 'Promoção à vista' : 'Promoção'}: {formatarMoeda(promo.preco)}
-                        </span>
-                      ) : null;
-                    })()}
-                  </div>
-
-                  {/* Unidade (rolo, tubo, saco): so' com embalagem e "Vender por embalagem" ligado (21/11/2026). */}
-                  {marcado && (() => {
-                    const opcoes = opcoesDeUnidadeDaTela(produto, venderPorEmbalagem);
-                    if (!mostraSeletorDeUnidade(opcoes)) return null;
-                    return (
-                      <select
-                        value={findOpcaoUnidadeVenda(opcoes, unidadesEscolhidas[produto.id]).embalagemId}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setUnidadesEscolhidas((atual) => ({ ...atual, [produto.id]: e.target.value }))}
-                        aria-label={`Unidade de ${produto.nome}`}
-                        style={{
-                          height: '40px', maxWidth: '96px', borderRadius: '10px', border: '1px solid var(--border-color)', flexShrink: 0,
-                          backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 600, padding: '0 6px',
+                  {comUnidades ? (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {caixaDeMarcar}
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <ProdutoOpcaoBusca produto={produto} termo={produtoBusca} semPreco />
+                          {promocao}
+                        </div>
+                      </div>
+                      <VendedorUnidadesDoProduto
+                        nomeDoProduto={produto.nome}
+                        unidades={unidadesParaEscolherNoApp(produto, opcoes.map((opcao) => opcao.embalagemId))}
+                        escolhida={marcado ? escolhida.embalagemId : null}
+                        mostrarValores={mostrarValores}
+                        atacado={(() => {
+                          const faixa = atacadoParaBusca(produto)[0];
+                          return faixa ? `Valor atacado: ${formatarMoeda(faixa.preco)} ${faixa.quantidade}` : undefined;
+                        })()}
+                        onEscolher={(embalagemId) => {
+                          if (!marcado) alternarSelecao(produto.id);
+                          setUnidadesEscolhidas((atual) => ({ ...atual, [produto.id]: embalagemId }));
+                          fecharTecladoDaBusca();
                         }}
-                      >
-                        {opcoes.map((opcao) => (
-                          <option key={opcao.embalagemId || 'base'} value={opcao.embalagemId}>{opcao.label}</option>
-                        ))}
-                      </select>
-                    );
-                  })()}
-                  {marcado && (
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={selecionados[produto.id]}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => alterarQuantidadeSelecionada(produto.id, e.target.value)}
-                      aria-label={`Quantidade de ${produto.nome}`}
-                      style={{
-                        width: '52px', height: '40px', borderRadius: '10px', border: '1px solid var(--border-color)', flexShrink: 0,
-                        backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', textAlign: 'center', fontSize: '16px', fontWeight: 700,
-                      }}
-                    />
+                      />
+                      {marcado && (
+                        <VendedorQuantidadeDoProduto
+                          nomeDoProduto={produto.nome}
+                          sigla={escolhida.sigla}
+                          valor={selecionados[produto.id]}
+                          onChange={(valor) => alterarQuantidadeSelecionada(produto.id, valor)}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {caixaDeMarcar}
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <ProdutoOpcaoBusca produto={produto} termo={produtoBusca} />
+                        {promocao}
+                      </div>
+                      {marcado && (
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={selecionados[produto.id]}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => alterarQuantidadeSelecionada(produto.id, e.target.value)}
+                          aria-label={`Quantidade de ${produto.nome}`}
+                          style={{
+                            width: '52px', height: '40px', borderRadius: '10px', border: '1px solid var(--border-color)', flexShrink: 0,
+                            backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', textAlign: 'center', fontSize: '16px', fontWeight: 700,
+                          }}
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               );

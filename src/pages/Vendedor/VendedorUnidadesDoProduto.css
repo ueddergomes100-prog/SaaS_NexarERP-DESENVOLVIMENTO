@@ -1,0 +1,186 @@
+/* Unidades do produto no App Vendas (28/11/2026). Desenho e regra em VendedorUnidadesDoProduto.tsx. */
+
+.app-unidades {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: 0;
+}
+
+.app-unidade {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border-color);
+  /* Tinta leve da marca: funciona sobre o cartao branco e no tema escuro. */
+  background-color: rgba(124, 58, 237, 0.045);
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-unidade:active { transform: scale(0.985); }
+
+.app-unidade:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+.app-unidade.is-ativa {
+  border-color: var(--brand-500);
+  background-color: rgba(124, 58, 237, 0.1);
+}
+
+.app-unidade__sigla {
+  min-width: 42px;
+  padding: 7px 9px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #6d28d9;
+  background-color: rgba(124, 58, 237, 0.12);
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.app-unidade.is-ativa .app-unidade__sigla {
+  color: #fff;
+  background-color: #7c3aed;
+}
+
+.app-unidade__info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.app-unidade__equivalencia {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-unidade__disponivel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.app-unidade__precos {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-unidade__preco {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.app-unidade__preco small {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.app-unidade__preco--vista {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #047857;
+}
+
+body:not(.light-theme) .app-unidade__preco--vista { color: #6ee7b7; }
+body:not(.light-theme) .app-unidade__sigla { color: #c4b5fd; }
+body:not(.light-theme) .app-unidade.is-ativa .app-unidade__sigla { color: #fff; }
+body:not(.light-theme) .app-quantidade__botao { color: #c4b5fd; }
+
+.app-unidades__atacado {
+  padding-left: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0e7490;
+}
+
+body:not(.light-theme) .app-unidades__atacado { color: #67e8f9; }
+
+/* Quantidade do produto marcado */
+.app-quantidade {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-left: 0;
+}
+
+.app-quantidade__rotulo {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.app-quantidade__rotulo b { color: #6d28d9; font-weight: 800; }
+body:not(.light-theme) .app-quantidade__rotulo b { color: #c4b5fd; }
+
+.app-quantidade__controle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-quantidade__botao {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-elevated);
+  color: #6d28d9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, opacity 0.16s ease;
+}
+
+.app-quantidade__botao:active { transform: scale(0.94); }
+.app-quantidade__botao:disabled { opacity: 0.4; cursor: default; }
+.app-quantidade__botao:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
+
+.app-quantidade__campo {
+  width: 64px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1.5px solid var(--brand-500);
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
+  text-align: center;
+  font-size: 17px;
+  font-weight: 800;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-unidade, .app-unidade__sigla, .app-quantidade__botao { transition: none; }
+}

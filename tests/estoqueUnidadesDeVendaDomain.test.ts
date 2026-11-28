@@ -8,6 +8,7 @@ import {
   saldoNaEmbalagem,
   temEmbalagemAtiva,
   unidadesDeVendaDaLista,
+  unidadesParaEscolherNoApp,
 } from '../src/utils/estoqueUnidadesDeVendaDomain.js';
 
 const tubo = {
@@ -98,4 +99,23 @@ test('selo e equivalencia', () => {
   assert.equal(resumoDasEmbalagens([{ sigla: 'A' }, { sigla: 'B' }, { sigla: 'C' }], 2), '3 embalagens: A, B +1');
   assert.equal(equivalenciaDaEmbalagem({ sigla: 'TB', fatorConversao: 6 }, 'MT'), '1 TB = 6 MT');
   assert.equal(equivalenciaDaEmbalagem({ sigla: 'G', fatorConversao: 0.1 }, 'KG'), '1 G = 0,1 KG');
+});
+
+test('app: unidades para escolher com precos a prazo/a vista e disponivel na unidade', () => {
+  const produto = {
+    precoVenda: 23.99, precoAVista: 0, unidadeMedidaSigla: 'PCT', quantidade: 211, quantidadeReservada: 3,
+    embalagens: [{ id: 'fd', unidadeMedidaSigla: 'FD', fatorConversao: 4, precoVenda: 110.35, precoAVista: 107.05, ativo: true }],
+  };
+  const linhas = unidadesParaEscolherNoApp(produto, ['', 'fd']);
+  assert.equal(linhas.length, 2);
+  assert.deepEqual(
+    linhas.map((l) => [l.sigla, l.equivalencia, l.disponivel, l.venda, l.vista]),
+    [['PCT', '', 208, 23.99, 0], ['FD', '1 FD = 4 PCT', 52, 110.35, 107.05]],
+  );
+  // Produto que so' vende na embalagem: a tela oferece so' o FD.
+  assert.deepEqual(unidadesParaEscolherNoApp(produto, ['fd']).map((l) => l.sigla), ['FD']);
+  // A vista igual ao de venda nao vira segunda linha.
+  assert.equal(unidadesParaEscolherNoApp({ ...produto, precoAVista: 23.99 }, [''])[0].vista, 0);
+  // Embalagem que nao existe mais some da lista.
+  assert.equal(unidadesParaEscolherNoApp(produto, ['sumiu']).length, 0);
 });

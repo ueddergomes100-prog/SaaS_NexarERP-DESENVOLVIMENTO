@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  clienteSemCadastroCompleto,
   complementoDoClienteSemCadastro,
+  resumoDoClienteSemCadastro,
   erroDasFormasSemCadastro,
   lerClienteSemCadastro,
   nomeDoClienteDoPedido,
@@ -70,4 +72,15 @@ test('romaneio: entrega do cliente a cadastrar sai com o nome, a cidade e o tele
   const normal = montarEntregaDoPedido({ id: 'p2', clienteNome: 'MUNIZ' }, consumidor, null);
   assert.equal(normal.clienteNome, 'MUNIZ');
   assert.equal(normal.cidade, 'MANHUACU/MG');
+});
+
+test('app: bloco do cliente a cadastrar fecha apenas com nome, cidade e telefone', () => {
+  assert.equal(clienteSemCadastroCompleto({ nome: 'joao', cidade: 'caratinga', telefone: '(33) 99999-0000' }), true);
+  assert.equal(clienteSemCadastroCompleto({ nome: 'joao', cidade: 'caratinga', telefone: '3399' }), false);
+  assert.equal(clienteSemCadastroCompleto({ nome: 'joao', cidade: '', telefone: '33999990000' }), false);
+  assert.equal(clienteSemCadastroCompleto({ nome: 'j', cidade: 'caratinga', telefone: '33999990000' }), false);
+  assert.equal(clienteSemCadastroCompleto(null), false);
+  assert.equal(resumoDoClienteSemCadastro({ nome: 'joao', cidade: 'caratinga', telefone: '33999990000' }), 'JOAO · CARATINGA · (33) 99999-0000');
+  assert.equal(resumoDoClienteSemCadastro({ nome: 'joao' }), 'JOAO');
+  assert.equal(resumoDoClienteSemCadastro({ nome: '' }), '');
 });

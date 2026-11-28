@@ -39,7 +39,8 @@ import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho, type
 import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { textoDaRotaEscolhida, type RotaEscolhida } from '../../utils/rotaPreVendaDomain';
-import { CIDADE_SEM_CADASTRO_MAX, erroDasFormasSemCadastro, FORMAS_PROIBIDAS_SEM_CADASTRO, lerClienteSemCadastro, NOME_SEM_CADASTRO_MAX } from '../../utils/clienteSemCadastroDomain';
+import { erroDasFormasSemCadastro, FORMAS_PROIBIDAS_SEM_CADASTRO, lerClienteSemCadastro } from '../../utils/clienteSemCadastroDomain';
+import VendedorClienteACadastrar from './VendedorClienteACadastrar';
 
 /** Abatimentos do cliente e formas da loja que nao se combinam no pedido do vendedor. */
 const FORMAS_FORA_DO_APP: string[] = ['Crédito de Devolução', 'Cashback'];
@@ -344,32 +345,7 @@ const VendedorNovoPedido: React.FC = () => {
             + Cliente a cadastrar
           </button>
         )}
-        {clienteEhConsumidorFinal && (
-          <div style={{ marginTop: '10px', padding: '12px 14px', borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cliente a cadastrar</div>
-            {([
-              ['nome', 'Nome', 'text', NOME_SEM_CADASTRO_MAX],
-              ['cidade', 'Cidade', 'text', CIDADE_SEM_CADASTRO_MAX],
-              ['telefone', 'Telefone', 'tel', 15],
-            ] as const).map(([campo, rotulo, tipo, max]) => (
-              <label key={campo} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                {rotulo}
-                <input
-                  type={tipo}
-                  inputMode={tipo === 'tel' ? 'tel' : undefined}
-                  maxLength={max}
-                  value={semCadastro[campo]}
-                  onChange={(evento) => {
-                    const valor = campo === 'telefone' ? evento.target.value.replace(/[^\d()\s-]/g, '') : evento.target.value.toUpperCase();
-                    setSemCadastro((atual) => ({ ...atual, [campo]: valor }));
-                  }}
-                  style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '1px solid var(--border-color)', fontSize: '16px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                />
-              </label>
-            ))}
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Sai no pedido, na minuta e no romaneio. Sem cadastro, a venda é só à vista (sem boleto e sem a prazo).</div>
-          </div>
-        )}
+        {clienteEhConsumidorFinal && <VendedorClienteACadastrar valor={semCadastro} onChange={setSemCadastro} />}
         {!clienteSelecionado && podeCadastrarClienteNoApp(userPermissions) && (
           <button
             type="button"

@@ -41,6 +41,23 @@ export const lerClienteSemCadastro = (valor: unknown): ClienteSemCadastro | null
   };
 };
 
+/**
+ * Os 3 campos preenchidos (28/11/2026, dono: "quando digitar os 3 campos, nome
+ * cidade e telefone ele fechar em dropdown"): no app o bloco se fecha numa linha
+ * para a lista de produtos nao descer. Mesmo criterio do que e' gravado.
+ */
+export const clienteSemCadastroCompleto = (valor: unknown): boolean => {
+  const lido = lerClienteSemCadastro(valor);
+  return Boolean(lido && lido.cidade && lido.telefone);
+};
+
+/** Resumo de uma linha do bloco fechado: "JOAO · CARATINGA · (33) 99999-0000". */
+export const resumoDoClienteSemCadastro = (valor: unknown): string => {
+  const lido = lerClienteSemCadastro(valor);
+  if (!lido) return '';
+  return [lido.nome, lido.cidade, lido.telefone ? telefoneFormatado(lido.telefone) : ''].filter(Boolean).join(' · ');
+};
+
 /** Telefone para o papel: (33) 99999-0000. */
 export const telefoneFormatado = (digitos: string): string => {
   const d = String(digitos || '').replace(/\D/g, '');

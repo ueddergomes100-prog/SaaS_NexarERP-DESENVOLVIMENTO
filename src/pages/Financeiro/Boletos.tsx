@@ -47,6 +47,8 @@ import {
   type PeriodoFaturamento,
   type PeriodoVencimento,
   type StatusBoletoEfetivo,
+  detalheDoRecebimentoBoleto,
+  type DetalheRetornoBoleto,
 } from '../../utils/boletoEmissaoDomain';
 import { montarRemessaSicoob, nomeArquivoRemessaSicoob, type TituloRemessaSicoob } from '../../utils/boletoRemessaSicoobDomain';
 import { compararPorNumero, useOrdemNumero } from '../../hooks/useOrdemNumero';
@@ -95,6 +97,29 @@ const ROTULO_ABA: Record<Aba, string> = {
   remessa: 'Em remessa',
   pagos: 'Pagos',
   vencidos: 'Vencidos',
+};
+
+/**
+ * Boleto RECEBIDO (28/11/2026, pedido do dono): o que entrou de fato, com o
+ * caminho da conta -- valor do boleto, + juros e multa, - desconto, pago pelo
+ * cliente, - tarifa do banco = liquido. Regra em detalheDoRecebimentoBoleto.
+ */
+const CelulaRecebidoDoBoleto: React.FC<{ titulo: TituloBoleto }> = ({ titulo }) => {
+  const d = detalheDoRecebimentoBoleto(titulo);
+  const linha = (texto: string, cor?: string) => (
+    <div style={{ fontSize: '11.5px', fontWeight: 500, color: cor || 'var(--text-muted)', whiteSpace: 'nowrap' }}>{texto}</div>
+  );
+  const reais = (c: number) => currency.format(fromCents(c));
+  return (
+    <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+      <div style={{ fontWeight: 800, fontSize: '15px' }}>{reais(d.liquido)}</div>
+      {linha(`boleto ${reais(d.valorBoleto)}`)}
+      {d.jurosMulta > 0 && linha(`+ ${reais(d.jurosMulta)} juros e multa`, '#059669')}
+      {d.desconto > 0 && linha(`− ${reais(d.desconto)} desconto`, '#b45309')}
+      {(d.jurosMulta > 0 || d.desconto > 0 || d.tarifa > 0) && linha(`pago pelo cliente ${reais(d.pago)}`)}
+      {d.tarifa > 0 && linha(`− ${reais(d.tarifa)} tarifa do banco`, '#b91c1c')}
+    </td>
+  );
 };
 
 const Boletos: React.FC = () => {
@@ -827,7 +852,7 @@ const Boletos: React.FC = () => {
           if (titulo.status === 'Paga') { jaPagos += 1; continue; }
           const valorPagoCentavos = linha.valorPagoCentavos || titulo.valorCentavos;
           try {
-            const resultado = await darBaixaBoleto(titulo, valorPagoCentavos, linha.dataOcorrencia);
+            const resultado = await darBaixaBoleto(titulo, valorPagoCentavos, linha.dataOcorrencia, linha.detalhe);
             if (resultado.boletoCancelado) {
               if (!resultado.jaLancadoAvulso) {
                 canceladosPagos.push({
@@ -1088,11 +1113,12 @@ const Boletos: React.FC = () => {
   };
 
   /** Baixa de um boleto pago no retorno: titulo + saldo do banco gravados pelo servidor. */
-  const darBaixaBoleto = (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string) => (
+  const darBaixaBoleto = (titulo: TituloBoleto, valorPagoCentavos: number, dataPagamento?: string, detalheDoRetorno?: DetalheRetornoBoleto) => (
     baixarBoletoPeloRetorno({
       transacaoId: titulo.id,
       valorPagoCentavos,
       ...(dataPagamento ? { dataPagamento } : {}),
+      ...(detalheDoRetorno ? { detalheDoRetorno } : {}),
       tenantId: tenantId || '',
     })
   );
@@ -1447,7 +1473,10 @@ const Boletos: React.FC = () => {
                     </button>
                   </th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)' }}>Situação</th>
-                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right' }}>Valor</th>
+                  <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right' }}
+                    title={aba === 'pagos' ? 'O que entrou de fato: valor do boleto + juros e multa - desconto - tarifa do banco' : undefined}>
+                    {aba === 'pagos' ? 'Recebido (líquido)' : 'Valor'}
+                  </th>
                   <th style={{ padding: '14px 16px', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'right' }}>Ações</th>
                 </tr>
               </thead>
@@ -1500,6 +1529,9 @@ const Boletos: React.FC = () => {
                           {situacao === 'aguardando' ? 'Aguardando emissão' : ROTULO_STATUS_BOLETO[situacao]}
                         </span>
                       </td>
+                      {aba === 'pagos' && t.status === 'Paga' ? (
+                        <CelulaRecebidoDoBoleto titulo={t} />
+                      ) : (
                       <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 600 }}>
                         {currency.format(fromCents(t.valorCentavos))}
                         {t.valorPagoCentavos && t.valorPagoCentavos !== t.valorCentavos && (
@@ -1508,6 +1540,7 @@ const Boletos: React.FC = () => {
                           </div>
                         )}
                       </td>
+                      )}
                       <td style={{ padding: '14px 16px', textAlign: 'right' }}>
                         {!t.boleto ? (
                           <button

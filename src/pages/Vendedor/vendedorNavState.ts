@@ -15,3 +15,11 @@ export interface VendedorNovoPedidoNavState {
   clientePreSelecionado?: { id: string; nome: string };
   itemPreAdicionado?: ItemVendaExterna;
 }
+
+/**
+ * Contas a Receber do app aberto so' num cliente (28/11/2026): vindo da venda,
+ * pelos debitos do cliente, para cobrar pelo WhatsApp.
+ */
+export interface VendedorContasReceberNavState {
+  cliente: { id: string; nome: string };
+}

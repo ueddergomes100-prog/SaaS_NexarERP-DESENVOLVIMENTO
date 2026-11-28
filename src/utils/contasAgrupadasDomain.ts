@@ -33,6 +33,11 @@ export const nomeDoGrupo = (conta: Pick<ContaParaAgrupar, 'nome' | 'descricao'>)
   conta.nome.trim().replace(/\s+/g, ' ') || conta.descricao.trim().replace(/\s+/g, ' ') || 'Sem descrição'
 );
 
+/** Chave do grupo: maiusculas, sem acento (abrir o grupo do cliente pelo nome, 28/11/2026). */
+export const chaveDoGrupo = (nome: string): string => (
+  String(nome || '').trim().replace(/\s+/g, ' ').toLocaleUpperCase('pt-BR').normalize('NFD').replace(/[̀-ͯ]/g, '')
+);
+
 /**
  * Agrupa pelo nome (maiusculas, acentos de digitacao e espacos nao separam o
  * mesmo cliente). Dentro do grupo, as notas vem do vencimento mais antigo ao
@@ -43,7 +48,7 @@ export const agruparContasPorNome = <T extends ContaParaAgrupar>(contas: T[], ho
   const grupos = new Map<string, GrupoDeContas<T>>();
   for (const conta of contas) {
     const nome = nomeDoGrupo(conta);
-    const chave = nome.toLocaleUpperCase('pt-BR').normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const chave = chaveDoGrupo(nome);
     const grupo = grupos.get(chave) || { chave, nome, contas: [], quantidade: 0, total: 0, vencimentoMaisAntigo: '', vencidas: 0 };
     grupo.contas.push(conta);
     grupos.set(chave, grupo);

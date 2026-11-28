@@ -556,6 +556,11 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
         throw new ErroBaixa(400, `A conta deste pagamento parcial está ${String(situacaoDaConta || 'sem situação').toLowerCase()}; o pagamento parcial não pode ser estornado.`);
       }
     }
+    // Conta a pagar paga com CHEQUE DE CLIENTE (28/11/2026): o estorno devolve o cheque a' carteira.
+    // require aqui dentro: repasseCheques.js tambem usa este arquivo.
+    const repasseCheque = tipo === 'saida' && dados.chequeRecebidoRepassado
+      ? await require('./repasseCheques').lerChequeDoRepasse(tx, tenantId, pedido.transacaoId, dados)
+      : null;
     const noBanco = (l) => (l && l.pago && banco && l.bancoId === banco.ref.id ? l.centavos : 0);
     const acrescimoNoBancoCentavos = noBanco(acrescimo);
     const descontoNoBancoCentavos = noBanco(desconto);
@@ -608,6 +613,12 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
           acertoFornecedor: apagar(),
           formaPagamento: dados.formaAntesDoAcerto ? dados.formaAntesDoAcerto : apagar(),
           formaAntesDoAcerto: apagar(),
+        } : {}),
+        ...(repasseCheque ? {
+          chequeRecebidoRepassado: apagar(),
+          antesDoRepasse: apagar(),
+          formaPagamento: dados.antesDoRepasse && dados.antesDoRepasse.formaPagamento ? dados.antesDoRepasse.formaPagamento : apagar(),
+          naturezaFinanceira: dados.antesDoRepasse && dados.antesDoRepasse.naturezaFinanceira ? dados.antesDoRepasse.naturezaFinanceira : apagar(),
         } : {}),
         ...registroDoEstorno,
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Pagamento estornado: ${motivo}`),
@@ -682,6 +693,7 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
       });
     }
     reabrirOrigensSeRenegociacaoEstavaPaga(tx, user, renegociacao, motivo);
+    if (repasseCheque) require('./repasseCheques').devolverChequeACarteira(tx, user, repasseCheque, `pagamento da conta "${resumo.descricao}" estornado: ${motivo}`);
 
     // Historico de alteracoes (09/11/2026): na MESMA transacao do estorno (ultima
     // escrita) -- ou o estorno e o registro gravam juntos, ou nenhum dos dois.
@@ -691,7 +703,7 @@ const registrarEstorno = async ({ user, tenantId, pedido }) => {
       descricao: `${tipo === 'saida' ? 'Pagamento' : 'Recebimento'} "${resumo.descricao}" de R$ ${fromCents(valorCentavos).toFixed(2).replace('.', ',')} estornado para Pendente. Motivo: ${motivo}`,
       registroId: pedido.transacaoId,
       // A venda/OS do titulo e, no pagamento parcial, a conta que voltou a ficar em aberto.
-      documentosRelacionados: [dados.pedidoId, dados.osId, parcialDe].filter(Boolean).map(String),
+      documentosRelacionados: [dados.pedidoId, dados.osId, parcialDe, repasseCheque && repasseCheque.id].filter(Boolean).map(String),
       documentoTipo: tipo === 'saida' ? 'conta_pagar' : 'conta_receber',
       documentoNumero: `${tipo === 'saida' ? 'Conta a pagar' : 'Conta a receber'} ${resumo.descricao || pedido.transacaoId}`,
       motivo,
@@ -725,4 +737,5 @@ module.exports = {
   lerOrigem,
   lerBanco,
   centavosDoTitulo,
+  camposDaContaNoParcial,
 };

@@ -8,7 +8,8 @@ import { pagamentoImpresso, rotuloDaForma } from '../../utils/pagamentoImpressoD
 import QrCodePix from '../../components/common/QrCodePix';
 import { usePedidoPrintExtras } from '../../hooks/usePedidoPrintExtras';
 import { composicaoDaEmbalagemNoPapel, quantidadeComUnidade } from '../../utils/embalagemNoPapelDomain';
-import { complementoDoClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
+import { complementoDoClienteSemCadastro, lerClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
+import { codigoENomeMinuta } from '../../utils/minutaDomain';
 import './PedidoPrintMeiaFolha.css';
 
 interface Parcela {
@@ -143,12 +144,11 @@ const PedidoPrintMeiaFolha: React.FC<PedidoPrintMeiaFolhaProps> = ({ pedidoData,
           com valor vazio ("E-mail:" sem e-mail) so ocupa espaco num papel
           pequeno e faz o balcao achar que o sistema perdeu o dado. */}
       <div className="mf-cliente-row">
-        <span><strong>Cliente:</strong> {nomeDoClienteDoPedido(pedidoData)}{complementoDoClienteSemCadastro(pedidoData) ? ` (${complementoDoClienteSemCadastro(pedidoData)})` : ''}</span>
+        {/* Codigo do cliente antes do nome (28/11/2026, pedido do dono: todos os modelos de impressao). */}
+        <span><strong>Cliente:</strong> {codigoENomeMinuta(lerClienteSemCadastro(pedidoData.clienteSemCadastro) ? '' : clientData?.codigo, nomeDoClienteDoPedido(pedidoData))}{complementoDoClienteSemCadastro(pedidoData) ? ` (${complementoDoClienteSemCadastro(pedidoData)})` : ''}</span>
         {/* O telefone e DO CLIENTE (sai de clientData) -- ficava embaixo do
-            vendedor, dando a entender que era o telefone dele. Assumiu o lugar
-            do codigo do cliente, que nao diz nada a quem recebe o papel: o
-            codigo serve pra busca dentro do sistema, e quem esta com o recibo
-            na mao procura telefone, nao numero de cadastro. */}
+            vendedor, dando a entender que era o telefone dele. O codigo do
+            cliente voltou em 28/11/2026, antes do nome (pedido do dono). */}
         <span><strong>Telefone:</strong> {clientData?.telefone || ''}</span>
         {clientData?.documento && <span><strong>CPF/CNPJ:</strong> {formatarDocumento(clientData.documento)}</span>}
         <span><strong>Cidade:</strong> {clientData?.cidade || ''}</span>

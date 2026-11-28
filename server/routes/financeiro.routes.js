@@ -55,6 +55,7 @@ const { db } = require('../config/firebase');
  * Ver services/baixaFinanceira.js. O navegador manda so' o que a pessoa
  * escolheu; valor, saldo do banco e venda/OS sao lidos e gravados aqui.
  */
+const { contasAPagarParaRepasse, repassarParaContaAPagar } = require('../services/repasseCheques');
 const router = express.Router();
 router.use(authenticate);
 
@@ -634,6 +635,7 @@ const MENSAGEM_SEM_PERMISSAO = {
   'financeiro.cartao_taxa': 'Você não tem permissão para alterar a taxa do cartão. Peça a um responsável liberar "Financeiro: Banco — alterar a taxa do cartão a conciliar" no seu usuário.',
   'financeiro.banco': 'Você não tem permissão para conciliar recebimentos no banco. Peça a um responsável liberar "Financeiro: Banco" no seu usuário.',
   'financeiro.cheques': 'Você não tem permissão para compensar cheques. Peça a um responsável liberar "Financeiro: Cheques" no seu usuário.',
+  'financeiro.cheque_pagar_conta': 'Você não tem permissão para pagar conta a pagar com cheque de cliente. Peça a um responsável liberar "Financeiro: Cheques — pagar conta a pagar com cheque de cliente" no seu usuário.',
   'financeiro.boletos': 'Você não tem permissão para mexer em boletos. Peça a um responsável liberar "Financeiro: Boletos (Emissão, Remessa e Retorno)" no seu usuário.',
   'cadastros.bancos': 'Você não tem permissão para lançar no banco. Peça a um responsável liberar "Cadastros: Bancos" no seu usuário.',
 };
@@ -672,6 +674,15 @@ router.post('/cartao/taxa', rotaDeMovimento('financeiro.cartao_taxa', 'alterar a
 /** POST /api/financeiro/cheque/compensar  { transacaoId, bancoId? } -- cheque RECEBIDO */
 router.post('/cheque/compensar', rotaDeMovimento('financeiro.cheques', 'compensar o cheque', compensarChequeRecebido,
   (r) => `Cheque recebido "${r.descricao}" compensado: ${reais(r.liquidoCentavos)} entraram no banco ${r.bancoNome || ''}.`));
+
+/**
+ * Cheque recebido pagando uma conta a pagar de fornecedor (28/11/2026).
+ * POST /api/financeiro/cheque/contas-a-pagar  {} -- as contas em aberto que podem receber o cheque
+ * POST /api/financeiro/cheque/pagar-conta     { transacaoId, contaPagarId }
+ * O Historico de alteracoes e' gravado no servico, na mesma transacao.
+ */
+router.post('/cheque/contas-a-pagar', rotaDeMovimento('financeiro.cheque_pagar_conta', 'listar as contas a pagar', contasAPagarParaRepasse, () => ''));
+router.post('/cheque/pagar-conta', rotaDeMovimento('financeiro.cheque_pagar_conta', 'pagar a conta com o cheque', repassarParaContaAPagar, () => ''));
 
 /** POST /api/financeiro/cheque-emitido/compensar  { transacaoId, dataPagamento } */
 router.post('/cheque-emitido/compensar', rotaDeMovimento('financeiro.cheques', 'compensar o cheque', compensarChequeEmitido,

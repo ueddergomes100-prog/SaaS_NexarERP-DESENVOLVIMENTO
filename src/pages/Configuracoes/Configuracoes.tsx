@@ -15,7 +15,7 @@ import { useTabs } from '../../contexts/TabsContext';
 import EstadoVazio from '../../components/common/EstadoVazio';
 import { salvarConfiguracoesGerais } from '../../services/filialService';
 import { salvarModulosBloqueados } from '../../services/plataformaService';
-import { semCamposGerais } from '../../utils/configuracoesGeraisDomain';
+import { comNatureza, naturezaDaCategoria, ROTULO_NATUREZA, semCamposGerais, type NaturezaDaCategoria } from '../../utils/configuracoesGeraisDomain';
 import { addDoc, doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, deleteField } from 'firebase/firestore';
 import { db, storage } from '../../services/firebase';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
@@ -615,7 +615,8 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     prazoRecebimentoCartaoCreditoDias: '30',
     prazoRecebimentoCartaoDebitoDias: '1',
     planoContasReceitas: ['Serviços', 'Venda de Produtos', 'Outras Receitas'],
-    planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Outros'],
+    planoContasDespesas: ['Aluguel', 'Água/Luz/Internet', 'Salários', 'Impostos', 'Fornecedores de Produtos', 'Marketing', 'Manutenção', 'Tarifas bancárias', 'Outros'],
+    planoContasSoInforma: [] as string[],
     modeloImpressaoOS: DEFAULT_OS_PRINT_MODEL,
     mostrarValorListaOS: DEFAULT_MOSTRAR_VALOR_LISTA_OS,
     mostrarResumoEstoque: DEFAULT_MOSTRAR_RESUMO_ESTOQUE,
@@ -834,6 +835,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
             prazoRecebimentoCartaoDebitoDias: String(data.prazoRecebimentoCartaoDebitoDias ?? 1),
             planoContasReceitas: receitas,
             planoContasDespesas: despesas,
+            planoContasSoInforma: Array.isArray(data.planoContasSoInforma) ? data.planoContasSoInforma.map(String) : [],
             modeloImpressaoOS: data.modeloImpressaoOS || DEFAULT_OS_PRINT_MODEL,
             mostrarValorListaOS: parseMostrarValorListaOS(data.mostrarValorListaOS),
             mostrarResumoEstoque: parseMostrarResumoEstoque(data.mostrarResumoEstoque),
@@ -1073,9 +1075,6 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     setNovaReceitaInput('');
   };
 
-  const handleRemoveReceita = (index: number) => {
-    setFormData(prev => ({ ...prev, planoContasReceitas: prev.planoContasReceitas.filter((_, i) => i !== index) }));
-  };
 
   const handleAddDespesa = () => {
     if (!novaDespesaInput.trim()) return;
@@ -1083,9 +1082,40 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
     setNovaDespesaInput('');
   };
 
-  const handleRemoveDespesa = (index: number) => {
-    setFormData(prev => ({ ...prev, planoContasDespesas: prev.planoContasDespesas.filter((_, i) => i !== index) }));
+
+  // Natureza de cada categoria (28/11/2026): Soma / Retira / So' informa. Regra em configuracoesGeraisDomain.
+  const mudarNatureza = (nome: string, natureza: NaturezaDaCategoria) => {
+    setFormData(prev => {
+      const novo = comNatureza({ receitas: prev.planoContasReceitas, despesas: prev.planoContasDespesas, soInforma: prev.planoContasSoInforma }, nome, natureza);
+      return { ...prev, planoContasReceitas: novo.receitas, planoContasDespesas: novo.despesas, planoContasSoInforma: novo.soInforma };
+    });
   };
+  const naturezaDe = (nome: string) => naturezaDaCategoria(nome, { despesas: formData.planoContasDespesas, soInforma: formData.planoContasSoInforma });
+  const seletorDeNatureza = (nome: string) => (
+    <div role="group" aria-label={`O que "${nome}" faz no DRE`} style={{ display: 'inline-flex', borderRadius: '999px', border: '1px solid var(--border-color)', overflow: 'hidden', flexShrink: 0 }}>
+      {(['soma', 'retira', 'informa'] as const).map((n) => {
+        const ativa = naturezaDe(nome) === n;
+        const cor = n === 'soma' ? '#059669' : n === 'retira' ? '#dc2626' : 'var(--brand-600)';
+        return (
+          <button
+            key={n}
+            type="button"
+            aria-pressed={ativa}
+            disabled={!isEditingMode}
+            onClick={() => mudarNatureza(nome, n)}
+            title={n === 'soma' ? 'Soma: entra como receita no DRE' : n === 'retira' ? 'Retira: entra como despesa no DRE' : 'Só informa: aparece no DRE à parte e não entra no lucro (ex.: transferência entre contas, aporte do sócio)'}
+            style={{
+              border: 'none', padding: '4px 10px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+              background: ativa ? cor : 'transparent', color: ativa ? '#fff' : 'var(--text-muted)',
+              cursor: isEditingMode ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {ROTULO_NATUREZA[n]}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   /**
    * Primeiro precedente no sistema de "confirmar ANTES de marcar um
@@ -1861,6 +1891,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
       const r = await salvarConfiguracoesGerais({
         planoContasReceitas: formData.planoContasReceitas,
         planoContasDespesas: formData.planoContasDespesas,
+        planoContasSoInforma: formData.planoContasSoInforma,
         validarCadastroProduto: formData.validarCadastroProduto === true,
         modoValidacaoCliente: formData.modoValidacaoCliente,
         trabalhaComLimiteCredito: formData.trabalhaComLimiteCredito === true,
@@ -2789,9 +2820,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
                   {formData.planoContasReceitas.map((cat, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{cat}</span>
-                      <button type="button" onClick={() => handleRemoveReceita(idx)} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1, minWidth: 0 }}>{cat}</span>
+                      {seletorDeNatureza(cat)}
+                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, planoContasReceitas: prev.planoContasReceitas.filter((_, i) => i !== idx), planoContasSoInforma: prev.planoContasSoInforma.filter((c) => c !== cat) }))} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <X size={14} style={{ opacity: isEditingMode ? 1 : 0.5 }} />
                       </button>
                     </div>
@@ -2823,9 +2855,10 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
                   {formData.planoContasDespesas.map((cat, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{cat}</span>
-                      <button type="button" onClick={() => handleRemoveDespesa(idx)} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-tertiary)', padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-primary)', flex: 1, minWidth: 0 }}>{cat}</span>
+                      {seletorDeNatureza(cat)}
+                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, planoContasDespesas: prev.planoContasDespesas.filter((_, i) => i !== idx), planoContasSoInforma: prev.planoContasSoInforma.filter((c) => c !== cat) }))} disabled={!isEditingMode} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isEditingMode ? 'pointer' : 'not-allowed', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <X size={14} style={{ opacity: isEditingMode ? 1 : 0.5 }} />
                       </button>
                     </div>
@@ -2837,7 +2870,7 @@ const Configuracoes: React.FC<{ modo?: 'geral' | 'filial' }> = ({ modo = 'geral'
               </div>
 
               <div style={{ gridColumn: '1 / -1' }}>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Estas categorias aparecerão automaticamente na hora de lançar uma nova Receita ou Despesa no Fluxo de Caixa.</p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Estas categorias aparecerão automaticamente na hora de lançar uma nova Receita ou Despesa no Fluxo de Caixa. No DRE (Financeiro › Faturamento & DRE) cada categoria sai na sua linha: <strong>Soma</strong> entra como receita, <strong>Retira</strong> como despesa e <strong>Só informa</strong> aparece à parte, fora do lucro.</p>
               </div>
             </div>
           )}

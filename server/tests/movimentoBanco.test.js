@@ -283,3 +283,51 @@ test('cartao: taxa invalida e titulo que nao e\' de cartao sao recusados', async
   const ok = await s.alterarTaxaDoCartao({ user: USER, tenantId: 'emp1', corpo: { transacaoId: 'c2', taxaCentavos: 0 } });
   assert.equal(ok.liquidoCentavos, 1000);
 });
+
+
+test('retorno do boleto (28/11/2026): guarda juros/multa, tarifa e liquido do banco so\' para a tela, sem lixo', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/bl1': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Boleto 1/3', formaPagamento: 'Boleto', boleto: { nossoNumero: '77', status: 'em_remessa' }, valorCentavos: 10000, bancoId: 'b4' },
+    'bancos/b4': { tenantId: 'emp1', nome: 'Sicoob', saldoCentavos: 0 },
+  });
+  const servico = carregar(fake.db);
+  await servico.baixarBoletoPeloRetorno({
+    user: USER, tenantId: 'emp1', hoje: HOJE,
+    corpo: { transacaoId: 'bl1', valorPagoCentavos: 10000, detalheDoRetorno: { jurosMultaCentavos: 0, tarifaCentavos: 250, valorLiquidoCentavos: 9750, descontoCentavos: -5, lixo: 'x' } },
+  });
+  const boleto = fake.ler('transacoes/bl1').boleto;
+  assert.deepEqual(boleto.retorno, { jurosMultaCentavos: 0, tarifaCentavos: 250, valorLiquidoCentavos: 9750 });
+  assert.equal(boleto.valorPagoCentavos, 10000, 'a baixa continua pelo valor pago');
+});
+
+
+test('tarifa do boleto (28/11/2026): vira despesa "Tarifas bancárias" e sai do saldo do banco', async () => {
+  const fake = criarBancoFalso({
+    'transacoes/bl2': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Boleto 2/3', formaPagamento: 'Boleto', boleto: { nossoNumero: '78', status: 'em_remessa' }, valorCentavos: 10000, bancoId: 'b5' },
+    'bancos/b5': { tenantId: 'emp1', nome: 'Sicoob', saldoCentavos: 0 },
+  }, { consultas: true });
+  const servico = carregar(fake.db);
+  await servico.baixarBoletoPeloRetorno({
+    user: USER, tenantId: 'emp1', hoje: HOJE,
+    corpo: { transacaoId: 'bl2', valorPagoCentavos: 10000, dataPagamento: '2026-10-02', detalheDoRetorno: { tarifaCentavos: 250, valorLiquidoCentavos: 9750 } },
+  });
+  assert.equal(fake.ler('bancos/b5').saldoCentavos, 9750, 'o banco fica com o liquido');
+  const titulo = fake.ler('transacoes/bl2');
+  assert.equal(titulo.tarifaCentavos, 250);
+  const tarifa = fake.ler(`transacoes/${titulo.tarifaTransacaoId}`);
+  assert.equal(tarifa.tipo, 'saida');
+  assert.equal(tarifa.status, 'Paga');
+  assert.equal(tarifa.categoria, 'Tarifas bancárias');
+  assert.equal(tarifa.valorCentavos, 250);
+  assert.equal(tarifa.tarifaDaTransacaoId, 'bl2');
+  for (const v of Object.values(tarifa)) assert.notEqual(v, undefined);
+
+  // Sem tarifa no arquivo (CNAB400 ou boleto antigo): nada muda.
+  const fake2 = criarBancoFalso({
+    'transacoes/bl3': { tenantId: 'emp1', tipo: 'entrada', status: 'Pendente', descricao: 'Boleto 3/3', formaPagamento: 'Boleto', boleto: { nossoNumero: '79', status: 'em_remessa' }, valorCentavos: 10000, bancoId: 'b6' },
+    'bancos/b6': { tenantId: 'emp1', nome: 'Sicoob', saldoCentavos: 0 },
+  });
+  await carregar(fake2.db).baixarBoletoPeloRetorno({ user: USER, tenantId: 'emp1', hoje: HOJE, corpo: { transacaoId: 'bl3', valorPagoCentavos: 10000 } });
+  assert.equal(fake2.ler('bancos/b6').saldoCentavos, 10000);
+  assert.equal(fake2.ler('transacoes/bl3').tarifaTransacaoId, undefined);
+});

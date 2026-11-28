@@ -1,0 +1,241 @@
+/*
+ * POP-UPS DO SISTEMA (SweetAlert / NexusSwal) — padrão único (28/11/2026).
+ *
+ * Pedido do dono: "muitos popup estão mal estilizados". Em vez de mexer tela
+ * por tela (são ~100 telas com pop-up), o visual mora AQUI, num lugar só:
+ *  - campos (texto, número, data, seleção, caixa de texto) com a mesma altura,
+ *    raio, fundo e anel de foco, dentro ou fora do `html:` de cada tela;
+ *  - rótulos e textos de ajuda legíveis (13px / 12px), alinhados à esquerda
+ *    quando há formulário;
+ *  - botão principal no violeta da marca; "Cancelar/Voltar" claro (não mais
+ *    o cinza-chumbo no tema claro); vermelho continua vermelho;
+ *  - ícone de pergunta/informação no violeta da marca, sem o cinza genérico.
+ * Só visual: nenhuma função muda. Estilo inline de cada tela (largura, grade,
+ * margem) continua valendo; aqui ficam cor, altura, raio e tipografia.
+ */
+
+.swal2-popup {
+  --popup-campo-fundo: var(--bg-tertiary);
+  --popup-campo-borda: var(--border-color);
+  --popup-campo-texto: var(--text-primary);
+  --popup-foco: rgba(124, 58, 237, 0.28);
+  --popup-secundario-fundo: rgba(183, 147, 242, 0.14);
+  --popup-secundario-texto: var(--brand-200);
+  width: min(32em, calc(100vw - 24px));
+  padding: 26px 26px 22px !important;
+  font-family: inherit;
+  /* Escuro: o roxo-noite do sistema, nao o cinza #1c1c1f do mixin. */
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+body.light-theme .swal2-popup {
+  --popup-campo-fundo: var(--brand-50);
+  --popup-campo-borda: rgba(43, 16, 87, 0.16);
+  --popup-secundario-fundo: var(--brand-100);
+  --popup-secundario-texto: var(--brand-900);
+}
+
+/* ---------- título e texto ---------- */
+.swal2-popup .swal2-title {
+  font-size: 1.45em !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  padding: 4px 4px 0 !important;
+  color: var(--text-primary) !important;
+}
+
+.swal2-popup .swal2-html-container {
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  color: var(--text-secondary) !important;
+  margin: 10px 4px 0 !important;
+  padding: 0 !important;
+}
+
+/* Formulário dentro do pop-up: rótulos e ajudas alinhados à esquerda. */
+.swal2-popup .swal2-html-container:has(input, select, textarea) {
+  text-align: left;
+}
+
+.swal2-popup .swal2-html-container label {
+  font-size: 13px !important;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.swal2-popup .swal2-html-container small,
+.swal2-popup .swal2-html-container .swal2-ajuda {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---------- campos (os do SweetAlert e os escritos à mão no `html:`) ---------- */
+.swal2-popup .swal2-input,
+.swal2-popup .swal2-file,
+.swal2-popup .swal2-select,
+.swal2-popup .swal2-textarea,
+.swal2-popup .swal2-html-container input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+.swal2-popup .swal2-html-container select,
+.swal2-popup .swal2-html-container textarea {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 14px !important;
+  border: 1px solid var(--popup-campo-borda) !important;
+  border-radius: 12px !important;
+  background-color: var(--popup-campo-fundo) !important;
+  color: var(--popup-campo-texto) !important;
+  font: inherit;
+  font-size: 15px !important;
+  box-shadow: none !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+/* Os campos do próprio SweetAlert (input:, select:, textarea:) ocupam a largura do pop-up. */
+.swal2-popup > .swal2-input,
+.swal2-popup > .swal2-select,
+.swal2-popup > .swal2-textarea,
+.swal2-popup > .swal2-file {
+  width: calc(100% - 8px) !important;
+  max-width: none !important;
+  margin: 16px 4px 4px !important;
+}
+
+.swal2-popup .swal2-textarea,
+.swal2-popup .swal2-html-container textarea {
+  min-height: 104px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.swal2-popup .swal2-input:hover,
+.swal2-popup .swal2-select:hover,
+.swal2-popup .swal2-textarea:hover,
+.swal2-popup .swal2-html-container :is(input, select, textarea):hover {
+  border-color: var(--brand-400) !important;
+}
+
+.swal2-popup .swal2-input:focus,
+.swal2-popup .swal2-select:focus,
+.swal2-popup .swal2-textarea:focus,
+.swal2-popup .swal2-html-container :is(input, select, textarea):focus {
+  outline: none !important;
+  border-color: var(--brand-600) !important;
+  box-shadow: 0 0 0 4px var(--popup-foco) !important;
+  background-color: var(--bg-secondary) !important;
+}
+
+.swal2-popup :is(.swal2-input, .swal2-select, .swal2-textarea):disabled,
+.swal2-popup .swal2-html-container :is(input, select, textarea):disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.swal2-popup .swal2-html-container input[type='checkbox'],
+.swal2-popup .swal2-html-container input[type='radio'] {
+  accent-color: var(--brand-600);
+  width: 18px;
+  height: 18px;
+}
+
+/* Rótulo do campo do próprio SweetAlert (inputLabel). */
+.swal2-popup .swal2-input-label {
+  justify-content: flex-start;
+  width: calc(100% - 8px);
+  margin: 16px 4px 0 !important;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* Mensagem de "falta preencher": faixa clara, não o cinza do SweetAlert. */
+.swal2-popup .swal2-validation-message {
+  margin: 14px 0 0 !important;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.1) !important;
+  color: #b91c1c !important;
+  font-size: 13px !important;
+  font-weight: 600;
+  justify-content: flex-start;
+  padding: 10px 14px !important;
+}
+body:not(.light-theme) .swal2-popup .swal2-validation-message { color: #fca5a5 !important; }
+.swal2-popup .swal2-validation-message::before {
+  background-color: #ef4444 !important;
+  min-width: 1.3em;
+  height: 1.3em;
+}
+
+/* ---------- botões ---------- */
+.swal2-popup .swal2-actions {
+  gap: 10px;
+  margin-top: 22px !important;
+}
+.swal2-popup .swal2-actions button {
+  min-height: 44px;
+  margin: 0 !important;
+  font-size: 14px !important;
+}
+.swal2-popup .swal2-actions button:focus-visible {
+  box-shadow: 0 0 0 4px var(--popup-foco) !important;
+}
+
+/* "Cancelar / Voltar": botão claro, tingido da marca, no lugar do cinza-chumbo. */
+.swal2-popup .swal2-actions button.swal2-cancel {
+  --swal2-cancel-button-background-color: var(--popup-secundario-fundo);
+  background-color: var(--popup-secundario-fundo) !important;
+  color: var(--popup-secundario-texto) !important;
+  border: 1px solid var(--popup-campo-borda) !important;
+}
+.swal2-popup .swal2-actions button.swal2-cancel:not([disabled]):is(:hover, :active) {
+  background-color: var(--popup-secundario-fundo) !important;
+  filter: brightness(0.95);
+}
+
+/* ---------- ícones genéricos (pergunta / informação) no violeta da marca ---------- */
+.swal2-popup .swal2-icon.swal2-question,
+.swal2-popup .swal2-icon.swal2-info {
+  border-color: var(--brand-300) !important;
+  color: var(--brand-600) !important;
+  background: var(--brand-50);
+  width: 4.2em;
+  height: 4.2em;
+  margin: 6px auto 4px;
+}
+body:not(.light-theme) .swal2-popup .swal2-icon.swal2-question,
+body:not(.light-theme) .swal2-popup .swal2-icon.swal2-info {
+  background: rgba(124, 58, 237, 0.14);
+  border-color: rgba(183, 147, 242, 0.45) !important;
+  color: var(--brand-300) !important;
+}
+.swal2-popup .swal2-icon .swal2-icon-content {
+  font-size: 2.6em;
+  font-weight: 700;
+}
+
+/* Fechar (X) */
+.swal2-popup .swal2-close {
+  border-radius: 12px;
+  color: var(--text-muted);
+}
+.swal2-popup .swal2-close:hover {
+  background: var(--popup-secundario-fundo);
+  color: var(--text-primary);
+}
+
+/* Celular: botões um embaixo do outro, largura toda, alvo de 48px. */
+@media (max-width: 520px) {
+  .swal2-popup {
+    padding: 22px 18px 18px !important;
+  }
+  .swal2-popup .swal2-actions {
+    flex-direction: column-reverse;
+    width: 100%;
+  }
+  .swal2-popup .swal2-actions button {
+    width: 100%;
+    min-height: 48px;
+  }
+}

@@ -5,7 +5,8 @@ import { ehPreVenda } from '../../utils/preVendaDomain';
 import { pagamentoImpresso, rotuloDaForma, textoDosVencimentos } from '../../utils/pagamentoImpressoDomain';
 import { usePedidoPrintExtras } from '../../hooks/usePedidoPrintExtras';
 import { composicaoDaEmbalagemNoPapel } from '../../utils/embalagemNoPapelDomain';
-import { complementoDoClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
+import { complementoDoClienteSemCadastro, lerClienteSemCadastro, nomeDoClienteDoPedido } from '../../utils/clienteSemCadastroDomain';
+import { codigoENomeMinuta } from '../../utils/minutaDomain';
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor) || 0);
 
@@ -54,7 +55,8 @@ const PedidoPrintDocument: React.FC<PedidoPrintDocumentProps> = ({ pedidoData, c
       <div className="a4-section">
         <h3 className="section-title">Dados do Cliente</h3>
         <div className="a4-grid">
-          <p><strong>Nome:</strong> {nomeDoClienteDoPedido(pedidoData, '---')}</p>
+          {/* Codigo do cliente antes do nome (28/11/2026, pedido do dono: todos os modelos). */}
+          <p><strong>Nome:</strong> {codigoENomeMinuta(lerClienteSemCadastro(pedidoData.clienteSemCadastro) ? '' : clientData?.codigo, nomeDoClienteDoPedido(pedidoData, '---'))}</p>
           {complementoDoClienteSemCadastro(pedidoData) && <p><strong>Cliente:</strong> {complementoDoClienteSemCadastro(pedidoData)}</p>}
           <p><strong>CPF/CNPJ:</strong> {clientData?.documento || '---'}</p>
           <p><strong>Telefone:</strong> {clientData?.telefone || '---'}</p>

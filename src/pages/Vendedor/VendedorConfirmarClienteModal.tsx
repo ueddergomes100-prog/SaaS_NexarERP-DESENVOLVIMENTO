@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, FileText, MapPin, Phone, Wallet } from 'lucide-react';
+import { AlertTriangle, ChevronRight, FileText, MapPin, Phone, Wallet } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { NexusSwal } from '../../utils/alerts';
+import { PERMISSAO_APP } from '../../utils/permissoesAppDomain';
+import { podeTelaDoApp } from './vendedorPermissoes';
+import type { VendedorContasReceberNavState } from './vendedorNavState';
 import { situacaoEmAbertoDoCliente } from '../../utils/contasReceberQuery';
 import { MENSAGEM_DEBITOS_INDISPONIVEIS, resumoDosDebitos, type ResumoDosDebitos } from '../../utils/debitosClienteAppDomain';
 import { mascaraDocumento, mascaraTelefone } from '../../utils/clienteCadastroMobileDomain';
@@ -43,6 +48,8 @@ interface VendedorConfirmarClienteModalProps {
   onCancelar: () => void;
   /** Debitos do cliente (23/11/2026). A OS do tecnico desliga quando a empresa esconde os valores dele. Padrao: mostra. */
   mostrarDebitos?: boolean;
+  /** A tela de tras tem dados ainda nao salvos (itens do pedido): pergunta antes de sair para o Contas a Receber. */
+  avisarAntesDeSair?: boolean;
 }
 
 type EstadoDosDebitos = { estado: 'carregando' } | { estado: 'pronto'; resumo: ResumoDosDebitos } | { estado: 'erro' };
@@ -60,8 +67,12 @@ const linhaDado = (icone: React.ReactNode, conteudo: React.ReactNode) => (
   </div>
 );
 
-const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps> = ({ cliente, onConfirmar, onCancelar, mostrarDebitos = true }) => {
-  const { tenantId, grupo } = useAuth();
+const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps> = ({ cliente, onConfirmar, onCancelar, mostrarDebitos = true, avisarAntesDeSair = false }) => {
+  const { tenantId, grupo, userPermissions, userRole, isOwner } = useAuth();
+  const navigate = useNavigate();
+  // Debito clicavel (28/11/2026, pedido do dono): leva ao Contas a Receber do app so' neste
+  // cliente, para cobrar pelo WhatsApp. So' para quem abre aquela tela.
+  const podeAbrirContas = podeTelaDoApp(PERMISSAO_APP.contasReceber, userRole, isOwner, userPermissions) && userPermissions.includes('financeiro.receber');
   const [debitos, setDebitos] = useState<EstadoDosDebitos>({ estado: 'carregando' });
   const clienteId = cliente?.id || '';
 
@@ -89,6 +100,24 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
     window.addEventListener('keydown', aoTeclar);
     return () => window.removeEventListener('keydown', aoTeclar);
   }, [cliente, onCancelar]);
+
+  const abrirContasDoCliente = async () => {
+    if (!cliente) return;
+    if (avisarAntesDeSair) {
+      const r = await NexusSwal.fire({
+        title: 'Abrir as contas do cliente?',
+        text: 'Os itens deste pedido ainda não foram salvos e vão se perder. Salve como rascunho antes, se quiser continuar depois.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Abrir as contas',
+        cancelButtonText: 'Voltar',
+      });
+      if (!r.isConfirmed) return;
+    }
+    const state: VendedorContasReceberNavState = { cliente: { id: cliente.id, nome: cliente.nome } };
+    onCancelar();
+    navigate('/vendedor/contas-receber', { state });
+  };
 
   if (!cliente) return null;
 
@@ -170,9 +199,18 @@ const VendedorConfirmarClienteModal: React.FC<VendedorConfirmarClienteModalProps
               {debitos.estado === 'carregando' && <span style={{ color: 'var(--text-muted)' }}>Consultando débitos do cliente…</span>}
               {debitos.estado === 'erro' && <span style={{ color: 'var(--text-muted)' }}>{MENSAGEM_DEBITOS_INDISPONIVEIS}</span>}
               {debitos.estado === 'pronto' && (
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700 }}>{debitos.resumo.titulo}</div>
                   {debitos.resumo.detalhe && <div style={{ color: nivel === 'atrasado' ? '#ef4444' : 'var(--text-secondary)', fontSize: '13.5px' }}>{debitos.resumo.detalhe}</div>}
+                  {nivel !== 'sem-debito' && podeAbrirContas && (
+                    <button
+                      type="button"
+                      onClick={() => { void abrirContasDoCliente(); }}
+                      style={{ marginTop: '8px', display: 'inline-flex', alignItems: 'center', gap: '4px', minHeight: '40px', padding: '0 14px', borderRadius: '999px', border: 'none', backgroundColor: cor.icone, color: '#ffffff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >
+                      Ver as contas e cobrar <ChevronRight size={16} aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
               )}
             </div>

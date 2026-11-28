@@ -152,6 +152,31 @@ const CODIGOS_OCORRENCIA_LIQUIDACAO = new Set(['06', '17']);
 /** CNAB240: entrada confirmada so' informa (vem uma por boleto de cada remessa). */
 const CODIGOS_INFORMATIVOS_CNAB240 = new Set(['02']);
 
+/** O que o arquivo do banco diz sobre o pagamento de UM boleto (centavos). */
+export interface DetalheRetornoBoleto {
+  jurosMultaCentavos?: number;
+  descontoCentavos?: number;
+  tarifaCentavos?: number;
+  valorLiquidoCentavos?: number;
+}
+
+/**
+ * Detalhe do boleto RECEBIDO para a tela (28/11/2026, pedido do dono: "mostrar o
+ * valor de fato recebido do boleto, com os juros, multa etc, valor liquido").
+ * Usa o que o arquivo do banco trouxe; boleto baixado antes disso (ou CNAB400)
+ * usa a diferenca entre o pago e o valor do boleto, e o liquido = pago.
+ */
+export const detalheDoRecebimentoBoleto = (t: { valorCentavos: number; valorPagoCentavos?: number; retornoDoBanco?: DetalheRetornoBoleto }) => {
+  const valorBoleto = Math.max(0, Math.round(Number(t.valorCentavos) || 0));
+  const pago = Math.max(0, Math.round(Number(t.valorPagoCentavos) || 0)) || valorBoleto;
+  const r = t.retornoDoBanco || {};
+  const jurosMulta = r.jurosMultaCentavos ?? Math.max(0, pago - valorBoleto);
+  const desconto = r.descontoCentavos ?? Math.max(0, valorBoleto - pago);
+  const tarifa = r.tarifaCentavos ?? (r.valorLiquidoCentavos !== undefined ? Math.max(0, pago - r.valorLiquidoCentavos) : 0);
+  const liquido = r.valorLiquidoCentavos ?? Math.max(0, pago - tarifa);
+  return { valorBoleto, jurosMulta, desconto, pago, tarifa, liquido, veioDoBanco: r.valorLiquidoCentavos !== undefined || r.tarifaCentavos !== undefined };
+};
+
 export interface LinhaRetornoLida {
   /** So' preenchido quando a linha e' um segmento de titulo (T). */
   nossoNumero?: string;
@@ -159,6 +184,11 @@ export interface LinhaRetornoLida {
   /** AAAA-MM-DD. */
   dataOcorrencia?: string;
   valorPagoCentavos?: number;
+  /**
+   * Detalhe do recebimento (28/11/2026, so' CNAB240): juros/multa e desconto do
+   * Segmento U, tarifa do banco (T 199-213) e o valor liquido creditado (U 93-107).
+   */
+  detalhe?: DetalheRetornoBoleto;
   /** "Seu numero" que a remessa mandou (so' no CNAB400). */
   seuNumero?: string;
   /** AAAA-MM-DD (so' no CNAB400). */
@@ -267,9 +297,13 @@ const parseLinhaRetornoSicoob400 = (linha: string): LinhaRetornoLida => {
 /** Segmento U do CNAB240 (a linha logo depois do T): valor pago e datas. null se nao for U. */
 const lerSegmentoU240 = (linha: string | undefined) => {
   if (!linha || linha.length !== 240 || linha[13] !== 'U') return null;
+  const centavos = (de: number, ate: number) => Number.parseInt(linha.slice(de, ate), 10) || 0;
   return {
-    valorPagoCentavos: Number.parseInt(linha.slice(77, 92), 10) || 0,
+    valorPagoCentavos: centavos(77, 92),
     dataOcorrencia: dataDdmmaaaaParaIso(linha.slice(137, 145)),
+    jurosMultaCentavos: centavos(17, 32),
+    descontoCentavos: centavos(32, 47),
+    valorLiquidoCentavos: centavos(92, 107),
   };
 };
 
@@ -297,12 +331,20 @@ export const parseLinhaRetornoSicoob = (linha: string, proxima?: string): LinhaR
   const ehLiquidacao = CODIGOS_OCORRENCIA_LIQUIDACAO.has(codigoOcorrencia);
   const liquidado = ehLiquidacao && valorPagoCentavos > 0;
   const informativo = CODIGOS_INFORMATIVOS_CNAB240.has(codigoOcorrencia);
+  // Liquido zerado no arquivo = banco nao informou: nao inventa tarifa do tamanho do pago.
+  const detalhe: DetalheRetornoBoleto | undefined = liquidado && u ? {
+    jurosMultaCentavos: u.jurosMultaCentavos,
+    descontoCentavos: u.descontoCentavos,
+    tarifaCentavos: Number.parseInt(linha.slice(198, 213), 10) || 0,
+    ...(u.valorLiquidoCentavos > 0 ? { valorLiquidoCentavos: u.valorLiquidoCentavos } : {}),
+  } : undefined;
 
   return {
     nossoNumero,
     codigoOcorrencia,
     dataOcorrencia: dataOcorrencia || undefined,
     valorPagoCentavos,
+    ...(detalhe ? { detalhe } : {}),
     liquidado,
     informativo,
     ...(liquidado || informativo ? {} : {

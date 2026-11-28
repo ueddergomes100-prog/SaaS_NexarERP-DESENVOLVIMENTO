@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { TrendingUp, FileText, PieChart, Calendar, Loader2 } from 'lucide-react';
 import { useTitulosFinanceiros } from '../../hooks/useTitulosFinanceiros';
 import { useAuth } from '../../contexts/AuthContext';
@@ -46,17 +48,28 @@ const Faturamento: React.FC = () => {
     pagasHoje: false,
   });
 
+  // Plano de contas (28/11/2026): as categorias "So' informa" saem do lucro, num bloco a parte.
+  const [soInforma, setSoInforma] = useState<string[]>([]);
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelado = false;
+    getDoc(doc(db, 'configuracoes', tenantId))
+      .then((snap) => {
+        const lista = snap.exists() ? snap.data().planoContasSoInforma : null;
+        if (!cancelado) setSoInforma(Array.isArray(lista) ? lista.map(String) : []);
+      })
+      .catch((erro) => console.error('Faturamento & DRE: não leu o plano de contas.', erro));
+    return () => { cancelado = true; };
+  }, [tenantId]);
+
   // Somente lancamentos pagos do ano selecionado; mesma conta do relatorio.
-  const resumo = useMemo(() => calcularFaturamentoAnual(transacoes, anoFiltro), [transacoes, anoFiltro]);
+  const resumo = useMemo(() => calcularFaturamentoAnual(transacoes, anoFiltro, undefined, { soInforma }), [transacoes, anoFiltro, soInforma]);
   const documento = useMemo<DocumentoRelatorioSemEmpresa>(
-    () => montarDocumentoFaturamentoAnual(transacoes, anoFiltro),
-    [transacoes, anoFiltro],
+    () => montarDocumentoFaturamentoAnual(transacoes, anoFiltro, undefined, { soInforma }),
+    [transacoes, anoFiltro, soInforma],
   );
 
   const receitaBruta = fromCents(resumo.receitaBrutaCentavos);
-  const receitaPecas = fromCents(resumo.receitaPecasCentavos);
-  const receitaServicos = fromCents(resumo.receitaServicosCentavos);
-  const receitaOutros = fromCents(resumo.receitaOutrosCentavos);
   const taxasCartao = fromCents(resumo.taxasCartaoCentavos);
   const totalEstornos = fromCents(resumo.estornosCentavos);
   const receitaLiquida = fromCents(resumo.receitaLiquidaCentavos);
@@ -128,19 +141,17 @@ const Faturamento: React.FC = () => {
               <span style={{ fontWeight: 600, color: '#10b981' }}>{formatCurrency(receitaBruta)}</span>
             </div>
             
+            {/* Cada conta de receita do plano de contas (28/11/2026). */}
             <div style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
-                <span>↳ Venda de Peças (Pedidos de Venda)</span>
-                <span>{formatCurrency(receitaPecas)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
-                <span>↳ Serviços (Mão de Obra / OS)</span>
-                <span>{formatCurrency(receitaServicos)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
-                <span>↳ Outras Receitas</span>
-                <span>{formatCurrency(receitaOutros)}</span>
-              </div>
+              {resumo.receitasPorCategoria.map((c) => (
+                <div key={c.categoria} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
+                  <span>↳ {c.categoria}</span>
+                  <span>{formatCurrency(fromCents(c.valorCentavos))}</span>
+                </div>
+              ))}
+              {resumo.receitasPorCategoria.length === 0 && (
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Nenhuma receita paga neste ano.</div>
+              )}
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
@@ -167,6 +178,17 @@ const Faturamento: React.FC = () => {
               <span style={{ color: 'var(--text-secondary)' }}>5. (-) Despesas / Custos Totais</span>
               <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(totalDespesas)}</span>
             </div>
+            {/* Cada conta de despesa do plano de contas (28/11/2026). */}
+            {resumo.despesasPorCategoria.length > 0 && (
+              <div style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+                {resumo.despesasPorCategoria.map((c) => (
+                  <div key={c.categoria} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
+                    <span>↳ {c.categoria}</span>
+                    <span>{formatCurrency(fromCents(c.valorCentavos))}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '8px 0' }}></div>
 
@@ -190,6 +212,26 @@ const Faturamento: React.FC = () => {
                 {formatCurrency(lucroLiquido)}
               </span>
             </div>
+
+            {/* "Só informa" (Plano de Contas): aparece, mas fora do lucro. */}
+            {resumo.informativos.length > 0 && (
+              <div style={{ padding: '12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  Só informa (fora do lucro)
+                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)' }}>Categorias marcadas "Só informa" em Configurações Gerais › Plano de Contas</span>
+                </span>
+                {resumo.informativos.map((c) => (
+                  <div key={c.categoria} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)', paddingLeft: '12px' }}>
+                    <span>↳ {c.categoria}</span>
+                    <span>
+                      {c.entradasCentavos > 0 && <>entrou {formatCurrency(fromCents(c.entradasCentavos))}</>}
+                      {c.entradasCentavos > 0 && c.saidasCentavos > 0 && ' · '}
+                      {c.saidasCentavos > 0 && <>saiu {formatCurrency(fromCents(c.saidasCentavos))}</>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px' }}>
               <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>Margem de Lucro:</span>

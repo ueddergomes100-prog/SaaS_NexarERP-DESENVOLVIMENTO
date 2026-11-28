@@ -18,13 +18,15 @@
  * as que so' alguma filial tinha (Painel da Plataforma > Manutencao).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ROTULO_DO_CAMPO_GERAL = exports.camposDiferentes = exports.valoresUnificados = exports.semCamposGerais = exports.lerConfiguracoesGerais = exports.juntarCategorias = exports.mensagemPlanoCheio = exports.listaComNovaCategoria = exports.lerNovaCategoria = exports.CAMPO_DO_PLANO_DE_CONTAS = exports.CATEGORIAS_PADRAO_DOS_LANCAMENTOS = exports.LIMITE_DO_NOME_DA_CATEGORIA = exports.LIMITE_DE_CATEGORIAS = exports.CAMPOS_GERAIS = void 0;
+exports.comNatureza = exports.naturezaDaCategoria = exports.ROTULO_NATUREZA = exports.ROTULO_DO_CAMPO_GERAL = exports.camposDiferentes = exports.valoresUnificados = exports.semCamposGerais = exports.lerConfiguracoesGerais = exports.juntarCategorias = exports.mensagemPlanoCheio = exports.listaComNovaCategoria = exports.lerNovaCategoria = exports.CAMPO_DO_PLANO_DE_CONTAS = exports.CATEGORIAS_PADRAO_DOS_LANCAMENTOS = exports.LIMITE_DO_NOME_DA_CATEGORIA = exports.LIMITE_DE_CATEGORIAS = exports.CAMPOS_GERAIS = void 0;
 const clienteValidacaoDomain_1 = require("./clienteValidacaoDomain");
 const notaTransferenciaDomain_1 = require("./notaTransferenciaDomain");
 const cashbackDomain_1 = require("./cashbackDomain");
 exports.CAMPOS_GERAIS = [
     'planoContasReceitas',
     'planoContasDespesas',
+    // Natureza "So' informa" (28/11/2026): categorias que aparecem no DRE fora do lucro.
+    'planoContasSoInforma',
     'validarCadastroProduto',
     'modoValidacaoCliente',
     'trabalhaComLimiteCredito',
@@ -133,6 +135,12 @@ const lerConfiguracoesGerais = (corpo) => {
     const despesas = lerCategorias(dados.planoContasDespesas, 'despesa');
     if (!despesas.ok)
         return { ok: false, erro: despesas.erro };
+    // "So' informa" (28/11/2026): opcional (tela antiga nao manda); so' vale categoria que existe no plano.
+    const soInformaLida = dados.planoContasSoInforma === undefined ? { ok: true, valor: [] } : lerCategorias(dados.planoContasSoInforma, 'só informa');
+    if (!soInformaLida.ok)
+        return { ok: false, erro: soInformaLida.erro };
+    const doPlano = new Set([...receitas.valor, ...despesas.valor].map((c) => c.toLocaleLowerCase('pt-BR')));
+    const soInforma = soInformaLida.valor.filter((c) => doPlano.has(c.toLocaleLowerCase('pt-BR')));
     const validarProduto = lerSimNao(dados.validarCadastroProduto, 'Validar cadastro de produto');
     if (!validarProduto.ok)
         return { ok: false, erro: validarProduto.erro };
@@ -159,6 +167,7 @@ const lerConfiguracoesGerais = (corpo) => {
         valores: {
             planoContasReceitas: receitas.valor,
             planoContasDespesas: despesas.valor,
+            planoContasSoInforma: soInforma,
             validarCadastroProduto: validarProduto.valor,
             modoValidacaoCliente: dados.modoValidacaoCliente,
             trabalhaComLimiteCredito: limiteCredito.valor,
@@ -183,6 +192,7 @@ const lerCampoDoDocumento = (campo, valor) => {
     switch (campo) {
         case 'planoContasReceitas':
         case 'planoContasDespesas':
+        case 'planoContasSoInforma':
             return (0, exports.juntarCategorias)(valor);
         case 'modoValidacaoCliente':
             return (0, clienteValidacaoDomain_1.parseModoValidacaoCliente)(valor);
@@ -203,7 +213,7 @@ const lerCampoDoDocumento = (campo, valor) => {
 const valoresUnificados = (matriz, filiais) => {
     const valores = {};
     for (const campo of exports.CAMPOS_GERAIS) {
-        if (campo === 'planoContasReceitas' || campo === 'planoContasDespesas') {
+        if (campo === 'planoContasReceitas' || campo === 'planoContasDespesas' || campo === 'planoContasSoInforma') {
             const listas = [matriz[campo], ...filiais.map((f) => f[campo])];
             if (listas.some(Array.isArray))
                 valores[campo] = (0, exports.juntarCategorias)(...listas);
@@ -223,6 +233,7 @@ exports.camposDiferentes = camposDiferentes;
 exports.ROTULO_DO_CAMPO_GERAL = {
     planoContasReceitas: 'categorias de receita',
     planoContasDespesas: 'categorias de despesa',
+    planoContasSoInforma: 'categorias "só informa"',
     validarCadastroProduto: 'validar cadastro de produto',
     modoValidacaoCliente: 'cliente não cadastrado',
     trabalhaComLimiteCredito: 'limite de crédito',
@@ -231,3 +242,34 @@ exports.ROTULO_DO_CAMPO_GERAL = {
     usaGradeDeProdutos: 'grade de produtos',
     cashback: 'cashback',
 };
+exports.ROTULO_NATUREZA = {
+    soma: 'Soma',
+    retira: 'Retira',
+    informa: 'Só informa',
+};
+const mesmaCategoria = (a, b) => a.toLocaleLowerCase('pt-BR') === b.toLocaleLowerCase('pt-BR');
+const naturezaDaCategoria = (nome, plano) => {
+    if (plano.soInforma.some((c) => mesmaCategoria(c, nome)))
+        return 'informa';
+    return plano.despesas.some((c) => mesmaCategoria(c, nome)) ? 'retira' : 'soma';
+};
+exports.naturezaDaCategoria = naturezaDaCategoria;
+/**
+ * Troca a natureza de uma categoria no plano: Soma leva para Receitas, Retira
+ * para Despesas (tirando "So' informa"); "So' informa" marca e deixa a
+ * categoria na lista em que esta' (para continuar aparecendo nos lancamentos).
+ */
+const comNatureza = (plano, nome, natureza) => {
+    const semEla = (lista) => lista.filter((c) => !mesmaCategoria(c, nome));
+    if (natureza === 'informa') {
+        return { ...plano, soInforma: (0, exports.juntarCategorias)(plano.soInforma, [nome]) };
+    }
+    const soInforma = semEla(plano.soInforma);
+    if (natureza === 'soma') {
+        const estava = plano.receitas.some((c) => mesmaCategoria(c, nome));
+        return { receitas: estava ? plano.receitas : [...plano.receitas, nome], despesas: semEla(plano.despesas), soInforma };
+    }
+    const estava = plano.despesas.some((c) => mesmaCategoria(c, nome));
+    return { receitas: semEla(plano.receitas), despesas: estava ? plano.despesas : [...plano.despesas, nome], soInforma };
+};
+exports.comNatureza = comNatureza;

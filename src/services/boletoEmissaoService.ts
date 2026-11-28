@@ -7,6 +7,7 @@
  * numero, codigo de barras, linha digitavel e PDF. O calculo continua em
  * boletoDomain/boletoCnabDomain/boletoRemessaSicoob (puro e testado).
  */
+import type { DetalheRetornoBoleto } from '../utils/boletoEmissaoDomain';
 import { collection, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, where, type DocumentData } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { createAuditLog } from './logService';
@@ -67,6 +68,8 @@ export interface TituloBoleto {
   dataPagamento?: string;
   /** Valor que o banco recebeu (retorno), quando gravado (25/11/2026). */
   valorPagoCentavos?: number;
+  /** Juros/multa, desconto, tarifa e liquido que o arquivo do banco trouxe (28/11/2026). */
+  retornoDoBanco?: DetalheRetornoBoleto;
 }
 
 /** Documento de `transacoes` -> titulo de boleto (tambem usado pelo retorno do banco). */
@@ -91,6 +94,7 @@ export const paraTituloBoleto = (id: string, data: DocumentData): TituloBoleto =
   ...(Number.isFinite(Number(data.boleto?.valorPagoCentavos)) && Number(data.boleto?.valorPagoCentavos) > 0
     ? { valorPagoCentavos: Number(data.boleto.valorPagoCentavos) }
     : {}),
+  ...(data.boleto?.retorno && typeof data.boleto.retorno === 'object' ? { retornoDoBanco: data.boleto.retorno as DetalheRetornoBoleto } : {}),
 } as TituloBoleto);
 
 /** Bancos ativos da empresa preparados para boleto (leitura unica). */

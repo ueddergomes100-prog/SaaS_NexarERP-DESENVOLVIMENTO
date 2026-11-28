@@ -9,7 +9,6 @@ import { showSuccess, showError, showWarning, NexusSwal, escaparHtml } from '../
 import { Barcode, CheckCircle, Clock, X, Wallet, AlertCircle, MessageCircle, ChevronDown, ChevronRight, User, Search, Upload, Undo2, FileText, Edit, Plus, Building2, Pencil, XCircle, ArrowLeftRight } from 'lucide-react';
 import {
   fromCents,
-  isSimplifiedChequePayment,
   parsePagamentoCartaoSimplificadoAtivo,
   paymentRequiresBankAccount,
   toCents,
@@ -230,7 +229,8 @@ const ContasReceber: React.FC = () => {
   const [valorAbater, setValorAbater] = useState<number>(0);
   const [dataBaixaCredito, setDataBaixaCredito] = useState<string>(getDateInputInTimeZone());
   const [isProcessing, setIsProcessing] = useState(false);
-  const [chequeBaixaState, setChequeBaixaState] = useState<{ transacao: TransacaoData; bancoId?: string; bancoNome?: string } | null>(null);
+  // Uma conta (Dar Baixa) ou varias pagas com o MESMO cheque (Receber em lote, 28/11/2026).
+  const [chequeBaixaState, setChequeBaixaState] = useState<{ transacoes: TransacaoData[]; bancoId?: string; bancoNome?: string } | null>(null);
   const [clientesExpandidos, setClientesExpandidos] = useState<Set<string>>(new Set());
   const [buscaCliente, setBuscaCliente] = useState('');
   // Codigo do cliente na lista (27/11/2026, pedido do dono): lido do cadastro em lotes, uma vez por cliente.
@@ -442,6 +442,54 @@ const ContasReceber: React.FC = () => {
     });
   };
 
+  /**
+   * O mesmo cheque para uma ou varias contas (Receber em lote com Cheque,
+   * 28/11/2026). Cada conta fica em aberto pelo valor cheio ate' o cheque
+   * compensar; uma que falhe nao desfaz as outras, e a mensagem diz qual.
+   */
+  const registrarChequeEmVarias = async (
+    transacoes: TransacaoData[],
+    dadosCheque: ChequeDetails | null,
+    dataCompensacao: string,
+    bancoId?: string,
+  ) => {
+    const falhas: string[] = [];
+    const feitas: string[] = [];
+    for (const t of transacoes) {
+      try {
+        await registrarChequeParaCompensar(t, dadosCheque, dataCompensacao, bancoId);
+        feitas.push(t.id);
+      } catch (erro) {
+        console.error('Erro ao registrar cheque para baixa:', erro);
+        falhas.push(`${t.descricao || 'Conta'}: ${erro instanceof Error && erro.message ? erro.message : 'não foi possível registrar.'}`);
+      }
+    }
+    if (feitas.length > 0) setSelecionados((atual) => marcarNaSelecao(atual, feitas, false).selecao);
+    const onde = bancoId
+      ? 'Ele aparece em Financeiro → Cheques até ser compensado.'
+      : 'Ele aparece em Financeiro → Cheques até ser compensado (o banco é escolhido ao compensar).';
+    if (falhas.length === 0) {
+      showSuccess(transacoes.length === 1 ? `Cheque registrado! ${onde}` : `Cheque registrado para ${transacoes.length} contas! ${onde}`);
+      return;
+    }
+    showError(
+      feitas.length > 0 ? `Cheque registrado em ${feitas.length} de ${transacoes.length} contas` : 'Não foi possível registrar o cheque',
+      `${falhas.join(' ')} Confira essas contas e tente de novo pelo Dar Baixa de cada uma.`,
+    );
+  };
+
+  /** Receber em lote com Cheque: simplificado registra direto; senao pede os dados do cheque uma vez, com o total. */
+  const receberLoteEmCheque = async (pedido: { ids: string[]; data: string; bancoId: string }) => {
+    const transacoes = pedido.ids.map((id) => elegiveis.get(id)).filter((t): t is TransacaoData => Boolean(t));
+    if (transacoes.length === 0) return;
+    const bancoId = pedido.bancoId || undefined;
+    if (pagamentoSimplificado) {
+      await registrarChequeEmVarias(transacoes, null, pedido.data, bancoId);
+      return;
+    }
+    setChequeBaixaState({ transacoes, bancoId });
+  };
+
   const solicitarFormaRecebimento = async (t: TransacaoData) => {
     // So' as formas marcadas como "Usa" na filial, na ordem dela (16/10/2026).
     const formasDaFilial = formasDeRecebimento([...FORMAS_RECEBIMENTO, FORMA_BOLETO], ordemFormasDaFilial, formasOcultasDaFilial);
@@ -470,11 +518,13 @@ const ContasReceber: React.FC = () => {
     const vencido = diasDeAtraso(dataReferenciaTransacao(t), getDateInputInTimeZone()) > 0;
     // Banco na mesma janela (23/11/2026): as formas que creditam um banco pedem
     // o banco logo abaixo da forma, em vez de uma segunda janela depois.
-    const formasComBanco = formas.filter((forma) => forma !== FORMA_BOLETO
-      && paymentRequiresBankAccount(forma as PaymentMethod)
-      && !isSimplifiedChequePayment(forma as PaymentMethod, pagamentoSimplificado));
+    // Cheque (28/11/2026, pedido do dono): o banco aparece mas e' opcional --
+    // "Indefinido" deixa a escolha para a compensacao em Financeiro > Cheques.
+    const formasComBanco = formas.filter((forma) => forma !== FORMA_BOLETO && forma !== 'Cheque'
+      && paymentRequiresBankAccount(forma as PaymentMethod));
+    const formasComBancoOpcional = formas.includes('Cheque') ? ['Cheque'] : [];
     let bancosDisponiveis: Array<{ id: string; nome: string }> = [];
-    if (formasComBanco.length > 0) {
+    if (formasComBanco.length > 0 || formasComBancoOpcional.length > 0) {
       try {
         const snapBancos = await getDocs(query(collection(db, 'bancos'), where('tenantId', '==', tenantId), where('ativo', '==', true)));
         bancosDisponiveis = snapBancos.docs.map((d) => ({ id: d.id, nome: String(d.data().nome || '') }));
@@ -525,6 +575,7 @@ const ContasReceber: React.FC = () => {
       banco: {
         bancos: bancosDisponiveis,
         formas: formasComBanco,
+        formasOpcionais: formasComBancoOpcional,
         rotulo: (forma) => (forma === 'Cheque' ? 'Em qual banco vai cair quando compensar?' : 'Em qual banco caiu?'),
       },
     });
@@ -537,7 +588,7 @@ const ContasReceber: React.FC = () => {
     const dataRecebimento = dados.data;
 
     // O banco veio da mesma janela (pedirDadosBaixa) quando a forma pede banco.
-    const bancoId: string | undefined = formasComBanco.includes(formaPgto) ? dados.bancoId : undefined;
+    const bancoId: string | undefined = formasComBanco.includes(formaPgto) || formasComBancoOpcional.includes(formaPgto) ? (dados.bancoId || undefined) : undefined;
     const bancoNome: string | undefined = bancoId ? bancosDisponiveis.find((b) => b.id === bancoId)?.nome : undefined;
 
     // Cheque nunca confirma na hora -- abre o modal de digitação, e só
@@ -548,14 +599,16 @@ const ContasReceber: React.FC = () => {
         // Simplificado: sem os dados do cheque; "bom para" = a data informada acima.
         try {
           await registrarChequeParaCompensar(t, null, dataRecebimento, bancoId);
-          showSuccess('Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado (o banco é escolhido ao compensar).');
+          showSuccess(bancoId
+            ? 'Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado.'
+            : 'Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado (o banco é escolhido ao compensar).');
         } catch (error) {
           console.error('Erro ao registrar cheque para baixa:', error);
           showError('Não foi possível registrar o cheque', error instanceof Error ? error.message : 'Tente de novo em instantes.');
         }
         return;
       }
-      setChequeBaixaState({ transacao: t, bancoId, bancoNome });
+      setChequeBaixaState({ transacoes: [t], bancoId, bancoNome });
       return;
     }
 
@@ -1132,6 +1185,13 @@ const ContasReceber: React.FC = () => {
   };
   const totalSelecionadoCentavos = selecaoValida.reduce((soma, id) => soma + transactionNetCents(elegiveis.get(id) as TransacaoData), 0);
   const abrirBaixaEmLote = () => {
+    // Uma conta marcada (28/11/2026, pedido do dono): "Receber" abre a MESMA
+    // janela do Dar Baixa (credito do cliente, juros, multa, cheque, boleto, parcial).
+    if (selecaoValida.length === 1) {
+      const unica = elegiveis.get(selecaoValida[0]);
+      if (unica) void handleConciliar(unica);
+      return;
+    }
     if (!podeBaixaLote || !podeReceberBaixar) return;
     // O borderô congela ao abrir: as contas baixadas saem da lista ao vivo,
     // mas o resultado de cada uma continua na janela.
@@ -1769,7 +1829,7 @@ const ContasReceber: React.FC = () => {
         onDarBaixa={abrirBaixaEmLote}
         semPermissaoDeBaixa={!podeReceberBaixar
           ? semPermissao(PERMISSAO_FINANCEIRO.receberBaixar, 'dar baixa em contas a receber')
-          : !podeBaixaLote ? semPermissao(PERMISSAO_FINANCEIRO.baixaLote, 'dar baixa em lote') : undefined}
+          : !podeBaixaLote && selecaoValida.length > 1 ? semPermissao(PERMISSAO_FINANCEIRO.baixaLote, 'dar baixa em lote') : undefined}
         acaoExtra={podeRenegociar ? {
           texto: `Renegociar ${selecaoValida.length}`,
           onClick: abrirRenegociacao,
@@ -1792,7 +1852,8 @@ const ContasReceber: React.FC = () => {
             return t ? acrescimoPorAtraso(parametrosVendaDaFilial, transactionNetCents(t), dataReferenciaTransacao(t), data) : null;
           }}
           podeDataAnterior={podeDataAnterior}
-          formasPermitidas={formasDeRecebimento(FORMAS_DA_BAIXA_EM_LOTE.entrada, ordemFormasDaFilial, formasOcultasDaFilial)}
+          formasPermitidas={formasDeRecebimento([...FORMAS_DA_BAIXA_EM_LOTE.entrada, 'Cheque'], ordemFormasDaFilial, formasOcultasDaFilial)}
+          onCheque={(pedido) => void receberLoteEmCheque(pedido)}
           onFechar={fecharBaixaEmLote}
         />
       )}
@@ -1912,19 +1973,13 @@ const ContasReceber: React.FC = () => {
       <ChequeCaptureModal
         aberto={chequeBaixaState !== null}
         dataMinima={getDateInputInTimeZone()}
-        valorSugerido={chequeBaixaState ? transactionNetAmount(chequeBaixaState.transacao) : 0}
+        valorSugerido={chequeBaixaState ? chequeBaixaState.transacoes.reduce((soma, t) => soma + transactionNetCents(t), 0) / 100 : 0}
         onFechar={() => setChequeBaixaState(null)}
         onConfirmar={async (dados) => {
           if (!chequeBaixaState) return;
-          try {
-            await registrarChequeParaCompensar(chequeBaixaState.transacao, dados, dados.dataCompensacao, chequeBaixaState.bancoId);
-            showSuccess('Cheque registrado! Ele aparece em Financeiro → Cheques até ser compensado.');
-          } catch (error) {
-            console.error('Erro ao registrar cheque para baixa:', error);
-            showError('Erro', error instanceof Error ? error.message : 'Não foi possível registrar o cheque.');
-          } finally {
-            setChequeBaixaState(null);
-          }
+          const { transacoes, bancoId } = chequeBaixaState;
+          setChequeBaixaState(null);
+          await registrarChequeEmVarias(transacoes, dados, dados.dataCompensacao, bancoId);
         }}
       />
       {creditosAbertos && (

@@ -1,5 +1,6 @@
 import {
   MARCADOR_APP_DEFINIDO,
+  PERMISSAO_APP_COBRAR_WHATSAPP,
   PERMISSAO_APP_COMPRAS_CLIENTE,
   PERMISSAO_APP_DEBITO_CLIENTE,
   permissoesEfetivas as permissoesEfetivasDoApp,
@@ -90,6 +91,8 @@ export const PERMISSAO_FINANCEIRO = {
   importarTitulos: 'financeiro.importar_titulos',
   // 26/11/2026: ver os creditos dos clientes (e o que o fornecedor deve) e de onde vem cada um.
   creditosVer: 'financeiro.creditos_ver',
+  // 28/11/2026: em Cheques, usar o cheque do cliente para pagar uma conta a pagar de fornecedor.
+  chequePagarConta: 'financeiro.cheque_pagar_conta',
 } as const;
 
 /** Fase 2 (25/11/2026): acoes das Notas Fiscais que ganham permissao propria. */
@@ -349,6 +352,7 @@ export const PERMISSAO_TROCA_ADMINISTRADOR = {
 export const PERMISSAO_DO_CAMPO_GERAL: Readonly<Record<string, string>> = {
   planoContasReceitas: PERMISSAO_CONFIG_AREAS.planoContas,
   planoContasDespesas: PERMISSAO_CONFIG_AREAS.planoContas,
+  planoContasSoInforma: PERMISSAO_CONFIG_AREAS.planoContas,
   cashback: PERMISSAO_CONFIG_AREAS.cashbackConfigurar,
 };
 
@@ -602,6 +606,22 @@ export const PACOTES_DE_PERMISSOES: readonly PacoteDePermissoes[] = [
     implicacoes: {
       'vendas.pdv': [PERMISSAO_VENDAS.pdvReabrirCaixa],
       'vendas.so_caixa': [PERMISSAO_VENDAS.pdvReabrirCaixa],
+    },
+  },
+  {
+    // 28/11/2026 (pedido do dono): cobrar pelo WhatsApp no Contas a Receber do app.
+    // Quem ja' ve o Contas a Receber no app continua com tudo da tela.
+    id: 'app-2',
+    implicacoes: {
+      'app.contas_receber': [PERMISSAO_APP_COBRAR_WHATSAPP],
+    },
+  },
+  {
+    // 28/11/2026 (pedido do dono): ao compensar, pagar uma conta a pagar com o
+    // cheque do cliente. Quem ja' compensa cheques continua podendo.
+    id: 'financeiro-4',
+    implicacoes: {
+      'financeiro.cheques': [F.chequePagarConta],
     },
   },
 ];

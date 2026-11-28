@@ -46,8 +46,8 @@ export interface ConsultaClientesModalProps<T extends SearchableClient & { id: s
 const LIMITE_NA_TELA = 200;
 
 const PLACEHOLDER_POR_CAMPO: Record<CampoBuscaCliente, string> = {
-  tudo: 'Nome, fantasia, CPF/CNPJ, telefone, código ou endereço',
-  nome: 'Nome ou código do cliente',
+  tudo: 'Nome, apelido, fantasia, CPF/CNPJ, telefone, código ou endereço',
+  nome: 'Nome, apelido ou código do cliente',
   fantasia: 'Nome fantasia',
   documento: 'CPF ou CNPJ, com ou sem pontuação',
   telefone: 'Telefone ou celular',
@@ -291,7 +291,9 @@ function ConsultaClientesModalInner<T extends SearchableClient & { id: string }>
         <div className="consulta-clientes__tabela" role="listbox" aria-label="Clientes encontrados" ref={listaRef}>
           <div className="consulta-clientes__cabecalho" aria-hidden="true">
             <span>Nome</span>
-            <span>Fantasia</span>
+            {/* Apelido primeiro (28/11/2026, pedido do cliente: "a gente sabe mais o
+                apelido que o nome"); sem apelido, sai o nome fantasia. */}
+            <span>Apelido / Fantasia</span>
             <span>Cidade</span>
             <span>CPF / CNPJ</span>
             <span className="consulta-clientes__num">Código</span>
@@ -317,7 +319,7 @@ function ConsultaClientesModalInner<T extends SearchableClient & { id: string }>
                   <span>{cliente.nome}</span>
                   {inativo && <span className="consulta-clientes__selo">Inativo</span>}
                 </span>
-                <span className="consulta-clientes__fantasia">{cliente.fantasia}</span>
+                <span className="consulta-clientes__fantasia">{cliente.apelido?.trim() || cliente.fantasia}</span>
                 <span className="consulta-clientes__cidade">{textoLocal(cliente)}</span>
                 <span className="consulta-clientes__doc">{cliente.documento ? formatarDocumento(String(cliente.documento)) : ''}</span>
                 <span className="consulta-clientes__num">{cliente.codigo}</span>

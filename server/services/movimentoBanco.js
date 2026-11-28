@@ -20,6 +20,8 @@
  * ignorava em silencio e dizia "sucesso"); e o resumo de pagamentos da
  * venda/OS sai completo tambem no cheque (antes faltavam taxas e liquido).
  */
+/** Categoria do plano de contas da tarifa do banco no boleto pago (28/11/2026). */
+const CATEGORIA_TARIFA_BANCARIA = 'Tarifas bancárias';
 const { db } = require('../config/firebase');
 const {
   applyPaymentReceipt,
@@ -348,6 +350,15 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
   }
   const dataInformada = String(corpo?.dataPagamento || '').trim();
   const dataPagamento = DATA_ISO.test(dataInformada) ? dataInformada : hoje;
+  // Detalhe do arquivo do banco (28/11/2026): so' para a tela de Boletos mostrar o
+  // recebido de fato. Nao muda a baixa (ela segue pelo valor pago). So' numero inteiro >= 0.
+  const detalheBruto = corpo && typeof corpo.detalheDoRetorno === 'object' && corpo.detalheDoRetorno ? corpo.detalheDoRetorno : {};
+  const retornoDoBanco = {};
+  for (const campo of ['jurosMultaCentavos', 'descontoCentavos', 'tarifaCentavos', 'valorLiquidoCentavos']) {
+    const n = Number(detalheBruto[campo]);
+    if (Number.isInteger(n) && n >= 0 && n <= 100000000000) retornoDoBanco[campo] = n;
+  }
+  const temRetornoDoBanco = Object.keys(retornoDoBanco).length > 0;
   const resumo = { jaEstavaPago: false };
 
   await db.runTransaction(async (tx) => {
@@ -396,6 +407,11 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
     const pagoAMaisDoSistemaAnterior = aMaisCentavos > 0 && valorNoBancoCentavos > valorTituloCentavos;
     const acrescimoRef = aMaisCentavos > 0 ? db.collection('transacoes').doc() : null;
     const descontoRef = aMenosCentavos > 0 ? db.collection('transacoes').doc() : null;
+    // Tarifa do banco (28/11/2026, decisao do dono): o banco credita o LIQUIDO.
+    // A tarifa que o arquivo trouxe vira despesa propria ("Tarifas bancarias",
+    // no plano de contas) e sai do saldo do banco -- o saldo bate com o extrato.
+    const tarifaCentavos = Math.min(valorPagoCentavos, Number(retornoDoBanco.tarifaCentavos) || 0);
+    const tarifaRef = tarifaCentavos > 0 ? db.collection('transacoes').doc() : null;
     const lancamentoDaDiferenca = ({ tipo, categoria, descricao, valorCentavos, ligacao, motivo }) => ({
       tenantId,
       tipo,
@@ -446,25 +462,37 @@ const baixarBoletoPeloRetorno = async ({ user, tenantId, corpo, hoje }) => {
         motivo: `Boleto pago com valor menor que o título (retorno do banco): "${resumo.descricao}"`,
       }));
     }
+    if (tarifaRef) {
+      tx.set(tarifaRef, lancamentoDaDiferenca({
+        tipo: 'saida',
+        categoria: CATEGORIA_TARIFA_BANCARIA,
+        descricao: `Tarifa do banco — ${resumo.descricao}`,
+        valorCentavos: tarifaCentavos,
+        ligacao: { tarifaDaTransacaoId: transacaoId },
+        motivo: `Tarifa cobrada pelo banco no boleto pago (retorno do banco): "${resumo.descricao}"`,
+      }));
+    }
     resumo.valorPagoCentavos = valorPagoCentavos;
     resumo.acrescimoCentavos = aMaisCentavos;
     resumo.descontoCentavos = aMenosCentavos;
+    resumo.tarifaCentavos = tarifaCentavos;
 
     tx.update(titulo.ref, {
       status: 'Paga',
       dataPagamento,
       naturezaFinanceira: settledFinancialNatureForPayment('Boleto'),
       movimentaCaixaFisico: false,
-      boleto: { ...(dados.boleto || {}), status: 'pago', valorPagoCentavos },
+      boleto: { ...(dados.boleto || {}), status: 'pago', valorPagoCentavos, ...(temRetornoDoBanco ? { retorno: retornoDoBanco } : {}) },
       ...(acrescimoRef ? { acrescimoCentavos: aMaisCentavos, acrescimoTransacaoId: acrescimoRef.id, jurosCentavos: aMaisCentavos, multaCentavos: 0 } : {}),
       ...(descontoRef ? { descontoCentavos: aMenosCentavos, descontoTransacaoId: descontoRef.id } : {}),
+      ...(tarifaRef ? { tarifaCentavos, tarifaTransacaoId: tarifaRef.id } : {}),
       recebidoEm: agora(),
       updatedAt: agora(),
       ...buildDocumentUpdateMetadata(user.uid, agora(), 'Baixa pelo retorno do banco'),
     });
     if (banco) {
       tx.update(banco.ref, {
-        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + valorPagoCentavos,
+        saldoCentavos: Number(banco.dados.saldoCentavos || 0) + valorPagoCentavos - tarifaCentavos,
         updatedAt: agora(),
         ...buildDocumentUpdateMetadata(user.uid, agora(), `Boleto pago (retorno): "${resumo.descricao}"`),
       });

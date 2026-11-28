@@ -57,6 +57,8 @@ type RotaFinanceiro =
   | '/cartao/conciliar'
   | '/cartao/taxa'
   | '/cheque/compensar'
+  | '/cheque/contas-a-pagar'
+  | '/cheque/pagar-conta'
   | '/cheque-emitido/compensar'
   | '/boleto/retorno'
   | '/boleto/retorno/cancelado'
@@ -360,6 +362,26 @@ export const compensarChequeRecebido = (args: { transacaoId: string; bancoId?: s
   chamarFinanceiro<{ ok: boolean }>('/cheque/compensar', { ...args })
 );
 
+/** Conta a pagar em aberto que pode ser paga com cheque de cliente (28/11/2026). */
+export interface ContaParaCheque {
+  id: string;
+  descricao: string;
+  fornecedorNome: string;
+  categoria: string;
+  vencimento: string;
+  centavos: number;
+}
+
+/** Cheques > pagar conta a pagar: as contas em aberto (o servidor confere a permissao). */
+export const listarContasParaCheque = (args: { tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean; contas: ContaParaCheque[] }>('/cheque/contas-a-pagar', { ...args })
+);
+
+/** Cheques > pagar a conta a pagar com o cheque do cliente (toda ou em parte). */
+export const pagarContaComCheque = (args: { transacaoId: string; contaPagarId: string; tenantId: string }) => (
+  chamarFinanceiro<{ ok: boolean; descricao: string; fornecedorNome: string; valorCentavos: number; parcial: boolean; restanteCentavos: number }>('/cheque/pagar-conta', { ...args })
+);
+
 /** Cheques > compensar cheque EMITIDO pela empresa (debita o banco), no dia informado. */
 export const compensarChequeEmitido = (args: { transacaoId: string; dataPagamento: string; tenantId: string }) => (
   chamarFinanceiro<{ ok: boolean }>('/cheque-emitido/compensar', { ...args })
@@ -383,7 +405,11 @@ export interface ResultadoBaixaPeloRetorno {
 }
 
 /** Boletos > baixa de UM boleto pelo arquivo de retorno. Boleto ja' pago volta com jaEstavaPago. */
-export const baixarBoletoPeloRetorno = (args: { transacaoId: string; valorPagoCentavos: number; dataPagamento?: string; tenantId: string }) => (
+export const baixarBoletoPeloRetorno = (args: {
+  transacaoId: string; valorPagoCentavos: number; dataPagamento?: string; tenantId: string;
+  /** Juros/multa, desconto, tarifa e liquido do arquivo do banco (28/11/2026); so' fica guardado para a tela. */
+  detalheDoRetorno?: { jurosMultaCentavos?: number; descontoCentavos?: number; tarifaCentavos?: number; valorLiquidoCentavos?: number };
+}) => (
   chamarFinanceiro<ResultadoBaixaPeloRetorno>('/boleto/retorno', { ...args })
 );
 

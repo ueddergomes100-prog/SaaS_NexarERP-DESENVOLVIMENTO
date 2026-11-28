@@ -24,6 +24,8 @@ import { lerConfigCashback, parseConfigCashback, type ConfigCashback } from './c
 export const CAMPOS_GERAIS = [
   'planoContasReceitas',
   'planoContasDespesas',
+  // Natureza "So' informa" (28/11/2026): categorias que aparecem no DRE fora do lucro.
+  'planoContasSoInforma',
   'validarCadastroProduto',
   'modoValidacaoCliente',
   'trabalhaComLimiteCredito',
@@ -41,6 +43,8 @@ export type CampoGeral = typeof CAMPOS_GERAIS[number];
 export interface ConfiguracoesGerais {
   planoContasReceitas: string[];
   planoContasDespesas: string[];
+  /** Categorias (de receita ou de despesa) marcadas "So' informa": nao entram no lucro do DRE. */
+  planoContasSoInforma: string[];
   validarCadastroProduto: boolean;
   modoValidacaoCliente: ModoValidacaoCliente;
   trabalhaComLimiteCredito: boolean;
@@ -153,6 +157,11 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
   if (!receitas.ok) return { ok: false, erro: receitas.erro };
   const despesas = lerCategorias(dados.planoContasDespesas, 'despesa');
   if (!despesas.ok) return { ok: false, erro: despesas.erro };
+  // "So' informa" (28/11/2026): opcional (tela antiga nao manda); so' vale categoria que existe no plano.
+  const soInformaLida = dados.planoContasSoInforma === undefined ? { ok: true as const, valor: [] as string[] } : lerCategorias(dados.planoContasSoInforma, 'só informa');
+  if (!soInformaLida.ok) return { ok: false, erro: soInformaLida.erro };
+  const doPlano = new Set([...receitas.valor, ...despesas.valor].map((c) => c.toLocaleLowerCase('pt-BR')));
+  const soInforma = soInformaLida.valor.filter((c) => doPlano.has(c.toLocaleLowerCase('pt-BR')));
   const validarProduto = lerSimNao(dados.validarCadastroProduto, 'Validar cadastro de produto');
   if (!validarProduto.ok) return { ok: false, erro: validarProduto.erro };
   const limiteCredito = lerSimNao(dados.trabalhaComLimiteCredito, 'Trabalha com limite de crédito');
@@ -174,6 +183,7 @@ export const lerConfiguracoesGerais = (corpo: unknown): { ok: true; valores: Con
     valores: {
       planoContasReceitas: receitas.valor,
       planoContasDespesas: despesas.valor,
+      planoContasSoInforma: soInforma,
       validarCadastroProduto: validarProduto.valor,
       modoValidacaoCliente: dados.modoValidacaoCliente as ModoValidacaoCliente,
       trabalhaComLimiteCredito: limiteCredito.valor,
@@ -197,6 +207,7 @@ const lerCampoDoDocumento = (campo: CampoGeral, valor: unknown): unknown => {
   switch (campo) {
     case 'planoContasReceitas':
     case 'planoContasDespesas':
+    case 'planoContasSoInforma':
       return juntarCategorias(valor);
     case 'modoValidacaoCliente':
       return parseModoValidacaoCliente(valor);
@@ -221,7 +232,7 @@ export const valoresUnificados = (
 ): Partial<Record<CampoGeral, unknown>> => {
   const valores: Partial<Record<CampoGeral, unknown>> = {};
   for (const campo of CAMPOS_GERAIS) {
-    if (campo === 'planoContasReceitas' || campo === 'planoContasDespesas') {
+    if (campo === 'planoContasReceitas' || campo === 'planoContasDespesas' || campo === 'planoContasSoInforma') {
       const listas = [matriz[campo], ...filiais.map((f) => f[campo])];
       if (listas.some(Array.isArray)) valores[campo] = juntarCategorias(...listas);
       continue;
@@ -246,6 +257,7 @@ export const camposDiferentes = (
 export const ROTULO_DO_CAMPO_GERAL: Record<CampoGeral, string> = {
   planoContasReceitas: 'categorias de receita',
   planoContasDespesas: 'categorias de despesa',
+  planoContasSoInforma: 'categorias "só informa"',
   validarCadastroProduto: 'validar cadastro de produto',
   modoValidacaoCliente: 'cliente não cadastrado',
   trabalhaComLimiteCredito: 'limite de crédito',
@@ -253,4 +265,47 @@ export const ROTULO_DO_CAMPO_GERAL: Record<CampoGeral, string> = {
   transferenciaNfeTributacao: 'tributação da transferência',
   usaGradeDeProdutos: 'grade de produtos',
   cashback: 'cashback',
+};
+
+/**
+ * NATUREZA DA CATEGORIA (28/11/2026, pedido do dono: "onde configura qual soma,
+ * qual retira, qual so' informa"). Receita SOMA, despesa RETIRA; marcada "So'
+ * informa" aparece no DRE num bloco a parte e nao entra no lucro.
+ */
+export type NaturezaDaCategoria = 'soma' | 'retira' | 'informa';
+
+export const ROTULO_NATUREZA: Record<NaturezaDaCategoria, string> = {
+  soma: 'Soma',
+  retira: 'Retira',
+  informa: 'Só informa',
+};
+
+const mesmaCategoria = (a: string, b: string) => a.toLocaleLowerCase('pt-BR') === b.toLocaleLowerCase('pt-BR');
+
+export const naturezaDaCategoria = (nome: string, plano: { despesas: readonly string[]; soInforma: readonly string[] }): NaturezaDaCategoria => {
+  if (plano.soInforma.some((c) => mesmaCategoria(c, nome))) return 'informa';
+  return plano.despesas.some((c) => mesmaCategoria(c, nome)) ? 'retira' : 'soma';
+};
+
+/**
+ * Troca a natureza de uma categoria no plano: Soma leva para Receitas, Retira
+ * para Despesas (tirando "So' informa"); "So' informa" marca e deixa a
+ * categoria na lista em que esta' (para continuar aparecendo nos lancamentos).
+ */
+export const comNatureza = (
+  plano: { receitas: string[]; despesas: string[]; soInforma: string[] },
+  nome: string,
+  natureza: NaturezaDaCategoria,
+): { receitas: string[]; despesas: string[]; soInforma: string[] } => {
+  const semEla = (lista: string[]) => lista.filter((c) => !mesmaCategoria(c, nome));
+  if (natureza === 'informa') {
+    return { ...plano, soInforma: juntarCategorias(plano.soInforma, [nome]) };
+  }
+  const soInforma = semEla(plano.soInforma);
+  if (natureza === 'soma') {
+    const estava = plano.receitas.some((c) => mesmaCategoria(c, nome));
+    return { receitas: estava ? plano.receitas : [...plano.receitas, nome], despesas: semEla(plano.despesas), soInforma };
+  }
+  const estava = plano.despesas.some((c) => mesmaCategoria(c, nome));
+  return { receitas: semEla(plano.receitas), despesas: estava ? plano.despesas : [...plano.despesas, nome], soInforma };
 };

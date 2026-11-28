@@ -24,7 +24,7 @@ import { isRegistroDeVendedor } from '../../utils/vendedorCadastroDomain';
 import { PERMISSAO_INCLUIR_VENDEDOR, PERMISSAO_LIBERAR_DESCONTO, permissionLabelMap } from '../../utils/permissionCatalog';
 import { PERMISSAO_CONFIG_AREAS, PERMISSAO_TROCA_ADMINISTRADOR, PERMISSAO_VENDAS } from '../../utils/permissoesNovasDomain';
 import { ehMarcadorInterno, marcadorDoPacote, permissoesEfetivasDoUsuario } from '../../utils/permissoesNovasDomain';
-import { PERMISSAO_APP_COMPRAS_CLIENTE, PERMISSAO_APP_DEBITO_CLIENTE } from '../../utils/permissoesAppDomain';
+import { PERMISSAO_APP_COBRAR_WHATSAPP, PERMISSAO_APP_COMPRAS_CLIENTE, PERMISSAO_APP_DEBITO_CLIENTE } from '../../utils/permissoesAppDomain';
 import { createAuditLog } from '../../services/logService';
 import { diferencasEntre, type MudancaDeCampo } from '../../utils/historicoAlteracoesDomain';
 import { parseComissaoPercentualInput } from '../../utils/financeDomain';
@@ -293,7 +293,7 @@ const VendedoresList: React.FC = () => {
       modulosExtras: MODULOS_MOBILE_EXTRAS
         .map((modulo) => modulo.id)
         // Ver o debito do cliente (27/11/2026) vem marcado para quem ainda nao foi salvo (pacote 'app-1').
-        .filter((id) => (id === PERMISSAO_APP_DEBITO_CLIENTE || id === PERMISSAO_APP_COMPRAS_CLIENTE
+        .filter((id) => (id === PERMISSAO_APP_DEBITO_CLIENTE || id === PERMISSAO_APP_COMPRAS_CLIENTE || id === PERMISSAO_APP_COBRAR_WHATSAPP
           ? permissoesEfetivasDoUsuario(vendedor.permissoes || []).includes(id)
           : (vendedor.permissoes || []).includes(id))),
       metaMensal: Number(metasVendedores[vendedor.id]) > 0 ? String(metasVendedores[vendedor.id]).replace('.', ',') : '',
@@ -417,8 +417,9 @@ const VendedoresList: React.FC = () => {
       // que nao seja gerenciado por este formulario.
       const permissoesBase = ehGestor && form.liberaDesconto ? [PERMISSAO_LIBERAR_DESCONTO] : [];
       // Marcador do pacote 'app-1' (27/11/2026): dai' em diante "Ver o debito do cliente" vale como marcado aqui.
+      // 'app-2' (28/11/2026): idem para "Cobrar o cliente pelo WhatsApp".
       const permissoes = ehGestor && form.acessoAppMobile
-        ? Array.from(new Set([...permissoesBase, ...PERMISSOES_MINIMAS_APP_MOBILE, ...form.modulosExtras, marcadorDoPacote('app-1')]))
+        ? Array.from(new Set([...permissoesBase, ...PERMISSOES_MINIMAS_APP_MOBILE, ...form.modulosExtras, marcadorDoPacote('app-1'), marcadorDoPacote('app-2')]))
         : permissoesBase;
 
       let vendedorId = editando?.id || '';

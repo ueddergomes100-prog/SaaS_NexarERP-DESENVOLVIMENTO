@@ -21,7 +21,8 @@ const { fromCents, reversePaymentReceipt, settledFinancialNatureForPayment } = r
 const { situacaoDoCheque } = require('../domain/contasDinheiroDomain');
 const { STATUS_RENEGOCIADA } = require('../domain/renegociacaoDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
-const { ErroBaixa, agora, apagar, lerTitulo, lerOrigem, centavosDoTitulo, camposDoResumoDePagamentos, temPermissao } = require('./baixaFinanceira');
+const { ErroBaixa, agora, apagar, lerTitulo, lerOrigem, centavosDoTitulo, camposDoResumoDePagamentos, camposDaContaNoParcial, temPermissao } = require('./baixaFinanceira');
+const { montarBaixaManual } = require('../domain/baixaFinanceiraDomain');
 const { registrarRecebimentoNaOrigem } = require('./movimentoBanco');
 const { lerRenegociacaoDoTitulo, quitarOrigensSeRenegociacaoPaga, reabrirOrigensSeRenegociacaoEstavaPaga } = require('./renegociacaoOrigem');
 const { registrarLogNaTransacao } = require('./auditoria');
@@ -206,29 +207,7 @@ const desfazerRepasseDaNotaAvulsa = async ({ user, tenantId, notaAvulsaId }) => 
     const tituloRef = db.collection('transacoes').doc(String(pagamento.transacaoId || idDoTituloDoRepasse(nota.ref.id)));
     const tituloSnap = await tx.get(tituloRef);
 
-    cheques.forEach((c) => {
-      const { situacao, repassadoEm, repassadoA, antesDoRepasse, ...chequeOriginal } = c.dados.cheque || {};
-      tx.update(c.ref, {
-        status: 'Pendente',
-        dataPagamento: apagar(),
-        recebidoEm: apagar(),
-        naturezaFinanceira: (antesDoRepasse && antesDoRepasse.naturezaFinanceira) || 'contas_receber',
-        cheque: { ...chequeOriginal, situacao: 'em_carteira' },
-        updatedAt: agora(),
-        ...buildDocumentUpdateMetadata(user.uid, agora(), `Repasse desfeito: Nota Avulsa #${nota.dados.numero || ''} cancelada; cheque de volta na carteira`),
-      });
-      if (c.origem.ref) {
-        const pagamentos = Array.isArray(c.origem.dados.pagamentos) ? c.origem.dados.pagamentos : [];
-        if (pagamentos.length > 0) {
-          tx.update(c.origem.ref, {
-            ...camposDoResumoDePagamentos(reversePaymentReceipt(pagamentos, { transactionId: c.id, paymentIndex: c.dados.paymentIndex })),
-            updatedAt: agora(),
-            ...buildDocumentUpdateMetadata(user.uid, agora(), 'Repasse de cheque desfeito (nota avulsa cancelada)'),
-          });
-        }
-      }
-      reabrirOrigensSeRenegociacaoEstavaPaga(tx, user, c.renegociacao, 'repasse de cheque desfeito');
-    });
+    cheques.forEach((c) => devolverChequeACarteira(tx, user, c, `Nota Avulsa #${nota.dados.numero || ''} cancelada`));
     if (tituloSnap.exists && tituloSnap.data().tenantId === tenantId) {
       tx.update(tituloRef, { status: 'Cancelada', updatedAt: agora(), ...buildDocumentUpdateMetadata(user.uid, agora(), `Nota Avulsa #${nota.dados.numero || ''} cancelada`) });
     }
@@ -251,4 +230,248 @@ const desfazerRepasseDaNotaAvulsa = async ({ user, tenantId, notaAvulsaId }) => 
   return resumo;
 };
 
-module.exports = { PERMISSAO, chequesNaCarteira, repassarNaNotaAvulsa, desfazerRepasseDaNotaAvulsa, erroDoChequeParaRepassar };
+/**
+ * Devolve um cheque repassado a' carteira (escritas, dentro da transacao):
+ * titulo do cliente volta a ficar em aberto, venda/OS e renegociacao voltam
+ * junto. `c` = { id, ref, dados, origem, renegociacao } lido antes das escritas.
+ */
+const devolverChequeACarteira = (tx, user, c, porque) => {
+  const { situacao, repassadoEm, repassadoA, antesDoRepasse, ...chequeOriginal } = c.dados.cheque || {};
+  tx.update(c.ref, {
+    status: 'Pendente',
+    dataPagamento: apagar(),
+    recebidoEm: apagar(),
+    naturezaFinanceira: (antesDoRepasse && antesDoRepasse.naturezaFinanceira) || 'contas_receber',
+    cheque: { ...chequeOriginal, situacao: 'em_carteira' },
+    updatedAt: agora(),
+    ...buildDocumentUpdateMetadata(user.uid, agora(), `Repasse desfeito (${porque}); cheque de volta na carteira`),
+  });
+  if (c.origem.ref) {
+    const pagamentos = Array.isArray(c.origem.dados.pagamentos) ? c.origem.dados.pagamentos : [];
+    if (pagamentos.length > 0) {
+      tx.update(c.origem.ref, {
+        ...camposDoResumoDePagamentos(reversePaymentReceipt(pagamentos, { transactionId: c.id, paymentIndex: c.dados.paymentIndex })),
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Repasse de cheque desfeito (${porque})`),
+      });
+    }
+  }
+  reabrirOrigensSeRenegociacaoEstavaPaga(tx, user, c.renegociacao, 'repasse de cheque desfeito');
+};
+
+/*
+ * CHEQUE DE CLIENTE PAGANDO UMA CONTA A PAGAR (28/11/2026, pedido do dono):
+ * ao compensar, em vez do banco, a pessoa escolhe uma conta a pagar de
+ * fornecedor e passa o cheque para ele. Mesmas regras do repasse na Nota Avulsa:
+ *  - o titulo do cliente fica PAGO na data, sem entrar em banco ("Repassado a ...");
+ *  - o cheque nao paga mais que a conta; cheque menor paga a conta EM PARTE
+ *    (pagamento parcial: o resto fica em aberto, para outra forma);
+ *  - estornar o pagamento da conta devolve o cheque a' carteira (baixaFinanceira.registrarEstorno).
+ */
+const PERMISSAO_CONTA = 'financeiro.cheque_pagar_conta';
+const SEM_PERMISSAO_CONTA = 'Você não tem permissão para pagar conta a pagar com cheque de cliente. Peça ao responsável liberar "Financeiro: Cheques — pagar conta a pagar com cheque de cliente" no seu cadastro de funcionário.';
+const exigirConta = (user) => { if (!temPermissao(user, PERMISSAO_CONTA)) throw new ErroBaixa(403, SEM_PERMISSAO_CONTA); };
+
+/** A conta a pagar pode receber o cheque? Mensagem em portugues, ou null. */
+const erroDaContaParaRepasse = (dados) => {
+  const nome = `A conta "${(dados && dados.descricao) || 'sem descrição'}"`;
+  if (!dados || dados.tipo !== 'saida') return 'A conta escolhida não é uma conta a pagar. Escolha de novo.';
+  if (dados.status === STATUS_RENEGOCIADA) return `${nome} foi renegociada: escolha outra.`;
+  if (dados.status !== 'Pendente') return `${nome} não está mais em aberto (talvez já tenha sido paga). Escolha outra.`;
+  if (dados.cheque) return `${nome} já tem um cheque emitido esperando compensar: escolha outra conta.`;
+  if (centavosDoTitulo(dados) <= 0) return `${nome} está sem valor: corrija o valor no Contas a Pagar.`;
+  return null;
+};
+
+/** Contas a pagar em aberto que podem receber o cheque (para a tela escolher). */
+const contasAPagarParaRepasse = async ({ user, tenantId }) => {
+  exigirConta(user);
+  const snap = await db.collection('transacoes')
+    .where('tenantId', '==', tenantId).where('tipo', '==', 'saida').where('status', '==', 'Pendente')
+    .get();
+  return {
+    contas: snap.docs
+      .filter((d) => !erroDaContaParaRepasse(d.data()))
+      .map((d) => {
+        const t = d.data();
+        return {
+          id: d.id,
+          descricao: String(t.descricao || ''),
+          fornecedorNome: String(t.fornecedorNome || ''),
+          categoria: String(t.categoria || ''),
+          vencimento: String(t.dataVencimento || t.data || ''),
+          centavos: centavosDoTitulo(t),
+        };
+      })
+      .sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.descricao.localeCompare(b.descricao)),
+  };
+};
+
+/** Paga a conta a pagar (toda ou em parte) com o cheque recebido. Tudo numa transacao. */
+const repassarParaContaAPagar = async ({ user, tenantId, corpo, hoje }) => {
+  exigirConta(user);
+  const chequeId = String((corpo && corpo.transacaoId) || '').trim();
+  const contaId = String((corpo && corpo.contaPagarId) || '').trim();
+  if (!ID_VALIDO.test(chequeId) || !ID_VALIDO.test(contaId)) throw new ErroBaixa(400, 'Cheque ou conta inválida. Atualize a tela e escolha de novo.');
+  const resumo = { vendas: new Set() };
+  await db.runTransaction(async (tx) => {
+    // ---------------- LEITURAS ----------------
+    const cheque = await lerTitulo(tx, tenantId, { transacaoId: chequeId, tipo: 'entrada' });
+    const erroCheque = erroDoChequeParaRepassar(cheque.dados);
+    if (erroCheque) throw new ErroBaixa(409, erroCheque);
+    const conta = await lerTitulo(tx, tenantId, { transacaoId: contaId, tipo: 'saida' });
+    const erroConta = erroDaContaParaRepasse(conta.dados);
+    if (erroConta) throw new ErroBaixa(409, erroConta);
+    const origem = await lerOrigem(tx, tenantId, cheque.dados, 'repassado');
+    const renegociacao = await lerRenegociacaoDoTitulo(tx, tenantId, chequeId, cheque.dados);
+
+    const chequeCentavos = centavosDoTitulo(cheque.dados);
+    const contaCentavos = centavosDoTitulo(conta.dados);
+    const descricaoConta = String(conta.dados.descricao || 'sem descrição');
+    if (chequeCentavos <= 0) throw new ErroBaixa(400, 'Este cheque está sem valor. Confira o cheque em Financeiro > Cheques.');
+    if (chequeCentavos > contaCentavos) {
+      throw new ErroBaixa(409, `O cheque (${reais(chequeCentavos)}) é maior que a conta "${descricaoConta}" (${reais(contaCentavos)}). O cheque não pode pagar mais que a conta: escolha uma conta de valor igual ou maior, ou compense o cheque no banco.`);
+    }
+
+    // ---------------- ESCRITAS ----------------
+    const parcial = chequeCentavos < contaCentavos;
+    const numeroCheque = String((cheque.dados.cheque && cheque.dados.cheque.numeroCheque) || '');
+    const clienteNome = String(cheque.dados.clienteNome || '');
+    const fornecedor = { fornecedorId: String(conta.dados.fornecedorId || ''), fornecedorNome: String(conta.dados.fornecedorNome || '') };
+    const pagoA = fornecedor.fornecedorNome || descricaoConta;
+    const pagamentoRef = parcial ? db.collection('transacoes').doc() : conta.ref;
+    const natureza = settledFinancialNatureForPayment('Cheque');
+    const marcaDoCheque = { transacaoId: chequeId, numeroCheque, clienteNome, centavos: chequeCentavos };
+    const baixaManual = montarBaixaManual({ origem: 'contas_pagar', formaPagamento: 'Cheque', dataPagamento: hoje, valorCentavos: chequeCentavos });
+    const textoDoCheque = `cheque${numeroCheque ? ` nº ${numeroCheque}` : ''}${clienteNome ? ` de ${clienteNome}` : ''}`;
+
+    tx.update(cheque.ref, {
+      status: 'Paga',
+      dataPagamento: hoje,
+      naturezaFinanceira: natureza,
+      movimentaCaixaFisico: false,
+      recebidoEm: agora(),
+      cheque: {
+        ...(cheque.dados.cheque || {}),
+        situacao: 'repassado',
+        repassadoEm: hoje,
+        repassadoA: { ...fornecedor, contaPagarId: conta.ref.id, pagamentoTransacaoId: pagamentoRef.id, descricaoConta },
+        antesDoRepasse: { naturezaFinanceira: cheque.dados.naturezaFinanceira || null },
+      },
+      updatedAt: agora(),
+      ...buildDocumentUpdateMetadata(user.uid, agora(), `Cheque repassado a ${pagoA} (conta a pagar "${descricaoConta}")`),
+    });
+    registrarRecebimentoNaOrigem(tx, user, origem, chequeId, cheque.dados, { amountCents: chequeCentavos, method: 'Cheque', receivedAt: hoje }, 'Cheque repassado ao fornecedor');
+    if (cheque.dados.pedidoId) resumo.vendas.add(String(cheque.dados.pedidoId));
+
+    if (parcial) {
+      const restanteCentavos = contaCentavos - chequeCentavos;
+      tx.set(pagamentoRef, {
+        tenantId,
+        tipo: 'saida',
+        status: 'Paga',
+        descricao: `${descricaoConta} — pagamento parcial com ${textoDoCheque}`,
+        ...camposDaContaNoParcial(conta.dados),
+        valor: fromCents(chequeCentavos),
+        valorCentavos: chequeCentavos,
+        data: hoje,
+        dataVencimento: conta.dados.dataVencimento || hoje,
+        dataPagamento: hoje,
+        formaPagamento: 'Cheque',
+        naturezaFinanceira: natureza,
+        movimentaCaixaFisico: false,
+        parcialDaTransacaoId: conta.ref.id,
+        chequeRecebidoRepassado: marcaDoCheque,
+        baixaManual,
+        createdAt: agora(),
+        updatedAt: agora(),
+        criadoPor: user.uid,
+        criadoEm: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Pagamento parcial de "${descricaoConta}" com ${textoDoCheque}`),
+      });
+      tx.update(conta.ref, {
+        valorCentavos: restanteCentavos,
+        valor: fromCents(restanteCentavos),
+        valorAntesDoParcialCentavos: Number(conta.dados.valorAntesDoParcialCentavos) > 0 ? Number(conta.dados.valorAntesDoParcialCentavos) : contaCentavos,
+        pagoParcialCentavos: (Number(conta.dados.pagoParcialCentavos) || 0) + chequeCentavos,
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Pagamento parcial de ${reais(chequeCentavos)} com ${textoDoCheque}; fica em aberto ${reais(restanteCentavos)}`),
+      });
+      resumo.restanteCentavos = restanteCentavos;
+    } else {
+      tx.update(conta.ref, {
+        status: 'Paga',
+        dataPagamento: hoje,
+        formaPagamento: 'Cheque',
+        naturezaFinanceira: natureza,
+        movimentaCaixaFisico: false,
+        chequeRecebidoRepassado: marcaDoCheque,
+        antesDoRepasse: {
+          formaPagamento: conta.dados.formaPagamento || null,
+          naturezaFinanceira: conta.dados.naturezaFinanceira || null,
+        },
+        baixaManual,
+        updatedAt: agora(),
+        ...buildDocumentUpdateMetadata(user.uid, agora(), `Paga com ${textoDoCheque}`),
+      });
+      resumo.restanteCentavos = 0;
+    }
+
+    if (renegociacao) {
+      const leitura = { ...renegociacao, outras: renegociacao.outras.map((o) => (o.id === chequeId ? { ...o, status: 'Paga' } : o)) };
+      if (quitarOrigensSeRenegociacaoPaga(tx, user, leitura, hoje)) leitura.origens.forEach((o) => { if (o.ref.parent.id === 'pedidos_venda') resumo.vendas.add(o.ref.id); });
+    }
+    registrarLogNaTransacao(tx, { ...user, tenantId }, {
+      modulo: 'financeiro',
+      acao: 'edicao',
+      descricao: `Conta a pagar "${descricaoConta}"${fornecedor.fornecedorNome ? ` (${fornecedor.fornecedorNome})` : ''} ${parcial ? 'paga em parte' : 'paga'} com ${textoDoCheque}: ${reais(chequeCentavos)}${parcial ? `; fica em aberto ${reais(contaCentavos - chequeCentavos)}` : ''}.`,
+      registroId: conta.ref.id,
+      documentosRelacionados: [chequeId, pagamentoRef.id].filter((id) => id !== conta.ref.id),
+      documentoTipo: 'conta_pagar',
+      documentoNumero: `Conta a pagar ${descricaoConta}`,
+    });
+    resumo.descricao = descricaoConta;
+    resumo.fornecedorNome = fornecedor.fornecedorNome;
+    resumo.valorCentavos = chequeCentavos;
+    resumo.parcial = parcial;
+  });
+  for (const pedidoId of resumo.vendas) await cashback.gerarSeDevidoSemFalhar({ user, tenantId, pedidoId });
+  return {
+    descricao: resumo.descricao,
+    fornecedorNome: resumo.fornecedorNome,
+    valorCentavos: resumo.valorCentavos,
+    parcial: resumo.parcial,
+    restanteCentavos: resumo.restanteCentavos,
+  };
+};
+
+/**
+ * Estorno do pagamento de uma conta paga com cheque de cliente: le o cheque
+ * (leituras, antes das escritas do estorno). Cheque mexido depois = 409.
+ */
+const lerChequeDoRepasse = async (tx, tenantId, pagamentoId, dadosDoPagamento) => {
+  const id = String((dadosDoPagamento.chequeRecebidoRepassado && dadosDoPagamento.chequeRecebidoRepassado.transacaoId) || '');
+  if (!ID_VALIDO.test(id)) return null;
+  const titulo = await lerTitulo(tx, tenantId, { transacaoId: id, tipo: 'entrada' });
+  const c = titulo.dados.cheque || {};
+  if (titulo.dados.status !== 'Paga' || c.situacao !== 'repassado' || !c.repassadoA || c.repassadoA.pagamentoTransacaoId !== pagamentoId) {
+    throw new ErroBaixa(409, `O cheque nº ${c.numeroCheque || '-'} de ${titulo.dados.clienteNome || '-'} foi mexido depois de pagar esta conta. Confira em Financeiro > Cheques antes de estornar.`);
+  }
+  const origem = await lerOrigem(tx, tenantId, { ...titulo.dados, status: 'Pendente' }, 'estornado');
+  const renegociacao = await lerRenegociacaoDoTitulo(tx, tenantId, id, titulo.dados);
+  return { id, ...titulo, origem, renegociacao };
+};
+
+module.exports = {
+  PERMISSAO,
+  PERMISSAO_CONTA,
+  chequesNaCarteira,
+  repassarNaNotaAvulsa,
+  desfazerRepasseDaNotaAvulsa,
+  erroDoChequeParaRepassar,
+  erroDaContaParaRepasse,
+  contasAPagarParaRepasse,
+  repassarParaContaAPagar,
+  lerChequeDoRepasse,
+  devolverChequeACarteira,
+};

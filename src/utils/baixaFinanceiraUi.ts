@@ -79,7 +79,15 @@ export interface EscolhaDeBancoNaBaixa {
   rotulo: (forma: string) => string;
   /** Banco ja' escolhido ao abrir (ex.: o banco do cheque emitido). A pessoa pode trocar. */
   bancoInicial?: string;
+  /**
+   * Formas em que o banco aparece mas NAO e' obrigatorio (28/11/2026, pedido do
+   * dono: cheque recebido "nao precisa solicitar o banco, ter opcao de
+   * indefinido"). Vazio = "Indefinido": o banco e' escolhido ao compensar.
+   */
+  formasOpcionais?: string[];
 }
+
+export const ROTULO_BANCO_INDEFINIDO = 'Indefinido (escolher ao compensar)';
 
 /**
  * Numero do cheque na mesma janela (Contas a Pagar, 24/11/2026): aparece so'
@@ -203,7 +211,7 @@ export const pedirDadosBaixa = async (args: {
       </select>
       ${args.banco ? `<div id="baixa-banco-bloco" style="display:none;">
         <label id="baixa-banco-rotulo" for="baixa-banco" style="${ESTILO_ROTULO}"></label>
-        ${args.banco.bancos.length > 0
+        ${args.banco.bancos.length > 0 || (args.banco.formasOpcionais || []).length > 0
           ? `<select id="baixa-banco" class="swal2-select" style="${ESTILO_CAMPO}"><option value="">Selecione o banco...</option>${args.banco.bancos
             .map((b) => `<option value="${escaparHtml(b.id)}"${b.id === args.banco?.bancoInicial ? ' selected' : ''}>${escaparHtml(b.nome)}</option>`).join('')}</select>`
           : `<div style="text-align:left;font-size:13px;color:#ef4444;margin-top:6px;">Nenhum banco ativo. Cadastre em Cadastros Auxiliares › Bancos.</div>`}
@@ -305,8 +313,11 @@ export const pedirDadosBaixa = async (args: {
         const bloco = document.getElementById('baixa-banco-bloco');
         if (!bloco || !args.banco) return;
         const forma = (document.getElementById('baixa-forma') as HTMLSelectElement | null)?.value || '';
-        const pede = args.banco.formas.includes(forma);
+        const opcional = (args.banco.formasOpcionais || []).includes(forma);
+        const pede = args.banco.formas.includes(forma) || opcional;
         bloco.style.display = pede ? 'block' : 'none';
+        const primeira = (document.getElementById('baixa-banco') as HTMLSelectElement | null)?.options[0];
+        if (primeira) primeira.textContent = opcional ? ROTULO_BANCO_INDEFINIDO : 'Selecione o banco...';
         const rotulo = document.getElementById('baixa-banco-rotulo');
         if (rotulo && pede) rotulo.textContent = args.banco.rotulo(forma);
       };
@@ -371,7 +382,10 @@ export const pedirDadosBaixa = async (args: {
         return { forma, data: hoje, ajustes: { jurosCentavos: 0, multaCentavos: 0, descontoCentavos: 0 }, valorRecebidoCentavos: saldo, vencimentoBoleto: vencimento } as DadosBaixa;
       }
       let bancoId = '';
-      if (args.banco?.formas.includes(forma)) {
+      if ((args.banco?.formasOpcionais || []).includes(forma)) {
+        // Cheque: banco opcional; em branco = indefinido (escolhido ao compensar).
+        bancoId = (document.getElementById('baixa-banco') as HTMLSelectElement | null)?.value || '';
+      } else if (args.banco?.formas.includes(forma)) {
         if (args.banco.bancos.length === 0) {
           NexusSwal.showValidationMessage('Nenhum banco ativo. Cadastre um banco em Cadastros Auxiliares › Bancos antes de confirmar.');
           return false;

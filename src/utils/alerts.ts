@@ -59,10 +59,12 @@ const comIconeAnimado = (opcoes: SweetAlertOptions): SweetAlertOptions => {
 export const escaparHtml = (valor: unknown): string => String(valor ?? '')
   .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
+// Cores (28/11/2026): violeta da logo no botao principal; o "Cancelar/Voltar"
+// claro e o fundo do pop-up por tema ficam em src/styles/popups.css.
 const SwalBase = Swal.mixin({
   background: '#1c1c1f',
   color: '#ffffff',
-  confirmButtonColor: '#8b5cf6',
+  confirmButtonColor: '#7c3aed',
   cancelButtonColor: '#3f3f46',
 });
 

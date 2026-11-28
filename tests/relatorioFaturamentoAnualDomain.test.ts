@@ -126,9 +126,13 @@ test('documento do ano corrente indica até qual mês vai', () => {
 test('linhasDre segue a ordem da tela', () => {
   const linhas = linhasDre(calcularFaturamentoAnual(lancamentos, 2025, hoje2026)).map((l) => l.linha);
   assert.equal(linhas[0], '1. Receita bruta total');
+  // Receitas por categoria (28/11/2026): Venda de Peças, Serviços, Outros.
+  assert.deepEqual(linhas.slice(1, 4), ['   • Venda de Peças', '   • Serviços', '   • Outros']);
   assert.equal(linhas[4], '2. (-) Taxas de cartão');
   assert.equal(linhas[6], '4. (=) Receita líquida financeira');
-  assert.equal(linhas[8], '(=) Lucro líquido do exercício');
+  assert.equal(linhas[7], '5. (-) Despesas / custos totais');
+  assert.equal(linhas[8], '   • Aluguel');
+  assert.equal(linhas[9], '(=) Lucro líquido do exercício');
 });
 
 test('venda cancelada em outro mês/ano some da receita e nunca deixa nada negativo (19/10/2026)', () => {
@@ -175,4 +179,45 @@ test('devolução estornada sai das duas pontas', () => {
   assert.equal(r.receitaBrutaCentavos, 40000);
   assert.equal(r.estornosCentavos, 0);
   assert.equal(r.receitaLiquidaCentavos, 40000);
+});
+
+
+test('plano de contas no DRE (28/11/2026): cada categoria na sua linha e "Só informa" fora do lucro', () => {
+  const lista = [
+    t({ valor: 1000, categoria: 'Venda de Produtos', data: '2026-03-01' }),
+    t({ valor: 50, categoria: 'Juros e multa recebidos', data: '2026-03-02' }),
+    t({ valor: 400, tipo: 'saida', categoria: 'Aluguel', data: '2026-03-03' }),
+    t({ valor: 2.5, tipo: 'saida', categoria: 'Tarifas bancárias', data: '2026-03-04' }),
+    t({ valor: 2.5, tipo: 'saida', categoria: 'tarifas  bancárias', data: '2026-03-05' }),
+    // Aporte do socio e transferencia: marcados "So' informa".
+    t({ valor: 5000, categoria: 'Aporte do sócio', data: '2026-03-06' }),
+    t({ valor: 300, tipo: 'saida', categoria: 'Transferência entre contas', data: '2026-03-07' }),
+    t({ valor: 70, tipo: 'saida', categoria: undefined, data: '2026-03-08' }),
+  ];
+  const semPlano = calcularFaturamentoAnual(lista, 2026, hoje2026);
+  assert.equal(semPlano.receitaBrutaCentavos, 605000, 'sem "Só informa", o aporte entra como receita (como antes)');
+
+  const r = calcularFaturamentoAnual(lista, 2026, hoje2026, { soInforma: ['APORTE DO SÓCIO', 'Transferência entre contas'] });
+  assert.equal(r.receitaBrutaCentavos, 105000);
+  assert.deepEqual(r.receitasPorCategoria, [
+    { categoria: 'Venda de Produtos', valorCentavos: 100000 },
+    { categoria: 'Juros e multa recebidos', valorCentavos: 5000 },
+  ]);
+  assert.deepEqual(r.despesasPorCategoria, [
+    { categoria: 'Aluguel', valorCentavos: 40000 },
+    { categoria: 'Sem categoria', valorCentavos: 7000 },
+    { categoria: 'Tarifas bancárias', valorCentavos: 500 },
+  ]);
+  assert.equal(r.despesasCentavos, 47500);
+  assert.equal(r.lucroLiquidoCentavos, 105000 - 47500);
+  assert.deepEqual(r.informativos, [
+    { categoria: 'Aporte do sócio', entradasCentavos: 500000, saidasCentavos: 0 },
+    { categoria: 'Transferência entre contas', entradasCentavos: 0, saidasCentavos: 30000 },
+  ]);
+  const linhas = linhasDre(r).map((l) => l.linha);
+  assert.ok(linhas.includes('Só informa (fora do lucro)'));
+  assert.ok(linhas.includes('   • Aporte do sócio (entrou)'));
+  assert.ok(linhas.includes('   • Transferência entre contas (saiu)'));
+  // O balancete mensal tambem nao conta o "Só informa".
+  assert.equal(r.meses[2].receitaBrutaCentavos, 105000);
 });

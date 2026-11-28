@@ -73,3 +73,23 @@ test('unificacao: vale a matriz; plano de contas junta todas; campo que a matriz
   assert.deepEqual(camposDiferentes(matriz, unificados), ['planoContasReceitas']);
   assert.deepEqual(camposDiferentes({ ...filial, modoValidacaoCliente: 'bloquear', trabalhaComLimiteCredito: true }, unificados), []);
 });
+
+test('natureza das categorias (28/11/2026): Soma, Retira e Só informa no plano de contas', async () => {
+  const { comNatureza, naturezaDaCategoria } = await import('../src/utils/configuracoesGeraisDomain');
+  const plano = { receitas: ['Vendas', 'Aporte do sócio'], despesas: ['Aluguel'], soInforma: [] as string[] };
+  assert.equal(naturezaDaCategoria('Vendas', plano), 'soma');
+  assert.equal(naturezaDaCategoria('ALUGUEL', plano), 'retira');
+  const informa = comNatureza(plano, 'Aporte do sócio', 'informa');
+  assert.deepEqual(informa.soInforma, ['Aporte do sócio']);
+  assert.deepEqual(informa.receitas, plano.receitas, 'Só informa não tira a categoria da lista (continua nos lançamentos)');
+  assert.equal(naturezaDaCategoria('aporte do sócio', informa), 'informa');
+  const virouDespesa = comNatureza(informa, 'Aporte do sócio', 'retira');
+  assert.deepEqual([virouDespesa.receitas, virouDespesa.despesas, virouDespesa.soInforma], [['Vendas'], ['Aluguel', 'Aporte do sócio'], []]);
+
+  // Salvar: "Só informa" é opcional (tela antiga) e só vale categoria que existe no plano.
+  const r = lerConfiguracoesGerais({ ...valido, planoContasSoInforma: ['Fantasma', valido.planoContasReceitas[0]] });
+  assert.ok(r.ok);
+  if (r.ok) assert.deepEqual(r.valores.planoContasSoInforma, [String(valido.planoContasReceitas[0]).trim()]);
+  const semCampo = lerConfiguracoesGerais({ ...valido, planoContasSoInforma: undefined });
+  assert.ok(semCampo.ok && semCampo.valores.planoContasSoInforma.length === 0);
+});

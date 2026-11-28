@@ -26,6 +26,8 @@ import { permissionLabelMap } from '../../utils/permissionCatalog';
 import { PERMISSAO_FINANCEIRO } from '../../utils/permissoesNovasDomain';
 import './BaixaEmLote.css';
 
+const FORMA_CHEQUE = 'Cheque';
+
 /**
  * BAIXA EM LOTE (Contas a Pagar / Contas a Receber, 2026-10-14).
  * Regras em utils/baixaEmLoteDomain.ts; a gravação é do servidor, conta por
@@ -176,7 +178,7 @@ const TEXTOS: Record<TipoDoLote, {
     banco: 'Em qual banco caiu?',
     semBanco: 'Escolha em qual banco caiu.',
     confirmar: (n) => (n === 1 ? 'Confirmar recebimento' : `Confirmar recebimento de ${n} contas`),
-    foraDoLote: 'Cheque e crédito de devolução não entram no lote: para usar, dê baixa na conta sozinha, pelo botão Dar Baixa dela.',
+    foraDoLote: 'Crédito de devolução não entra no lote: para usar, dê baixa na conta sozinha, pelo botão Dar Baixa dela. Cheque entra: as contas ficam em aberto até o cheque compensar em Financeiro › Cheques.',
   },
   saida: {
     sobretitulo: 'Contas a pagar · baixa em lote',
@@ -211,12 +213,22 @@ export const BaixaEmLoteModal: React.FC<{
   formasPermitidas?: string[];
   /** Fecha a janela; recebe os ids que foram baixados (vazio se cancelou). */
   onFechar: (idsBaixados: string[]) => void;
+  /**
+   * Receber em CHEQUE (28/11/2026, pedido do dono). O lote do servidor baixa na
+   * hora, e cheque nao: a conta fica em aberto ate' compensar. Por isso o
+   * cheque nao passa pelo servidor do lote -- a janela entrega as contas a
+   * tela, que registra o cheque em cada uma. Sem isto, Cheque nao aparece.
+   * `bancoId` vazio = indefinido (escolhido ao compensar).
+   */
+  onCheque?: (pedido: { ids: string[]; data: string; bancoId: string }) => void;
   /** Padrao da filial (juros e multa) de cada conta na data da baixa; usado quando falta a permissao. */
   acrescimoPadrao?: (itemId: string, data: string) => { jurosCentavos: number; multaCentavos: number } | null;
-}> = ({ tipo, itens, tenantId, podeDescontar, podeJurosMulta = true, acrescimoPadrao, podeDataAnterior = true, formasPermitidas, onFechar }) => {
+}> = ({ tipo, itens, tenantId, podeDescontar, podeJurosMulta = true, acrescimoPadrao, podeDataAnterior = true, formasPermitidas, onFechar, onCheque }) => {
   const textos = TEXTOS[tipo];
   const hoje = getDateInputInTimeZone();
-  const formas = formasPermitidas ? FORMAS_DA_BAIXA_EM_LOTE[tipo].filter((f) => formasPermitidas.includes(f)) : FORMAS_DA_BAIXA_EM_LOTE[tipo];
+  const chequePelaTela = tipo === 'entrada' && Boolean(onCheque);
+  const formasDoTipo = chequePelaTela ? [...FORMAS_DA_BAIXA_EM_LOTE[tipo], FORMA_CHEQUE] : [...FORMAS_DA_BAIXA_EM_LOTE[tipo]];
+  const formas = formasPermitidas ? formasDoTipo.filter((f) => formasPermitidas.includes(f)) : formasDoTipo;
   const formaComum = (() => {
     const previstas = new Set(itens.map((i) => i.formaPrevista || ''));
     const unica = previstas.size === 1 ? [...previstas][0] : '';
@@ -291,7 +303,10 @@ export const BaixaEmLoteModal: React.FC<{
   const primeiroCampo = useRef<HTMLSelectElement>(null);
   const tituloId = `lote-titulo-${tipo}`;
 
-  const precisaBanco = Boolean(forma) && baixaEmLoteExigeBanco(tipo, forma);
+  // Cheque recebido: sem juros/multa/desconto (igual ao Dar Baixa) e banco opcional ("Indefinido").
+  const emCheque = chequePelaTela && forma === FORMA_CHEQUE;
+  const precisaBanco = Boolean(forma) && !emCheque && baixaEmLoteExigeBanco(tipo, forma);
+  const mostraBanco = precisaBanco || emCheque;
   const resumo = resumoDoLote(itens.map((i) => ({ valorCentavos: i.valorCentavos, ajustes: ajustesDosCampos(campos[i.id]) || SEM_AJUSTES })));
   const baixados = useMemo(() => [...resultados.values()].filter((r) => r.ok).map((r) => r.transacaoId), [resultados]);
 
@@ -343,6 +358,12 @@ export const BaixaEmLoteModal: React.FC<{
     setErros(novosErros);
     setErroGeral('');
     if (Object.keys(novosErros).length > 0) return;
+
+    if (emCheque && onCheque) {
+      onCheque({ ids: itens.map((i) => i.id), data, bancoId });
+      onFechar([]);
+      return;
+    }
 
     // Juros, multa e desconto de cada conta: mesma regra da baixa individual.
     const ajustesPorConta = new Map<string, AjustesDaBaixa>();
@@ -411,7 +432,12 @@ export const BaixaEmLoteModal: React.FC<{
                 disabled={bloqueado}
                 aria-invalid={Boolean(erros.forma)}
                 aria-describedby={erros.forma ? 'lote-forma-erro' : undefined}
-                onChange={(e) => { setForma(e.target.value); setErros((atual) => ({ ...atual, forma: undefined, banco: undefined })); }}
+                onChange={(e) => {
+                  setForma(e.target.value);
+                  // Cheque comeca com o banco "Indefinido" (escolhido ao compensar).
+                  if (chequePelaTela && e.target.value === FORMA_CHEQUE) setBancoId('');
+                  setErros((atual) => ({ ...atual, forma: undefined, banco: undefined }));
+                }}
               >
                 <option value="">Escolha a forma</option>
                 {formas.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -440,9 +466,9 @@ export const BaixaEmLoteModal: React.FC<{
                   : `Vale para todas as contas e fica com a data de hoje. Dar baixa com data anterior precisa da permissão "${ROTULO_DATA_ANTERIOR}": peça ao responsável liberar no seu cadastro de funcionário.`}</span>}
             </div>
 
-            {precisaBanco && (
+            {mostraBanco && (
               <div className="lote-campo" data-erro={Boolean(erros.banco)}>
-                <label htmlFor="lote-banco">{textos.banco}</label>
+                <label htmlFor="lote-banco">{emCheque ? 'Em qual banco vai cair quando compensar?' : textos.banco}</label>
                 <select
                   id="lote-banco"
                   value={bancoId}
@@ -451,7 +477,7 @@ export const BaixaEmLoteModal: React.FC<{
                   aria-describedby={erros.banco ? 'lote-banco-erro' : undefined}
                   onChange={(e) => { setBancoId(e.target.value); setErros((atual) => ({ ...atual, banco: undefined })); }}
                 >
-                  <option value="">{bancos === null ? 'Carregando bancos...' : 'Escolha o banco'}</option>
+                  <option value="">{bancos === null ? 'Carregando bancos...' : emCheque ? 'Indefinido (escolher ao compensar)' : 'Escolha o banco'}</option>
                   {(bancos || []).map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                 </select>
                 {erros.banco && <span id="lote-banco-erro" className="lote-erro-campo">{erros.banco}</span>}
@@ -475,13 +501,17 @@ export const BaixaEmLoteModal: React.FC<{
               </label>
             )}
 
-            <p className="lote-ajuda">
+            {emCheque ? (
+              <p className="lote-ajuda">
+                No cheque não entram juros, multa nem desconto: cada conta fica em aberto pelo valor cheio até o cheque compensar em Financeiro › Cheques. Os dados do cheque são pedidos ao confirmar.
+              </p>
+            ) : <p className="lote-ajuda">
               Juros, multa e desconto são por conta, no borderô. A conta fica quitada pelo valor cheio; os ajustes entram como lançamentos próprios.
               {!podeJurosMulta && (travadoNoPadrao
                 ? ` Juros e multa ficam no padrão da filial: só quem tem a permissão "${ROTULO_JUROS_MULTA}" pode alterar.`
                 : ` Juros e multa: só com a permissão "${ROTULO_JUROS_MULTA}".`)}
               {!podeDescontar && ` Desconto: só com a permissão "${ROTULO_PERMISSAO_DESCONTO_NA_BAIXA}".`}
-            </p>
+            </p>}
 
             <p className="lote-aviso-fora">{textos.foraDoLote}</p>
           </div>
@@ -515,9 +545,9 @@ export const BaixaEmLoteModal: React.FC<{
                         inputMode="decimal"
                         className="lote-campo-valor"
                         value={daConta[campo]}
-                        disabled={bloqueado || Boolean(faltaPermissao)}
+                        disabled={bloqueado || emCheque || Boolean(faltaPermissao)}
                         aria-label={`${rotulo} de ${item.nome}, em reais`}
-                        title={faltaPermissao ? `Precisa da permissão ${faltaPermissao}` : undefined}
+                        title={emCheque ? 'No cheque não entram juros, multa nem desconto' : faltaPermissao ? `Precisa da permissão ${faltaPermissao}` : undefined}
                         aria-invalid={centavosDoCampo(daConta[campo]) === null}
                         onChange={(e) => mudarCampo(item.id, campo, e.target.value)}
                       />

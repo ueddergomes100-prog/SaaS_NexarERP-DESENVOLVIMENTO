@@ -4,6 +4,7 @@ import './index.css'
 import './styles/impressaoMaiuscula.css'
 import './styles/seletor.css'
 import './styles/seletorDeData.css'
+import './styles/popups.css'
 import App from './App.tsx'
 import { registerServiceWorker } from './registerServiceWorker'
 // Guarda o "pode instalar" do navegador antes de qualquer tela montar.

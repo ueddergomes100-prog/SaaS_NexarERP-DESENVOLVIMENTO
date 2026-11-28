@@ -132,6 +132,7 @@ const MODULOS_DA_PERMISSAO: Record<string, string[]> = {
   'financeiro.caixas': ['financeiro.caixa'],
   'financeiro.caixa_fechar': ['financeiro.caixa_registros'],
   'financeiro.cartao_taxa': ['financeiro.banco'],
+  'financeiro.cheque_pagar_conta': ['financeiro.cheques'],
 
   'fiscal.emitir': ['fiscal.nfe'],
   'fiscal.excluir': ['fiscal.nfe'],

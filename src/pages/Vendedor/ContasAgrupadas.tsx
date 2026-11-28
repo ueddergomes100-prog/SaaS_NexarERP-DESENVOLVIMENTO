@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { differenceInCalendarDays, formatDateInputPtBr } from '../../utils/dateTime';
-import { agruparContasPorNome, type ContaParaAgrupar } from '../../utils/contasAgrupadasDomain';
+import { agruparContasPorNome, type ContaParaAgrupar, type GrupoDeContas } from '../../utils/contasAgrupadasDomain';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 
@@ -10,38 +10,62 @@ import { useValoresOcultos } from '../../hooks/useValoresOcultos';
  * fornecedor (pedido do dono, 15/10/2026): uma linha por nome, com quantas
  * notas e o total; ao tocar, as notas abrem uma embaixo da outra. So' para
  * ver -- a baixa continua no sistema do computador.
+ *
+ * 28/11/2026 (Contas a Receber): juros e multa dos atrasados (`acrescimoCentavos`),
+ * botoes de cobranca no grupo e em cada nota, e o grupo do cliente ja' aberto
+ * quando se chega pela venda. O Contas a Pagar nao passa nada disso.
  */
 
 const formatarMoeda = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const moedaDeCentavos = (centavos: number) => formatarMoeda(centavos / 100);
 
 // flexShrink 0: a tela e' uma coluna flex com rolagem; com overflow hidden o cartao encolheria ate sumir.
 const cartao: React.CSSProperties = {
   borderRadius: 'var(--app-raio-linha)', backgroundColor: 'var(--bg-elevated)', boxShadow: 'var(--app-sombra)', border: '1px solid var(--border-color)', flexShrink: 0,
 };
 
-interface ContasAgrupadasProps {
-  contas: ContaParaAgrupar[];
+interface ContasAgrupadasProps<T extends ContaParaAgrupar> {
+  contas: T[];
   hoje: string;
   carregando: boolean;
   /** "Total a receber" / "Total pendente". */
   rotuloTotal: string;
   /** "cliente" / "fornecedor" (singular). */
   rotuloNome: string;
+  /** Juros + multa da nota em atraso, em centavos (Contas a Receber). */
+  acrescimoCentavos?: (conta: T) => number;
+  /** Botoes que aparecem no grupo aberto (cobrar pelo WhatsApp). */
+  acoesDoGrupo?: (grupo: GrupoDeContas<T>) => React.ReactNode;
+  /** Botao no fim da linha de cada nota (cobrar so' esta). */
+  acaoDaConta?: (conta: T, grupo: GrupoDeContas<T>) => React.ReactNode;
+  /** Chamado ao abrir um grupo (carregar o telefone do cliente, por exemplo). */
+  aoAbrirGrupo?: (grupo: GrupoDeContas<T>) => void;
+  /** Grupos que ja' comecam abertos (chave = nome normalizado). */
+  abertosIniciais?: string[];
+  /** Texto quando a lista esta' vazia. */
+  textoVazio?: string;
 }
 
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
 
-const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carregando, rotuloTotal, rotuloNome }) => {
+function ContasAgrupadas<T extends ContaParaAgrupar>({
+  contas, hoje, carregando, rotuloTotal, rotuloNome, acrescimoCentavos, acoesDoGrupo, acaoDaConta, aoAbrirGrupo, abertosIniciais, textoVazio,
+}: ContasAgrupadasProps<T>) {
   const grupos = useMemo(() => agruparContasPorNome(contas, hoje), [contas, hoje]);
-  const [abertos, setAbertos] = useState<Set<string>>(new Set());
+  const [abertos, setAbertos] = useState<Set<string>>(() => new Set(abertosIniciais || []));
   // Olhinho (21/11/2026): o total do topo esconde junto com as outras telas.
   const { mostrar: mostrarValor } = useValoresOcultos();
   const total = grupos.reduce((soma, g) => soma + Math.round(g.total * 100), 0) / 100;
+  const acrescimoDe = (conta: T): number => (acrescimoCentavos ? Math.max(0, Math.round(acrescimoCentavos(conta))) : 0);
+  const acrescimoTotal = contas.reduce((soma, c) => soma + acrescimoDe(c), 0);
 
-  const alternar = (chave: string) => setAbertos((atual) => {
+  const alternar = (grupo: GrupoDeContas<T>) => setAbertos((atual) => {
     const novo = new Set(atual);
-    if (novo.has(chave)) novo.delete(chave);
-    else novo.add(chave);
+    if (novo.has(grupo.chave)) novo.delete(grupo.chave);
+    else {
+      novo.add(grupo.chave);
+      aoAbrirGrupo?.(grupo);
+    }
     return novo;
   });
 
@@ -49,7 +73,7 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
     return <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Carregando...</div>;
   }
   if (grupos.length === 0) {
-    return <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>Nenhuma conta pendente.</div>;
+    return <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{textoVazio || 'Nenhuma conta pendente.'}</div>;
   }
 
   return (
@@ -62,7 +86,14 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{mostrarValor(formatarMoeda(total))}</span>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{mostrarValor(formatarMoeda(total))}</div>
+            {acrescimoTotal > 0 && (
+              <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', whiteSpace: 'nowrap' }}>
+                + {mostrarValor(moedaDeCentavos(acrescimoTotal))} de juros
+              </div>
+            )}
+          </div>
           <BotaoOlhoValores tamanho={18} style={{ width: '36px', height: '36px', border: 'none', background: 'none', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} className="olho-no-cartao" />
         </div>
       </div>
@@ -70,11 +101,12 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
       {grupos.map((grupo) => {
         const aberto = abertos.has(grupo.chave);
         const atrasoMaior = grupo.vencimentoMaisAntigo ? differenceInCalendarDays(grupo.vencimentoMaisAntigo, hoje) ?? 0 : 0;
+        const acrescimoDoGrupo = grupo.contas.reduce((soma, c) => soma + acrescimoDe(c), 0);
         return (
           <div key={grupo.chave} style={{ ...cartao, overflow: 'hidden', flexShrink: 0 }}>
             <button
               type="button"
-              onClick={() => alternar(grupo.chave)}
+              onClick={() => alternar(grupo)}
               aria-expanded={aberto}
               style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'inherit', font: 'inherit' }}
             >
@@ -91,17 +123,24 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
                   )}
                 </div>
               </div>
-              <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{formatarMoeda(grupo.total)}</div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{formatarMoeda(grupo.total)}</div>
+                {acrescimoDoGrupo > 0 && (
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', whiteSpace: 'nowrap' }}>+ {moedaDeCentavos(acrescimoDoGrupo)} juros</div>
+                )}
+              </div>
               <ChevronDown size={18} style={{ color: 'var(--text-muted)', flex: 'none', transition: 'transform 0.18s ease', transform: aberto ? 'rotate(180deg)' : 'none' }} />
             </button>
 
             {aberto && (
               <div style={{ borderTop: '1px solid var(--border-color)', padding: '4px 14px 6px' }}>
+                {acoesDoGrupo && <div style={{ padding: '10px 0 6px' }}>{acoesDoGrupo(grupo)}</div>}
                 {grupo.contas.map((conta, i) => {
                   const diasAtraso = conta.vencimento ? differenceInCalendarDays(conta.vencimento, hoje) ?? 0 : 0;
                   const vencida = diasAtraso > 0;
+                  const acrescimo = acrescimoDe(conta);
                   return (
-                    <div key={conta.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderTop: i === 0 ? 'none' : '1px dashed var(--border-color)' }}>
+                    <div key={conta.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderTop: i === 0 && !acoesDoGrupo ? 'none' : '1px dashed var(--border-color)' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)', lineHeight: 1.3, overflowWrap: 'anywhere' }}>
                           {conta.descricao || 'Sem descrição'}
@@ -110,7 +149,15 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
                           {conta.vencimento ? `Vence ${formatDateInputPtBr(conta.vencimento)}` : 'Sem vencimento'}{vencida ? ` · ${diasAtraso}d atrasada` : ''}
                         </div>
                       </div>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{formatarMoeda(conta.valor)}</div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{formatarMoeda(conta.valor)}</div>
+                        {acrescimo > 0 && (
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', whiteSpace: 'nowrap' }}>
+                            {moedaDeCentavos(Math.round(conta.valor * 100) + acrescimo)} c/ juros
+                          </div>
+                        )}
+                      </div>
+                      {acaoDaConta && acaoDaConta(conta, grupo)}
                     </div>
                   );
                 })}
@@ -121,6 +168,6 @@ const ContasAgrupadas: React.FC<ContasAgrupadasProps> = ({ contas, hoje, carrega
       })}
     </>
   );
-};
+}
 
 export default ContasAgrupadas;

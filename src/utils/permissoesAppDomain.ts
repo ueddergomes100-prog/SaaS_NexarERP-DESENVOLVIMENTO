@@ -64,6 +64,14 @@ export const PERMISSAO_APP_DEBITO_CLIENTE = 'app.debito_cliente';
  */
 export const PERMISSAO_APP_COMPRAS_CLIENTE = 'app.compras_cliente';
 
+/**
+ * Cobrar o cliente pelo WhatsApp no Contas a Receber do app (28/11/2026, pedido
+ * do dono): vencidas, todas ou uma conta, com pedido, data da compra e juros.
+ * FORA de PERMISSAO_APP: vem marcada para quem tem "App: Contas a Receber" pelo
+ * pacote 'app-2' (permissoesNovasDomain.ts).
+ */
+export const PERMISSAO_APP_COBRAR_WHATSAPP = 'app.cobrar_whatsapp';
+
 /** Chaves novas: quem nunca teve as permissoes do app gravadas conta com todas. */
 export const CHAVES_APP_NOVAS: string[] = Object.values(PERMISSAO_APP);
 

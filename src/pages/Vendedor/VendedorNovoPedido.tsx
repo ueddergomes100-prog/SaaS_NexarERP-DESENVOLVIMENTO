@@ -247,7 +247,7 @@ const VendedorNovoPedido: React.FC = () => {
             </button>
           </div>
         ) : (
-          <VendedorSeletorCliente clientes={clientes} onConfirmar={setClienteSelecionado} />
+          <VendedorSeletorCliente clientes={clientes} onConfirmar={setClienteSelecionado} avisarAntesDeSair={itens.length > 0} />
         )}
         {!clienteSelecionado && (
           <button

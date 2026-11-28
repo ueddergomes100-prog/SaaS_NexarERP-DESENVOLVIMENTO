@@ -486,6 +486,8 @@ const PDV: React.FC = () => {
               email: normalizeText(data.email),
               codigo: normalizeText(data.codigo) || undefined,
               fantasia: normalizeText(data.fantasia),
+              // Apelido (28/11/2026): a busca e a Consulta de clientes do caixa acham e mostram pelo apelido.
+              apelido: normalizeText(data.apelido),
               celular: normalizeText(data.celular),
               cidade: normalizeText(data.cidade),
               estado: normalizeText(data.estado),

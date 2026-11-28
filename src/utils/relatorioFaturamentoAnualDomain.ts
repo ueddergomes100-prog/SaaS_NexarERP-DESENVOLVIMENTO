@@ -76,6 +76,49 @@ const ehDevolucao = (t: TransacaoFaturamento) => abateReceita(t);
 /** Despesa de verdade: saida que nao e' estorno de receita. */
 const ehDespesa = (t: TransacaoFaturamento) => t.tipo === 'saida' && !isRevenueReversal(t);
 
+/*
+ * PLANO DE CONTAS NO DRE (28/11/2026, pedido do dono): "tudo tem que vir no
+ * plano de contas para quando tirar o DRE sair discriminado cada plano de
+ * contas". Cada categoria sai na sua linha, com o valor. A natureza vem do
+ * Plano de Contas (Configuracoes Gerais): receita SOMA, despesa RETIRA, e a
+ * categoria marcada "So' informa" sai num bloco a parte, FORA do lucro
+ * (ex.: transferencia entre contas, aporte do socio).
+ */
+export interface OpcoesDre {
+  /** Categorias marcadas "So' informa" no Plano de Contas. */
+  soInforma?: readonly string[];
+}
+
+export interface ValorPorCategoria {
+  categoria: string;
+  valorCentavos: number;
+}
+
+export interface CategoriaInformativa {
+  categoria: string;
+  entradasCentavos: number;
+  saidasCentavos: number;
+}
+
+export const SEM_CATEGORIA = 'Sem categoria';
+const chaveDaCategoria = (nome: unknown): string => String(nome ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+const nomeDaCategoria = (t: TransacaoFaturamento): string => String(t.categoria ?? '').trim().replace(/\s+/g, ' ') || SEM_CATEGORIA;
+
+/** Agrupa por categoria (maiuscula/espaco nao separam), do maior para o menor valor. */
+const porCategoria = (lista: TransacaoFaturamento[], valor: (t: TransacaoFaturamento) => number): ValorPorCategoria[] => {
+  const grupos = new Map<string, ValorPorCategoria>();
+  for (const t of lista) {
+    const nome = nomeDaCategoria(t);
+    const chave = chaveDaCategoria(nome);
+    const atual = grupos.get(chave) || { categoria: nome, valorCentavos: 0 };
+    atual.valorCentavos += valor(t);
+    grupos.set(chave, atual);
+  }
+  return [...grupos.values()]
+    .filter((g) => g.valorCentavos !== 0)
+    .sort((a, b) => b.valorCentavos - a.valorCentavos || a.categoria.localeCompare(b.categoria, 'pt-BR'));
+};
+
 export interface MesBalancete {
   /** 0 = janeiro. */
   indice: number;
@@ -94,6 +137,12 @@ export interface FormaPagamentoFaturamento {
 
 export interface ResumoFaturamentoAnual {
   ano: number;
+  /** Receita bruta por categoria do plano de contas (28/11/2026). */
+  receitasPorCategoria: ValorPorCategoria[];
+  /** Despesas por categoria do plano de contas (28/11/2026). */
+  despesasPorCategoria: ValorPorCategoria[];
+  /** Categorias "So' informa": aparecem, mas nao entram no lucro. */
+  informativos: CategoriaInformativa[];
   receitaPecasCentavos: number;
   receitaServicosCentavos: number;
   receitaOutrosCentavos: number;
@@ -124,9 +173,25 @@ export const calcularFaturamentoAnual = (
   transacoes: TransacaoFaturamento[],
   ano: number,
   hoje: Date = new Date(),
+  opcoes: OpcoesDre = {},
 ): ResumoFaturamentoAnual => {
   // Somente lancamentos pagos do ano escolhido.
-  const transacoesAno = transacoes.filter((t) => t.status === 'Paga' && anoDoLancamento(t) === String(ano));
+  const pagasDoAno = transacoes.filter((t) => t.status === 'Paga' && anoDoLancamento(t) === String(ano));
+  // "So' informa" (Plano de Contas): fora do lucro, num bloco proprio.
+  const soInforma = new Set((opcoes.soInforma || []).map(chaveDaCategoria).filter(Boolean));
+  const ehInformativo = (t: TransacaoFaturamento) => soInforma.size > 0 && soInforma.has(chaveDaCategoria(nomeDaCategoria(t)));
+  const transacoesAno = pagasDoAno.filter((t) => !ehInformativo(t));
+  const informativosDoAno = pagasDoAno.filter((t) => ehInformativo(t) && (ehReceita(t) || ehDespesa(t)));
+  const grupoInformativo = new Map<string, CategoriaInformativa>();
+  for (const t of informativosDoAno) {
+    const nome = nomeDaCategoria(t);
+    const chave = chaveDaCategoria(nome);
+    const atual = grupoInformativo.get(chave) || { categoria: nome, entradasCentavos: 0, saidasCentavos: 0 };
+    if (ehReceita(t)) atual.entradasCentavos += brutoCentavos(t);
+    else atual.saidasCentavos += liquidoCentavos(t);
+    grupoInformativo.set(chave, atual);
+  }
+  const informativos = [...grupoInformativo.values()].sort((a, b) => a.categoria.localeCompare(b.categoria, 'pt-BR'));
 
   // --- DRE SIMPLIFICADO ---
   const receitasFiltradas = transacoesAno.filter(ehReceita);
@@ -143,7 +208,8 @@ export const calcularFaturamentoAnual = (
   const receitaBrutaCentavos = receitaServicosCentavos + receitaPecasCentavos + receitaOutrosCentavos;
   const taxasCartaoCentavos = somar(receitasFiltradas, taxaCentavos);
   const receitaLiquidaCentavos = Math.max(0, receitaBrutaCentavos - taxasCartaoCentavos - estornosCentavos);
-  const despesasCentavos = somar(transacoesAno.filter(ehDespesa), liquidoCentavos);
+  const despesasDoAno = transacoesAno.filter(ehDespesa);
+  const despesasCentavos = somar(despesasDoAno, liquidoCentavos);
   const lucroLiquidoCentavos = receitaLiquidaCentavos - despesasCentavos;
   const margemLucro = receitaBrutaCentavos > 0 ? (lucroLiquidoCentavos / receitaBrutaCentavos) * 100 : 0;
 
@@ -188,6 +254,9 @@ export const calcularFaturamentoAnual = (
 
   return {
     ano,
+    receitasPorCategoria: porCategoria(receitasFiltradas, brutoCentavos),
+    despesasPorCategoria: porCategoria(despesasDoAno, liquidoCentavos),
+    informativos,
     receitaPecasCentavos,
     receitaServicosCentavos,
     receitaOutrosCentavos,
@@ -218,15 +287,22 @@ const percentualBr = (valor: number): string => `${new Intl.NumberFormat('pt-BR'
 /** Linhas do DRE na ordem da tela. Valores dos "(-)" vao positivos, como na tela. */
 export const linhasDre = (resumo: ResumoFaturamentoAnual): LinhaDre[] => [
   { linha: '1. Receita bruta total', valorCentavos: resumo.receitaBrutaCentavos },
-  { linha: '   • Venda de peças (pedidos de venda)', valorCentavos: resumo.receitaPecasCentavos },
-  { linha: '   • Serviços (mão de obra / OS)', valorCentavos: resumo.receitaServicosCentavos },
-  { linha: '   • Outras receitas', valorCentavos: resumo.receitaOutrosCentavos },
+  // Cada conta de receita do plano de contas na sua linha (28/11/2026).
+  ...resumo.receitasPorCategoria.map((c) => ({ linha: `   • ${c.categoria}`, valorCentavos: c.valorCentavos })),
   { linha: '2. (-) Taxas de cartão', valorCentavos: resumo.taxasCartaoCentavos },
   { linha: '3. (-) Devoluções de venda', valorCentavos: resumo.estornosCentavos },
   { linha: '4. (=) Receita líquida financeira', valorCentavos: resumo.receitaLiquidaCentavos },
   { linha: '5. (-) Despesas / custos totais', valorCentavos: resumo.despesasCentavos },
+  ...resumo.despesasPorCategoria.map((c) => ({ linha: `   • ${c.categoria}`, valorCentavos: c.valorCentavos })),
   { linha: '(=) Lucro líquido do exercício', valorCentavos: resumo.lucroLiquidoCentavos },
   { linha: `Margem de lucro: ${percentualBr(resumo.margemLucro)}`, valorCentavos: null },
+  ...(resumo.informativos.length > 0 ? [
+    { linha: 'Só informa (fora do lucro)', valorCentavos: null },
+    ...resumo.informativos.flatMap((c) => [
+      ...(c.entradasCentavos > 0 ? [{ linha: `   • ${c.categoria} (entrou)`, valorCentavos: c.entradasCentavos }] : []),
+      ...(c.saidasCentavos > 0 ? [{ linha: `   • ${c.categoria} (saiu)`, valorCentavos: c.saidasCentavos }] : []),
+    ]),
+  ] : []),
 ];
 
 export interface DocumentoFaturamentoAnual {
@@ -244,8 +320,9 @@ export const montarDocumentoFaturamentoAnual = (
   transacoes: TransacaoFaturamento[],
   ano: number,
   hoje: Date = new Date(),
+  opcoes: OpcoesDre = {},
 ): DocumentoFaturamentoAnual => {
-  const resumo = calcularFaturamentoAnual(transacoes, ano, hoje);
+  const resumo = calcularFaturamentoAnual(transacoes, ano, hoje, opcoes);
   const parcial = resumo.mesesTranscorridos < 12;
 
   const colunasDre: ColunaRelatorio<LinhaDre>[] = [

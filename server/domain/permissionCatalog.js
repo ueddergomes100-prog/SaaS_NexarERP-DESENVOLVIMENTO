@@ -44,6 +44,8 @@ exports.PERMISSION_GROUPS = [
             // 27/11/2026: o saldo em aberto do cliente na consulta. Vem marcada com a de cima (pacote 'app-1').
             { id: 'app.debito_cliente', label: 'App: Ver o débito do cliente (saldo em aberto na consulta do cliente)', color: '#8b5cf6' },
             { id: 'app.compras_cliente', label: 'App: Ver as compras do cliente (vendas e produtos na consulta do cliente)', color: '#8b5cf6' },
+            // 28/11/2026: cobrar pelo WhatsApp no Contas a Receber do app. Vem marcada com "App: Contas a Receber" (pacote 'app-2').
+            { id: 'app.cobrar_whatsapp', label: 'App: Cobrar o cliente pelo WhatsApp (Contas a Receber)', color: '#8b5cf6' },
             // Nao vem marcada para ninguem (25/11/2026): sem ela, quem decide o destino do
             // valor da devolucao e' o escritorio, na confirmacao. Conferida no servidor.
             { id: 'app.devolucao_destino', label: 'App: Devolução — escolher para onde vai o valor (crédito, caixa ou banco)', color: '#ef4444' },
@@ -398,6 +400,7 @@ exports.PERMISSION_GROUPS = [
             { id: 'financeiro.baixa_credito_cliente', label: 'Financeiro: Contas a Receber — abater conta com crédito do cliente', color: '#10b981' },
             { id: 'financeiro.recibo', label: 'Financeiro: Contas a Receber — emitir recibo de pagamento', color: '#10b981' },
             { id: 'financeiro.cobrar_whatsapp', label: 'Financeiro: Contas a Receber — cobrar cliente pelo WhatsApp', color: '#10b981' },
+            { id: 'financeiro.cheque_pagar_conta', label: 'Financeiro: Cheques — pagar conta a pagar com cheque de cliente', color: '#10b981' },
             { id: 'financeiro.creditos_ver', label: 'Financeiro: ver os créditos dos clientes (e o que o fornecedor deve) e de onde vem cada um', color: '#10b981' },
             { id: 'financeiro.relatorios', label: 'Financeiro: relatórios (PDF e Excel) das telas do Financeiro', color: '#10b981' },
             { id: 'financeiro.importar_titulos', label: 'Financeiro: importar títulos de planilha (Contas a Receber e a Pagar)', color: '#10b981' },

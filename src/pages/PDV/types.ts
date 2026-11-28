@@ -52,6 +52,8 @@ export interface PdvClient {
   isPadrao?: boolean;
   /** Para a busca e o filtro de cidade da janela de cliente (2026-10-06). */
   fantasia?: string;
+  /** Como o cliente e' chamado no balcao (28/11/2026). */
+  apelido?: string;
   celular?: string;
   cidade?: string;
   estado?: string;

@@ -19,6 +19,7 @@ const listaDeCategorias = (v) => {
 const CAMPOS_GERAIS_NO_HISTORICO = [
   { campo: 'planoContasReceitas', rotulo: 'Categorias de receita', formatar: listaDeCategorias },
   { campo: 'planoContasDespesas', rotulo: 'Categorias de despesa', formatar: listaDeCategorias },
+  { campo: 'planoContasSoInforma', rotulo: 'Categorias "só informa"', formatar: listaDeCategorias },
   { campo: 'validarCadastroProduto', rotulo: 'Validar cadastro de produto', formatar: simNao },
   { campo: 'modoValidacaoCliente', rotulo: 'Validação do cadastro de cliente' },
   { campo: 'trabalhaComLimiteCredito', rotulo: 'Trabalha com limite de crédito', formatar: simNao },

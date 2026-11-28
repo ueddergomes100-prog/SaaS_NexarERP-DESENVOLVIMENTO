@@ -12,6 +12,7 @@ import {
   type ChequeDetails,
 } from '../../utils/financeDomain';
 import MenuMaisOpcoes from '../../components/common/MenuMaisOpcoes';
+import PagarContaComChequeModal, { type ChequeParaPagarConta } from '../../components/finance/PagarContaComChequeModal';
 import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import RelatorioPreview from '../../components/Reports/RelatorioPreview';
@@ -107,6 +108,10 @@ const Cheques: React.FC = () => {
   // marcada para quem tem a tela).
   const podeRelatorios = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole)
     || Boolean(userPermissions?.includes(PERMISSAO_FINANCEIRO.relatorios));
+  // Pagar conta a pagar com o cheque (28/11/2026): permissao propria, ja' marcada para quem compensa cheques.
+  const podePagarContaComCheque = hasTenantFullAccess(userRole, isOwner) || isPlatformAdminRole(userRole)
+    || Boolean(userPermissions?.includes(PERMISSAO_FINANCEIRO.chequePagarConta));
+  const [chequeParaConta, setChequeParaConta] = useState<ChequeParaPagarConta | null>(null);
   const { items: bancos } = useTenantCollection<Banco>('bancos', tenantId, { sortField: 'ordem' });
   const bancosAtivos = bancos.filter((b) => b.ativo);
 
@@ -132,6 +137,26 @@ const Cheques: React.FC = () => {
 
   const confirmarCompensacao = async (t: TransacaoData) => {
     if (!tenantId || !currentUser || processingId) return;
+
+    // Ao compensar (28/11/2026, pedido do dono): o cheque ainda na carteira pode ir
+    // para o banco OU pagar uma conta a pagar de fornecedor. O servidor confere tudo.
+    if (podePagarContaComCheque && situacaoDoCheque(t) === 'em_carteira') {
+      const escolha = await NexusSwal.fire({
+        title: 'O que fazer com este cheque?',
+        text: `Cheque nº ${t.cheque?.numeroCheque || '-'} (R$ ${transactionNetAmount(t).toFixed(2)}${t.clienteNome ? `, de ${t.clienteNome}` : ''}).`,
+        icon: 'question',
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Compensou no banco',
+        denyButtonText: 'Pagar uma conta a pagar',
+        cancelButtonText: 'Cancelar',
+      });
+      if (escolha.isDismissed) return;
+      if (escolha.isDenied) {
+        setChequeParaConta({ id: t.id, numeroCheque: t.cheque?.numeroCheque || '', clienteNome: t.clienteNome || '', centavos: transactionNetCents(t) });
+        return;
+      }
+    }
 
     let bancoId = t.bancoId;
     let bancoNome = t.bancoNome;
@@ -483,6 +508,14 @@ const Cheques: React.FC = () => {
         </div>
         <MostrarMaisLinhas blocos={blocos} />
       </div>
+      {chequeParaConta && tenantId && (
+        <PagarContaComChequeModal
+          cheque={chequeParaConta}
+          tenantId={tenantId}
+          onFechar={() => setChequeParaConta(null)}
+          onPago={(mensagem) => { setChequeParaConta(null); showSuccess(mensagem); }}
+        />
+      )}
     </div>
   );
 };

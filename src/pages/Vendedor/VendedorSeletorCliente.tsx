@@ -19,9 +19,11 @@ interface VendedorSeletorClienteProps<T extends ClienteDaLista> {
   onConfirmar: (cliente: T) => void;
   /** Debitos do cliente no pop-up (padrao: mostra). */
   mostrarDebitos?: boolean;
+  /** A tela tem dados nao salvos: o atalho dos debitos pergunta antes de sair (28/11/2026). */
+  avisarAntesDeSair?: boolean;
 }
 
-function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirmar, mostrarDebitos = true }: VendedorSeletorClienteProps<T>) {
+function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirmar, mostrarDebitos = true, avisarAntesDeSair = false }: VendedorSeletorClienteProps<T>) {
   const [busca, setBusca] = useState('');
   /** Muda a cada cancelamento: refaz o campo (o autocomplete trava depois de escolher). */
   const [tentativa, setTentativa] = useState(0);
@@ -57,6 +59,7 @@ function VendedorSeletorCliente<T extends ClienteDaLista>({ clientes, onConfirma
         onConfirmar={() => { if (emConfirmacao) onConfirmar(emConfirmacao); }}
         onCancelar={cancelar}
         mostrarDebitos={mostrarDebitos}
+        avisarAntesDeSair={avisarAntesDeSair}
       />
     </>
   );

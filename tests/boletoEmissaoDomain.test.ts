@@ -352,3 +352,32 @@ test('resumoDaEmissaoNaHora: diz quantos sairam', () => {
   assert.equal(resumoDaEmissaoNaHora(0, 2), 'Nenhum boleto foi emitido.');
   assert.equal(resumoDaEmissaoNaHora(0, 0), 'Os boletos desta venda já estavam emitidos.');
 });
+
+
+test('retorno CNAB240 (28/11/2026): juros/multa, desconto, tarifa e liquido do boleto pago', async () => {
+  const { detalheDoRecebimentoBoleto } = await import('../src/utils/boletoEmissaoDomain');
+  // Titulo 281,45 pago 290,78: juros 9,33; tarifa do banco 2,50 (T 199-213); liquido 288,28 (U 93-107).
+  let [t, u] = linhaSegmentoT({ nossoNumero: '38938', codigoOcorrencia: '06', valorCentavos: 28145, valorPagoCentavos: 29078, dataOcorrencia: '23112026' }).split('\r\n');
+  t = t.slice(0, 198) + '000000000000250' + t.slice(213);
+  u = u.slice(0, 92) + '000000000028828' + u.slice(107);
+  const lida = parseLinhaRetornoSicoob(t, u);
+  assert.equal(lida.liquidado, true);
+  assert.deepEqual(lida.detalhe, { jurosMultaCentavos: 933, descontoCentavos: 0, tarifaCentavos: 250, valorLiquidoCentavos: 28828 });
+
+  const d = detalheDoRecebimentoBoleto({ valorCentavos: 28145, valorPagoCentavos: 29078, retornoDoBanco: lida.detalhe });
+  assert.equal(d.jurosMulta, 933);
+  assert.equal(d.pago, 29078);
+  assert.equal(d.tarifa, 250);
+  assert.equal(d.liquido, 28828);
+  assert.equal(d.veioDoBanco, true);
+
+  // Boleto baixado antes (sem o detalhe): a diferenca vira juros, o liquido e' o pago.
+  const antigo = detalheDoRecebimentoBoleto({ valorCentavos: 28145, valorPagoCentavos: 29078 });
+  assert.deepEqual([antigo.jurosMulta, antigo.desconto, antigo.tarifa, antigo.liquido, antigo.veioDoBanco], [933, 0, 0, 29078, false]);
+  const comDesconto = detalheDoRecebimentoBoleto({ valorCentavos: 10000, valorPagoCentavos: 9500 });
+  assert.deepEqual([comDesconto.desconto, comDesconto.liquido], [500, 9500]);
+
+  // Boleto que nao e' liquidacao nao traz detalhe.
+  const rejeitado = lerTU(linhaSegmentoT({ nossoNumero: '1201', codigoOcorrencia: '03', valorCentavos: 0, dataOcorrencia: '22092026' }));
+  assert.equal(rejeitado.detalhe, undefined);
+});

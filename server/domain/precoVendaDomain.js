@@ -29,7 +29,7 @@
  * Regra pura: sem tela, sem Firestore.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.reprecificarItens = exports.tabelaDoProduto = exports.faixasDeAtacadoDoProduto = exports.precoAutomatico = exports.faixaDeAtacado = exports.ROTULO_ORIGEM_PRECO = exports.ROTULO_CONDICAO = exports.condicaoDoPagamento = exports.parseFormasAVista = exports.FORMAS_CONFIGURAVEIS_A_VISTA = exports.FORMAS_A_VISTA_PADRAO = void 0;
+exports.textoDoValorAtacado = exports.reprecificarItens = exports.tabelaDoProduto = exports.faixasDeAtacadoDoProduto = exports.precoAutomatico = exports.faixaDeAtacado = exports.ROTULO_ORIGEM_PRECO = exports.ROTULO_CONDICAO = exports.condicaoDoPagamento = exports.parseFormasAVista = exports.FORMAS_CONFIGURAVEIS_A_VISTA = exports.FORMAS_A_VISTA_PADRAO = void 0;
 /** Formas que contam como a vista quando a empresa nao configurou outra lista.
  *  Cartao de credito so' conta em 1x (ver condicaoDoPagamento). */
 exports.FORMAS_A_VISTA_PADRAO = [
@@ -220,3 +220,19 @@ const reprecificarItens = (itens, condicao) => {
     return { itens: novos, alterados, diferencaCentavos: diferenca };
 };
 exports.reprecificarItens = reprecificarItens;
+/**
+ * "Valor atacado: R$ 9,50 a partir de 10 UN" (28/11/2026, pedido do dono: o app
+ * mostra pequeno em cada item o preco de atacado). Mais de uma faixa sai
+ * separada por " · ". Sem faixa = '' (nada aparece).
+ */
+const textoDoValorAtacado = (faixas, sigla, formatarMoeda) => {
+    if (!Array.isArray(faixas) || faixas.length === 0)
+        return '';
+    const qtd = (v) => v.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+    const unidade = String(sigla || '').trim();
+    return `Valor atacado: ${[...faixas]
+        .sort((a, b) => a.aPartirDe - b.aPartirDe)
+        .map((f) => `${formatarMoeda(f.preco)} a partir de ${qtd(f.aPartirDe)}${unidade ? ` ${unidade}` : ''}`)
+        .join(' · ')}`;
+};
+exports.textoDoValorAtacado = textoDoValorAtacado;

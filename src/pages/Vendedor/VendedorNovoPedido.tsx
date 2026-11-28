@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { ehConsumidorFinal, formasDaEmpresa, parseFormasOcultas, parseOrdemFormasPagamento } from '../../utils/formasPagamentoDomain';
@@ -35,7 +35,7 @@ import { MENSAGEM_SO_BONIFICADO, PERMISSAO_BONIFICAR, resumoDaBonificacao } from
 import { hasTenantFullAccess } from '../../utils/roles';
 import { podeAlterarPrecoNoApp } from '../../utils/permissoesAppDomain';
 import { podeCadastrarClienteNoApp } from './vendedorPermissoes';
-import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho } from './vendedorRascunhosStore';
+import { buscarRascunho, novoLocalId, RascunhoStorageError, salvarRascunho, type RascunhoVenda } from './vendedorRascunhosStore';
 import VendedorRodapeRascunho, { camposDePronto, mensagemDeRascunhoSalvo } from './VendedorRodapeRascunho';
 import { useEscolhaDeRota } from '../../hooks/useEscolhaDeRota';
 import { textoDaRotaEscolhida, type RotaEscolhida } from '../../utils/rotaPreVendaDomain';
@@ -56,6 +56,41 @@ interface ClienteVendedor extends SearchableClient, ClienteConfirmavel {
  * Quem envia de verdade e' "Enviar dados" (VendedorRascunhos.tsx). Com
  * `:localId` na rota, reabre um rascunho ja salvo pra editar.
  */
+/** Monta o rascunho do pedido (salvar do rodape e rascunho automatico, 28/11/2026). Sem chave undefined. */
+const montarRascunhoDoPedido = (a: {
+  localId: string;
+  criadoEm: string;
+  agora: string;
+  cliente: ClienteVendedor | null;
+  itens: ItemVendaExterna[];
+  observacao: string;
+  semCadastro: { nome: string; cidade?: string; telefone?: string } | null;
+  notaFiscal: EscolhaNotaFiscal | null;
+  formaPagamento: string;
+  parcelasBoleto: number;
+  diasDasParcelas: number[] | null;
+  pronto: boolean;
+  rota: RotaEscolhida | null;
+}): RascunhoVenda => ({
+  localId: a.localId,
+  tipo: 'pedido',
+  // Sem cliente ainda (rascunho automatico): fica guardado; o envio pede o cliente.
+  cliente: a.cliente
+    ? { id: a.cliente.id, nome: a.cliente.nome, ...(a.cliente.telefone ? { telefone: a.cliente.telefone } : {}) }
+    : { id: '', nome: 'Cliente não escolhido' },
+  itens: a.itens,
+  ...(normalizarObservacaoPedido(a.observacao) ? { observacao: normalizarObservacaoPedido(a.observacao) } : {}),
+  ...(a.semCadastro ? { clienteSemCadastro: a.semCadastro } : {}),
+  ...(a.notaFiscal ? { notaFiscal: a.notaFiscal } : {}),
+  ...(a.formaPagamento ? { formaPagamento: a.formaPagamento } : {}),
+  ...(a.formaPagamento === 'Boleto' ? { parcelasBoleto: a.parcelasBoleto } : {}),
+  ...(a.diasDasParcelas ? { diasDasParcelas: a.diasDasParcelas } : {}),
+  criadoEm: a.criadoEm,
+  atualizadoEm: a.agora,
+  ...camposDePronto(a.pronto, a.agora),
+  ...(a.pronto && a.rota ? { rota: a.rota } : {}),
+});
+
 const VendedorNovoPedido: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -134,6 +169,49 @@ const VendedorNovoPedido: React.FC = () => {
 
   const produtosAtivos = produtos.filter((p) => p.ativo !== false);
 
+  // RASCUNHO AUTOMATICO (28/11/2026, pedido do dono): "quando comecar digitar uma
+  // venda, se sair ela ficar como rascunho, pra garantia do vendedor nao perder
+  // tudo". Escolheu o cliente ou um item: a venda ja' fica em Rascunhos e e'
+  // atualizada a cada mudanca. Nunca marca "Pronto" (isso continua sendo do
+  // vendedor); rascunho sem cliente fica guardado mas nao e' enviado.
+  const [idDoRascunho] = useState(() => rascunhoAberto?.localId || novoLocalId());
+  const [criadoEmDoRascunho] = useState(() => rascunhoAberto?.criadoEm || new Date().toISOString());
+  const [salvoAutomaticoAs, setSalvoAutomaticoAs] = useState('');
+  const primeiraMontagem = useRef(true);
+  useEffect(() => {
+    // Abrir a tela nao e' mudar nada: so' salva depois da primeira mudanca.
+    if (primeiraMontagem.current) { primeiraMontagem.current = false; return undefined; }
+    if (!tenantId || !currentUser) return undefined;
+    if (itens.length === 0 && !clienteSelecionado) return undefined;
+    const timer = window.setTimeout(() => {
+      // Rascunho que ja' foi enviado enquanto estava aberto: nao recria.
+      if (rascunhoAberto && !buscarRascunho(tenantId, currentUser.uid, idDoRascunho)) return;
+      const diasValidos = temPrazo && intervaloPrazo.trim() !== '' && diasLinhas.length === parcelasBoleto && !erroDosDiasDasParcelas(diasLinhas);
+      try {
+        salvarRascunho(tenantId, currentUser.uid, montarRascunhoDoPedido({
+          localId: idDoRascunho,
+          criadoEm: criadoEmDoRascunho,
+          agora: new Date().toISOString(),
+          cliente: clienteSelecionado,
+          itens,
+          observacao,
+          semCadastro: clienteEhConsumidorFinal ? lerClienteSemCadastro(semCadastro) : null,
+          notaFiscal: controlaFiscal ? notaFiscal : null,
+          formaPagamento,
+          parcelasBoleto,
+          diasDasParcelas: diasValidos ? diasLinhas.map((d) => Number.parseInt(d, 10)) : null,
+          pronto: false,
+          rota: null,
+        }));
+        setSalvoAutomaticoAs(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      } catch (erro) {
+        // Sem espaco no aparelho: o salvar do rodape mostra o erro em portugues.
+        console.warn('Rascunho automatico nao gravado:', erro);
+      }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [tenantId, currentUser, itens, clienteSelecionado, observacao, semCadastro, clienteEhConsumidorFinal, controlaFiscal, notaFiscal, formaPagamento, parcelasBoleto, intervaloPrazo, diasLinhas, temPrazo, rascunhoAberto, idDoRascunho, criadoEmDoRascunho]);
+
   if (localId && !rascunhoAberto) {
     // Rascunho ja enviado (ou apagado) -- nao ha mais o que editar aqui.
     return <Navigate to="/vendedor/rascunhos" replace />;
@@ -195,26 +273,21 @@ const VendedorNovoPedido: React.FC = () => {
 
     const agora = new Date().toISOString();
     try {
-      salvarRascunho(tenantId, currentUser.uid, {
-        localId: rascunhoAberto?.localId || novoLocalId(),
-        tipo: 'pedido',
-        cliente: {
-          id: clienteSelecionado.id,
-          nome: clienteSelecionado.nome,
-          ...(clienteSelecionado.telefone ? { telefone: clienteSelecionado.telefone } : {}),
-        },
+      salvarRascunho(tenantId, currentUser.uid, montarRascunhoDoPedido({
+        localId: idDoRascunho,
+        criadoEm: criadoEmDoRascunho,
+        agora,
+        cliente: clienteSelecionado,
         itens,
-        ...(normalizarObservacaoPedido(observacao) ? { observacao: normalizarObservacaoPedido(observacao) } : {}),
-        ...(semCadastroParaGravar ? { clienteSemCadastro: semCadastroParaGravar } : {}),
-        ...(controlaFiscal && notaFiscal ? { notaFiscal } : {}),
-        ...(formaPagamento ? { formaPagamento } : {}),
-        ...(formaPagamento === 'Boleto' ? { parcelasBoleto } : {}),
-        ...(comDias ? { diasDasParcelas: diasLinhas.map((d) => Number.parseInt(d, 10)) } : {}),
-        criadoEm: rascunhoAberto?.criadoEm || agora,
-        atualizadoEm: agora,
-        ...camposDePronto(pronto, agora),
-        ...(pronto && rota ? { rota } : {}),
-      });
+        observacao,
+        semCadastro: semCadastroParaGravar,
+        notaFiscal: controlaFiscal ? notaFiscal : null,
+        formaPagamento,
+        parcelasBoleto,
+        diasDasParcelas: comDias ? diasLinhas.map((d) => Number.parseInt(d, 10)) : null,
+        pronto,
+        rota: pronto ? rota : null,
+      }));
       showSuccess(`${mensagemDeRascunhoSalvo(pronto, 'pedido')}${avisoDaRota ? ` ${avisoDaRota}` : ''}`);
       navigate('/vendedor/rascunhos', { replace: true });
     } catch (error) {
@@ -225,6 +298,11 @@ const VendedorNovoPedido: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: 'var(--bg-primary)' }}>
       <VendedorHeader titulo={localId ? 'Editar Rascunho' : 'Novo Pedido'} />
+      {salvoAutomaticoAs && (
+        <div role="status" style={{ padding: '6px 20px 0', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>
+          Guardado em Rascunhos às {salvoAutomaticoAs}: se sair, a venda continua lá.
+        </div>
+      )}
       {modalDeRota}
 
       <div style={{ padding: '16px 20px 0' }}>

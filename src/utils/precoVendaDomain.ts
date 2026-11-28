@@ -274,3 +274,22 @@ export const reprecificarItens = <T extends ItemReprecificavel>(
   });
   return { itens: novos, alterados, diferencaCentavos: diferenca };
 };
+
+/**
+ * "Valor atacado: R$ 9,50 a partir de 10 UN" (28/11/2026, pedido do dono: o app
+ * mostra pequeno em cada item o preco de atacado). Mais de uma faixa sai
+ * separada por " · ". Sem faixa = '' (nada aparece).
+ */
+export const textoDoValorAtacado = (
+  faixas: readonly FaixaDeAtacadoDoItem[] | undefined,
+  sigla: string,
+  formatarMoeda: (valor: number) => string,
+): string => {
+  if (!Array.isArray(faixas) || faixas.length === 0) return '';
+  const qtd = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+  const unidade = String(sigla || '').trim();
+  return `Valor atacado: ${[...faixas]
+    .sort((a, b) => a.aPartirDe - b.aPartirDe)
+    .map((f) => `${formatarMoeda(f.preco)} a partir de ${qtd(f.aPartirDe)}${unidade ? ` ${unidade}` : ''}`)
+    .join(' · ')}`;
+};

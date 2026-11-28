@@ -278,3 +278,13 @@ body.light-theme .vendedor-app {
 }
 .app-nav__item[aria-current='page'] { color: var(--app-icone-cor); font-weight: 700; }
 .app-nav__item[aria-current='page'] .app-nav__pilula { background: var(--app-icone-fundo); }
+
+/* Valor atacado (28/11/2026): pequeno, embaixo do nome do produto e do item do pedido. */
+.app-valor-atacado {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0e7490;
+}
+body:not(.light-theme) .app-valor-atacado { color: #67e8f9; }

@@ -151,6 +151,8 @@ export const enviarRascunhos = async (
     for (const rascunho of pendentes) {
       const descricao = `${rotuloTipoRascunho(rascunho)} — ${rascunho.cliente.nome}`;
       try {
+        // Rascunho automatico sem cliente (28/11/2026): fica no aparelho ate' escolherem o cliente.
+        if (!rascunho.cliente.id) throw new Error('Escolha o cliente: abra o rascunho, selecione o cliente e envie de novo.');
         const mensagem = await enviarUm(ctx, rascunho);
         // So' agora, com a base confirmando, o rascunho sai do aparelho.
         removerRascunho(ctx.tenantId, ctx.usuarioId, rascunho.localId);

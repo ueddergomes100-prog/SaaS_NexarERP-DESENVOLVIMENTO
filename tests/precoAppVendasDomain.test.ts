@@ -173,3 +173,12 @@ test('app em tubo (21/11/2026): preco do tubo sem promocao carregada; com tabela
   assert.equal(precificarNoApp({ precos: comTabela, produto, quantidade: 1, naVenda: [], consomeQuota: true, unidade: tubo }).preco, 27);
   assert.deepEqual(unidadeRecebida, { fatorConversao: 6, precoProprio: 27, precoAVistaProprio: 0 });
 });
+test('valor atacado no app (28/11/2026): texto pequeno com as faixas, da menor quantidade para a maior', async () => {
+  const { textoDoValorAtacado } = await import('../src/utils/precoVendaDomain');
+  const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  assert.equal(textoDoValorAtacado([], 'UN', moeda), '');
+  assert.equal(textoDoValorAtacado(undefined, 'UN', moeda), '');
+  const texto = textoDoValorAtacado([{ aPartirDe: 50, ate: null, preco: 8.9 }, { aPartirDe: 10, ate: 49, preco: 9.5 }], 'UN', moeda);
+  assert.match(texto, /^Valor atacado: R\$\s9,50 a partir de 10 UN · R\$\s8,90 a partir de 50 UN$/);
+  assert.match(textoDoValorAtacado([{ aPartirDe: 2.5, ate: null, preco: 30 }], '', moeda), /a partir de 2,5$/);
+});

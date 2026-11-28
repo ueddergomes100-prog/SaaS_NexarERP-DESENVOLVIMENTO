@@ -8,6 +8,7 @@ import { podeVenderSemEstoque } from '../../utils/estoqueReservaDomain';
 import { showError, showWarning } from '../../utils/alerts';
 import type { ItemVendaExterna } from '../../services/vendedorExternoVendaService';
 import { lerPrecoDigitado, precificarNoApp, precoDaTabelaDoItem, promocaoParaMostrar, trocarPrecoDoItem, type PrecosDoApp } from '../../utils/precoAppVendasDomain';
+import { faixasDeAtacadoDoProduto, textoDoValorAtacado } from '../../utils/precoVendaDomain';
 import { bonificarItem, cobrarItem, ehBonificado, resumoDaBonificacao } from '../../utils/bonificacaoDomain';
 import { camposDeUnidadeDoItem, findOpcaoUnidadeVenda, mostraSeletorDeUnidade, opcaoNaUnidadeDoEstoque, opcoesDeUnidadeDaTela, toBaseQuantity } from '../../utils/embalagemDomain';
 
@@ -302,6 +303,11 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
 
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <ProdutoOpcaoBusca produto={produto} termo={produtoBusca} />
+                    {/* Valor atacado (28/11/2026): a partir da quantidade da faixa o pedido ja' entra nesse preco. */}
+                    {mostrarValores && (() => {
+                      const texto = textoDoValorAtacado(faixasDeAtacadoDoProduto(produto), String(produto.unidadeMedidaSigla || ''), formatarMoeda);
+                      return texto ? <span className="app-valor-atacado">{texto}</span> : null;
+                    })()}
                     {mostrarValores && (() => {
                       const promo = promocaoParaMostrar(precos, produto);
                       return promo ? (
@@ -447,6 +453,11 @@ const VendedorItemPicker: React.FC<Props> = ({ produtos, itens, onItensChange, p
                 {mostrarValores && !ehBonificado(item) && item.origemPreco === 'atacado' && item.tabelaPreco && (
                   <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#10b981', marginTop: '2px' }}>
                     atacado · de <s>{formatarMoeda(item.tabelaPreco.venda)}</s>
+                  </div>
+                )}
+                {mostrarValores && !ehBonificado(item) && item.origemPreco !== 'atacado' && item.tabelaPreco?.atacado && (
+                  <div className="app-valor-atacado">
+                    {textoDoValorAtacado(item.tabelaPreco.atacado, String(item.unidadeMedidaSigla || ''), formatarMoeda)}
                   </div>
                 )}
                 {mostrarValores && !ehBonificado(item) && item.origemPreco === 'manual' && (

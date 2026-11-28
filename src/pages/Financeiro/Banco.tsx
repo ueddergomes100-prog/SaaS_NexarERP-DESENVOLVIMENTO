@@ -22,6 +22,8 @@ import BotaoOlhoValores from '../../components/common/BotaoOlhoValores';
 import { useValoresOcultos } from '../../hooks/useValoresOcultos';
 import './Financeiro.css';
 import './BancoPorBanco.css';
+import { CaixaDeSelecao } from '../../components/finance/BaixaEmLote';
+import '../../components/finance/BaixaEmLote.css';
 import { useLinhasEmBlocos } from '../../hooks/useLinhasEmBlocos';
 import MostrarMaisLinhas from '../../components/common/MostrarMaisLinhas';
 import {
@@ -115,6 +117,9 @@ const Banco: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [diasFiltro, setDiasFiltro] = useState<number>(30);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // Conciliar varios de uma vez (28/11/2026, pedido do dono): cartoes marcados e a soma deles.
+  const [marcados, setMarcados] = useState<Set<string>>(() => new Set());
+  const [conciliandoLote, setConciliandoLote] = useState(false);
   // Relatorio (19/10/2026): extrato do periodo + cartao a conciliar, como a tela mostra.
   const [previewAberto, setPreviewAberto] = useState(false);
   const { currentUser, tenantId } = useAuth();
@@ -188,6 +193,78 @@ const Banco: React.FC = () => {
       showError('Erro', error instanceof Error ? error.message : 'Não foi possível confirmar o recebimento.');
     } finally {
       setProcessingId(null);
+    }
+  };
+
+  /**
+   * Conciliar os cartoes marcados (28/11/2026): a mesma confirmacao de um por
+   * um, pelo servidor, cartao a cartao. Quem nao tem banco definido pergunta
+   * o banco uma vez so' para todos eles. Um que falhe nao para os outros.
+   */
+  const confirmarMarcados = async () => {
+    if (!tenantId || !currentUser || conciliandoLote || cartoesMarcados.length === 0) return;
+    const lista = [...cartoesMarcados];
+    let bancoDosSemBanco: { id: string; nome: string } | null = null;
+    if (lista.some((t) => !t.bancoId)) {
+      if (bancosAtivos.length === 0) {
+        showError('Nenhum banco cadastrado', 'Cadastre um banco em Cadastros > Bancos antes de conciliar.');
+        return;
+      }
+      const escolha = await NexusSwal.fire({
+        title: 'Em qual banco caiu?',
+        text: `${lista.filter((t) => !t.bancoId).length} dos cartões marcados não têm banco de destino (venda antiga). Escolha onde o valor caiu:`,
+        input: 'select',
+        inputOptions: Object.fromEntries(bancosAtivos.map((b) => [b.id, escaparHtml(b.nome)])),
+        inputPlaceholder: 'Selecione o banco',
+        showCancelButton: true,
+        confirmButtonText: 'Continuar',
+        cancelButtonText: 'Cancelar',
+        inputValidator: (value) => (value ? undefined : 'Selecione um banco.'),
+      });
+      if (!escolha.isConfirmed) return;
+      const banco = bancosAtivos.find((b) => b.id === escolha.value);
+      if (!banco) return;
+      bancoDosSemBanco = { id: banco.id, nome: banco.nome };
+    }
+    // Total por banco, para a pessoa conferir com o extrato antes de confirmar.
+    const porBanco = new Map<string, number>();
+    lista.forEach((t) => {
+      const nome = t.bancoId ? (t.bancoNome || 'Banco') : (bancoDosSemBanco?.nome || 'Banco');
+      porBanco.set(nome, (porBanco.get(nome) || 0) + Math.round(transactionNetAmount(t) * 100));
+    });
+    const linhas = [...porBanco.entries()].map(([nome, c]) => `<li><strong>${escaparHtml(nome)}</strong>: ${escaparHtml(moeda(c / 100))}</li>`).join('');
+    const confirmacao = await NexusSwal.fire({
+      title: `Confirmar ${lista.length} ${lista.length === 1 ? 'cartão' : 'cartões'} no banco?`,
+      html: `<p style="margin:0 0 8px">Líquido total de <strong>${escaparHtml(moeda(somaMarcados.liquidoCentavos / 100))}</strong>, que caiu em:</p><ul style="text-align:left;margin:0;padding-left:20px">${linhas}</ul>`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, confirmar',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!confirmacao.isConfirmed) return;
+
+    setConciliandoLote(true);
+    const falhas: string[] = [];
+    let feitos = 0;
+    for (const t of lista) {
+      const bancoId = t.bancoId || bancoDosSemBanco?.id;
+      if (!bancoId) continue;
+      try {
+        await conciliarCartaoNoBanco({ transacaoId: t.id, bancoId, tenantId });
+        feitos += 1;
+        marcar([t.id], false);
+      } catch (error) {
+        falhas.push(`${t.descricao}: ${error instanceof Error ? error.message : 'não foi possível confirmar.'}`);
+      }
+    }
+    setConciliandoLote(false);
+    if (falhas.length === 0) {
+      showSuccess(feitos === 1 ? 'Cartão conciliado com o banco!' : `${feitos} cartões conciliados com o banco!`);
+    } else {
+      showError(
+        feitos > 0 ? `${feitos} conciliado(s); ${falhas.length} não` : 'Nenhum cartão foi conciliado',
+        `${falhas.join(' · ')} Os que não foram continuam marcados: confira e tente de novo.`,
+      );
     }
   };
 
@@ -277,6 +354,21 @@ const Banco: React.FC = () => {
     .sort((a, b) => (a.dataPrevistaRecebimento || a.data || '').localeCompare(b.dataPrevistaRecebimento || b.data || ''));
 
   const totalPendenteCartao = pendentesCartao.reduce((acc, t) => acc + transactionNetAmount(t), 0);
+  // So' conta o que esta' marcado E ainda aparece na lista (conciliado ou filtrado sai da soma).
+  const cartoesMarcados = pendentesCartao.filter((t) => marcados.has(t.id));
+  const somaMarcados = cartoesMarcados.reduce((acc, t) => ({
+    brutoCentavos: acc.brutoCentavos + Math.round(Number(t.valor || 0) * 100),
+    taxaCentavos: acc.taxaCentavos + Math.round(Number(t.cartao?.valorTaxaCentavos || 0)),
+    liquidoCentavos: acc.liquidoCentavos + Math.round(transactionNetAmount(t) * 100),
+  }), { brutoCentavos: 0, taxaCentavos: 0, liquidoCentavos: 0 });
+  const estadoDaLista: 'nenhum' | 'alguns' | 'todos' = cartoesMarcados.length === 0
+    ? 'nenhum'
+    : cartoesMarcados.length === pendentesCartao.length ? 'todos' : 'alguns';
+  const marcar = (ids: string[], marcar: boolean) => setMarcados((atual) => {
+    const novo = new Set(atual);
+    ids.forEach((id) => (marcar ? novo.add(id) : novo.delete(id)));
+    return novo;
+  });
 
   const extratoDoPeriodo = transacoes.filter((t) => (
     t.status === 'Paga' &&
@@ -475,10 +567,39 @@ const Banco: React.FC = () => {
           />
         </div>
 
+        {cartoesMarcados.length > 0 && (
+          <div className="lote-barra lote-tom-entrada" role="region" aria-label="Cartões marcados para conciliar" style={{ marginBottom: '12px' }}>
+            <div className="lote-barra-resumo" aria-live="polite">
+              <strong>{cartoesMarcados.length === 1 ? '1 cartão marcado' : `${cartoesMarcados.length} cartões marcados`}</strong>
+              <span className="lote-barra-total lote-numero">{mostrarValor(moeda(somaMarcados.liquidoCentavos / 100))}</span>
+              <span style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>
+                bruto {mostrarValor(moeda(somaMarcados.brutoCentavos / 100))} · taxa {mostrarValor(moeda(somaMarcados.taxaCentavos / 100))}
+              </span>
+            </div>
+            <div className="lote-barra-acoes">
+              <button type="button" className="lote-botao lote-botao-discreto" onClick={() => setMarcados(new Set())} disabled={conciliandoLote}>Limpar seleção</button>
+              <button type="button" className="lote-botao lote-botao-principal" onClick={() => void confirmarMarcados()} disabled={conciliandoLote}>
+                <CheckCircle size={18} aria-hidden="true" />
+                {conciliandoLote ? 'Confirmando...' : `Confirmar ${cartoesMarcados.length} no banco`}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="table-wrapper">
           <table className="data-table financeiro-table bpb-tabela" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                <th style={{ padding: '12px 4px 12px 10px', width: '36px' }}>
+                  {pendentesCartao.length > 0 && (
+                    <CaixaDeSelecao
+                      estado={estadoDaLista}
+                      rotulo={estadoDaLista === 'todos' ? 'Desmarcar todos os cartões' : 'Marcar todos os cartões da lista'}
+                      onAlternar={(marcarTodos) => marcar(pendentesCartao.map((t) => t.id), marcarTodos)}
+                      desabilitada={conciliandoLote}
+                    />
+                  )}
+                </th>
                 <th style={{ padding: '12px 8px' }}>Vencimento previsto</th>
                 <th style={{ padding: '12px 8px' }}>Descrição</th>
                 <th style={{ padding: '12px 8px' }}>Cliente</th>
@@ -492,10 +613,10 @@ const Banco: React.FC = () => {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={separarPorBanco ? 9 : 8} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
+                <tr><td colSpan={separarPorBanco ? 10 : 9} style={{ textAlign: 'center', padding: '20px' }}>Carregando...</td></tr>
               ) : pendentesCartao.length === 0 ? (
                 <tr>
-                  <td colSpan={separarPorBanco ? 9 : 8} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                  <td colSpan={separarPorBanco ? 10 : 9} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
                     <CheckCircle size={36} color="var(--status-green)" style={{ margin: '0 auto 10px', opacity: 0.6, display: 'block' }} />
                     {nomeDoFiltro ? `Nenhum cartão a conciliar em ${nomeDoFiltro}.` : 'Nenhum cartão pendente de conciliação no momento.'}
                   </td>
@@ -510,9 +631,18 @@ const Banco: React.FC = () => {
                       key={t.id}
                       onClick={podeAlterarTaxa ? () => { void corrigirTaxa(t); } : undefined}
                       title={podeAlterarTaxa ? 'Clique para corrigir a taxa desta parcela' : undefined}
+                      className={marcados.has(t.id) ? 'lote-linha-marcada' : undefined}
                       style={{ borderBottom: '1px solid var(--border-color)', cursor: podeAlterarTaxa ? 'pointer' : undefined, ['--cor-banco' as string]: cor } as React.CSSProperties}
                     >
-                      <td style={{ padding: '10px 8px 10px 14px', color: 'var(--text-muted)' }}>{vencimento ? vencimento.split('-').reverse().join('/') : '-'}</td>
+                      <td style={{ padding: '10px 4px 10px 10px' }}>
+                        <CaixaDeSelecao
+                          estado={marcados.has(t.id) ? 'todos' : 'nenhum'}
+                          rotulo={`Marcar ${t.descricao}`}
+                          onAlternar={(marcarEste) => marcar([t.id], marcarEste)}
+                          desabilitada={conciliandoLote}
+                        />
+                      </td>
+                      <td style={{ padding: '10px 8px', color: 'var(--text-muted)' }}>{vencimento ? vencimento.split('-').reverse().join('/') : '-'}</td>
                       <td style={{ padding: '10px 8px', fontWeight: 500 }}>{t.descricao}{parcelaLabel}</td>
                       <td style={{ padding: '10px 8px' }}>{t.clienteNome || '-'}</td>
                       <td style={{ padding: '10px 8px' }}>{t.cartao?.bandeira || '-'}</td>

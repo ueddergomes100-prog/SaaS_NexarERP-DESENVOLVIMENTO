@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ConferenciaRetornoModal from '../../components/finance/ConferenciaRetornoModal';
+import { montarConferenciaDoRetorno, type ConferenciaDoRetorno } from '../../utils/conferenciaRetornoDomain';
 import { collection, deleteField, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { assinarComReserva } from '../../services/consultaComReserva';
 import { Barcode, Download, FileUp, FolderOpen, Link2, Loader2, Printer, Receipt, Search, Undo2 } from 'lucide-react';
@@ -782,6 +784,16 @@ const Boletos: React.FC = () => {
 
   // --- Arquivo de retorno -------------------------------------------------
 
+  // Janela de conferencia do retorno (28/11/2026): espera a pessoa confirmar ou cancelar.
+  const [conferenciaAberta, setConferenciaAberta] = useState<{
+    dados: ConferenciaDoRetorno; arquivo: string; outras: number; informativos: number; responder: (ok: boolean) => void;
+  } | null>(null);
+  const pedirConferencia = (args: { dados: ConferenciaDoRetorno; arquivo: string; outras: number; informativos: number }) => (
+    new Promise<boolean>((resolve) => {
+      setConferenciaAberta({ ...args, responder: (ok) => { setConferenciaAberta(null); resolve(ok); } });
+    })
+  );
+
   const importarRetorno = (arquivo: File) => {
     const leitor = new FileReader();
     leitor.onload = async (evento) => {
@@ -808,25 +820,13 @@ const Boletos: React.FC = () => {
         return;
       }
 
-      const confirmacao = await NexusSwal.fire({
-        title: 'Conferir antes de dar baixa',
-        html,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Dar baixa nos pagos',
-        cancelButtonText: 'Cancelar',
-      });
-      if (!confirmacao.isConfirmed) return;
-
+      // A tela carrega os em aberto e os pagos do mes: boleto pago ha' mais
+      // tempo (ou fora da lista por qualquer motivo) e' procurado no banco
+      // pelo nosso numero, para nao virar "nao encontrado" sem ser.
+      // Feito ANTES da conferencia (28/11/2026): a janela ja' mostra cada documento.
+      let candidatos: TituloBoleto[];
       setProcessando(true);
-      // Resumo do fim (25/11/2026): o que entrou e o que ficou de fora, por nome.
-      const baixadosLista: BaixaDoRetorno[] = [];
-      const naoEncontradosLista: string[] = [];
-      let jaPagos = 0;
       try {
-        // A tela carrega os em aberto e os pagos do mes: boleto pago ha' mais
-        // tempo (ou fora da lista por qualquer motivo) e' procurado no banco
-        // pelo nosso numero, para nao virar "nao encontrado" sem ser.
         const naTela = new Set(titulos.map((t) => t.boleto?.nossoNumero).filter(Boolean));
         const faltando = [...new Set(resumo.liquidados.map((l) => l.nossoNumero).filter((n) => n && !naTela.has(n)))];
         const achados: TituloBoleto[] = [];
@@ -838,7 +838,44 @@ const Boletos: React.FC = () => {
           ));
           snap.docs.forEach((d) => achados.push(paraTituloBoleto(d.id, d.data())));
         }
-        const candidatos = [...titulos, ...achados];
+        candidatos = [...titulos, ...achados];
+      } catch (erro) {
+        console.error('Retorno: não foi possível procurar os boletos do arquivo.', erro);
+        showError('Não foi possível conferir o retorno', 'A busca dos boletos do arquivo falhou. Confira a internet e importe o arquivo de novo; nada foi baixado.');
+        setProcessando(false);
+        return;
+      }
+      setProcessando(false);
+
+      // Conferir antes de dar baixa (28/11/2026, pedido do dono): documento por
+      // documento, com vencimento, dia do pagamento, juros e multa e os totais.
+      const conferencia = montarConferenciaDoRetorno(resumo.liquidados, candidatos);
+      if (conferencia.aBaixar.length === 0) {
+        await NexusSwal.fire({
+          title: 'Nada novo para baixar',
+          html: `<div style="text-align:left;font-size:14px">`
+            + (conferencia.jaPagos.length ? `<b>${conferencia.jaPagos.length}</b> boleto(s) deste arquivo já estavam pagos.<br/>` : '')
+            + (conferencia.naoEncontrados.length ? `<b>${conferencia.naoEncontrados.length}</b> não encontrado(s) no sistema: ${escaparHtml(conferencia.naoEncontrados.slice(0, 8).join(', '))}.<br/>` : '')
+            + html.replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '')
+            + `</div>`,
+          icon: 'info',
+        });
+        return;
+      }
+      const confirmou = await pedirConferencia({
+        dados: conferencia,
+        arquivo: arquivo.name,
+        outras: resumo.paraConferir.length,
+        informativos: resumo.informativos.length,
+      });
+      if (!confirmou) return;
+
+      setProcessando(true);
+      // Resumo do fim (25/11/2026): o que entrou e o que ficou de fora, por nome.
+      const baixadosLista: BaixaDoRetorno[] = [];
+      const naoEncontradosLista: string[] = [];
+      let jaPagos = 0;
+      try {
         // Um titulo que o servidor recusa (cancelado aqui, renegociado...) NAO
         // derruba o lote: os outros pagos seguem baixando e o recusado vai para
         // a lista do fim (03/11/2026 -- 1 boleto cancelado travava 46 pagos).
@@ -1595,6 +1632,16 @@ const Boletos: React.FC = () => {
         <PastasDosBoletosModal tenantId={tenantId} onFechar={() => setPastasAbertas(false)} onMudou={() => setVersaoDasPastas((v) => v + 1)} />
       )}
       {pdfBoleto && <PdfVisualizador titulo="Boleto" nomeArquivo={pdfBoleto.nome} pdf={pdfBoleto.blob} onFechar={() => setPdfBoleto(null)} />}
+      {conferenciaAberta && (
+        <ConferenciaRetornoModal
+          conferencia={conferenciaAberta.dados}
+          nomeDoArquivo={conferenciaAberta.arquivo}
+          outrasOcorrencias={conferenciaAberta.outras}
+          informativos={conferenciaAberta.informativos}
+          onConfirmar={() => conferenciaAberta.responder(true)}
+          onCancelar={() => conferenciaAberta.responder(false)}
+        />
+      )}
     </div>
   );
 };

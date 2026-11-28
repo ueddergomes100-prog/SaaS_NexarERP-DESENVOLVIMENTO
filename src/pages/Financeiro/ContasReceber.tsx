@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection, query, where, doc, getDoc, getDocs, documentId } from 'firebase/firestore';
 import { LOTE_IN_POR_ID } from '../../utils/firestoreLimites';
+import { bomParaDoCheque, chequeACompensar } from '../../utils/contasDinheiroDomain';
 import { planoEfetivo } from '../../utils/vinculosPlanoContasDomain';
 import { db } from '../../services/firebase';
 import { gerarCashbackSemFalhar } from '../../services/cashbackService';
@@ -1056,10 +1057,12 @@ const ContasReceber: React.FC = () => {
   };
 
   const hojeStr = getDateInputInTimeZone();
+  // Cheque a compensar (28/11/2026): ja' foi recebido em cheque -- fica em Financeiro > Cheques, fora do em aberto.
   const contasPendentes = transacoes.filter(t => (
     t.status === 'Pendente' &&
     t.formaPagamento !== 'Cartão de Crédito' &&
-    t.formaPagamento !== 'Cartão de Débito'
+    t.formaPagamento !== 'Cartão de Débito' &&
+    !chequeACompensar(t)
   ));
   // Atrasados ja' com juros e multa (24/11/2026): mesma conta da janela de baixa, com as % que valem na tela.
   const acrescimoDaLista = (t: TransacaoData): AcrescimoPorAtraso | null => acrescimoDoTitulo(
@@ -1110,6 +1113,8 @@ const ContasReceber: React.FC = () => {
   // total geral -- nao mudam com o filtro.
   const titulosFiltrados = transacoes.filter((t) => {
     if (t.formaPagamento === 'Cartão de Crédito' || t.formaPagamento === 'Cartão de Débito') return false;
+    // Cheque a compensar (28/11/2026): nao e' divida em aberto; aparece so' na aba Geral, com o selo.
+    if (chequeACompensar(t)) return situacaoTitulo === 'todas';
     const titulo = { status: t.status, data: dataReferenciaTransacao(t) || t.data, dataPagamento: t.dataPagamento };
     // Aba Geral (28/11/2026): todo em aberto + o recebido no periodo, pela data do recebimento.
     if (situacaoTitulo === 'todas') return passaNaAbaGeral(titulo, periodoDe, periodoAte);
@@ -1118,7 +1123,7 @@ const ContasReceber: React.FC = () => {
   });
   const abaAtiva = abaDaSituacao(situacaoTitulo);
   const totaisDaLista = totaisDoCliente(titulosFiltrados.map((t) => ({
-    status: t.status,
+    status: chequeACompensar(t) ? 'Cheque a compensar' : t.status,
     liquidoCentavos: transactionNetCents(t),
     descontoCentavos: Number(t.baixaManual?.descontoCentavos) || 0,
   })));
@@ -1175,7 +1180,7 @@ const ContasReceber: React.FC = () => {
       }
       grupo.transacoes.push(t);
       if (t.status === 'Paga') grupo.totalRecebido += Math.max(0, transactionNetAmount(t) - (Number(t.baixaManual?.descontoCentavos) || 0) / 100);
-      else grupo.totalPendente += transactionNetAmount(t);
+      else if (!chequeACompensar(t)) grupo.totalPendente += transactionNetAmount(t);
       if (dataRef && (!grupo.vencimentoMaisAntigo || dataRef < grupo.vencimentoMaisAntigo)) {
         grupo.vencimentoMaisAntigo = dataRef;
       }
@@ -1361,7 +1366,7 @@ const ContasReceber: React.FC = () => {
   const handleCobrarClienteWhatsApp = (grupo: GrupoCliente) => {
     // Cobra so' o que ainda esta em aberto -- com o filtro em "Todas" o grupo
     // tambem traz titulo ja recebido, que nao entra na cobranca.
-    const emAberto = grupo.transacoes.filter((t) => t.status === 'Pendente');
+    const emAberto = grupo.transacoes.filter((t) => t.status === 'Pendente' && !chequeACompensar(t));
     const valorMsg = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
       emAberto.reduce((soma, t) => soma + transactionNetAmount(t), 0),
     );
@@ -1390,7 +1395,7 @@ const ContasReceber: React.FC = () => {
       {acertoAberto && tenantId && (
         <AcertoFornecedorModal
           tenantId={tenantId}
-          titulosAReceber={transacoes.filter((t) => t.status === 'Pendente')}
+          titulosAReceber={transacoes.filter((t) => t.status === 'Pendente' && !chequeACompensar(t))}
           podeDesfazer={podeEstornar}
           onFechar={() => setAcertoAberto(false)}
           onComprovante={(acerto) => { setAcertoAberto(false); setComprovanteDoAcerto(acerto); }}
@@ -1701,7 +1706,7 @@ const ContasReceber: React.FC = () => {
                         </td>
                         )}
                         <td style={{ padding: '16px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-{podeCobrarWhatsapp && grupo.transacoes.some((t) => t.status === 'Pendente') && (
+{podeCobrarWhatsapp && grupo.transacoes.some((t) => t.status === 'Pendente' && !chequeACompensar(t)) && (
                           /* So' o icone, igual ao da parcela (pedido do dono, 15/10/2026). */
                           <button
                             onClick={() => handleCobrarClienteWhatsApp(grupo)}
@@ -1837,6 +1842,14 @@ const ContasReceber: React.FC = () => {
                                             </button>
                                           )}
                                         </div>
+                                      ) : chequeACompensar(t) ? (
+                                        // Ja' recebida em cheque (28/11/2026): sem Dar Baixa; compensa em Financeiro > Cheques.
+                                        <span
+                                          title="Recebida em cheque. Compense (ou devolva) em Financeiro › Cheques; devolvido, a conta volta para em aberto."
+                                          style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, color: '#6d28d9', background: 'rgba(124, 58, 237, 0.12)', borderRadius: '999px', padding: '4px 10px' }}
+                                        >
+                                          Cheque a compensar{bomParaDoCheque(t) ? ` · bom para ${bomParaDoCheque(t)}` : ''}
+                                        </span>
                                       ) : (
                                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
                                         {/* Cobrar pelo WhatsApp: so' o icone (pedido do dono, 15/10/2026 -- linha menos poluida). */}

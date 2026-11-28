@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  bomParaDoCheque,
+  chequeACompensar,
+  mensagemChequeACompensar,
   CAIXAS_PADRAO,
   descricoesDaTransferencia,
   erroDeSaldoDoCaixa,
@@ -68,4 +71,18 @@ test('cheque recebido: em carteira -> depositado -> compensado; devolvido; volta
   assert.match(erroParaDepositarCheque({ tipo: 'entrada', status: 'Paga' })!, /já foi compensado/);
   assert.match(erroParaDepositarCheque({ tipo: 'saida', status: 'Pendente' })!, /emitido/);
   assert.match(erroParaDevolverCheque({ tipo: 'entrada', status: 'Pendente', cheque: { situacao: 'devolvido' } })!, /já está marcado/);
+});
+
+test('cheque a compensar: recebida em cheque sai do em aberto e nao aceita outra baixa; devolvido volta a ser divida', () => {
+  const base = { tipo: 'entrada', status: 'Pendente', formaPagamento: 'Cheque', descricao: 'Venda #10', dataPrevistaRecebimento: '2026-12-05' };
+  assert.equal(chequeACompensar(base), true);
+  assert.equal(chequeACompensar({ ...base, cheque: { situacao: 'depositado' } }), true);
+  assert.equal(chequeACompensar({ ...base, cheque: { situacao: 'devolvido' } }), false);
+  assert.equal(chequeACompensar({ ...base, status: 'Paga' }), false);
+  assert.equal(chequeACompensar({ ...base, formaPagamento: 'Boleto' }), false);
+  assert.equal(chequeACompensar({ ...base, tipo: 'saida' }), false, 'cheque emitido e outra historia');
+  assert.equal(bomParaDoCheque(base), '05/12/2026');
+  assert.equal(bomParaDoCheque({ cheque: { dataCompensacao: '2026-12-10' } }), '10/12/2026');
+  assert.match(mensagemChequeACompensar(base), /"Venda #10" já foi recebida em cheque \(bom para 05\/12\/2026\)/);
+  assert.match(mensagemChequeACompensar({}), /devolva o cheque/);
 });

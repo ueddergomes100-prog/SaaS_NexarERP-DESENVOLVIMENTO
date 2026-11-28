@@ -33,6 +33,7 @@ const { creditoEhDoCliente, juntarCreditosSemRepetir } = require('../domain/cred
 const { STATUS_RENEGOCIADA, ehParcelaDeRenegociacao } = require('../domain/renegociacaoDomain');
 const { buildDocumentMetadata, buildDocumentUpdateMetadata } = require('../domain/documentMetadata');
 const { ErroBaixa } = require('./baixaFinanceira');
+const { chequeACompensar, mensagemChequeACompensar } = require('../domain/contasDinheiroDomain');
 
 const agora = () => admin.firestore.FieldValue.serverTimestamp();
 const ID_VALIDO = /^[A-Za-z0-9_-]{1,128}$/;
@@ -134,6 +135,8 @@ const registrarChequeNaBaixa = async ({ user, tenantId, corpo }) => {
     conferirTituloAReceber(dados, tenantId);
     // Ja' recebida (outra pessoa deu baixa no meio tempo): nada a fazer, como antes.
     if (dados.status === 'Paga') return { jaPaga: true };
+    // Ja' recebida em cheque (28/11/2026): um segundo cheque por cima da mesma conta, nao.
+    if (chequeACompensar(dados)) throw new ErroBaixa(409, mensagemChequeACompensar(dados));
 
     const origem = origemDoTitulo(dados);
     const origemSnap = origem ? await tx.get(origem.ref) : null;
@@ -247,6 +250,7 @@ const abaterComCredito = async ({ user, tenantId, corpo, hoje }) => {
     const dados = snap.exists ? snap.data() : null;
     conferirTituloAReceber(dados, tenantId);
     if (dados.status !== 'Pendente') throw new ErroBaixa(409, 'Esta conta já foi processada ou cancelada. Atualize a tela.');
+    if (chequeACompensar(dados)) throw new ErroBaixa(409, mensagemChequeACompensar(dados));
     const centavosDoTitulo = Number(dados.valorCentavos ?? toCents(Number(dados.valor || 0)));
     if (pedido.valorEsperadoCentavos !== undefined && centavosDoTitulo !== pedido.valorEsperadoCentavos) {
       throw new ErroBaixa(409, 'O valor da conta foi alterado. Feche a janela e abra de novo.');

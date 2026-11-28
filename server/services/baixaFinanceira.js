@@ -34,6 +34,7 @@ const {
   transactionDueDateInput,
   transactionNetCents,
 } = require('../domain/financeDomain');
+const { chequeACompensar, mensagemChequeACompensar } = require('../domain/contasDinheiroDomain');
 const vpc = require('../domain/vinculosPlanoContasDomain');
 const { acrescimoPorAtraso, parseParametrosVenda } = require('../domain/parametrosVendaDomain');
 const {
@@ -172,6 +173,8 @@ const registrarBaixa = async ({ user, tenantId, pedido }) => {
         : 'Uma conta cancelada não pode ser recebida.');
     }
     recusarSeRenegociada(dados);
+    // Ja' recebida em cheque, aguardando compensar (28/11/2026): nao aceita outra baixa por cima.
+    if (tipo === 'entrada' && chequeACompensar(dados)) throw new ErroBaixa(409, mensagemChequeACompensar(dados));
 
     const origem = tipo === 'entrada' ? await lerOrigem(tx, tenantId, dados, 'recebido') : { ref: null, dados: null };
     // Configuracao da filial (lida uma vez, antes das escritas): juros padrao e plano de contas (28/11/2026).

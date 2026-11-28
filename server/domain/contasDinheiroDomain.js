@@ -20,7 +20,7 @@
  * Regra pura: sem tela, sem Firestore. Compilada para o servidor.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.erroParaVoltarChequeParaCarteira = exports.erroParaDevolverCheque = exports.erroParaDepositarCheque = exports.situacaoDoCheque = exports.ROTULO_SITUACAO_CHEQUE_RECEBIDO = exports.lerSangriaParaDeposito = exports.MOTIVO_SANGRIA_DEPOSITO = exports.descricoesDaTransferencia = exports.erroDeSaldoDoCaixa = exports.lerPedidoDeTransferencia = exports.lerLancamentoDeCaixa = exports.lerCadastroDeCaixa = exports.mesmaConta = exports.formatarReais = exports.normalizarNomeCaixa = exports.EXTRATO_LIMITE = exports.DESCRICAO_MAX = exports.NOME_CAIXA_MAX = exports.CAIXAS_PADRAO = exports.ROTULO_TIPO_CONTA = void 0;
+exports.erroParaVoltarChequeParaCarteira = exports.erroParaDevolverCheque = exports.erroParaDepositarCheque = exports.mensagemChequeACompensar = exports.bomParaDoCheque = exports.chequeACompensar = exports.situacaoDoCheque = exports.ROTULO_SITUACAO_CHEQUE_RECEBIDO = exports.lerSangriaParaDeposito = exports.MOTIVO_SANGRIA_DEPOSITO = exports.descricoesDaTransferencia = exports.erroDeSaldoDoCaixa = exports.lerPedidoDeTransferencia = exports.lerLancamentoDeCaixa = exports.lerCadastroDeCaixa = exports.mesmaConta = exports.formatarReais = exports.normalizarNomeCaixa = exports.EXTRATO_LIMITE = exports.DESCRICAO_MAX = exports.NOME_CAIXA_MAX = exports.CAIXAS_PADRAO = exports.ROTULO_TIPO_CONTA = void 0;
 exports.ROTULO_TIPO_CONTA = { caixa: 'Caixa', banco: 'Banco' };
 /** Criados na primeira vez que a empresa abre a tela (idempotente). */
 exports.CAIXAS_PADRAO = [
@@ -146,6 +146,33 @@ const situacaoDoCheque = (t) => {
     return s === 'depositado' || s === 'devolvido' ? s : 'em_carteira';
 };
 exports.situacaoDoCheque = situacaoDoCheque;
+/**
+ * CHEQUE A COMPENSAR (28/11/2026, Ivan da Embala: "fez uma baixa no cheque e
+ * nao saiu o documento do debito do cliente, e ainda continua podendo dar
+ * baixa de novo"). A baixa em cheque deixa a conta Pendente ate' compensar em
+ * Financeiro > Cheques -- mas ela ja' foi RECEBIDA em cheque: sai do "em
+ * aberto" do cliente e nao aceita outra baixa. Cheque devolvido volta a ser
+ * divida (pode receber de outro jeito).
+ */
+const chequeACompensar = (t) => (t.tipo !== 'saida'
+    && t.status === 'Pendente'
+    && t.formaPagamento === 'Cheque'
+    && (0, exports.situacaoDoCheque)({ status: t.status, tipo: t.tipo, cheque: t.cheque && typeof t.cheque === 'object' ? t.cheque : null }) !== 'devolvido');
+exports.chequeACompensar = chequeACompensar;
+/** "bom para 05/12/2026" do cheque a compensar ('' sem data). */
+const bomParaDoCheque = (t) => {
+    const doCheque = t.cheque && typeof t.cheque === 'object' ? t.cheque.dataCompensacao : '';
+    const data = String(t.dataPrevistaRecebimento || doCheque || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(data) ? data.split('-').reverse().join('/') : '';
+};
+exports.bomParaDoCheque = bomParaDoCheque;
+/** Mensagem de quem tenta dar baixa de novo numa conta ja' recebida em cheque. */
+const mensagemChequeACompensar = (t) => {
+    const bomPara = (0, exports.bomParaDoCheque)(t);
+    const nome = String(t.descricao || '').trim();
+    return `${nome ? `"${nome}" ` : 'Esta conta '}já foi recebida em cheque${bomPara ? ` (bom para ${bomPara})` : ''} e espera a compensação em Financeiro › Cheques. Para receber de outro jeito, devolva o cheque lá e depois dê a baixa aqui.`;
+};
+exports.mensagemChequeACompensar = mensagemChequeACompensar;
 const erroBasico = (t) => {
     if (t.tipo === 'saida')
         return 'Este é um cheque emitido pela empresa; depositar e devolver valem só para cheque recebido.';

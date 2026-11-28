@@ -207,6 +207,35 @@ export const situacaoDoCheque = (t: ChequeLido): SituacaoChequeRecebido => {
   return s === 'depositado' || s === 'devolvido' ? s : 'em_carteira';
 };
 
+/**
+ * CHEQUE A COMPENSAR (28/11/2026, Ivan da Embala: "fez uma baixa no cheque e
+ * nao saiu o documento do debito do cliente, e ainda continua podendo dar
+ * baixa de novo"). A baixa em cheque deixa a conta Pendente ate' compensar em
+ * Financeiro > Cheques -- mas ela ja' foi RECEBIDA em cheque: sai do "em
+ * aberto" do cliente e nao aceita outra baixa. Cheque devolvido volta a ser
+ * divida (pode receber de outro jeito).
+ */
+export const chequeACompensar = (t: { tipo?: unknown; status?: unknown; formaPagamento?: unknown; cheque?: unknown }): boolean => (
+  t.tipo !== 'saida'
+  && t.status === 'Pendente'
+  && t.formaPagamento === 'Cheque'
+  && situacaoDoCheque({ status: t.status, tipo: t.tipo, cheque: t.cheque && typeof t.cheque === 'object' ? t.cheque : null }) !== 'devolvido'
+);
+
+/** "bom para 05/12/2026" do cheque a compensar ('' sem data). */
+export const bomParaDoCheque = (t: { dataPrevistaRecebimento?: unknown; cheque?: unknown }): string => {
+  const doCheque = t.cheque && typeof t.cheque === 'object' ? (t.cheque as { dataCompensacao?: unknown }).dataCompensacao : '';
+  const data = String(t.dataPrevistaRecebimento || doCheque || '');
+  return /^\d{4}-\d{2}-\d{2}$/.test(data) ? data.split('-').reverse().join('/') : '';
+};
+
+/** Mensagem de quem tenta dar baixa de novo numa conta ja' recebida em cheque. */
+export const mensagemChequeACompensar = (t: { dataPrevistaRecebimento?: unknown; cheque?: unknown; descricao?: unknown }): string => {
+  const bomPara = bomParaDoCheque(t);
+  const nome = String(t.descricao || '').trim();
+  return `${nome ? `"${nome}" ` : 'Esta conta '}já foi recebida em cheque${bomPara ? ` (bom para ${bomPara})` : ''} e espera a compensação em Financeiro › Cheques. Para receber de outro jeito, devolva o cheque lá e depois dê a baixa aqui.`;
+};
+
 const erroBasico = (t: ChequeLido): string | null => {
   if (t.tipo === 'saida') return 'Este é um cheque emitido pela empresa; depositar e devolver valem só para cheque recebido.';
   if (t.status === 'Cancelada') return 'Este cheque está cancelado.';

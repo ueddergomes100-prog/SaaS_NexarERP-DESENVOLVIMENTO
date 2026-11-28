@@ -104,7 +104,7 @@ const ProdutoOpcaoBusca: React.FC<Props> = ({ produto, termo }) => {
         {formatarPreco(produto.precoVenda)}
         {atacado && (
           <span className="produto-opcao__atacado" title={`Preço de atacado: ${formatarPreco(atacado.preco)} ${atacado.quantidade}`}>
-            <span>Atacado {formatarPreco(atacado.preco)}</span>
+            <span>Valor atacado: {formatarPreco(atacado.preco)}</span>
             <span>{atacado.quantidade}</span>
           </span>
         )}

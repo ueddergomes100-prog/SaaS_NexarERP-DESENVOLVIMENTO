@@ -89,6 +89,8 @@
 }
 
 .tiv-sub-promo { color: #10b981; font-weight: 600; }
+.tiv-sub-atacado { color: #0e7490; font-weight: 600; white-space: normal; }
+body:not(.light-theme) .tiv-sub-atacado { color: #67e8f9; }
 
 .tiv-vazio {
   padding: 28px 10px;

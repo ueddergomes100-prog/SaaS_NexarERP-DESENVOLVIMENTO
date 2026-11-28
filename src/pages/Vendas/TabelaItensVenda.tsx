@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { textoDoValorAtacado, type FaixaDeAtacadoDoItem } from '../../utils/precoVendaDomain';
 import { Gift, Search, Trash2 } from 'lucide-react';
 import ProductAutocomplete from '../../components/common/ProductAutocomplete';
 import ProductSearchModal from '../../components/common/ProductSearchModal';
@@ -52,7 +53,7 @@ export interface ItemDaTabela {
   unidadeMedidaCasasDecimais?: number;
   origemPreco?: string;
   promocaoNome?: string;
-  tabelaPreco?: { venda: number } | null;
+  tabelaPreco?: { venda: number; atacado?: FaixaDeAtacadoDoItem[] } | null;
   /** Bonificacao (30/10/2026): item de brinde -- preco 0, preco cheio em precoReferencia. */
   bonificado?: boolean;
   precoReferencia?: number;
@@ -364,6 +365,10 @@ const TabelaItensVenda = forwardRef<TabelaItensVendaHandle, Props>(({
                   )}
                   {item.origemPreco === 'vista' && <span className="tiv-sub">à vista</span>}
                   {item.origemPreco === 'atacado' && <span className="tiv-sub" title="Quantidade chegou na faixa de atacado do produto">atacado</span>}
+                  {/* Valor atacado (28/11/2026): o vendedor ve o preco e a quantidade da faixa antes de chegar nela. */}
+                  {!item.bonificado && item.origemPreco !== 'atacado' && item.tabelaPreco?.atacado && item.tabelaPreco.atacado.length > 0 && (
+                    <span className="tiv-sub tiv-sub-atacado">{textoDoValorAtacado(item.tabelaPreco.atacado, item.unidadeMedidaSigla || '', moeda)}</span>
+                  )}
                   {item.origemPreco === 'manual' && <span className="tiv-sub" title="Preço digitado: não muda com a forma de pagamento">digitado</span>}
                 </span>
               ), 'tiv-direita')}

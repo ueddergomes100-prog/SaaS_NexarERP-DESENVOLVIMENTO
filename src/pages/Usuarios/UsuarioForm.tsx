@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { problemaDaSenha, SENHA_MINIMO_CARACTERES } from '../../utils/senhaForteDomain';
 import { ArrowLeft, Save, UserCog, AlertCircle } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { collection, doc, getDoc, query, where, getDocs } from 'firebase/firestore';
@@ -288,8 +289,9 @@ const UsuarioForm: React.FC = () => {
    */
   const handleSalvarSenhaAcesso = async () => {
     if (!id) return;
-    if (novaSenhaAcesso.length < 6) {
-      showError('Senha inválida', 'A senha de acesso deve ter pelo menos 6 caracteres.');
+    const problemaSenhaNova = problemaDaSenha(novaSenhaAcesso);
+    if (problemaSenhaNova) {
+      showError('Senha fraca', problemaSenhaNova);
       return;
     }
 
@@ -391,8 +393,9 @@ const UsuarioForm: React.FC = () => {
       setIsLoading(false);
       return;
     }
-    if (formData.senha.length < 6) {
-      showError('Atenção', 'A senha deve ter pelo menos 6 caracteres.');
+    const problemaSenhaDoLogin = problemaDaSenha(formData.senha);
+    if (problemaSenhaDoLogin) {
+      showError('Senha fraca', problemaSenhaDoLogin);
       setIsLoading(false);
       return;
     }
@@ -515,7 +518,7 @@ const UsuarioForm: React.FC = () => {
               <label>Senha de Acesso *</label>
               <input 
                 type="password" 
-                title="Mínimo 6 caracteres"
+                title="Mínimo 8 caracteres, com letras e números"
                 value={formData.senha}
                 onChange={(e) => setFormData({...formData, senha: e.target.value})}
                 required
@@ -532,7 +535,7 @@ const UsuarioForm: React.FC = () => {
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="password"
-                title="Nova senha (mín. 6 caracteres)"
+                title="Nova senha (mín. 8 caracteres, com letras e números)"
                 value={novaSenhaAcesso}
                 onChange={(e) => setNovaSenhaAcesso(e.target.value)}
                 minLength={6}
@@ -541,7 +544,7 @@ const UsuarioForm: React.FC = () => {
               <button
                 type="button"
                 className="btn-secondary"
-                disabled={salvandoSenhaAcesso || novaSenhaAcesso.length < 6}
+                disabled={salvandoSenhaAcesso || novaSenhaAcesso.length < SENHA_MINIMO_CARACTERES}
                 onClick={() => void handleSalvarSenhaAcesso()}
                 style={{ whiteSpace: 'nowrap' }}
               >

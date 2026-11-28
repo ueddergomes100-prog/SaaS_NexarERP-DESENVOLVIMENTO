@@ -9,6 +9,7 @@
  * firestore.rules nao deixam o navegador fazer direto. Regra em
  * src/utils/limitesDoPlanoDomain.ts.
  */
+const { problemaDaSenha } = require('../domain/senhaForteDomain');
 const { admin, db } = require('../config/firebase');
 const lim = require('../domain/limitesDoPlanoDomain');
 const ident = require('../domain/loginIdentidadeDomain');
@@ -159,7 +160,8 @@ const criarLogin = async ({ user, tenantId, corpo }) => {
   const checagemUsuario = ident.checarUsername(c.usuario);
   if (!checagemUsuario.ok) throw new ErroLimite(400, checagemUsuario.motivo);
   const senha = String(c.senha ?? '');
-  if (senha.length < 6) throw new ErroLimite(400, 'A senha deve ter pelo menos 6 caracteres.');
+  const problemaSenha = problemaDaSenha(senha);
+  if (problemaSenha) throw new ErroLimite(400, problemaSenha);
   const codigoBruto = String(c.codigoVendedor ?? '').trim();
   const codigoVendedor = codigoBruto ? normalizarCodigo(codigoBruto) : '';
   if (codigoBruto && !codigoVendedor) throw new ErroLimite(400, 'Código de vendedor inválido. Use 2 dígitos, de 01 a 99.');

@@ -54,6 +54,7 @@ const MODULOS = [
   'src/utils/creditoDomain.ts',
   'src/utils/estoqueReservaDomain.ts',
   'src/utils/clienteSemCadastroDomain.ts',
+  'src/utils/senhaForteDomain.ts',
   'src/utils/vendaFechamentoDomain.ts',
   // Valor de parcela a receber alterado (15/10/2026): regra da tela e do servidor.
   'src/utils/alteracaoValorTituloDomain.ts',

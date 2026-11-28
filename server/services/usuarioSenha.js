@@ -1,5 +1,6 @@
 const { auth, db } = require('../config/firebase');
 const { conferirContaDoCadastro, ErroContaDoCadastro } = require('./contaDoCadastro');
+const { problemaDaSenha } = require('../domain/senhaForteDomain');
 
 /**
  * Senha de ACESSO (login no sistema) de um funcionario -- diferente da senha
@@ -27,8 +28,9 @@ async function redefinirSenhaAcesso({ tenantId, usuarioId, novaSenha }) {
   if (!db || !auth) throw new ErroSenhaAcesso(503, 'Backend sem acesso ao banco de dados.');
 
   const senha = String(novaSenha || '');
-  if (senha.length < 6) {
-    throw new ErroSenhaAcesso(400, 'A senha de acesso deve ter pelo menos 6 caracteres.');
+  const problemaSenha = problemaDaSenha(senha);
+  if (problemaSenha) {
+    throw new ErroSenhaAcesso(400, problemaSenha);
   }
 
   const usuarioRef = db.collection('usuarios').doc(String(usuarioId || ''));

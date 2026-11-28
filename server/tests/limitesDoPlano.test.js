@@ -18,7 +18,7 @@ const base = (extra = {}) => ({
   ...extra,
 });
 
-const novo = (extra = {}) => ({ nome: 'JOAO', usuario: 'joao', senha: '123456', ...extra });
+const novo = (extra = {}) => ({ nome: 'JOAO', usuario: 'joao', senha: 'joao2026x', ...extra });
 
 test('criar login dentro do limite: conta, cadastro e indice de login', async () => {
   const fake = criarBancoFalso(base(), { consultas: true });
@@ -483,4 +483,11 @@ test('reativar quem perdeu o codigo para um ativo: volta sem o codigo, com aviso
   const r2 = await s.alterarSituacao({ user: ADMIN, tenantId: 'loja', corpo: { usuarioId: 'sozinho', ativo: true } });
   assert.equal(fake.ler('usuarios/sozinho').codigoVendedor, '09');
   assert.equal(r2.avisoCodigo, undefined);
+});
+
+test('criar login: senha fraca (curta, so numero ou obvia) e\' recusada pelo servidor (27/11/2026)', async () => {
+  const fake = criarBancoFalso(base(), { consultas: true });
+  for (const senha of ['123456', '12345678', 'senha123']) {
+    await assert.rejects(carregar(fake.db).criarLogin({ user: ADMIN, tenantId: 'loja', corpo: novo({ senha }) }), (e) => e.status === 400 && /senha/i.test(e.message));
+  }
 });

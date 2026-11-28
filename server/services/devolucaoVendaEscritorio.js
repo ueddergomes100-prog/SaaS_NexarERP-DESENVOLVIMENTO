@@ -741,30 +741,36 @@ const confirmarDoApp = async ({ user, tenantId, devolucaoId, corpo, hoje = getDa
 // ---------------------------------------------------------------------------
 
 const LIMITE_PEDIDOS_DO_CLIENTE = 300;
+/** Sem produto escolhido: os pedidos mais recentes do cliente (28/11/2026). */
+const LIMITE_PEDIDOS_SEM_PRODUTO = 40;
 
 /**
  * Pedidos faturados do cliente que tem os produtos escolhidos, com o que ainda
  * da' para devolver de cada linha. Mais novos primeiro.
+ *
+ * Sem produto (28/11/2026, dono: "tem que digitar o cliente e o sistema ja'
+ * listar os pedidos dele"): os ultimos pedidos do cliente com todas as linhas.
  */
 const pedidosDoClienteComProdutos = async ({ user, tenantId, clienteId, produtoIds }) => {
   exigir(user, dv.PERMISSAO_DEVOLUCAO, 'Você não tem permissão para fazer devolução de venda. Peça ao administrador para liberar em Usuários.');
   const id = String(clienteId || '').trim();
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new ErroDevolucaoVenda(400, 'Escolha o cliente da devolução.');
   const produtos = [...new Set((Array.isArray(produtoIds) ? produtoIds : []).map((p) => String(p || '').trim()).filter((p) => /^[A-Za-z0-9_-]{1,64}$/.test(p)))].slice(0, 50);
-  if (produtos.length === 0) throw new ErroDevolucaoVenda(400, 'Escolha pelo menos um produto.');
+  const todosOsProdutos = produtos.length === 0;
+  const temProduto = (item) => todosOsProdutos || produtos.includes(String(item.id || ''));
   const snap = await db.collection('pedidos_venda').where('tenantId', '==', tenantId).where('clienteId', '==', id).get();
   const candidatos = snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .filter((p) => !dv.erroDoPedidoParaDevolucao(p) && p.status === 'Finalizada')
-    .filter((p) => (Array.isArray(p.itens) ? p.itens : []).some((i) => produtos.includes(String(i.id || ''))))
+    .filter((p) => (Array.isArray(p.itens) ? p.itens : []).some(temProduto))
     .sort((a, b) => String(b.dataVenda || '').localeCompare(String(a.dataVenda || '')) || String(b.numeroPedido || '').localeCompare(String(a.numeroPedido || '')))
-    .slice(0, LIMITE_PEDIDOS_DO_CLIENTE);
+    .slice(0, todosOsProdutos ? LIMITE_PEDIDOS_SEM_PRODUTO : LIMITE_PEDIDOS_DO_CLIENTE);
   const pedidos = [];
   for (const p of candidatos) {
     const emAguardo = dv.quantidadesEmAguardo(await devolucoesDoPedido(tenantId, p.id));
     const linhas = (Array.isArray(p.itens) ? p.itens : [])
       .map((item, indice) => ({ item, indice }))
-      .filter(({ item }) => produtos.includes(String(item.id || '')))
+      .filter(({ item }) => temProduto(item))
       .map(({ item, indice }) => ({
         indice,
         produtoId: String(item.id || ''),
@@ -778,7 +784,7 @@ const pedidosDoClienteComProdutos = async ({ user, tenantId, clienteId, produtoI
       }))
       .filter((l) => l.disponivel > 0);
     if (linhas.length === 0) continue;
-    pedidos.push({ id: p.id, numeroPedido: String(p.numeroPedido || ''), dataVenda: String(p.dataVenda || ''), linhas });
+    pedidos.push({ id: p.id, numeroPedido: String(p.numeroPedido || ''), dataVenda: String(p.dataVenda || ''), valorTotal: Number(p.valorTotal || 0), linhas });
   }
   return { pedidos };
 };

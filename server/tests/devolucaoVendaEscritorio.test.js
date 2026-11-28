@@ -233,6 +233,15 @@ test('devolucao por cliente e produto: so os pedidos faturados do cliente com o 
   assert.deepEqual(p2.linhas.map((l) => l.indice), [1], 'so a linha do produto escolhido');
 });
 
+test('so com o cliente: lista os pedidos dele com todas as linhas que ainda da para devolver', async () => {
+  const fake = criarBancoFalso(base(), { consultas: true });
+  const r = await servico(fake.db).pedidosDoClienteComProdutos({ user: ESCRITORIO, tenantId: T, clienteId: 'c1', produtoIds: [] });
+  assert.ok(r.pedidos.length >= 2, 'os pedidos do cliente aparecem sem escolher produto');
+  const p2 = r.pedidos.find((p) => p.numeroPedido === '0011');
+  assert.ok(p2.linhas.length >= 1);
+  assert.equal(typeof p2.valorTotal, 'number');
+});
+
 test('sem a permissao de devolucao nada acontece', async () => {
   const fake = criarBancoFalso(base(), { consultas: true });
   await assert.rejects(

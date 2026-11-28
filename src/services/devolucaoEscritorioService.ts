@@ -103,6 +103,8 @@ export interface PedidoDoClienteComProduto {
   id: string;
   numeroPedido: string;
   dataVenda: string;
+  /** Total do pedido (28/11/2026); servidor antigo nao manda. */
+  valorTotal?: number;
   linhas: LinhaDoPedidoDoCliente[];
 }
 

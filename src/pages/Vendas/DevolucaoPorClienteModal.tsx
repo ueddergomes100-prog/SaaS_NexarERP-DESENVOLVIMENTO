@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, PackageSearch, RotateCcw, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, PackageSearch, ReceiptText, RotateCcw, Trash2, X } from 'lucide-react';
+import './DevolucaoPorClienteModal.css';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -82,6 +83,9 @@ interface ProdutoDaBusca {
 const moeda = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
 const dataBr = (iso: string) => (iso ? iso.split('-').reverse().join('/') : '—');
 const chaveDaLinha = (pedidoId: string, indice: number) => `${pedidoId}#${indice}`;
+const valorDaLinha = (l: { quantidade: number; precoUnitario: number; desconto: number }, q: number) => (
+  q > 0 && l.quantidade > 0 ? (q * l.precoUnitario) - (l.desconto * (q / l.quantidade)) : 0
+);
 
 const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedido, onComprovantes }) => {
   const { tenantId, isOwner, userRole, userPermissions, controlaFiscal } = useAuth();
@@ -95,8 +99,13 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
   const [catalogo, setCatalogo] = useState<ProdutoDaBusca[]>([]);
   const [buscaProduto, setBuscaProduto] = useState('');
   const [produtos, setProdutos] = useState<ProdutoDaBusca[]>([]);
-  const [pedidos, setPedidos] = useState<PedidoDoClienteComProduto[]>([]);
+  // Pedidos ja' buscados do cliente, por id: os ultimos dele (assim que escolhe o
+  // cliente) mais os que tem os produtos buscados. A quantidade digitada vale nas duas vistas.
+  const [pedidosPorId, setPedidosPorId] = useState<Record<string, PedidoDoClienteComProduto>>({});
   const [carregandoPedidos, setCarregandoPedidos] = useState(false);
+  // "Pedidos do cliente" ou "Por produto" (o produto buscado em cada pedido). 28/11/2026.
+  const [vista, setVista] = useState<'pedidos' | 'produtos'>('pedidos');
+  const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [quantidades, setQuantidades] = useState<Record<string, string>>({});
   const [semPedido, setSemPedido] = useState<Record<string, { quantidade: string; preco: string }>>({});
   const [motivo, setMotivo] = useState('');
@@ -132,25 +141,63 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
     })), (erro) => console.error('Nao foi possivel carregar os produtos:', erro));
   }, [tenantId]);
 
-  // Pedidos do cliente com os produtos escolhidos (o servidor confere o que sobra para devolver).
+  const pedidos = useMemo(() => Object.values(pedidosPorId).sort((a, b) => (
+    String(b.dataVenda || '').localeCompare(String(a.dataVenda || '')) || String(b.numeroPedido || '').localeCompare(String(a.numeroPedido || ''))
+  )), [pedidosPorId]);
+
+  // Escolheu o cliente: ja' lista os pedidos dele (28/11/2026, dono: "tem que
+  // digitar o cliente e o sistema ja' listar os pedidos dele"). Com produto
+  // buscado, traz tambem os pedidos mais antigos que tem aquele produto. O
+  // servidor confere o que sobra para devolver de cada linha.
   const idsProdutos = produtos.map((p) => p.id).join(',');
   useEffect(() => {
-    if (!cliente || !idsProdutos) { setPedidos([]); return undefined; }
+    if (!cliente) { setPedidosPorId({}); return undefined; }
     let ativo = true;
     setCarregandoPedidos(true);
-    devolucaoEscritorioService.pedidosDoCliente(cliente.id, idsProdutos.split(','))
-      .then((r) => { if (ativo) setPedidos(r.pedidos); })
+    devolucaoEscritorioService.pedidosDoCliente(cliente.id, idsProdutos ? idsProdutos.split(',') : [])
+      .then((r) => {
+        if (!ativo) return;
+        setPedidosPorId((atual) => {
+          const juntos = { ...atual };
+          // A busca por produto volta so' as linhas daquele produto: junta com as que ja' estavam (o que foi digitado nao some).
+          r.pedidos.forEach((pedido) => {
+            const antes = juntos[pedido.id];
+            if (!antes) { juntos[pedido.id] = pedido; return; }
+            const porIndice = new Map(antes.linhas.map((l) => [l.indice, l]));
+            pedido.linhas.forEach((l) => porIndice.set(l.indice, l));
+            juntos[pedido.id] = { ...antes, ...pedido, linhas: [...porIndice.values()].sort((a, b) => a.indice - b.indice) };
+          });
+          return juntos;
+        });
+        if (!idsProdutos && r.pedidos[0]) setAbertos((atual) => (Object.keys(atual).length ? atual : { [r.pedidos[0].id]: true }));
+      })
       .catch((erro) => { if (ativo) showError('Não foi possível buscar os pedidos do cliente', erro instanceof Error ? erro.message : 'Tente de novo.'); })
       .finally(() => { if (ativo) setCarregandoPedidos(false); });
     return () => { ativo = false; };
   }, [cliente, idsProdutos]);
 
+  const devolverTudoDoPedido = (pedido: PedidoDoClienteComProduto) => {
+    setQuantidades((atual) => {
+      const novo = { ...atual };
+      pedido.linhas.forEach((l) => { novo[chaveDaLinha(pedido.id, l.indice)] = l.disponivel.toLocaleString('pt-BR', { maximumFractionDigits: 3 }); });
+      return novo;
+    });
+    setAbertos((atual) => ({ ...atual, [pedido.id]: true }));
+  };
+
+  const valorMarcadoDoPedido = (pedido: PedidoDoClienteComProduto) => pedido.linhas.reduce(
+    (soma, l) => soma + valorDaLinha(l, lerNumeroDigitado(quantidades[chaveDaLinha(pedido.id, l.indice)])),
+    0,
+  );
+
   const escolherProduto = (p: ProdutoDaBusca) => {
     setBuscaProduto('');
     setProdutos((atuais) => (atuais.some((x) => x.id === p.id) ? atuais : [...atuais, p]));
+    setVista('produtos');
   };
 
   const tirarProduto = (id: string) => {
+    if (produtos.length <= 1) setVista('pedidos');
     setProdutos((atuais) => atuais.filter((p) => p.id !== id));
     setSemPedido((atual) => { const n = { ...atual }; delete n[id]; return n; });
   };
@@ -159,10 +206,6 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
   const linhasDoProduto = (produtoId: string) => pedidos.flatMap((pedido) => pedido.linhas
     .filter((l) => l.produtoId === produtoId)
     .map((l) => ({ pedido, linha: l })));
-
-  const valorDaLinha = (l: { quantidade: number; precoUnitario: number; desconto: number }, q: number) => (
-    q > 0 && l.quantidade > 0 ? (q * l.precoUnitario) - (l.desconto * (q / l.quantidade)) : 0
-  );
 
   const total = useMemo(() => {
     let soma = 0;
@@ -178,7 +221,6 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
   /** Confere tudo antes da janela do destino. Mensagem em portugues, ou null. */
   const conferir = (): string | null => {
     if (!cliente) return 'Escolha o cliente da devolução.';
-    if (produtos.length === 0) return 'Escolha pelo menos um produto.';
     for (const pedido of pedidos) {
       for (const l of pedido.linhas) {
         const q = lerNumeroDigitado(quantidades[chaveDaLinha(pedido.id, l.indice)]);
@@ -286,7 +328,7 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div className="card" role="dialog" aria-modal="true" aria-label="Fazer devolução" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: '980px', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="card" role="dialog" aria-modal="true" aria-label="Fazer devolução" style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: '1120px', height: 'min(92vh, 900px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-primary)' }}>
           <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><RotateCcw size={20} color="var(--accent-purple)" /> Fazer devolução</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -295,21 +337,21 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
           </div>
         </div>
 
-        <div style={{ overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
             <div className="input-group">
               <label style={{ fontSize: '13px', fontWeight: 600 }}>1. Cliente</label>
               <ClientAutocomplete<ClienteDaBusca>
                 value={buscaCliente}
-                onChange={(v) => { setBuscaCliente(v); if (!v.trim()) setCliente(null); }}
+                onChange={(v) => { setBuscaCliente(v); if (!v.trim()) { setCliente(null); setQuantidades({}); setAbertos({}); } }}
                 clients={clientes}
-                onSelect={(c) => { setBuscaCliente(c.nome); setCliente(c); setQuantidades({}); }}
+                onSelect={(c) => { setBuscaCliente(c.nome); setCliente(c); setQuantidades({}); setPedidosPorId({}); setAbertos({}); }}
                 ariaLabel="Buscar cliente da devolução"
                 buscaDeCliente
               />
             </div>
             <div className="input-group">
-              <label style={{ fontSize: '13px', fontWeight: 600 }}>2. Produtos devolvidos</label>
+              <label style={{ fontSize: '13px', fontWeight: 600 }}>2. Buscar produto <span style={{ fontWeight: 500, color: 'var(--text-muted)' }}>(opcional)</span></label>
               <ProductAutocomplete<ProdutoDaBusca>
                 value={buscaProduto}
                 onChange={setBuscaProduto}
@@ -323,10 +365,72 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
             </div>
           </div>
 
-          {!cliente && <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Escolha o cliente e depois os produtos: o sistema mostra os pedidos dele que têm cada produto.</p>}
-          {carregandoPedidos && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '13px' }}><Loader2 size={15} className="spin-icon" /> Buscando os pedidos do cliente…</div>}
+          {!cliente && <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Escolha o cliente: o sistema lista os pedidos dele. Para achar um produto (ou devolver o que ele comprou antes do sistema), use a busca de produto.</p>}
 
-          {produtos.map((p) => {
+          {cliente && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+              <div role="tablist" aria-label="Como ver a devolução" className="devolucao-vistas">
+                <button type="button" role="tab" aria-selected={vista === 'pedidos'} className={vista === 'pedidos' ? 'is-ativa' : ''} onClick={() => setVista('pedidos')}>
+                  <ReceiptText size={15} /> Pedidos do cliente{pedidos.length ? ` (${pedidos.length})` : ''}
+                </button>
+                <button type="button" role="tab" aria-selected={vista === 'produtos'} className={vista === 'produtos' ? 'is-ativa' : ''} onClick={() => setVista('produtos')} disabled={produtos.length === 0} title={produtos.length === 0 ? 'Busque um produto acima para ver por produto' : undefined}>
+                  <PackageSearch size={15} /> Por produto{produtos.length ? ` (${produtos.length})` : ''}
+                </button>
+              </div>
+              {carregandoPedidos && <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '13px' }}><Loader2 size={15} className="spin-icon" /> Buscando os pedidos do cliente…</span>}
+            </div>
+          )}
+
+          {cliente && vista === 'pedidos' && !carregandoPedidos && pedidos.length === 0 && (
+            <p className="devolucao-vazio">
+              Este cliente não tem pedido faturado com item para devolver.{podeSemPedido ? ' Se ele comprou antes do sistema, busque o produto acima para devolver sem pedido.' : ''}
+            </p>
+          )}
+
+          {cliente && vista === 'pedidos' && pedidos.map((pedido) => {
+            const aberto = Boolean(abertos[pedido.id]);
+            const marcado = valorMarcadoDoPedido(pedido);
+            return (
+              <div key={pedido.id} className={`devolucao-pedido${marcado > 0 ? ' tem-devolucao' : ''}`}>
+                <div className="devolucao-pedido__topo">
+                  <button type="button" className="devolucao-pedido__abrir" aria-expanded={aberto} onClick={() => setAbertos((a) => ({ ...a, [pedido.id]: !aberto }))}>
+                    {aberto ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                    <strong>#{pedido.numeroPedido}</strong>
+                    <span>{dataBr(pedido.dataVenda)}</span>
+                    <span>{pedido.linhas.length} {pedido.linhas.length === 1 ? 'item' : 'itens'}</span>
+                    {pedido.valorTotal ? <span>{moeda(pedido.valorTotal)}</span> : null}
+                  </button>
+                  {marcado > 0 && <span className="devolucao-pedido__marcado">Devolver {moeda(marcado)}</span>}
+                  <button type="button" className="btn-secondary" onClick={() => devolverTudoDoPedido(pedido)} style={{ fontSize: '12.5px', padding: '6px 10px' }}>Devolver tudo</button>
+                </div>
+                {aberto && (
+                  <table className="data-table" style={{ margin: 0 }}>
+                    <thead>
+                      <tr><th>Produto</th><th style={{ textAlign: 'right' }}>Vendido</th><th style={{ textAlign: 'right' }}>Pode devolver</th><th style={{ textAlign: 'right' }}>Preço</th><th style={{ textAlign: 'right' }}>Devolver</th></tr>
+                    </thead>
+                    <tbody>
+                      {pedido.linhas.map((linha) => {
+                        const chave = chaveDaLinha(pedido.id, linha.indice);
+                        return (
+                          <tr key={chave}>
+                            <td style={{ fontWeight: 600 }}>{linha.nome}</td>
+                            <td style={{ textAlign: 'right' }}>{linha.quantidade.toLocaleString('pt-BR')} {linha.unidadeMedidaSigla}</td>
+                            <td style={{ textAlign: 'right' }}>{linha.disponivel.toLocaleString('pt-BR')}</td>
+                            <td style={{ textAlign: 'right' }}>{moeda(linha.precoUnitario)}</td>
+                            <td style={{ textAlign: 'right' }}>
+                              <input type="text" inputMode="decimal" aria-label={`Quantidade de ${linha.nome} a devolver do pedido ${pedido.numeroPedido}`} value={quantidades[chave] || ''} onChange={(e) => setQuantidades((q) => ({ ...q, [chave]: e.target.value }))} style={campo} />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+
+          {vista === 'produtos' && produtos.map((p) => {
             const linhas = linhasDoProduto(p.id);
             const sp = semPedido[p.id];
             return (
@@ -383,7 +487,7 @@ const DevolucaoPorClienteModal: React.FC<Props> = ({ onClose, onPeloNumeroDoPedi
             );
           })}
 
-          {produtos.length > 0 && (
+          {cliente && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '14px' }}>
               <div className="input-group">
                 <label htmlFor="dev-motivo" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Motivo *</label>
